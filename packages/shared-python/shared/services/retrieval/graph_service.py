@@ -7,7 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
@@ -327,11 +327,24 @@ class DocumentGraphService:
         )
 
     def remove_document_graph(self, db: Session, *, scope: GraphScope | None, document_id: str) -> None:
-        edge_delete = delete(GraphEdge).where(GraphEdge.owner_document_id == document_id)
+        document_node_id = f"doc:{document_id}"
+        edge_delete = delete(GraphEdge).where(
+            or_(
+                GraphEdge.owner_document_id == document_id,
+                GraphEdge.source_node_id == document_node_id,
+                GraphEdge.target_node_id == document_node_id,
+            )
+        )
         node_delete = delete(GraphNode).where(GraphNode.owner_document_id == document_id)
         if scope is not None:
-            edge_delete = edge_delete.where(GraphEdge.user_id == scope.user_id)
-            node_delete = node_delete.where(GraphNode.user_id == scope.user_id)
+            edge_delete = edge_delete.where(
+                GraphEdge.user_id == scope.user_id,
+                GraphEdge.namespace == scope.namespace,
+            )
+            node_delete = node_delete.where(
+                GraphNode.user_id == scope.user_id,
+                GraphNode.namespace == scope.namespace,
+            )
         db.execute(edge_delete)
         db.execute(node_delete)
         db.flush()

@@ -824,6 +824,22 @@ def _get_stats_path(kb_id: str) -> str:
     return os.path.join(_get_kb_dir(kb_id), "chunk_stats.json")
 
 
+def _empty_knowledge_graph(kb_id: str) -> Dict[str, Any]:
+    """Build an empty v2 knowledge graph for a KB with no local chunks."""
+    return {
+        "version": "2.0",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "kb_id": kb_id,
+        "stats": {
+            "total_files": 0,
+            "total_chunks": 0,
+            "total_cross_file_edges": 0,
+        },
+        "files": {},
+        "edges": [],
+    }
+
+
 # ─── Chunk Usage Tracking ─────────────────────────────────────────────────────
 
 
@@ -1038,6 +1054,113 @@ def _load_all_chunks_from_kb(kb_dir: str) -> List[Dict[str, Any]]:
                 chunk["_source_file"] = entry
             all_chunks.extend(loaded)
     return all_chunks
+
+
+def _source_files_from_chunks(chunks: List[Dict[str, Any]]) -> set[str]:
+    """Return the source-file set represented by loaded KB chunks."""
+    return {
+        str(chunk.get("_source_file") or "").strip()
+        for chunk in chunks
+        if str(chunk.get("_source_file") or "").strip()
+    }
+
+
+def _prune_chunk_stats(kb_id: str, chunks: List[Dict[str, Any]]) -> None:
+    """Remove chunk_stats entries whose chunks no longer exist on disk."""
+    stats_path = _get_stats_path(kb_id)
+    if not os.path.exists(stats_path):
+        return
+
+    stats = load_chunk_stats(kb_id)
+    live_chunk_ids = {
+        str(chunk.get("chunk_id") or chunk.get("know_id", ""))
+        for chunk in chunks
+        if chunk.get("chunk_id") or chunk.get("know_id")
+    }
+    pruned = {cid: data for cid, data in stats.items() if cid in live_chunk_ids}
+    if len(pruned) == len(stats):
+        return
+
+    os.makedirs(os.path.dirname(stats_path), exist_ok=True)
+    with open(stats_path, "w", encoding="utf-8") as f:
+        json.dump(pruned, f, ensure_ascii=False, indent=2)
+    logger.info(
+        f"📊 Chunk stats pruned: {len(stats) - len(pruned)} stale chunks removed"
+    )
+
+
+def sync_knowledge_graph_with_local_files(
+    kb_id: str,
+    connect_config: Optional[Dict[str, Any]] = None,
+    summary_use_llm: bool = False,
+) -> Dict[str, Any]:
+    """Synchronize knowledge_graph.json with current ~/.knowhere/{kb_id} files.
+
+    This is intentionally a no-op when graph files match on-disk document
+    directories. If a user manually deletes a local parsed document directory,
+    the graph is rebuilt from remaining chunks and stale chunk_stats entries are
+    removed.
+    """
+    from app.services.connect_builder.builder import build_connections
+    from app.services.connect_builder.summary_builder import enrich_doc_nav_summaries
+
+    kb_dir = _get_kb_dir(kb_id)
+    kg_path = _get_kg_path(kb_id)
+    os.makedirs(kb_dir, exist_ok=True)
+
+    existing_graph = load_knowledge_graph(kg_path)
+    chunks_on_disk = _load_all_chunks_from_kb(kb_dir)
+    disk_files = _source_files_from_chunks(chunks_on_disk)
+    graph_files = set((existing_graph or {}).get("files", {}).keys())
+
+    if existing_graph is not None and graph_files == disk_files:
+        _prune_chunk_stats(kb_id, chunks_on_disk)
+        return existing_graph
+
+    removed_files = sorted(graph_files - disk_files)
+    added_files = sorted(disk_files - graph_files)
+    logger.info(
+        "📊 Syncing Knowledge Graph with local files: "
+        f"removed={removed_files}, added={added_files}"
+    )
+
+    if not chunks_on_disk:
+        graph = _empty_knowledge_graph(kb_id)
+        save_knowledge_graph(graph, kg_path)
+        _prune_chunk_stats(kb_id, [])
+        return graph
+
+    try:
+        file_summaries = enrich_doc_nav_summaries(
+            kb_dir=kb_dir,
+            source_file=None,
+            use_llm=summary_use_llm,
+        )
+    except Exception as e:
+        logger.warning(f"sync enrich_doc_nav_summaries failed: {e}")
+        file_summaries = {}
+
+    try:
+        file_nav_sections = _extract_nav_sections_from_kb(kb_dir, source_file=None)
+    except Exception as e:
+        logger.warning(f"sync nav_sections extraction failed: {e}")
+        file_nav_sections = {}
+
+    stats = load_chunk_stats(kb_id)
+    connections = build_connections(chunks_on_disk, connect_config)
+    _merge_related_connections_into_chunks(chunks_on_disk, connections)
+    _save_chunks_by_source_file(kb_dir, chunks_on_disk)
+    graph = build_knowledge_graph(
+        all_chunks=chunks_on_disk,
+        connections=connections,
+        kb_id=kb_id,
+        chunk_stats=stats,
+        file_summaries=file_summaries,
+        file_nav_sections=file_nav_sections,
+    )
+    save_knowledge_graph(graph, kg_path)
+    _prune_chunk_stats(kb_id, chunks_on_disk)
+    return graph
 
 
 # ─── MCP Auto-Registration ───────────────────────────────────────────────────
@@ -1264,8 +1387,31 @@ def build_and_deploy(
         else None
     )
     existing_graph = load_knowledge_graph(kg_path)
+
+    # Load chunks once and reuse — avoids the double-load where
+    # sync_knowledge_graph_with_local_files internally calls
+    # _load_all_chunks_from_kb and then we call it again.
+    all_on_disk: List[Dict[str, Any]] = []
     if existing_graph is not None:
         all_on_disk = _load_all_chunks_from_kb(kb_dir)
+        disk_files = _source_files_from_chunks(all_on_disk)
+        graph_files = set(existing_graph.get("files", {}).keys())
+
+        if graph_files != disk_files:
+            # Disk state diverged from graph → full sync rebuild.
+            # sync will reload chunks internally (it backfills connect_to
+            # metadata), so we reload afterwards to pick up changes.
+            existing_graph = sync_knowledge_graph_with_local_files(
+                kb_id=kb_id,
+                connect_config=connect_config,
+                summary_use_llm=summary_use_llm,
+            )
+            all_on_disk = _load_all_chunks_from_kb(kb_dir)
+        else:
+            # Files match — fast-path: just prune stale chunk_stats.
+            _prune_chunk_stats(kb_id, all_on_disk)
+
+    if existing_graph is not None:
         if not all_on_disk:
             existing_chunks = extract_chunks_from_graph(existing_graph)
         else:

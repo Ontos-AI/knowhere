@@ -105,6 +105,144 @@ async def _fetch_document(document_id: str) -> dict[str, object]:
         await engine.dispose()
 
 
+async def _fetch_graph_counts(
+    *,
+    document_id: str,
+    peer_document_id: str | None = None,
+) -> dict[str, int]:
+    engine = await _create_contract_engine()
+    document_node_id = f"doc:{document_id}"
+    try:
+        async with engine.begin() as connection:
+            node_count = (
+                await connection.execute(
+                    text("""
+                    SELECT COUNT(*)
+                    FROM graph_nodes
+                    WHERE owner_document_id = :document_id
+                    """),
+                    {"document_id": document_id},
+                )
+            ).scalar_one()
+            related_edge_count = (
+                await connection.execute(
+                    text("""
+                    SELECT COUNT(*)
+                    FROM graph_edges
+                    WHERE owner_document_id = :document_id
+                       OR source_node_id = :document_node_id
+                       OR target_node_id = :document_node_id
+                    """),
+                    {
+                        "document_id": document_id,
+                        "document_node_id": document_node_id,
+                    },
+                )
+            ).scalar_one()
+            peer_node_count = 0
+            if peer_document_id is not None:
+                peer_node_count = (
+                    await connection.execute(
+                        text("""
+                        SELECT COUNT(*)
+                        FROM graph_nodes
+                        WHERE owner_document_id = :peer_document_id
+                        """),
+                        {"peer_document_id": peer_document_id},
+                    )
+                ).scalar_one()
+            return {
+                "nodes": int(node_count),
+                "related_edges": int(related_edge_count),
+                "peer_nodes": int(peer_node_count),
+            }
+    finally:
+        await engine.dispose()
+
+
+async def _insert_document_graph_fixture(
+    *,
+    document_id: str,
+    job_result_id: str,
+    peer_document_id: str,
+    peer_job_result_id: str,
+    user_id: str = "local-dev-user",
+    namespace: str = "contract-documents",
+) -> None:
+    engine = await _create_contract_engine()
+    timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("""
+                INSERT INTO graph_nodes (
+                    node_id,
+                    user_id,
+                    namespace,
+                    node_kind,
+                    owner_document_id,
+                    job_result_id,
+                    ref_document_id,
+                    ref_section_id,
+                    properties,
+                    created_at,
+                    updated_at
+                ) VALUES
+                    (:doc_node_id, :user_id, :namespace, 'document', :document_id, :job_result_id, :document_id, NULL, CAST('{}' AS JSON), :created_at, :updated_at),
+                    (:peer_node_id, :user_id, :namespace, 'document', :peer_document_id, :peer_job_result_id, :peer_document_id, NULL, CAST('{}' AS JSON), :created_at, :updated_at)
+                """),
+                {
+                    "doc_node_id": f"doc:{document_id}",
+                    "peer_node_id": f"doc:{peer_document_id}",
+                    "user_id": user_id,
+                    "namespace": namespace,
+                    "document_id": document_id,
+                    "peer_document_id": peer_document_id,
+                    "job_result_id": job_result_id,
+                    "peer_job_result_id": peer_job_result_id,
+                    "created_at": timestamp,
+                    "updated_at": timestamp,
+                },
+            )
+            await connection.execute(
+                text("""
+                INSERT INTO graph_edges (
+                    edge_id,
+                    user_id,
+                    namespace,
+                    edge_kind,
+                    source_node_id,
+                    target_node_id,
+                    owner_document_id,
+                    job_result_id,
+                    is_directed,
+                    weight,
+                    properties,
+                    created_at,
+                    updated_at
+                ) VALUES
+                    (:owned_edge_id, :user_id, :namespace, 'related', :doc_node_id, :peer_node_id, :document_id, :job_result_id, FALSE, 1.0, CAST('{}' AS JSON), :created_at, :updated_at),
+                    (:incoming_edge_id, :user_id, :namespace, 'related', :peer_node_id, :doc_node_id, :peer_document_id, :peer_job_result_id, FALSE, 1.0, CAST('{}' AS JSON), :created_at, :updated_at)
+                """),
+                {
+                    "owned_edge_id": f"edge_{uuid4().hex[:12]}",
+                    "incoming_edge_id": f"edge_{uuid4().hex[:12]}",
+                    "user_id": user_id,
+                    "namespace": namespace,
+                    "doc_node_id": f"doc:{document_id}",
+                    "peer_node_id": f"doc:{peer_document_id}",
+                    "document_id": document_id,
+                    "peer_document_id": peer_document_id,
+                    "job_result_id": job_result_id,
+                    "peer_job_result_id": peer_job_result_id,
+                    "created_at": timestamp,
+                    "updated_at": timestamp,
+                },
+            )
+    finally:
+        await engine.dispose()
+
+
 async def _insert_document_revision_with_chunks(
     *,
     document_id: str,
@@ -662,21 +800,62 @@ async def test_should_archive_a_document_via_the_canonical_archive_route(
     ],
 ) -> None:
     document_id = f"doc_{uuid4().hex[:12]}"
+    peer_document_id = f"doc_{uuid4().hex[:12]}"
 
     async with developer_api_client_factory() as api_client:
-        await _insert_document(document_id=document_id)
+        document_revision = await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            chunks=[
+                {
+                    "id": f"dchk_{uuid4().hex[:12]}",
+                    "chunk_id": "archive-chunk-1",
+                    "chunk_type": "text",
+                    "content": "Archived graph chunk",
+                    "source_chunk_path": "Chapter 1/Archive",
+                    "metadata": {"keywords": ["archive"]},
+                }
+            ],
+        )
+        peer_revision = await _insert_document_revision_with_chunks(
+            document_id=peer_document_id,
+            chunks=[
+                {
+                    "id": f"dchk_{uuid4().hex[:12]}",
+                    "chunk_id": "peer-chunk-1",
+                    "chunk_type": "text",
+                    "content": "Peer graph chunk",
+                    "source_chunk_path": "Chapter 1/Peer",
+                    "metadata": {"keywords": ["peer"]},
+                }
+            ],
+        )
+        await _insert_document_graph_fixture(
+            document_id=document_id,
+            job_result_id=document_revision["job_result_id"],
+            peer_document_id=peer_document_id,
+            peer_job_result_id=peer_revision["job_result_id"],
+        )
         response = await api_client.post(f"/api/v1/documents/{document_id}/archive")
 
     assert response.status_code == 200
 
     response_json = cast(dict[str, object], response.json())
     persisted_document = await _fetch_document(document_id)
+    graph_counts = await _fetch_graph_counts(
+        document_id=document_id,
+        peer_document_id=peer_document_id,
+    )
 
     assert response_json["document_id"] == document_id
     assert response_json["status"] == "archived"
     assert response_json["archived_at"]
     assert persisted_document["status"] == "archived"
     assert persisted_document["archived_at"] is not None
+    assert graph_counts == {
+        "nodes": 0,
+        "related_edges": 0,
+        "peer_nodes": 1,
+    }
 
 
 @pytest.mark.asyncio

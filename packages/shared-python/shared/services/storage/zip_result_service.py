@@ -90,6 +90,9 @@ class ZipResultService:
             )
             statistics = self._calculate_statistics(formatted_chunks)
 
+            doc_nav: Dict[str, Any] = {}
+            hierarchy: Dict[str, Any] = {}
+
             # Create ZIP package
             with zipfile.ZipFile(zip_file_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
                 # 1. Generate chunks.json (full version)
@@ -134,6 +137,7 @@ class ZipResultService:
                 # 5. Generate doc_nav.json — unified navigation file
                 try:
                     doc_nav = self._build_doc_nav(formatted_chunks, source_file_name)
+                    hierarchy = self._build_hierarchy_dict(doc_nav.get("sections", []))
                     doc_nav_json = json.dumps(doc_nav, ensure_ascii=False, indent=2)
                     zip_file.writestr("doc_nav.json", doc_nav_json.encode("utf-8"))
                     logger.info("Added doc_nav.json")
@@ -147,6 +151,7 @@ class ZipResultService:
                     source_file_name=source_file_name,
                     statistics=statistics,
                     job_metadata=job_metadata,
+                    hierarchy=hierarchy,
                 )
                 manifest_json = json.dumps(manifest, ensure_ascii=False, indent=2)
                 zip_file.writestr("manifest.json", manifest_json.encode("utf-8"))
@@ -644,6 +649,7 @@ class ZipResultService:
         source_file_name: str,
         statistics: Dict[str, Any],
         job_metadata: Dict[str, Any],
+        hierarchy: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Generate manifest.json"""
         manifest = {
@@ -666,6 +672,7 @@ class ZipResultService:
                 },
             },
             "statistics": statistics,
+            "HIERARCHY": hierarchy or {},
         }
 
         return manifest
@@ -677,6 +684,31 @@ class ZipResultService:
             for byte_block in iter(lambda: f.read(4096), b""):
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest().lower()
+
+    def _build_hierarchy_dict(
+        self,
+        sections: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Build a title-only nested hierarchy from doc_nav sections."""
+        hierarchy: Dict[str, Any] = {}
+        title_counts: Dict[str, int] = {}
+
+        for section in sections:
+            raw_title = str(section.get("title") or "").strip()
+            if not raw_title:
+                continue
+
+            title_counts[raw_title] = title_counts.get(raw_title, 0) + 1
+            title = (
+                raw_title
+                if title_counts[raw_title] == 1
+                else f"{raw_title} ({title_counts[raw_title]})"
+            )
+            hierarchy[title] = self._build_hierarchy_dict(
+                section.get("children") or []
+            )
+
+        return hierarchy
 
     def _build_doc_nav(
         self,

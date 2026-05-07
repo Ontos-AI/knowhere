@@ -399,13 +399,13 @@ def build_prompt(task, texts, query, **kwargs):
         - Use N in ``[N BODY LINES]`` as a "section bulk" signal when applying
           the rules below (Rule 6 in particular).
 
-        ***Process in THREE steps:***
+        ***Process in TWO steps:***
 
         **STEP 1 — Global Pattern Scan (CANDIDATES ONLY)**
         Enumerate every distinct numbering / structural / semantic granularity pattern that
         appears on candidate rows and signals hierarchy depth, for example:
-        - Decimal numbering: "1", "1.1", "1.1.1" → depth increases with dot count
-        - Enumeration styles: "一、" "（一）" "1、" "①" → shallower to deeper
+        - Decimal numbering: "1.", "1.1", "1.1.1" → depth increases with dot count
+        - Enumeration styles: "一、" "（一）" "1、" "①" "1 " → shallower to deeper with increasing numbers
         - Chapter/section keywords: "Chapter X", "Part X", "第X章", "第X节"
         - Upper case / lower case differences in candidate headings
         - Clear semantic granularities or groups of themes
@@ -415,11 +415,10 @@ def build_prompt(task, texts, query, **kwargs):
         **STEP 2 — Assign a level to every candidate (rules in priority order)**
         A candidate whose preliminary ``level`` is "Not Sure" or any positive
         integer is **always** open to revision. Pure body text has already been
-        folded into placeholders, but a candidate that slipped through the
-        pre-filter **can still be** demoted to level = -1.
+        folded into placeholders, but a candidate **can still be** demoted to level = -1.
 
-        Rule 0 — Global consistency (highest priority among all rules):
-            Candidates sharing the same structural pattern or semantic granularity MUST receive the
+        Rule 0 — Global consistency:
+            Candidates sharing the same structural pattern or semantic granularity SHOULD receive the
             SAME level across the ENTIRE input. (e.g. every "X.Y" pattern
             shares one level; every "X.Y.Z" shares a different, deeper level.)
 
@@ -448,12 +447,6 @@ def build_prompt(task, texts, query, **kwargs):
 
         Rule 4 — Normalise to start at level 1:
             The shallowest (the most coarse granularity) heading found MUST be assigned level 1.
-
-        **STEP 3 — Consistency check (one pass) before writing output**
-        Re-scan the level assignments you are about to emit:
-        - All headings sharing the same pattern (structural or semantic granularity) must share the same level.
-        - No invalid skips (Rule 1).
-        If any inconsistency is found, normalise to the most representative level for that pattern.
 
         ***Output requirements***
         - Output MUST be a [JSON array] only.

@@ -297,6 +297,9 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
                 captured_artifacts["zip_chunks"] = json.loads(
                     zip_file.read("chunks.json")
                 )["chunks"]
+                captured_artifacts["manifest"] = json.loads(
+                    zip_file.read("manifest.json")
+                )
 
             return SimpleNamespace(
                 zip_key=f"results/{job_id}.zip",
@@ -358,6 +361,14 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
     assert captured_artifacts["result_dir"].endswith("Default_Root/contract-parse.pdf")
     assert captured_artifacts["doc_nav"]["file_name"] == source_file_name
     assert captured_artifacts["doc_nav"]["sections"][0]["title"] == "公司研究"
+    assert captured_artifacts["manifest"]["HIERARCHY"] == {
+        "公司研究": {
+            "自主可控加强，寒武纪或迎来营收快速放量周期": {},
+        },
+        "相关研报": {
+            "要点": {},
+        },
+    }
     assert "doc_nav.json" in captured_artifacts["raw_entries"]
     assert "hierarchy.json" not in captured_artifacts["raw_entries"]
     assert "hierarchy_slim.json" not in captured_artifacts["raw_entries"]
