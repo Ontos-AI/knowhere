@@ -9,6 +9,27 @@ from typing import Any, Optional
 from shared.utils.text_utils import tokenize_contents_for_retrieval
 
 
+def normalize_section_path(path: Optional[str]) -> str:
+    """Return the canonical section path representation used by retrieval."""
+    raw = str(path or "").strip()
+    if not raw:
+        return "Root"
+    parts = split_section_path(raw)
+    if not parts:
+        return "Root"
+    return " / ".join(parts)
+
+
+def split_section_path(path: Optional[str]) -> list[str]:
+    """Split either canonical ``" / "`` paths or raw slash-separated paths."""
+    raw = str(path or "").strip()
+    if not raw or raw == "Root":
+        return []
+    if " / " in raw:
+        return [p.strip() for p in raw.split(" / ") if p.strip()]
+    return [p.strip() for p in raw.split("/") if p.strip()]
+
+
 def build_lexical_text(value: str) -> str:
     text = str(value or "").strip()
     if not text:
@@ -44,11 +65,11 @@ def section_path_from_chunk_path(source_path: Optional[str]) -> str:
     """
     if not source_path:
         return "Root"
-    parts = [p.strip() for p in source_path.split("/") if p.strip()]
+    parts = split_section_path(source_path)
     section_parts = parts[2:]  # skip kb_root + filename
     if not section_parts:
         return "Root"
-    return " / ".join(section_parts)
+    return normalize_section_path(" / ".join(section_parts))
 
 
 def build_path_lexical_text(source_path: Optional[str]) -> Optional[str]:

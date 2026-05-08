@@ -12,11 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.database import get_db_context
 from shared.models.database.document import Document, DocumentChunk, DocumentSection, RetrievalHitStat
-from shared.services.retrieval.agent_navigate import agent_navigate
 from shared.services.retrieval.graph_service import GraphQueryService, is_excluded_section
+from shared.services.retrieval.lexical_text import normalize_section_path
 from shared.services.retrieval.cache_service import get_cached_retrieval_query_result, set_cached_retrieval_query_result
 from shared.services.retrieval.hit_stats_service import compute_importance_score, record_retrieval_hits
-from shared.services.retrieval.llm_adapter import create_retrieval_llm_fn
 from shared.services.retrieval.channels import path_channel, content_channel, term_channel
 from shared.services.storage.result_storage import get_result_storage
 from shared.models.database.job_result import JobResult
@@ -790,7 +789,8 @@ async def _hydrate_paths_to_rows(
     confidence_by_path: dict[str, float] = {}
     ordered_paths: list[str] = []
     for item in path_selections:
-        path = str(item.get('path') or '').strip()
+        raw_path = str(item.get('path') or '').strip()
+        path = normalize_section_path(raw_path) if raw_path and '/' in raw_path else raw_path
         if not path:
             continue
         confidence = float(item.get('confidence', 0.0) or 0.0)
@@ -801,6 +801,11 @@ async def _hydrate_paths_to_rows(
             confidence_by_path[path] = max(confidence_by_path[path], confidence)
     if not ordered_paths:
         return []
+
+    section_path_filters = []
+    for path in ordered_paths:
+        section_path_filters.append(DocumentSection.section_path == path)
+        section_path_filters.append(DocumentSection.section_path.like(f'{path} / %'))
 
     stmt = (
         select(Document, DocumentChunk, DocumentSection, JobResult)
@@ -813,7 +818,7 @@ async def _hydrate_paths_to_rows(
         .where(Document.status == 'active')
         .where(
             or_(
-                DocumentSection.section_path.in_(ordered_paths),
+                *section_path_filters,
                 DocumentChunk.source_chunk_path.in_(ordered_paths),
             )
         )
@@ -829,7 +834,16 @@ async def _hydrate_paths_to_rows(
         if row_path in seen_paths:
             continue
         seen_paths.add(row_path)
-        agent_score = confidence_by_path.get(row_path, 0.0)
+        matched_path = row_path
+        if section and section.section_path not in confidence_by_path:
+            matched_path = next(
+                (
+                    path for path in ordered_paths
+                    if section.section_path == path or section.section_path.startswith(f'{path} / ')
+                ),
+                row_path,
+            )
+        agent_score = confidence_by_path.get(matched_path, 0.0)
         rows.append({
             'document_id': document.document_id,
             'chunk_id': chunk.chunk_id,
@@ -848,11 +862,24 @@ async def _hydrate_paths_to_rows(
             'sort_order': chunk.sort_order,
         })
 
-    rows.sort(key=lambda r: path_order.get(_get_row_path(r), 10**9))
-    missed = len(ordered_paths) - len(rows)
+    def _row_sort_key(row: dict[str, Any]) -> int:
+        row_path = _get_row_path(row)
+        if row_path in path_order:
+            return path_order[row_path]
+        for path, idx in path_order.items():
+            if row_path.startswith(f'{path} / '):
+                return idx
+        return 10**9
+
+    rows.sort(key=_row_sort_key)
+    hydrated_paths = {_get_row_path(r) for r in rows}
+    resolved_inputs = {
+        path for path in ordered_paths
+        if path in hydrated_paths or any(row_path.startswith(f'{path} / ') for row_path in hydrated_paths)
+    }
+    missed = len(ordered_paths) - len(resolved_inputs)
     if missed > 0:
-        hydrated_paths = {_get_row_path(r) for r in rows}
-        missing_paths = [p for p in ordered_paths if p not in hydrated_paths]
+        missing_paths = [p for p in ordered_paths if p not in resolved_inputs]
         logger.warning(
             f'  hydrate: {len(rows)}/{len(ordered_paths)} paths resolved (missed={missed}); '
             f'missing[:5]={missing_paths[:5]}'
@@ -1122,88 +1149,25 @@ async def run_retrieval_query(
                 default=0.5,
             )
 
-        # ── Agent navigation or lexical graph fallback ──
-        # Aligned with KB: agent_navigate returns chunk paths with confidence.
-        logger.info('\n  🧭 PHASE 2: Agent Navigation')
+        # ── Legacy graph routing ──
+        logger.info('\n  🧭 PHASE 2: Legacy Graph Routing')
         router_used = 'discovery_only'
-        llm_fn = create_retrieval_llm_fn()
         agent_rows: list[dict[str, Any]] = []
-        agent_paths: list[dict[str, Any]] = []
 
-        if llm_fn is not None:
-            logger.info('  LLM configured, running agent_navigate...')
-            t_agent = time.monotonic()
-            try:
-                agent_paths = await agent_navigate(
-                    db,
-                    user_id=user_id,
-                    namespace=namespace,
-                    query=query,
-                    llm_fn=llm_fn,
-                    exclude_document_ids=exclude_document_ids,
-                )
-                if agent_paths:
-                    discovery_paths = {_get_row_path(r) for r in fused_rows}
-                    selected_paths = [str(item.get('path') or '') for item in agent_paths if item.get('path')]
-                    new_paths = [path for path in selected_paths if path not in discovery_paths]
-                    overlap_paths = [path for path in selected_paths if path in discovery_paths]
-                    logger.info('\n  🔗 Agent→Discovery union:')
-                    logger.info(
-                        f'    agent_paths={len(selected_paths)}, discovery_paths={len(discovery_paths)}, '
-                        f'overlap_paths={len(overlap_paths)}, new_paths={len(new_paths)}'
-                    )
-                    if new_paths:
-                        logger.info('    New paths from agent:')
-                        for p in new_paths[:10]:
-                            logger.info(f'      → {p}')
-                    if overlap_paths:
-                        logger.info('    Overlap paths reinforced by agent:')
-                        for p in overlap_paths[:10]:
-                            logger.info(f'      → {p}')
-                    agent_rows = await _hydrate_paths_to_rows(
-                        db,
-                        path_selections=agent_paths,
-                        user_id=user_id,
-                        namespace=namespace,
-                    )
-                    logger.info(f'    Hydrated {len(agent_rows)} rows from {len(selected_paths)} agent-selected paths')
-                    router_used = 'discovery+agent'
-                    elapsed_agent = round((time.monotonic() - t_agent) * 1000)
-                    logger.info(f'  ✅ Agent navigate: {len(agent_paths)} paths ({len(new_paths)} new) in {elapsed_agent}ms')
-                else:
-                    elapsed_agent = round((time.monotonic() - t_agent) * 1000)
-                    logger.info(f'  ⚠️  Agent returned 0 paths in {elapsed_agent}ms, falling back to lexical graph')
-                    agent_rows = await list_graph_routed_chunks(
-                        db, user_id=user_id, namespace=namespace, query=query,
-                        top_k=top_k, exclude_document_ids=exclude_document_ids,
-                        exclude_sections=exclude_sections,
-                    )
-                    if agent_rows:
-                        logger.info(f'  📊 Graph fallback: {len(agent_rows)} rows')
-            except Exception as exc:
-                logger.error(f'  ❌ Agent navigate failed: {exc}, falling back to lexical')
-                agent_rows = await list_graph_routed_chunks(
-                    db, user_id=user_id, namespace=namespace, query=query,
-                    top_k=top_k, exclude_document_ids=exclude_document_ids,
-                    exclude_sections=exclude_sections,
-                )
-                if agent_rows:
-                    logger.info(f'  📊 Graph fallback: {len(agent_rows)} rows')
-        else:
-            logger.info('  ⚠️  No LLM configured (DS_KEY missing?), using lexical graph routing')
-            try:
-                agent_rows = await list_graph_routed_chunks(
-                    db, user_id=user_id, namespace=namespace, query=query,
-                    top_k=top_k, exclude_document_ids=exclude_document_ids,
-                    exclude_sections=exclude_sections,
-                )
-                if agent_rows:
-                    logger.info(f'  📊 Graph fallback: {len(agent_rows)} rows')
-            except Exception as exc:
-                logger.error(f'  ❌ Graph routing failed (ignored): {exc}')
-                agent_rows = []
+        try:
+            agent_rows = await list_graph_routed_chunks(
+                db, user_id=user_id, namespace=namespace, query=query,
+                top_k=top_k, exclude_document_ids=exclude_document_ids,
+                exclude_sections=exclude_sections,
+            )
+            if agent_rows:
+                router_used = 'discovery+graph'
+                logger.info(f'  📊 Graph routing: {len(agent_rows)} rows')
+        except Exception as exc:
+            logger.error(f'  ❌ Graph routing failed (ignored): {exc}')
+            agent_rows = []
 
-        if agent_rows and not agent_paths:
+        if agent_rows:
             _normalize_row_scores(
                 agent_rows,
                 source_field='score',

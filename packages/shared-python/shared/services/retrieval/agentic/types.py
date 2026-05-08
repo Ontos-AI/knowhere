@@ -17,9 +17,9 @@ class ActionType(str, Enum):
     BOTTOM_DISCOVERY = 'bottom_discovery'
     KG_DOCUMENT_SELECT = 'kg_document_select'
     DOCUMENT_PATH_SELECT = 'document_path_select'
-    NAV_SECTION_SELECT = 'nav_section_select'
     GREP_DOCUMENT_DISCOVER = 'grep_document_discover'
     GRAPH_EXPAND_DOCS = 'graph_expand_docs'
+    DONE = 'done'  # Explicit termination signal from LLMPolicy
 
 
 @dataclass
@@ -67,7 +67,7 @@ class AgentState:
     step_count: int = 0
 
     # Discovery results (from bottom_discovery)
-    discovery_rows: list[dict[str, Any]] = field(default_factory=list)
+    discovery_paths: list[dict[str, Any]] = field(default_factory=list)
     discovery_top_doc_ids: list[str] = field(default_factory=list)
     discovery_done: bool = False
 
@@ -80,12 +80,7 @@ class AgentState:
 
     # Document path selection
     selected_paths: list[dict[str, Any]] = field(default_factory=list)
-    agent_rows: list[dict[str, Any]] = field(default_factory=list)
     path_expansion_count: int = 0
-
-    # doc_nav hierarchical navigation state
-    nav_drill_stack: list[dict[str, Any]] = field(default_factory=list)
-    # Each entry: {"document_id": str, "section_path": str | None, "depth": int}
 
     # Last observation (used by policy to decide next action)
     last_observation: ToolResult | None = None
@@ -98,6 +93,49 @@ class AgentState:
     def elapsed_ms(self) -> int:
         return int((time.monotonic() - self.start_time) * 1000)
 
+    def state_summary(self) -> dict[str, Any]:
+        """Produce a concise state snapshot for the LLMPolicy prompt.
+
+        Only includes fields the LLM needs for decision-making — never
+        exposes raw chunk content or internal IDs verbatim.
+        """
+        selected_doc_summaries = [
+            {
+                'document_id': d.document_id,
+                'name': d.source_file_name or '(unnamed)',
+                'confidence': round(d.confidence, 2),
+                'source': d.source,
+            }
+            for d in self.selected_docs
+        ]
+        selected_path_summaries = [
+            {
+                'path': p.get('path', ''),
+                'confidence': round(float(p.get('confidence', 0.0) or 0.0), 2),
+            }
+            for p in self.selected_paths[:10]  # cap to avoid huge prompts
+        ]
+        last_obs = None
+        if self.last_observation:
+            last_obs = {
+                'status': self.last_observation.status,
+                'payload_keys': list(self.last_observation.payload.keys()),
+                'error': self.last_observation.error,
+            }
+        return {
+            'step': self.step_count,
+            'discovery_done': self.discovery_done,
+            'discovery_candidates': len(self.discovery_paths),
+            'discovery_top_doc_ids': self.discovery_top_doc_ids[:5],
+            'kg_done': self.kg_done,
+            'selected_docs': selected_doc_summaries,
+            'pending_doc_index': self.pending_doc_index,
+            'selected_paths_count': len(self.selected_paths),
+            'selected_paths': selected_path_summaries,
+            'doc_retry_count': self.doc_retry_count,
+            'last_observation': last_obs,
+        }
+
     def apply(self, action_type: ActionType, result: ToolResult) -> None:
         """Update state based on action and its result."""
         self.last_observation = result
@@ -105,7 +143,7 @@ class AgentState:
         if action_type == ActionType.BOTTOM_DISCOVERY:
             self.discovery_done = True
             if result.status != 'error':
-                self.discovery_rows = result.payload.get('fused_rows', [])
+                self.discovery_paths = result.payload.get('fused_rows', [])
                 self.discovery_top_doc_ids = result.payload.get('top_doc_ids', [])
 
         elif action_type == ActionType.KG_DOCUMENT_SELECT:
@@ -126,19 +164,25 @@ class AgentState:
                 self.doc_id_to_name.update(result.payload.get('doc_id_to_name', {}))
                 self.doc_job_map.update(result.payload.get('doc_job_map', {}))
 
+                # Merge discovery hints
+                existing_ids = {d.document_id for d in self.selected_docs}
+                for did in self.discovery_top_doc_ids:
+                    if did not in existing_ids and did not in self.excluded_doc_ids:
+                        self.selected_docs.append(CandidateDoc(
+                            document_id=did,
+                            source_file_name=self.doc_id_to_name.get(did, ''),
+                            confidence=0.5, # Lower than LLM's 0.8
+                            reason='Bottom discovery hit',
+                            source='discovery_hint',
+                        ))
+                        existing_ids.add(did)
+
         elif action_type == ActionType.DOCUMENT_PATH_SELECT:
             if result.status == 'selected_paths':
                 new_paths = result.payload.get('selected_paths', [])
                 self.selected_paths.extend(new_paths)
                 self.pending_doc_index += 1
-            elif result.status == 'need_nav_drill':
-                # Large document with doc_nav available → switch to nav mode
-                doc_id = result.payload.get('document_id', '')
-                self.nav_drill_stack.append({
-                    'document_id': doc_id,
-                    'section_path': None,  # start from top
-                    'depth': 0,
-                })
+            elif result.status == 'no_items':
                 self.pending_doc_index += 1
             elif result.status == 'need_more_docs':
                 failed_doc_id = result.payload.get('document_id', '')
@@ -150,22 +194,6 @@ class AgentState:
                 self.pending_doc_index += 1
             elif result.status == 'error':
                 self.pending_doc_index += 1
-
-        elif action_type == ActionType.NAV_SECTION_SELECT:
-            # Concurrent batch nav: all stack entries consumed in one shot.
-            # The orchestrator embeds '_consumed_stack' listing processed doc IDs.
-            consumed_ids = set(result.payload.get('_consumed_stack', []))
-            if consumed_ids:
-                self.nav_drill_stack = [
-                    e for e in self.nav_drill_stack
-                    if e['document_id'] not in consumed_ids
-                ]
-            elif self.nav_drill_stack:
-                # Fallback: legacy single-entry pop (safety net)
-                self.nav_drill_stack.pop()
-            if result.status == 'selected_paths':
-                new_paths = result.payload.get('selected_paths', [])
-                self.selected_paths.extend(new_paths)
 
         elif action_type == ActionType.GREP_DOCUMENT_DISCOVER:
             if result.status == 'discovered_docs':

@@ -82,7 +82,7 @@ class TraceRecorder:
                 top_k=self._top_k,
                 data_type=self._data_type,
                 filters=self._filters,
-                policy_name='rule_based_v1',
+                policy_name='llm_policy_v1',
                 agentic_enabled=True,
                 cache_hit=False,
                 result_count=0,
@@ -99,12 +99,18 @@ class TraceRecorder:
             except Exception:
                 pass
 
-    def record_step(self, action_type: ActionType, result: ToolResult) -> None:
+    def record_step(
+        self,
+        action_type: ActionType,
+        result: ToolResult,
+        *,
+        decision_reason: str = '',
+    ) -> None:
         """Buffer a step record.  Flushed on complete()."""
         self._steps.append({
             'step_index': len(self._steps),
             'action_type': action_type.value,
-            'action_input': {},
+            'action_input': {'decision_reason': decision_reason} if decision_reason else {},
             'observation_status': result.status,
             'observation_payload_keys': list(result.payload.keys()) if result.payload else [],
             'latency_ms': result.latency_ms,

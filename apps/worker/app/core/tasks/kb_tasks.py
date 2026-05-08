@@ -74,39 +74,6 @@ from app.services.connect_builder.summary_builder import (
 celery_app = get_celery_app()
 
 
-def _extract_nav_sections_for_publish(add_dir: str) -> list:
-    """Extract top-level nav sections from doc_nav.json for chunk metadata injection.
-
-    These sections will be read by graph_service.py when creating GraphNode,
-    enabling hierarchical navigation at query time.
-    """
-    nav_path = os.path.join(add_dir, "doc_nav.json")
-    if not os.path.exists(nav_path):
-        return []
-    try:
-        from shared.utils.text_utils import truncate_content_preview
-        with open(nav_path, "r", encoding="utf-8") as f:
-            doc_nav = json.load(f)
-        sections = []
-        for section in doc_nav.get("sections", []):
-            title = section.get("title", "")
-            if title.lower() in ("root", "__root__"):
-                continue
-            sections.append({
-                "title": title,
-                "path": section.get("path", ""),
-                "summary": truncate_content_preview(
-                    section.get("summary") or "", head=80, tail=0
-                ),
-                "chunk_count": section.get("chunk_count", 0),
-                "children_count": len(section.get("children", [])),
-            })
-        return sections
-    except Exception as _e:
-        logger.warning(
-            f'doc_nav extraction failed (non-fatal): add_dir={add_dir!r}, error={_e}'
-        )
-        return []
 
 @celery_app.task(
     bind=True,
@@ -626,7 +593,6 @@ def _parse(job_id: str, user_id: str | None):
                 source_file_name = os.path.basename(source_file_name)
 
             document_top_summary = ""
-            document_nav_sections = []
             section_summaries: dict[str, str] = {}
             if add_dir and source_file_name:
                 if add_contents_df is not None and "path" in add_contents_df.columns:
@@ -636,8 +602,6 @@ def _parse(job_id: str, user_id: str | None):
                         source_file_name=str(source_file_name),
                     )
                 # Enrich non-leaf section summaries (bottom-up aggregation)
-                # Must run before _extract_nav_sections_for_publish so that
-                # GraphNode.nav_sections gets populated summaries, not empty strings.
                 try:
                     kb_dir_for_enrich = os.path.dirname(str(add_dir))
                     summary_use_llm = JobMetadataHelper.get_parsing_param(
@@ -652,18 +616,13 @@ def _parse(job_id: str, user_id: str | None):
                 except Exception as _e:
                     logger.warning(f"doc_nav enrichment failed (non-fatal): {_e}")
                 document_top_summary = load_nav_top_summary(str(add_dir), str(source_file_name))
-                # Extract nav_sections from doc_nav.json for GraphNode persistence
-                document_nav_sections = _extract_nav_sections_for_publish(str(add_dir))
-            if document_top_summary or document_nav_sections:
+            if document_top_summary:
                 for chunk in chunks:
                     metadata = chunk.get("metadata")
                     if not isinstance(metadata, dict):
                         metadata = {}
                         chunk["metadata"] = metadata
-                    if document_top_summary:
-                        metadata["document_top_summary"] = document_top_summary
-                    if document_nav_sections:
-                        metadata["document_nav_sections"] = document_nav_sections
+                    metadata["document_top_summary"] = document_top_summary
 
             data_id = JobMetadataHelper.get_field(job_metadata, "data_id")
 

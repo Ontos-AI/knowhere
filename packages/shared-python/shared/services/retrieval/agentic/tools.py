@@ -18,24 +18,19 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import Document
+from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.services.retrieval.agentic.types import ToolResult
 from shared.services.retrieval.agent_navigate import (
-    _build_chunks_slim,
     _build_knowledge_map_overview,
-    _collect_leaf_paths,
     _expand_by_edges,
-    _format_chunks_for_llm,
+    _format_items_for_llm,
     _grep_discover_document_ids,
-    _load_nav_sections_from_graph,
-    _load_nav_sections_2level,
+    _load_child_sections,
     _parse_chunk_path_selections,
     _parse_json_array,
-    _CHUNK_SELECT_PROMPT,
+    _SCOPE_NAV_PROMPT,
     _FILE_SELECT_PROMPT,
-    _NAV_SECTION_PROMPT,
     _default_confidence_for_rank,
-    CHUNK_COUNT_THRESHOLD,
 )
 from shared.services.retrieval.app_service import (
     _CHANNEL_WEIGHT_CONTENT,
@@ -283,110 +278,18 @@ async def document_path_select(
     max_chunks_per_file: int = 15,
     **_kwargs: Any,
 ) -> ToolResult:
-    """Select chunk paths within a single document.
-
-    Reuses: agent_navigate._build_chunks_slim, _format_chunks_for_llm,
-            _CHUNK_SELECT_PROMPT, _parse_chunk_path_selections.
-
-    Returns one of:
-      - selected_paths: found relevant paths
-      - need_nav_drill: large document with doc_nav available, switch to hierarchical mode
-      - need_more_docs: document not relevant, suggest going back to doc select
-      - no_confident_match: no paths match above threshold
-    """
-    t0 = time.monotonic()
-    try:
-        if llm_fn is None:
-            latency = int((time.monotonic() - t0) * 1000)
-            return ToolResult(
-                status='no_confident_match',
-                payload={'document_id': document_id, 'reason': 'LLM not available'},
-                latency_ms=latency,
-            )
-
-        # Check if doc_nav sections are available for large documents
-        nav_data = await _load_nav_sections_from_graph(db, document_id)
-        if nav_data:
-            total_chunks = nav_data.get('total_chunks', 0)
-            if total_chunks > CHUNK_COUNT_THRESHOLD:
-                latency = int((time.monotonic() - t0) * 1000)
-                logger.info(
-                    f'  agentic.document_path_select: doc={document_id} '
-                    f'total_chunks={total_chunks} > {CHUNK_COUNT_THRESHOLD}, '
-                    f'switching to nav_section_select'
-                )
-                return ToolResult(
-                    status='need_nav_drill',
-                    payload={
-                        'document_id': document_id,
-                        'total_chunks': total_chunks,
-                    },
-                    latency_ms=latency,
-                )
-
-        chunks_slim = await _build_chunks_slim(
-            db, document_id=document_id, job_result_id=job_result_id,
-        )
-        if not chunks_slim:
-            latency = int((time.monotonic() - t0) * 1000)
-            return ToolResult(
-                status='no_confident_match',
-                payload={'document_id': document_id, 'reason': 'no chunks found'},
-                latency_ms=latency,
-            )
-
-        chunks_text = _format_chunks_for_llm(chunks_slim)
-        chunk_prompt = _CHUNK_SELECT_PROMPT.format(
-            doc_name=doc_name or document_id,
-            doc_id=document_id,
-            chunks_overview=chunks_text,
-            query=query,
-            max_chunks=max_chunks_per_file,
-        )
-
-        valid_paths = {c['path'] for c in chunks_slim if c.get('path')}
-        chunk_response = await llm_fn(chunk_prompt)
-        parsed_selections = _parse_chunk_path_selections(chunk_response)
-
-        accepted: list[dict[str, Any]] = []
-        for item in parsed_selections:
-            path = str(item.get('path') or '').strip()
-            if path not in valid_paths:
-                continue
-            confidence = item.get('confidence')
-            if confidence is None:
-                confidence = _default_confidence_for_rank(len(accepted))
-            accepted.append({'path': path, 'confidence': confidence})
-            if len(accepted) >= max_chunks_per_file:
-                break
-
-        latency = int((time.monotonic() - t0) * 1000)
-
-        if accepted:
-            logger.info(
-                f'  agentic.document_path_select: {len(accepted)} paths from doc={document_id}, {latency}ms'
-            )
-            return ToolResult(
-                status='selected_paths',
-                payload={'document_id': document_id, 'selected_paths': accepted},
-                latency_ms=latency,
-            )
-
-        # No paths accepted — not relevant
+    """Document entry point for agentic scope navigation."""
+    if llm_fn is None:
         return ToolResult(
             status='no_confident_match',
-            payload={'document_id': document_id, 'reason': 'no path matches query intent'},
-            latency_ms=latency,
+            payload={'document_id': document_id, 'reason': 'LLM not available'},
+            latency_ms=0,
         )
-    except Exception as e:
-        latency = int((time.monotonic() - t0) * 1000)
-        logger.error(f'  agentic.document_path_select failed for doc={document_id}: {e}')
-        return ToolResult(
-            status='error',
-            payload={'document_id': document_id},
-            error=str(e),
-            latency_ms=latency,
-        )
+    return await scope_navigate(
+        db, document_id=document_id, job_result_id=job_result_id,
+        query=query, llm_fn=llm_fn, doc_name=doc_name,
+        scope_path=None, max_select=max_chunks_per_file,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -513,294 +416,55 @@ async def graph_expand_docs(
 
 
 # ---------------------------------------------------------------------------
-# Tool: nav_section_select
+# Tool: scope_navigate (Unified recursive navigation)
 # ---------------------------------------------------------------------------
 
-async def nav_section_select(
-    db: AsyncSession,
-    *,
-    user_id: str,
-    namespace: str,
-    query: str,
-    llm_fn: LLMFn | None,
-    document_id: str,
-    job_result_id: str,
-    doc_name: str = '',
-    section_path: str | None = None,  # kept for API compat, ignored in 2-level design
-    **_kwargs: Any,
-) -> ToolResult:
-    """Navigate doc_nav sections with a single 2-level LLM call.
-
-    Shows L1 + L2 sections in one flat overview.  LLM picks relevant
-    sections at either level (no drill/select decision).  Each selected
-    section is immediately expanded to its leaf chunk paths via
-    _collect_leaf_paths — finest-granularity, deduplicated.
-
-    Falls back to flat chunks_slim selection when no nav sections exist.
-    """
-    t0 = time.monotonic()
-    try:
-        if llm_fn is None:
-            latency = int((time.monotonic() - t0) * 1000)
-            return ToolResult(
-                status='no_confident_match',
-                payload={'document_id': document_id, 'reason': 'LLM not available'},
-                latency_ms=latency,
-            )
-
-        # Load L1 + L2 sections in a single pass
-        nav_data = await _load_nav_sections_2level(db, document_id, job_result_id)
-        if not nav_data or not nav_data.get('sections'):
-            logger.info(
-                f'  agentic.nav_section_select: no 2-level sections for '
-                f'doc={document_id}, falling back to chunks_slim'
-            )
-            return await _nav_fallback_chunks_slim(
-                db,
-                document_id=document_id,
-                job_result_id=job_result_id,
-                query=query,
-                llm_fn=llm_fn,
-                doc_name=doc_name,
-                path_scope=None,
-            )
-
-        sections = nav_data['sections']
-
-        # ── Format sections for LLM; detect overflow ──────────────────────────
-        from shared.services.retrieval.agent_navigate import (
-            _format_sections_for_llm,
-            _format_l1_only_for_llm,
-        )
-
-        sections_text, overflowed = _format_sections_for_llm(sections)
-        valid_paths = {s['path'] for s in sections if s.get('path')}
-
-        def _norm(p: str) -> str:
-            return p.replace(' / ', '/').replace(' /', '/').replace('/ ', '/')
-
-        norm_to_canonical: dict[str, str] = {_norm(vp): vp for vp in valid_paths}
-
-        def _validate_selections(parsed: list[dict]) -> list[dict]:
-            """Map LLM path strings to canonical DB paths, drop invalid ones."""
-            accepted: list[dict] = []
-            seen: set[str] = set()
-            for item in parsed:
-                path = str(item.get('path') or '').strip()
-                canonical = path if path in valid_paths else norm_to_canonical.get(_norm(path))
-                if canonical is None:
-                    logger.warning(f'  nav_section_select: rejected invalid path: {path}')
-                    continue
-                if canonical in seen:
-                    continue
-                seen.add(canonical)
-                accepted.append({'path': canonical, 'confidence': item.get('confidence') or 0.8})
-            return accepted
-
-        accepted: list[dict[str, Any]] = []
-
-        if not overflowed:
-            # ── Fast path: everything fits → single LLM call ──────────────────
-            logger.info('  agentic.nav_section_select: full view (no overflow), single LLM call')
-            prompt = _NAV_SECTION_PROMPT.format(
-                doc_name=doc_name or document_id,
-                doc_id=document_id,
-                sections_overview=sections_text,
-                query=query,
-            )
-            response = await llm_fn(prompt)
-            logger.info(f'  agentic.nav_section_select LLM response: {response[:300]}')
-            accepted = _validate_selections(_parse_chunk_path_selections(response))
-
-        else:
-            # ── Overflow path: L1-only LLM selection → mechanical leaf expansion ──
-            # The document has too many sections to show in one prompt.
-            # LLM picks the relevant top-level chapters; we then expand every
-            # selected chapter to ALL its leaf chunk paths without a second LLM
-            # call — same as the non-overflow path's _collect_leaf_paths behavior.
-            logger.info(
-                f'  agentic.nav_section_select: overflow — '
-                f'L1-only LLM selection for doc={document_id}'
-            )
-            l1_text = _format_l1_only_for_llm(sections)
-            prompt_l1 = _NAV_SECTION_PROMPT.format(
-                doc_name=doc_name or document_id,
-                doc_id=document_id,
-                sections_overview=(
-                    '[Only top-level chapters are shown below — sub-sections are not listed.]\n'
-                    '[Select from the chapter paths in this list ONLY.]\n'
-                    '[Do NOT return sub-section paths; select at the chapter level.]\n\n'
-                    + l1_text
-                ),
-                query=query,
-            )
-            response_l1 = await llm_fn(prompt_l1)
-            logger.info(f'  nav_section_select (overflow) LLM response: {response_l1[:300]}')
-
-            # Validate against L1 paths only. If LLM returns a deeper path
-            # (e.g. "…/Information extraction/Entity extraction"), truncate it
-            # to its L1 ancestor ("…/Information extraction") rather than dropping.
-            l1_valid_paths = {s['path'] for s in sections if s.get('level', 1) == 1}
-            l1_norm_to_canon = {_norm(p): p for p in l1_valid_paths}
-            parsed = _parse_chunk_path_selections(response_l1)
-
-            seen_l1: set[str] = set()
-            for item in parsed:
-                path = str(item.get('path') or '').strip()
-                # Try exact L1 match first (with norm fallback)
-                canonical = (
-                    path if path in l1_valid_paths
-                    else l1_norm_to_canon.get(_norm(path))
-                )
-                # If not an exact L1, try truncating to find an L1 ancestor
-                if canonical is None:
-                    candidate = path
-                    for sep in (' / ', '/'):
-                        while sep in candidate:
-                            candidate = candidate[:candidate.rfind(sep)]
-                            hit = (
-                                candidate if candidate in l1_valid_paths
-                                else l1_norm_to_canon.get(_norm(candidate))
-                            )
-                            if hit:
-                                canonical = hit
-                                logger.info(
-                                    f'  nav_section_select (overflow): '
-                                    f'truncated "{path}" → L1 "{hit}"'
-                                )
-                                break
-                        if canonical:
-                            break
-                if canonical is None:
-                    logger.warning(
-                        f'  nav_section_select (overflow): '
-                        f'no L1 match for "{path}", skipped'
-                    )
-                    continue
-                if canonical not in seen_l1:
-                    seen_l1.add(canonical)
-                    accepted.append({
-                        'path': canonical,
-                        'confidence': item.get('confidence') or 0.8,
-                    })
-
-        # ── Collect latency ──────────────────────────────────────────────────
-        latency = int((time.monotonic() - t0) * 1000)
-
-        if not accepted:
-            logger.info(
-                f'  agentic.nav_section_select: no match for doc={document_id}, {latency}ms'
-            )
-            return ToolResult(
-                status='no_confident_match',
-                payload={'document_id': document_id, 'reason': 'no section matches query'},
-                latency_ms=latency,
-            )
-
-        # ── Expand each selected section to finest-granularity leaf paths ────
-        # _collect_leaf_paths uses LIKE-prefix matching, so selecting an L1
-        # path like "kb/doc.docx/Information extraction" returns ALL chunks
-        # under that chapter — L2, L3, leaf chunks — at any depth.
-        from shared.services.retrieval.lexical_text import section_path_from_chunk_path
-
-        all_leaf_paths: list[dict[str, Any]] = []
-        seen_leaf: set[str] = set()
-        for item in accepted:
-            db_section_path = section_path_from_chunk_path(item['path']) or item['path']
-            leaf_paths = await _collect_leaf_paths(
-                db,
-                document_id=document_id,
-                job_result_id=job_result_id,
-                section_path=db_section_path,
-            )
-            for lp in leaf_paths:
-                if lp['path'] not in seen_leaf:
-                    seen_leaf.add(lp['path'])
-                    all_leaf_paths.append(lp)
-
-        mode = 'overflow-L1→all-leaves' if overflowed else 'full'
-        logger.info(
-            f'  agentic.nav_section_select [{mode}]: {len(accepted)} sections → '
-            f'{len(all_leaf_paths)} unique leaf paths, {latency}ms'
-        )
-
-        if all_leaf_paths:
-            return ToolResult(
-                status='selected_paths',
-                payload={'document_id': document_id, 'selected_paths': all_leaf_paths},
-                latency_ms=latency,
-            )
-
-        return ToolResult(
-            status='no_confident_match',
-            payload={'document_id': document_id, 'reason': 'no leaf chunks under selected sections'},
-            latency_ms=latency,
-        )
-
-    except Exception as e:
-        latency = int((time.monotonic() - t0) * 1000)
-        logger.error(f'  agentic.nav_section_select failed for doc={document_id}: {e}')
-        return ToolResult(
-            status='error',
-            payload={'document_id': document_id},
-            error=str(e),
-            latency_ms=latency,
-        )
-
-
-async def _nav_fallback_chunks_slim(
+async def scope_navigate(
     db: AsyncSession,
     *,
     document_id: str,
     job_result_id: str,
     query: str,
     llm_fn: LLMFn,
-    doc_name: str,
-    path_scope: str | None = None,
+    doc_name: str = '',
+    scope_path: str | None = None,
+    max_select: int = 15,
 ) -> ToolResult:
-    """Fallback: use flat chunks_slim selection when no sections available.
-
-    Builds chunks_slim in-memory from DB (no files), applies path_scope
-    filter if given, and uses the standard chunk selection prompt.
+    """Unified document-internal navigation tool.
+    
+    1. Loads 2 levels of child sections under scope_path
+    2. Applies overflow guard (drops summaries if needed)
+    3. LLM selects most relevant items
+    4. Returns selected section paths directly; each path hydrates the
+       corresponding section subtree.
     """
     t0 = time.monotonic()
     try:
-        chunks_slim = await _build_chunks_slim(
-            db, document_id=document_id, job_result_id=job_result_id,
-        )
-        if not chunks_slim:
+        items = await _load_child_sections(db, document_id, job_result_id, scope_path)
+        if not items:
             latency = int((time.monotonic() - t0) * 1000)
             return ToolResult(
-                status='no_confident_match',
-                payload={'document_id': document_id, 'reason': 'no chunks found'},
+                status='no_items',
+                payload={'document_id': document_id, 'scope_path': scope_path},
                 latency_ms=latency,
             )
 
-        if path_scope:
-            chunks_slim = [c for c in chunks_slim if c.get('path', '').startswith(path_scope)]
-            if not chunks_slim:
-                latency = int((time.monotonic() - t0) * 1000)
-                return ToolResult(
-                    status='no_confident_match',
-                    payload={'document_id': document_id, 'reason': f'no chunks under {path_scope}'},
-                    latency_ms=latency,
-                )
-
-        chunks_text = _format_chunks_for_llm(chunks_slim)
-        prompt = _CHUNK_SELECT_PROMPT.format(
+        text, overflowed = _format_items_for_llm(items)
+        prompt = _SCOPE_NAV_PROMPT.format(
             doc_name=doc_name or document_id,
             doc_id=document_id,
-            chunks_overview=chunks_text,
+            scope_label=scope_path or 'root',
+            items_overview=text,
             query=query,
-            max_chunks=15,
+            max_select=max_select,
         )
 
-        valid_paths = {c['path'] for c in chunks_slim if c.get('path')}
+        valid_paths = {item['path'] for item in items}
         response = await llm_fn(prompt)
-        parsed = _parse_chunk_path_selections(response)
+        selected = _parse_chunk_path_selections(response)
 
         accepted: list[dict[str, Any]] = []
-        for item in parsed:
+        for item in selected:
             path = str(item.get('path') or '').strip()
             if path not in valid_paths:
                 continue
@@ -808,23 +472,36 @@ async def _nav_fallback_chunks_slim(
             if confidence is None:
                 confidence = _default_confidence_for_rank(len(accepted))
             accepted.append({'path': path, 'confidence': confidence})
+            if len(accepted) >= max_select:
+                break
 
         latency = int((time.monotonic() - t0) * 1000)
-
-        if accepted:
+        
+        if not accepted:
             return ToolResult(
-                status='selected_paths',
-                payload={'document_id': document_id, 'selected_paths': accepted},
+                status='no_confident_match',
+                payload={'document_id': document_id, 'reason': 'no path matches query intent'},
                 latency_ms=latency,
             )
+
+        logger.info(
+            f"  agentic.scope_navigate: {len(accepted)} section paths selected, "
+            f"status=selected_paths, overflowed={overflowed}"
+        )
+
         return ToolResult(
-            status='no_confident_match',
-            payload={'document_id': document_id, 'reason': 'no chunk paths matched'},
+            status='selected_paths',
+            payload={
+                'document_id': document_id,
+                'selected_paths': accepted,
+                'scope_path': scope_path,
+                'overflowed': overflowed,
+            },
             latency_ms=latency,
         )
     except Exception as e:
         latency = int((time.monotonic() - t0) * 1000)
-        logger.error(f'  agentic.nav_fallback failed for doc={document_id}: {e}')
+        logger.error(f'  agentic.scope_navigate failed for doc={document_id}: {e}')
         return ToolResult(
             status='error',
             payload={'document_id': document_id},

@@ -1,24 +1,8 @@
-"""Agent-driven KG navigation for retrieval — aligned with knowhere-kb.
-
-Two-stage LLM-driven document routing (mirrors unified_retriever.agent_navigate):
-  1. LLM reads a knowledge map overview (file-level metadata) and selects relevant files.
-  2. For each file, LLM reads compact chunk previews and selects relevant chunk **paths**.
-
-Additional KB-aligned mechanisms:
-  - GREP discovery: term-search hits → include parent document_ids in KG scope.
-  - Edge expansion: selected documents → follow GraphEdge → include neighbor documents.
-
-Returns chunk paths (section_path / source_chunk_path), NOT hydrated rows.
-The caller (app_service) handles path→row hydration and union with discovery results.
-
-Falls back gracefully when LLM is unavailable or fails.
-"""
+"""Shared helpers for agentic KG document routing and scope navigation."""
 from __future__ import annotations
 
 import json
-import math
 import re
-import time
 from typing import Any, Sequence
 
 from loguru import logger
@@ -26,12 +10,10 @@ from sqlalchemy import func, select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection, GraphNode, GraphEdge
-from shared.services.retrieval.llm_adapter import LLMFn
+from shared.services.retrieval.lexical_text import normalize_section_path, split_section_path
 from shared.utils.text_utils import tokenize_for_retrieval
 
-_CONTENT_PREVIEW_LEN = 120
 _MAX_OVERVIEW_FILES = 50
-_MAX_CHUNKS_SLIM_PER_DOC = 80
 
 _FILE_SELECT_PROMPT = """\
 You are a document routing assistant.
@@ -51,23 +33,27 @@ Return ONLY a JSON array of document IDs, e.g.: ["doc_abc123", "doc_def456"]
 Do not include any explanation.
 """
 
-_CHUNK_SELECT_PROMPT = """\
-You are a document chunk routing assistant.
+_SCOPE_NAV_PROMPT = """\
+You are a document navigation assistant.
 
-Below are candidate chunks from document "{doc_name}" (id: {doc_id}):
+Document: "{doc_name}" (id: {doc_id})
+Current scope: {scope_label}
 
-=== Chunk Candidates ===
-{chunks_overview}
-=== End Candidates ===
+Below are candidate section paths at this scope level (up to 2 depth levels).
+Indented items are sub-items of the item above.
+Select section paths directly. A selected section path represents the chunks
+under that section subtree; do not ask to drill deeper.
+
+=== Items ===
+{items_overview}
+=== End Items ===
 
 User query: {query}
 
-Select the most relevant chunks (at most {max_chunks}).
-Return ONLY a JSON array. Prefer objects with path + confidence, e.g.:
-[{{"path": "doc_name/Section A/Subsection B", "confidence": 0.92}}, {{"path": "tables/table-1.html", "confidence": 0.75}}]
-You may also return a legacy JSON array of path strings if needed:
-["doc_name/Section A/Subsection B", "tables/table-1.html"]
-Confidence should be between 0 and 1 and reflect how strongly the path matches the user query.
+Select the most relevant section paths (at most {max_select}).
+Prefer specific sub-items over broad parents when both are listed and the sub-item is sufficient.
+Return ONLY a JSON array:
+[{{"path": "section/path", "confidence": 0.9}}, ...]
 Do not include any explanation.
 """
 
@@ -140,37 +126,6 @@ def _parse_chunk_path_selections(text: str) -> list[dict[str, Any]]:
             'confidence': _normalize_confidence(item.get('confidence')),
         })
     return selections
-
-
-def _keywords_need_repair(keywords: list[str] | None) -> bool:
-    if not isinstance(keywords, list) or not keywords:
-        return True
-    bad = sum(1 for kw in keywords if not kw or len(str(kw)) <= 1
-              or re.match(r'^\d+[.,%]*$', str(kw)))
-    return bad >= len(keywords) * 0.5
-
-
-def _compute_tfidf_keywords(chunk_metadata_list: list[dict[str, Any]], top_k: int = 10) -> list[str]:
-    df_count: dict[str, int] = {}
-    tf_count: dict[str, int] = {}
-    total = len(chunk_metadata_list) or 1
-    for meta in chunk_metadata_list:
-        if not isinstance(meta, dict):
-            continue
-        terms = list(meta.get('tokens', [])) + list(meta.get('keywords', []))
-        seen: set[str] = set()
-        for t in terms:
-            if not t or len(str(t)) <= 1 or re.match(r'^\d+[.,%]*$', str(t)):
-                continue
-            lower = str(t).lower()
-            tf_count[lower] = tf_count.get(lower, 0) + 1
-            if lower not in seen:
-                df_count[lower] = df_count.get(lower, 0) + 1
-                seen.add(lower)
-    scored = [(term, freq * (math.log(total / (df_count.get(term, 1))) + 1))
-              for term, freq in tf_count.items()]
-    scored.sort(key=lambda x: x[1], reverse=True)
-    return [s[0] for s in scored[:top_k]]
 
 
 async def _build_knowledge_map_overview(
@@ -256,81 +211,54 @@ def _indent_block(text: str, spaces: int) -> str:
     return '\n'.join(f'{prefix}{line}' for line in str(text or '').splitlines())
 
 
-async def _build_chunks_slim(
-    db: AsyncSession,
-    *,
-    document_id: str,
-    job_result_id: str,
-) -> list[dict[str, str]]:
-    """Build compact chunk descriptors for LLM chunk path selection.
+def _format_items_for_llm(
+    items: list[dict],
+    max_chars: int = 20000,
+) -> tuple[str, bool]:
+    """Unified formatting with overflow guard for scope navigation.
 
-    Aligned with KB's do_get_chunks_slim() + _build_slim_chunk():
-    - Each entry has 'path' (section_path or source_chunk_path), 'type', 'preview'
-    - 'preview' is summary-first (from chunk_metadata.summary), fallback to content[:N]
-    - LLM will select paths, not chunk_ids
+    Always shows ALL items (L1 + L2).  Overflow controls whether
+    summaries are included — not which levels are shown.
+
+    Normal:   path + title + chunk_count + assets_count + summary
+    Overflow: path + title + chunk_count + assets_count  (no summary)
+
+    Returns (text, overflowed).
     """
-    stmt = (
-        select(
-            DocumentChunk.chunk_id,
-            DocumentChunk.chunk_type,
-            DocumentChunk.content,
-            DocumentChunk.source_chunk_path,
-            DocumentChunk.chunk_metadata,
-            DocumentSection.section_path,
-        )
-        .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
-        .where(DocumentChunk.document_id == document_id)
-        .where(DocumentChunk.job_result_id == job_result_id)
-        .order_by(DocumentChunk.sort_order)
-        .limit(_MAX_CHUNKS_SLIM_PER_DOC)
-    )
-    result = await db.execute(stmt)
-    chunks: list[dict[str, str]] = []
-    for chunk_id, chunk_type, content, source_chunk_path, chunk_metadata, section_path in result.all():
-        # Path: prefer section_path, fallback to source_chunk_path
-        path = section_path or source_chunk_path or ''
-        if not path:
-            continue
+    from shared.utils.text_utils import truncate_content_preview
 
-        # Preview: prefer metadata.summary (aligned with KB _build_slim_chunk)
-        meta = chunk_metadata or {}
-        summary = re.sub(r'\s+', ' ', str(meta.get('summary') or '')).strip()
-        raw_content = re.sub(r'\s+', ' ', str(content or '')).strip()
-        preview = summary or raw_content[:_CONTENT_PREVIEW_LEN]
+    if not items:
+        return '(no items available)', False
 
-        entry: dict[str, str] = {
-            'path': path,
-            'type': chunk_type or 'text',
-        }
-        if preview:
-            entry['preview'] = preview[:_CONTENT_PREVIEW_LEN]
-        chunks.append(entry)
-    return chunks
+    SUMMARY_HEAD_TOKENS = 80
 
+    def _render_line(item: dict, include_summary: bool) -> str:
+        level = item.get('level', 1)
+        indent = '  ' if level == 2 else ''
+        line = f'{indent}- path="{item["path"]}"  title="{item["title"]}"'
+        chunk_count = item.get('chunk_count', 0)
+        if chunk_count > 0:
+            line += f'  chunks={chunk_count}'
+        assets = item.get('assets_count', 0)
+        if assets > 0:
+            line += f'  assets={assets}'
+        if include_summary:
+            summary = item.get('summary') or item.get('title', '')
+            if summary:
+                clipped = truncate_content_preview(summary, head=SUMMARY_HEAD_TOKENS, tail=0)
+                line += f'\n{indent}  summary: {clipped}'
+        return line
 
-def _format_chunks_for_llm(chunks: list[dict[str, str]], max_chars: int = 4000) -> str:
-    """Format compact chunk descriptors for LLM prompt.
+    # Try full render (with summaries)
+    full_lines = [_render_line(item, include_summary=True) for item in items]
+    full_text = '\n'.join(full_lines)
+    if len(full_text) <= max_chars:
+        return full_text, False
 
-    Shows path (not chunk_id), aligned with KB's _format_chunks_slim().
-    """
-    if not chunks:
-        return '(no chunks available)'
-
-    def _render(include_preview: bool) -> str:
-        lines: list[str] = []
-        for c in chunks:
-            line = f'- [{c["type"]}] path="{c["path"]}"'
-            if include_preview and c.get('preview'):
-                line += f' | {c["preview"]}'
-            if len('\n'.join(lines + [line])) > max_chars:
-                break
-            lines.append(line)
-        return '\n'.join(lines) if lines else '(no chunks available)'
-
-    if len(chunks) > 50:
-        return _render(include_preview=False)
-    full = _render(include_preview=True)
-    return full if len(full) <= max_chars else _render(include_preview=False)
+    # Overflow: render without summaries
+    slim_lines = [_render_line(item, include_summary=False) for item in items]
+    slim_text = '\n'.join(slim_lines)
+    return slim_text[:max_chars], True
 
 
 # ------------------------------------------------------------------
@@ -473,690 +401,180 @@ async def _expand_by_edges(
     return ordered
 
 
-# ------------------------------------------------------------------
-# Main entry point
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Unified scope navigation: load child sections (2-level)
+# ---------------------------------------------------------------------------
 
-async def agent_navigate(
-    db: AsyncSession,
-    *,
-    user_id: str,
-    namespace: str,
-    query: str,
-    llm_fn: LLMFn,
-    max_files: int = 3,
-    max_chunks_per_file: int = 15,
-    exclude_document_ids: Sequence[str] = (),
-) -> list[dict[str, Any]]:
-    """Agent-driven KG navigation — returns chunk paths with confidence.
-
-    Aligned with KB unified_retriever.agent_navigate():
-      Step 1: LLM selects files from knowledge map overview.
-      GREP:   term-search hit chunks → include their parent documents.
-      Edge:   selected documents → follow edges → include neighbors.
-      Step 2: For each file, LLM selects chunk paths from compact previews.
-
-    Returns:
-        List of {"path", "confidence"} objects.
-        Empty list if no documents or LLM fails.
-    """
-    t0 = time.monotonic()
-    logger.info('\n' + '=' * 70)
-    logger.info('  🧭 AGENT NAVIGATE START')
-    logger.info(f'  query="{query}"  max_files={max_files}  max_chunks/file={max_chunks_per_file}')
-    logger.info('=' * 70)
-
-    overview_text, doc_id_to_name = await _build_knowledge_map_overview(
-        db, user_id=user_id, namespace=namespace,
-    )
-    if overview_text == '(empty)':
-        logger.info('  ⚠️  No active documents in namespace, skipping agent navigate')
-        return []
-
-    logger.info(f'\n  📋 STEP 0: Knowledge Map Overview ({len(doc_id_to_name)} files)')
-    logger.info(f'  {"─" * 60}')
-    for line in overview_text.split('\n'):
-        logger.info(f'  {line}')
-    logger.info(f'  {"─" * 60}')
-
-    # ── Step 1: LLM selects files ──
-    logger.info('\n  📄 STEP 1: LLM File Selection')
-    file_prompt = _FILE_SELECT_PROMPT.format(
-        overview=overview_text, query=query,
-    )
-    t1 = time.monotonic()
-    try:
-        file_response = await llm_fn(file_prompt)
-        selected_ids = _parse_json_array(file_response)
-        logger.info(f'  LLM raw response: {file_response[:300]}')
-        logger.info(f'  Parsed IDs: {selected_ids}')
-    except Exception as exc:
-        logger.error(f'  ❌ LLM file selection failed: {exc}')
-        return []
-
-    elapsed_file = round((time.monotonic() - t1) * 1000)
-
-    exclude_set = set(exclude_document_ids)
-    valid_ids = [did for did in selected_ids if did in doc_id_to_name and did not in exclude_set]
-
-    if not valid_ids:
-        logger.warning(
-            f'  ⚠️  LLM returned no valid files (raw={selected_ids}) in {elapsed_file}ms'
-        )
-        return []
-
-    logger.info(f'  ✅ LLM selected {len(valid_ids)} files in {elapsed_file}ms:')
-    for did in valid_ids:
-        logger.info(f'     → [{did}] {doc_id_to_name.get(did, "?")}')
-
-    # ── GREP discovery: include parent documents of term-hit chunks ──
-    logger.info('\n  🔎 STEP 1b: GREP Discovery')
-    try:
-        grep_doc_ids = await _grep_discover_document_ids(
-            db, user_id=user_id, namespace=namespace, query=query,
-            exclude_document_ids=exclude_document_ids,
-        )
-        logger.info(f'  GREP hit document_ids: {grep_doc_ids}')
-        if grep_doc_ids:
-            pre_count = len(valid_ids)
-            for did in grep_doc_ids:
-                if did not in valid_ids and did in doc_id_to_name:
-                    valid_ids.append(did)
-            added = len(valid_ids) - pre_count
-            if added > 0:
-                logger.info(f'  ✅ GREP added {added} new documents')
-            else:
-                logger.info(f'  ℹ️  GREP found {len(grep_doc_ids)} docs but all already selected')
-        else:
-            logger.info('  ℹ️  GREP found no matching documents')
-    except Exception as exc:
-        logger.warning(f'  ⚠️  GREP discovery failed (ignored): {exc}')
-
-    # ── Edge expansion: include neighbor documents ──
-    logger.info('\n  🔗 STEP 1c: Edge Expansion')
-    logger.info(f'  Input documents: {valid_ids}')
-    try:
-        expanded_ids = await _expand_by_edges(
-            db, document_ids=valid_ids, user_id=user_id, namespace=namespace,
-        )
-        if len(expanded_ids) > len(valid_ids):
-            new_from_edges = [d for d in expanded_ids if d not in valid_ids]
-            logger.info(f'  ✅ Edge expansion: {len(valid_ids)} → {len(expanded_ids)} documents')
-            for did in new_from_edges:
-                logger.info(f'     → added neighbor: [{did}] {doc_id_to_name.get(did, "?")}')
-            valid_ids = expanded_ids
-        else:
-            logger.info('  ℹ️  No new neighbors found via edges')
-    except Exception as exc:
-        logger.warning(f'  ⚠️  Edge expansion failed (ignored): {exc}')
-
-    logger.info(f'\n  📊 STEP 1 SUMMARY: {len(valid_ids)} documents after all expansions:')
-    for did in valid_ids:
-        logger.info(f'     [{did}] {doc_id_to_name.get(did, "?")}')
-
-    # ── Step 2: For each file, LLM selects chunk paths ──
-    logger.info('\n  📑 STEP 2: LLM Chunk Path Selection')
-    doc_job_map: dict[str, str] = {}
-    doc_stmt = (
-        select(Document.document_id, Document.current_job_result_id)
-        .where(Document.document_id.in_(valid_ids))
-    )
-    doc_result = await db.execute(doc_stmt)
-    for did, jrid in doc_result.all():
-        if jrid:
-            doc_job_map[did] = jrid
-
-    all_selected_paths: list[dict[str, Any]] = []
-    seen_paths: set[str] = set()
-
-    for doc_id in valid_ids:
-        job_result_id = doc_job_map.get(doc_id)
-        if not job_result_id:
-            logger.warning(f'  ⚠️  doc={doc_id} has no job_result_id, skipping')
-            continue
-
-        doc_name = doc_id_to_name.get(doc_id, doc_id)
-        logger.info(f'\n  {"─" * 50}')
-        logger.info(f'  📖 Processing: {doc_name} [{doc_id}]')
-
-        chunks_slim = await _build_chunks_slim(
-            db, document_id=doc_id, job_result_id=job_result_id,
-        )
-        if not chunks_slim:
-            logger.info('  ⚠️  No chunks found for this document')
-            continue
-
-        logger.info(f'  chunks_slim: {len(chunks_slim)} entries')
-        for ci, c in enumerate(chunks_slim[:10]):
-            logger.info(f'    [{ci}] [{c.get("type","?")}] path="{c.get("path","")}"  preview="{c.get("preview","")[:80]}"')
-        if len(chunks_slim) > 10:
-            logger.info(f'    ... and {len(chunks_slim) - 10} more')
-
-        chunks_text = _format_chunks_for_llm(chunks_slim)
-        chunk_prompt = _CHUNK_SELECT_PROMPT.format(
-            doc_name=doc_name,
-            doc_id=doc_id,
-            chunks_overview=chunks_text,
-            query=query,
-            max_chunks=max_chunks_per_file,
-        )
-
-        valid_paths = {c['path'] for c in chunks_slim if c.get('path')}
-
-        t2 = time.monotonic()
-        try:
-            chunk_response = await llm_fn(chunk_prompt)
-            logger.info(f'  LLM raw response: {chunk_response[:300]}')
-            parsed_selections = _parse_chunk_path_selections(chunk_response)
-        except Exception as exc:
-            logger.error(f'  ❌ LLM chunk selection failed: {exc}')
-            continue
-
-        elapsed_chunk = round((time.monotonic() - t2) * 1000)
-        accepted: list[dict[str, Any]] = []
-        rejected: list[str] = []
-        for idx, item in enumerate(parsed_selections):
-            path = str(item.get('path') or '').strip()
-            if path not in valid_paths:
-                if path:
-                    rejected.append(path)
-                continue
-            confidence = item.get('confidence')
-            if confidence is None:
-                confidence = _default_confidence_for_rank(len(accepted))
-            accepted.append({
-                'path': path,
-                'confidence': confidence,
-            })
-            if len(accepted) >= max_chunks_per_file:
-                break
-
-        logger.info(f'  ✅ Selected {len(accepted)} paths in {elapsed_chunk}ms:')
-        for item in accepted:
-            logger.info(f'     → {item["path"]}  confidence={item["confidence"]:.4f}')
-
-        if rejected:
-            logger.warning(f'  ⚠️  {len(rejected)} paths rejected (not in valid_paths): {rejected[:5]}')
-
-        for item in accepted:
-            path = item['path']
-            if path in seen_paths:
-                continue
-            seen_paths.add(path)
-            all_selected_paths.append(item)
-
-    elapsed_total = round((time.monotonic() - t0) * 1000)
-    logger.info(f'\n{"=" * 70}')
-    logger.info(f'  🧭 AGENT NAVIGATE COMPLETE: {len(all_selected_paths)} paths from {len(valid_ids)} files in {elapsed_total}ms')
-    for i, item in enumerate(all_selected_paths):
-        logger.info(f'    [{i+1}] {item["path"]}  confidence={item["confidence"]:.4f}')
-    logger.info(f'{"=" * 70}')
-    return all_selected_paths
-
-
-# ------------------------------------------------------------------
-# doc_nav.json hierarchical navigation helpers
-# ------------------------------------------------------------------
-
-CHUNK_COUNT_THRESHOLD = 30
-
-_NAV_SECTION_PROMPT = """\
-You are a document section navigator.
-
-Document: "{doc_name}" (id: {doc_id})
-
-Below are the sections (up to 2 levels). Indented entries are sub-sections of the item above.
-Each entry shows its path, title, chunk count, and a content summary.
-
-=== Sections ===
-{sections_overview}
-=== End Sections ===
-
-User query: {query}
-
-Select only the sections most relevant to answering the query.
-Prefer more specific sub-sections over their parent when both are listed and the sub-section is sufficient.
-Return a JSON array with selected paths and confidence scores (0.0-1.0):
-[{{"path": "section/path", "confidence": 0.9}}, ...]
-Do not include any explanation.
-"""
-
-
-async def _load_nav_sections_from_graph(
-    db: AsyncSession,
-    document_id: str,
-) -> dict | None:
-    """Load nav_sections from GraphNode.properties for a document.
-
-    Returns dict with 'sections' list and 'total_chunks' count,
-    or None if not available.
-    """
-    stmt = (
-        select(GraphNode.properties)
-        .where(GraphNode.owner_document_id == document_id)
-        .where(GraphNode.node_kind == 'document')
-    )
-    result = await db.execute(stmt)
-    props = result.scalar_one_or_none()
-    if not props or not isinstance(props, dict):
-        return None
-    nav_sections = props.get('nav_sections')
-    if not nav_sections:
-        return None
-    return {
-        'sections': nav_sections,
-        'total_chunks': props.get('chunks_count', 0),
-    }
-
-async def _load_nav_sections_2level(
+async def _load_child_sections(
     db: AsyncSession,
     document_id: str,
     job_result_id: str,
-) -> dict | None:
-    """Load L1 sections from GraphNode + their L2 children from DocumentSection.
-
-    Returns dict with 'sections' (flat list, each entry has a 'level' field)
-    and 'total_chunks', or None if no nav_sections are available.
-    Each L2 entry is indented under its L1 parent in the returned list order.
-    """
-    from shared.services.retrieval.lexical_text import section_path_from_chunk_path
-    from sqlalchemy import select, func
-    from shared.models.database.document import DocumentSection, DocumentChunk
-
-    nav_data = await _load_nav_sections_from_graph(db, document_id)
-    if not nav_data:
-        return None
-
-    l1_sections = nav_data.get('sections', [])
-    if not l1_sections:
-        return None
-
-    # Extract the kb prefix from L1 chunk_paths so L2 paths can be normalised
-    # to the same format.  L1 path: "kb_id/filename/Section"
-    # L2 section_path from DB:      "Section / SubSection"
-    # Normalised L2 chunk_path:     "kb_id/filename/Section / SubSection"
-    kb_prefix = ''
-    sample_chunk_path = l1_sections[0].get('path', '')
-    sample_section_path = section_path_from_chunk_path(sample_chunk_path) or ''
-    if sample_section_path and sample_chunk_path.endswith(sample_section_path):
-        kb_prefix = sample_chunk_path[: -len(sample_section_path)]
-
-    async def _load_l2_by_path(l1_section_path: str) -> list[dict]:
-        """Path-based fallback: find direct L2 children when intermediate
-        DocumentSection nodes are absent (i.e. parent_section_id join returns
-        nothing but the section_path tree still contains descendants).
-
-        Uses 2 batched queries — one for all descendant sections, one for all
-        descendant chunks — then aggregates in Python.  No N+1 queries.
-
-        Matches section_path entries of the form:
-          '{l1_section_path} / {child_name}'        ← direct L2
-          '{l1_section_path} / {child_name} / ...'  ← deeper (aggregated up)
-        """
-        prefix = l1_section_path + ' / '
-
-        # ── Query 1: all descendant sections under this L1 ──
-        desc_rows = (await db.execute(
-            select(
-                DocumentSection.section_id,
-                DocumentSection.section_path,
-                DocumentSection.summary,
-            )
-            .where(DocumentSection.document_id == document_id)
-            .where(DocumentSection.job_result_id == job_result_id)
-            .where(DocumentSection.section_path.like(prefix + '%'))
-            .order_by(DocumentSection.sort_order)
-        )).all()
-
-        if not desc_rows:
-            return []
-
-        # Extract unique direct-child names and their canonical paths
-        sep = ' / '
-        child_order: list[str] = []       # preserves first-seen order
-        child_sections: dict[str, dict] = {}  # child_path -> aggregated info
-        all_desc_section_ids: list = []
-
-        for sec_id, path, summary in desc_rows:
-            all_desc_section_ids.append(sec_id)
-            remainder = path[len(prefix):]
-            child_name = remainder.split(sep)[0]
-            child_path = prefix + child_name
-            if child_path not in child_sections:
-                child_order.append(child_path)
-                child_sections[child_path] = {
-                    'path': child_path,
-                    'title': child_name,
-                    'chunk_count': 0,
-                    'children_count': 0,
-                    'summary': summary or '',
-                }
-            # Count grandchildren (paths with one more ' / ' after child_path)
-            if sep in path[len(child_path):].lstrip():
-                child_sections[child_path]['children_count'] += 1
-
-        # ── Query 2: chunk counts for all descendant section_ids in one shot ──
-        chunk_rows = (await db.execute(
-            select(
-                DocumentChunk.section_id,
-                func.count(DocumentChunk.id).label('cnt'),
-            )
-            .where(DocumentChunk.document_id == document_id)
-            .where(DocumentChunk.job_result_id == job_result_id)
-            .where(DocumentChunk.section_id.in_(all_desc_section_ids))
-            .group_by(DocumentChunk.section_id)
-        )).all()
-
-        # Map section_id → section_path for lookup
-        sec_id_to_path: dict = {sec_id: path for sec_id, path, _ in desc_rows}
-        for sec_id, cnt in chunk_rows:
-            path = sec_id_to_path.get(sec_id, '')
-            if not path.startswith(prefix):
-                continue
-            remainder = path[len(prefix):]
-            child_name = remainder.split(sep)[0]
-            child_path = prefix + child_name
-            if child_path in child_sections:
-                child_sections[child_path]['chunk_count'] += cnt
-
-        return [child_sections[cp] for cp in child_order]
-
-
-    all_sections: list[dict] = []
-    for s1 in l1_sections:
-        entry = dict(s1, level=1)
-        all_sections.append(entry)
-        # Load L2 children for sections that have sub-sections
-        if s1.get('children_count', 0) > 0:
-            db_path = section_path_from_chunk_path(s1['path']) or s1['path']
-            # Try parent_section_id join first (fast, works when intermediate nodes exist)
-            l2 = await _build_sub_sections_from_db(
-                db,
-                document_id=document_id,
-                job_result_id=job_result_id,
-                parent_path=db_path,
-            )
-            if not l2:
-                # Fallback: path-pattern LIKE match (handles absent intermediate nodes)
-                l2 = await _load_l2_by_path(db_path)
-            for s2 in l2:
-                s2['level'] = 2
-                # Normalise path: prepend kb_prefix so L2 uses chunk_path format
-                raw_path = s2.get('path', '')
-                if kb_prefix and not raw_path.startswith(kb_prefix):
-                    s2['path'] = kb_prefix + raw_path
-                all_sections.append(s2)
-
-    if not all_sections:
-        return None
-
-    return {
-        'sections': all_sections,
-        'total_chunks': nav_data.get('total_chunks', 0),
-    }
-
-
-async def _build_sub_sections_from_db(
-    db: AsyncSession,
-    *,
-    document_id: str,
-    job_result_id: str,
-    parent_path: str,
+    scope_path: str | None = None,
 ) -> list[dict]:
-    """Build child section view from DocumentSection table.
+    """Load the next 2 available section depth bands under *scope_path*.
 
-    Finds child sections of the given parent_path and computes chunk
-    counts via DocumentChunk aggregation.  Runs at query time in memory
-    — no files created.
+    Returns a flat list sorted by sort_order, each item:
+        {path, title, summary, chunk_count, assets_count, level}
+
+    - level=1: nearest available descendant depth under scope
+    - level=2: second nearest available descendant depth under scope
+    - chunk_count: text chunks under this section (excluding image/table)
+    - assets_count: image + table chunks under this section
     """
-    # Find the parent section by path
-    parent_stmt = (
-        select(DocumentSection.section_id)
-        .where(DocumentSection.document_id == document_id)
-        .where(DocumentSection.job_result_id == job_result_id)
-        .where(DocumentSection.section_path == parent_path)
-    )
-    parent_result = await db.execute(parent_stmt)
-    parent_section_id = parent_result.scalar_one_or_none()
-    if parent_section_id is None:
-        return []
-
-    # Get child sections
-    children_stmt = (
+    # ── Fetch all sections for this document revision ────────────────────
+    stmt = (
         select(
             DocumentSection.section_id,
             DocumentSection.section_title,
             DocumentSection.section_path,
-            DocumentSection.section_level,
             DocumentSection.summary,
+            DocumentSection.sort_order,
         )
         .where(DocumentSection.document_id == document_id)
         .where(DocumentSection.job_result_id == job_result_id)
-        .where(DocumentSection.parent_section_id == parent_section_id)
         .order_by(DocumentSection.sort_order)
     )
-    children_result = await db.execute(children_stmt)
-    children = children_result.all()
-
-    if not children:
+    section_rows = (await db.execute(stmt)).all()
+    if not section_rows:
         return []
 
-    # Get chunk counts per section
-    section_ids = [row[0] for row in children]
-    chunk_count_stmt = (
-        select(
-            DocumentChunk.section_id,
-            func.count(DocumentChunk.id).label('count'),
-        )
-        .where(DocumentChunk.document_id == document_id)
-        .where(DocumentChunk.job_result_id == job_result_id)
-        .where(DocumentChunk.section_id.in_(section_ids))
-        .group_by(DocumentChunk.section_id)
-    )
-    chunk_count_result = await db.execute(chunk_count_stmt)
-    chunk_counts = {row[0]: row[1] for row in chunk_count_result.all()}
+    scope = normalize_section_path(scope_path) if scope_path else ''
+    scope_parts = split_section_path(scope)
+    scope_depth = len(scope_parts)
 
-    # Count grandchildren for each child
-    grandchild_stmt = (
-        select(
-            DocumentSection.parent_section_id,
-            func.count(DocumentSection.section_id).label('count'),
-        )
-        .where(DocumentSection.document_id == document_id)
-        .where(DocumentSection.job_result_id == job_result_id)
-        .where(DocumentSection.parent_section_id.in_(section_ids))
-        .group_by(DocumentSection.parent_section_id)
-    )
-    grandchild_result = await db.execute(grandchild_stmt)
-    grandchild_counts = {row[0]: row[1] for row in grandchild_result.all()}
-
-    result = []
-    for section_id, title, path, level, summary in children:
-        result.append({
-            'title': title or '',
-            'path': path or '',
+    # Build full section metadata index
+    all_sections: dict[str, dict] = {}  # path → {title, summary, sort_order, section_id}
+    for section_id, title, path, summary, sort_order in section_rows:
+        if not path:
+            continue
+        path = normalize_section_path(path)
+        parts = split_section_path(path)
+        all_sections[path] = {
+            'title': title or parts[-1] if parts else path,
             'summary': summary or '',
-            'chunk_count': chunk_counts.get(section_id, 0),
-            'children_count': grandchild_counts.get(section_id, 0),
-            'level': level or 1,
-        })
-    return result
+            'sort_order': int(sort_order or 0),
+            'section_id': section_id,
+            'parts': parts,
+            'depth': len(parts),
+        }
 
+    # ── Identify the next two real depth bands ───────────────────────────
+    #
+    # The stored hierarchy is authoritative. Some ingested documents may only
+    # expose deeper section rows at root; in that case those rows become this
+    # round's relative L1/L2 instead of synthesizing missing ancestors.
+    visible_sections: list[tuple[str, dict, int]] = []
+    visible_depths: set[int] = set()
+    for path, meta in all_sections.items():
+        parts = meta['parts']
+        if scope_parts and (
+            parts[:scope_depth] != scope_parts or len(parts) <= scope_depth
+        ):
+            continue
+        relative_depth = len(parts) - scope_depth
+        if relative_depth < 1:
+            continue
+        visible_sections.append((path, meta, relative_depth))
+        visible_depths.add(relative_depth)
 
-async def _collect_leaf_paths(
-    db: AsyncSession,
-    *,
-    document_id: str,
-    job_result_id: str,
-    section_path: str,
-) -> list[dict[str, Any]]:
-    """Collect all chunk paths under a given section path.
+    selected_depths = sorted(visible_depths)[:2]
+    depth_to_level = {
+        depth: idx + 1
+        for idx, depth in enumerate(selected_depths)
+    }
 
-    Returns list of {"path": str, "confidence": float}.
-    Finds chunks whose section_path starts with the given prefix.
-    """
-    stmt = (
-        select(DocumentSection.section_path)
-        .join(DocumentChunk, DocumentChunk.section_id == DocumentSection.section_id)
-        .where(DocumentChunk.document_id == document_id)
-        .where(DocumentChunk.job_result_id == job_result_id)
-        .where(DocumentSection.section_path.like(f'{section_path}%'))
-        .order_by(DocumentChunk.sort_order)
-    )
-    result = await db.execute(stmt)
-    paths = []
-    seen: set[str] = set()
-    for (path,) in result.all():
-        if path and path not in seen:
-            seen.add(path)
-            paths.append({
+    items_by_path: dict[str, dict] = {}
+
+    for path, meta, relative_depth in visible_sections:
+        level = depth_to_level.get(relative_depth)
+        if level is None:
+            continue
+        if path not in items_by_path:
+            items_by_path[path] = {
                 'path': path,
-                'confidence': 0.8,
-            })
-    return paths
+                'title': meta['title'],
+                'summary': meta['summary'],
+                'level': level,
+                'sort_order': meta['sort_order'],
+                'chunk_count': 0,
+                'assets_count': 0,
+                'section_id': meta['section_id'],
+            }
 
+    if not items_by_path:
+        return []
 
-def _format_sections_for_llm(
-    sections: list[dict],
-    max_chars: int = 20000,
-) -> tuple[str, bool]:
-    """Format section entries for LLM prompt with 2-level visual indentation.
-
-    Returns:
-        (text, overflowed)
-        - text:       formatted string to put in the LLM prompt
-        - overflowed: True when the full L1+L2+summary content did NOT fit in
-                      max_chars. In that case the caller should fall back to the
-                      two-step drill-down: first show L1-only, then show L2 for
-                      selected L1s in a second LLM call.
-
-    Rendering strategy:
-    - Pass 1: Render ALL L1 sections (path + title only). Guarantees LLM sees
-              the complete document skeleton even if budget is tight.
-    - Pass 2: Fill remaining budget with summaries + L2 detail (token-aware).
-              If the entire section list fits → overflowed=False.
-              If Pass 2 is cut short → overflowed=True (caller triggers drill-down).
-    """
-    from shared.utils.text_utils import truncate_content_preview
-
-    if not sections:
-        return '(no sections available)', False
-
-    SUMMARY_HEAD_TOKENS = 80
-
-    # ── Pass 1: L1 skeleton (always included) ─────────────────────────────
-    l1_lines: list[str] = []
-    for s in sections:
-        if s.get('level', 1) != 1:
-            continue
-        line = f'- path="{s["path"]}"  title="{s["title"]}"  chunks={s.get("chunk_count", 0)}'
-        if s.get('children_count', 0) > 0:
-            line += f'  sub_sections={s["children_count"]}'
-        l1_lines.append(line)
-
-    skeleton = '\n'.join(l1_lines)
-    if len(skeleton) >= max_chars:
-        return skeleton[:max_chars], True  # extremely large doc
-
-    remaining = max_chars - len(skeleton)
-
-    # ── Pass 2: enrich within remaining budget ─────────────────────────────
-    enriched_lines: list[str] = []
-    total_sections = len(sections)
-    included = 0
-    for s in sections:
-        level = s.get('level', 1)
-        indent = '  ' if level == 2 else ''
-        line = f'{indent}- path="{s["path"]}"  title="{s["title"]}"  chunks={s.get("chunk_count", 0)}'
-        if s.get('children_count', 0) > 0:
-            line += f'  sub_sections={s["children_count"]}'
-        summary = s.get('summary', '')
-        if summary:
-            clipped = truncate_content_preview(summary, head=SUMMARY_HEAD_TOKENS, tail=0)
-            line += f'\n{indent}  summary: {clipped}'
-        candidate = '\n'.join(enriched_lines + [line])
-        if len(candidate) > remaining:
-            break
-        enriched_lines.append(line)
-        included += 1
-
-    overflowed = included < total_sections
-    result_text = '\n'.join(enriched_lines) if enriched_lines else skeleton
-    return result_text, overflowed
-
-
-def _format_l1_only_for_llm(sections: list[dict]) -> str:
-    """Format only L1 sections for the first step of the two-step drill-down.
-
-    Used when the full L1+L2 layout overflows the budget: show LLM just the
-    top-level chapters (with summaries) so it can pick which ones to drill into.
-    """
-    from shared.utils.text_utils import truncate_content_preview
-
-    lines: list[str] = []
-    for s in sections:
-        if s.get('level', 1) != 1:
-            continue
-        line = f'- path="{s["path"]}"  title="{s["title"]}"  chunks={s.get("chunk_count", 0)}'
-        if s.get('children_count', 0) > 0:
-            line += f'  sub_sections={s["children_count"]}'
-        summary = s.get('summary', '')
-        if summary:
-            clipped = truncate_content_preview(summary, head=80, tail=0)
-            line += f'\n  summary: {clipped}'
-        lines.append(line)
-    return '\n'.join(lines) if lines else '(no sections available)'
-
-
-def _format_l2_for_selected_l1s(sections: list[dict], selected_l1_paths: set[str]) -> str:
-    """Format L2 children of selected L1 paths for the second drill-down LLM call.
-
-    Shows each selected L1 as a header, followed by its L2 children (with summaries).
-    Used after the LLM has already picked which L1 chapters are relevant.
-    """
-    from shared.utils.text_utils import truncate_content_preview
-
-    lines: list[str] = []
-    for s in sections:
-        level = s.get('level', 1)
-        path = s.get('path', '')
-        if level == 1:
-            if path not in selected_l1_paths:
-                continue
-            # Show L1 as a context header (not selectable, just for readability)
-            line = f'## {s["title"]}  (path="{path}")'
-            lines.append(line)
-        elif level == 2:
-            # Check if parent L1 is in selected set
-            parent_match = any(
-                path.startswith(l1 + '/') or path.startswith(l1 + ' / ')
-                for l1 in selected_l1_paths
+    # ── Count chunks per section (text vs assets) ───────────────────────
+    section_ids = [meta['section_id'] for meta in all_sections.values()]
+    if section_ids:
+        from sqlalchemy import case, literal_column
+        chunk_stmt = (
+            select(
+                DocumentChunk.section_id,
+                func.count(
+                    case(
+                        (DocumentChunk.chunk_type.notin_(['image', 'table']), literal_column('1')),
+                    )
+                ).label('text_count'),
+                func.count(
+                    case(
+                        (DocumentChunk.chunk_type.in_(['image', 'table']), literal_column('1')),
+                    )
+                ).label('asset_count'),
             )
-            if not parent_match:
-                continue
-            line = f'  - path="{path}"  title="{s["title"]}"  chunks={s.get("chunk_count", 0)}'
-            summary = s.get('summary', '')
-            if summary:
-                clipped = truncate_content_preview(summary, head=80, tail=0)
-                line += f'\n    summary: {clipped}'
-            lines.append(line)
+            .where(DocumentChunk.document_id == document_id)
+            .where(DocumentChunk.job_result_id == job_result_id)
+            .where(DocumentChunk.section_id.in_(section_ids))
+            .group_by(DocumentChunk.section_id)
+        )
+        chunk_rows = (await db.execute(chunk_stmt)).all()
+        section_id_counts: dict[str, tuple[int, int]] = {
+            sid: (int(tc), int(ac)) for sid, tc, ac in chunk_rows
+        }
+    else:
+        section_id_counts = {}
 
-    return '\n'.join(lines) if lines else '(no sub-sections found for selected chapters)'
+    # Build section_id → path mapping for aggregation
+    sid_to_path = {meta['section_id']: path for path, meta in all_sections.items()}
 
-
-
-def _parse_section_selections(text: str) -> list[dict[str, str]]:
-    """Parse section selections from LLM output.
-
-    Expects JSON array of {path, action} objects.
-    """
-    payload = _extract_json_array_payload(text)
-    selections: list[dict[str, str]] = []
-    for item in payload:
-        if not isinstance(item, dict):
+    # Aggregate chunk counts upward: each item gets counts from itself + descendants
+    for sid, (text_c, asset_c) in section_id_counts.items():
+        chunk_path = sid_to_path.get(sid, '')
+        if not chunk_path:
             continue
-        path = str(item.get('path') or '').strip()
-        action = str(item.get('action') or 'select').strip().lower()
-        if path:
-            selections.append({'path': path, 'action': action})
-    return selections
+        # Add to every ancestor item that is in our items_by_path
+        for item_path, item in items_by_path.items():
+            if chunk_path == item_path or chunk_path.startswith(item_path + ' / '):
+                item['chunk_count'] += text_c
+                item['assets_count'] += asset_c
+
+    # ── Sort: interleave L2 under their L1 parent ────────────────────────
+    #
+    # Previous sort `(level, sort_order, path)` grouped all L1 first, then
+    # all L2.  The LLM prompt uses indentation to show L2 as sub-items, so
+    # they should appear directly after their L1 parent for readability.
+    #
+    # Sort key: (parent_sort_order, is_child, own_sort_order)
+    #   L1 items:  (own_sort_order, 0, 0)       → primary position
+    #   L2 items:  (parent_sort_order, 1, own)   → right after their parent
+
+    def _interleave_key(item: dict) -> tuple:
+        if item['level'] == 2:
+            parts = split_section_path(item['path'])
+            if len(parts) >= 2:
+                parent_path = ' / '.join(parts[:-1])
+                parent_item = items_by_path.get(parent_path)
+                if parent_item is not None:
+                    return (parent_item['sort_order'], 1, item['sort_order'])
+            # Orphan L2 (no matching L1 parent in this view): sort by own order
+            return (item['sort_order'], 1, item['sort_order'])
+        return (item['sort_order'], 0, 0)
+
+    sorted_items = sorted(items_by_path.values(), key=_interleave_key)
+    # Clean up internal fields
+    for item in sorted_items:
+        item.pop('sort_order', None)
+        item.pop('section_id', None)
+    return sorted_items
+
+

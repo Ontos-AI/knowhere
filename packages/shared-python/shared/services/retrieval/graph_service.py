@@ -154,23 +154,6 @@ def _extract_document_top_summary(
     return ''
 
 
-def _extract_document_nav_sections(
-    chunk_metadata_list: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Extract document_nav_sections from chunk metadata.
-
-    The nav_sections list is injected by kb_tasks.py at parse time from
-    doc_nav.json.  Returns the first non-empty list found in chunk metadata.
-    Each section has: title, path, summary, chunk_count, children_count.
-    """
-    for meta in chunk_metadata_list:
-        if not isinstance(meta, dict):
-            continue
-        nav_sections = meta.get('document_nav_sections')
-        if isinstance(nav_sections, list) and nav_sections:
-            return nav_sections
-    return []
-
 @dataclass
 class GraphScope:
     user_id: str
@@ -226,9 +209,6 @@ class DocumentGraphService:
         ]
         top_summary = _extract_document_top_summary(chunk_metadata_list, sections)
 
-        # Extract nav_sections from chunk metadata (injected by kb_tasks.py)
-        nav_sections = _extract_document_nav_sections(chunk_metadata_list)
-
         # ── Clean up old graph data for this document ──
         self.remove_document_graph(db, scope=GraphScope(user_id=user_id, namespace=namespace), document_id=document_id)
 
@@ -250,7 +230,6 @@ class DocumentGraphService:
                     'chunks_count': chunks_count,
                     'types': dict(types_breakdown),
                     'top_summary': top_summary,
-                    'nav_sections': nav_sections,
                 },
             )
         )

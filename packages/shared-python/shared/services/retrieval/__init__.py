@@ -1,4 +1,3 @@
-from .agent_navigate import agent_navigate
 from .app_service import list_lexical_chunks, merge_channels_rrf, run_retrieval_query
 from .cache_service import (
     bump_retrieval_namespace_cache_version,
@@ -12,7 +11,6 @@ from .hit_stats_service import record_retrieval_hits
 from .llm_adapter import create_retrieval_llm_fn
 
 __all__ = [
-    "agent_navigate",
     "create_retrieval_llm_fn",
     "run_retrieval_query",
     "list_lexical_chunks",
