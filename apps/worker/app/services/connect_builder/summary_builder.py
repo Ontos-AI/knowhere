@@ -46,11 +46,11 @@ _TITLE_ENUM_PREFIXES = (
 # ─── LLM Interface ───────────────────────────────────────────────────────────
 
 
-def _llm_summarize(snippets_text: str, node_name: str) -> str:
+def _llm_summarize(snippets_text: str, node_name: str, max_tokens: int = 100) -> str:
     """
     Call LLM to produce a concise summary from aggregated child snippets.
 
-    Returns plain text summary (≤100 chars), or "" on failure.
+    Returns plain text summary, or "" on failure.
     """
     try:
         from shared.services.ai.prompt_service import build_prompt, _detect_text_language
@@ -58,12 +58,12 @@ def _llm_summarize(snippets_text: str, node_name: str) -> str:
 
         # Deterministic language lock — see prompt_service._language_directive
         detected_lang = _detect_text_language(snippets_text)
-        prompt, temperature, top_p, max_tokens = build_prompt(
+        prompt, temperature, top_p, _prompt_max_tokens = build_prompt(
             task="file-summary",
             texts=snippets_text,
             query="",
             paras={
-                "max_tokens": 100,
+                "max_tokens": max_tokens,
                 "node_name": node_name,
                 "lang": detected_lang,
             },
@@ -89,161 +89,6 @@ def _llm_summarize(snippets_text: str, node_name: str) -> str:
         logger.warning(f"LLM summary failed for '{node_name}': {e}")
         return ""
 
-
-def _normalize_whitespace(text: str) -> str:
-    return re.sub(r"\s+", " ", str(text or "")).strip()
-
-
-def _normalize_multiline_text(text: str) -> str:
-    lines = []
-    for raw_line in str(text or "").splitlines():
-        stripped = raw_line.rstrip()
-        if not stripped.strip():
-            continue
-        leading_spaces = len(stripped) - len(stripped.lstrip(" "))
-        compact = re.sub(r"\s+", " ", stripped.lstrip())
-        lines.append((" " * leading_spaces) + compact)
-    return "\n".join(lines).strip()
-
-
-def _looks_like_title_enum(text: str) -> bool:
-    normalized = _normalize_whitespace(text).lower()
-    return any(normalized.startswith(prefix) for prefix in _TITLE_ENUM_PREFIXES)
-
-
-def _truncate_navigation_summary(text: str, max_tokens: int = NAVIGATION_TOP_SUMMARY_MAX_TOKENS) -> str:
-    """Truncate navigation summary while preserving multiline tree structure.
-
-    Budget is measured in semantic tokens via ``count_cn_en`` (1 Chinese
-    char = 1 token, 1 English word = 1 token) so the limit is
-    language-fair.  For multiline tree previews, truncation removes
-    trailing branches.  For single-line LLM summaries, the first
-    sentence is kept; if still too long, ``truncate_text_by_tokens``
-    is used (same middle-ellipsis strategy as layout_parser headings).
-    """
-    from shared.utils.text_utils import count_cn_en
-    from app.services.common.kb_utils import truncate_text_by_tokens
-
-    normalized = _normalize_multiline_text(text)
-    if not normalized:
-        return ""
-    if count_cn_en(normalized) <= max_tokens:
-        return normalized
-
-    # Multiline content (tree preview) — truncate by keeping lines
-    lines = normalized.split('\n')
-    if len(lines) > 1:
-        kept: List[str] = []
-        current_tokens = 0
-        for line in lines:
-            line_tokens = count_cn_en(line)
-            if kept and current_tokens + line_tokens > max_tokens:
-                break
-            kept.append(line)
-            current_tokens += line_tokens
-        if kept:
-            return '\n'.join(kept)
-
-    # Single-line content (LLM summary) — keep first sentence
-    flat = _normalize_whitespace(normalized)
-    sentences = re.split(r'(?<=[。！？；.!?;])\s+', flat)
-    if sentences and sentences[0]:
-        first = sentences[0]
-        if count_cn_en(first) <= max_tokens:
-            return first
-
-    # Absolute fallback: token-aware truncation with middle '...'
-    return truncate_text_by_tokens(flat, max_tokens, 0, lang_aware=False)
-
-
-def _dedupe_summary_blocks(items: List[str]) -> List[str]:
-    deduped: List[str] = []
-    seen: set[str] = set()
-    for item in items:
-        normalized = _normalize_multiline_text(item)
-        if not normalized:
-            continue
-        key = normalized.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(normalized)
-    return deduped
-
-
-def _truncate_tree_title(title: str) -> str:
-    """Truncate an individual section title for tree preview display.
-
-    Uses the same token-aware truncation as layout_parser headings:
-    keeps start and end tokens with '...' in the middle.
-    """
-    from app.services.common.kb_utils import truncate_text_by_tokens
-
-    return truncate_text_by_tokens(
-        title,
-        _TREE_TITLE_MAX_TOKENS_START,
-        _TREE_TITLE_MAX_TOKENS_END,
-        lang_aware=True,
-    )
-
-
-# ─── Chunk Lookup ───────────────────────────────────────────────────────────────────
-
-
-def _build_chunk_lookup(
-    chunks: List[Dict[str, Any]],
-) -> Dict[str, str]:
-    """
-    Build a mapping from the LAST path segment to a snippet string.
-
-    For each chunk, compose a structured snippet:
-      - If metadata.summary exists → use it directly
-    - Otherwise → title (node_key) + keywords
-    """
-    lookup: Dict[str, str] = {}
-
-    for chunk in chunks:
-        path = chunk.get("path", "")
-        if not path:
-            continue
-
-        ctype = chunk.get("type", "text")
-        # Skip image and table chunks — they have their own summaries
-        # but don't belong to the content tree path hierarchy
-        if ctype in ("image", "table"):
-            continue
-
-        # Use the last path segment as tree node key
-        parts = path.rstrip("/").split("/")
-        node_key = parts[-1] if parts else ""
-        if not node_key:
-            continue
-
-        meta = chunk.get("metadata", {})
-        summary = ""
-        if isinstance(meta, dict):
-            summary = (meta.get("summary") or "").strip()
-
-        if not summary:
-            snippet_parts = [node_key]
-            if isinstance(meta, dict):
-                kw = meta.get("keywords")
-                if isinstance(kw, list):
-                    kw_text = ", ".join(str(item).strip() for item in kw if str(item).strip())
-                else:
-                    kw_text = str(kw or "").strip()
-                if kw_text:
-                    snippet_parts.append(f"Keywords: {kw_text}")
-            summary = "\n".join(snippet_parts)
-
-        if summary:
-            # Multiple chunks may share the same last segment (e.g. "part 1", "part 2")
-            if node_key in lookup:
-                lookup[node_key] = lookup[node_key] + "\n" + summary
-            else:
-                lookup[node_key] = summary
-
-    return lookup
 
 
 #
@@ -302,16 +147,15 @@ def ensure_doc_nav_json(
 
 def _recursive_summarize_nav(
     node: Dict[str, Any],
-    chunk_lookup: Dict[str, str],
     use_llm: bool = True,
+    is_top_level: bool = False,
 ) -> str:
     """Bottom-up recursive summarization on a doc_nav section node.
 
     Operates on the children-array tree structure of doc_nav.json.
 
     For each node:
-    - Leaf (children==[]) → keep existing summary (set during ZIP creation)
-      or update from chunk_lookup if a better one exists.
+    - Leaf (children==[]) → keep existing summary (set during ZIP creation).
     - Non-leaf → recursively summarize children, then aggregate.
 
     Writes summary in-place into ``node["summary"]``.
@@ -321,43 +165,48 @@ def _recursive_summarize_nav(
     title = node.get("title", "")
 
     if not children:
-        # Leaf node — check if chunk_lookup has a better summary
+        # Leaf node — keep existing summary
         existing = (node.get("summary") or "").strip()
-        lookup_snippet = chunk_lookup.get(title, "")
-        if lookup_snippet and (not existing or existing == title):
-            node["summary"] = lookup_snippet
+        if existing:
+            node["summary"] = existing
         return node.get("summary", "")
 
     # Recurse into children
     child_summaries: List[Tuple[str, str]] = []
     for child in children:
-        child_summary = _recursive_summarize_nav(child, chunk_lookup, use_llm)
+        child_summary = _recursive_summarize_nav(child, use_llm, is_top_level=False)
         if child_summary:
             child_summaries.append((child.get("title", ""), child_summary))
 
     if not child_summaries:
         return node.get("summary", "")
 
-    # Aggregate child summaries
+    # Aggregate child summaries without hard truncation
     aggregated_parts = []
     for name, summary in child_summaries:
-        truncated = truncate_content_preview(summary, head=SUMMARY_MAX_LEN, tail=0)
-        aggregated_parts.append(f"[{name}] {truncated}")
+        aggregated_parts.append(f"[{name}] {summary}")
 
     aggregated_text = "\n".join(aggregated_parts)
 
-    if len(child_summaries) <= 1:
-        result = truncate_content_preview(child_summaries[0][1], head=SUMMARY_MAX_LEN, tail=0)
+    max_len = NAVIGATION_TOP_SUMMARY_MAX_TOKENS if is_top_level else SUMMARY_MAX_LEN
+
+    if len(child_summaries) <= 1 and not is_top_level:
+        result = child_summaries[0][1]
     else:
-        titles = [name for name, _ in child_summaries]
-        title_enum = "This section covers: " + ", ".join(titles)
+        if is_top_level and not use_llm:
+            titles = [name for name, _ in child_summaries if name.lower() != "root"]
+        else:
+            titles = [name for name, _ in child_summaries]
+
+        enum_prefix = "This document includes: " if is_top_level else "This section covers: "
+        title_enum = enum_prefix + ", ".join(titles)
 
         if not use_llm:
             result = title_enum
         else:
             total_len = sum(len(s) for _, s in child_summaries)
             if total_len > SUMMARY_MAX_LEN:
-                result = _llm_summarize(aggregated_text, title)
+                result = _llm_summarize(aggregated_text, title, max_tokens=max_len)
                 if not result:
                     result = title_enum
             else:
@@ -400,55 +249,32 @@ def _doc_nav_has_enriched_summaries(doc_nav: Dict[str, Any]) -> bool:
     return _check_sections(sections)
 
 
-def _build_nav_top_summary(doc_nav: Dict[str, Any]) -> str:
+def _build_nav_top_summary(
+    doc_nav: Dict[str, Any], 
+    use_llm: bool = True
+) -> str:
     """Build navigation-facing top summary from enriched doc_nav.json.
 
     Strategy:
-    - If root section has a high-quality LLM summary → use it.
-    - Otherwise → build a tree preview from section titles.
+    Treat all sections as children of a virtual Document node and recursively summarize.
     """
     sections = doc_nav.get("sections", [])
     if not sections:
         return ""
 
-    # Check for a root-level LLM summary (first section if it's 'Root')
-    root_section = None
-    content_sections = []
-    for s in sections:
-        if s.get("title", "").lower() == "root":
-            root_section = s
-        else:
-            content_sections.append(s)
 
-    # Try root summary first
-    if root_section:
-        root_summary = _normalize_whitespace(root_section.get("summary", ""))
-        if root_summary and not _looks_like_title_enum(root_summary):
-            return _truncate_navigation_summary(root_summary)
-
-    # Build tree preview from section titles
-    lines: List[str] = []
-    excluded = {"root", "images", "tables"}
-
-    def _render_sections(secs: List[Dict], depth: int = 0) -> None:
-        for sec in secs:
-            title = sec.get("title", "")
-            if title.lower() in excluded:
-                continue
-            if len(lines) >= NON_LLM_TOP_SUMMARY_MAX_SECTIONS:
-                break
-            indent = "  " * depth
-            display = _truncate_tree_title(title)
-            lines.append(f"{indent}- {display}")
-            if depth + 1 < NON_LLM_TOP_SUMMARY_MAX_DEPTH:
-                _render_sections(sec.get("children", []), depth + 1)
-
-    _render_sections(content_sections)
-
-    if lines:
-        tree_text = "This document includes the following contents:\n" + "\n".join(lines)
-        return _truncate_navigation_summary(tree_text)
-    return ""
+    virtual_doc_node = {
+        "title": "Document Overview",
+        "children": sections
+    }
+    
+    top_summary = _recursive_summarize_nav(
+        virtual_doc_node, 
+        use_llm=use_llm, 
+        is_top_level=True
+    )
+    
+    return top_summary
 
 
 def enrich_doc_nav_summaries(
@@ -490,31 +316,22 @@ def enrich_doc_nav_summaries(
 
         if not force and _doc_nav_has_enriched_summaries(doc_nav):
             logger.debug(f"Summaries already exist in {DOC_NAV_FILENAME} for {file_name}, skipping")
-            results[file_name] = _build_nav_top_summary(doc_nav)
+            results[file_name] = _build_nav_top_summary(doc_nav, use_llm=use_llm)
             continue
 
-        # Load chunks for snippet lookup
-        chunks_path = os.path.join(file_dir, "chunks.json")
-        chunks: List[Dict[str, Any]] = []
-        if os.path.exists(chunks_path):
-            with open(chunks_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            chunks = data.get("chunks", [])
-
-        chunk_lookup = _build_chunk_lookup(chunks)
         logger.info(
             f"📝 Enriching {DOC_NAV_FILENAME} summaries for {file_name} "
-            f"({len(chunk_lookup)} leaf snippets, mode={mode_label})"
+            f"(mode={mode_label})"
         )
 
         # Recursively summarize each top-level section
         for section in doc_nav.get("sections", []):
-            _recursive_summarize_nav(section, chunk_lookup, use_llm=use_llm)
+            _recursive_summarize_nav(section, use_llm=use_llm)
 
         _save_doc_nav(file_dir, doc_nav)
         logger.info(f"✅ doc_nav summaries saved for {file_name}")
 
-        top_summary = _build_nav_top_summary(doc_nav)
+        top_summary = _build_nav_top_summary(doc_nav, use_llm=use_llm)
         results[file_name] = top_summary
 
     return results
@@ -524,7 +341,7 @@ def load_nav_top_summary(file_dir: str, file_name: str = "") -> str:
     """Load doc_nav.json and extract the navigation top summary."""
     doc_nav = _load_doc_nav(file_dir)
     if doc_nav is not None:
-        return _build_nav_top_summary(doc_nav)
+        return _build_nav_top_summary(doc_nav, use_llm=False)
     return ""
 
 
@@ -570,7 +387,7 @@ def build_section_summary_lookup(file_dir: str) -> Dict[str, str]:
     # This mirrors GraphNode.properties.top_summary and ensures the
     # DocumentSection Root row has a summary for data completeness.
     if "Root" not in lookup:
-        top_summary = _build_nav_top_summary(doc_nav)
+        top_summary = _build_nav_top_summary(doc_nav, use_llm=False)
         if top_summary:
             lookup["Root"] = top_summary
 

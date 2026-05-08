@@ -65,7 +65,7 @@ def count_cn_en(text: str) -> int:
 def truncate_content_preview(
     text: str,
     head: int = 200,
-    tail: int = 20,
+    tail: int = 50,
 ) -> str:
     """Token-aware content preview truncation.
 
