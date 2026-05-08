@@ -313,13 +313,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
 
     result = kb_tasks.parse_task.run(job_id, user_id, "kb_management")
 
-    expected_summary = (
-        "This document includes the following contents:\n"
-        "- 公司研究\n"
-        "  - 自主可控加强，寒武纪或迎来营收快速放量周期\n"
-        "- 相关研报\n"
-        "  - 要点"
-    )
+    expected_summary = "This document includes: 公司研究, 相关研报"
     expected_connect_to = [
         {
             "target": "image-1",
