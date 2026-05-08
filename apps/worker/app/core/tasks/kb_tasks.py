@@ -5,7 +5,6 @@ Sync implementation for gevent worker pool.
 All I/O operations use sync services that yield cooperatively under gevent.
 """
 
-import json
 import os
 from datetime import datetime, timezone
 

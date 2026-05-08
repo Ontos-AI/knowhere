@@ -18,7 +18,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import Document, DocumentChunk, DocumentSection
+from shared.models.database.document import Document
 from shared.services.retrieval.agentic.types import ToolResult
 from shared.services.retrieval.agent_navigate import (
     _build_knowledge_map_overview,

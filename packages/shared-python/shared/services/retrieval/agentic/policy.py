@@ -148,7 +148,6 @@ class LLMPolicy:
         state_json = json.dumps(state_data, ensure_ascii=False, indent=2)
 
         # Count pending docs
-        pending_count = len(state.selected_docs) - state.pending_doc_index
 
         return _POLICY_PROMPT_TEMPLATE.format(
             query=self._query,

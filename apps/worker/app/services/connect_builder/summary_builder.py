@@ -14,12 +14,10 @@ Called by graph_builder.build_and_deploy() after file deploy, before KG build.
 
 import json
 import os
-import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 from openai.types.chat import ChatCompletionMessageParam
-from shared.utils.text_utils import truncate_content_preview
 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
