@@ -369,7 +369,7 @@ class RetrievalAgent:
 
             for doc in state.selected_docs:
                 if state.elapsed_ms >= config.latency_budget_ms:
-                    logger.info(f'  agentic: latency budget hit during Phase 2, stopping')
+                    logger.info('  agentic: latency budget hit during Phase 2, stopping')
                     break
 
                 job_result_id = state.doc_job_map.get(doc.document_id, '')

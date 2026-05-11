@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Sequence
+from typing import Any, Sequence, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from shared.services.retrieval.agentic.types import DocTreeNode
 
 from loguru import logger
 from sqlalchemy import func, select, or_
@@ -817,7 +820,7 @@ def _render_leaf_chunks(
 
 
 def render_unified_doc_tree(
-    node: 'DocTreeNode',
+    node: DocTreeNode,
     doc_name: str,
     depth: int = 0,
     asset_lookup: dict[str, str] | None = None,
@@ -832,7 +835,6 @@ def render_unified_doc_tree(
     Asset references (tables/images) are resolved via ``connect_to``
     metadata in hydrated chunks — no separate lookup needed.
     """
-    from shared.services.retrieval.agentic.types import DocTreeNode as _DTN  # noqa: F811 — type hint
 
     parts: list[str] = []
     indent = '    ' * depth
