@@ -8,30 +8,15 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any
-
-
-class ActionType(str, Enum):
-    """Whitelisted action space for the retrieval agent."""
-    BOTTOM_DISCOVERY = 'bottom_discovery'
-    KG_DOCUMENT_SELECT = 'kg_document_select'
-    DOCUMENT_PATH_SELECT = 'document_path_select'
-    GREP_DOCUMENT_DISCOVER = 'grep_document_discover'
-    GRAPH_EXPAND_DOCS = 'graph_expand_docs'
-    DONE = 'done'  # Explicit termination signal from LLMPolicy
 
 
 @dataclass
 class AgentRunConfig:
     """Budget and limit configuration for a single agent run."""
-    max_steps: int = 10
-    max_docs: int = 0   # 0 = no limit, LLM decides autonomously
-    max_path_expansions: int = 2
-    max_doc_retries: int = 2
-    max_revisions: int = 2  # max attempt_answer → revise cycles
+    max_revisions: int = 2  # max attempt_answer → revision cycles
+    max_nav_depth: int = 3  # max scope_navigate recursion depth
     latency_budget_ms: int = 12000
-    min_evidence_paths: int = 1
 
 
 @dataclass
@@ -48,205 +33,174 @@ class ToolResult:
 
 
 @dataclass
+class DocTreeNode:
+    """Unified navigation result tree for one document.
+
+    Produced by ``scope_navigate_step``. Captures the full
+    navigation outcome for rendering as a single hierarchy:
+
+    - ``outline_items``: section tree items at this scope level
+    - ``leaf_content``: hydrated chunk rows keyed by section path
+      (leaf selections from LLM)
+    - ``children``: recursive child trees keyed by section path
+      (non-leaf selections, populated by orchestrator BFS queue)
+    - ``confidence``: per-selection confidence for trimming
+    """
+    scope_path: str | None = None
+
+    # Outline items at this level (title + summary)
+    outline_items: list[dict[str, Any]] = field(default_factory=list)
+
+    # Leaf results, keyed by section path:
+    leaf_content: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    children: dict[str, 'DocTreeNode'] = field(default_factory=dict)
+
+    # Confidence per selection (for trimming)
+    confidence: dict[str, float] = field(default_factory=dict)
+
+    @staticmethod
+    def empty(scope_path: str | None = None) -> 'DocTreeNode':
+        return DocTreeNode(scope_path=scope_path)
+
+    def has_content(self) -> bool:
+        """Check if this tree has any meaningful content (outline, chunks, or children)."""
+        if self.outline_items:
+            return True
+        if self.leaf_content:
+            return True
+        if self.children:
+            return any(c.has_content() for c in self.children.values())
+        return False
+
+    def collect_all_paths(self, doc_id: str) -> set[str]:
+        """Recursively collect paths of actually-explored sections.
+
+        Only ``leaf_content`` and ``children`` represent sections whose
+        content was retrieved.  ``outline_items`` are structural context
+        (titles/summaries shown to the LLM) and must NOT be masked —
+        otherwise revision rounds see 0 candidates and can't re-navigate.
+        """
+        paths: set[str] = set()
+        if self.scope_path:
+            paths.add(f'{doc_id}::{self.scope_path}')
+        for path in self.leaf_content:
+            paths.add(f'{doc_id}::{path}')
+        for path, child in self.children.items():
+            paths.add(f'{doc_id}::{path}')
+            paths.update(child.collect_all_paths(doc_id))
+        return paths
+
+    def flatten_chunk_rows(self) -> list[dict[str, Any]]:
+        """Recursively collect all hydrated chunk rows (document order)."""
+        rows: list[dict[str, Any]] = []
+        for chunks in self.leaf_content.values():
+            rows.extend(chunks)
+        for child in self.children.values():
+            rows.extend(child.flatten_chunk_rows())
+        return rows
+
+    def collect_referenced_ids(self) -> list[dict[str, str]]:
+        """Extract minimal chunk references from all hydrated leaves.
+
+        Returns deduplicated list of {chunk_id, document_id, chunk_type,
+        section_path, file_path, job_id} for hit stats and frontend display.
+        """
+        refs: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for row in self.flatten_chunk_rows():
+            cid = row.get('chunk_id', '')
+            if cid and cid not in seen:
+                seen.add(cid)
+                refs.append({
+                    'chunk_id': cid,
+                    'document_id': row.get('document_id', ''),
+                    'chunk_type': row.get('chunk_type', ''),
+                    'section_path': row.get('section_path', ''),
+                    'file_path': row.get('file_path', ''),
+                    'job_id': row.get('job_id', ''),
+                })
+        return refs
+
+    def merge(self, other: 'DocTreeNode') -> None:
+        """Additive merge for revision cycles.
+
+        Merges outline items, leaf content, children, and confidence from
+        ``other`` into this node. Existing data is preserved; new data is
+        added. For confidence values, the higher value wins.
+        """
+        existing_paths = {item['path'] for item in self.outline_items}
+        for item in other.outline_items:
+            if item.get('path', '') not in existing_paths:
+                self.outline_items.append(item)
+        for path, chunks in other.leaf_content.items():
+            if path not in self.leaf_content:
+                self.leaf_content[path] = chunks
+        for path, child in other.children.items():
+            if path in self.children:
+                self.children[path].merge(child)
+            else:
+                self.children[path] = child
+        for path, conf in other.confidence.items():
+            self.confidence[path] = max(self.confidence.get(path, 0), conf)
+
+
+@dataclass
 class CandidateDoc:
     """A document selected by kg_document_select."""
     document_id: str
     source_file_name: str = ''
     confidence: float = 0.0
     reason: str = ''
-    source: str = ''  # 'kg_llm_select' | 'grep' | 'edge_expand'
+    source: str = ''  # 'kg_llm_select' | 'grep' | 'edge_expand' | 'discovery_hint'
+
+
+@dataclass
+class AgenticResult:
+    """Output of agentic retrieval.
+
+    - ``evidence_text``: complete hierarchical context for LLM answering
+      (rendered doc tree with outline + leaf content + inline tables)
+    - ``answer_text``: LLM-generated answer to the query based on the
+      evidence.  Empty string when the evidence was insufficient
+      (NOT_FOUND) and max revisions were exhausted.
+    - ``referenced_chunks``: minimal chunk references for hit stats
+      and frontend display (chunk_id, document_id, chunk_type, etc.)
+    - ``router_used``: routing path identifier
+    """
+    evidence_text: str
+    answer_text: str = ''
+    referenced_chunks: list[dict[str, str]] = field(default_factory=list)
+    router_used: str = 'agentic_discovery_only'
 
 
 @dataclass
 class AgentState:
-    """Mutable state carried through the agent loop.
+    """Mutable state carried through the 2-phase orchestrator.
 
-    Updated by ``state.apply(action_type, tool_result)`` after each step.
+    Phase 1: Document selection (discovery + KG)
+    Phase 2: Per-document navigation (scope_navigate_step per doc)
+    Phase 3: Assembly + final verdict
     """
     # Timing
     start_time: float = field(default_factory=time.monotonic)
     step_count: int = 0
 
-    # Discovery results (from bottom_discovery)
-    discovery_paths: list[dict[str, Any]] = field(default_factory=list)
+    # Phase 1: Discovery
     discovery_top_doc_ids: list[str] = field(default_factory=list)
-    discovery_done: bool = False
 
-    # KG document selection
+    # Phase 1: KG document selection
     selected_docs: list[CandidateDoc] = field(default_factory=list)
-    excluded_doc_ids: set[str] = field(default_factory=set)
-    doc_retry_count: int = 0
-    kg_done: bool = False
-    pending_doc_index: int = 0
-
-    # Document path selection
-    selected_paths: list[dict[str, Any]] = field(default_factory=list)
-    path_expansion_count: int = 0
-
-    # Last observation (used by policy to decide next action)
-    last_observation: ToolResult | None = None
-
-    # Context passed through
     doc_id_to_name: dict[str, str] = field(default_factory=dict)
     doc_job_map: dict[str, str] = field(default_factory=dict)
 
-    # Revision / three-state fields
+    # Phase 2: Per-document navigation results
+    doc_trees: dict[str, DocTreeNode] = field(default_factory=dict)  # doc_id → DocTreeNode
+
+    # Revision state
     revision_count: int = 0
     ever_explored_doc_ids: set[str] = field(default_factory=set)
     seen_section_keys: set[str] = field(default_factory=set)  # "{doc_id}::{section_path}"
-    kept_path_rows: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def elapsed_ms(self) -> int:
         return int((time.monotonic() - self.start_time) * 1000)
-
-    def state_summary(self) -> dict[str, Any]:
-        """Produce a concise state snapshot for the LLMPolicy prompt.
-
-        Only includes fields the LLM needs for decision-making — never
-        exposes raw chunk content or internal IDs verbatim.
-        """
-        selected_doc_summaries = [
-            {
-                'document_id': d.document_id,
-                'name': d.source_file_name or '(unnamed)',
-                'confidence': round(d.confidence, 2),
-                'source': d.source,
-            }
-            for d in self.selected_docs
-        ]
-        selected_path_summaries = [
-            {
-                'path': p.get('path', ''),
-                'confidence': round(float(p.get('confidence', 0.0) or 0.0), 2),
-            }
-            for p in self.selected_paths[:10]  # cap to avoid huge prompts
-        ]
-        last_obs = None
-        if self.last_observation:
-            last_obs = {
-                'status': self.last_observation.status,
-                'payload_keys': list(self.last_observation.payload.keys()),
-                'error': self.last_observation.error,
-            }
-        return {
-            'step': self.step_count,
-            'discovery_done': self.discovery_done,
-            'discovery_candidates': len(self.discovery_paths),
-            'discovery_top_doc_ids': self.discovery_top_doc_ids[:5],
-            'kg_done': self.kg_done,
-            'selected_docs': selected_doc_summaries,
-            'pending_doc_index': self.pending_doc_index,
-            'selected_paths_count': len(self.selected_paths),
-            'selected_paths': selected_path_summaries,
-            'doc_retry_count': self.doc_retry_count,
-            'revision_count': self.revision_count,
-            'explored_doc_count': len(self.ever_explored_doc_ids),
-            'kept_rows_count': len(self.kept_path_rows),
-            'last_observation': last_obs,
-        }
-
-    def apply(self, action_type: ActionType, result: ToolResult) -> None:
-        """Update state based on action and its result."""
-        self.last_observation = result
-
-        if action_type == ActionType.BOTTOM_DISCOVERY:
-            self.discovery_done = True
-            if result.status != 'error':
-                self.discovery_paths = result.payload.get('fused_rows', [])
-                self.discovery_top_doc_ids = result.payload.get('top_doc_ids', [])
-
-        elif action_type == ActionType.KG_DOCUMENT_SELECT:
-            self.kg_done = True
-            if result.status == 'selected_docs':
-                new_docs = result.payload.get('candidate_docs', [])
-                for doc_data in new_docs:
-                    if isinstance(doc_data, CandidateDoc):
-                        self.selected_docs.append(doc_data)
-                    elif isinstance(doc_data, dict):
-                        self.selected_docs.append(CandidateDoc(
-                            document_id=doc_data.get('document_id', ''),
-                            source_file_name=doc_data.get('source_file_name', ''),
-                            confidence=doc_data.get('confidence', 0.0),
-                            reason=doc_data.get('reason', ''),
-                            source=doc_data.get('source', ''),
-                        ))
-                self.doc_id_to_name.update(result.payload.get('doc_id_to_name', {}))
-                self.doc_job_map.update(result.payload.get('doc_job_map', {}))
-
-                # Merge discovery hints
-                existing_ids = {d.document_id for d in self.selected_docs}
-                for did in self.discovery_top_doc_ids:
-                    if did not in existing_ids and did not in self.excluded_doc_ids:
-                        self.selected_docs.append(CandidateDoc(
-                            document_id=did,
-                            source_file_name=self.doc_id_to_name.get(did, ''),
-                            confidence=0.5, # Lower than LLM's 0.8
-                            reason='Bottom discovery hit',
-                            source='discovery_hint',
-                        ))
-                        existing_ids.add(did)
-
-        elif action_type == ActionType.DOCUMENT_PATH_SELECT:
-            if result.status == 'selected_paths':
-                doc_id = result.payload.get('document_id', '')
-                new_paths = result.payload.get('selected_paths', [])
-                for p in new_paths:
-                    p['document_id'] = doc_id
-                self.selected_paths.extend(new_paths)
-                self.pending_doc_index += 1
-                if doc_id:
-                    self.ever_explored_doc_ids.add(doc_id)
-            elif result.status == 'no_items':
-                doc_id = result.payload.get('document_id', '')
-                self.pending_doc_index += 1
-                if doc_id:
-                    self.ever_explored_doc_ids.add(doc_id)
-            elif result.status == 'need_more_docs':
-                failed_doc_id = result.payload.get('document_id', '')
-                if failed_doc_id:
-                    self.excluded_doc_ids.add(failed_doc_id)
-                self.doc_retry_count += 1
-                self.kg_done = False  # allow re-entry to KG select
-            elif result.status == 'no_confident_match':
-                doc_id = result.payload.get('document_id', '')
-                self.pending_doc_index += 1
-                if doc_id:
-                    self.ever_explored_doc_ids.add(doc_id)
-            elif result.status == 'error':
-                doc_id = result.payload.get('document_id', '')
-                self.pending_doc_index += 1
-                if doc_id:
-                    self.ever_explored_doc_ids.add(doc_id)
-
-        elif action_type == ActionType.GREP_DOCUMENT_DISCOVER:
-            if result.status == 'discovered_docs':
-                grep_doc_ids = result.payload.get('document_ids', [])
-                doc_id_to_name = result.payload.get('doc_id_to_name', {})
-                for did in grep_doc_ids:
-                    if did not in self.excluded_doc_ids:
-                        existing_ids = {d.document_id for d in self.selected_docs}
-                        if did not in existing_ids:
-                            self.selected_docs.append(CandidateDoc(
-                                document_id=did,
-                                source_file_name=doc_id_to_name.get(did, ''),
-                                source='grep',
-                            ))
-                self.doc_id_to_name.update(doc_id_to_name)
-                self.doc_job_map.update(result.payload.get('doc_job_map', {}))
-
-        elif action_type == ActionType.GRAPH_EXPAND_DOCS:
-            if result.status == 'expanded_docs':
-                expanded_ids = result.payload.get('document_ids', [])
-                doc_id_to_name = result.payload.get('doc_id_to_name', {})
-                for did in expanded_ids:
-                    if did not in self.excluded_doc_ids:
-                        existing_ids = {d.document_id for d in self.selected_docs}
-                        if did not in existing_ids:
-                            self.selected_docs.append(CandidateDoc(
-                                document_id=did,
-                                source_file_name=doc_id_to_name.get(did, ''),
-                                source='edge_expand',
-                            ))
-                self.doc_id_to_name.update(doc_id_to_name)
-                self.doc_job_map.update(result.payload.get('doc_job_map', {}))

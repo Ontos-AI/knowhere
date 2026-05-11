@@ -33,42 +33,60 @@ Return ONLY a JSON array of document IDs, e.g.: ["doc_abc123", "doc_def456"]
 Do not include any explanation.
 """
 
-_VALID_HYDRATE_MODES = frozenset({
-    'outline', 'chunks', 'assets_only', 'image_only', 'table_only',
-})
 
 _SCOPE_NAV_PROMPT = """\
 You are a document navigation assistant.
 
 Document: "{doc_name}" (id: {doc_id})
-Current scope: {scope_label}
+{scope_header}
 
-Below are candidate section paths at this scope level (up to 2 depth levels).
-Indented items are sub-items of the item above.
-Each item shows text/image/table counts.
-Select section paths directly. A selected section path represents the chunks
-under that section subtree; do not ask to drill deeper.
+Below is the document's section tree.
+Sections tagged [SELECT] are within the current scope and may be selected.
+Other sections are shown as structural context only (not selectable).
+Nodes marked [Leaf] have no further sub-sections.
 
-=== Items ===
+=== Section Tree ===
 {items_overview}
-=== End Items ===
+=== End Section Tree ===
 
 User query: {query}
 
-Select the most relevant section paths (at most {max_select}).
-If NO section path is relevant to the query, you MUST return an empty array []. Do not force-select irrelevant sections.
-Prefer specific sub-items over broad parents when both are listed and the sub-item is sufficient.
+Select sections to drill into for more detailed content.
+- You may ONLY select sections marked with [SELECT]. Do NOT select any other sections.
+- Select sections whose content is needed to answer the query.
+- If the titles and summaries already visible are sufficient (e.g. the query asks for an outline or overview), return an EMPTY list [].
 
-For each selected path, assign a confidence score (0.0 to 1.0) where 1.0 means exactly answers the query and 0.5 means tangentially related.
-Also choose a hydrate_mode:
-- "chunks"       (default) return all text/image/table chunks
-- "outline"      return only section title + summary, no chunk content
-- "assets_only"  return only image and table chunks
-- "image_only"   return only image chunks
-- "table_only"   return only table chunks
+  Optional: set "mode" per selection to control what content is retrieved:
+  - "all" (default): retrieve all content types (text, images, tables)
+  - "image": retrieve only image assets from this section
+  - "table": retrieve only table assets from this section
 
-Return ONLY a JSON array:
-[{{"path": "section/path", "confidence": <float>, "hydrate_mode": "chunks"}}, ...]
+Return ONLY a JSON object:
+{{"selections": [{{"path": "...", "confidence": <float>, "mode": "all"}}, ...]}}
+Do not include any explanation.
+"""
+
+
+_DISCOVERY_SELECT_PROMPT = """\
+You are a document navigation assistant.
+
+Document: "{doc_name}"
+
+After navigating the document's section tree, the following section paths
+were additionally discovered via keyword and semantic search.
+They may contain relevant evidence not found through hierarchical navigation.
+
+=== Discovery Candidates ===
+{items}
+=== End Discovery Candidates ===
+
+User query: {query}
+
+Select section paths whose content is needed to answer the query.
+If none are relevant, return an EMPTY list [].
+
+Return ONLY a JSON object:
+{{"selections": [{{"path": "...", "confidence": <float>, "mode": "all"}}, ...]}}
 Do not include any explanation.
 """
 
@@ -111,39 +129,6 @@ def _normalize_confidence(value: Any) -> float | None:
     if parsed > 1.0:
         parsed = parsed / 100.0
     return max(0.0, min(parsed, 1.0))
-
-
-def _default_confidence_for_rank(rank: int) -> float:
-    return round(max(0.25, 0.85 - rank * 0.15), 4)
-
-
-def _parse_chunk_path_selections(text: str) -> list[dict[str, Any]]:
-    """Parse chunk path selections from LLM output.
-
-    Accepts either a legacy JSON array of strings or a structured array of
-    objects with `path`, optional `confidence`, and optional `hydrate_mode`.
-    """
-    payload = _extract_json_array_payload(text)
-    selections: list[dict[str, Any]] = []
-    for item in payload:
-        if isinstance(item, str):
-            path = item.strip()
-            if path:
-                selections.append({'path': path, 'confidence': None, 'hydrate_mode': 'chunks'})
-            continue
-        if not isinstance(item, dict):
-            continue
-        path = str(item.get('path') or item.get('chunk_path') or '').strip()
-        if not path:
-            continue
-        raw_mode = str(item.get('hydrate_mode') or '').strip().lower()
-        hydrate_mode = raw_mode if raw_mode in _VALID_HYDRATE_MODES else 'chunks'
-        selections.append({
-            'path': path,
-            'confidence': _normalize_confidence(item.get('confidence')),
-            'hydrate_mode': hydrate_mode,
-        })
-    return selections
 
 
 async def _build_knowledge_map_overview(
@@ -233,13 +218,13 @@ def _format_items_for_llm(
     items: list[dict],
     max_chars: int = 20000,
 ) -> tuple[str, bool]:
-    """Unified formatting with overflow guard for scope navigation.
+    """Format items with ▸ └ [Leaf] hierarchy for scope navigation.
 
-    Always shows ALL items (L1 + L2).  Overflow controls whether
-    summaries are included — not which levels are shown.
-
-    Normal:   path + title + text=N image=I table=T + summary
-    Overflow: path + title + text=N image=I table=T  (no summary)
+    Supports arbitrary depth levels via absolute ``level`` field.
+    Items with ``show_summary=False`` render title only (structural context).
+    ``[LN]`` tags indicate the absolute document depth of each section.
+    ``[Leaf]`` tags indicate bottom-level sections with no further children.
+    Summaries are included when within budget, dropped on overflow.
 
     Returns (text, overflowed).
     """
@@ -250,34 +235,53 @@ def _format_items_for_llm(
 
     SUMMARY_HEAD_TOKENS = 80
 
-    def _render_line(item: dict, include_summary: bool) -> str:
+    def _render_item(item: dict, include_summary: bool) -> str:
         level = item.get('level', 1)
-        indent = '  ' if level == 2 else ''
-        line = f'{indent}- path="{item["path"]}"  title="{item["title"]}"'
-        chunk_count = item.get('chunk_count', 0)
-        if chunk_count > 0:
-            line += f'  text={chunk_count}'
-        image_count = item.get('image_count', 0)
-        if image_count > 0:
-            line += f'  image={image_count}'
-        table_count = item.get('table_count', 0)
-        if table_count > 0:
-            line += f'  table={table_count}'
-        if include_summary:
-            summary = item.get('summary') or item.get('title', '')
-            if summary:
-                clipped = truncate_content_preview(summary, head=SUMMARY_HEAD_TOKENS, tail=0)
-                line += f'\n{indent}  summary: {clipped}'
-        return line
+        show = item.get('show_summary', True)
+        is_leaf = item.get('is_leaf', False)
+        leaf_tag = ' [Leaf]' if is_leaf else ''
+        title = item.get('title', '')
+        path = item.get('path', '')
+        summary = item.get('summary') or ''
 
-    # Try full render (with summaries)
-    full_lines = [_render_line(item, include_summary=True) for item in items]
+        # Build chunk count tags (only for current-scope items)
+        counts_str = ''
+        if show:
+            count_parts: list[str] = []
+            chunk_count = item.get('chunk_count', 0)
+            if chunk_count > 0:
+                count_parts.append(f'text={chunk_count}')
+            image_count = item.get('image_count', 0)
+            if image_count > 0:
+                count_parts.append(f'image={image_count}')
+            table_count = item.get('table_count', 0)
+            if table_count > 0:
+                count_parts.append(f'table={table_count}')
+            counts_str = f'  [{" ".join(count_parts)}]' if count_parts else ''
+
+        indent = "    " * (level - 1)
+        prefix = '▸' if level == 1 else '└'
+        level_tag = f'[L{level}]'
+        select_tag = '[SELECT] ' if show else ''
+
+        lines: list[str] = []
+        lines.append(f'{indent}{prefix} {select_tag}{level_tag} path="{path}" {title}{counts_str}{leaf_tag}')
+
+        if include_summary and show and summary:
+            sub_indent = "    " * level
+            clipped = truncate_content_preview(summary, head=SUMMARY_HEAD_TOKENS, tail=0)
+            lines.append(f'{sub_indent}{clipped}')
+
+        return '\n'.join(lines)
+
+    # Try full render (with summaries for show_summary=True items)
+    full_lines = [_render_item(item, include_summary=True) for item in items]
     full_text = '\n'.join(full_lines)
     if len(full_text) <= max_chars:
         return full_text, False
 
     # Overflow: render without summaries
-    slim_lines = [_render_line(item, include_summary=False) for item in items]
+    slim_lines = [_render_item(item, include_summary=False) for item in items]
     slim_text = '\n'.join(slim_lines)
     return slim_text[:max_chars], True
 
@@ -433,18 +437,23 @@ async def _load_child_sections(
     scope_path: str | None = None,
     exclude_paths: set[str] | None = None,
 ) -> list[dict]:
-    """Load the next 2 available section depth bands under *scope_path*.
+    """Load the Continuous Context Tree for *scope_path*.
 
-    Returns a flat list sorted by sort_order, each item:
-        {path, title, summary, chunk_count, image_count, table_count, level}
+    Returns a flat list sorted by document order, each item:
+        {path, title, summary, chunk_count, image_count, table_count,
+         level, show_summary, is_leaf}
 
-    - level=1: nearest available descendant depth under scope
-    - level=2: second nearest available descendant depth under scope
-    - chunk_count: text chunks under this section (excluding image/table)
-    - image_count: image chunks under this section
-    - table_count: table chunks under this section
+    The tree contains three categories of nodes:
+      1. Ancestors of scope_path + their siblings → show_summary=False (title only)
+      2. Children of scope_path (2 depth bands) → show_summary=True (with summary)
+      3. Everything else → pruned (not returned)
+
+    When scope_path is None (root), all items are category 2.
+
+    - level: absolute depth in the document (1-based)
+    - show_summary: controls whether _format_items_for_llm renders summary
     - exclude_paths: paths already seen in prior revision rounds;
-      any path matching (exact or subtree) is skipped
+      any path matching (exact or subtree) is skipped from category 2
     """
     # ── Fetch all sections for this document revision ────────────────────
     stmt = (
@@ -468,7 +477,7 @@ async def _load_child_sections(
     scope_depth = len(scope_parts)
 
     # Build full section metadata index
-    all_sections: dict[str, dict] = {}  # path → {title, summary, sort_order, section_id}
+    all_sections: dict[str, dict] = {}  # path → {title, summary, sort_order, section_id, parts, depth}
     for section_id, title, path, summary, sort_order in section_rows:
         if not path:
             continue
@@ -483,63 +492,138 @@ async def _load_child_sections(
             'depth': len(parts),
         }
 
-    # ── Identify the next two real depth bands ───────────────────────────
-    #
-    # The stored hierarchy is authoritative. Some ingested documents may only
-    # expose deeper section rows at root; in that case those rows become this
-    # round's relative L1/L2 instead of synthesizing missing ancestors.
-    visible_sections: list[tuple[str, dict, int]] = []
-    visible_depths: set[int] = set()
+    # ── Build the set of ancestor prefixes for pruning ────────────────────
+    # e.g. scope = "A / B / K" → ancestor_prefixes = {"A", "A / B", "A / B / K"}
+    ancestor_prefixes: set[str] = set()
+    for i in range(1, scope_depth + 1):
+        ancestor_prefixes.add(' / '.join(scope_parts[:i]))
+
+    # ── Classify each section ────────────────────────────────────────────
     _excl = exclude_paths or set()
+    items_by_path: dict[str, dict] = {}
+    scope_child_depths: set[int] = set()
+
     for path, meta in all_sections.items():
         parts = meta['parts']
-        if scope_parts and (
-            parts[:scope_depth] != scope_parts or len(parts) <= scope_depth
-        ):
-            continue
-        relative_depth = len(parts) - scope_depth
-        if relative_depth < 1:
-            continue
-        # Skip paths already seen in prior revision rounds
-        if _excl and any(
-            path == ep or path.startswith(ep + ' / ') or ep.startswith(path + ' / ')
-            for ep in _excl
-        ):
-            continue
-        visible_sections.append((path, meta, relative_depth))
-        visible_depths.add(relative_depth)
+        depth = meta['depth']
 
-    selected_depths = sorted(visible_depths)[:2]
-    depth_to_level = {
-        depth: idx + 1
-        for idx, depth in enumerate(selected_depths)
-    }
-
-    items_by_path: dict[str, dict] = {}
-
-    for path, meta, relative_depth in visible_sections:
-        level = depth_to_level.get(relative_depth)
-        if level is None:
-            continue
-        if path not in items_by_path:
+        if scope_depth == 0:
+            # Root scope: everything is a potential child
+            if depth < 1:
+                continue
+            # Skip excluded paths
+            if _excl and any(
+                path == ep or path.startswith(ep + ' / ')
+                for ep in _excl
+            ):
+                continue
+            scope_child_depths.add(depth)
             items_by_path[path] = {
                 'path': path,
                 'title': meta['title'],
                 'summary': meta['summary'],
-                'level': level,
+                'level': depth,
                 'sort_order': meta['sort_order'],
                 'chunk_count': 0,
                 'image_count': 0,
                 'table_count': 0,
                 'section_id': meta['section_id'],
+                'show_summary': True,  # will be refined after depth band selection
             }
+            continue
+
+        # --- Non-root scope ---
+
+        # Category 1: Ancestors and their siblings (structural context)
+        # A node is an ancestor/sibling if its depth <= scope_depth AND
+        # its parent prefix matches the scope's ancestry chain.
+        if depth <= scope_depth:
+            # Check: is this node in the ancestry chain or a sibling of one?
+            if depth == 1:
+                # All L1 nodes are either the ancestor or its siblings
+                items_by_path[path] = {
+                    'path': path,
+                    'title': meta['title'],
+                    'summary': meta['summary'],
+                    'level': depth,
+                    'sort_order': meta['sort_order'],
+                    'chunk_count': 0,
+                    'image_count': 0,
+                    'table_count': 0,
+                    'section_id': meta['section_id'],
+                    'show_summary': False,
+                }
+            elif depth <= scope_depth:
+                # For deeper ancestors/siblings: their parent must be in the
+                # ancestor chain. e.g. "A / C" is a sibling of "A / B" only
+                # if "A" is an ancestor of scope.
+                parent_prefix = ' / '.join(parts[:-1])
+                if parent_prefix in ancestor_prefixes:
+                    items_by_path[path] = {
+                        'path': path,
+                        'title': meta['title'],
+                        'summary': meta['summary'],
+                        'level': depth,
+                        'sort_order': meta['sort_order'],
+                        'chunk_count': 0,
+                        'image_count': 0,
+                        'table_count': 0,
+                        'section_id': meta['section_id'],
+                        'show_summary': False,
+                    }
+            continue
+
+        # Category 2: Descendants of scope_path (children to explore)
+        if parts[:scope_depth] == scope_parts and depth > scope_depth:
+            # Skip excluded paths
+            if _excl and any(
+                path == ep or path.startswith(ep + ' / ')
+                for ep in _excl
+            ):
+                continue
+            scope_child_depths.add(depth)
+            items_by_path[path] = {
+                'path': path,
+                'title': meta['title'],
+                'summary': meta['summary'],
+                'level': depth,
+                'sort_order': meta['sort_order'],
+                'chunk_count': 0,
+                'image_count': 0,
+                'table_count': 0,
+                'section_id': meta['section_id'],
+                'show_summary': True,
+            }
+            continue
+
+        # Category 3: Everything else → pruned (not added)
+
+    if not items_by_path:
+        return []
+
+    # ── Limit children to 2 depth bands (relative to scope) ─────────────
+    if scope_child_depths:
+        if scope_depth == 0:
+            allowed_depths = sorted(scope_child_depths)[:2]
+        else:
+            allowed_depths = sorted(scope_child_depths)[:2]
+        allowed_set = set(allowed_depths)
+        to_remove = []
+        for path, item in items_by_path.items():
+            if item['show_summary'] and item['level'] not in allowed_set:
+                to_remove.append(path)
+        for path in to_remove:
+            del items_by_path[path]
 
     if not items_by_path:
         return []
 
     # ── Count chunks per section (text / image / table) ──────────────────
-    section_ids = [meta['section_id'] for meta in all_sections.values()]
-    if section_ids:
+    # Only count for show_summary=True items (current scope children)
+    scope_item_sids = {item['section_id'] for item in items_by_path.values() if item['show_summary']}
+    # Also need all section_ids for upward aggregation
+    all_section_ids = [meta['section_id'] for meta in all_sections.values()]
+    if all_section_ids and scope_item_sids:
         from sqlalchemy import case, literal_column
         chunk_stmt = (
             select(
@@ -562,7 +646,7 @@ async def _load_child_sections(
             )
             .where(DocumentChunk.document_id == document_id)
             .where(DocumentChunk.job_result_id == job_result_id)
-            .where(DocumentChunk.section_id.in_(section_ids))
+            .where(DocumentChunk.section_id.in_(all_section_ids))
             .group_by(DocumentChunk.section_id)
         )
         chunk_rows = (await db.execute(chunk_stmt)).all()
@@ -575,45 +659,243 @@ async def _load_child_sections(
     # Build section_id → path mapping for aggregation
     sid_to_path = {meta['section_id']: path for path, meta in all_sections.items()}
 
-    # Aggregate chunk counts upward: each item gets counts from itself + descendants
+    # Aggregate chunk counts upward: each show_summary item gets counts from itself + descendants
     for sid, (text_c, img_c, tbl_c) in section_id_counts.items():
         chunk_path = sid_to_path.get(sid, '')
         if not chunk_path:
             continue
-        # Add to every ancestor item that is in our items_by_path
         for item_path, item in items_by_path.items():
+            if not item['show_summary']:
+                continue
             if chunk_path == item_path or chunk_path.startswith(item_path + ' / '):
                 item['chunk_count'] += text_c
                 item['image_count'] += img_c
                 item['table_count'] += tbl_c
 
-    # ── Sort: interleave L2 under their L1 parent ────────────────────────
-    #
-    # Previous sort `(level, sort_order, path)` grouped all L1 first, then
-    # all L2.  The LLM prompt uses indentation to show L2 as sub-items, so
-    # they should appear directly after their L1 parent for readability.
-    #
-    # Sort key: (parent_sort_order, is_child, own_sort_order)
-    #   L1 items:  (own_sort_order, 0, 0)       → primary position
-    #   L2 items:  (parent_sort_order, 1, own)   → right after their parent
-
-    def _interleave_key(item: dict) -> tuple:
-        if item['level'] == 2:
-            parts = split_section_path(item['path'])
-            if len(parts) >= 2:
-                parent_path = ' / '.join(parts[:-1])
-                parent_item = items_by_path.get(parent_path)
-                if parent_item is not None:
-                    return (parent_item['sort_order'], 1, item['sort_order'])
-            # Orphan L2 (no matching L1 parent in this view): sort by own order
-            return (item['sort_order'], 1, item['sort_order'])
-        return (item['sort_order'], 0, 0)
-
-    sorted_items = sorted(items_by_path.values(), key=_interleave_key)
+    # ── Sort by native document order ─────────────────────────────────────
+    sorted_items = sorted(items_by_path.values(), key=lambda x: x['sort_order'])
     # Clean up internal fields
     for item in sorted_items:
         item.pop('sort_order', None)
         item.pop('section_id', None)
+
+    # ── Detect leaf status ────────────────────────────────────────────────
+    # A section is a leaf if no other section in the database for this
+    # document has a path that descends from it.
+    all_section_paths = set(all_sections.keys())
+    for item in sorted_items:
+        item_path = item['path']
+        has_descendants = any(
+            p != item_path and p.startswith(item_path + ' / ')
+            for p in all_section_paths
+        )
+        item['is_leaf'] = not has_descendants
+
     return sorted_items
 
+
+# ---------------------------------------------------------------------------
+# LLM response parser (for scope_navigate)
+# ---------------------------------------------------------------------------
+
+def _parse_scope_nav_response(text: str) -> list[dict[str, Any]]:
+    """Parse selections JSON from scope navigation LLM response.
+
+    Returns list of {"path": str, "confidence": float, "mode": str}.
+    """
+    text = text.strip()
+    # Try direct parse
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        # Extract JSON object from markdown wrapper
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if not match:
+            return []
+        try:
+            data = json.loads(match.group())
+        except (json.JSONDecodeError, ValueError):
+            return []
+
+    if not isinstance(data, dict):
+        return []
+
+    selections: list[dict[str, Any]] = []
+    _VALID_MODES = {'all', 'image', 'table'}
+    for item in (data.get('selections') or []):
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get('path') or '').strip()
+        if not path:
+            continue
+        confidence = _normalize_confidence(item.get('confidence'))
+        if confidence is None:
+            confidence = 0.7
+        mode = str(item.get('mode') or 'all').strip().lower()
+        if mode not in _VALID_MODES:
+            mode = 'all'
+        selections.append({'path': path, 'confidence': confidence, 'mode': mode})
+
+    return selections
+
+
+# ---------------------------------------------------------------------------
+# Unified document tree rendering (DocTreeNode → single coherent hierarchy)
+# ---------------------------------------------------------------------------
+
+def _render_leaf_chunks(
+    parts: list[str],
+    chunks: list[dict[str, Any]],
+    indent: str,
+    asset_lookup: dict[str, str] | None = None,
+) -> None:
+    """Render hydrated leaf chunks inline with table/image inlining and dedup.
+
+    Uses ``connect_to`` metadata to resolve asset references — the same
+    pattern as ``assemble_retrieval_results``:
+      - **Tables**: inline HTML content at the ``ref`` placeholder
+      - **Images**: inline the ``file_path`` (S3-compatible URL) at the
+        placeholder for multimodal LLMs
+
+    Connected target chunks (images/tables) are expected to already be
+    present in ``chunks`` via ``hydrate_connected_target_rows``.
+    """
+    chunk_by_id: dict[str, dict] = {
+        c.get('chunk_id', ''): c for c in chunks if c.get('chunk_id')
+    }
+    rendered_ids: set[str] = set()
+    for chunk in chunks:
+        cid = chunk.get('chunk_id', '')
+        if cid and cid in rendered_ids:
+            continue
+        if cid:
+            rendered_ids.add(cid)
+
+        chunk_type = (chunk.get('chunk_type') or chunk.get('type') or 'text').strip().lower()
+
+        # Skip standalone image/table chunks — they'll be inlined
+        # via connect_to from their parent text chunk
+        if chunk_type in ('image', 'table'):
+            continue
+
+        content = str(chunk.get('content', '')).strip()
+
+        # Resolve connected assets via connect_to metadata
+        for conn in (chunk.get('chunk_metadata') or {}).get('connect_to') or []:
+            target = chunk_by_id.get(conn.get('target', ''))
+            if not target:
+                continue
+            target_cid = target.get('chunk_id', '')
+            target_type = (target.get('chunk_type') or target.get('type') or '').strip().lower()
+            ref_str = conn.get('ref', '')
+            if not ref_str or ref_str not in content:
+                continue
+
+            if target_cid:
+                rendered_ids.add(target_cid)
+
+            if target_type == 'table':
+                table_html = str(target.get('content', '')).strip()
+                content = content.replace(ref_str, f'\n[表格内容]\n{table_html}\n')
+            elif target_type == 'image':
+                file_path = target.get('file_path') or ''
+                img_desc = str(target.get('content', '')).strip()
+                # Strip self-reference from image description
+                if ref_str in img_desc:
+                    img_desc = img_desc.replace(ref_str, '').strip()
+                # Use pre-generated asset URL if available, fall back to file_path
+                asset_url = (asset_lookup or {}).get(target_cid, '') if target_cid else ''
+                display_ref = asset_url or file_path
+                if display_ref:
+                    content = content.replace(ref_str, f'\n[图片: {display_ref}]\n{img_desc}\n')
+                elif img_desc:
+                    content = content.replace(ref_str, f'\n[图片描述]\n{img_desc}\n')
+
+        for line in content.split('\n'):
+            if line.strip():
+                parts.append(f'{indent}┈ {line}')
+
+
+def render_unified_doc_tree(
+    node: 'DocTreeNode',
+    doc_name: str,
+    depth: int = 0,
+    asset_lookup: dict[str, str] | None = None,
+) -> str:
+    """Render a DocTreeNode as a single coherent hierarchy.
+
+    Summaries are navigation-only aids and NEVER appear in evidence.
+    The rendered output contains:
+      1. Structural titles for ALL sections (positioning context)
+      2. Hydrated chunk content (┈ lines) ONLY for selected leaf paths
+
+    Asset references (tables/images) are resolved via ``connect_to``
+    metadata in hydrated chunks — no separate lookup needed.
+    """
+    from shared.services.retrieval.agentic.types import DocTreeNode as _DTN  # noqa: F811 — type hint
+
+    parts: list[str] = []
+    indent = '    ' * depth
+
+    if depth == 0:
+        parts.append(f'【文档】{doc_name}\n')
+
+    # Track which paths have been rendered via outline_items
+    rendered_paths: set[str] = set()
+
+    # Collect children keys for path-hierarchy dedup:
+    child_prefixes = set(node.children.keys())
+
+    for item in node.outline_items:
+        path = item.get('path', '')
+        title = item.get('title', '')
+        is_leaf = item.get('is_leaf', False)
+        level = item.get('level', 1)
+        leaf_tag = ' [Leaf]' if is_leaf else ''
+
+        # Skip items that belong to a drilled-into child's subtree
+        if any(path.startswith(cp + ' / ') for cp in child_prefixes):
+            continue
+
+        rendered_paths.add(path)
+
+        # Section header (title only — summaries are navigation aids, not evidence)
+        level_tag = f'[L{level}] ' if level else ''
+        if level <= 1:
+            parts.append(f'{indent}▸ {level_tag}{title}{leaf_tag}')
+        else:
+            parts.append(f'{indent}└ {level_tag}{title}{leaf_tag}')
+
+        sub_indent = indent + '    '
+
+        # Case 1: This section was drilled into → show child tree inline
+        if path in node.children:
+            child = node.children[path]
+            child_text = render_unified_doc_tree(child, doc_name, depth + 1, asset_lookup=asset_lookup)
+            if child_text.strip():
+                parts.append(child_text)
+
+        # Case 2: This is a hydrated leaf → show chunk content inline
+        elif path in node.leaf_content:
+            _render_leaf_chunks(parts, node.leaf_content[path], sub_indent, asset_lookup=asset_lookup)
+
+        # Case 3: Unselected → title already rendered above, nothing more needed
+
+    # Render orphan paths: leaf_content and children not covered by outline_items
+    for path in node.leaf_content:
+        if path not in rendered_paths:
+            title = path.rsplit(' / ', 1)[-1] if ' / ' in path else path
+            parts.append(f'{indent}▸ [Leaf] {title}')
+            sub_indent = indent + '    '
+            _render_leaf_chunks(parts, node.leaf_content[path], sub_indent, asset_lookup=asset_lookup)
+
+    for path in node.children:
+        if path not in rendered_paths:
+            title = path.rsplit(' / ', 1)[-1] if ' / ' in path else path
+            parts.append(f'{indent}▸ {title} [DrillDown]')
+            child_text = render_unified_doc_tree(node.children[path], doc_name, depth + 1, asset_lookup=asset_lookup)
+            if child_text.strip():
+                parts.append(child_text)
+
+    return '\n'.join(parts)
 

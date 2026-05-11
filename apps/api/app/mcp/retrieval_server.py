@@ -66,10 +66,15 @@ def to_mcp_query_response(response: dict[str, Any]) -> dict[str, Any]:
             result["asset_url"] = row["asset_url"]
         results.append(result)
 
-    return {
+    mcp_response: dict[str, Any] = {
         "query": response.get("query"),
         "results": results,
     }
+    # Forward evidence_text for agentic mode
+    if response.get("evidence_text") is not None:
+        mcp_response["evidence_text"] = response["evidence_text"]
+
+    return mcp_response
 
 
 async def resolve_mcp_user_id(*, ctx: Context | None, db: AsyncSession) -> str:

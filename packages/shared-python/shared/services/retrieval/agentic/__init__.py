@@ -1,8 +1,14 @@
 """Agentic retrieval orchestration for Knowhere.
 
-Upgrades the retrieval pipeline from a fixed sequence to a state/action/observation
-loop with explicit tool selection, budget controls, and trajectory recording.
+Navigate-then-answer loop:
+  Phase 1: Document selection (discovery + KG LLM select)
+  Phase 2: Per-document iterative navigation (scope_navigate_step)
+  Phase 3: attempt_answer → DONE (return answer) or NOT_FOUND → revision
 
-All tools are thin wrappers around existing retrieval components — no new retrieval
-algorithms, ranking strategies, or prompts are introduced.
+Navigation auto-terminates when the LLM returns empty selections.
+After navigation, attempt_answer is called automatically — its result
+(answer or NOT_FOUND+reason) drives the revision loop.
+
+All tools are thin wrappers around existing retrieval components — no new
+retrieval algorithms, ranking strategies, or prompts are introduced.
 """

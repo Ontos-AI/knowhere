@@ -15,7 +15,7 @@ from uuid import uuid4
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic.types import ActionType, AgentRunConfig, ToolResult
+from shared.services.retrieval.agentic.types import AgentRunConfig, ToolResult
 
 
 def _now_utc() -> datetime:
@@ -101,7 +101,7 @@ class TraceRecorder:
 
     def record_step(
         self,
-        action_type: ActionType,
+        action_type: str,
         result: ToolResult,
         *,
         decision_reason: str = '',
@@ -109,7 +109,7 @@ class TraceRecorder:
         """Buffer a step record.  Flushed on complete()."""
         self._steps.append({
             'step_index': len(self._steps),
-            'action_type': action_type.value,
+            'action_type': action_type,
             'action_input': {'decision_reason': decision_reason} if decision_reason else {},
             'observation_status': result.status,
             'observation_payload_keys': list(result.payload.keys()) if result.payload else [],

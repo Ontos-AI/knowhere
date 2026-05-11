@@ -4,10 +4,6 @@ Each tool:
   1. Calls existing functions from channels.py, agent_navigate.py, app_service.py
   2. Returns a unified ToolResult
   3. Never raises — errors are captured in ToolResult.error
-
-No new retrieval algorithms, ranking strategies, or prompts.
-LLM calls inside kg_document_select / document_path_select reuse
-the exact same prompts and parsing logic from agent_navigate.py.
 """
 from __future__ import annotations
 
@@ -19,18 +15,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document
-from shared.services.retrieval.agentic.types import ToolResult
+from shared.services.retrieval.agentic.types import DocTreeNode, ToolResult
 from shared.services.retrieval.agent_navigate import (
     _build_knowledge_map_overview,
     _expand_by_edges,
     _format_items_for_llm,
     _grep_discover_document_ids,
     _load_child_sections,
-    _parse_chunk_path_selections,
     _parse_json_array,
+    _parse_scope_nav_response,
     _SCOPE_NAV_PROMPT,
+    _DISCOVERY_SELECT_PROMPT,
     _FILE_SELECT_PROMPT,
-    _default_confidence_for_rank,
 )
 from shared.services.retrieval.app_service import (
     _CHANNEL_WEIGHT_CONTENT,
@@ -40,6 +36,7 @@ from shared.services.retrieval.app_service import (
     _merge_same_section_rows,
     _normalize_row_scores,
     _resolve_allowed_chunk_types,
+    hydrate_connected_target_rows,
     merge_channels_rrf,
 )
 from shared.services.retrieval.channels import content_channel, path_channel, term_channel
@@ -67,11 +64,7 @@ async def bottom_discovery(
     internal_recall_k: int | None = None,
     **_kwargs: Any,
 ) -> ToolResult:
-    """Run 3-channel BM25 discovery + RRF fusion.
-
-    Reuses: channels.path_channel, content_channel, term_channel,
-            app_service.merge_channels_rrf, _merge_same_section_rows.
-    """
+    """Run 3-channel BM25 discovery + RRF fusion."""
     t0 = time.monotonic()
     try:
         allowed_chunk_types = _resolve_allowed_chunk_types(data_type)
@@ -106,7 +99,7 @@ async def bottom_discovery(
                 signal_paths=signal_paths, filter_mode=filter_mode,
             )
 
-        # RRF fusion — same logic as app_service
+        # RRF fusion
         default_weights = {
             'path': _CHANNEL_WEIGHT_PATH,
             'content': _CHANNEL_WEIGHT_CONTENT,
@@ -178,11 +171,7 @@ async def kg_document_select(
     exclude_document_ids: list[str],
     **_kwargs: Any,
 ) -> ToolResult:
-    """Select candidate documents from document-level KG.
-
-    Reuses: agent_navigate._build_knowledge_map_overview, _parse_json_array.
-    Same LLM prompt as agent_navigate._FILE_SELECT_PROMPT.
-    """
+    """Select candidate documents from document-level KG."""
     t0 = time.monotonic()
     try:
         overview_text, doc_id_to_name = await _build_knowledge_map_overview(
@@ -204,7 +193,6 @@ async def kg_document_select(
                 latency_ms=latency,
             )
 
-        # LLM file selection — same prompt as agent_navigate
         file_prompt = _FILE_SELECT_PROMPT.format(
             overview=overview_text, query=query,
         )
@@ -239,7 +227,7 @@ async def kg_document_select(
             candidate_docs.append({
                 'document_id': did,
                 'source_file_name': doc_id_to_name.get(did, ''),
-                'confidence': 0.8,
+                'confidence': 1.0,
                 'reason': 'LLM selected from KG overview',
                 'source': 'kg_llm_select',
             })
@@ -262,39 +250,6 @@ async def kg_document_select(
 
 
 # ---------------------------------------------------------------------------
-# Tool: document_path_select
-# ---------------------------------------------------------------------------
-
-async def document_path_select(
-    db: AsyncSession,
-    *,
-    user_id: str,
-    namespace: str,
-    query: str,
-    llm_fn: LLMFn | None,
-    document_id: str,
-    job_result_id: str,
-    doc_name: str = '',
-    max_chunks_per_file: int = 15,
-    exclude_paths: set[str] | None = None,
-    **_kwargs: Any,
-) -> ToolResult:
-    """Document entry point for agentic scope navigation."""
-    if llm_fn is None:
-        return ToolResult(
-            status='no_confident_match',
-            payload={'document_id': document_id, 'reason': 'LLM not available'},
-            latency_ms=0,
-        )
-    return await scope_navigate(
-        db, document_id=document_id, job_result_id=job_result_id,
-        query=query, llm_fn=llm_fn, doc_name=doc_name,
-        scope_path=None, max_select=max_chunks_per_file,
-        exclude_paths=exclude_paths,
-    )
-
-
-# ---------------------------------------------------------------------------
 # Tool: grep_document_discover
 # ---------------------------------------------------------------------------
 
@@ -307,10 +262,7 @@ async def grep_document_discover(
     exclude_document_ids: list[str],
     **_kwargs: Any,
 ) -> ToolResult:
-    """Discover documents via term search (GREP).
-
-    Reuses: agent_navigate._grep_discover_document_ids.
-    """
+    """Discover documents via term search (GREP)."""
     t0 = time.monotonic()
     try:
         grep_doc_ids = await _grep_discover_document_ids(
@@ -326,7 +278,6 @@ async def grep_document_discover(
                 latency_ms=latency,
             )
 
-        # Load doc names and job_result_ids
         doc_stmt = (
             select(Document.document_id, Document.source_file_name, Document.current_job_result_id)
             .where(Document.document_id.in_(grep_doc_ids))
@@ -368,10 +319,7 @@ async def graph_expand_docs(
     document_ids: list[str],
     **_kwargs: Any,
 ) -> ToolResult:
-    """Expand document set via KG edge traversal.
-
-    Reuses: agent_navigate._expand_by_edges.
-    """
+    """Expand document set via KG edge traversal."""
     t0 = time.monotonic()
     try:
         expanded_ids = await _expand_by_edges(
@@ -387,7 +335,6 @@ async def graph_expand_docs(
                 latency_ms=latency,
             )
 
-        # Load names and job maps for new docs
         doc_stmt = (
             select(Document.document_id, Document.source_file_name, Document.current_job_result_id)
             .where(Document.document_id.in_(new_ids))
@@ -418,100 +365,242 @@ async def graph_expand_docs(
 
 
 # ---------------------------------------------------------------------------
-# Tool: scope_navigate (Unified recursive navigation)
+# Tool: scope_navigate_step (single-step navigation)
 # ---------------------------------------------------------------------------
 
-async def scope_navigate(
+_LLM_MODE_TO_HYDRATE: dict[str, str] = {
+    'all': 'chunks',
+    'image': 'image_only',
+    'table': 'table_only',
+}
+
+async def scope_navigate_step(
     db: AsyncSession,
     *,
     document_id: str,
     job_result_id: str,
     query: str,
     llm_fn: LLMFn,
+    user_id: str,
+    namespace: str,
     doc_name: str = '',
     scope_path: str | None = None,
-    max_select: int = 15,
     exclude_paths: set[str] | None = None,
-) -> ToolResult:
-    """Unified document-internal navigation tool.
-    
-    1. Loads 2 levels of child sections under scope_path
-    2. Applies overflow guard (drops summaries if needed)
-    3. LLM selects most relevant items
-    4. Returns selected section paths directly; each path hydrates the
-       corresponding section subtree.
+    revision_hint: str | None = None,
+) -> tuple[DocTreeNode, list[dict]]:
+    """Single navigation step — one LLM call, no recursion.
+
+    Returns:
+      - node: DocTreeNode with outline_items (current scope local items only)
+              and leaf_content (hydrated leaf selections)
+      - pending: list of {path, confidence, mode} for non-leaf selections
+                 (orchestrator queues these for further drill-down)
     """
-    t0 = time.monotonic()
+    from shared.services.retrieval.app_service import _hydrate_paths_to_rows
+
+    empty = DocTreeNode.empty(scope_path)
+
     try:
+        # 1. Load continuous context tree
         items = await _load_child_sections(
             db, document_id, job_result_id, scope_path,
             exclude_paths=exclude_paths,
         )
         if not items:
-            latency = int((time.monotonic() - t0) * 1000)
-            return ToolResult(
-                status='no_items',
-                payload={'document_id': document_id, 'scope_path': scope_path},
-                latency_ms=latency,
-            )
+            return empty, []
 
+        # 2. Build selectable index (only current-scope items with summary)
+        selectable = {item['path']: item for item in items if item.get('show_summary', True)}
+
+        # 3. Format full tree and call LLM
         text, overflowed = _format_items_for_llm(items)
+        scope_header = (
+            f'Current scope: navigating into "{scope_path}"'
+            if scope_path else
+            'Current scope: root (document top level)'
+        )
         prompt = _SCOPE_NAV_PROMPT.format(
             doc_name=doc_name or document_id,
             doc_id=document_id,
-            scope_label=scope_path or 'root',
+            scope_header=scope_header,
             items_overview=text,
             query=query,
-            max_select=max_select,
         )
-
-        valid_paths = {item['path'] for item in items}
-        response = await llm_fn(prompt)
-        selected = _parse_chunk_path_selections(response)
-
-        accepted: list[dict[str, Any]] = []
-        for item in selected:
-            path = str(item.get('path') or '').strip()
-            if path not in valid_paths:
-                continue
-            confidence = item.get('confidence')
-            if confidence is None:
-                confidence = _default_confidence_for_rank(len(accepted))
-            hydrate_mode = item.get('hydrate_mode', 'chunks')
-            accepted.append({'path': path, 'confidence': confidence, 'hydrate_mode': hydrate_mode})
-            if len(accepted) >= max_select:
-                break
-
-        latency = int((time.monotonic() - t0) * 1000)
-        
-        if not accepted:
-            return ToolResult(
-                status='no_confident_match',
-                payload={'document_id': document_id, 'reason': 'no path matches query intent'},
-                latency_ms=latency,
+        if revision_hint:
+            prompt += (
+                f'\n\nIMPORTANT: Previous round feedback: '
+                f'"{revision_hint}". Select specific sections this time.'
             )
+        response = await llm_fn(prompt)
+        selections = _parse_scope_nav_response(response)
 
         logger.info(
-            f"  agentic.scope_navigate: {len(accepted)} section paths selected, "
-            f"status=selected_paths, overflowed={overflowed}"
+            f'  scope_navigate_step scope={scope_path or "root"}: '
+            f'selections={len(selections)}, selectable={len(selectable)}, '
+            f'overflowed={overflowed}'
         )
 
-        return ToolResult(
-            status='selected_paths',
-            payload={
-                'document_id': document_id,
-                'selected_paths': accepted,
-                'scope_path': scope_path,
-                'overflowed': overflowed,
-            },
-            latency_ms=latency,
-        )
+        # 4. Build node with LOCAL items only (no ancestors/siblings)
+        node = DocTreeNode(scope_path=scope_path)
+        local_items = [item for item in items if item.get('show_summary', True)]
+        node.outline_items = local_items
+
+        # 5. Dispatch selections (guard: never re-select scope_path itself)
+        valid_selections = [
+            s for s in selections
+            if s['path'] in selectable and s['path'] != scope_path
+        ]
+
+        pending: list[dict] = []
+        for sel in valid_selections:
+            path = sel['path']
+            conf = sel.get('confidence', 0.7)
+            item = selectable[path]
+            node.confidence[path] = conf
+
+            if item.get('is_leaf'):
+                # Leaf → hydrate chunks
+                hydrate_mode = _LLM_MODE_TO_HYDRATE.get(
+                    str(sel.get('mode', 'all')).strip().lower(), 'chunks'
+                )
+                chunks = await _hydrate_paths_to_rows(
+                    db,
+                    path_selections=[
+                        {'path': path, 'confidence': conf, 'hydrate_mode': hydrate_mode}
+                    ],
+                    user_id=user_id,
+                    namespace=namespace,
+                    document_id=document_id,
+                )
+                # Also hydrate connected targets (image/table chunks referenced via connect_to)
+                if chunks:
+                    connected = await hydrate_connected_target_rows(
+                        db=db,
+                        rows=chunks,
+                        exclude_document_ids=[],
+                        exclude_sections=[],
+                    )
+                    if connected:
+                        chunks = chunks + connected
+                    node.leaf_content[path] = chunks
+            else:
+                # Non-leaf → return as pending for orchestrator to queue
+                pending.append(sel)
+
+        return node, pending
+
     except Exception as e:
-        latency = int((time.monotonic() - t0) * 1000)
-        logger.error(f'  agentic.scope_navigate failed for doc={document_id}: {e}')
-        return ToolResult(
-            status='error',
-            payload={'document_id': document_id},
-            error=str(e),
-            latency_ms=latency,
+        logger.error(f'  scope_navigate_step failed for doc={document_id}: {e}')
+        return empty, []
+
+
+# ---------------------------------------------------------------------------
+# Tool: discovery_select_step (post-navigation discovery selection)
+# ---------------------------------------------------------------------------
+
+_MAX_DISCOVERY_PER_DOC = 3
+
+
+async def discovery_select_step(
+    db: AsyncSession,
+    *,
+    document_id: str,
+    query: str,
+    llm_fn: LLMFn,
+    user_id: str,
+    namespace: str,
+    doc_name: str = '',
+    discovery_hints: list[dict[str, Any]],
+) -> DocTreeNode:
+    """Post-navigation discovery selection step.
+
+    After BFS navigation exhausts for a document, present discovery-found
+    section paths (from bottom_discovery BM25) to the LLM for selection.
+    Selected paths are hydrated as leaf content.
+
+    For B-class documents (discovery-only, not KG-selected), this is the
+    only navigation step — no prior BFS.
+    """
+    from shared.services.retrieval.app_service import _hydrate_paths_to_rows
+
+    node = DocTreeNode(scope_path=None)
+    if not discovery_hints:
+        return node
+
+    # Limit hints per document
+    hints = discovery_hints[:_MAX_DISCOVERY_PER_DOC]
+
+    t0 = time.monotonic()
+    try:
+        # 1. Format hints for LLM
+        hint_lines: list[str] = []
+        hint_by_path: dict[str, dict] = {}
+        for h in hints:
+            sp = h.get('section_path', '')
+            if not sp:
+                continue
+            title = sp.rsplit(' / ', 1)[-1] if ' / ' in sp else sp
+            summary = h.get('summary', '') or ''
+            hint_lines.append(f'▸ path="{sp}"  {title}  [Leaf]')
+            if summary:
+                clipped = summary[:300]
+                hint_lines.append(f'    {clipped}')
+            hint_by_path[sp] = h
+
+        if not hint_lines:
+            return node
+
+        items_text = '\n'.join(hint_lines)
+        prompt = _DISCOVERY_SELECT_PROMPT.format(
+            doc_name=doc_name or document_id,
+            items=items_text,
+            query=query,
         )
+        response = await llm_fn(prompt)
+        selections = _parse_scope_nav_response(response)
+
+        logger.info(
+            f'  discovery_select_step doc="{doc_name}": '
+            f'hints={len(hints)} selections={len(selections)}'
+        )
+
+        # 2. Hydrate selected paths
+        valid_selections = [s for s in selections if s['path'] in hint_by_path]
+        for sel in valid_selections:
+            path = sel['path']
+            conf = sel.get('confidence', 0.7)
+            hydrate_mode = _LLM_MODE_TO_HYDRATE.get(
+                str(sel.get('mode', 'all')).strip().lower(), 'chunks'
+            )
+            node.confidence[path] = conf
+
+            chunks = await _hydrate_paths_to_rows(
+                db,
+                path_selections=[
+                    {'path': path, 'confidence': conf, 'hydrate_mode': hydrate_mode}
+                ],
+                user_id=user_id,
+                namespace=namespace,
+                document_id=document_id,
+            )
+            if chunks:
+                connected = await hydrate_connected_target_rows(
+                    db=db,
+                    rows=chunks,
+                    exclude_document_ids=[],
+                    exclude_sections=[],
+                )
+                if connected:
+                    chunks = chunks + connected
+                node.leaf_content[path] = chunks
+
+        latency = int((time.monotonic() - t0) * 1000)
+        logger.info(
+            f'  discovery_select_step done: hydrated={len(node.leaf_content)} '
+            f'latency={latency}ms'
+        )
+        return node
+
+    except Exception as e:
+        logger.error(f'  discovery_select_step failed for doc={document_id}: {e}')
+        return node

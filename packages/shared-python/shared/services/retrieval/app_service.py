@@ -430,6 +430,15 @@ async def _to_public_response(response: dict[str, Any]) -> dict[str, Any]:
         'router_used': response.get('router_used'),
         'results': [],
     }
+
+    # Forward agentic evidence fields when present
+    if response.get('evidence_text') is not None:
+        public_response['evidence_text'] = response['evidence_text']
+    if response.get('answer_text') is not None:
+        public_response['answer_text'] = response['answer_text']
+    if response.get('referenced_chunks') is not None:
+        public_response['referenced_chunks'] = response['referenced_chunks']
+
     public_results: list[dict[str, Any]] = []
     for row in response.get('results', []):
         artifact_ref = row.get('file_path')
@@ -450,7 +459,10 @@ async def _to_public_response(response: dict[str, Any]) -> dict[str, Any]:
                     public_row['asset_url'] = asset_url
             elif field in row:
                 public_row[field] = row[field]
-        public_row['source'] = _to_public_source(row)
+        if 'source' in row:
+            public_row['source'] = row['source']
+        else:
+            public_row['source'] = _to_public_source(row)
         public_results.append(public_row)
 
     public_response['results'] = public_results
@@ -494,6 +506,52 @@ def _normalize_row_scores(
     for row in rows:
         raw_score = float(row.get(source_field, 0.0) or 0.0)
         row[target_field] = round((raw_score - min_score) / denominator, 6)
+
+
+def _importance_multiplier(
+    rows: list[dict[str, Any]],
+    *,
+    raw_field: str = 'importance_raw_score',
+    low: float = 0.1,
+    high: float = 2.0,
+) -> None:
+    """Apply adaptive sigmoid-based importance boost to agent/discovery scores.
+
+    Uses median of ``raw_field`` as center and IQR as spread so the curve
+    adapts to any KB size without hard-coded thresholds.  When all values
+    are identical (IQR ≈ 0) the multiplier is 1.0 (neutral).
+
+    Output range ``[low, high]`` — default [0.1, 2.0] — is the only
+    configured constant: max 2× boost, min 10%.  The function modifies
+    ``agent_score`` and ``discovery_score`` **in place**.
+    """
+    import math
+
+    if not rows:
+        return
+
+    values = sorted(float(r.get(raw_field, 0.0) or 0.0) for r in rows)
+    n = len(values)
+    median = values[n // 2] if n % 2 else (values[n // 2 - 1] + values[n // 2]) / 2
+    q1 = values[n // 4] if n >= 4 else values[0]
+    q3 = values[3 * n // 4] if n >= 4 else values[-1]
+    iqr = q3 - q1
+
+    for row in rows:
+        raw = float(row.get(raw_field, 0.0) or 0.0)
+        if iqr <= 1e-9:
+            mult = 1.0
+        else:
+            z = (raw - median) / iqr
+            s = 1.0 / (1.0 + math.exp(-z))
+            mult = low + (high - low) * s
+        row['importance_multiplier'] = round(mult, 4)
+        row['agent_score'] = round(
+            float(row.get('agent_score', 0.0) or 0.0) * mult, 6,
+        )
+        row['discovery_score'] = round(
+            float(row.get('discovery_score', 0.0) or 0.0) * mult, 6,
+        )
 
 
 async def _load_chunk_importance_scores(
@@ -548,8 +606,7 @@ def _rank_candidates_by_path(
         candidate = dict(row)
         candidate['discovery_score'] = float(row.get('discovery_score', 0.0) or 0.0)
         candidate['agent_score'] = 0.0
-        candidate['importance_raw_score'] = float(row.get('importance_raw_score', 0.0) or 0.0)
-        candidate['importance_norm_score'] = float(row.get('importance_norm_score', 0.0) or 0.0)
+        candidate.setdefault('hydrate_mode', 'chunks')
         merged[key] = candidate
         insertion_order[key] = counter
         counter += 1
@@ -563,22 +620,12 @@ def _rank_candidates_by_path(
             candidate = dict(row)
             candidate['discovery_score'] = float(row.get('discovery_score', 0.0) or 0.0)
             candidate['agent_score'] = routed_agent_score
-            candidate['importance_raw_score'] = float(row.get('importance_raw_score', 0.0) or 0.0)
-            candidate['importance_norm_score'] = float(row.get('importance_norm_score', 0.0) or 0.0)
             merged[key] = candidate
             insertion_order[key] = counter
             counter += 1
             continue
         candidate = merged[key]
         candidate['agent_score'] = max(float(candidate.get('agent_score', 0.0) or 0.0), routed_agent_score)
-        candidate['importance_raw_score'] = max(
-            float(candidate.get('importance_raw_score', 0.0) or 0.0),
-            float(row.get('importance_raw_score', 0.0) or 0.0),
-        )
-        candidate['importance_norm_score'] = max(
-            float(candidate.get('importance_norm_score', 0.0) or 0.0),
-            float(row.get('importance_norm_score', 0.0) or 0.0),
-        )
         if not candidate.get('source_chunk_path') and row.get('source_chunk_path'):
             candidate['source_chunk_path'] = row.get('source_chunk_path')
         if not candidate.get('section_path') and row.get('section_path'):
@@ -587,18 +634,16 @@ def _rank_candidates_by_path(
     # ── Dual-priority ranking ────────────────────────────────────────────
     # When the agent produced results (routed_rows non-empty), rows with
     # agent_score=0 are demoted to a fallback pool.  Primary sort is by
-    # agent_score (LLM confidence, 0-1, cross-round comparable), with
-    # discovery_score as tiebreaker only.  This avoids the old
-    # `max(agent, discovery)` which mixed incompatible score sources.
+    # agent_score (includes importance boost from _importance_multiplier),
+    # with discovery_score as tiebreaker.
     has_agent_results = len(routed_rows) > 0
 
     primary_rows: list[dict[str, Any]] = []
     fallback_rows: list[dict[str, Any]] = []
 
     for key, row in merged.items():
-        discovery_score = float(row.get('discovery_score', 0.0) or 0.0)
         agent_score = float(row.get('agent_score', 0.0) or 0.0)
-        row['dual_hit_flag'] = 1 if discovery_score > 0.0 and agent_score > 0.0 else 0
+        discovery_score = float(row.get('discovery_score', 0.0) or 0.0)
         row['evidence_score'] = round(agent_score if has_agent_results else max(discovery_score, agent_score), 6)
         row['score'] = row['evidence_score']
         row['_candidate_order'] = insertion_order[key]
@@ -612,8 +657,6 @@ def _rank_candidates_by_path(
         return (
             float(row.get('agent_score', 0.0) or 0.0),
             float(row.get('discovery_score', 0.0) or 0.0),
-            int(row.get('dual_hit_flag', 0) or 0),
-            float(row.get('importance_norm_score', 0.0) or 0.0),
             -int(row.get('_candidate_order', 0) or 0),
         )
 
@@ -716,8 +759,13 @@ async def _hydrate_paths_to_rows(
     path_selections: list[dict[str, Any]],
     user_id: str,
     namespace: str,
+    document_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Load full chunk rows by section_path or source_chunk_path.
+
+    When *document_id* is provided the query is scoped to that single
+    document, preventing cross-document collisions on generic paths
+    such as ``Root``.
 
     Supports hydrate_mode branching:
       - 'chunks' (default): all chunk types under the section subtree
@@ -770,6 +818,8 @@ async def _hydrate_paths_to_rows(
             .where(Document.status == 'active')
             .where(or_(*outline_section_filters))
         )
+        if document_id:
+            outline_stmt = outline_stmt.where(Document.document_id == document_id)
         outline_result = await db.execute(outline_stmt)
         for document, section in outline_result.all():
             agent_score = confidence_by_path.get(section.section_path, 0.0)
@@ -820,6 +870,8 @@ async def _hydrate_paths_to_rows(
                 )
             )
         )
+        if document_id:
+            stmt = stmt.where(Document.document_id == document_id)
         result = await db.execute(stmt)
 
         # Build a map of path → allowed chunk_types based on hydrate_mode
@@ -1048,7 +1100,7 @@ async def run_retrieval_query(
 
         llm_fn = _create_llm()
         agent = RetrievalAgent()
-        ranked_rows, router_used = await agent.run(
+        agentic_result = await agent.run(
             db,
             user_id=user_id,
             namespace=namespace,
@@ -1063,6 +1115,83 @@ async def run_retrieval_query(
             channels=channels,
             channel_weights=channel_weights,
         )
+        router_used = agentic_result.router_used
+
+        # Generate asset URLs for media chunks in referenced_chunks
+        enriched_refs: list[dict[str, Any]] = []
+        for ref in agentic_result.referenced_chunks:
+            enriched = dict(ref)
+            chunk_type = _normalize_chunk_type(ref.get('chunk_type'))
+            artifact_ref = ref.get('file_path', '')
+            job_id = ref.get('job_id', '')
+            if chunk_type in _MEDIA_CHUNK_TYPES and job_id and _is_client_result_artifact_ref(artifact_ref):
+                try:
+                    asset_url = await generate_retrieval_asset_url(
+                        job_id=str(job_id), artifact_ref=str(artifact_ref),
+                    )
+                    if asset_url:
+                        enriched['asset_url'] = asset_url
+                except Exception as e:
+                    logger.warning(f'Failed to generate agentic asset URL (ignored): {e}')
+            enriched_refs.append(enriched)
+
+        # Build backward-compatible results[] from referenced_chunks
+        # (minimal: chunk_id + document_id + chunk_type + section_path)
+        results = [
+            {
+                'chunk_id': ref.get('chunk_id'),
+                'document_id': ref.get('document_id'),
+                'chunk_type': ref.get('chunk_type'),
+                'source': {
+                    'document_id': ref.get('document_id'),
+                    'section_path': ref.get('section_path'),
+                },
+            }
+            for ref in enriched_refs
+        ]
+
+        response = {
+            "namespace": namespace,
+            "query": query,
+            "router_used": router_used,
+            "results": results,
+            "evidence_text": agentic_result.evidence_text,
+            "answer_text": agentic_result.answer_text,
+            "referenced_chunks": enriched_refs,
+        }
+
+        if cache_version is not None:
+            try:
+                await set_cached_retrieval_query_result(
+                    user_id=user_id, namespace=namespace, version=cache_version,
+                    query=query, top_k=top_k,
+                    exclude_document_ids=exclude_document_ids,
+                    exclude_sections=exclude_sections,
+                    response=response, **cache_extra,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to write retrieval cache (ignored): {e}")
+
+        try:
+            schedule_retrieval_hit_stats_update(
+                user_id=user_id, namespace=namespace,
+                results=agentic_result.referenced_chunks,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to trigger retrieval hit stats update (ignored): {e}")
+
+        elapsed_total = round((time.monotonic() - t_start) * 1000)
+        logger.info(
+            f'\n{"█" * 70}\n'
+            f'  ✅ AGENTIC RETRIEVAL COMPLETE: '
+            f'{len(enriched_refs)} chunks | '
+            f'evidence={len(agentic_result.evidence_text)} chars | '
+            f'answer={len(agentic_result.answer_text)} chars | '
+            f'router={router_used} | {elapsed_total}ms\n'
+            f'{"█" * 70}'
+        )
+
+        return await _to_public_response(response)
     else:
         # ── LEGACY path (existing code, unchanged) ──
 
@@ -1208,17 +1337,6 @@ async def run_retrieval_query(
                 chunk_importance_scores = {}
             for row in combined_rows:
                 row['importance_raw_score'] = float(chunk_importance_scores.get(str(row.get('chunk_id') or ''), 0.0) or 0.0)
-            positive_importance = [row['importance_raw_score'] for row in combined_rows if row['importance_raw_score'] > 0.0]
-            if positive_importance:
-                _normalize_row_scores(
-                    combined_rows,
-                    source_field='importance_raw_score',
-                    target_field='importance_norm_score',
-                    default=0.5,
-                )
-            else:
-                for row in combined_rows:
-                    row['importance_norm_score'] = 0.0
 
         ranked_rows = _rank_candidates_by_path(fused_rows, agent_rows, top_k)
         if ranked_rows:
@@ -1227,8 +1345,6 @@ async def run_retrieval_query(
                 logger.info(
                     '    '
                     f'[{i}] evidence={row.get("evidence_score", 0.0):.4f} '
-                    f'dual_hit={row.get("dual_hit_flag", 0)} '
-                    f'importance={row.get("importance_norm_score", 0.0):.4f} '
                     f'discovery={row.get("discovery_score", 0.0):.4f} '
                     f'agent={row.get("agent_score", 0.0):.4f} '
                     f'path={_get_row_path(row)}'

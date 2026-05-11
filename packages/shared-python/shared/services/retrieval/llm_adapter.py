@@ -6,13 +6,15 @@ to provide an async callable suitable for the agent navigation pipeline.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Coroutine
+from typing import Any, Callable, Coroutine, Union
 
 from loguru import logger
 
 from shared.core.config import settings
 
-LLMFn = Callable[[str], Coroutine[Any, Any, str]]
+# LLMFn accepts either a plain string or a list of ChatCompletionMessageParam
+LLMFnInput = Union[str, list[dict[str, Any]]]
+LLMFn = Callable[[LLMFnInput], Coroutine[Any, Any, str]]
 
 _RETRIEVAL_LLM_TEMPERATURE = 0.1
 _RETRIEVAL_LLM_MAX_TOKENS = 2048
@@ -63,7 +65,7 @@ def create_retrieval_llm_fn(
 
     effective_model = model or _resolve_default_model()
 
-    async def llm_fn(prompt: str) -> str:
+    async def llm_fn(prompt: LLMFnInput) -> str:
         from shared.utils.OpenAICompatibleClientSync import get_openai_client
 
         client = get_openai_client(model=effective_model)
