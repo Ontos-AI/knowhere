@@ -471,7 +471,7 @@ def _parse(job_id: str, user_id: str | None):
                             filename=filename,
                         )
                     except InsufficientCreditsException:
-                        logger.error(
+                        logger.warning(
                             f"Billing failed: job_id={job_id}, user_id={job_user_id}"
                         )
                         billing_amount = billing_service.estimate_page_charge(
