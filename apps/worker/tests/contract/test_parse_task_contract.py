@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import shutil
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -564,6 +566,256 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
         ("start_processing", "running"),
         ("mark_completed", "done"),
     ]
+
+
+def test_should_initialize_billing_once_for_concurrent_parse_tasks(
+    worker_contract_environment: None,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    (
+        kb_tasks,
+        parse_service,
+        sync_storage_service,
+        engine,
+        sync_job_info_service_cls,
+        sync_job_metadata_service_cls,
+        sync_redis_service_factory,
+    ) = _load_parse_task_modules()
+
+    user_id: str = f"worker-concurrent-user-{uuid4().hex[:12]}"
+    job_ids: list[str] = [f"job_cb_{index}_{uuid4().hex[:12]}" for index in range(2)]
+    source_file_name: str = "contract-concurrent.pdf"
+    s3_keys: dict[str, str] = {
+        job_id: f"uploads/{job_id}.pdf" for job_id in job_ids
+    }
+    job_metadata_by_id: dict[str, dict[str, Any]] = {
+        job_id: _build_pending_file_job_metadata(source_file_name)
+        for job_id in job_ids
+    }
+
+    with engine.begin() as connection:
+        insert_contract_user(connection, user_id=user_id)
+        for job_id in job_ids:
+            insert_contract_job(
+                connection,
+                job_id=job_id,
+                user_id=user_id,
+                status="pending",
+                source_type="file",
+                s3_key=s3_keys[job_id],
+                webhook_enabled=False,
+                job_metadata=job_metadata_by_id[job_id],
+                billing_status="pending",
+            )
+
+    redis_service = sync_redis_service_factory.get_service()
+    for job_id in job_ids:
+        _save_worker_task_cache(
+            job_id=job_id,
+            user_id=user_id,
+            s3_key=s3_keys[job_id],
+            metadata=job_metadata_by_id[job_id],
+            sync_job_info_service_cls=sync_job_info_service_cls,
+            sync_job_metadata_service_cls=sync_job_metadata_service_cls,
+            sync_redis_service_factory=sync_redis_service_factory,
+        )
+
+    _bind_parse_task_to_current_module(monkeypatch, kb_tasks=kb_tasks)
+    monkeypatch.setattr(kb_tasks.settings, "TMP_PATH", str(tmp_path))
+    monkeypatch.setattr(kb_tasks.settings, "BILLING_ENABLED", True)
+
+    def fake_verify_s3_file_exists(storage_key: str) -> dict[str, Any]:
+        return {
+            "exists": storage_key in s3_keys.values(),
+            "size": _SAMPLE_PDF_PATH.stat().st_size,
+        }
+
+    def fake_generate_download_url(storage_key: str, bucket: str | None) -> dict[str, str]:
+        return {"download_url": f"https://example.test/{storage_key}"}
+
+    def fake_download_s3_file_to_temp(
+        file_url: str, file_ext: str, temp_dir: str
+    ) -> str:
+        assert file_ext == ".pdf"
+        downloaded_path = Path(temp_dir) / f"downloaded{file_ext}"
+        shutil.copy2(_SAMPLE_PDF_PATH, downloaded_path)
+        return str(downloaded_path)
+
+    billing_start_barrier = Barrier(len(job_ids))
+
+    def fake_estimate_page_count(file_path: str) -> int:
+        billing_start_barrier.wait(timeout=10)
+        return 1
+
+    def fake_checkerboard_inject_parse(**kwargs: Any) -> tuple[str, pd.DataFrame]:
+        output_dir = (
+            Path(str(kwargs["output_dir"]))
+            / str(kwargs["kb_dir"])
+            / str(kwargs["internal_output_filename"])
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "full.md").write_text("body", encoding="utf-8")
+
+        file_root = str(kwargs["internal_output_filename"])
+        parsed_rows: list[dict[str, Any]] = [
+            {
+                "content": "chunk body",
+                "path": f"Default_Root/{file_root}/Section/Point",
+                "type": "text",
+                "length": 10,
+                "keywords": "",
+                "summary": "",
+                "know_id": f"{kwargs['job_id']}-chunk-1",
+                "tokens": "",
+                "connectto": "",
+                "addtime": "now",
+                "page_nums": "1",
+            }
+        ]
+        return str(output_dir), pd.DataFrame(parsed_rows)
+
+    class FakeResultStorage:
+        def upload(self, *, job_id: str, result_dir: str, zip_file_path: str) -> Any:
+            return SimpleNamespace(
+                zip_key=f"results/{job_id}.zip",
+                raw_prefix=f"results/{job_id}/",
+                raw_files={},
+            )
+
+    monkeypatch.setattr(kb_tasks, "verify_s3_file_exists", fake_verify_s3_file_exists)
+    monkeypatch.setattr(
+        sync_storage_service,
+        "verify_s3_file_exists",
+        fake_verify_s3_file_exists,
+    )
+    monkeypatch.setattr(kb_tasks, "generate_download_url", fake_generate_download_url)
+    monkeypatch.setattr(
+        sync_storage_service,
+        "generate_download_url",
+        fake_generate_download_url,
+    )
+    monkeypatch.setattr(kb_tasks, "download_s3_file_to_temp", fake_download_s3_file_to_temp)
+    monkeypatch.setattr(kb_tasks.PageEstimator, "estimate", fake_estimate_page_count)
+    monkeypatch.setattr(parse_service, "checkerboard_inject_parse", fake_checkerboard_inject_parse)
+    monkeypatch.setattr(kb_tasks, "get_result_storage", lambda: FakeResultStorage())
+
+    def run_parse_task(job_id: str) -> dict[str, Any]:
+        return dict(kb_tasks.parse_task.run(job_id, user_id, "kb_management"))
+
+    with ThreadPoolExecutor(max_workers=len(job_ids)) as executor:
+        results = list(executor.map(run_parse_task, job_ids))
+
+    expected_credits_charged = int(kb_tasks.settings.MICRO_DOLLARS_PER_PAGE)
+    expected_initial_balance = (
+        int(kb_tasks.settings.FREE_PLAN_INITIAL_CREDITS) * 1_000_000
+    )
+
+    with engine.begin() as connection:
+        job_rows = list(
+            connection.execute(
+                text(
+                    """
+                    SELECT job_id, status, billing_status, page_count, credits_charged
+                    FROM jobs
+                    WHERE job_id = ANY(:job_ids)
+                    ORDER BY job_id
+                    """
+                ),
+                {"job_ids": job_ids},
+            )
+            .mappings()
+            .all()
+        )
+        balance_row = (
+            connection.execute(
+                text(
+                    """
+                    SELECT credits_balance
+                    FROM user_balances
+                    WHERE user_id = :user_id
+                    """
+                ),
+                {"user_id": user_id},
+            )
+            .mappings()
+            .one()
+        )
+        transaction_rows = list(
+            connection.execute(
+                text(
+                    """
+                    SELECT transaction_type, COUNT(*) AS count
+                    FROM credits_transactions
+                    WHERE user_id = :user_id
+                    GROUP BY transaction_type
+                    ORDER BY transaction_type
+                    """
+                ),
+                {"user_id": user_id},
+            )
+            .mappings()
+            .all()
+        )
+        payment_count_row = (
+            connection.execute(
+                text(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM payment_records
+                    WHERE user_id = :user_id
+                      AND payment_type = 'system_grant'
+                    """
+                ),
+                {"user_id": user_id},
+            )
+            .mappings()
+            .one()
+        )
+
+    metadata_by_job_id = {
+        job_id: sync_job_metadata_service_cls(redis_service).get_metadata(job_id)
+        for job_id in job_ids
+    }
+    result_job_ids = {str(result["job_id"]) for result in results}
+    transaction_counts = {
+        str(row["transaction_type"]): int(row["count"]) for row in transaction_rows
+    }
+
+    assert result_job_ids == set(job_ids)
+    assert all(result["status"] == "success" for result in results)
+    assert [
+        {
+            "job_id": row["job_id"],
+            "status": row["status"],
+            "billing_status": row["billing_status"],
+            "page_count": row["page_count"],
+            "credits_charged": row["credits_charged"],
+        }
+        for row in job_rows
+    ] == [
+        {
+            "job_id": job_id,
+            "status": "done",
+            "billing_status": "charged",
+            "page_count": 1,
+            "credits_charged": expected_credits_charged,
+        }
+        for job_id in sorted(job_ids)
+    ]
+    assert all(
+        metadata_by_job_id[job_id] is not None
+        and metadata_by_job_id[job_id]["billing_status"] == "charged"
+        and metadata_by_job_id[job_id]["billing_amount_micro_dollars"]
+        == expected_credits_charged
+        for job_id in job_ids
+    )
+    assert balance_row == {
+        "credits_balance": expected_initial_balance
+        - (expected_credits_charged * len(job_ids))
+    }
+    assert transaction_counts == {"initial_grant": 1, "usage": len(job_ids)}
+    assert payment_count_row == {"count": 1}
 
 
 def test_should_skip_parse_task_when_the_job_is_already_terminal(
