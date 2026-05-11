@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import json
 from collections.abc import Callable
@@ -121,6 +122,58 @@ async def test_should_initialize_missing_user_balance_during_tier_lookup(
         "payment_type": "system_grant",
         "status": "succeeded",
     }
+
+
+@pytest.mark.asyncio
+async def test_should_initialize_missing_user_balance_once_for_concurrent_requests(
+    api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+) -> None:
+    user_id = f"contract-concurrent-balance-{uuid4().hex[:12]}"
+    api_key = f"sk_contract_{uuid4().hex[:24]}"
+
+    async with api_client_factory() as api_client:
+        await ContractDatabase.insert_user(user_id=user_id)
+        await _insert_api_key_for_user(user_id, api_key)
+        api_client.headers.update({"Authorization": f"Bearer {api_key}"})
+
+        responses = await asyncio.gather(
+            *[api_client.get("/api/v1/billing/credits") for _ in range(8)]
+        )
+
+        balance_row = await ContractDatabase.fetch_one(
+            """
+            SELECT credits_balance, user_tier
+            FROM user_balances
+            WHERE user_id = :user_id
+            """,
+            {"user_id": user_id},
+        )
+        transaction_count_row = await ContractDatabase.fetch_one(
+            """
+            SELECT COUNT(*) AS count
+            FROM credits_transactions
+            WHERE user_id = :user_id
+              AND transaction_type = 'initial_grant'
+            """,
+            {"user_id": user_id},
+        )
+        payment_count_row = await ContractDatabase.fetch_one(
+            """
+            SELECT COUNT(*) AS count
+            FROM payment_records
+            WHERE user_id = :user_id
+              AND payment_type = 'system_grant'
+            """,
+            {"user_id": user_id},
+        )
+
+    assert all(response.status_code == 200 for response in responses)
+    assert all(
+        response.json() == {"credits_balance": 5.0} for response in responses
+    )
+    assert balance_row == {"credits_balance": 5_000_000, "user_tier": "free"}
+    assert transaction_count_row == {"count": 1}
+    assert payment_count_row == {"count": 1}
 
 
 @pytest.mark.asyncio

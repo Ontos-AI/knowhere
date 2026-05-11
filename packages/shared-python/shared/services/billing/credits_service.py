@@ -11,7 +11,7 @@ This service implements the ledger pattern where:
 from datetime import timedelta
 from typing import Any, Dict, Optional
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.billing import MicroDollar
@@ -93,44 +93,39 @@ class CreditsService:
         initial_dollars = getattr(settings, "FREE_PLAN_INITIAL_CREDITS", 5)
         initial_amount = MicroDollar.from_dollars(initial_dollars).amount
 
-        try:
-            async with session.begin_nested():
-                # Create balance record
-                balance_entry = UserBalance(
-                    user_id=user_id, credits_balance=initial_amount
-                )
-                session.add(balance_entry)
+        insert_balance_stmt = (
+            pg_insert(UserBalance)
+            .values(user_id=user_id, credits_balance=initial_amount)
+            .on_conflict_do_nothing(index_elements=[UserBalance.user_id])
+            .returning(UserBalance.user_id)
+        )
+        insert_result = await session.execute(insert_balance_stmt)
+        inserted_user_id: str | None = insert_result.scalar_one_or_none()
+        if inserted_user_id is None:
+            return
 
-                # Create initial transaction record
-                transaction = CreditsTransaction(
-                    user_id=user_id,
-                    credits_amount=initial_amount,
-                    description="New user registration bonus",
-                    transaction_type="initial_grant",
-                )
-                session.add(transaction)
+        # Create initial transaction record only for the request that won creation.
+        transaction: CreditsTransaction = CreditsTransaction(
+            user_id=user_id,
+            credits_amount=initial_amount,
+            description="New user registration bonus",
+            transaction_type="initial_grant",
+        )
+        session.add(transaction)
 
-                # Create payment record for tracking
-                payment = PaymentRecord(
-                    user_id=user_id,
-                    payment_type="system_grant",
-                    amount_cents=0,
-                    currency="USD",
-                    status="succeeded",
-                    credits_amount=initial_amount,
-                    extra_metadata={"reason": "initial_grant"},
-                    processed_at=utc_now_naive(),
-                )
-                session.add(payment)
-                await session.flush()
-        except IntegrityError:
-            existing_balance = await self.repository.get_user_balance(session, user_id)
-            if existing_balance:
-                logger.info(
-                    f"User already initialized by concurrent session: user_id={user_id}"
-                )
-                return
-            raise
+        # Create payment record for tracking only for the request that won creation.
+        payment: PaymentRecord = PaymentRecord(
+            user_id=user_id,
+            payment_type="system_grant",
+            amount_cents=0,
+            currency="USD",
+            status="succeeded",
+            credits_amount=initial_amount,
+            extra_metadata={"reason": "initial_grant"},
+            processed_at=utc_now_naive(),
+        )
+        session.add(payment)
+        await session.flush()
 
         logger.info(f"User initialized: user_id={user_id}, credits={initial_amount}")
 
