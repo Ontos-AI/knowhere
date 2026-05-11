@@ -551,59 +551,33 @@ flowchart LR
 
 #### Agentic Mode (LLM-driven Navigation)
 
-```mermaid
-flowchart TB
-    Q[Query] --> BD[Step 0: bottom_discovery — 3-channel RRF]
-    BD --> Loop{Agent Loop}
-    Loop --> KG[kg_document_select — LLM picks documents from KB overview]
-    KG --> PS[document_path_select — LLM navigates section hierarchy]
-    PS --> Loop
-    Loop --> GD[grep_document_discover — term search for more docs]
-    GD --> Loop
-    Loop --> GE[graph_expand_docs — follow graph edges to related docs]
-    GE --> Loop
-    Loop --> Hydrate[hydrate_paths_to_rows]
-    Hydrate --> Verdict{attempt_answer — LLM verdict}
-    Verdict -->|DONE| Return[Return results]
-    Verdict -->|NOT_SUFFICIENT| Accumulate[Keep results + revise]
-    Accumulate --> Loop
-    Verdict -->|NOT_FOUND| Discard[Discard + revise]
-    Discard --> Loop
-```
+#### Agentic Mode (LLM-driven Navigation)
 
-**Agent Action Space** (`ActionType` enum):
+The agentic pipeline uses a deterministic multi-phase orchestration engine:
 
-| Action | Tool Function | Purpose |
-|:---|:---|:---|
-| `BOTTOM_DISCOVERY` | `tools.bottom_discovery` | Mandatory first step: 3-channel RRF |
-| `KG_DOCUMENT_SELECT` | `tools.kg_document_select` | LLM selects documents from KB overview |
-| `DOCUMENT_PATH_SELECT` | `tools.document_path_select` | LLM navigates 2-level section hierarchy |
-| `GREP_DOCUMENT_DISCOVER` | `tools.grep_document_discover` | Term search for additional documents |
-| `GRAPH_EXPAND_DOCS` | `tools.graph_expand_docs` | Follow graph edges to related docs |
-| `DONE` | — | Explicit termination signal |
+**Phase 1: Discovery + Document Selection**
+- **Bottom Discovery**: Always runs first. Executes a 3-channel RRF keyword search across the entire Knowledge Base, returning top high-relevance chunks and their parent documents (`discovery_auto`).
+- **KG Document Select**: The LLM analyzes the KB-wide overview (from `knowledge_graph.json`) and selects highly relevant documents.
+- *Merge Strategy*: Documents found by Bottom Discovery but omitted by the LLM are automatically appended to the selected documents list to ensure no blind spots.
 
-**Agent State Machine** (`AgentState`):
+**Phase 2: Per-Document Navigation & Discovery Merging**
+For each selected document, the agent performs a constrained Breadth-First Search (BFS):
+1. **Scope Navigation**: The document's section tree is dynamically rendered to the LLM. 
+   - *Path-Based Hierarchy*: Child nodes are strictly filtered using structural path prefixes (e.g., `child_path.startswith(parent_path + ' / ')`) to maintain structural integrity and eliminate L2 duplicate rendering.
+   - *Visual Constraints*: Actionable drill-down paths are explicitly prefixed with `[SELECT]` tags. The LLM system prompt tightly constrains the model to only pick paths with this tag, preventing redundant re-selection of the current scope.
+2. **Discovery Select**: The LLM reviews the specific paths flagged by Phase 1's Bottom Discovery for the current document. Selected discovery paths have their leaf chunks merged directly into the BFS document tree.
 
-- Tracks `discovery_paths`, `selected_docs`, `selected_paths`
-- `ever_explored_doc_ids` / `seen_section_keys` prevent redundant navigation
-- `kept_path_rows` accumulates results across revision rounds
-- KG-exhausted guard: stops revision when `unexplored_documents == 0`
+**Phase 3: Verdict & Revision**
+The combined document tree (BFS Navigation + Discovery) is rendered as unified evidence. The tree naturally displays structural context (outlines) alongside hydrated chunk rows (for selected leaf paths). The LLM attempts to answer the user's query:
+- `DONE`: Evidence is sufficient (or partially covers the query), exit and return final results.
+- `NOT_FOUND`: Evidence lacks sufficient information. Discard current evidence and trigger another revision round with a generated hint (max 2 rounds).
 
-**LLMPolicy** decides the next action based on state summary. The agent
-supports up to `max_revisions=2` revision cycles with three-state verdicts
-(DONE / NOT_SUFFICIENT / NOT_FOUND).
+### Tree Rendering & Hydration
 
-### Hydration & Ranking
-
-**`_hydrate_paths_to_rows()`** supports multiple hydrate modes per path:
-
-| Mode | Returns |
-|:---|:---|
-| `chunks` | All text/image/table chunks under the section subtree |
-| `outline` | Synthetic row with section title + summary only |
-| `assets_only` | Only image + table chunks |
-| `image_only` | Only image chunks |
-| `table_only` | Only table chunks |
+Unlike legacy retrieval which relied on static `hydrate_mode` tags, hydration is now determined dynamically by the `DocTreeNode` structure:
+- **Structural Context (Outlines)**: Sections not drilled into are simply rendered as structural outlines (`title` + `summary`) to guide the LLM.
+- **Leaf Content (Hydration)**: Sections that the LLM explicitly selects for drill-down have their raw chunks (`text`, `image`, `table`) fully hydrated into the `leaf_content` of the tree.
+- **Multi-Modal Inline Embedding**: During hydration, connected inline assets (images/tables) are natively resolved and embedded directly into the text chunk content, supporting multi-modal LLM processing without brittle string-replacement placeholders.
 
 **`_rank_candidates_by_path()`** — Dual-priority ranking:
 
