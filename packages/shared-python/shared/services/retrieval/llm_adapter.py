@@ -6,14 +6,14 @@ to provide an async callable suitable for the agent navigation pipeline.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Coroutine, Union
+from typing import Any, Callable, Coroutine, Union, Sequence, cast
 
 from loguru import logger
 
 from shared.core.config import settings
 
 # LLMFn accepts either a plain string or a list of ChatCompletionMessageParam
-LLMFnInput = Union[str, list[dict[str, Any]]]
+LLMFnInput = Union[str, Sequence[dict[str, Any]]]
 LLMFn = Callable[[LLMFnInput], Coroutine[Any, Any, str]]
 
 _RETRIEVAL_LLM_TEMPERATURE = 0.1
@@ -72,7 +72,7 @@ def create_retrieval_llm_fn(
         try:
             result = await asyncio.to_thread(
                 client.chat_completion,
-                prompt,
+                cast(Any, prompt),
                 model=effective_model,
                 temperature=temperature,
                 max_tokens=max_tokens,

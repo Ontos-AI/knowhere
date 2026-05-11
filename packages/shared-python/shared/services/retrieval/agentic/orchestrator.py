@@ -403,6 +403,9 @@ class RetrievalAgent:
                         if depth >= config.max_nav_depth:
                             continue
 
+                        if llm_fn is None:
+                            break
+
                         step_node, drill_paths = await tools.scope_navigate_step(
                             db,
                             document_id=doc.document_id,
