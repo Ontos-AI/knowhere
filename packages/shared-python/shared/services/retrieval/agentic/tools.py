@@ -169,6 +169,7 @@ async def kg_document_select(
     query: str,
     llm_fn: LLMFn | None,
     exclude_document_ids: list[str],
+    revision_hint: str | None = None,
     **_kwargs: Any,
 ) -> ToolResult:
     """Select candidate documents from document-level KG."""
@@ -193,8 +194,19 @@ async def kg_document_select(
                 latency_ms=latency,
             )
 
+        revision_context = ''
+        if revision_hint:
+            revision_context = (
+                f'\nIMPORTANT: This is a REVISION round. '
+                f'The previous search attempt failed because:\n'
+                f'"{revision_hint}"\n'
+                f'Adjust your document selection accordingly. '
+                f'If no document can address this, return an EMPTY array [].\n'
+            )
+
         file_prompt = _FILE_SELECT_PROMPT.format(
             overview=overview_text, query=query,
+            revision_context=revision_context,
         )
         file_response = await llm_fn(file_prompt)
         selected_ids = _parse_json_array(file_response)
@@ -365,14 +377,322 @@ async def graph_expand_docs(
 
 
 # ---------------------------------------------------------------------------
+# Tool: tool_select_step (lightweight LLM router)
+# ---------------------------------------------------------------------------
+
+_TOOL_SELECT_PROMPT = """\
+You are a document navigation agent.
+
+Document: "{doc_name}"
+{scope_header}
+
+Below is a summary of the current scope's sections:
+
+{tree_summary}
+
+User query: {query}
+
+=== Available Tools ===
+
+NAVIGATE
+  Drill into specific sections to explore detailed content.
+  Use when the query requires reading text content in sub-sections.
+
+FIND_IMAGES
+  Extract all image/chart/diagram assets under this scope.
+  Use when the query asks about images, charts, figures, or visual content.
+
+FIND_TABLES
+  Extract all table/data assets under this scope.
+  Use when the query asks about tables, tabular data, or structured data.
+
+Choose exactly ONE tool. Return ONLY a JSON object:
+{{"tool": "NAVIGATE"}}
+or {{"tool": "FIND_IMAGES"}}
+or {{"tool": "FIND_TABLES"}}
+Do not include any explanation.
+"""
+
+
+def _parse_tool_choice(text: str) -> str:
+    """Parse tool choice from LLM response. Returns one of NAVIGATE/FIND_IMAGES/FIND_TABLES."""
+    import json as _json
+    import re as _re
+
+    text = text.strip()
+    _VALID_TOOLS = {'NAVIGATE', 'FIND_IMAGES', 'FIND_TABLES'}
+
+    # Try JSON parse
+    try:
+        data = _json.loads(text)
+        if isinstance(data, dict):
+            tool = str(data.get('tool', '')).strip().upper()
+            if tool in _VALID_TOOLS:
+                return tool
+    except (ValueError, _json.JSONDecodeError):
+        pass
+
+    # Fallback: extract JSON from markdown wrapper
+    match = _re.search(r'\{.*?\}', text, _re.DOTALL)
+    if match:
+        try:
+            data = _json.loads(match.group())
+            if isinstance(data, dict):
+                tool = str(data.get('tool', '')).strip().upper()
+                if tool in _VALID_TOOLS:
+                    return tool
+        except (ValueError, _json.JSONDecodeError):
+            pass
+
+    # Last resort: keyword match
+    upper = text.upper()
+    if 'FIND_IMAGES' in upper:
+        return 'FIND_IMAGES'
+    if 'FIND_TABLES' in upper:
+        return 'FIND_TABLES'
+    return 'NAVIGATE'
+
+
+async def tool_select_step(
+    db: AsyncSession,
+    *,
+    document_id: str,
+    job_result_id: str,
+    query: str,
+    llm_fn: LLMFn,
+    doc_name: str = '',
+    scope_path: str | None = None,
+    exclude_paths: set[str] | None = None,
+    revision_hint: str | None = None,
+) -> str:
+    """Route to the appropriate tool for the current scope.
+
+    Returns one of: 'NAVIGATE', 'FIND_IMAGES', 'FIND_TABLES'.
+
+    This is the top-level agent decision — it picks WHICH tool
+    to invoke. Each tool then handles its own internal logic.
+
+    Optimization: if the current scope has no image or table chunks,
+    skips the LLM call and returns 'NAVIGATE' directly.
+    """
+    items = await _load_child_sections(
+        db, document_id, job_result_id, scope_path,
+        exclude_paths=exclude_paths,
+    )
+    if not items:
+        return 'NAVIGATE'  # fallback
+
+    # Build lightweight tree summary (titles + counts only, no summaries)
+    summary_lines = []
+    for item in items:
+        if not item.get('show_summary'):
+            continue
+        title = item.get('title', '')
+        img = item.get('image_count', 0)
+        tbl = item.get('table_count', 0)
+        txt = item.get('chunk_count', 0)
+        counts = f'text={txt}'
+        if img > 0:
+            counts += f' image={img}'
+        if tbl > 0:
+            counts += f' table={tbl}'
+        summary_lines.append(f'- {title}  [{counts}]')
+
+    tree_summary = '\n'.join(summary_lines) or '(empty)'
+
+    # Check if scope has ANY images or tables — skip prompt if none
+    total_images = sum(i.get('image_count', 0) for i in items)
+    total_tables = sum(i.get('table_count', 0) for i in items)
+    if total_images == 0 and total_tables == 0:
+        return 'NAVIGATE'  # no assets → skip tool selection, go straight to navigate
+
+    scope_header = (
+        f'Current scope: "{scope_path}"' if scope_path
+        else 'Current scope: root (document top level)'
+    )
+    prompt = _TOOL_SELECT_PROMPT.format(
+        doc_name=doc_name or document_id,
+        scope_header=scope_header,
+        tree_summary=tree_summary,
+        query=query,
+    )
+    if revision_hint:
+        prompt += (
+            f'\n\nIMPORTANT: This is a REVISION round. '
+            f'The previous search attempt failed because:\n'
+            f'"{revision_hint}"\n'
+            f'Adjust your tool selection accordingly.'
+        )
+    response = await llm_fn(prompt)
+
+    # Parse tool choice
+    tool = _parse_tool_choice(response)
+    logger.info(
+        f'  tool_select_step scope={scope_path or "root"}: '
+        f'tool={tool} images={total_images} tables={total_tables}'
+    )
+    return tool
+
+
+# ---------------------------------------------------------------------------
+# Tool: asset_filter_step (programmatic asset extraction)
+# ---------------------------------------------------------------------------
+
+async def asset_filter_step(
+    db: AsyncSession,
+    *,
+    document_id: str,
+    job_result_id: str,
+    scope_path: str | None,
+    asset_type: str,  # 'image' | 'table'
+) -> list[dict[str, Any]]:
+    """Extract assets from all descendants under scope_path.
+
+    Terminal action — no LLM involved.
+    Algorithm: load all text chunks under scope → parse connect_to metadata →
+    batch-load target image/table chunks → return directly.
+
+    Also collects standalone asset chunks (image/table) that exist directly
+    under the scope but are not referenced via connect_to.
+    """
+    from shared.models.database.document import DocumentChunk, DocumentSection
+
+    t0 = time.monotonic()
+    try:
+        # 1. Find all section_ids under scope_path
+        section_stmt = (
+            select(DocumentSection.section_id, DocumentSection.section_path)
+            .where(DocumentSection.document_id == document_id)
+            .where(DocumentSection.job_result_id == job_result_id)
+        )
+        if scope_path:
+            section_stmt = section_stmt.where(
+                (DocumentSection.section_path == scope_path) |
+                (DocumentSection.section_path.like(f'{scope_path} / %'))
+            )
+        section_result = await db.execute(section_stmt)
+        section_rows = section_result.all()
+        section_ids = {row[0] for row in section_rows}
+
+        if not section_ids:
+            logger.info(f'  asset_filter_step: no sections found under scope={scope_path}')
+            return []
+
+        # 2. Load target asset chunks directly (standalone assets in the scope)
+        asset_stmt = (
+            select(
+                DocumentChunk.chunk_id,
+                DocumentChunk.chunk_type,
+                DocumentChunk.content,
+                DocumentChunk.file_path,
+                DocumentChunk.section_id,
+                DocumentChunk.source_chunk_path,
+                DocumentChunk.chunk_metadata,
+                DocumentChunk.sort_order,
+                DocumentChunk.job_result_id,
+            )
+            .where(DocumentChunk.document_id == document_id)
+            .where(DocumentChunk.job_result_id == job_result_id)
+            .where(DocumentChunk.section_id.in_(list(section_ids)))
+            .where(DocumentChunk.chunk_type == asset_type)
+            .order_by(DocumentChunk.sort_order)
+        )
+        asset_result = await db.execute(asset_stmt)
+        asset_rows = asset_result.all()
+
+        # 3. Also find assets referenced via connect_to from text chunks
+        text_stmt = (
+            select(
+                DocumentChunk.chunk_metadata,
+            )
+            .where(DocumentChunk.document_id == document_id)
+            .where(DocumentChunk.job_result_id == job_result_id)
+            .where(DocumentChunk.section_id.in_(list(section_ids)))
+            .where(DocumentChunk.chunk_type == 'text')
+        )
+        text_result = await db.execute(text_stmt)
+        connected_target_ids: set[str] = set()
+        for (metadata,) in text_result.all():
+            if not isinstance(metadata, dict):
+                continue
+            for conn in metadata.get('connect_to') or []:
+                target_id = conn.get('target', '')
+                if target_id:
+                    connected_target_ids.add(target_id)
+
+        # Load connected targets that match asset_type
+        if connected_target_ids:
+            connected_stmt = (
+                select(
+                    DocumentChunk.chunk_id,
+                    DocumentChunk.chunk_type,
+                    DocumentChunk.content,
+                    DocumentChunk.file_path,
+                    DocumentChunk.section_id,
+                    DocumentChunk.source_chunk_path,
+                    DocumentChunk.chunk_metadata,
+                    DocumentChunk.sort_order,
+                    DocumentChunk.job_result_id,
+                )
+                .where(DocumentChunk.document_id == document_id)
+                .where(DocumentChunk.job_result_id == job_result_id)
+                .where(DocumentChunk.chunk_id.in_(list(connected_target_ids)))
+                .where(DocumentChunk.chunk_type == asset_type)
+                .order_by(DocumentChunk.sort_order)
+            )
+            connected_result = await db.execute(connected_stmt)
+            connected_rows = connected_result.all()
+        else:
+            connected_rows = []
+
+        # 4. Merge and deduplicate
+        seen_ids: set[str] = set()
+        chunks: list[dict[str, Any]] = []
+
+        # Helper to look up job_id from job_result
+        from shared.models.database.job_result import JobResult
+        job_stmt = (
+            select(JobResult.job_id)
+            .where(JobResult.id == job_result_id)
+        )
+        job_result_row = await db.execute(job_stmt)
+        job_id = job_result_row.scalar() or ''
+
+        for row in list(asset_rows) + list(connected_rows):
+            chunk_id = row[0]
+            if chunk_id in seen_ids:
+                continue
+            seen_ids.add(chunk_id)
+            chunks.append({
+                'document_id': document_id,
+                'chunk_id': chunk_id,
+                'chunk_type': row[1],
+                'content': row[2],
+                'file_path': row[3],
+                'section_id': row[4],
+                'source_chunk_path': row[5],
+                'chunk_metadata': row[6] or {},
+                'sort_order': row[7],
+                'job_result_id': job_result_id,
+                'job_id': job_id,
+            })
+
+        latency = int((time.monotonic() - t0) * 1000)
+        logger.info(
+            f'  asset_filter_step scope={scope_path or "root"} '
+            f'type={asset_type}: {len(chunks)} chunks found, {latency}ms'
+        )
+        return chunks
+
+    except Exception as e:
+        logger.error(f'  asset_filter_step failed: {e}')
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Tool: scope_navigate_step (single-step navigation)
 # ---------------------------------------------------------------------------
 
-_LLM_MODE_TO_HYDRATE: dict[str, str] = {
-    'all': 'chunks',
-    'image': 'image_only',
-    'table': 'table_only',
-}
 
 async def scope_navigate_step(
     db: AsyncSession,
@@ -459,14 +779,11 @@ async def scope_navigate_step(
             node.confidence[path] = conf
 
             if item.get('is_leaf'):
-                # Leaf → hydrate chunks
-                hydrate_mode = _LLM_MODE_TO_HYDRATE.get(
-                    str(sel.get('mode', 'all')).strip().lower(), 'chunks'
-                )
+                # Leaf → hydrate all chunk types
                 chunks = await _hydrate_paths_to_rows(
                     db,
                     path_selections=[
-                        {'path': path, 'confidence': conf, 'hydrate_mode': hydrate_mode}
+                        {'path': path, 'confidence': conf, 'hydrate_mode': 'chunks'}
                     ],
                     user_id=user_id,
                     namespace=namespace,
@@ -511,6 +828,7 @@ async def discovery_select_step(
     namespace: str,
     doc_name: str = '',
     discovery_hints: list[dict[str, Any]],
+    revision_hint: str | None = None,
 ) -> DocTreeNode:
     """Post-navigation discovery selection step.
 
@@ -551,10 +869,22 @@ async def discovery_select_step(
             return node
 
         items_text = '\n'.join(hint_lines)
+
+        revision_context = ''
+        if revision_hint:
+            revision_context = (
+                f'\nIMPORTANT: This is a REVISION round. '
+                f'The previous search attempt failed because:\n'
+                f'"{revision_hint}"\n'
+                f'Adjust your selection accordingly. '
+                f'If no candidate is relevant, return an EMPTY list [].\n'
+            )
+
         prompt = _DISCOVERY_SELECT_PROMPT.format(
             doc_name=doc_name or document_id,
             items=items_text,
             query=query,
+            revision_context=revision_context,
         )
         response = await llm_fn(prompt)
         selections = _parse_scope_nav_response(response)
@@ -569,15 +899,12 @@ async def discovery_select_step(
         for sel in valid_selections:
             path = sel['path']
             conf = sel.get('confidence', 0.7)
-            hydrate_mode = _LLM_MODE_TO_HYDRATE.get(
-                str(sel.get('mode', 'all')).strip().lower(), 'chunks'
-            )
             node.confidence[path] = conf
 
             chunks = await _hydrate_paths_to_rows(
                 db,
                 path_selections=[
-                    {'path': path, 'confidence': conf, 'hydrate_mode': hydrate_mode}
+                    {'path': path, 'confidence': conf, 'hydrate_mode': 'chunks'}
                 ],
                 user_id=user_id,
                 namespace=namespace,

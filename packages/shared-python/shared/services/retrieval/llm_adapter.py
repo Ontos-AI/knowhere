@@ -89,3 +89,52 @@ def create_retrieval_llm_fn(
             return ''
 
     return llm_fn
+
+
+def create_retrieval_vlm_fn(
+    *,
+    model: str | None = None,
+    temperature: float = _RETRIEVAL_LLM_TEMPERATURE,
+    max_tokens: int = 4096,
+) -> LLMFn | None:
+    """Create an async VLM callable for image-aware answer generation.
+
+    Uses the IMAGE_MODEL (e.g. qwen3.5-flash) for multimodal input.
+    Returns None when the image model is not configured.
+
+    The returned function accepts the same ``LLMFnInput`` type as
+    ``create_retrieval_llm_fn`` — callers pass either a plain string
+    or a list of ChatCompletionMessageParam (including image_url parts).
+    """
+    from shared.core.config import settings
+
+    effective_model = model or getattr(settings, 'IMAGE_MODEL', '') or 'qwen3.5-flash'
+
+    if not _has_llm_credentials():
+        logger.debug('retrieval: no LLM credentials for VLM, image-aware answering disabled')
+        return None
+
+    async def vlm_fn(prompt: LLMFnInput) -> str:
+        from shared.utils.OpenAICompatibleClientSync import get_openai_client
+
+        client = get_openai_client(model=effective_model)
+        try:
+            result = await asyncio.to_thread(
+                client.chat_completion,
+                cast(Any, prompt),
+                model=effective_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return result
+        except Exception as exc:
+            logger.warning(
+                "retrieval: VLM call failed (degrading gracefully): "
+                "model={} error_type={} error={}",
+                effective_model,
+                type(exc).__name__,
+                exc,
+            )
+            return ''
+
+    return vlm_fn

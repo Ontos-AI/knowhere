@@ -43,8 +43,18 @@ async def attempt_answer(
     evidence_text: str,
     state: AgentState,
     config: AgentRunConfig,
+    vlm_fn: LLMFn | None = None,
+    image_urls: list[str] | None = None,
 ) -> tuple[str, str, str]:
     """Attempt to answer the query using collected evidence.
+
+    When ``vlm_fn`` is provided and ``image_urls`` is non-empty, the
+    answer is generated using the VLM in multimodal message format
+    (text + image_url parts) so the model can actually *see* chart
+    images rather than only reading their text descriptions.
+
+    Falls back to ``llm_fn`` (text-only) when VLM is unavailable or
+    when no images are present.
 
     Returns (status, answer_text, reason) where:
       - status='DONE', answer_text=<answer>, reason=''
@@ -52,7 +62,7 @@ async def attempt_answer(
       - status='NOT_FOUND', answer_text='', reason=<why>
         → evidence was insufficient, reason is used as revision_hint
     """
-    prompt = _ATTEMPT_ANSWER_PROMPT.format(
+    prompt_text = _ATTEMPT_ANSWER_PROMPT.format(
         query=query,
         evidence_context=evidence_text,
         revision_count=state.revision_count,
@@ -60,13 +70,35 @@ async def attempt_answer(
     )
 
     verbose = os.environ.get('RETRIEVAL_AGENTIC_VERBOSE', '') == 'true'
+
+    # Decide whether to use VLM (multimodal) or text-only LLM
+    effective_fn = llm_fn
+    effective_input: Any = prompt_text
+
+    if vlm_fn and image_urls:
+        # Build multimodal message: text evidence + image_url parts
+        content_parts: list[dict[str, Any]] = [
+            {'type': 'text', 'text': prompt_text},
+        ]
+        for url in image_urls[:20]:  # Cap at 20 images to avoid token overflow
+            content_parts.append({
+                'type': 'image_url',
+                'image_url': {'url': url},
+            })
+        effective_input = [{'role': 'user', 'content': content_parts}]
+        effective_fn = vlm_fn
+        logger.info(
+            f'  [attempt_answer] using VLM with {len(image_urls)} image URLs '
+            f'(capped at {min(len(image_urls), 20)})'
+        )
+
     if verbose:
         logger.info(
             f'[attempt_answer PROMPT]\n'
-            f'{prompt}'
+            f'{prompt_text}'
         )
 
-    raw_response = await llm_fn(prompt)
+    raw_response = await effective_fn(effective_input)
     logger.info(f'  [attempt_answer] raw={repr(raw_response[:300])}')
 
     if verbose:
@@ -74,6 +106,12 @@ async def attempt_answer(
             f'[attempt_answer RESPONSE]\n'
             f'{raw_response}'
         )
+
+    # If VLM returned empty (e.g. URL not reachable), fall back to text LLM
+    if not raw_response.strip() and effective_fn is not llm_fn:
+        logger.info('  [attempt_answer] VLM returned empty, falling back to text LLM')
+        raw_response = await llm_fn(prompt_text)
+        logger.info(f'  [attempt_answer] text fallback raw={repr(raw_response[:300])}')
 
     parsed = _parse_answer_response(raw_response)
     if not parsed:

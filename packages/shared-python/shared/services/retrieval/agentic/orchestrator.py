@@ -58,6 +58,14 @@ def _collect_media_chunks(node: DocTreeNode) -> list[dict[str, Any]]:
     return media
 
 
+def _collect_media_chunks_all(doc_trees: dict[str, DocTreeNode]) -> list[dict[str, Any]]:
+    """Collect media chunks from all doc trees."""
+    media: list[dict[str, Any]] = []
+    for tree in doc_trees.values():
+        media.extend(_collect_media_chunks(tree))
+    return media
+
+
 async def _build_asset_url_map(
     media_chunks: list[dict[str, Any]],
 ) -> dict[str, str]:
@@ -171,6 +179,9 @@ class RetrievalAgent:
         """
         from shared.services.retrieval.agentic import tools
         from shared.services.retrieval.agentic.policy import attempt_answer
+        from shared.services.retrieval.llm_adapter import create_retrieval_vlm_fn
+
+        vlm_fn = create_retrieval_vlm_fn()
 
         config = config or _build_config_from_env()
         exclude_document_ids = exclude_document_ids or []
@@ -353,6 +364,7 @@ class RetrievalAgent:
         # Phase 2 + 3 Loop: Navigate → Render → Attempt Answer → (Revise)
         # ══════════════════════════════════════════════════════════════════
         answer_text = ''
+        evidence_text = ''
         revision_hint: str | None = None
         stop_reason = 'max_revisions'
 
@@ -385,11 +397,14 @@ class RetrievalAgent:
 
                 if not is_b_class:
                     # Build exclude_paths for this doc from seen_section_keys
-                    doc_exclude = {
+                    # Starts with revision-carried paths, then accumulates
+                    # leaf paths hydrated during THIS BFS round to prevent
+                    # re-selection in deeper drill-downs.
+                    doc_exclude: set[str] = {
                         key.split('::', 1)[1]
                         for key in state.seen_section_keys
                         if key.startswith(f'{doc.document_id}::')
-                    } if state.seen_section_keys else None
+                    } if state.seen_section_keys else set()
 
                     # BFS queue: (scope_path, parent_node, depth)
                     root = DocTreeNode(scope_path=None)
@@ -406,6 +421,76 @@ class RetrievalAgent:
                         if llm_fn is None:
                             break
 
+                        # ★ Step 1: Tool selection (agent decides which tool)
+                        tool_choice = await tools.tool_select_step(
+                            db,
+                            document_id=doc.document_id,
+                            job_result_id=job_result_id,
+                            query=query,
+                            llm_fn=llm_fn,
+                            doc_name=doc_name,
+                            scope_path=scope,
+                            exclude_paths=doc_exclude,
+                            revision_hint=revision_hint if depth == 0 else None,
+                        )
+                        state.step_count += 1
+
+                        if trace_enabled:
+                            trace.record_step(
+                                'tool_select_step', ToolResult(
+                                    status='selected',
+                                    payload={
+                                        'document_id': doc.document_id,
+                                        'scope': scope or 'root',
+                                        'depth': depth,
+                                        'tool_choice': tool_choice,
+                                    },
+                                ),
+                                decision_reason=f'tool_r{round_idx}_d{depth}_{doc.source_file_name}',
+                            )
+
+                        logger.info(
+                            f'  agentic step {state.step_count}: tool_select_step '
+                            f'doc="{doc.source_file_name}" scope={scope or "root"} '
+                            f'depth={depth} tool={tool_choice}'
+                        )
+
+                        if tool_choice in ('FIND_IMAGES', 'FIND_TABLES'):
+                            # ★ Terminal: asset filter (no LLM, pure programmatic)
+                            asset_type = 'image' if tool_choice == 'FIND_IMAGES' else 'table'
+                            asset_chunks = await tools.asset_filter_step(
+                                db,
+                                document_id=doc.document_id,
+                                job_result_id=job_result_id,
+                                scope_path=scope,
+                                asset_type=asset_type,
+                            )
+                            if asset_chunks:
+                                parent_node.leaf_content[scope or 'root'] = asset_chunks
+
+                            if trace_enabled:
+                                trace.record_step(
+                                    'asset_filter_step', ToolResult(
+                                        status='filtered' if asset_chunks else 'empty',
+                                        payload={
+                                            'document_id': doc.document_id,
+                                            'scope': scope or 'root',
+                                            'asset_type': asset_type,
+                                            'chunks_found': len(asset_chunks) if asset_chunks else 0,
+                                        },
+                                    ),
+                                    decision_reason=f'asset_r{round_idx}_d{depth}_{doc.source_file_name}',
+                                )
+
+                            logger.info(
+                                f'  agentic step {state.step_count}: asset_filter_step '
+                                f'doc="{doc.source_file_name}" scope={scope or "root"} '
+                                f'type={asset_type} chunks={len(asset_chunks) if asset_chunks else 0}'
+                            )
+                            # NO further drill-down — terminal action
+                            continue
+
+                        # ★ Step 2: NAVIGATE (existing scope_navigate_step)
                         step_node, drill_paths = await tools.scope_navigate_step(
                             db,
                             document_id=doc.document_id,
@@ -423,14 +508,31 @@ class RetrievalAgent:
 
                         # Merge step result into parent node
                         parent_node.outline_items = step_node.outline_items
-                        parent_node.leaf_content = step_node.leaf_content
+                        parent_node.leaf_content.update(step_node.leaf_content)
                         parent_node.confidence = step_node.confidence
+
+                        # Accumulate hydrated leaf paths into doc_exclude
+                        # so subsequent drill-downs don't re-show them as [SELECT]
+                        for leaf_path in step_node.leaf_content:
+                            doc_exclude.add(leaf_path)
 
                         # Queue non-leaf selections for further drill-down
                         for sel in drill_paths:
                             child = DocTreeNode(scope_path=sel['path'])
                             parent_node.children[sel['path']] = child
                             pending.append((sel['path'], child, depth + 1))
+
+                        # Re-parent leaf paths that belong to a child's subtree.
+                        # When the LLM selects both a parent section (non-leaf)
+                        # and one of its children (leaf) at the same depth, the
+                        # leaf chunks are stored on the parent node.  Move them
+                        # into the child node so render_unified_doc_tree nests
+                        # them correctly instead of rendering orphans at root.
+                        for child_path in list(parent_node.children.keys()):
+                            for leaf_path in list(parent_node.leaf_content.keys()):
+                                if leaf_path.startswith(child_path + ' / '):
+                                    parent_node.children[child_path].leaf_content[leaf_path] = \
+                                        parent_node.leaf_content.pop(leaf_path)
 
                         if trace_enabled:
                             trace.record_step(
@@ -471,6 +573,7 @@ class RetrievalAgent:
                         namespace=namespace,
                         doc_name=doc_name,
                         discovery_hints=doc_hints,
+                        revision_hint=revision_hint,
                     )
                     state.step_count += 1
 
@@ -507,13 +610,25 @@ class RetrievalAgent:
                 stop_reason = 'no_llm'
                 break
 
-            # Auto-trigger attempt_answer
+            # Collect image URLs from evidence for VLM switch
+            evidence_image_urls: list[str] = []
+            if vlm_fn:
+                asset_url_map = await _build_asset_url_map(
+                    _collect_media_chunks_all(state.doc_trees),
+                )
+                evidence_image_urls = [
+                    url for url in asset_url_map.values() if url
+                ]
+
+            # Auto-trigger attempt_answer (VLM if images present)
             status, answer_text, reason = await attempt_answer(
                 llm_fn,
                 query=query,
                 evidence_text=evidence_text,
                 state=state,
                 config=config,
+                vlm_fn=vlm_fn,
+                image_urls=evidence_image_urls or None,
             )
             state.step_count += 1
 
@@ -555,7 +670,7 @@ class RetrievalAgent:
             # Clear doc selection for re-exploration (preserve doc_trees for merge)
             state.selected_docs.clear()
 
-            # Re-run KG select (allow re-exploring docs for different sections via path masking)
+            # Re-run KG select with revision hint
             kg_result = await tools.kg_document_select(
                 db,
                 user_id=user_id,
@@ -563,6 +678,7 @@ class RetrievalAgent:
                 query=query,
                 llm_fn=llm_fn,
                 exclude_document_ids=list(set(exclude_document_ids)),
+                revision_hint=revision_hint,
             )
             state.step_count += 1
 

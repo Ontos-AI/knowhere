@@ -29,9 +29,9 @@ their navigation summaries, chunk counts, and media counts.
 === End Overview ===
 
 User query: {query}
-
-Based on the query, select all documents that may contain relevant information.
-Only skip documents that are clearly irrelevant to the query.
+{revision_context}
+Based on the query, select documents that may contain relevant information.
+If NO document in the knowledge base is relevant to the query, return an EMPTY array [].
 Return ONLY a JSON array of document IDs, e.g.: ["doc_abc123", "doc_def456"]
 Do not include any explanation.
 """
@@ -59,13 +59,8 @@ Select sections to drill into for more detailed content.
 - Select sections whose content is needed to answer the query.
 - If the titles and summaries already visible are sufficient (e.g. the query asks for an outline or overview), return an EMPTY list [].
 
-  Optional: set "mode" per selection to control what content is retrieved:
-  - "all" (default): retrieve all content types (text, images, tables)
-  - "image": retrieve only image assets from this section
-  - "table": retrieve only table assets from this section
-
 Return ONLY a JSON object:
-{{"selections": [{{"path": "...", "confidence": <float>, "mode": "all"}}, ...]}}
+{{"selections": [{{"path": "...", "confidence": <float>}}, ...]}}
 Do not include any explanation.
 """
 
@@ -84,12 +79,12 @@ They may contain relevant evidence not found through hierarchical navigation.
 === End Discovery Candidates ===
 
 User query: {query}
-
+{revision_context}
 Select section paths whose content is needed to answer the query.
 If none are relevant, return an EMPTY list [].
 
 Return ONLY a JSON object:
-{{"selections": [{{"path": "...", "confidence": <float>, "mode": "all"}}, ...]}}
+{{"selections": [{{"path": "...", "confidence": <float>}}, ...]}}
 Do not include any explanation.
 """
 
@@ -243,7 +238,6 @@ def _format_items_for_llm(
         show = item.get('show_summary', True)
         is_leaf = item.get('is_leaf', False)
         leaf_tag = ' [Leaf]' if is_leaf else ''
-        title = item.get('title', '')
         path = item.get('path', '')
         summary = item.get('summary') or ''
 
@@ -268,7 +262,7 @@ def _format_items_for_llm(
         select_tag = '[SELECT] ' if show else ''
 
         lines: list[str] = []
-        lines.append(f'{indent}{prefix} {select_tag}{level_tag} path="{path}" {title}{counts_str}{leaf_tag}')
+        lines.append(f'{indent}{prefix} {select_tag}{level_tag} path="{path}"{counts_str}{leaf_tag}')
 
         if include_summary and show and summary:
             sub_indent = "    " * level
@@ -663,10 +657,12 @@ async def _load_child_sections(
     sid_to_path = {meta['section_id']: path for path, meta in all_sections.items()}
 
     # Aggregate chunk counts upward: each show_summary item gets counts from itself + descendants
+    # Phase 1: Direct section assignment — counts from chunks directly under each section
     for sid, (text_c, img_c, tbl_c) in section_id_counts.items():
         chunk_path = sid_to_path.get(sid, '')
         if not chunk_path:
             continue
+
         for item_path, item in items_by_path.items():
             if not item['show_summary']:
                 continue
@@ -674,6 +670,79 @@ async def _load_child_sections(
                 item['chunk_count'] += text_c
                 item['image_count'] += img_c
                 item['table_count'] += tbl_c
+
+    # Phase 2: connect_to reference tracing — Root-level standalone assets
+    # Images/tables often live in the Root section but are referenced via connect_to
+    # from text chunks in deeper sections. Trace these references to attribute
+    # assets to the sections that actually use them.
+    #
+    # Algorithm: for each show_summary item, find all text chunks under its subtree,
+    # collect their connect_to targets, and count how many are image/table chunks.
+    scope_items_with_zero_assets = [
+        item for item in items_by_path.values()
+        if item['show_summary'] and item['image_count'] == 0 and item['table_count'] == 0
+    ]
+    if scope_items_with_zero_assets:
+        # Load connect_to metadata for text chunks under all scope sections
+        scope_section_ids = {item['section_id'] for item in items_by_path.values() if item.get('section_id')}
+        if scope_section_ids:
+            from sqlalchemy import literal_column
+            connect_stmt = (
+                select(
+                    DocumentChunk.section_id,
+                    DocumentChunk.chunk_metadata,
+                )
+                .where(DocumentChunk.document_id == document_id)
+                .where(DocumentChunk.job_result_id == job_result_id)
+                .where(DocumentChunk.section_id.in_(list(scope_section_ids)))
+                .where(DocumentChunk.chunk_type == 'text')
+            )
+            connect_result = (await db.execute(connect_stmt)).all()
+
+            # Map section_id → set of connected target chunk_ids
+            section_target_ids: dict[str, set[str]] = {}
+            for sec_id, metadata in connect_result:
+                if not isinstance(metadata, dict):
+                    continue
+                for conn in metadata.get('connect_to') or []:
+                    target_id = conn.get('target', '')
+                    if target_id:
+                        section_target_ids.setdefault(sec_id, set()).add(target_id)
+
+            if section_target_ids:
+                # Collect all target chunk_ids and look up their types
+                all_target_ids = set()
+                for tids in section_target_ids.values():
+                    all_target_ids.update(tids)
+
+                target_type_stmt = (
+                    select(
+                        DocumentChunk.chunk_id,
+                        DocumentChunk.chunk_type,
+                    )
+                    .where(DocumentChunk.document_id == document_id)
+                    .where(DocumentChunk.job_result_id == job_result_id)
+                    .where(DocumentChunk.chunk_id.in_(list(all_target_ids)))
+                    .where(DocumentChunk.chunk_type.in_(['image', 'table']))
+                )
+                target_type_result = (await db.execute(target_type_stmt)).all()
+                target_types: dict[str, str] = {cid: ctype for cid, ctype in target_type_result}
+
+                # Aggregate connected asset counts per section path → upward to items
+                for sec_id, target_ids in section_target_ids.items():
+                    ref_path = sid_to_path.get(sec_id, '')
+                    if not ref_path:
+                        continue
+                    ref_img = sum(1 for tid in target_ids if target_types.get(tid) == 'image')
+                    ref_tbl = sum(1 for tid in target_ids if target_types.get(tid) == 'table')
+                    if ref_img == 0 and ref_tbl == 0:
+                        continue
+                    for item_path, item in items_by_path.items():
+                        if not item['show_summary']:
+                            continue
+                        if ref_path == item_path or ref_path.startswith(item_path + ' / '):
+                            item['image_count'] += ref_img
+                            item['table_count'] += ref_tbl
 
     # ── Sort by native document order ─────────────────────────────────────
     sorted_items = sorted(items_by_path.values(), key=lambda x: x['sort_order'])
@@ -704,7 +773,7 @@ async def _load_child_sections(
 def _parse_scope_nav_response(text: str) -> list[dict[str, Any]]:
     """Parse selections JSON from scope navigation LLM response.
 
-    Returns list of {"path": str, "confidence": float, "mode": str}.
+    Returns list of {"path": str, "confidence": float}.
     """
     text = text.strip()
     # Try direct parse
@@ -724,7 +793,6 @@ def _parse_scope_nav_response(text: str) -> list[dict[str, Any]]:
         return []
 
     selections: list[dict[str, Any]] = []
-    _VALID_MODES = {'all', 'image', 'table'}
     for item in (data.get('selections') or []):
         if not isinstance(item, dict):
             continue
@@ -734,10 +802,7 @@ def _parse_scope_nav_response(text: str) -> list[dict[str, Any]]:
         confidence = _normalize_confidence(item.get('confidence'))
         if confidence is None:
             confidence = 0.7
-        mode = str(item.get('mode') or 'all').strip().lower()
-        if mode not in _VALID_MODES:
-            mode = 'all'
-        selections.append({'path': path, 'confidence': confidence, 'mode': mode})
+        selections.append({'path': path, 'confidence': confidence})
 
     return selections
 
@@ -762,24 +827,33 @@ def _render_leaf_chunks(
 
     Connected target chunks (images/tables) are expected to already be
     present in ``chunks`` via ``hydrate_connected_target_rows``.
+
+    Phase 2: After rendering all text chunks, standalone image/table
+    chunks that were NOT inlined via connect_to are rendered separately.
+    This handles cases where assets exist at root/section level without
+    a parent text chunk referencing them.
     """
     chunk_by_id: dict[str, dict] = {
         c.get('chunk_id', ''): c for c in chunks if c.get('chunk_id')
     }
     rendered_ids: set[str] = set()
+
+    # Phase 1: Render text chunks with inline asset resolution
     for chunk in chunks:
         cid = chunk.get('chunk_id', '')
         if cid and cid in rendered_ids:
             continue
-        if cid:
-            rendered_ids.add(cid)
 
         chunk_type = (chunk.get('chunk_type') or chunk.get('type') or 'text').strip().lower()
 
-        # Skip standalone image/table chunks — they'll be inlined
-        # via connect_to from their parent text chunk
+        # Skip standalone image/table chunks — they'll be rendered in Phase 2
+        # if not inlined via connect_to from a parent text chunk.
+        # NOTE: do NOT add to rendered_ids here — Phase 2 needs to see them.
         if chunk_type in ('image', 'table'):
             continue
+
+        if cid:
+            rendered_ids.add(cid)
 
         content = str(chunk.get('content', '')).strip()
 
@@ -817,6 +891,34 @@ def _render_leaf_chunks(
         for line in content.split('\n'):
             if line.strip():
                 parts.append(f'{indent}┈ {line}')
+
+    # Phase 2: Render standalone image/table chunks not inlined via connect_to
+    for chunk in chunks:
+        cid = chunk.get('chunk_id', '')
+        if cid and cid in rendered_ids:
+            continue
+        if cid:
+            rendered_ids.add(cid)
+
+        chunk_type = (chunk.get('chunk_type') or chunk.get('type') or '').strip().lower()
+        if chunk_type == 'image':
+            file_path = chunk.get('file_path') or ''
+            img_desc = str(chunk.get('content', '')).strip()
+            asset_url = (asset_lookup or {}).get(cid, '') if cid else ''
+            display_ref = asset_url or file_path
+            if display_ref:
+                parts.append(f'{indent}┈ [图片: {display_ref}]')
+            if img_desc:
+                for line in img_desc.split('\n'):
+                    if line.strip():
+                        parts.append(f'{indent}┈ {line}')
+        elif chunk_type == 'table':
+            table_html = str(chunk.get('content', '')).strip()
+            parts.append(f'{indent}┈ [表格内容]')
+            if table_html:
+                for line in table_html.split('\n'):
+                    if line.strip():
+                        parts.append(f'{indent}┈ {line}')
 
 
 def render_unified_doc_tree(
