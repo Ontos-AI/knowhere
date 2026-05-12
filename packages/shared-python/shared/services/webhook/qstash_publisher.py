@@ -15,6 +15,7 @@ import hashlib
 import hmac
 import json
 import time
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from loguru import logger
@@ -25,6 +26,16 @@ from shared.models.database.webhook import WebhookEventStatus
 from shared.utils.url_security import (
     validate_http_url_and_resolve_ip,
 )
+
+
+@dataclass(frozen=True)
+class QStashDeliveryStatus:
+    """Terminal delivery status observed from QStash logs."""
+
+    status: str
+    response_status_code: Optional[int]
+    response_body: Optional[str]
+    error_message: Optional[str]
 
 
 class QStashWebhookPublisher:
@@ -55,7 +66,7 @@ class QStashWebhookPublisher:
                     operation="initialize_client",
                 )
 
-            self._client = QStash(token)
+            self._client = QStash(token, base_url=app_config.QSTASH_BASE_URL)
         return self._client
 
     def publish_event(self, event_id: str) -> Optional[str]:
@@ -189,6 +200,8 @@ class QStashWebhookPublisher:
             "retry_delay": retry_delay_expression,
             "callback": callback_url,
             "failure_callback": failure_callback_url,
+            "deduplication_id": event_id,
+            "label": "knowhere-webhook",
         }
 
         response = client.message.publish(**publish_kwargs)
@@ -198,6 +211,45 @@ class QStashWebhookPublisher:
             message_id = response.get("messageId") or response.get("message_id")
 
         return message_id
+
+    def get_terminal_delivery_status(
+        self,
+        qstash_message_id: str,
+    ) -> Optional[QStashDeliveryStatus]:
+        """Read QStash logs for a terminal destination delivery state."""
+        try:
+            from qstash.log import LogState
+
+            response = self._get_client().log.list(
+                filter={"message_id": qstash_message_id},
+                count=20,
+            )
+        except Exception as exc:
+            logger.warning(
+                f"QStash delivery status lookup failed: "
+                f"message_id={qstash_message_id}, error={exc}"
+            )
+            return None
+
+        terminal_logs = sorted(response.logs, key=lambda log: log.time, reverse=True)
+        for log in terminal_logs:
+            if log.state == LogState.DELIVERED:
+                return QStashDeliveryStatus(
+                    status=WebhookEventStatus.DELIVERED,
+                    response_status_code=log.response_status,
+                    response_body=log.response_body,
+                    error_message=log.error,
+                )
+
+            if log.state == LogState.FAILED:
+                return QStashDeliveryStatus(
+                    status=WebhookEventStatus.FAILED,
+                    response_status_code=log.response_status,
+                    response_body=log.response_body,
+                    error_message=log.error,
+                )
+
+        return None
 
     def _enrich_payload(self, db: Any, event: Any) -> Dict[str, Any]:
         """Enrich the webhook payload (e.g., generate fresh presigned S3 URL)."""

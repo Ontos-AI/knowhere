@@ -128,25 +128,67 @@ def _build_callback_log_idempotency_key(
     return event_id
 
 
+def _get_response_status_code(value: Any) -> Optional[int]:
+    """Return the destination response status reported by QStash."""
+    if value is None:
+        return None
+
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_success_response_status(status_code: Optional[int]) -> bool:
+    """Return whether a destination response status is successful."""
+    return status_code is not None and 200 <= status_code < 300
+
+
+def _get_callback_event_status(data: Dict[str, Any]) -> str:
+    """Map a normal QStash callback to the current webhook event status."""
+    response_status = _get_response_status_code(data.get("status"))
+    if _is_success_response_status(response_status):
+        return WebhookEventStatus.DELIVERED
+
+    return WebhookEventStatus.DELIVERING
+
+
+def _resolve_event_status(current_status: str, callback_status: str) -> str:
+    """Apply callback status without downgrading terminal delivery state."""
+    if current_status in (
+        WebhookEventStatus.DELIVERED,
+        WebhookEventStatus.FAILED,
+        WebhookEventStatus.CANCELED,
+    ):
+        return current_status
+
+    return callback_status
+
+
 def _process_qstash_callback(
     data: Dict[str, Any],
     event_id: str,
-    terminal_status: str,
+    callback_status: str,
     log_label: str,
 ) -> Response:
     """Shared logic for both success and failure QStash callbacks.
 
     Fetches the WebhookEvent, updates its status, and writes a WebhookLog entry.
     """
-    response_status = data.get("status")
+    response_status_code = _get_response_status_code(data.get("status"))
     response_body = data.get("body", "")
     qstash_message_id = data.get("sourceMessageId")
     retried = data.get("retried", 0)
-    error_message = (
-        data.get("error", response_body)
-        if terminal_status == WebhookEventStatus.FAILED
-        else None
+    is_failed_delivery_attempt = (
+        callback_status == WebhookEventStatus.FAILED
+        or (
+            callback_status == WebhookEventStatus.DELIVERING
+            and not _is_success_response_status(response_status_code)
+        )
     )
+    error_message = None
+    if is_failed_delivery_attempt:
+        error_message = data.get("error") or response_body
 
     with get_sync_db_context() as db:
         event = db.execute(
@@ -158,21 +200,23 @@ def _process_qstash_callback(
             return Response(status_code=200, content="OK (event not found)")
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
-        event.status = terminal_status
-        event.attempts = retried + 1
+        event_status = _resolve_event_status(event.status, callback_status)
+        attempt_number = retried + 1
+        event.status = event_status
+        event.attempts = max(event.attempts, attempt_number)
         event.updated_at = now
 
         log = WebhookLog(
             job_id=event.job_id,
             event_id=event.id,
             webhook_url=event.target_url,
-            attempt_number=retried + 1,
+            attempt_number=attempt_number,
             request_payload=event.payload,
             signature="",
             idempotency_key=_build_callback_log_idempotency_key(
                 qstash_message_id, event.id
             ),
-            response_status_code=int(response_status) if response_status else None,
+            response_status_code=response_status_code,
             response_body=response_body[:4096] if response_body else None,
             error_message=str(error_message)[:4096] if error_message else None,
             duration_ms=0,
@@ -210,8 +254,9 @@ async def handle_qstash_callback(request: Request) -> Response:
         f"retried={retried}, qstash_message_id={data.get('sourceMessageId')}"
     )
 
+    event_status = _get_callback_event_status(data)
     return _process_qstash_callback(
-        data, event_id, WebhookEventStatus.DELIVERED, "callback"
+        data, event_id, event_status, "callback"
     )
 
 

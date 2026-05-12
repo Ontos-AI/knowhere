@@ -11,7 +11,12 @@ from pytest import MonkeyPatch
 from tests.support.contract_database import ContractDatabase
 
 
-async def _insert_qstash_event() -> tuple[str, str]:
+async def _insert_qstash_event(
+    *,
+    status: str = "pending",
+    attempts: int = 0,
+    qstash_message_id: str | None = None,
+) -> tuple[str, str]:
     user_id = f"contract-qstash-user-{uuid4().hex[:12]}"
     job_id = f"job_{uuid4().hex[:12]}"
     event_id = str(uuid4())
@@ -29,6 +34,9 @@ async def _insert_qstash_event() -> tuple[str, str]:
         job_id=job_id,
         target_url="https://hooks.contract.test/qstash",
         payload={"job_id": job_id, "status": "done"},
+        status=status,
+        attempts=attempts,
+        qstash_message_id=qstash_message_id,
     )
 
     return job_id, event_id
@@ -109,6 +117,133 @@ async def test_should_mark_the_matching_event_delivered_and_persist_a_webhook_lo
         "response_body": "accepted",
         "error_message": None,
         "qstash_message_id": "qstash-message-success",
+    }
+
+
+@pytest.mark.asyncio
+async def test_should_keep_the_matching_event_delivering_for_retry_callback_with_non_success_status(
+    api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    job_id: str = ""
+    event_id: str = ""
+
+    async with api_client_factory() as api_client:
+        job_id, event_id = await _insert_qstash_event(
+            status="delivering",
+            qstash_message_id="qstash-message-retry",
+        )
+        qstash_module = importlib.import_module("app.api.v1.routes.qstash_callbacks")
+        monkeypatch.setattr(qstash_module, "_verify_qstash_signature", lambda *args: True)
+        response = await api_client.post(
+            "/api/v1/webhooks/qstash/callback",
+            json={
+                "status": 503,
+                "body": "temporary unavailable",
+                "retried": 2,
+                "sourceMessageId": "qstash-message-retry",
+                "sourceHeader": {"X-Knowhere-Event-Id": event_id},
+            },
+            headers={"upstash-signature": "contract-valid"},
+        )
+
+    assert response.status_code == 200
+    assert response.text == "OK"
+
+    event_row = await ContractDatabase.fetch_webhook_event(event_id)
+    log_rows = await ContractDatabase.fetch_all(
+        """
+        SELECT
+            job_id,
+            event_id,
+            attempt_number,
+            response_status_code,
+            response_body,
+            error_message,
+            qstash_message_id
+        FROM webhook_logs
+        WHERE event_id = :event_id
+        """,
+        {"event_id": event_id},
+    )
+
+    assert event_row is not None
+    assert event_row["status"] == "delivering"
+    assert event_row["attempts"] == 3
+
+    assert len(log_rows) == 1
+    assert log_rows[0] == {
+        "job_id": job_id,
+        "event_id": event_id,
+        "attempt_number": 3,
+        "response_status_code": 503,
+        "response_body": "temporary unavailable",
+        "error_message": "temporary unavailable",
+        "qstash_message_id": "qstash-message-retry",
+    }
+
+
+@pytest.mark.asyncio
+async def test_should_not_downgrade_terminal_event_when_retry_callback_arrives_late(
+    api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    job_id: str = ""
+    event_id: str = ""
+
+    async with api_client_factory() as api_client:
+        job_id, event_id = await _insert_qstash_event(
+            status="delivered",
+            attempts=4,
+            qstash_message_id="qstash-message-late-retry",
+        )
+        qstash_module = importlib.import_module("app.api.v1.routes.qstash_callbacks")
+        monkeypatch.setattr(qstash_module, "_verify_qstash_signature", lambda *args: True)
+        response = await api_client.post(
+            "/api/v1/webhooks/qstash/callback",
+            json={
+                "status": 503,
+                "body": "late retry callback",
+                "retried": 1,
+                "sourceMessageId": "qstash-message-late-retry",
+                "sourceHeader": {"X-Knowhere-Event-Id": event_id},
+            },
+            headers={"upstash-signature": "contract-valid"},
+        )
+
+    assert response.status_code == 200
+    assert response.text == "OK"
+
+    event_row = await ContractDatabase.fetch_webhook_event(event_id)
+    log_rows = await ContractDatabase.fetch_all(
+        """
+        SELECT
+            job_id,
+            event_id,
+            attempt_number,
+            response_status_code,
+            response_body,
+            error_message,
+            qstash_message_id
+        FROM webhook_logs
+        WHERE event_id = :event_id
+        """,
+        {"event_id": event_id},
+    )
+
+    assert event_row is not None
+    assert event_row["status"] == "delivered"
+    assert event_row["attempts"] == 4
+
+    assert len(log_rows) == 1
+    assert log_rows[0] == {
+        "job_id": job_id,
+        "event_id": event_id,
+        "attempt_number": 2,
+        "response_status_code": 503,
+        "response_body": "late retry callback",
+        "error_message": "late retry callback",
+        "qstash_message_id": "qstash-message-late-retry",
     }
 
 

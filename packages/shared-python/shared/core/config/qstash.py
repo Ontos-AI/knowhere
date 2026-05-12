@@ -12,6 +12,10 @@ class QStashConfig(BaseModel):
 
     # QStash API credentials (from Upstash console)
     QSTASH_TOKEN: Optional[str] = Field(default=None, description="QStash API token")
+    QSTASH_BASE_URL: Optional[str] = Field(
+        default=None,
+        description="QStash API base URL override for local development and tests",
+    )
     QSTASH_CURRENT_SIGNING_KEY: Optional[str] = Field(
         default=None, description="QStash current signing key for callback verification"
     )
