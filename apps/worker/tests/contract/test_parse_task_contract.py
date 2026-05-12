@@ -768,6 +768,10 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
     monkeypatch.setattr(kb_tasks.settings, "TMP_PATH", str(tmp_path))
     monkeypatch.setattr(kb_tasks.settings, "BILLING_ENABLED", False)
 
+    def fake_cleanup_task_workspace(workspace_dir: str | None) -> bool:
+        captured_artifacts["workspace_dir"] = workspace_dir
+        return True
+
     def fake_verify_s3_file_exists(storage_key: str) -> dict[str, Any]:
         return {
             "exists": storage_key == s3_key,
@@ -878,6 +882,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
     monkeypatch.setattr(kb_tasks, "download_s3_file_to_temp", fake_download_s3_file_to_temp)
     monkeypatch.setattr(parse_service, "checkerboard_inject_parse", fake_checkerboard_inject_parse)
     monkeypatch.setattr(kb_tasks, "get_result_storage", lambda: FakeResultStorage())
+    monkeypatch.setattr(kb_tasks, "cleanup_task_workspace", fake_cleanup_task_workspace)
 
     result = kb_tasks.parse_task.run(job_id, user_id, "kb_management")
 
@@ -896,6 +901,8 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
         "table_chunks": 0,
         "total_pages": None,
     }
+    workspace_dir = Path(str(captured_artifacts["workspace_dir"]))
+    assert list(workspace_dir.rglob("images/duplicate.png"))
 
     with engine.begin() as connection:
         job_result_row = (
@@ -946,13 +953,8 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
         )
 
     assert job_chunk_ids == ["duplicate-text", "duplicate-image", "new-text"]
-    assert document_chunk_ids == ["new-text"]
-    assert dict(job_result_row["document_metadata"])["chunk_dedup"] == {
-        "total_incoming": 3,
-        "duplicates_skipped": 2,
-        "new_chunks_inserted": 1,
-        "overlap_by_document": {existing_document_id: 2},
-    }
+    assert document_chunk_ids == ["duplicate-text", "duplicate-image", "new-text"]
+    assert "chunk_overlap" not in dict(job_result_row["document_metadata"] or {})
 
 
 def test_should_initialize_billing_once_for_concurrent_parse_tasks(

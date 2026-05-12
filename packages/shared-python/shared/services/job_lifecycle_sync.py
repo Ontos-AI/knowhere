@@ -57,17 +57,15 @@ class SyncJobLifecycleService:
         checksum: str,
         zip_size: int,
         chunks: Optional[List[Dict[str, Any]]] = None,
-        publication_chunks: Optional[List[Dict[str, Any]]] = None,
         stored_count: int = 0,
         delivery_mode: str = "url",
         section_summaries: Optional[Dict[str, str]] = None,
-        chunk_dedup_stats: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Finalize a successful job in a single atomic transaction.
 
         Steps (all within one DB transaction):
             1. Upsert JobResult + replace full result chunks
-            2. Publish retrieval state from publication chunks
+            2. Publish document state from full result chunks
             3. Mark job as DONE via state machine (CAS)
             4. Create WebhookEvent if webhook_enabled
             5. COMMIT
@@ -85,15 +83,9 @@ class SyncJobLifecycleService:
                     inline_payload=inline_payload,
                     result_s3_key=result_s3_key,
                     result_size=zip_size,
-                    chunk_dedup_stats=chunk_dedup_stats,
                 )
 
                 normalized_chunks = chunks or []
-                normalized_publication_chunks = (
-                    publication_chunks
-                    if publication_chunks is not None
-                    else normalized_chunks
-                )
                 self._replace_chunks(db, job_result.id, normalized_chunks)
                 previous_document_scope = (
                     self._retrieval_publication.get_existing_document_scope(
@@ -106,7 +98,7 @@ class SyncJobLifecycleService:
                         db,
                         job_id=job_id,
                         job_result_id=job_result.id,
-                        chunks=normalized_publication_chunks,
+                        chunks=normalized_chunks,
                     )
                 )
                 if published_document_state is not None and not published_document_state.get("skipped_all_duplicate"):
@@ -313,7 +305,6 @@ class SyncJobLifecycleService:
         inline_payload: Optional[Dict[str, Any]] = None,
         result_s3_key: Optional[str] = None,
         result_size: Optional[int] = None,
-        chunk_dedup_stats: Optional[Dict[str, Any]] = None,
     ) -> JobResult:
         """Create or update JobResult row."""
         result = db.execute(select(JobResult).where(JobResult.job_id == job_id))
@@ -321,24 +312,16 @@ class SyncJobLifecycleService:
 
         if existing:
             existing.delivery_mode = delivery_mode
-            doc_meta = existing.document_metadata or {}
-            if chunk_dedup_stats:
-                doc_meta["chunk_dedup"] = chunk_dedup_stats
-            existing.document_metadata = doc_meta
             existing.inline_payload = inline_payload
             existing.result_s3_key = result_s3_key
             existing.result_size = result_size
             db.flush()
             return existing
 
-        doc_meta = {}
-        if chunk_dedup_stats:
-            doc_meta["chunk_dedup"] = chunk_dedup_stats
-
         job_result = JobResult(
             job_id=job_id,
             delivery_mode=delivery_mode,
-            document_metadata=doc_meta,
+            document_metadata={},
             inline_payload=inline_payload,
             result_s3_key=result_s3_key,
             result_size=result_size,
