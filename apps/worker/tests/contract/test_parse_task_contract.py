@@ -568,6 +568,393 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
     ]
 
 
+def test_should_export_full_result_when_publication_deduplicates_existing_chunks(
+    worker_contract_environment: None,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("BILLING_ENABLED", "false")
+    (
+        kb_tasks,
+        parse_service,
+        sync_storage_service,
+        engine,
+        sync_job_info_service_cls,
+        sync_job_metadata_service_cls,
+        sync_redis_service_factory,
+    ) = _load_parse_task_modules()
+
+    user_id: str = f"worker-user-{uuid4().hex[:12]}"
+    existing_job_id: str = f"job_existing_{uuid4().hex[:12]}"
+    existing_result_id: str = str(uuid4())
+    existing_document_id: str = f"doc_{uuid4().hex[:12]}"
+    job_id: str = f"job_parse_dedup_{uuid4().hex[:12]}"
+    source_file_name: str = "dedup-export.pdf"
+    s3_key: str = f"uploads/{job_id}.pdf"
+    job_metadata = _build_pending_file_job_metadata(source_file_name)
+    captured_artifacts: dict[str, Any] = {}
+
+    with engine.begin() as connection:
+        insert_contract_user(connection, user_id=user_id)
+        insert_contract_job(
+            connection,
+            job_id=existing_job_id,
+            user_id=user_id,
+            status="done",
+            source_type="file",
+            s3_key=f"uploads/{existing_job_id}.pdf",
+            webhook_enabled=False,
+            job_metadata=_build_pending_file_job_metadata("existing.pdf"),
+            billing_status="skipped",
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO job_results (
+                    id,
+                    job_id,
+                    delivery_mode,
+                    inline_payload,
+                    result_s3_key,
+                    result_size,
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    :result_id,
+                    :job_id,
+                    'url',
+                    CAST(:inline_payload AS JSON),
+                    :result_s3_key,
+                    :result_size,
+                    NOW(),
+                    NOW()
+                )
+                """
+            ),
+            {
+                "result_id": existing_result_id,
+                "job_id": existing_job_id,
+                "inline_payload": json.dumps({"checksum": "existing"}),
+                "result_s3_key": f"results/{existing_job_id}.zip",
+                "result_size": 123,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO documents (
+                    document_id,
+                    user_id,
+                    namespace,
+                    status,
+                    current_job_result_id,
+                    source_file_name,
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    :document_id,
+                    :user_id,
+                    'worker-contract',
+                    'active',
+                    :result_id,
+                    'existing.pdf',
+                    NOW(),
+                    NOW()
+                )
+                """
+            ),
+            {
+                "document_id": existing_document_id,
+                "user_id": user_id,
+                "result_id": existing_result_id,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE job_results
+                SET document_id = :document_id
+                WHERE id = :result_id
+                """
+            ),
+            {
+                "document_id": existing_document_id,
+                "result_id": existing_result_id,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO document_chunks (
+                    id,
+                    chunk_id,
+                    user_id,
+                    namespace,
+                    document_id,
+                    job_result_id,
+                    chunk_type,
+                    content,
+                    source_chunk_path,
+                    file_path,
+                    chunk_metadata,
+                    sort_order,
+                    created_at
+                ) VALUES
+                    (
+                        :text_id,
+                        'duplicate-text',
+                        :user_id,
+                        'worker-contract',
+                        :document_id,
+                        :result_id,
+                        'text',
+                        'already published text',
+                        'Default_Root/existing.pdf/Section/Duplicate text',
+                        NULL,
+                        CAST(:text_metadata AS JSON),
+                        0,
+                        NOW()
+                    ),
+                    (
+                        :image_id,
+                        'duplicate-image',
+                        :user_id,
+                        'worker-contract',
+                        :document_id,
+                        :result_id,
+                        'image',
+                        'already published image',
+                        'Default_Root/existing.pdf/images/duplicate.png',
+                        'images/duplicate.png',
+                        CAST(:image_metadata AS JSON),
+                        1,
+                        NOW()
+                    )
+                """
+            ),
+            {
+                "text_id": f"dchk_{uuid4().hex[:12]}",
+                "image_id": f"dchk_{uuid4().hex[:12]}",
+                "user_id": user_id,
+                "document_id": existing_document_id,
+                "result_id": existing_result_id,
+                "text_metadata": json.dumps({}),
+                "image_metadata": json.dumps({"file_path": "images/duplicate.png"}),
+            },
+        )
+        insert_contract_job(
+            connection,
+            job_id=job_id,
+            user_id=user_id,
+            status="pending",
+            source_type="file",
+            s3_key=s3_key,
+            webhook_enabled=False,
+            job_metadata=job_metadata,
+            billing_status="pending",
+        )
+
+    _save_worker_task_cache(
+        job_id=job_id,
+        user_id=user_id,
+        s3_key=s3_key,
+        metadata=job_metadata,
+        sync_job_info_service_cls=sync_job_info_service_cls,
+        sync_job_metadata_service_cls=sync_job_metadata_service_cls,
+        sync_redis_service_factory=sync_redis_service_factory,
+    )
+
+    _bind_parse_task_to_current_module(monkeypatch, kb_tasks=kb_tasks)
+    monkeypatch.setattr(kb_tasks.settings, "TMP_PATH", str(tmp_path))
+    monkeypatch.setattr(kb_tasks.settings, "BILLING_ENABLED", False)
+
+    def fake_verify_s3_file_exists(storage_key: str) -> dict[str, Any]:
+        return {
+            "exists": storage_key == s3_key,
+            "size": _SAMPLE_PDF_PATH.stat().st_size,
+        }
+
+    def fake_generate_download_url(storage_key: str, bucket: str | None) -> dict[str, str]:
+        return {"download_url": f"https://example.test/{storage_key}"}
+
+    def fake_download_s3_file_to_temp(
+        file_url: str, file_ext: str, temp_dir: str
+    ) -> str:
+        downloaded_path = Path(temp_dir) / f"downloaded{file_ext}"
+        shutil.copy2(_SAMPLE_PDF_PATH, downloaded_path)
+        return str(downloaded_path)
+
+    def fake_checkerboard_inject_parse(**kwargs: Any) -> tuple[str, pd.DataFrame]:
+        output_dir = (
+            Path(str(kwargs["output_dir"]))
+            / str(kwargs["kb_dir"])
+            / str(kwargs["internal_output_filename"])
+        )
+        images_dir = output_dir / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "full.md").write_text("body", encoding="utf-8")
+        (images_dir / "duplicate.png").write_bytes(b"png")
+
+        file_root = str(kwargs["internal_output_filename"])
+        parsed_rows: list[dict[str, Any]] = [
+            {
+                "content": "duplicate text",
+                "path": f"Default_Root/{file_root}/Section/Duplicate text",
+                "type": "text",
+                "length": 14,
+                "keywords": "",
+                "summary": "",
+                "know_id": "duplicate-text",
+                "tokens": "",
+                "connectto": "",
+                "addtime": "now",
+                "page_nums": "1",
+            },
+            {
+                "content": "duplicate image",
+                "path": f"Default_Root/{file_root}/images/duplicate.png",
+                "type": "image",
+                "length": 15,
+                "keywords": "",
+                "summary": "",
+                "know_id": "duplicate-image",
+                "tokens": "",
+                "connectto": "",
+                "addtime": "now",
+                "page_nums": "2",
+            },
+            {
+                "content": "new text",
+                "path": f"Default_Root/{file_root}/Section/New text",
+                "type": "text",
+                "length": 8,
+                "keywords": "",
+                "summary": "",
+                "know_id": "new-text",
+                "tokens": "",
+                "connectto": "",
+                "addtime": "now",
+                "page_nums": "3",
+            },
+        ]
+        return str(output_dir), pd.DataFrame(parsed_rows)
+
+    class FakeResultStorage:
+        def upload(self, *, job_id: str, result_dir: str, zip_file_path: str) -> Any:
+            result_dir_path = Path(result_dir)
+            zip_path = Path(zip_file_path)
+            captured_artifacts["raw_entries"] = sorted(
+                path.relative_to(result_dir_path).as_posix()
+                for path in result_dir_path.rglob("*")
+                if path.is_file()
+            )
+            with zipfile.ZipFile(zip_path) as zip_file:
+                captured_artifacts["zip_entries"] = sorted(zip_file.namelist())
+                captured_artifacts["zip_chunks"] = json.loads(
+                    zip_file.read("chunks.json")
+                )["chunks"]
+                captured_artifacts["manifest"] = json.loads(
+                    zip_file.read("manifest.json")
+                )
+
+            return SimpleNamespace(
+                zip_key=f"results/{job_id}.zip",
+                raw_prefix=f"results/{job_id}/",
+                raw_files={},
+            )
+
+    monkeypatch.setattr(kb_tasks, "verify_s3_file_exists", fake_verify_s3_file_exists)
+    monkeypatch.setattr(
+        sync_storage_service,
+        "verify_s3_file_exists",
+        fake_verify_s3_file_exists,
+    )
+    monkeypatch.setattr(kb_tasks, "generate_download_url", fake_generate_download_url)
+    monkeypatch.setattr(
+        sync_storage_service,
+        "generate_download_url",
+        fake_generate_download_url,
+    )
+    monkeypatch.setattr(kb_tasks, "download_s3_file_to_temp", fake_download_s3_file_to_temp)
+    monkeypatch.setattr(parse_service, "checkerboard_inject_parse", fake_checkerboard_inject_parse)
+    monkeypatch.setattr(kb_tasks, "get_result_storage", lambda: FakeResultStorage())
+
+    result = kb_tasks.parse_task.run(job_id, user_id, "kb_management")
+
+    assert result["contents_count"] == 3
+    assert "images/duplicate.png" in captured_artifacts["zip_entries"]
+    assert "images/duplicate.png" in captured_artifacts["raw_entries"]
+    assert [chunk["chunk_id"] for chunk in captured_artifacts["zip_chunks"]] == [
+        "duplicate-text",
+        "duplicate-image",
+        "new-text",
+    ]
+    assert captured_artifacts["manifest"]["statistics"] == {
+        "total_chunks": 3,
+        "text_chunks": 2,
+        "image_chunks": 1,
+        "table_chunks": 0,
+        "total_pages": None,
+    }
+
+    with engine.begin() as connection:
+        job_result_row = (
+            connection.execute(
+                text(
+                    """
+                    SELECT id, document_metadata
+                    FROM job_results
+                    WHERE job_id = :job_id
+                    """
+                ),
+                {"job_id": job_id},
+            )
+            .mappings()
+            .one()
+        )
+        job_chunk_ids = list(
+            connection.execute(
+                text(
+                    """
+                    SELECT chunk_id
+                    FROM job_chunks
+                    WHERE job_result_id = :job_result_id
+                    ORDER BY sort_order
+                    """
+                ),
+                {"job_result_id": job_result_row["id"]},
+            )
+            .scalars()
+            .all()
+        )
+        document_chunk_ids = list(
+            connection.execute(
+                text(
+                    """
+                    SELECT document_chunks.chunk_id
+                    FROM document_chunks
+                    JOIN documents
+                        ON documents.document_id = document_chunks.document_id
+                    WHERE documents.current_job_result_id = :job_result_id
+                    ORDER BY document_chunks.sort_order
+                    """
+                ),
+                {"job_result_id": job_result_row["id"]},
+            )
+            .scalars()
+            .all()
+        )
+
+    assert job_chunk_ids == ["duplicate-text", "duplicate-image", "new-text"]
+    assert document_chunk_ids == ["new-text"]
+    assert dict(job_result_row["document_metadata"])["chunk_dedup"] == {
+        "total_incoming": 3,
+        "duplicates_skipped": 2,
+        "new_chunks_inserted": 1,
+        "overlap_by_document": {existing_document_id: 2},
+    }
+
+
 def test_should_initialize_billing_once_for_concurrent_parse_tasks(
     worker_contract_environment: None,
     monkeypatch: MonkeyPatch,

@@ -57,6 +57,7 @@ class SyncJobLifecycleService:
         checksum: str,
         zip_size: int,
         chunks: Optional[List[Dict[str, Any]]] = None,
+        publication_chunks: Optional[List[Dict[str, Any]]] = None,
         stored_count: int = 0,
         delivery_mode: str = "url",
         section_summaries: Optional[Dict[str, str]] = None,
@@ -65,11 +66,12 @@ class SyncJobLifecycleService:
         """Finalize a successful job in a single atomic transaction.
 
         Steps (all within one DB transaction):
-            1. Upsert JobResult + replace chunks
-            2. Mark job as DONE via state machine (CAS)
-            3. Create WebhookEvent if webhook_enabled
-            4. COMMIT
-            5. Post-commit: enqueue webhook
+            1. Upsert JobResult + replace full result chunks
+            2. Publish retrieval state from publication chunks
+            3. Mark job as DONE via state machine (CAS)
+            4. Create WebhookEvent if webhook_enabled
+            5. COMMIT
+            6. Post-commit: enqueue webhook
         """
         logger.info(f"Finalizing job success: job_id={job_id}")
 
@@ -87,6 +89,11 @@ class SyncJobLifecycleService:
                 )
 
                 normalized_chunks = chunks or []
+                normalized_publication_chunks = (
+                    publication_chunks
+                    if publication_chunks is not None
+                    else normalized_chunks
+                )
                 self._replace_chunks(db, job_result.id, normalized_chunks)
                 previous_document_scope = (
                     self._retrieval_publication.get_existing_document_scope(
@@ -99,7 +106,7 @@ class SyncJobLifecycleService:
                         db,
                         job_id=job_id,
                         job_result_id=job_result.id,
-                        chunks=normalized_chunks,
+                        chunks=normalized_publication_chunks,
                     )
                 )
                 if published_document_state is not None and not published_document_state.get("skipped_all_duplicate"):
