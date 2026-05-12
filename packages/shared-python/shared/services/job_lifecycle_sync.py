@@ -65,11 +65,12 @@ class SyncJobLifecycleService:
         """Finalize a successful job in a single atomic transaction.
 
         Steps (all within one DB transaction):
-            1. Upsert JobResult + replace chunks
-            2. Mark job as DONE via state machine (CAS)
-            3. Create WebhookEvent if webhook_enabled
-            4. COMMIT
-            5. Post-commit: enqueue webhook
+            1. Upsert JobResult + replace full result chunks
+            2. Publish document state from full result chunks
+            3. Mark job as DONE via state machine (CAS)
+            4. Create WebhookEvent if webhook_enabled
+            5. COMMIT
+            6. Post-commit: enqueue webhook
         """
         logger.info(f"Finalizing job success: job_id={job_id}")
 

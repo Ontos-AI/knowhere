@@ -644,26 +644,6 @@ def _parse(job_id: str, user_id: str | None):
             metadata_service.update_metadata(job_id, processing_timing_updates)
             job_metadata.update(processing_timing_updates)
 
-            # 1.5. Garbage Collection: Remove redundant local media files
-            try:
-                from shared.services.retrieval.publication_service import RetrievalPublicationService
-                
-                with get_sync_db_context() as db:
-                    job_record = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
-                    if job_record:
-                        gc_namespace = JobMetadataHelper.get_field(job_metadata, "namespace") or "default"
-                        chunks, dedup_stats = RetrievalPublicationService.garbage_collect_and_dedup_local_media(
-                            db,
-                            job_id=job_id,
-                            user_id=str(job_record.user_id),
-                            namespace=gc_namespace,
-                            add_dir=str(add_dir) if add_dir else "",
-                            chunks=chunks,
-                        )
-            except Exception as e:
-                logger.error(f"[{job_id}] GC failed (non-fatal): {e}")
-                dedup_stats = None
-
             # Generate ZIP package
             zip_service = ZipResultService()
             zip_file_path, checksum, statistics, zip_size = (
@@ -695,6 +675,32 @@ def _parse(job_id: str, user_id: str | None):
                 zip_file_path=zip_file_path,
             )
             result_s3_key = result_bundle.zip_key
+
+            dedup_stats = None
+            try:
+                from shared.services.retrieval.publication_service import RetrievalPublicationService
+
+                with get_sync_db_context() as db:
+                    job_record = db.execute(
+                        select(Job).where(Job.job_id == job_id)
+                    ).scalar_one_or_none()
+                    if job_record:
+                        gc_namespace = (
+                            JobMetadataHelper.get_field(job_metadata, "namespace")
+                            or "default"
+                        )
+                        _, dedup_stats = (
+                            RetrievalPublicationService.garbage_collect_and_dedup_local_media(
+                                db,
+                                job_id=job_id,
+                                user_id=str(job_record.user_id),
+                                namespace=gc_namespace,
+                                add_dir=str(add_dir) if add_dir else "",
+                                chunks=chunks,
+                            )
+                        )
+            except Exception as e:
+                logger.error(f"[{job_id}] GC failed (non-fatal): {e}")
 
             stored_count = 0
 
