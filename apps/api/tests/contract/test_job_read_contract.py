@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
+from datetime import datetime, timedelta, timezone
 from typing import cast
 from uuid import uuid4
 
@@ -65,6 +66,34 @@ async def test_should_list_created_jobs_for_the_authenticated_developer(
     assert job["ocr_enabled"] is None
     assert job["duration_seconds"] is not None
     assert job["credits_spent"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_should_list_jobs_when_date_filters_use_iso_utc_timezone(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    start_time = datetime.now(timezone.utc) - timedelta(days=1)
+    end_time = datetime.now(timezone.utc) + timedelta(days=1)
+    query_params = {
+        "start_time": start_time.isoformat().replace("+00:00", "Z"),
+        "end_time": end_time.isoformat().replace("+00:00", "Z"),
+    }
+
+    async with developer_api_client_factory() as api_client:
+        created_job = await _create_waiting_file_job(api_client)
+
+        response = await api_client.get("/api/v1/jobs/page", params=query_params)
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    jobs = cast(list[dict[str, object]], response_json["jobs"])
+
+    assert response_json["total"] == 1
+    assert len(jobs) == 1
+    assert jobs[0]["job_id"] == created_job["job_id"]
 
 
 @pytest.mark.asyncio

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Literal, Optional, cast
 from urllib.parse import urlparse
 
@@ -53,6 +53,7 @@ from shared.models.schemas.job import (
     StandardErrorObject,
 )
 from shared.services.storage.file_upload_service import FileUploadService
+from shared.utils.utc_now import utc_now_naive
 from shared.utils.url_security import (
     validate_http_url_and_resolve_ip_async,
 )
@@ -266,6 +267,15 @@ def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
     if dt.tzinfo:
         return dt.astimezone(timezone.utc)
     return dt.replace(tzinfo=timezone.utc)
+
+
+def normalize_naive_utc_filter_datetime(dt: Optional[datetime]) -> Optional[datetime]:
+    """Convert a query datetime into the naive UTC form used by database columns."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def require_utc(dt: Optional[datetime], *, field_name: str) -> datetime:
@@ -678,13 +688,18 @@ async def list_jobs(
                 user_message="recent_days only supports 1, 7, or 30",
                 violations=[{"field": "recent_days", "description": "Invalid value"}],
             )
-        created_after = None
+        created_after: Optional[datetime] = None
         if recent_days:
-            from datetime import datetime, timedelta
+            created_after = utc_now_naive() - timedelta(days=recent_days)
 
-            created_after = datetime.now() - timedelta(days=recent_days)
+        normalized_start_time = normalize_naive_utc_filter_datetime(start_time)
+        normalized_end_time = normalize_naive_utc_filter_datetime(end_time)
 
-        if start_time and end_time and start_time > end_time:
+        if (
+            normalized_start_time
+            and normalized_end_time
+            and normalized_start_time > normalized_end_time
+        ):
             raise ValidationException(
                 user_message="start_time cannot be later than end_time",
                 violations=[
@@ -692,9 +707,9 @@ async def list_jobs(
                 ],
             )
         # start_time / end_time take priority over recent_days.
-        if start_time:
-            created_after = start_time
-        created_before = end_time
+        if normalized_start_time:
+            created_after = normalized_start_time
+        created_before = normalized_end_time
 
         # Count matching rows.
         total_count = await job_repo.count_jobs_by_user(
@@ -752,10 +767,8 @@ async def list_jobs(
 
                 # Compute result_url_expires_at when a download URL was issued.
                 if result_url:
-                    from datetime import datetime, timedelta
-
                     expires_in = int(result_url_info.get("expires_in", 3600))
-                    result_url_expires_at = datetime.now() + timedelta(
+                    result_url_expires_at = utc_now_naive() + timedelta(
                         seconds=expires_in
                     )
 
