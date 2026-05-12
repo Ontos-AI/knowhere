@@ -15,18 +15,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document
+from shared.services.retrieval.agentic.budget import BudgetExceeded
 from shared.services.retrieval.agentic.types import DocTreeNode, ToolResult
 from shared.services.retrieval.agent_navigate import (
     _build_knowledge_map_overview,
-    _expand_by_edges,
     _format_items_for_llm,
-    _grep_discover_document_ids,
     _load_child_sections,
     _parse_json_array,
     _parse_scope_nav_response,
     _SCOPE_NAV_PROMPT,
     _DISCOVERY_SELECT_PROMPT,
     _FILE_SELECT_PROMPT,
+    _format_budget_block,
 )
 from shared.services.retrieval.app_service import (
     _CHANNEL_WEIGHT_CONTENT,
@@ -207,6 +207,7 @@ async def kg_document_select(
         file_prompt = _FILE_SELECT_PROMPT.format(
             overview=overview_text, query=query,
             revision_context=revision_context,
+            budget_block=_format_budget_block(_kwargs.get('budget_snapshot')),
         )
         file_response = await llm_fn(file_prompt)
         selected_ids = _parse_json_array(file_response)
@@ -255,124 +256,11 @@ async def kg_document_select(
             },
             latency_ms=latency,
         )
+    except BudgetExceeded:
+        raise
     except Exception as e:
         latency = int((time.monotonic() - t0) * 1000)
         logger.error(f'  agentic.kg_document_select failed: {e}')
-        return ToolResult(status='error', error=str(e), latency_ms=latency)
-
-
-# ---------------------------------------------------------------------------
-# Tool: grep_document_discover
-# ---------------------------------------------------------------------------
-
-async def grep_document_discover(
-    db: AsyncSession,
-    *,
-    user_id: str,
-    namespace: str,
-    query: str,
-    exclude_document_ids: list[str],
-    **_kwargs: Any,
-) -> ToolResult:
-    """Discover documents via term search (GREP)."""
-    t0 = time.monotonic()
-    try:
-        grep_doc_ids = await _grep_discover_document_ids(
-            db, user_id=user_id, namespace=namespace, query=query,
-            exclude_document_ids=exclude_document_ids,
-        )
-
-        if not grep_doc_ids:
-            latency = int((time.monotonic() - t0) * 1000)
-            return ToolResult(
-                status='no_docs_found',
-                payload={'reason': 'GREP found no matching documents'},
-                latency_ms=latency,
-            )
-
-        doc_stmt = (
-            select(Document.document_id, Document.source_file_name, Document.current_job_result_id)
-            .where(Document.document_id.in_(grep_doc_ids))
-        )
-        doc_result = await db.execute(doc_stmt)
-        doc_id_to_name: dict[str, str] = {}
-        doc_job_map: dict[str, str] = {}
-        for did, fname, jrid in doc_result.all():
-            doc_id_to_name[did] = fname or did
-            if jrid:
-                doc_job_map[did] = jrid
-
-        latency = int((time.monotonic() - t0) * 1000)
-        logger.info(f'  agentic.grep_document_discover: {len(grep_doc_ids)} docs found, {latency}ms')
-        return ToolResult(
-            status='discovered_docs',
-            payload={
-                'document_ids': grep_doc_ids,
-                'doc_id_to_name': doc_id_to_name,
-                'doc_job_map': doc_job_map,
-            },
-            latency_ms=latency,
-        )
-    except Exception as e:
-        latency = int((time.monotonic() - t0) * 1000)
-        logger.error(f'  agentic.grep_document_discover failed: {e}')
-        return ToolResult(status='error', error=str(e), latency_ms=latency)
-
-
-# ---------------------------------------------------------------------------
-# Tool: graph_expand_docs
-# ---------------------------------------------------------------------------
-
-async def graph_expand_docs(
-    db: AsyncSession,
-    *,
-    user_id: str,
-    namespace: str,
-    document_ids: list[str],
-    **_kwargs: Any,
-) -> ToolResult:
-    """Expand document set via KG edge traversal."""
-    t0 = time.monotonic()
-    try:
-        expanded_ids = await _expand_by_edges(
-            db, document_ids=document_ids, user_id=user_id, namespace=namespace,
-        )
-        new_ids = [did for did in expanded_ids if did not in document_ids]
-
-        if not new_ids:
-            latency = int((time.monotonic() - t0) * 1000)
-            return ToolResult(
-                status='no_expansion',
-                payload={'reason': 'no new neighbors found via edges'},
-                latency_ms=latency,
-            )
-
-        doc_stmt = (
-            select(Document.document_id, Document.source_file_name, Document.current_job_result_id)
-            .where(Document.document_id.in_(new_ids))
-        )
-        doc_result = await db.execute(doc_stmt)
-        doc_id_to_name: dict[str, str] = {}
-        doc_job_map: dict[str, str] = {}
-        for did, fname, jrid in doc_result.all():
-            doc_id_to_name[did] = fname or did
-            if jrid:
-                doc_job_map[did] = jrid
-
-        latency = int((time.monotonic() - t0) * 1000)
-        logger.info(f'  agentic.graph_expand_docs: {len(new_ids)} new docs from edges, {latency}ms')
-        return ToolResult(
-            status='expanded_docs',
-            payload={
-                'document_ids': new_ids,
-                'doc_id_to_name': doc_id_to_name,
-                'doc_job_map': doc_job_map,
-            },
-            latency_ms=latency,
-        )
-    except Exception as e:
-        latency = int((time.monotonic() - t0) * 1000)
-        logger.error(f'  agentic.graph_expand_docs failed: {e}')
         return ToolResult(status='error', error=str(e), latency_ms=latency)
 
 
@@ -384,8 +272,9 @@ _TOOL_SELECT_PROMPT = """\
 You are a document navigation agent.
 
 Document: "{doc_name}"
-{scope_header}
 
+{budget_block}
+{scope_header}
 Below is a summary of the current scope's sections:
 
 {tree_summary}
@@ -410,6 +299,8 @@ Choose exactly ONE tool. Return ONLY a JSON object:
 {{"tool": "NAVIGATE"}}
 or {{"tool": "FIND_IMAGES"}}
 or {{"tool": "FIND_TABLES"}}
+When budget is TIGHT, prefer NAVIGATE only when more detail is necessary.
+When budget is CRITICAL, choose the narrowest terminal tool if assets directly answer the query.
 Do not include any explanation.
 """
 
@@ -432,7 +323,7 @@ def _parse_tool_choice(text: str) -> str:
     except (ValueError, _json.JSONDecodeError):
         pass
 
-    # Fallback: extract JSON from markdown wrapper
+    # Accept a JSON object wrapped in markdown, but do not infer a default tool.
     match = _re.search(r'\{.*?\}', text, _re.DOTALL)
     if match:
         try:
@@ -444,13 +335,14 @@ def _parse_tool_choice(text: str) -> str:
         except (ValueError, _json.JSONDecodeError):
             pass
 
-    # Last resort: keyword match
     upper = text.upper()
     if 'FIND_IMAGES' in upper:
         return 'FIND_IMAGES'
     if 'FIND_TABLES' in upper:
         return 'FIND_TABLES'
-    return 'NAVIGATE'
+    if 'NAVIGATE' in upper:
+        return 'NAVIGATE'
+    return ''
 
 
 async def tool_select_step(
@@ -464,6 +356,7 @@ async def tool_select_step(
     scope_path: str | None = None,
     exclude_paths: set[str] | None = None,
     revision_hint: str | None = None,
+    budget_snapshot: dict | None = None,
 ) -> str:
     """Route to the appropriate tool for the current scope.
 
@@ -480,7 +373,7 @@ async def tool_select_step(
         exclude_paths=exclude_paths,
     )
     if not items:
-        return 'NAVIGATE'  # fallback
+        return 'NAVIGATE'
 
     # Build lightweight tree summary (titles + counts only, no summaries)
     summary_lines = []
@@ -513,6 +406,7 @@ async def tool_select_step(
     prompt = _TOOL_SELECT_PROMPT.format(
         doc_name=doc_name or document_id,
         scope_header=scope_header,
+        budget_block=_format_budget_block(budget_snapshot),
         tree_summary=tree_summary,
         query=query,
     )
@@ -527,6 +421,8 @@ async def tool_select_step(
 
     # Parse tool choice
     tool = _parse_tool_choice(response)
+    if not tool:
+        raise ValueError(f'invalid tool selection response: {response[:200]}')
     logger.info(
         f'  tool_select_step scope={scope_path or "root"}: '
         f'tool={tool} images={total_images} tables={total_tables}'
@@ -600,10 +496,17 @@ async def asset_filter_step(
         asset_result = await db.execute(asset_stmt)
         asset_rows = asset_result.all()
 
-        # 3. Also find assets referenced via connect_to from text chunks
+        section_path_by_id = {section_id: section_path for section_id, section_path in section_rows}
+
+        # 3. Resolve media → owner text section via unified helper
+        from shared.services.retrieval.app_service import _resolve_asset_owners_from_rows
+
         text_stmt = (
             select(
+                DocumentChunk.section_id,
+                DocumentChunk.chunk_type,
                 DocumentChunk.chunk_metadata,
+                DocumentChunk.source_chunk_path,
             )
             .where(DocumentChunk.document_id == document_id)
             .where(DocumentChunk.job_result_id == job_result_id)
@@ -611,14 +514,20 @@ async def asset_filter_step(
             .where(DocumentChunk.chunk_type == 'text')
         )
         text_result = await db.execute(text_stmt)
-        connected_target_ids: set[str] = set()
-        for (metadata,) in text_result.all():
-            if not isinstance(metadata, dict):
-                continue
-            for conn in metadata.get('connect_to') or []:
-                target_id = conn.get('target', '')
-                if target_id:
-                    connected_target_ids.add(target_id)
+        text_row_dicts = [
+            {
+                'chunk_type': chunk_type,
+                'chunk_metadata': metadata or {},
+                'section_id': sid,
+                'section_path': section_path_by_id.get(sid, ''),
+                'source_chunk_path': scp,
+            }
+            for sid, chunk_type, metadata, scp in text_result.all()
+        ]
+        owner_by_target_id = _resolve_asset_owners_from_rows(text_row_dicts)
+
+        # Collect connected target IDs for batch-loading
+        connected_target_ids: set[str] = set(owner_by_target_id.keys())
 
         # Load connected targets that match asset_type
         if connected_target_ids:
@@ -663,6 +572,30 @@ async def asset_filter_step(
             if chunk_id in seen_ids:
                 continue
             seen_ids.add(chunk_id)
+
+            # Owner resolution: prefer connect_to-based owner
+            owner_info = owner_by_target_id.get(chunk_id)
+            owner_section_path = owner_info.get('section_path') if owner_info else None
+
+            # Fallback: media's own section_id path, but guard against
+            # Root / top-level aggregation sections
+            if not owner_section_path:
+                own_section_path = section_path_by_id.get(row[4])
+                if own_section_path and ' / ' not in own_section_path:
+                    # Reject document-root level sections as fallback owners
+                    logger.warning(
+                        f'  asset_filter_step: rejecting root-level owner fallback '
+                        f'chunk_id={chunk_id} section_path={own_section_path}'
+                    )
+                    own_section_path = None
+                owner_section_path = own_section_path
+
+            if not owner_section_path:
+                logger.warning(
+                    f'  asset_filter_step unresolved owner: chunk_id={chunk_id} '
+                    f'file_path={row[3]} scope={scope_path or "root"}'
+                )
+                continue
             chunks.append({
                 'document_id': document_id,
                 'chunk_id': chunk_id,
@@ -670,6 +603,8 @@ async def asset_filter_step(
                 'content': row[2],
                 'file_path': row[3],
                 'section_id': row[4],
+                'section_path': owner_section_path,
+                'owner_section_path': owner_section_path,
                 'source_chunk_path': row[5],
                 'chunk_metadata': row[6] or {},
                 'sort_order': row[7],
@@ -707,6 +642,7 @@ async def scope_navigate_step(
     scope_path: str | None = None,
     exclude_paths: set[str] | None = None,
     revision_hint: str | None = None,
+    budget_snapshot: dict | None = None,
 ) -> tuple[DocTreeNode, list[dict]]:
     """Single navigation step — one LLM call, no recursion.
 
@@ -743,6 +679,7 @@ async def scope_navigate_step(
             doc_name=doc_name or document_id,
             doc_id=document_id,
             scope_header=scope_header,
+            budget_block=_format_budget_block(budget_snapshot),
             items_overview=text,
             query=query,
         )
@@ -772,6 +709,7 @@ async def scope_navigate_step(
         ]
 
         pending: list[dict] = []
+        path_selections = []
         for sel in valid_selections:
             path = sel['path']
             conf = sel.get('confidence', 0.7)
@@ -779,33 +717,39 @@ async def scope_navigate_step(
             node.confidence[path] = conf
 
             if item.get('is_leaf'):
-                # Leaf → hydrate all chunk types
-                chunks = await _hydrate_paths_to_rows(
-                    db,
-                    path_selections=[
-                        {'path': path, 'confidence': conf, 'hydrate_mode': 'chunks'}
-                    ],
-                    user_id=user_id,
-                    namespace=namespace,
-                    document_id=document_id,
-                )
-                # Also hydrate connected targets (image/table chunks referenced via connect_to)
-                if chunks:
-                    connected = await hydrate_connected_target_rows(
-                        db=db,
-                        rows=chunks,
-                        exclude_document_ids=[],
-                        exclude_sections=[],
-                    )
-                    if connected:
-                        chunks = chunks + connected
-                    node.leaf_content[path] = chunks
+                path_selections.append({'path': path, 'confidence': conf, 'hydrate_mode': 'chunks'})
             else:
-                # Non-leaf → return as pending for orchestrator to queue
                 pending.append(sel)
+                # ★ NEW: Also hydrate this node's OWN direct chunks (not descendants)
+                path_selections.append({'path': path, 'confidence': conf, 'hydrate_mode': 'self_only'})
+
+        if path_selections:
+            chunks = await _hydrate_paths_to_rows(
+                db,
+                path_selections=path_selections,
+                user_id=user_id,
+                namespace=namespace,
+                document_id=document_id,
+            )
+            if chunks:
+                connected = await hydrate_connected_target_rows(
+                    db=db,
+                    rows=chunks,
+                    exclude_document_ids=[],
+                    exclude_sections=[],
+                )
+                if connected:
+                    chunks = chunks + connected
+                for chunk in chunks:
+                    # Distribute chunk to its real path or fallback to the selection path
+                    real_path = chunk.get('owner_section_path') or chunk.get('section_path') or chunk.get('source_chunk_path')
+                    if real_path:
+                        node.add_leaf_chunks(str(real_path), [chunk])
 
         return node, pending
 
+    except BudgetExceeded:
+        raise
     except Exception as e:
         logger.error(f'  scope_navigate_step failed for doc={document_id}: {e}')
         return empty, []
@@ -829,6 +773,7 @@ async def discovery_select_step(
     doc_name: str = '',
     discovery_hints: list[dict[str, Any]],
     revision_hint: str | None = None,
+    budget_snapshot: dict | None = None,
 ) -> DocTreeNode:
     """Post-navigation discovery selection step.
 
@@ -882,6 +827,7 @@ async def discovery_select_step(
 
         prompt = _DISCOVERY_SELECT_PROMPT.format(
             doc_name=doc_name or document_id,
+            budget_block=_format_budget_block(budget_snapshot),
             items=items_text,
             query=query,
             revision_context=revision_context,
@@ -896,16 +842,17 @@ async def discovery_select_step(
 
         # 2. Hydrate selected paths
         valid_selections = [s for s in selections if s['path'] in hint_by_path]
+        path_selections = []
         for sel in valid_selections:
             path = sel['path']
             conf = sel.get('confidence', 0.7)
             node.confidence[path] = conf
+            path_selections.append({'path': path, 'confidence': conf})
 
+        if path_selections:
             chunks = await _hydrate_paths_to_rows(
                 db,
-                path_selections=[
-                    {'path': path, 'confidence': conf, 'hydrate_mode': 'chunks'}
-                ],
+                path_selections=path_selections,
                 user_id=user_id,
                 namespace=namespace,
                 document_id=document_id,
@@ -919,7 +866,11 @@ async def discovery_select_step(
                 )
                 if connected:
                     chunks = chunks + connected
-                node.leaf_content[path] = chunks
+                for chunk in chunks:
+                    # Distribute chunk to its real path or fallback to the selection path
+                    real_path = chunk.get('owner_section_path') or chunk.get('section_path') or chunk.get('source_chunk_path')
+                    if real_path:
+                        node.add_leaf_chunks(str(real_path), [chunk])
 
         latency = int((time.monotonic() - t0) * 1000)
         logger.info(
@@ -928,6 +879,8 @@ async def discovery_select_step(
         )
         return node
 
+    except BudgetExceeded:
+        raise
     except Exception as e:
         logger.error(f'  discovery_select_step failed for doc={document_id}: {e}')
         return node

@@ -100,6 +100,41 @@ def _iter_connected_target_ids(row: dict[str, Any]) -> list[str]:
     return target_ids
 
 
+def _resolve_asset_owners_from_rows(
+    text_rows: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Build media-chunk → owner-text-section mapping from text chunk rows.
+
+    Parses ``connect_to`` metadata in each text row and maps every
+    referenced ``target`` chunk_id to the text chunk's section info.
+    First-writer-wins: if multiple text chunks reference the same target,
+    the first encountered mapping is kept.
+
+    Args:
+        text_rows: dicts with at least ``chunk_metadata``, ``section_id``,
+            ``section_path``, ``source_chunk_path``.  Only rows whose
+            ``chunk_type`` normalises to ``"text"`` are processed.
+
+    Returns:
+        ``{target_chunk_id: {section_id, section_path, source_chunk_path,
+        agent_score}}``.
+    """
+    owner_by_target: dict[str, dict[str, Any]] = {}
+    for row in text_rows:
+        if _normalize_chunk_type(row.get('chunk_type')) != 'text':
+            continue
+        section_path = row.get('section_path') or row.get('source_chunk_path') or ''
+        for target_id in _iter_connected_target_ids(row):
+            if target_id not in owner_by_target:
+                owner_by_target[target_id] = {
+                    'section_id': row.get('section_id'),
+                    'section_path': section_path,
+                    'source_chunk_path': row.get('source_chunk_path'),
+                    'agent_score': row.get('agent_score', row.get('score', 0.0)),
+                }
+    return owner_by_target
+
+
 async def hydrate_connected_target_rows(
     *,
     db: AsyncSession | None,
@@ -115,7 +150,13 @@ async def hydrate_connected_target_rows(
         for row in rows
         if row.get('chunk_id')
     }
+
+    # Use unified helper to build owner mapping
+    owner_by_target_flat = _resolve_asset_owners_from_rows(rows)
+
+    # Group target IDs by (document_id, job_result_id), excluding already-present chunks
     target_ids_by_revision: dict[tuple[str, str], set[str]] = {}
+    owner_by_target: dict[tuple[str, str, str], dict[str, Any]] = {}
     for row in rows:
         if _normalize_chunk_type(row.get('chunk_type')) != 'text':
             continue
@@ -127,6 +168,10 @@ async def hydrate_connected_target_rows(
             if target_id in existing_chunk_ids:
                 continue
             target_ids_by_revision.setdefault((document_id, job_result_id), set()).add(target_id)
+            owner_key = (document_id, job_result_id, target_id)
+            if owner_key not in owner_by_target:
+                owner_info = owner_by_target_flat.get(target_id, {})
+                owner_by_target[owner_key] = owner_info
 
     if not target_ids_by_revision:
         return []
@@ -155,21 +200,25 @@ async def hydrate_connected_target_rows(
 
     hydrated_rows: list[dict[str, Any]] = []
     for document, chunk, section, job_result in result.all():
-        section_path = section.section_path if section else None
+        owner = owner_by_target.get((document.document_id, chunk.job_result_id, chunk.chunk_id), {})
+        section_path = owner.get('section_path') or (section.section_path if section else None)
         hydrated_rows.append(
             {
                 'document_id': document.document_id,
                 'chunk_id': chunk.chunk_id,
-                'section_id': chunk.section_id,
+                'section_id': owner.get('section_id') or chunk.section_id,
                 'section_path': section_path,
+                'owner_section_path': section_path,
                 'source_file_name': document.source_file_name,
                 'chunk_type': chunk.chunk_type,
                 'content': chunk.content,
-                'score': 0.0,
+                'score': float(owner.get('agent_score') or 0.0),
+                'agent_score': float(owner.get('agent_score') or 0.0),
                 'file_path': chunk.file_path,
                 'chunk_metadata': chunk.chunk_metadata or {},
                 'job_result_id': chunk.job_result_id,
                 'job_id': job_result.job_id if job_result else None,
+                'source_chunk_path': chunk.source_chunk_path,
                 'sort_order': chunk.sort_order,
             }
         )
@@ -851,8 +900,10 @@ async def _hydrate_paths_to_rows(
     if chunk_paths:
         section_path_filters = []
         for path in chunk_paths:
+            mode = mode_by_path.get(path, 'chunks')
             section_path_filters.append(DocumentSection.section_path == path)
-            section_path_filters.append(DocumentSection.section_path.like(f'{path} / %'))
+            if mode != 'self_only':
+                section_path_filters.append(DocumentSection.section_path.like(f'{path} / %'))
 
         stmt = (
             select(Document, DocumentChunk, DocumentSection, JobResult)
@@ -877,20 +928,45 @@ async def _hydrate_paths_to_rows(
         # Build a map of path → allowed chunk_types based on hydrate_mode
         _MODE_ALLOWED_TYPES: dict[str, set[str] | None] = {
             'chunks': None,                       # all types
+            'self_only': None,                    # all types, but without descendant filtering
             'assets_only': {'image', 'table'},
             'image_only': {'image'},
             'table_only': {'table'},
         }
 
-        seen_paths: set[str] = set()
-        for document, chunk, section, job_result in result.all():
-            row_path = (section.section_path if section else None) or chunk.source_chunk_path or ''
-            if row_path in seen_paths:
+        raw_chunk_rows = result.all()
+        # Use unified helper to resolve media → owner text section
+        _text_row_dicts = [
+            {
+                'chunk_type': chunk.chunk_type,
+                'chunk_metadata': chunk.chunk_metadata or {},
+                'section_id': chunk.section_id,
+                'section_path': (section.section_path if section else None) or chunk.source_chunk_path or '',
+                'source_chunk_path': chunk.source_chunk_path,
+            }
+            for _document, chunk, section, _job_result in raw_chunk_rows
+        ]
+        text_owner_by_target = _resolve_asset_owners_from_rows(_text_row_dicts)
+
+        seen_chunk_ids: set[str] = set()
+        for document, chunk, section, job_result in raw_chunk_rows:
+            chunk_type_lower = _normalize_chunk_type(chunk.chunk_type)
+            media_owner = text_owner_by_target.get(chunk.chunk_id) if chunk_type_lower in _MEDIA_CHUNK_TYPES else None
+            row_path = (
+                (media_owner or {}).get('section_path')
+                or (section.section_path if section else None)
+                or chunk.source_chunk_path
+                or ''
+            )
+            chunk_id = str(chunk.chunk_id or '')
+            if chunk_id and chunk_id in seen_chunk_ids:
                 continue
 
-            # Find which ordered path this row belongs to
+            # Find which ordered path this row belongs to.
+            # For media chunks with a resolved owner, skip the DB
+            # section_path fallback — owner path is authoritative.
             matched_path = row_path
-            if section and section.section_path not in confidence_by_path:
+            if media_owner is None and section and section.section_path not in confidence_by_path:
                 matched_path = next(
                     (
                         path for path in chunk_paths
@@ -903,17 +979,26 @@ async def _hydrate_paths_to_rows(
             path_mode = mode_by_path.get(matched_path, 'chunks')
             allowed_types = _MODE_ALLOWED_TYPES.get(path_mode)
             if allowed_types is not None:
-                chunk_type_lower = (chunk.chunk_type or '').strip().lower()
                 if chunk_type_lower not in allowed_types:
                     continue
+            if chunk_type_lower in _MEDIA_CHUNK_TYPES and media_owner is None:
+                media_self_path = chunk.source_chunk_path or chunk.file_path or ''
+                directly_selected = any(
+                    media_self_path == path or media_self_path.startswith(f'{path} / ')
+                    for path in chunk_paths
+                )
+                if not directly_selected:
+                    continue
 
-            seen_paths.add(row_path)
+            if chunk_id:
+                seen_chunk_ids.add(chunk_id)
             agent_score = confidence_by_path.get(matched_path, 0.0)
             rows.append({
                 'document_id': document.document_id,
                 'chunk_id': chunk.chunk_id,
-                'section_id': chunk.section_id,
-                'section_path': section.section_path if section else None,
+                'section_id': (media_owner or {}).get('section_id') or chunk.section_id,
+                'section_path': row_path,
+                'owner_section_path': (media_owner or {}).get('section_path'),
                 'source_file_name': document.source_file_name,
                 'chunk_type': chunk.chunk_type,
                 'content': chunk.content,
@@ -931,14 +1016,15 @@ async def _hydrate_paths_to_rows(
     # ── Sort by agent-selected order ─────────────────────────────────────
     path_order = {p: idx for idx, p in enumerate(ordered_paths)}
 
-    def _row_sort_key(row: dict[str, Any]) -> int:
+    def _row_sort_key(row: dict[str, Any]) -> tuple[int, int]:
         row_path = _get_row_path(row)
+        sort_order = int(row.get('sort_order') or 0)
         if row_path in path_order:
-            return path_order[row_path]
+            return (path_order[row_path], sort_order)
         for path, idx in path_order.items():
             if row_path.startswith(f'{path} / '):
-                return idx
-        return 10**9
+                return (idx, sort_order)
+        return (10**9, sort_order)
 
     rows.sort(key=_row_sort_key)
     hydrated_paths = {_get_row_path(r) for r in rows}
