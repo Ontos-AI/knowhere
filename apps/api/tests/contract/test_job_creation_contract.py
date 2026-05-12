@@ -1,11 +1,12 @@
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import socket
 from typing import cast
 from uuid import uuid4
 
+import jwt
 import pytest
 from httpx import AsyncClient
 from pytest import MonkeyPatch
@@ -401,6 +402,53 @@ async def test_should_reject_a_malformed_authorization_header_when_creating_a_jo
     assert response_json["success"] is False
     assert error["code"] == "UNAUTHENTICATED"
     assert error["message"] == "Invalid Authorization header format"
+    assert "details" not in error
+    assert await _count_jobs() == 0
+
+
+@pytest.mark.asyncio
+async def test_should_reject_authenticated_user_id_missing_from_user_table(
+    api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    user_id = f"contract-missing-user-{uuid4().hex[:12]}"
+    jwt_secret = f"contract-jwt-secret-{uuid4().hex[:12]}"
+    token = jwt.encode(
+        {
+            "id": user_id,
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        },
+        jwt_secret,
+        algorithm="HS256",
+    )
+    payload: dict[str, str] = {
+        "namespace": "contract-jobs",
+        "source_type": "file",
+        "file_name": "contract-upload.pdf",
+        "data_id": "contract-job-missing-user",
+    }
+
+    async with api_client_factory() as api_client:
+        from app.core import dependencies as auth_dependencies
+
+        monkeypatch.setattr(
+            auth_dependencies,
+            "_get_verification_key",
+            lambda _token: jwt_secret,
+        )
+
+        api_client.headers.update({"Authorization": f"Bearer {token}"})
+        response = await api_client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 401
+    assert response.headers["x-request-id"]
+
+    response_json: dict[str, object] = response.json()
+    error = cast(dict[str, object], response_json["error"])
+
+    assert response_json["success"] is False
+    assert error["code"] == "UNAUTHENTICATED"
+    assert error["message"] == "Invalid authentication credentials"
     assert "details" not in error
     assert await _count_jobs() == 0
 

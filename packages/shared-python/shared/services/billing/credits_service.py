@@ -16,7 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.billing import MicroDollar
 from shared.core.config import settings
-from shared.core.exceptions.domain_exceptions import InsufficientCreditsException
+from shared.core.exceptions.domain_exceptions import (
+    InsufficientCreditsException,
+)
 from shared.core.logging import logger
 from shared.models.database.credits_transaction import CreditsTransaction
 from shared.models.database.payment_record import PaymentRecord

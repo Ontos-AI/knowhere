@@ -7,6 +7,7 @@ from app.services.auth.api_key_service import APIKeyService
 from fastapi import Depends, Header, Request
 from jwt import PyJWKClient
 from loguru import logger
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.config import settings
@@ -14,6 +15,7 @@ from shared.core.database import get_db
 from shared.core.exceptions.domain_exceptions import (
     AuthException,
 )
+from shared.models.database.user import User
 from shared.utils.api_keys import is_api_key_token
 
 # Standard JWKS endpoint path (fixed, following OpenID Connect convention)
@@ -106,6 +108,23 @@ def decode_jwt_token(token: str) -> str:
         raise AuthException(user_message="Invalid token")
 
 
+async def _ensure_authenticated_user_exists(
+    db: AsyncSession,
+    user_id: str,
+) -> None:
+    result = await db.execute(select(User.id).where(User.id == user_id).limit(1))
+    if result.scalar_one_or_none() is not None:
+        return
+
+    raise AuthException(
+        user_message="Invalid authentication credentials",
+        internal_message=(
+            "Authenticated user id is not present in the user table: "
+            f"user_id={user_id}"
+        ),
+    )
+
+
 async def get_current_user_id(
     request: Request,
     authorization: str | None = Header(
@@ -134,4 +153,6 @@ async def get_current_user_id(
         raise AuthException(user_message="Invalid API Key")
 
     # Mode 2: JWT verification (for Dashboard/Internal)
-    return decode_jwt_token(token)
+    user_id = decode_jwt_token(token)
+    await _ensure_authenticated_user_exists(db, user_id)
+    return user_id
