@@ -70,30 +70,6 @@ Do not include any explanation.
 """
 
 
-_DISCOVERY_SELECT_PROMPT = """\
-You are a document navigation assistant.
-
-Document: "{doc_name}"
-
-After navigating the document's section tree, the following section paths
-were additionally discovered via keyword and semantic search.
-They may contain relevant evidence not found through hierarchical navigation.
-
-=== Discovery Candidates ===
-{items}
-=== End Discovery Candidates ===
-
-User query: {query}
-
-Select section paths whose content is needed to answer the query.
-If none are relevant, return an EMPTY list [].
-
-Return ONLY a JSON object:
-{{"selections": [{{"path": "...", "confidence": <float>, "mode": "all"}}, ...]}}
-Do not include any explanation.
-"""
-
-
 def _extract_json_array_payload(text: str) -> list[Any]:
     """Best-effort extraction of a JSON array payload from LLM response text."""
     text = text.strip()
@@ -556,7 +532,7 @@ async def _load_child_sections(
                     'section_id': meta['section_id'],
                     'show_summary': False,
                 }
-            elif depth <= scope_depth:
+            else:
                 # For deeper ancestors/siblings: their parent must be in the
                 # ancestor chain. e.g. "A / C" is a sibling of "A / B" only
                 # if "A" is an ancestor of scope.
@@ -577,7 +553,7 @@ async def _load_child_sections(
             continue
 
         # Category 2: Descendants of scope_path (children to explore)
-        if parts[:scope_depth] == scope_parts and depth > scope_depth:
+        if parts[:scope_depth] == scope_parts:
             # Skip excluded paths
             if _excl and any(
                 path == ep or path.startswith(ep + ' / ')
@@ -900,4 +876,3 @@ def render_unified_doc_tree(
                 parts.append(child_text)
 
     return '\n'.join(parts)
-

@@ -34,11 +34,18 @@ from shared.services.retrieval.agentic.types import (
     DocTreeNode,
     ToolResult,
 )
-from shared.services.retrieval.app_service import (
+from shared.services.retrieval.agentic.result_rows import (
     generate_retrieval_asset_url,
-    _is_client_result_artifact_ref,
+    is_client_result_artifact_ref,
 )
 from shared.services.retrieval.llm_adapter import LLMFn
+from shared.services.retrieval.agentic.policy import attempt_answer
+from shared.services.retrieval.agentic.tools import (
+    bottom_discovery,
+    discovery_select_step,
+    kg_document_select,
+    scope_navigate_step,
+)
 
 
 
@@ -73,7 +80,7 @@ async def _build_asset_url_map(
         job_id = chunk.get('job_id') or ''
         if not chunk_id or not file_path or not job_id:
             continue
-        if not _is_client_result_artifact_ref(file_path):
+        if not is_client_result_artifact_ref(file_path):
             continue
         try:
             url = await generate_retrieval_asset_url(
@@ -169,9 +176,6 @@ class RetrievalAgent:
         errors are captured in trace and the best available result
         is returned.
         """
-        from shared.services.retrieval.agentic import tools
-        from shared.services.retrieval.agentic.policy import attempt_answer
-
         config = config or _build_config_from_env()
         exclude_document_ids = exclude_document_ids or []
         exclude_sections = exclude_sections or []
@@ -220,7 +224,7 @@ class RetrievalAgent:
         logger.info('  agentic: Phase 1 — discovery + document selection')
 
         # 1a. Bottom discovery (always runs)
-        discovery_result = await tools.bottom_discovery(db, **discovery_kwargs)
+        discovery_result = await bottom_discovery(db, **discovery_kwargs)
         state.step_count += 1
         discovery_rows = discovery_result.payload.get('fused_rows', []) if discovery_result.status != 'error' else []
         state.discovery_top_doc_ids = discovery_result.payload.get('top_doc_ids', []) if discovery_result.status != 'error' else []
@@ -238,7 +242,7 @@ class RetrievalAgent:
 
         # 1b. KG document selection (requires LLM)
         if llm_fn is not None:
-            kg_result = await tools.kg_document_select(
+            kg_result = await kg_document_select(
                 db,
                 user_id=user_id,
                 namespace=namespace,
@@ -353,6 +357,7 @@ class RetrievalAgent:
         # Phase 2 + 3 Loop: Navigate → Render → Attempt Answer → (Revise)
         # ══════════════════════════════════════════════════════════════════
         answer_text = ''
+        evidence_text = ''
         revision_hint: str | None = None
         stop_reason = 'max_revisions'
 
@@ -406,7 +411,7 @@ class RetrievalAgent:
                         if llm_fn is None:
                             break
 
-                        step_node, drill_paths = await tools.scope_navigate_step(
+                        step_node, drill_paths = await scope_navigate_step(
                             db,
                             document_id=doc.document_id,
                             job_result_id=job_result_id,
@@ -462,7 +467,7 @@ class RetrievalAgent:
                 # ── Post-BFS: Discovery selection step ─────────────────────
                 doc_hints = discovery_by_doc.get(doc.document_id, [])
                 if doc_hints and llm_fn is not None and state.elapsed_ms < config.latency_budget_ms:
-                    discovery_node = await tools.discovery_select_step(
+                    discovery_node = await discovery_select_step(
                         db,
                         document_id=doc.document_id,
                         query=query,
@@ -556,7 +561,7 @@ class RetrievalAgent:
             state.selected_docs.clear()
 
             # Re-run KG select (allow re-exploring docs for different sections via path masking)
-            kg_result = await tools.kg_document_select(
+            kg_result = await kg_document_select(
                 db,
                 user_id=user_id,
                 namespace=namespace,

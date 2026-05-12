@@ -16,6 +16,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document
 from shared.services.retrieval.agentic.types import DocTreeNode, ToolResult
+from shared.services.retrieval.agentic.result_rows import (
+    CHANNEL_WEIGHT_CONTENT,
+    CHANNEL_WEIGHT_PATH,
+    CHANNEL_WEIGHT_TERM,
+    INTERNAL_RECALL_K_MULTIPLIER,
+    hydrate_connected_target_rows,
+    hydrate_paths_to_rows,
+    merge_channels_rrf,
+    merge_same_section_rows,
+    normalize_row_scores,
+    resolve_allowed_chunk_types,
+)
 from shared.services.retrieval.agent_navigate import (
     _build_knowledge_map_overview,
     _expand_by_edges,
@@ -25,19 +37,7 @@ from shared.services.retrieval.agent_navigate import (
     _parse_json_array,
     _parse_scope_nav_response,
     _SCOPE_NAV_PROMPT,
-    _DISCOVERY_SELECT_PROMPT,
     _FILE_SELECT_PROMPT,
-)
-from shared.services.retrieval.app_service import (
-    _CHANNEL_WEIGHT_CONTENT,
-    _CHANNEL_WEIGHT_PATH,
-    _CHANNEL_WEIGHT_TERM,
-    _INTERNAL_RECALL_K_MULTIPLIER,
-    _merge_same_section_rows,
-    _normalize_row_scores,
-    _resolve_allowed_chunk_types,
-    hydrate_connected_target_rows,
-    merge_channels_rrf,
 )
 from shared.services.retrieval.channels import content_channel, path_channel, term_channel
 from shared.services.retrieval.llm_adapter import LLMFn
@@ -46,6 +46,30 @@ from shared.services.retrieval.llm_adapter import LLMFn
 # ---------------------------------------------------------------------------
 # Tool: bottom_discovery
 # ---------------------------------------------------------------------------
+
+_DISCOVERY_SELECT_PROMPT = """\
+You are a document navigation assistant.
+
+Document: "{doc_name}"
+
+After navigating the document's section tree, the following section paths
+were additionally discovered via keyword and semantic search.
+They may contain relevant evidence not found through hierarchical navigation.
+
+=== Discovery Candidates ===
+{items}
+=== End Discovery Candidates ===
+
+User query: {query}
+
+Select section paths whose content is needed to answer the query.
+If none are relevant, return an EMPTY list [].
+
+Return ONLY a JSON object:
+{{"selections": [{{"path": "...", "confidence": <float>, "mode": "all"}}, ...]}}
+Do not include any explanation.
+"""
+
 
 async def bottom_discovery(
     db: AsyncSession,
@@ -67,8 +91,8 @@ async def bottom_discovery(
     """Run 3-channel BM25 discovery + RRF fusion."""
     t0 = time.monotonic()
     try:
-        allowed_chunk_types = _resolve_allowed_chunk_types(data_type)
-        effective_recall_k = internal_recall_k if internal_recall_k is not None else top_k * _INTERNAL_RECALL_K_MULTIPLIER
+        allowed_chunk_types = resolve_allowed_chunk_types(data_type)
+        effective_recall_k = internal_recall_k if internal_recall_k is not None else top_k * INTERNAL_RECALL_K_MULTIPLIER
         active_channels = set(channels) if channels else {'path', 'content', 'term'}
 
         path_rows: list[dict[str, Any]] = []
@@ -101,9 +125,9 @@ async def bottom_discovery(
 
         # RRF fusion
         default_weights = {
-            'path': _CHANNEL_WEIGHT_PATH,
-            'content': _CHANNEL_WEIGHT_CONTENT,
-            'term': _CHANNEL_WEIGHT_TERM,
+            'path': CHANNEL_WEIGHT_PATH,
+            'content': CHANNEL_WEIGHT_CONTENT,
+            'term': CHANNEL_WEIGHT_TERM,
         }
         effective_weights = {**default_weights, **(channel_weights or {})}
 
@@ -111,19 +135,19 @@ async def bottom_discovery(
         weight_list: list[float] = []
         if path_rows:
             channel_lists.append(path_rows)
-            weight_list.append(effective_weights.get('path', _CHANNEL_WEIGHT_PATH))
+            weight_list.append(effective_weights.get('path', CHANNEL_WEIGHT_PATH))
         if content_rows:
             channel_lists.append(content_rows)
-            weight_list.append(effective_weights.get('content', _CHANNEL_WEIGHT_CONTENT))
+            weight_list.append(effective_weights.get('content', CHANNEL_WEIGHT_CONTENT))
         if term_rows:
             channel_lists.append(term_rows)
-            weight_list.append(effective_weights.get('term', _CHANNEL_WEIGHT_TERM))
+            weight_list.append(effective_weights.get('term', CHANNEL_WEIGHT_TERM))
 
         fused_rows = merge_channels_rrf(channel_lists, weight_list, top_k) if channel_lists else []
-        fused_rows = _merge_same_section_rows(fused_rows)
+        fused_rows = merge_same_section_rows(fused_rows)
 
         if fused_rows:
-            _normalize_row_scores(fused_rows, source_field='score', target_field='discovery_score', default=0.5)
+            normalize_row_scores(fused_rows, source_field='score', target_field='discovery_score', default=0.5)
 
         # Extract top document IDs as hints for KG selection
         doc_id_counts: dict[str, int] = {}
@@ -396,8 +420,6 @@ async def scope_navigate_step(
       - pending: list of {path, confidence, mode} for non-leaf selections
                  (orchestrator queues these for further drill-down)
     """
-    from shared.services.retrieval.app_service import _hydrate_paths_to_rows
-
     empty = DocTreeNode.empty(scope_path)
 
     try:
@@ -463,7 +485,7 @@ async def scope_navigate_step(
                 hydrate_mode = _LLM_MODE_TO_HYDRATE.get(
                     str(sel.get('mode', 'all')).strip().lower(), 'chunks'
                 )
-                chunks = await _hydrate_paths_to_rows(
+                chunks = await hydrate_paths_to_rows(
                     db,
                     path_selections=[
                         {'path': path, 'confidence': conf, 'hydrate_mode': hydrate_mode}
@@ -521,8 +543,6 @@ async def discovery_select_step(
     For B-class documents (discovery-only, not KG-selected), this is the
     only navigation step — no prior BFS.
     """
-    from shared.services.retrieval.app_service import _hydrate_paths_to_rows
-
     node = DocTreeNode(scope_path=None)
     if not discovery_hints:
         return node
@@ -574,7 +594,7 @@ async def discovery_select_step(
             )
             node.confidence[path] = conf
 
-            chunks = await _hydrate_paths_to_rows(
+            chunks = await hydrate_paths_to_rows(
                 db,
                 path_selections=[
                     {'path': path, 'confidence': conf, 'hydrate_mode': hydrate_mode}
