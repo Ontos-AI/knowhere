@@ -21,6 +21,7 @@ from loguru import logger
 from shared.services.retrieval.agentic.budget import BudgetExceeded
 from shared.services.retrieval.agentic.types import AgentRunConfig, AgentState
 from shared.services.retrieval.llm_adapter import LLMFn
+from shared.utils.token_estimate import estimate_tokens
 
 
 def _parse_answer_response(text: str) -> dict[str, Any] | None:
@@ -39,6 +40,16 @@ def _parse_answer_response(text: str) -> dict[str, Any] | None:
     return None
 
 
+def _looks_like_json_wrapper(text: str) -> bool:
+    """Detect malformed JSON-ish answer wrappers without exposing them."""
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if stripped.startswith('{') or stripped.endswith('}'):
+        return True
+    return bool(re.search(r'"(?:status|answer|reason)"\s*:', stripped))
+
+
 def _is_external_http_url(url: str) -> bool:
     parsed = urlparse(str(url))
     if parsed.scheme not in {'http', 'https'} or not parsed.hostname:
@@ -51,6 +62,30 @@ def _is_external_http_url(url: str) -> bool:
     except ValueError:
         return True
     return not (addr.is_private or addr.is_loopback or addr.is_link_local)
+
+
+def _budget_line_parts(budget_snapshot: dict | None, pool_name: str) -> dict[str, Any]:
+    pool = ((budget_snapshot or {}).get(pool_name) or {})
+    capacity = pool.get('capacity', 'unknown')
+    remaining = pool.get('remaining', 'unknown')
+    used_pct = pool.get('used_pct', 'unknown')
+    remaining_pct: int | str = 'unknown'
+    try:
+        capacity_int = int(capacity)
+        remaining_int = int(remaining)
+        remaining_pct = 0 if capacity_int <= 0 else max(
+            0,
+            min(100, round(remaining_int * 100 / capacity_int)),
+        )
+    except (TypeError, ValueError):
+        pass
+    return {
+        'status': pool.get('status', 'HEALTHY'),
+        'remaining': remaining,
+        'capacity': capacity,
+        'used_pct': used_pct,
+        'remaining_pct': remaining_pct,
+    }
 
 
 async def attempt_answer(
@@ -80,12 +115,12 @@ async def attempt_answer(
       - status='NOT_FOUND', answer_text='', reason=<why>
         → evidence was insufficient, reason is used as revision_hint
     """
-    prompt_text = _ATTEMPT_ANSWER_PROMPT.format(
+    prompt_text = build_attempt_answer_prompt(
         query=query,
-        evidence_context=evidence_text,
-        revision_count=state.revision_count,
-        max_revisions=config.max_revisions,
-        context_status=((budget_snapshot or {}).get('context') or {}).get('status', 'HEALTHY'),
+        evidence_text=evidence_text,
+        state=state,
+        config=config,
+        budget_snapshot=budget_snapshot,
     )
 
     verbose = os.environ.get('RETRIEVAL_AGENTIC_VERBOSE', '') == 'true'
@@ -146,8 +181,10 @@ async def attempt_answer(
 
     parsed = _parse_answer_response(raw_response)
     if not parsed:
-        # Parse error: treat raw text as best-effort answer
-        return 'DONE', raw_response.strip(), 'parse_error — treating raw response as answer'
+        if _looks_like_json_wrapper(raw_response):
+            return 'NOT_FOUND', '', 'attempt_answer returned malformed JSON'
+        # Keep plain-text fallback for providers that ignore JSON mode entirely.
+        return 'DONE', raw_response.strip(), 'parse_error — treating plain text response as answer'
 
     status = str(parsed.get('status', 'DONE')).strip().upper()
     answer = str(parsed.get('answer', '')).strip()
@@ -160,6 +197,53 @@ async def attempt_answer(
     if not answer:
         answer = reason or '(empty answer)'
     return 'DONE', answer, ''
+
+
+def build_attempt_answer_prompt(
+    *,
+    query: str,
+    evidence_text: str,
+    state: AgentState,
+    config: AgentRunConfig,
+    budget_snapshot: dict | None = None,
+) -> str:
+    """Build the final answer prompt so trimming can estimate it beforehand."""
+    planning = _budget_line_parts(budget_snapshot, 'planning')
+    context = _budget_line_parts(budget_snapshot, 'context')
+    return _ATTEMPT_ANSWER_PROMPT.format(
+        query=query,
+        evidence_context=evidence_text,
+        revision_count=state.revision_count,
+        max_revisions=config.max_revisions,
+        planning_status=planning['status'],
+        planning_remaining=planning['remaining'],
+        planning_capacity=planning['capacity'],
+        planning_used_pct=planning['used_pct'],
+        planning_remaining_pct=planning['remaining_pct'],
+        context_status=context['status'],
+        context_remaining=context['remaining'],
+        context_capacity=context['capacity'],
+        context_used_pct=context['used_pct'],
+        context_remaining_pct=context['remaining_pct'],
+    )
+
+
+def estimate_attempt_answer_prompt_tokens(
+    *,
+    query: str,
+    evidence_text: str,
+    state: AgentState,
+    config: AgentRunConfig,
+    budget_snapshot: dict | None = None,
+) -> int:
+    """Estimate the exact prompt shape that will be charged to context budget."""
+    return estimate_tokens(build_attempt_answer_prompt(
+        query=query,
+        evidence_text=evidence_text,
+        state=state,
+        config=config,
+        budget_snapshot=budget_snapshot,
+    ))
 
 
 _ATTEMPT_ANSWER_PROMPT = """\
@@ -176,7 +260,8 @@ with retrieved content (┈ lines) inline under the relevant sections.
 {evidence_context}
 
 REVISION: {revision_count} of {max_revisions} revisions used.
-Context budget remaining is {context_status}; the evidence may have been trimmed.
+Planning budget: {planning_status} ({planning_used_pct}% used, {planning_remaining_pct}% remaining, {planning_remaining}/{planning_capacity} remaining).
+Context budget: {context_status} ({context_used_pct}% used, {context_remaining_pct}% remaining, {context_remaining}/{context_capacity} remaining); the evidence may have been trimmed.
 
 INSTRUCTIONS:
 1. If the evidence contains enough information to answer the query,

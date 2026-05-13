@@ -48,6 +48,43 @@ from shared.utils.token_estimate import estimate_tokens
 
 
 
+def _with_context_prompt_projection(
+    snapshot: dict[str, object],
+    *,
+    prompt_tokens: int,
+) -> dict[str, object]:
+    """Return a display snapshot that includes the upcoming answer prompt."""
+    projected: dict[str, object] = dict(snapshot)
+    context_raw = projected.get('context') or {}
+    if not isinstance(context_raw, dict):
+        return projected
+    context = dict(context_raw)
+    used = int(context.get('used', 0) or 0)
+    reserved = int(context.get('reserved', 0) or 0)
+    capacity = int(context.get('capacity', 0) or 0)
+    projected_used = min(capacity, used + max(int(prompt_tokens), 0))
+    projected_remaining = max(capacity - projected_used - reserved, 0)
+    context.update({
+        'used_projected_before_answer': projected_used,
+        'answer_prompt_estimate': max(int(prompt_tokens), 0),
+        'remaining': projected_remaining,
+        'used_pct': 100 if capacity <= 0 else min(
+            100,
+            int(round((projected_used + reserved) * 100 / capacity)),
+        ),
+    })
+    if projected_remaining <= 0:
+        context['status'] = 'EXHAUSTED'
+    elif context['used_pct'] >= 80:
+        context['status'] = 'CRITICAL'
+    elif context['used_pct'] >= 50:
+        context['status'] = 'TIGHT'
+    else:
+        context['status'] = 'HEALTHY'
+    projected['context'] = context
+    return projected
+
+
 
 
 
@@ -365,7 +402,7 @@ async def _trim_evidence_to_budget(
 ) -> str:
     full_text = await _render_evidence(db, doc_trees, doc_id_to_name)
     target = int(max(context_remaining, 0) * safety_margin)
-    if target <= 0 or estimate_tokens(full_text) <= target:
+    if estimate_tokens(full_text) <= target:
         return full_text
 
     candidates: list[tuple[str, str, tuple[float, float, float], int]] = []
@@ -394,7 +431,7 @@ async def _trim_evidence_to_budget(
             candidates.append((doc_id, path, score, _estimate_chunks_tokens(chunks)))
 
     current_estimate = estimate_tokens(full_text)
-    removed: list[dict[str, str]] = []
+    removed: list[dict[str, Any]] = []
     for doc_id, path, _score, token_estimate in sorted(
         candidates,
         key=lambda item: (item[2], -item[3]),
@@ -402,7 +439,16 @@ async def _trim_evidence_to_budget(
         if current_estimate <= target:
             break
         if _pop_leaf_path(doc_trees[doc_id], path):
-            removed.append({'document_id': doc_id, 'path': path})
+            confidence_score, discovery_score, importance_score = _score
+            removed.append({
+                'document_id': doc_id,
+                'document_name': doc_id_to_name.get(doc_id, doc_id),
+                'path': path,
+                'confidence_score': round(confidence_score, 4),
+                'discovery_score': round(discovery_score, 4),
+                'importance_score': round(importance_score, 4),
+                'token_estimate': token_estimate,
+            })
             current_estimate = max(current_estimate - token_estimate, 0)
 
     if ledger is not None:
@@ -536,7 +582,10 @@ class RetrievalAgent:
         is returned.
         """
         from shared.services.retrieval.agentic import tools
-        from shared.services.retrieval.agentic.policy import attempt_answer
+        from shared.services.retrieval.agentic.policy import (
+            attempt_answer,
+            estimate_attempt_answer_prompt_tokens,
+        )
         from shared.services.retrieval.llm_adapter import create_retrieval_vlm_fn
 
         vlm_fn = create_retrieval_vlm_fn()
@@ -724,7 +773,11 @@ class RetrievalAgent:
                     'chunk_id': r.get('chunk_id', ''),
                     'document_id': r.get('document_id', ''),
                     'chunk_type': r.get('chunk_type', ''),
-                    'section_path': r.get('section_path', ''),
+                    'section_path': (
+                        r.get('source_file_name', '')
+                        if r.get('section_path') == 'Root'
+                        else r.get('section_path', '')
+                    ),
                     'file_path': r.get('file_path', ''),
                 }
                 for r in discovery_rows[:top_k]
@@ -789,6 +842,7 @@ class RetrievalAgent:
         evidence_text = ''
         revision_hint: str | None = None
         stop_reason = 'max_revisions'
+        failure_reason = ''
 
         for round_idx in range(config.max_revisions + 1):
             if state.elapsed_ms >= config.latency_budget_ms:
@@ -878,9 +932,11 @@ class RetrievalAgent:
                             break
                         state.step_count += 1
 
-                        # ★ Asset collection (deferred reconcile) — runs if LLM selected tools
-                        # scope is passed directly: None (root), str, or list[str] (multi-scope).
-                        # asset_filter_step handles all forms natively.
+                        # ★ Asset collection (deferred reconcile) — runs if LLM selected tools.
+                        # If this navigation call selected sections, bind asset tools to
+                        # those selections; otherwise keep the current scope (STOP/root).
+                        selected_asset_scopes = list(step_node.confidence.keys())
+                        asset_scope = selected_asset_scopes or scope
                         for asset_tool in asset_tools:
                             if asset_tool not in ('FIND_IMAGES', 'FIND_TABLES'):
                                 continue
@@ -889,13 +945,16 @@ class RetrievalAgent:
                                 db,
                                 document_id=doc.document_id,
                                 job_result_id=job_result_id,
-                                scope_path=scope,
+                                scope_path=asset_scope,
                                 asset_type=asset_type,
                             )
                             if asset_chunks:
                                 doc_pending_assets.extend(asset_chunks)
 
-                            scope_display = scope if isinstance(scope, list) else (scope or 'root')
+                            scope_display = (
+                                asset_scope if isinstance(asset_scope, list)
+                                else (asset_scope or 'root')
+                            )
                             if trace_enabled:
                                 trace.record_step(
                                     'asset_filter_step', ToolResult(
@@ -903,6 +962,7 @@ class RetrievalAgent:
                                         payload={
                                             'document_id': doc.document_id,
                                             'scope': scope_display,
+                                            'navigation_scope': scope if isinstance(scope, str) else (scope or 'root'),
                                             'asset_type': asset_type,
                                             'chunks_found': len(asset_chunks) if asset_chunks else 0,
                                         },
@@ -978,6 +1038,10 @@ class RetrievalAgent:
                 # ── Post-BFS: Discovery selection step ─────────────────────
                 doc_hints = discovery_by_doc.get(doc.document_id, [])
                 if doc_hints and planning_llm_fn is not None and state.elapsed_ms < config.latency_budget_ms:
+                    discovery_exclude_paths = {
+                        key.split('::', 1)[1]
+                        for key in root.collect_all_paths(doc.document_id)
+                    }
                     doc_discovery_llm_fn = self._budgeted_discovery_llm_fn(
                         state,
                         cast(LLMFn, llm_fn),
@@ -994,6 +1058,7 @@ class RetrievalAgent:
                             namespace=namespace,
                             doc_name=doc_name,
                             discovery_hints=doc_hints,
+                            exclude_paths=discovery_exclude_paths,
                             revision_hint=revision_hint,
                             budget_snapshot=state.ledger.snapshot() if state.ledger else None,
                         )
@@ -1066,15 +1131,60 @@ class RetrievalAgent:
                     state.ledger.mark_explored(docs=1)
 
             # ── Phase 3: Render evidence + attempt_answer ────────────────
+            budget_snapshot_before_answer = state.ledger.snapshot() if state.ledger else None
+            context_remaining = (
+                state.ledger.remaining('context') if state.ledger else config.token_budget_total
+            )
+            answer_prompt_overhead = estimate_attempt_answer_prompt_tokens(
+                query=query,
+                evidence_text='',
+                state=state,
+                config=config,
+                budget_snapshot=budget_snapshot_before_answer,
+            )
             evidence_text = await _trim_evidence_to_budget(
                 db,
                 doc_trees=state.doc_trees,
                 doc_id_to_name=state.doc_id_to_name,
-                context_remaining=state.ledger.remaining('context') if state.ledger else config.token_budget_total,
+                context_remaining=max(context_remaining - answer_prompt_overhead, 0),
                 user_id=user_id,
                 namespace=namespace,
                 ledger=state.ledger,
             )
+            answer_prompt_tokens = estimate_attempt_answer_prompt_tokens(
+                query=query,
+                evidence_text=evidence_text,
+                state=state,
+                config=config,
+                budget_snapshot=budget_snapshot_before_answer,
+            )
+            budget_snapshot_for_answer = (
+                _with_context_prompt_projection(
+                    state.ledger.snapshot(),
+                    prompt_tokens=answer_prompt_tokens,
+                )
+                if state.ledger else None
+            )
+            if budget_snapshot_for_answer is not None:
+                answer_prompt_tokens = estimate_attempt_answer_prompt_tokens(
+                    query=query,
+                    evidence_text=evidence_text,
+                    state=state,
+                    config=config,
+                    budget_snapshot=budget_snapshot_for_answer,
+                )
+                budget_snapshot_for_answer = _with_context_prompt_projection(
+                    state.ledger.snapshot(),
+                    prompt_tokens=answer_prompt_tokens,
+                )
+                context_budget = (budget_snapshot_for_answer.get('context') or {})
+                logger.info(
+                    '  agentic: answer context projection '
+                    f'prompt_tokens={answer_prompt_tokens} '
+                    f'remaining={context_budget.get("remaining")}/'
+                    f'{context_budget.get("capacity")} '
+                    f'status={context_budget.get("status")}'
+                )
 
             if context_llm_fn is None:
                 stop_reason = 'no_llm'
@@ -1105,7 +1215,7 @@ class RetrievalAgent:
                     config=config,
                     vlm_fn=vlm_context_call if vlm_fn else None,
                     image_urls=evidence_image_urls or None,
-                    budget_snapshot=state.ledger.snapshot() if state.ledger else None,
+                    budget_snapshot=budget_snapshot_for_answer,
                 )
             except BudgetExceeded:
                 logger.info('  agentic: context budget exhausted before attempt_answer')
@@ -1136,9 +1246,11 @@ class RetrievalAgent:
 
             if status == 'DONE':
                 stop_reason = 'answer_done'
+                failure_reason = ''
                 break
 
             # ── NOT_FOUND: prepare revision ──────────────────────────────
+            failure_reason = reason
             if round_idx >= config.max_revisions:
                 stop_reason = 'max_revisions'
                 break
@@ -1211,8 +1323,9 @@ class RetrievalAgent:
         # Collect referenced chunk IDs from all doc trees
         all_refs: list[dict[str, str]] = []
         seen_ref_ids: set[str] = set()
-        for doc_tree in state.doc_trees.values():
-            for ref in doc_tree.collect_referenced_ids():
+        for doc_id, doc_tree in state.doc_trees.items():
+            doc_name = state.doc_id_to_name.get(doc_id, doc_id)
+            for ref in doc_tree.collect_referenced_ids(document_name=doc_name):
                 cid = ref.get('chunk_id', '')
                 if cid and cid not in seen_ref_ids:
                     seen_ref_ids.add(cid)
@@ -1232,6 +1345,7 @@ class RetrievalAgent:
             router_used=router_used,
             budget_snapshot=state.ledger.snapshot() if state.ledger else None,
             stop_reason=stop_reason,
+            failure_reason=failure_reason,
         )
 
         logger.info(

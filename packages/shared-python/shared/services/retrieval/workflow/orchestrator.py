@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.database import get_db_context
 from shared.services.retrieval.agentic.budget import BudgetLedger
-from shared.services.retrieval.agentic.orchestrator import RetrievalAgent
+from shared.services.retrieval.agentic.orchestrator import RetrievalAgent, _load_budget_inventory
 from shared.services.retrieval.agentic.types import AgenticResult
 from shared.services.retrieval.cache_service import (
     get_cached_workflow_plan,
@@ -66,6 +66,14 @@ class WorkflowOrchestrator:
             bootstrap=planner_budget,
             per_doc_min_share=0,
         )
+        total_chunks, total_docs, _chunks_count_by_doc = await _load_budget_inventory(
+            db,
+            user_id=user_id,
+            namespace=namespace,
+            exclude_document_ids=exclude_document_ids,
+        )
+        planner_ledger.total_chunks = total_chunks
+        planner_ledger.total_docs = total_docs
         plan = await self._load_or_plan(
             user_id=user_id,
             namespace=namespace,
@@ -75,6 +83,8 @@ class WorkflowOrchestrator:
             max_steps=max_steps,
             wallet_total=wallet_total,
             per_retrieve=per_retrieve,
+            kb_total_docs=total_docs,
+            kb_total_chunks=total_chunks,
         )
 
         wallet = BudgetWallet(
@@ -153,6 +163,8 @@ class WorkflowOrchestrator:
         max_steps: int,
         wallet_total: int,
         per_retrieve: int,
+        kb_total_docs: int,
+        kb_total_chunks: int,
     ) -> QueryPlan:
         try:
             cached = await get_cached_workflow_plan(user_id=user_id, namespace=namespace, query=query)
@@ -168,7 +180,11 @@ class WorkflowOrchestrator:
             total_budget=wallet_total,
             per_step_budget=per_retrieve,
         )
-        plan = await planner.plan(query=query)
+        plan = await planner.plan(
+            query=query,
+            kb_total_docs=kb_total_docs,
+            kb_total_chunks=kb_total_chunks,
+        )
         try:
             await set_cached_workflow_plan(
                 user_id=user_id,
@@ -330,7 +346,14 @@ class WorkflowOrchestrator:
 
 
 def _step_result_from_agentic(step: PlannedStep, result: AgenticResult) -> StepResult:
-    status = 'budget_stop' if 'budget' in (result.stop_reason or '') else 'done'
+    if result.answer_text:
+        status = 'done'
+    elif result.failure_reason:
+        status = 'not_found'
+    elif 'budget' in (result.stop_reason or ''):
+        status = 'budget_stop'
+    else:
+        status = 'done'
     return StepResult(
         step_id=step.id,
         sub_query=step.sub_query,
@@ -344,6 +367,7 @@ def _step_result_from_agentic(step: PlannedStep, result: AgenticResult) -> StepR
         budget_snapshot=result.budget_snapshot,
         router_used=result.router_used,
         stop_reason=result.stop_reason,
+        failure_reason=result.failure_reason,
     )
 
 

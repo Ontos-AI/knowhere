@@ -134,7 +134,7 @@ class DocTreeNode:
                     child.add_leaf_chunks(leaf_path, self.leaf_content.pop(leaf_path))
             child.reparent_leaf_content()
 
-    def collect_referenced_ids(self) -> list[dict[str, str]]:
+    def collect_referenced_ids(self, *, document_name: str = '') -> list[dict[str, str]]:
         """Extract minimal chunk references from all hydrated leaves.
 
         Returns deduplicated list of {chunk_id, document_id, chunk_type,
@@ -146,11 +146,14 @@ class DocTreeNode:
             cid = row.get('chunk_id', '')
             if cid and cid not in seen:
                 seen.add(cid)
+                section_path = row.get('section_path', '')
+                if section_path == 'Root' and document_name:
+                    section_path = document_name
                 refs.append({
                     'chunk_id': cid,
                     'document_id': row.get('document_id', ''),
                     'chunk_type': row.get('chunk_type', ''),
-                    'section_path': row.get('section_path', ''),
+                    'section_path': section_path,
                     'file_path': row.get('file_path', ''),
                     'job_id': row.get('job_id', ''),
                 })
@@ -204,6 +207,8 @@ class AgenticResult:
     - ``budget_snapshot``: final budget ledger state at run completion
     - ``stop_reason``: why the run terminated (answer_done / max_revisions /
       latency_budget / context_budget / no_llm / etc.)
+    - ``failure_reason``: semantic reason from the answer attempt when no
+      answer could be produced, e.g. evidence was insufficient.
     """
     evidence_text: str
     answer_text: str = ''
@@ -211,6 +216,7 @@ class AgenticResult:
     router_used: str = 'agentic_discovery_only'
     budget_snapshot: dict[str, Any] | None = None
     stop_reason: str = ''
+    failure_reason: str = ''
 
 
 @dataclass

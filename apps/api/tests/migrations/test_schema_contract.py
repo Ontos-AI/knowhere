@@ -233,3 +233,26 @@ def test_api_standalone_mode_should_create_auth_user_table_before_migrations(
         "updatedAt",
     }.issubset(columns)
     assert email_unique_count == 1
+
+
+def test_agentic_retrieval_trace_schema_matches_orm(migrated_head_engine: Engine) -> None:
+    with migrated_head_engine.begin() as connection:
+        run_columns = set(
+            connection.execute(
+                text(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'retrieval_runs'
+                    """
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert {
+        "parent_run_id",
+        "workflow_step_id",
+        "workflow_plan",
+    }.issubset(run_columns)

@@ -40,6 +40,7 @@ from shared.services.retrieval.app_service import (
     merge_channels_rrf,
 )
 from shared.services.retrieval.channels import content_channel, path_channel, term_channel
+from shared.services.retrieval.lexical_text import normalize_section_path
 from shared.services.retrieval.llm_adapter import LLMFn
 
 
@@ -684,12 +685,16 @@ async def navigate_step(
             tools_lines = ['\nOptional asset tools (usable with NAVIGATE or STOP):\n']
             if total_images > 0:
                 tools_lines.append(
-                    f'  FIND_IMAGES — Extract all image/chart assets under this scope ({total_images} available).\n'
+                    f'  FIND_IMAGES — Extract image/chart assets under the current scope ({total_images} available).\n'
                 )
             if total_tables > 0:
                 tools_lines.append(
-                    f'  FIND_TABLES — Extract all table/data assets under this scope ({total_tables} available).\n'
+                    f'  FIND_TABLES — Extract table/data assets under the current scope ({total_tables} available).\n'
                 )
+            tools_lines.append(
+                '  Note: with NAVIGATE selections, asset tools are limited to the selected sections; '
+                'with STOP or no selections, they use the current scope.\n'
+            )
             tools_block = ''.join(tools_lines)
 
         # 4. Format tree and build prompt
@@ -823,6 +828,7 @@ async def discovery_select_step(
     namespace: str,
     doc_name: str = '',
     discovery_hints: list[dict[str, Any]],
+    exclude_paths: set[str] | None = None,
     revision_hint: str | None = None,
     budget_snapshot: dict | None = None,
 ) -> DocTreeNode:
@@ -847,17 +853,23 @@ async def discovery_select_step(
     t0 = time.monotonic()
     try:
         # 1. Format hints for LLM (deduplicate by section_path)
+        exclude_set = {
+            normalize_section_path(path)
+            for path in (exclude_paths or set())
+            if path
+        }
         hint_lines: list[str] = []
         hint_by_path: dict[str, dict] = {}
         for h in hints:
-            sp = h.get('section_path', '')
+            sp = normalize_section_path(h.get('section_path', ''))
             if not sp or sp == 'Root':
+                continue
+            if sp in exclude_set:
                 continue
             if sp in hint_by_path:
                 continue  # skip duplicate section_path
-            title = sp.rsplit(' / ', 1)[-1] if ' / ' in sp else sp
             summary = h.get('summary', '') or ''
-            hint_lines.append(f'▸ path="{sp}"  {title}  [Leaf]')
+            hint_lines.append(f'▸ path="{sp}"')
             if summary:
                 clipped = summary[:300]
                 hint_lines.append(f'    {clipped}')

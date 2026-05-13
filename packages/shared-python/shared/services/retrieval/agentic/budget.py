@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 
 BudgetPoolName = Literal["bootstrap", "planning", "context"]
@@ -64,7 +64,7 @@ class BudgetLedger:
         self.total_docs = 0
         self.explored_chunks = 0
         self.explored_docs = 0
-        self.trimmed_paths: list[dict[str, str]] = []
+        self.trimmed_paths: list[dict[str, Any]] = []
 
     def remaining(self, pool: BudgetPoolName) -> int:
         return self._pools[pool].remaining

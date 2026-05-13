@@ -87,7 +87,23 @@ def _concat_final_parts(plan: QueryPlan, results: dict[str, StepResult]) -> str:
         for step in plan.steps
         if (result := results.get(step.id)) and result.answer_text.strip()
     ]
-    return "\n\n".join(fallback_parts)
+    if fallback_parts:
+        return "\n\n".join(fallback_parts)
+
+    missing_reasons = [
+        result.failure_reason.strip()
+        for step in plan.steps
+        if (result := results.get(step.id))
+        and result.status == "not_found"
+        and result.failure_reason.strip()
+    ]
+    if missing_reasons:
+        return "未能基于当前知识库证据回答该问题：" + "；".join(dict.fromkeys(missing_reasons))
+
+    if any((result := results.get(step.id)) and result.status == "budget_stop" for step in plan.steps):
+        return "Unable to return a valid answer because the retrieval budget was exhausted."
+
+    return ""
 
 
 def _format_prior_outputs(depends_on: list[str], prior_results: dict[str, StepResult]) -> str:

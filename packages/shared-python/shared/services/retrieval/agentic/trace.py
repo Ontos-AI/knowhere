@@ -170,6 +170,7 @@ class TraceRecorder:
                         'tokens_used': step_data.get('tokens_used', 0),
                     },
                     latency_ms=step_data['latency_ms'],
+                    token_count=step_data.get('tokens_used', 0),
                     error=step_data.get('error'),
                     created_at=step_data['created_at'],
                 )
@@ -201,6 +202,7 @@ class TraceRecorder:
                     final_doc_ids=doc_ids_in_result,
                     result_provenance=provenance,
                     latency_ms=total_latency,
+                    token_count=sum(step.get('tokens_used', 0) for step in self._steps),
                     completed_at=_now_utc(),
                 )
             )

@@ -8,7 +8,7 @@ from typing import Any, Literal
 StepKind = Literal["retrieve", "synthesize"]
 OutputRole = Literal["final_part", "intermediate", "consumed_by_synthesis"]
 FinalStrategy = Literal["concat_final_parts", "last_synthesize", "template"]
-StepStatus = Literal["done", "skipped", "error", "budget_stop"]
+StepStatus = Literal["done", "skipped", "error", "budget_stop", "not_found"]
 
 
 @dataclass
@@ -175,6 +175,7 @@ class StepResult:
     child_run_id: str | None = None
     router_used: str = ""
     stop_reason: str = ""
+    failure_reason: str = ""
     error: str | None = None
 
     def to_api_dict(self) -> dict[str, Any]:
@@ -192,6 +193,7 @@ class StepResult:
             "child_run_id": self.child_run_id,
             "router_used": self.router_used,
             "stop_reason": self.stop_reason,
+            "failure_reason": self.failure_reason,
             "error": self.error,
         }
 
