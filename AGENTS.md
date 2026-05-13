@@ -100,7 +100,7 @@ flowchart TB
     subgraph RETRIEVE["⑤ Retrieval (shared)"]
         Query["GET /v1/retrieval/query"] --> Pipeline["run_retrieval_query"]
         Pipeline --> Channels["3-Channel BM25 (path/content/term)"]
-        Pipeline --> Agentic["RetrievalAgent.run (LLM-driven)"]
+        Pipeline --> Agentic["WorkflowOrchestrator (Planner + DAG)"]
         Channels --> RRF["RRF Fusion"]
         Agentic --> Hydrate["hydrate_paths_to_rows"]
         RRF --> Rank["_rank_candidates_by_path"]
@@ -529,7 +529,7 @@ debug CSVs (`preds_*.csv`) are saved alongside for troubleshooting.
 
 ### Two Retrieval Modes
 
-The system supports two modes controlled by `RETRIEVAL_AGENTIC_ENABLED`:
+The system supports two modes, controlled globally by `RETRIEVAL_AGENTIC_ENABLED` and locally via the per-request `use_agentic` toggle.
 
 #### Legacy Mode (3-Channel RRF)
 
@@ -547,33 +547,21 @@ flowchart LR
 ```
 
 **Channel weights** (default): path=1.0, content=2.0, term=1.5
-
 **RRF formula**: `score = weight / (k + rank + 1)` per channel, summed across channels.
 
-#### Agentic Mode (LLM-driven Navigation)
+#### Agentic Mode (Workflow Orchestrator)
 
-#### Agentic Mode (LLM-driven Navigation)
+The agentic pipeline uses `WorkflowOrchestrator` to handle complex queries via a DAG-based planning and budget-constrained execution engine:
 
-The agentic pipeline uses a deterministic multi-phase orchestration engine:
-
-**Phase 1: Discovery + Document Selection**
-- **Bottom Discovery**: Always runs first. Executes a 3-channel RRF keyword search across the entire Knowledge Base, returning top high-relevance chunks and their parent documents (`discovery_auto`).
-- **KG Document Select**: The LLM analyzes the KB-wide overview (from `knowledge_graph.json`) and selects highly relevant documents.
-- *Merge Strategy*: Documents found by Bottom Discovery but omitted by the LLM are automatically appended to the selected documents list to ensure no blind spots.
-
-**Phase 2: Per-Document Navigation & Discovery Merging**
-For each selected document, the agent performs a constrained Breadth-First Search (BFS):
-1. **Scope Navigation**: The document's section tree is dynamically rendered to the LLM. 
-   - *Path-Based Hierarchy*: Child nodes are strictly filtered using structural path prefixes (e.g., `child_path.startswith(parent_path + ' / ')`) to maintain structural integrity and eliminate L2 duplicate rendering.
-   - *Visual Constraints*: Actionable drill-down paths are explicitly prefixed with `[SELECT]` tags. The LLM system prompt tightly constrains the model to only pick paths with this tag, preventing redundant re-selection of the current scope.
-2. **Discovery Select**: The LLM reviews the specific paths flagged by Phase 1's Bottom Discovery for the current document. Selected discovery paths are hydrated into leaf chunks (with `job_result_id` dynamically extracted from the chunks) and merged directly into the BFS document tree. 
-   - *Reparenting*: The `DocTreeNode.merge()` process reparents these discovered leaf chunks into the closest matching navigated child node. 
-   - *Orphan Leaves*: Discovered chunks whose paths are not explicitly covered by the BFS `outline_items` are rendered cleanly as `[Leaf]` items (orphans) beneath their appropriate parent, ensuring no relevant data is lost even if the BFS did not explicitly drill into that path.
-
-**Phase 3: Verdict & Revision**
-The combined document tree (BFS Navigation + Discovery) is rendered as unified evidence. The tree naturally displays structural context (outlines) alongside hydrated chunk rows (for selected leaf paths). The LLM attempts to answer the user's query:
-- `DONE`: Evidence is sufficient (or partially covers the query), exit and return final results.
-- `NOT_FOUND`: Evidence lacks sufficient information. Discard current evidence and trigger another revision round with a generated hint (max 2 rounds).
+1. **Planning (`PlannerAgent`)**: The query is analyzed and decomposed into a DAG of steps.
+   - Simple queries generate a single `retrieve` step.
+   - Complex queries are broken into multiple `retrieve` steps followed by a final `synthesize` step.
+2. **Budget Ledger (`BudgetLedger`)**: A strict token budget mechanism is enforced across the entire DAG execution (e.g., `AGENTIC_MAX_BUDGET=30000`). If the budget is exhausted, the pipeline halts safely and returns the best-effort evidence collected so far.
+3. **Execution (`RetrievalAgent`)**: For each `retrieve` step, a multi-phase navigation engine runs:
+   - **Phase 1 (Discovery)**: 3-channel RRF keyword search and KG document selection.
+   - **Phase 2 (Navigation)**: Constrained Breadth-First Search (BFS) over the document's section tree. Discovered orphan leaves are merged into the tree to prevent data loss.
+   - **Phase 3 (Verdict)**: The LLM evaluates the collected structural outlines + hydrated chunks. Triggers a revision round (max 2) if `NOT_FOUND`.
+4. **Synthesis**: The LLM synthesizes a final `answer_text` and precise citations (`referenced_chunks`) using the unified evidence tree.
 
 ### Tree Rendering & Hydration
 
