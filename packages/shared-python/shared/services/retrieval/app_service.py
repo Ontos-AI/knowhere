@@ -1100,7 +1100,7 @@ async def run_retrieval_query(
         return await _to_public_response(response)
 
     # ══ Route: agentic (unified workflow) vs legacy ══
-    _agentic_enabled = os.environ.get('RETRIEVAL_AGENTIC_ENABLED', 'false') == 'true'
+    _agentic_enabled = os.environ.get('RETRIEVAL_AGENTIC_ENABLED', 'true') == 'true'
     if _agentic_enabled:
         # ── Unified agentic path via WorkflowOrchestrator ──
         # Simple queries: planner returns a single-step plan (no decomposition).
