@@ -183,12 +183,7 @@ async def test_should_return_empty_results_for_an_empty_query(
         "router_used": "empty_query_filtered",
         "results": [],
         "answer_text": None,
-        "final_strategy_used": None,
-        "plan": None,
-        "planner_snapshot": None,
         "referenced_chunks": [],
-        "steps": None,
-        "wallet_snapshot": None,
     }
 
 
