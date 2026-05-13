@@ -140,6 +140,7 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
         "shared.services.storage.result_storage.get_result_storage",
         lambda: fake_result_storage,
     )
+    monkeypatch.setenv("RETRIEVAL_AGENTIC_ENABLED", "false")
 
     async with developer_api_client_factory() as api_client:
         empty_cached_response = await api_client.post(

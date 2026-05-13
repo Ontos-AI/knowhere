@@ -44,18 +44,19 @@ knowhereapi-main/
 │   ├── web/          # Frontend (separate repo: knowhere-dashboard)
 │   └── docs/         # Internal documentation
 ├── packages/
-│   ├── shared-python/shared/    # Shared library (pip: knowhere-shared)
-│   │   ├── models/database/     # SQLAlchemy ORM models
-│   │   ├── models/schemas/      # Pydantic request/response schemas
-│   │   ├── services/retrieval/  # Core retrieval engine
-│   │   ├── services/chunks/     # DataFrame → ChunkPayload conversion
-│   │   ├── services/ai/         # LLM prompt service & AI client
-│   │   └── utils/               # Text, file, and chunk utilities
-│   ├── sdk-python/              # Public Python SDK
-│   ├── sdk-typescript/          # Public Node.js SDK
-│   └── openapi-specs/           # OpenAPI spec definitions
+│   └── shared-python/shared/    # Shared library (pip: knowhere-shared)
+│       ├── models/database/     # SQLAlchemy ORM models
+│       ├── models/schemas/      # Pydantic request/response schemas
+│       ├── services/retrieval/  # Core retrieval engine
+│       ├── services/chunks/     # DataFrame → ChunkPayload conversion
+│       ├── services/ai/         # LLM prompt service & AI client
+│       └── utils/               # Text, file, and chunk utilities
 └── deploy/                      # Docker Compose & deployment scripts
 ```
+
+> **SDKs live in standalone repos:**
+> - Python SDK → [`Ontos-AI/knowhere-python-sdk`](https://github.com/Ontos-AI/knowhere-python-sdk)
+> - Node SDK → [`Ontos-AI/knowhere-node-sdk`](https://github.com/Ontos-AI/knowhere-node-sdk)
 
 ---
 
