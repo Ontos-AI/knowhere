@@ -166,9 +166,14 @@ def _sample_pages_worker(
     doc = pymupdf.open(pdf_path)
     try:
         page_count = int(doc.page_count)
+        safe_strategy: SampleStrategy = "stratified"
+        if strategy == "uniform":
+            safe_strategy = "uniform"
+        elif strategy == "key_pages":
+            safe_strategy = "key_pages"
         indices = _choose_sample_indices(
             page_count,
-            strategy=strategy if strategy in {"stratified", "uniform", "key_pages"} else "stratified",
+            strategy=safe_strategy,
             max_samples=max_samples,
         )
         sampled_pages = [_extract_page_features(doc[idx], idx) for idx in indices]
