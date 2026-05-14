@@ -1,4 +1,4 @@
-<h1 align="center">Prepare unstructured data for AI Agents</h1>
+<h1 align="center">Build AI Agent Memory from Real-World Documents</h1>
 
 <p align="center">
   <a href="https://www.python.org/downloads/">
@@ -31,12 +31,12 @@
 
 ## What We Are
 
-**We're not building the next document parser — we're building document memory infrastructure that agents can actually consume.**
+**We're not developing the next MinerU, instead, we're building document memory infrastructure that agents can effectively consume.**
 
-Knowhere is the open-source infrastructure that turns unstructured documents into persistent, navigable memory for AI agents. It automates the full pipeline — parsing, hierarchy extraction, multi-modal structuring, and graph construction — so your agents get structured, high-quality context optimized for *Agentic RAG*, *traditional vector-based RAG*, and *any LLM-powered workflow*.
+Knowhere turns unstructured documents into persistent, navigable memory for AI agents. It handles parsing, hierarchy extraction, multi-modal structuring, and graph construction, giving your agents structured, high-quality context for *Agentic RAG*, *traditional RAG*, or any LLM workflow.
 
 > [!TIP]
-> Knowhere stands on the shoulders of excellent open-source parsers (MinerU, Docling, Marker, and others) — and actively improves upon them. We contribute **memory-oriented parsing optimizations** that fix real-world deficiencies in existing tools, and we're pursuing **agentic parsing** to push accuracy even further. Beyond parsing, Knowhere focuses on what turns raw extraction into usable agent memory: **reconstructing hierarchical structure**, **extracting and normalizing multi-modal assets**, **building navigable cross-document graphs**, and **persisting it all as long-term, citable memory** that AI agents can search, navigate, and reason over.
+> Knowhere builds on top of well-known parsers like MinerU, Docling, and Marker, and actively improves upon them with **memory-oriented parsing optimizations** and upcoming **agentic parsing**. On top of that, it **reconstructs hierarchical structure**, **normalizes multi-modal assets**, **builds cross-document graphs**, and **persists everything as long-term, citable memory** that agents can search, navigate, and reason over.
 
 > [!NOTE]
 > **Get started in seconds with Knowhere Cloud.**
@@ -254,7 +254,7 @@ If you use Knowhere in your research, please cite it as:
 ```bibtex
 @software{knowhere2026,
   author       = {Ontos AI},
-  title        = {Knowhere: Prepare Unstructured Data for AI Agents},
+  title        = {Knowhere: Build AI Agent Memory from Real-World Documents},
   year         = {2026},
   publisher    = {GitHub},
   url          = {https://github.com/Ontos-AI/knowhere},
