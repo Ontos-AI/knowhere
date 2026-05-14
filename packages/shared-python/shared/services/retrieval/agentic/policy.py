@@ -165,9 +165,18 @@ async def attempt_answer(
         raise
     except Exception as exc:
         if effective_fn is llm_fn:
-            raise
+            logger.warning(f'  [attempt_answer] text LLM failed: {exc}')
+            return 'NOT_FOUND', '', f'LLM error: {exc}'
         logger.warning(f'  [attempt_answer] VLM failed, falling back to text LLM: {exc}')
-        raw_response = await llm_fn(prompt_text)
+        try:
+            raw_response = await llm_fn(prompt_text)
+        except BudgetExceeded:
+            raise
+        except Exception as fallback_exc:
+            logger.warning(
+                f'  [attempt_answer] text LLM fallback also failed: {fallback_exc}'
+            )
+            return 'NOT_FOUND', '', f'VLM and text LLM both failed: {fallback_exc}'
     logger.info(f'  [attempt_answer] raw={repr(raw_response[:300])}')
 
     if verbose:

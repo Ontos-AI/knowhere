@@ -843,6 +843,8 @@ class RetrievalAgent:
         revision_hint: str | None = None
         stop_reason = 'max_revisions'
         failure_reason = ''
+        all_refs: list[dict[str, str]] = []
+        router_used = 'agentic_discovery_only'
 
         for round_idx in range(config.max_revisions + 1):
             if state.elapsed_ms >= config.latency_budget_ms:
@@ -1224,6 +1226,13 @@ class RetrievalAgent:
                 status, answer_text, reason = 'NOT_FOUND', '', 'context budget exhausted'
                 stop_reason = 'context_budget'
                 break
+            except Exception as exc:
+                logger.warning(f'  agentic: attempt_answer failed: {exc}')
+                if trace_enabled:
+                    trace.record_budget_stop('llm_error')
+                status, answer_text, reason = 'NOT_FOUND', '', f'LLM error: {exc}'
+                stop_reason = 'llm_error'
+                break
             state.step_count += 1
 
             if trace_enabled:
@@ -1315,29 +1324,63 @@ class RetrievalAgent:
         # ══════════════════════════════════════════════════════════════════
         # Final Assembly
         # ══════════════════════════════════════════════════════════════════
-        router_used = (
-            'agentic_llm' if any(t.has_content() for t in state.doc_trees.values())
-            else 'agentic_discovery_only'
-        )
-
-        # Collect referenced chunk IDs from all doc trees
-        all_refs: list[dict[str, str]] = []
-        seen_ref_ids: set[str] = set()
-        for doc_id, doc_tree in state.doc_trees.items():
-            doc_name = state.doc_id_to_name.get(doc_id, doc_id)
-            for ref in doc_tree.collect_referenced_ids(document_name=doc_name):
-                cid = ref.get('chunk_id', '')
-                if cid and cid not in seen_ref_ids:
-                    seen_ref_ids.add(cid)
-                    all_refs.append(ref)
-
-        # Re-render final evidence (may have been updated in last revision)
-        if not evidence_text or evidence_text == '(no evidence collected)':
-            evidence_text = await _render_evidence(
-                db,
-                state.doc_trees, state.doc_id_to_name,
+        try:
+            router_used = (
+                'agentic_llm' if any(t.has_content() for t in state.doc_trees.values())
+                else 'agentic_discovery_only'
             )
 
+            # Collect referenced chunk IDs from all doc trees
+            all_refs.clear()
+            seen_ref_ids: set[str] = set()
+            for doc_id, doc_tree in state.doc_trees.items():
+                doc_name = state.doc_id_to_name.get(doc_id, doc_id)
+                for ref in doc_tree.collect_referenced_ids(document_name=doc_name):
+                    cid = ref.get('chunk_id', '')
+                    if cid and cid not in seen_ref_ids:
+                        seen_ref_ids.add(cid)
+                        all_refs.append(ref)
+
+            # Re-render final evidence (may have been updated in last revision)
+            if not evidence_text or evidence_text == '(no evidence collected)':
+                evidence_text = await _render_evidence(
+                    db,
+                    state.doc_trees, state.doc_id_to_name,
+                )
+
+            result = AgenticResult(
+                evidence_text=evidence_text,
+                answer_text=answer_text,
+                referenced_chunks=all_refs,
+                router_used=router_used,
+                budget_snapshot=state.ledger.snapshot() if state.ledger else None,
+                stop_reason=stop_reason,
+                failure_reason=failure_reason,
+            )
+
+            logger.info(
+                f'agentic retrieval DONE: {len(all_refs)} referenced chunks, '
+                f'evidence_text={len(evidence_text)} chars, '
+                f'answer_text={len(answer_text)} chars, '
+                f'router={router_used}, steps={state.step_count}, '
+                f'stop_reason={stop_reason}, revisions={state.revision_count}, '
+                f'{state.elapsed_ms}ms'
+            )
+
+            return result
+        except Exception as exc:
+            logger.error(f'agentic retrieval failed: {exc}')
+            stop_reason = 'llm_error'
+            failure_reason = str(exc)
+        finally:
+            if trace_enabled:
+                await trace.complete(
+                    all_refs,
+                    router_used,
+                    budget_snapshot=state.ledger.snapshot() if state.ledger else None,
+                )
+
+        # Fallback result when an unexpected exception escapes the pipeline
         result = AgenticResult(
             evidence_text=evidence_text,
             answer_text=answer_text,
@@ -1349,19 +1392,12 @@ class RetrievalAgent:
         )
 
         logger.info(
-            f'agentic retrieval DONE: {len(all_refs)} referenced chunks, '
+            f'agentic retrieval DONE (degraded): {len(all_refs)} referenced chunks, '
             f'evidence_text={len(evidence_text)} chars, '
             f'answer_text={len(answer_text)} chars, '
             f'router={router_used}, steps={state.step_count}, '
             f'stop_reason={stop_reason}, revisions={state.revision_count}, '
             f'{state.elapsed_ms}ms'
         )
-
-        if trace_enabled:
-            await trace.complete(
-                all_refs,
-                router_used,
-                budget_snapshot=state.ledger.snapshot() if state.ledger else None,
-            )
 
         return result
