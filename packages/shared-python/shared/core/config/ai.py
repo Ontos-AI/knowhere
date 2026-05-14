@@ -11,8 +11,10 @@ class AIConfig(BaseModel):
     GLM_URL: str = Field(
         default="https://open.bigmodel.cn/api/paas/v4", description="Zhipu GLM API URL"
     )
-    DS_KEY: str = Field(..., description="DeepSeek API key")
-    DS_URL: str = Field(..., description="DeepSeek API URL")
+    DS_KEY: str = Field(default="", description="DeepSeek API key")
+    DS_URL: str = Field(
+        default="https://api.deepseek.com/v1", description="DeepSeek API URL"
+    )
     GPT_API_KEY: str = Field(default="", description="OpenAI API key")
     # Default behavior: text/table summaries use deepseek-chat. Hierarchy parsing
     # can be overridden independently with HIERARCHY_LLM_MODEL. Existing

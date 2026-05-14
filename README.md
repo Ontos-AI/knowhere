@@ -1,5 +1,3 @@
-<img width="1000" height="233" alt="20260506-102713" src="https://github.com/user-attachments/assets/896e64d2-e50e-4158-b71c-bc69e11c7c65" />
-
 <h1 align="center">Prepare unstructured data for AI Agents</h1>
 
 <p align="center">
@@ -45,42 +43,33 @@ Knowhere is the open-source infrastructure for unstructured data processing. It 
 ## How it Works
 
 > [!TIP]
-> **TL;DR**: Knowhere parses documents into structured units, maps them in a graph, and lets agents navigate that context to find and cite reliable evidence.
+> **TL;DR**: Knowhere builds navigable memory from messy documents, then lets agents retrieve and cite evidence from that memory.
 
-Knowhere turns raw documents into a structured memory store that AI agents can navigate and cite. The process follows a three-stage pipeline:
+Knowhere turns raw documents into a structured memory store that AI agents can navigate and cite. The process follows two steps:
 
-```mermaid
-flowchart LR
-    A[📄 Document Parsing] --> B[🕸️ Graph Construction]
-    B --> C[🤖 Agentic Retrieval]
-    B --> D[🔍 Vector-based RAG]
-    C --> E[✅ Cited Results]
-    D --> E
-```
+### Step 1: Parse and Build Memory
 
-### 1. Document Parsing
-Knowhere routes files to specialized parsers for PDFs, Office docs, images, and more. We don't just extract text; we preserve the document's hierarchy:
-- **Hierarchical Paths**: Every chunk knows its exact location (e.g., `Section 2.1 > Table 4`).
-- **Multi-modal Units**: Tables and images are treated as distinct assets with their own metadata.
-- **Structural Awareness**: Heading levels and section boundaries are maintained to keep context intact.
+<p align="center">
+  <img alt="Step 1: Parse and Build Memory" src="docs/assets/step-1-parse-build-memory.png" width="900">
+</p>
 
-### 2. Memory Graph
-Parsed content is organized into a lightweight graph. It’s designed as a practical map for agents, not a complex ontology.
-- **Nodes**: Represent documents, sections, and chunks.
-- **Edges**: Map semantic relationships (keyword overlap, summaries) and structural links.
-This graph helps agents quickly understand what a document is about and which neighboring files might be relevant.
+Parsing, chunking, hierarchy extraction, and graph construction are unified into one outcome: a navigable memory layer for AI agents.
 
-### 3a. Agentic Retrieval
-An agent navigates the memory graph to find evidence rather than relying on a single vector lookup:
-- **Hybrid Discovery**: Fuses keyword and semantic search (RRF) for broad first-pass coverage.
-- **Agent Navigation**: The agent "walks" the graph, reviewing section previews to drill down into the most relevant paths.
-- **Cited Evidence**: Results are returned as traceable evidence — source document, section, chunk, and any linked image or table assets.
+- **Parse**: Route PDFs, Office files, images, tables, Markdown, and text to specialized parsers.
+- **Structure**: Preserve headings, section paths, multi-modal assets, and chunk relationships.
+- **Build Memory**: Store chunks, navigation trees, summaries, and graph links as agent-ready context.
 
-### 3b. Vector-based RAG
-For teams that prefer a pure retrieval pipeline without agent overhead, Knowhere's parsed chunks plug directly into standard vector stacks:
-- **Dense Search**: Chunk embeddings stored in Qdrant, pgvector, or Milvus for fast ANN lookup.
-- **Sparse Search**: BM25 term index for keyword-sensitive queries.
-- **Multi-channel Fusion**: Dense and sparse results are fused with RRF before being returned, giving you the best of both signals.
+### Step 2: Agentic Retrieval
+
+<p align="center">
+  <img alt="Step 2: Agentic Retrieval" src="docs/assets/step-2-agentic-retrieval.png" width="900">
+</p>
+
+Agents retrieve by navigating memory instead of depending on a single flat vector lookup.
+
+- **Discover**: Fuse keyword, path, content, and semantic signals for broad first-pass coverage.
+- **Navigate**: Walk section trees and graph links to drill into the most relevant document regions.
+- **Cite Evidence**: Return traceable results with source document, section, chunk, and linked image or table assets.
 
 ## Ecosystem
 
@@ -140,8 +129,16 @@ cp apps/worker/.env.example apps/worker/.env
 
 - database and Redis connection settings
 - S3-compatible storage credentials
-- `DS_KEY`
-- any optional LLM, billing, or webhook providers you want to enable
+- at least one LLM provider key: `DS_KEY`, `ALI_API_KEYS`, `GPT_API_KEY`, or `GLM_API_KEY`
+- `MINERU_API_KEYS` if you need PDF parsing
+- a vision-capable model provider if you need image summaries, OCR, atlas classification, or image-aware retrieval
+- any optional billing or webhook providers you want to enable
+
+Most parser and retrieval tuning values have code defaults. Start with the
+required external services first, then override model names, provider URLs,
+budgets, or concurrency limits only when your deployment needs different
+behavior. See [docs/external-services.md](docs/external-services.md) for the
+full dependency matrix.
 
 4. Start the local infrastructure stack:
 
