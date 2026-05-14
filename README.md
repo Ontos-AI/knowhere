@@ -71,6 +71,22 @@ Agents retrieve by navigating memory instead of depending on a single flat vecto
 - **Navigate**: Walk section trees and graph links to drill into the most relevant document regions.
 - **Cite Evidence**: Return traceable results with source document, section, chunk, and linked image or table assets.
 
+## Performance Benchmark
+
+Knowhere significantly enhances the efficiency and accuracy of AI agents when dealing with unstructured data. Compared to providing raw documents directly to agents or using generic parsers, Knowhere's navigable memory graph approach achieves higher success rates with fewer resources.
+
+<p align="center">
+  <img alt="Benchmark Performance: Agent + Knowhere vs Others" src="docs/assets/benchmark-performance.png" width="900">
+</p>
+
+### Key Advantages
+
+- **Superior Accuracy**: Knowhere drastically improves both **First-time Accuracy** (+36% over raw docs) and **Recall** (+10%), ensuring agents find the right evidence faster.
+- **Enhanced Reliability**: With user feedback, agents using Knowhere hit **79% accuracy**—a significant jump compared to the ~53% ceiling of raw documents.
+- **Higher Efficiency**: Agents require **fewer loops**, consume **fewer tokens**, and spend **less time** searching. By navigating a structured memory graph instead of reading monolithic texts, the token overhead drops while precision increases.
+
+*(Data generated from internal evaluation across identical agentic RAG tasks.)*
+
 ## Ecosystem
 
 | Repository | Description |
