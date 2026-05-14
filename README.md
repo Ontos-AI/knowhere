@@ -36,7 +36,7 @@
 Knowhere turns unstructured documents into persistent, navigable memory for AI agents. It handles parsing, hierarchy extraction, multi-modal structuring, and graph construction, giving your agents structured, high-quality context for *Agentic RAG*, *traditional RAG*, or any LLM workflow.
 
 > [!TIP]
-> Knowhere builds on top of well-known parsers like MinerU, Docling, and Marker, and actively improves upon them with **memory-oriented parsing optimizations** and upcoming **agentic parsing**. On top of that, it **reconstructs hierarchical structure**, **normalizes multi-modal assets**, **builds cross-document graphs**, and **persists everything as long-term, citable memory** that agents can search, navigate, and reason over.
+> Knowhere stands on the shoulders of giants like MinerU and Pymupdf. We take their output, optimize it, and then build **hierarchical structure** and **multi-modal cross-document graphs** on top. The result is a persistent, citable memory layer purpose-built for agent consumption.
 
 > [!NOTE]
 > **Get started in seconds with Knowhere Cloud.**
@@ -48,9 +48,6 @@ Knowhere turns unstructured documents into persistent, navigable memory for AI a
 - **Apr 30, 2026**: 📦 **Version [2026.04.30.1](https://github.com/Ontos-AI/knowhere/releases/tag/2026.04.30.1) has been released.** This update includes several stability improvements and initial support for the agentic RAG layer. See the [full changelog](https://github.com/Ontos-AI/knowhere/commits/2026.04.30.1) for details.
 
 ## How it Works
-
-> [!TIP]
-> **TL;DR**: Knowhere builds navigable memory from messy documents, then lets agents retrieve and cite evidence from that memory.
 
 Knowhere turns raw documents into a structured memory store that AI agents can navigate and cite. The process follows two steps:
 
