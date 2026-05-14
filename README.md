@@ -29,7 +29,12 @@
   🖥️ <a href="https://github.com/Ontos-AI/knowhere-dashboard">Dashboard</a>
 </p>
 
-Knowhere is the open-source infrastructure for unstructured data processing. It automates the complex pipeline of extracting, parsing, and transforming messy documents into structured, high-quality data optimized for *AI Agents*, *Agentic RAG*, and *traditional vector-based RAG workflows*.
+> **We're not building the next document parser — we're building document memory infrastructure that agents can actually consume.**
+
+>Knowhere is the open-source infrastructure that turns unstructured documents into persistent, navigable memory for AI agents. It automates the full pipeline — parsing, hierarchy extraction, multi-modal structuring, and graph construction — so your agents get structured, high-quality context optimized for *Agentic RAG*, *traditional vector-based RAG*, and *any LLM-powered workflow*.
+
+> [!TIP]
+> Knowhere stands on the shoulders of excellent open-source parsers (MinerU, Docling, Marker, and others) — and actively improves upon them. We contribute **memory-oriented parsing optimizations** that fix real-world deficiencies in existing tools, and we're pursuing **agentic parsing** to push accuracy even further. Beyond parsing, Knowhere focuses on what turns raw extraction into usable agent memory: **reconstructing hierarchical structure**, **extracting and normalizing multi-modal assets**, **building navigable cross-document graphs**, and **persisting it all as long-term, citable memory** that AI agents can search, navigate, and reason over.
 
 > [!NOTE]
 > **Get started in seconds with Knowhere Cloud.**
@@ -87,6 +92,9 @@ Knowhere significantly enhances the efficiency and accuracy of AI agents when de
 
 *(Data generated from internal evaluation across identical agentic RAG tasks.)*
 
+> [!NOTE]
+> **📊 Benchmarks are actively expanding.** The comparison above currently covers MinerU as the baseline parser. We are continuously adding more parsing tools and retrieval baselines — stay tuned for updated results.
+
 ## Ecosystem
 
 | Repository | Description |
@@ -103,6 +111,20 @@ Knowhere significantly enhances the efficiency and accuracy of AI agents when de
 - **Lightweight Memory Graph**: Context-aware organization that links documents and chunks for better relationship understanding.
 - **Agentic RAG**: A hybrid retrieval engine combining traditional search (RRF) with autonomous agent navigation.
 - **Evidence-based Citations**: Every result is backed by traceable source paths, ensuring reliability for AI Agent decision-making.
+
+## Frequently Asked Questions (FAQ)
+
+**Q: Is MinerU strictly required for Knowhere to work?**
+A: No. While MinerU is currently our default choice for parsing PDFs and PPT, because it performs the best in our experiments, any tool that can convert documents to Markdown works. Knowhere's real value lies in what happens *alongside and after* the initial conversion: memory-oriented parsing optimizations (fixing real-world parser deficiencies), reconstructing the hierarchical structure, normalizing multi-modal assets, and building the cross-document navigation graph.
+
+**Q: What are the LLM / VLM dependencies?**
+A: Knowhere requires standard language models to structure the document memory. By default, it uses DeepSeek (`deepseek-chat`) for text/table summarization and hierarchy generation, and Qwen-VL (`qwen3.5-flash`) for image OCR and visual descriptions. However, it is entirely model-agnostic—you can easily configure it to use OpenAI, DashScope (Ali), Zhipu (GLM), or Volcengine (ARK) via environment variables.
+
+**Q: How does Agentic Retrieval differ from traditional RAG?**
+A: Traditional RAG relies on flat vector similarity, which often retrieves isolated, out-of-context text snippets. Knowhere's Agentic Retrieval instead uses a multi-agent workflow to actively navigate the hierarchical section tree and cross-document graph. Agents read the document structure like a human would, drilling down into relevant sections to find precise, well-contextualized evidence.
+
+**Q: Can it handle multi-modal data like images and tables?**
+A: Yes. Knowhere extracts inline images and tables, passes them through Vision-Language Models (VLMs) for summarization and feature extraction, and explicitly links them back to their original text chunks. This ensures that agents can retrieve and cite multi-modal assets accurately during inference.
 
 ## Supported Formats
 
