@@ -29,9 +29,11 @@
   🖥️ <a href="https://github.com/Ontos-AI/knowhere-dashboard">Dashboard</a>
 </p>
 
-> **We're not building the next document parser — we're building document memory infrastructure that agents can actually consume.**
+## What We Are
 
->Knowhere is the open-source infrastructure that turns unstructured documents into persistent, navigable memory for AI agents. It automates the full pipeline — parsing, hierarchy extraction, multi-modal structuring, and graph construction — so your agents get structured, high-quality context optimized for *Agentic RAG*, *traditional vector-based RAG*, and *any LLM-powered workflow*.
+**We're not building the next document parser — we're building document memory infrastructure that agents can actually consume.**
+
+Knowhere is the open-source infrastructure that turns unstructured documents into persistent, navigable memory for AI agents. It automates the full pipeline — parsing, hierarchy extraction, multi-modal structuring, and graph construction — so your agents get structured, high-quality context optimized for *Agentic RAG*, *traditional vector-based RAG*, and *any LLM-powered workflow*.
 
 > [!TIP]
 > Knowhere stands on the shoulders of excellent open-source parsers (MinerU, Docling, Marker, and others) — and actively improves upon them. We contribute **memory-oriented parsing optimizations** that fix real-world deficiencies in existing tools, and we're pursuing **agentic parsing** to push accuracy even further. Beyond parsing, Knowhere focuses on what turns raw extraction into usable agent memory: **reconstructing hierarchical structure**, **extracting and normalizing multi-modal assets**, **building navigable cross-document graphs**, and **persisting it all as long-term, citable memory** that AI agents can search, navigate, and reason over.
