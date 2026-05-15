@@ -1,4 +1,4 @@
-<h1 align="center">Prepare unstructured data for AI Agents</h1>
+<h1 align="center">Build AI Agent Memory from Real-World Documents</h1>
 
 <p align="center">
   <a href="https://www.python.org/downloads/">
@@ -29,7 +29,14 @@
   🖥️ <a href="https://github.com/Ontos-AI/knowhere-dashboard">Dashboard</a>
 </p>
 
-Knowhere is the open-source infrastructure for unstructured data processing. It automates the complex pipeline of extracting, parsing, and transforming messy documents into structured, high-quality data optimized for *AI Agents*, *Agentic RAG*, and *traditional vector-based RAG workflows*.
+## What We Are
+
+**We're not developing the next MinerU, instead, we're building document memory infrastructure that agents can effectively consume.**
+
+Knowhere turns unstructured documents into persistent, navigable memory for AI agents. It handles parsing, hierarchy extraction, multi-modal structuring, and graph construction, giving your agents structured, high-quality context for *Agentic RAG*, *traditional RAG*, or any LLM workflow.
+
+> [!TIP]
+> Knowhere stands on the shoulders of giants like MinerU and Pymupdf. We take their output, optimize it, and then build **hierarchical structure** and **multi-modal cross-document graphs** on top. The result is a persistent, citable memory layer purpose-built for agent consumption.
 
 > [!NOTE]
 > **Get started in seconds with Knowhere Cloud.**
@@ -41,9 +48,6 @@ Knowhere is the open-source infrastructure for unstructured data processing. It 
 - **Apr 30, 2026**: 📦 **Version [2026.04.30.1](https://github.com/Ontos-AI/knowhere/releases/tag/2026.04.30.1) has been released.** This update includes several stability improvements and initial support for the agentic RAG layer. See the [full changelog](https://github.com/Ontos-AI/knowhere/commits/2026.04.30.1) for details.
 
 ## How it Works
-
-> [!TIP]
-> **TL;DR**: Knowhere builds navigable memory from messy documents, then lets agents retrieve and cite evidence from that memory.
 
 Knowhere turns raw documents into a structured memory store that AI agents can navigate and cite. The process follows two steps:
 
@@ -71,6 +75,25 @@ Agents retrieve by navigating memory instead of depending on a single flat vecto
 - **Navigate**: Walk section trees and graph links to drill into the most relevant document regions.
 - **Cite Evidence**: Return traceable results with source document, section, chunk, and linked image or table assets.
 
+## Performance Benchmark
+
+Knowhere enhances the accuracy of AI agents when performing tasks (e.g., searching, modifying, and answering) in real-world data. Compared to providing raw documents directly to agents or .md/.json files produced by other parsers, Knowhere achieves higher success rates with fewer resources.
+
+<p align="center">
+  <img alt="Benchmark Performance: Agent + Knowhere vs Others" src="docs/assets/benchmark.png" width="900">
+</p>
+
+### Key Advantages
+
+- **Superior Accuracy**: Knowhere drastically improves both **First-time Accuracy** (+36% over raw docs) and **Recall** (+10%), ensuring agents find the right evidence faster.
+- **Enhanced Reliability**: With user feedback, agents using Knowhere hit **79% accuracy**—a significant jump compared to the ~53% ceiling of raw documents.
+- **Higher Efficiency**: Agents require **fewer loops**, consume **fewer tokens**, and spend **less time** searching. By navigating a structured memory graph instead of reading monolithic texts, the token overhead drops while precision increases.
+
+*(Data generated from internal evaluation across identical agentic RAG tasks.)*
+
+> [!NOTE]
+> **📊 Benchmarks are actively expanding.** The comparison above currently covers MinerU as the baseline parser. We are continuously adding more parsing tools and retrieval baselines — stay tuned for updated results.
+
 ## Ecosystem
 
 | Repository | Description |
@@ -87,6 +110,20 @@ Agents retrieve by navigating memory instead of depending on a single flat vecto
 - **Lightweight Memory Graph**: Context-aware organization that links documents and chunks for better relationship understanding.
 - **Agentic RAG**: A hybrid retrieval engine combining traditional search (RRF) with autonomous agent navigation.
 - **Evidence-based Citations**: Every result is backed by traceable source paths, ensuring reliability for AI Agent decision-making.
+
+## Frequently Asked Questions (FAQ)
+
+**Q: Is MinerU strictly required for Knowhere to work?**
+A: No. While MinerU is currently our default choice for parsing PDFs and PPT, because it performs the best in our experiments, any tool that can convert documents to Markdown works. Knowhere's real value lies in what happens *alongside and after* the initial conversion: memory-oriented parsing optimizations (fixing real-world parser deficiencies), reconstructing the hierarchical structure, normalizing multi-modal assets, and building the cross-document navigation graph.
+
+**Q: What are the LLM / VLM dependencies?**
+A: Knowhere requires standard language models to structure the document memory. By default, it uses DeepSeek (`deepseek-chat`) for text/table summarization and hierarchy generation, and Qwen-VL (`qwen3.5-flash`) for image OCR and visual descriptions. However, it is entirely model-agnostic—you can easily configure it to use OpenAI, DashScope (Ali), Zhipu (GLM), or Volcengine (ARK) via environment variables.
+
+**Q: How does Agentic Retrieval differ from traditional RAG?**
+A: Traditional RAG relies on flat vector similarity, which often retrieves isolated, out-of-context text snippets. Knowhere's Agentic Retrieval instead uses a multi-agent workflow to actively navigate the hierarchical section tree and cross-document graph. Agents read the document structure like a human would, drilling down into relevant sections to find precise, well-contextualized evidence.
+
+**Q: Can it handle multi-modal data like images and tables?**
+A: Yes. Knowhere extracts inline images and tables, passes them through Vision-Language Models (VLMs) for summarization and feature extraction, and explicitly links them back to their original text chunks. This ensures that agents can retrieve and cite multi-modal assets accurately during inference.
 
 ## Supported Formats
 
@@ -214,7 +251,7 @@ If you use Knowhere in your research, please cite it as:
 ```bibtex
 @software{knowhere2026,
   author       = {Ontos AI},
-  title        = {Knowhere: Prepare Unstructured Data for AI Agents},
+  title        = {Knowhere: Build AI Agent Memory from Real-World Documents},
   year         = {2026},
   publisher    = {GitHub},
   url          = {https://github.com/Ontos-AI/knowhere},
