@@ -33,7 +33,7 @@
 
 ## What We Are
 
-Knowhere turns unstructured documents into persistent, navigable memory for AI agents. It handles parsing, hierarchy extraction, multi-modal structuring, and graph construction, giving your agents structured, high-quality context for *Agentic RAG*, *traditional RAG*, or any LLM workflow.
+Knowhere turns unstructured documents into persistent, navigable memory for AI agents. It handles parsing, hierarchy identification, multi-modal extraction and labeling, and graph construction, giving your agents structured, high-quality context for information retrieval or any LLM workflow.
 
 > [!TIP]
 > Knowhere stands on the shoulders of giants like MinerU and Pymupdf. We take their output, optimize it, and then build **hierarchical structure** and **multi-modal cross-document graphs** on top. The result is a persistent, citable memory layer purpose-built for agent consumption.
