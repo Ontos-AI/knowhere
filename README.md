@@ -33,8 +33,6 @@
 
 ## What We Are
 
-**We're not developing the next MinerU, instead, we're building document memory infrastructure that agents can effectively consume.**
-
 Knowhere turns unstructured documents into persistent, navigable memory for AI agents. It handles parsing, hierarchy extraction, multi-modal structuring, and graph construction, giving your agents structured, high-quality context for *Agentic RAG*, *traditional RAG*, or any LLM workflow.
 
 > [!TIP]
@@ -84,6 +82,8 @@ Knowhere enhances the accuracy of AI agents when performing tasks (e.g., searchi
 <p align="center">
   <img alt="Benchmark Performance: Agent + Knowhere vs Others" src="docs/assets/benchmark.png" width="900">
 </p>
+
+> **We're not developing the next MinerU — we're building document memory infrastructure that agents can effectively consume.**
 
 ### Key Advantages
 
