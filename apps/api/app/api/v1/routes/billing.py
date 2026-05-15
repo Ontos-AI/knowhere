@@ -2,16 +2,9 @@
 
 from typing import Optional
 
-from app.services.billing.billing_app_service import (
+from app.services.billing.billing_workflow_service import (
+    BillingWorkflowService,
     ParseUsageResponse,
-    buy_credits_for_user,
-    buy_credits_package_for_user,
-    get_credits_balance_for_user,
-    get_parse_usage_overview_for_user,
-    get_price_configs_payload,
-    get_transaction_history_for_user,
-    get_usage_stats_for_user,
-    handle_stripe_webhook,
 )
 from app.services.rate_limit.dependencies import CurrentUser, with_current_user
 from fastapi import APIRouter, Depends, Query, Request
@@ -28,6 +21,7 @@ from shared.models.schemas.billing import (
 )
 
 router = APIRouter(tags=["Billing"])
+_billing_workflow_service = BillingWorkflowService()
 
 
 @router.post("/buy-credits", summary="Buy Credits", response_model=PaymentIntentResponse)
@@ -36,7 +30,7 @@ async def buy_credits(
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PaymentIntentResponse:
-    return await buy_credits_for_user(
+    return await _billing_workflow_service.buy_credits(
         request=request,
         user_id=current_user.user_id,
     )
@@ -51,7 +45,10 @@ async def get_credits_balance(
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CreditsBalanceResponse:
-    return await get_credits_balance_for_user(db, user_id=current_user.user_id)
+    return await _billing_workflow_service.get_credits_balance(
+        db,
+        user_id=current_user.user_id,
+    )
 
 
 @router.get(
@@ -64,7 +61,7 @@ async def get_usage_stats(
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> UsageStatsResponse:
-    return await get_usage_stats_for_user(
+    return await _billing_workflow_service.get_usage_stats(
         db,
         user_id=current_user.user_id,
         period=period,
@@ -80,7 +77,7 @@ async def parse_usage_overview(
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ParseUsageResponse:
-    return await get_parse_usage_overview_for_user(
+    return await _billing_workflow_service.get_parse_usage_overview(
         db,
         user_id=current_user.user_id,
     )
@@ -92,7 +89,7 @@ async def get_transaction_history(
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await get_transaction_history_for_user(
+    return await _billing_workflow_service.get_transaction_history(
         db,
         user_id=current_user.user_id,
         limit=limit,
@@ -107,7 +104,10 @@ async def get_price_configs(
     ),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, list[dict]]:
-    return await get_price_configs_payload(db, product_type=product_type)
+    return await _billing_workflow_service.get_price_configs(
+        db,
+        product_type=product_type,
+    )
 
 
 @router.post(
@@ -120,7 +120,7 @@ async def buy_credits_package(
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CheckoutSessionResponse:
-    return await buy_credits_package_for_user(
+    return await _billing_workflow_service.buy_credits_package(
         db,
         request=request,
         user_id=current_user.user_id,
@@ -129,7 +129,7 @@ async def buy_credits_package(
 
 @router.post("/webhook", summary="Stripe Webhook")
 async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
-    return await handle_stripe_webhook(
+    return await _billing_workflow_service.handle_stripe_webhook(
         db,
         payload=await request.body(),
         stripe_signature=request.headers.get("stripe-signature"),

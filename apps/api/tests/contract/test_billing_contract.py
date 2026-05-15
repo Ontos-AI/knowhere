@@ -453,7 +453,7 @@ async def test_should_return_a_checkout_url_when_buying_a_credit_package(
 
     async with developer_api_client_factory() as api_client:
         billing_service_module = importlib.import_module(
-            "app.services.billing.billing_app_service"
+            "app.services.billing.billing_workflow_service"
         )
         monkeypatch.setattr(
             billing_service_module,
@@ -498,7 +498,7 @@ async def test_should_return_a_payment_intent_payload_when_buying_credits(
 
     async with developer_api_client_factory() as api_client:
         billing_service_module = importlib.import_module(
-            "app.services.billing.billing_app_service"
+            "app.services.billing.billing_workflow_service"
         )
         monkeypatch.setattr(
             billing_service_module,

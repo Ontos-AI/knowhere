@@ -1002,7 +1002,7 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
         )
 
     async with developer_api_client_factory() as api_client:
-        import app.services.job_upload_confirmation_service as upload_confirmation_service
+        import app.services.document_ingestion_service as document_ingestion_service
         import shared.services.storage.file_upload_service as file_upload_service_module
 
         monkeypatch.setattr(
@@ -1011,8 +1011,8 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
             _fake_verify_s3_file_exists,
         )
         monkeypatch.setattr(
-            upload_confirmation_service,
-            "start_workflow_for_job",
+            document_ingestion_service,
+            "_start_job_workflow",
             _fake_start_workflow_for_job,
         )
 
