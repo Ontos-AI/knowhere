@@ -77,10 +77,10 @@ Agents retrieve by navigating memory instead of depending on a single flat vecto
 
 ## Performance Benchmark
 
-Knowhere significantly enhances the efficiency and accuracy of AI agents when dealing with unstructured data. Compared to providing raw documents directly to agents or using generic parsers, Knowhere's navigable memory graph approach achieves higher success rates with fewer resources.
+Knowhere enhances the accuracy of AI agents when performing tasks (e.g., searching, modifying, and answering) in real-world data. Compared to providing raw documents directly to agents or .md/.json files produced by other parsers, Knowhere achieves higher success rates with fewer resources.
 
 <p align="center">
-  <img alt="Benchmark Performance: Agent + Knowhere vs Others" src="docs/assets/benchmark-performance.png" width="900">
+  <img alt="Benchmark Performance: Agent + Knowhere vs Others" src="docs/assets/benchmark.png" width="900">
 </p>
 
 ### Key Advantages
