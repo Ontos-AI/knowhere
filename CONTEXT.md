@@ -77,6 +77,16 @@ Job Result, Document, and Document Chunk records.
 The credits purchase, checkout, webhook handling, refund reconciliation, and
 tier refresh flows.
 
+### Stripe Purchase
+
+The Billing Workflow adapter that creates Stripe payment intents and checkout
+sessions for credits purchases.
+
+### Stripe Webhook Reconciliation
+
+The Billing Workflow adapter that verifies Stripe events and reconciles credits,
+payment records, and refunds.
+
 ### Guest API Key
 
 A guest-tier API key with a restricted route surface.

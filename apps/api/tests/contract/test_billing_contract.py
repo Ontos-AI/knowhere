@@ -432,8 +432,8 @@ async def test_should_return_a_checkout_url_when_buying_a_credit_package(
     ],
     monkeypatch: MonkeyPatch,
 ) -> None:
-    class FakeStripeService:
-        async def create_checkout_session_for_credits_package(
+    class FakeStripePurchaseService:
+        async def create_credits_package_checkout_session(
             self,
             db,
             user_id: str,
@@ -457,8 +457,8 @@ async def test_should_return_a_checkout_url_when_buying_a_credit_package(
         )
         monkeypatch.setattr(
             billing_service_module,
-            "StripeService",
-            FakeStripeService,
+            "StripePurchaseService",
+            FakeStripePurchaseService,
         )
         response = await api_client.post(
             "/api/v1/billing/buy-credits-package",
@@ -479,7 +479,7 @@ async def test_should_return_a_payment_intent_payload_when_buying_credits(
     ],
     monkeypatch: MonkeyPatch,
 ) -> None:
-    class FakeStripeService:
+    class FakeStripePurchaseService:
         async def create_payment_intent(
             self,
             user_id: str,
@@ -502,8 +502,8 @@ async def test_should_return_a_payment_intent_payload_when_buying_credits(
         )
         monkeypatch.setattr(
             billing_service_module,
-            "StripeService",
-            FakeStripeService,
+            "StripePurchaseService",
+            FakeStripePurchaseService,
         )
         response = await api_client.post(
             "/api/v1/billing/buy-credits",
@@ -514,4 +514,51 @@ async def test_should_return_a_payment_intent_payload_when_buying_credits(
     assert response.json() == {
         "client_secret": "pi_contract_secret",
         "payment_intent_id": "pi_contract_id",
+    }
+
+
+@pytest.mark.asyncio
+async def test_should_delegate_the_webhook_endpoint_to_the_stripe_webhook_service(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    class FakeStripeWebhookService:
+        async def handle_webhook(
+            self,
+            db,
+            *,
+            payload: bytes,
+            sig_header: str,
+        ) -> dict[str, object]:
+            del db
+            assert payload == b'{"type":"payment_intent.succeeded"}'
+            assert sig_header == "sig_contract"
+            return {
+                "status": "success",
+                "event_type": "payment_intent.succeeded",
+                "user_id": "local-dev-user",
+            }
+
+    async with developer_api_client_factory() as api_client:
+        billing_service_module = importlib.import_module(
+            "app.services.billing.billing_workflow_service"
+        )
+        monkeypatch.setattr(
+            billing_service_module,
+            "StripeWebhookService",
+            FakeStripeWebhookService,
+        )
+        response = await api_client.post(
+            "/api/v1/billing/webhook",
+            content=b'{"type":"payment_intent.succeeded"}',
+            headers={"stripe-signature": "sig_contract"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "success",
+        "event_type": "payment_intent.succeeded",
+        "user_id": "local-dev-user",
     }

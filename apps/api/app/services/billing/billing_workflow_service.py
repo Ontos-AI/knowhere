@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Optional
 
 from app.services.billing.price_config_service import PriceConfigService
-from app.services.billing.stripe_service import StripeService
+from app.services.billing.stripe_purchase_service import StripePurchaseService
+from app.services.billing.stripe_webhook_service import StripeWebhookService
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,11 +53,11 @@ class BillingWorkflowService:
         request: BuyCreditsRequest,
         user_id: str,
     ) -> PaymentIntentResponse:
-        stripe_service = self._create_stripe_service()
+        stripe_purchase_service = self._create_stripe_purchase_service()
         try:
             amount_cny = request.credits_amount * 0.02
             amount_cents = int(amount_cny * 100)
-            payment_intent = await stripe_service.create_payment_intent(
+            payment_intent = await stripe_purchase_service.create_payment_intent(
                 user_id=user_id,
                 amount=amount_cents,
                 credits_amount=MicroDollar.from_dollars(request.credits_amount).amount,
@@ -229,7 +230,7 @@ class BillingWorkflowService:
         request: BuyCreditsPackageRequest,
         user_id: str,
     ) -> CheckoutSessionResponse:
-        stripe_service = self._create_stripe_service()
+        stripe_purchase_service = self._create_stripe_purchase_service()
         try:
             result = await db.execute(select(User.email).where(User.id == user_id))
             user_email = result.scalar_one_or_none()
@@ -238,7 +239,7 @@ class BillingWorkflowService:
             success_url = f"{frontend_url}/billing?success=true&type=credits_package"
             cancel_url = f"{frontend_url}/billing?canceled=true"
 
-            checkout_url = await stripe_service.create_checkout_session_for_credits_package(
+            checkout_url = await stripe_purchase_service.create_credits_package_checkout_session(
                 db=db,
                 user_id=user_id,
                 price_id=request.price_id,
@@ -264,20 +265,27 @@ class BillingWorkflowService:
         payload: bytes,
         stripe_signature: str | None,
     ) -> dict[str, object]:
-        stripe_service = self._create_stripe_service()
+        stripe_webhook_service = self._create_stripe_webhook_service()
         try:
             if not stripe_signature:
                 raise StripeServiceException(
                     internal_message="Missing stripe-signature header"
                 )
-            return await stripe_service.handle_webhook(db, payload, stripe_signature)
+            return await stripe_webhook_service.handle_webhook(
+                db,
+                payload=payload,
+                sig_header=stripe_signature,
+            )
         except Exception as exc:
             raise StripeServiceException(
                 internal_message=f"Failed to handle webhook: {str(exc)}"
             )
 
-    def _create_stripe_service(self) -> StripeService:
-        return StripeService()
+    def _create_stripe_purchase_service(self) -> StripePurchaseService:
+        return StripePurchaseService()
+
+    def _create_stripe_webhook_service(self) -> StripeWebhookService:
+        return StripeWebhookService()
 
     async def _load_total_parse_micro_credits_used(
         self,
