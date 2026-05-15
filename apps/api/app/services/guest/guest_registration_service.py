@@ -149,8 +149,8 @@ class GuestRegistrationService:
     ) -> str:
         """Generate an API key record and flush (but do not commit).
 
-        This avoids the internal commit inside APIKeyService.create_api_key()
-        which would make the key durable before the device row is inserted.
+        This keeps the guest API key row in the same transaction as the device
+        row so guest registration stays atomic.
         """
         from shared.models.database.api_key import APIKey
 

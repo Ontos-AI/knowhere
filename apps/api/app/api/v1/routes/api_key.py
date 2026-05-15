@@ -2,7 +2,7 @@
 API key management endpoints.
 """
 
-from app.services.auth.api_key_service import APIKeyService
+from app.services.auth.api_key_management_service import APIKeyManagementService
 from app.services.rate_limit.dependencies import (
     CurrentUser,
     with_current_user,
@@ -25,6 +25,7 @@ from shared.models.schemas.api_key import (
 )
 
 router = APIRouter(tags=["API Key Management"])
+_api_key_management_service = APIKeyManagementService()
 
 
 @router.post("/create", summary="Create an API key")
@@ -34,10 +35,8 @@ async def create_api_key(
     db: AsyncSession = Depends(get_db),
 ):
     """Create an API key."""
-    api_key_service = APIKeyService.get_instance()
-
     try:
-        api_key = await api_key_service.create_api_key(
+        api_key = await _api_key_management_service.create_api_key(
             session=db,
             user_id=current_user.user_id,
             name=request.name,
@@ -68,11 +67,10 @@ async def list_api_keys(
     db: AsyncSession = Depends(get_db),
 ):
     """List API keys for the current user."""
-    api_key_service = APIKeyService.get_instance()
-
     try:
-        api_keys_data = await api_key_service.list_user_api_keys(
-            db, current_user.user_id
+        api_keys_data = await _api_key_management_service.list_user_api_keys(
+            db,
+            user_id=current_user.user_id,
         )
 
         api_keys = [
@@ -104,11 +102,11 @@ async def revoke_api_key(
     db: AsyncSession = Depends(get_db),
 ):
     """Revoke an API key."""
-    api_key_service = APIKeyService.get_instance()
-
     try:
-        await api_key_service.revoke_api_key(
-            session=db, api_key_id=request.api_key_id, user_id=current_user.user_id
+        await _api_key_management_service.revoke_api_key(
+            session=db,
+            api_key_id=request.api_key_id,
+            user_id=current_user.user_id,
         )
         return {"message": "API key revoked"}
 
@@ -129,11 +127,11 @@ async def get_api_key(
     db: AsyncSession = Depends(get_db),
 ):
     """Get details for a single API key."""
-    api_key_service = APIKeyService.get_instance()
-
     try:
-        api_key = await api_key_service.get_api_key(
-            db, current_user.user_id, api_key_id
+        api_key = await _api_key_management_service.get_api_key(
+            db,
+            user_id=current_user.user_id,
+            api_key_id=api_key_id,
         )
         if not api_key:
             raise NotFoundException(
@@ -167,11 +165,11 @@ async def toggle_api_key(
     db: AsyncSession = Depends(get_db),
 ):
     """Enable or disable an API key."""
-    api_key_service = APIKeyService.get_instance()
-
     try:
-        success = await api_key_service.toggle_api_key(
-            db, current_user.user_id, api_key_id
+        success = await _api_key_management_service.toggle_api_key(
+            db,
+            user_id=current_user.user_id,
+            api_key_id=api_key_id,
         )
         if success:
             return {"message": "API key status updated"}

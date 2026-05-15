@@ -3,7 +3,9 @@ from datetime import timedelta
 from typing import Any
 
 import jwt
-from app.services.auth.api_key_service import APIKeyService
+from app.services.auth.api_key_authentication_service import (
+    APIKeyAuthenticationService,
+)
 from fastapi import Depends, Header, Request
 from jwt import PyJWKClient
 from loguru import logger
@@ -27,6 +29,7 @@ JWKS_CACHE_TTL_SECONDS = 60 * 60  # 3600 seconds
 # Cached PyJWKClient instance
 _jwks_client: PyJWKClient | None = None
 _jwks_client_lock = threading.Lock()
+_api_key_authentication_service = APIKeyAuthenticationService()
 
 
 def _get_jwks_client() -> PyJWKClient:
@@ -145,8 +148,7 @@ async def get_current_user_id(
 
     # Mode 1: API Key verification (for external clients)
     if is_api_key_token(token):
-        api_key_service = APIKeyService.get_instance()
-        user_id = await api_key_service.validate_api_key(db, token)
+        user_id = await _api_key_authentication_service.validate_api_key(db, token)
         if user_id:
             return user_id
 

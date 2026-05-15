@@ -77,6 +77,16 @@ Job Result, Document, and Document Chunk records.
 The credits purchase, checkout, webhook handling, refund reconciliation, and
 tier refresh flows.
 
+### API Key Authentication
+
+The auth-time workflow that validates API keys, reads and writes the API-key
+cache, and schedules best-effort last-used updates.
+
+### API Key Management
+
+The user-facing workflow that creates, lists, reads, revokes, and toggles API
+keys.
+
 ### Stripe Purchase
 
 The Billing Workflow adapter that creates Stripe payment intents and checkout
@@ -168,6 +178,12 @@ exceptions.
 - `app/services/billing/*`
 - `app/repositories/payment_record_repository.py`
 - shared billing modules in `packages/shared-python/shared/services/billing/*`
+
+### API Key Management
+
+- `app/api/v1/routes/api_key.py`
+- `app/services/auth/*`
+- `app/repositories/api_key_repository.py`
 
 ### Webhook Management
 
