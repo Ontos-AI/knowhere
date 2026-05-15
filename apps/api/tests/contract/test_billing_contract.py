@@ -452,8 +452,14 @@ async def test_should_return_a_checkout_url_when_buying_a_credit_package(
             return "https://checkout.stripe.test/session/contract-package"
 
     async with developer_api_client_factory() as api_client:
-        billing_module = importlib.import_module("app.api.v1.routes.billing")
-        monkeypatch.setattr(billing_module, "StripeService", FakeStripeService)
+        billing_service_module = importlib.import_module(
+            "app.services.billing.billing_app_service"
+        )
+        monkeypatch.setattr(
+            billing_service_module,
+            "StripeService",
+            FakeStripeService,
+        )
         response = await api_client.post(
             "/api/v1/billing/buy-credits-package",
             json={"price_id": "price_contract_package", "quantity": 2},
@@ -491,8 +497,14 @@ async def test_should_return_a_payment_intent_payload_when_buying_credits(
             }
 
     async with developer_api_client_factory() as api_client:
-        billing_module = importlib.import_module("app.api.v1.routes.billing")
-        monkeypatch.setattr(billing_module, "StripeService", FakeStripeService)
+        billing_service_module = importlib.import_module(
+            "app.services.billing.billing_app_service"
+        )
+        monkeypatch.setattr(
+            billing_service_module,
+            "StripeService",
+            FakeStripeService,
+        )
         response = await api_client.post(
             "/api/v1/billing/buy-credits",
             json={"credits_amount": 350},

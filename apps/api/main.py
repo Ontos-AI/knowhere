@@ -83,7 +83,7 @@ async def lifespan(app: FastAPI):
         yield
 
     try:
-        from shared.services.retrieval.app_service import (
+        from shared.services.retrieval.hit_stats_recorder import (
             drain_retrieval_hit_stats_updates,
         )
 

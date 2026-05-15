@@ -1,12 +1,16 @@
-from collections.abc import Callable
-from contextlib import AbstractAsyncContextManager
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from datetime import datetime, timezone
 from typing import cast
 from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
+from pytest import MonkeyPatch
 
 from tests.support.contract_database import ContractDatabase
+from shared.services.retrieval.agentic.types import AgenticResult
+from shared.services.retrieval.workflow.types import PlannedStep, QueryPlan, WorkflowResult
 
 
 async def _seed_retrieval_document(
@@ -16,12 +20,13 @@ async def _seed_retrieval_document(
     source_file_name: str,
     section_path: str,
     content: str,
+    chunk_id: str | None = None,
 ) -> dict[str, str]:
     document_id = f"doc_{uuid4().hex[:12]}"
     job_id = f"job_{uuid4().hex[:12]}"
     job_result_id = str(uuid4())
     section_id = f"sec_{uuid4().hex[:12]}"
-    chunk_id = f"chunk_{uuid4().hex[:12]}"
+    resolved_chunk_id = chunk_id or f"chunk_{uuid4().hex[:12]}"
 
     await ContractDatabase.insert_job(
         job_id=job_id,
@@ -67,7 +72,7 @@ async def _seed_retrieval_document(
         section_title=section_path.split("/")[-1],
     )
     await ContractDatabase.insert_document_chunk(
-        chunk_id=chunk_id,
+        chunk_id=resolved_chunk_id,
         user_id=user_id,
         namespace=namespace,
         document_id=document_id,
@@ -82,6 +87,48 @@ async def _seed_retrieval_document(
         "document_id": document_id,
         "job_id": job_id,
         "job_result_id": job_result_id,
+        "section_id": section_id,
+        "chunk_id": resolved_chunk_id,
+        "section_path": section_path,
+    }
+
+
+async def _seed_retrieval_chunk_for_existing_document(
+    *,
+    user_id: str,
+    namespace: str,
+    document: dict[str, str],
+    section_path: str,
+    content: str,
+    chunk_id: str,
+) -> dict[str, str]:
+    section_id = f"sec_{uuid4().hex[:12]}"
+
+    await ContractDatabase.insert_document_section(
+        section_id=section_id,
+        user_id=user_id,
+        namespace=namespace,
+        document_id=document["document_id"],
+        job_result_id=document["job_result_id"],
+        section_path=section_path,
+        section_title=section_path.split("/")[-1],
+    )
+    await ContractDatabase.insert_document_chunk(
+        chunk_id=chunk_id,
+        user_id=user_id,
+        namespace=namespace,
+        document_id=document["document_id"],
+        job_result_id=document["job_result_id"],
+        section_id=section_id,
+        chunk_type="text",
+        content=content,
+        section_path=section_path,
+    )
+
+    return {
+        "document_id": document["document_id"],
+        "job_id": document["job_id"],
+        "job_result_id": document["job_result_id"],
         "section_id": section_id,
         "chunk_id": chunk_id,
         "section_path": section_path,
@@ -184,6 +231,622 @@ async def test_should_return_empty_results_for_an_empty_query(
         "results": [],
         "answer_text": None,
         "referenced_chunks": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_retrieval_hit_stats_should_use_the_current_database_context(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    @asynccontextmanager
+    async def stale_db_context() -> AsyncIterator[object]:
+        raise RuntimeError("stale db context should not be used")
+        yield object()
+
+    async with developer_api_client_factory() as _api_client:
+        seeded_document = await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-hit-stats",
+            source_file_name="hit-stats.pdf",
+            section_path="hit-stats/section",
+            content="hit stats content",
+        )
+
+        from shared.services.retrieval import hit_stats_recorder
+
+        monkeypatch.setattr(
+            hit_stats_recorder,
+            "get_db_context",
+            stale_db_context,
+            raising=False,
+        )
+        hit_stats_recorder.schedule_retrieval_hit_stats_update(
+            user_id="local-dev-user",
+            namespace="contract-hit-stats",
+            results=[
+                {
+                    "document_id": seeded_document["document_id"],
+                    "chunk_id": seeded_document["chunk_id"],
+                }
+            ],
+        )
+        await hit_stats_recorder.drain_retrieval_hit_stats_updates()
+
+        hit_stats = await ContractDatabase.fetch_all(
+            """
+            SELECT hit_kind, document_id, chunk_id, hit_count
+            FROM retrieval_hit_stats
+            WHERE user_id = :user_id
+              AND namespace = :namespace
+              AND document_id = :document_id
+            ORDER BY hit_kind
+            """,
+            {
+                "user_id": "local-dev-user",
+                "namespace": "contract-hit-stats",
+                "document_id": seeded_document["document_id"],
+            },
+        )
+
+    hit_stats_by_kind = {
+        cast(str, row["hit_kind"]): row for row in hit_stats
+    }
+
+    assert set(hit_stats_by_kind) == {"chunk", "document"}
+    assert hit_stats_by_kind["chunk"]["chunk_id"] == seeded_document["chunk_id"]
+    assert hit_stats_by_kind["document"]["chunk_id"] is None
+    assert hit_stats_by_kind["chunk"]["hit_count"] == 1
+    assert hit_stats_by_kind["document"]["hit_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_retrieval_should_rank_hot_chunk_before_cold_chunk_when_discovery_scores_tie(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async with developer_api_client_factory() as api_client:
+        cold_document = await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-hot-ranking",
+            source_file_name="cold.pdf",
+            section_path="ranking/cold",
+            content="same ranking marker cold",
+        )
+        hot_document = await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-hot-ranking",
+            source_file_name="hot.pdf",
+            section_path="ranking/hot",
+            content="same ranking marker hot",
+        )
+        await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-hot-ranking",
+            source_file_name="filler.pdf",
+            section_path="ranking/filler",
+            content="same ranking marker filler",
+        )
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        await ContractDatabase.execute(
+            """
+            INSERT INTO retrieval_hit_stats (
+                id,
+                user_id,
+                namespace,
+                hit_kind,
+                document_id,
+                chunk_id,
+                hit_count,
+                last_hit_at,
+                created_at,
+                updated_at
+            ) VALUES (
+                :id,
+                :user_id,
+                :namespace,
+                'chunk',
+                :document_id,
+                :chunk_id,
+                :hit_count,
+                :now,
+                :now,
+                :now
+            )
+            """,
+            {
+                "id": f"rhs_{uuid4().hex[:12]}",
+                "user_id": "local-dev-user",
+                "namespace": "contract-hot-ranking",
+                "document_id": hot_document["document_id"],
+                "chunk_id": hot_document["chunk_id"],
+                "hit_count": 100,
+                "now": now,
+            },
+        )
+
+        def to_channel_row(document: dict[str, str]) -> dict[str, object]:
+            return {
+                "document_id": document["document_id"],
+                "chunk_id": document["chunk_id"],
+                "section_id": document["section_id"],
+                "section_path": document["section_path"],
+                "source_file_name": "cold.pdf"
+                if document["document_id"] == cold_document["document_id"]
+                else "hot.pdf",
+                "chunk_type": "text",
+                "content": "same ranking marker",
+                "score": 1.0,
+                "file_path": None,
+                "chunk_metadata": {},
+                "job_result_id": document["job_result_id"],
+                "job_id": document["job_id"],
+                "sort_order": 0,
+            }
+
+        async def fake_content_channel(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+            return [
+                to_channel_row(hot_document),
+                to_channel_row(cold_document),
+            ]
+
+        async def fake_path_channel(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+            return [
+                to_channel_row(cold_document),
+                to_channel_row(hot_document),
+            ]
+
+        async def fake_graph_routing(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+            return []
+
+        monkeypatch.setattr(
+            "shared.services.retrieval.app_service.path_channel",
+            fake_path_channel,
+        )
+        monkeypatch.setattr(
+            "shared.services.retrieval.app_service.content_channel",
+            fake_content_channel,
+        )
+        monkeypatch.setattr(
+            "shared.services.retrieval.app_service.list_graph_routed_chunks",
+            fake_graph_routing,
+        )
+
+        response = await api_client.post(
+            "/api/v1/retrieval/query",
+            json={
+                "namespace": "contract-hot-ranking",
+                "query": "same ranking marker",
+                "top_k": 1,
+                "channels": ["path", "content"],
+                "channel_weights": {"path": 1.0, "content": 1.0},
+                "use_agentic": False,
+            },
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    results = cast(list[dict[str, object]], response_json["results"])
+
+    assert len(results) == 1
+    assert results[0]["source"]["document_id"] == hot_document["document_id"]
+
+
+@pytest.mark.asyncio
+async def test_agentic_retrieval_should_reference_root_only_document_content(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_MOCK_ENABLED", "true")
+
+    async with developer_api_client_factory() as api_client:
+        rooted_document = await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-root-retrieval",
+            source_file_name="root-only.pdf",
+            section_path="Root",
+            content="root only diluted earnings marker content",
+        )
+        await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-root-retrieval",
+            source_file_name="filler.pdf",
+            section_path="filler/section",
+            content="unrelated filler content",
+        )
+
+        response = await api_client.post(
+            "/api/v1/retrieval/query",
+            json={
+                "namespace": "contract-root-retrieval",
+                "query": "diluted earnings marker",
+                "top_k": 1,
+                "use_agentic": True,
+            },
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    referenced_chunks = cast(list[dict[str, object]], response_json["referenced_chunks"])
+    results = cast(list[dict[str, object]], response_json["results"])
+
+    assert response_json["router_used"] == "workflow_single_step"
+    assert {
+        "chunk_id": rooted_document["chunk_id"],
+        "document_id": rooted_document["document_id"],
+        "chunk_type": "text",
+        "section_path": "root-only.pdf",
+        "file_path": None,
+        "job_id": rooted_document["job_id"],
+    } in referenced_chunks
+    assert results[0]["content"] == "root only diluted earnings marker content"
+    assert results[0]["source"] == {
+        "document_id": rooted_document["document_id"],
+        "source_file_name": "root-only.pdf",
+        "section_path": "Root",
+    }
+
+
+@pytest.mark.asyncio
+async def test_agentic_retrieval_should_reference_discovery_content_when_navigation_selects_nothing(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_MOCK_ENABLED", "true")
+
+    async with developer_api_client_factory() as api_client:
+        discovered_document = await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-discovery-fallback",
+            source_file_name="discovery.pdf",
+            section_path="Findings",
+            content="discovery fallback EBITDA margin marker content",
+        )
+        await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-discovery-fallback",
+            source_file_name="filler.pdf",
+            section_path="filler/section",
+            content="unrelated filler content",
+        )
+
+        response = await api_client.post(
+            "/api/v1/retrieval/query",
+            json={
+                "namespace": "contract-discovery-fallback",
+                "query": "EBITDA margin marker",
+                "top_k": 1,
+                "use_agentic": True,
+            },
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    referenced_chunks = cast(list[dict[str, object]], response_json["referenced_chunks"])
+    results = cast(list[dict[str, object]], response_json["results"])
+
+    assert response_json["router_used"] == "workflow_single_step"
+    assert {
+        "chunk_id": discovered_document["chunk_id"],
+        "document_id": discovered_document["document_id"],
+        "chunk_type": "text",
+        "section_path": discovered_document["section_path"],
+        "file_path": None,
+        "job_id": discovered_document["job_id"],
+    } in referenced_chunks
+    assert results[0]["content"] == "discovery fallback EBITDA margin marker content"
+    assert results[0]["source"] == {
+        "document_id": discovered_document["document_id"],
+        "source_file_name": "discovery.pdf",
+        "section_path": discovered_document["section_path"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_agentic_retrieval_should_not_hydrate_references_outside_request_scope(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    class FakeWorkflowOrchestrator:
+        async def run(self, *_args: object, **kwargs: object) -> WorkflowResult:
+            return WorkflowResult(
+                namespace=str(kwargs["namespace"]),
+                query=str(kwargs["query"]),
+                router_used="workflow_single_step",
+                answer_text="foreign reference answer",
+                referenced_chunks=[
+                    {
+                        "chunk_id": foreign_document["chunk_id"],
+                        "document_id": foreign_document["document_id"],
+                        "chunk_type": "text",
+                        "section_path": foreign_document["section_path"],
+                        "file_path": None,
+                        "job_id": foreign_document["job_id"],
+                    }
+                ],
+            )
+
+    async with developer_api_client_factory() as api_client:
+        request_document = await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-visible-scope",
+            source_file_name="visible.pdf",
+            section_path="visible/section",
+            content="visible scoped content",
+        )
+        await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-visible-scope",
+            source_file_name="visible-filler.pdf",
+            section_path="visible/filler",
+            content="visible scoped filler content",
+        )
+        foreign_document = await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-foreign-scope",
+            source_file_name="foreign.pdf",
+            section_path="foreign/section",
+            content="foreign scoped content should not leak",
+        )
+        monkeypatch.setattr(
+            "shared.services.retrieval.workflow.orchestrator.WorkflowOrchestrator",
+            FakeWorkflowOrchestrator,
+        )
+
+        response = await api_client.post(
+            "/api/v1/retrieval/query",
+            json={
+                "namespace": "contract-visible-scope",
+                "query": "visible",
+                "top_k": 1,
+                "use_agentic": True,
+            },
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    referenced_chunks = cast(list[dict[str, object]], response_json["referenced_chunks"])
+    results = cast(list[dict[str, object]], response_json["results"])
+
+    assert request_document["document_id"] != foreign_document["document_id"]
+    assert referenced_chunks == []
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_agentic_workflow_should_preserve_references_with_the_same_chunk_id_across_documents(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    shared_chunk_id = f"chunk_{uuid4().hex[:12]}"
+
+    async def fake_plan(
+        self: object,
+        *,
+        query: str,
+        kb_total_docs: int = 0,
+        kb_total_chunks: int = 0,
+    ) -> QueryPlan:
+        return QueryPlan(
+            original_query=query,
+            steps=[
+                PlannedStep(id="first", sub_query="first shared reference"),
+                PlannedStep(id="second", sub_query="second shared reference"),
+            ],
+            final_strategy="concat_final_parts",
+            reasoning_summary=(
+                f"forced two-step contract plan for {kb_total_docs} docs "
+                f"and {kb_total_chunks} chunks"
+            ),
+        )
+
+    async def fake_retrieval_run(
+        self: object,
+        db: object,
+        **kwargs: object,
+    ) -> AgenticResult:
+        query = str(kwargs["query"])
+        document = first_document if query == "first shared reference" else second_document
+        return AgenticResult(
+            evidence_text=f"evidence for {document['document_id']}",
+            answer_text=f"answer for {document['document_id']}",
+            referenced_chunks=[
+                {
+                    "chunk_id": shared_chunk_id,
+                    "document_id": document["document_id"],
+                    "chunk_type": "text",
+                    "section_path": document["section_path"],
+                    "file_path": "",
+                    "job_id": document["job_id"],
+                }
+            ],
+            router_used="contract_fake_agent",
+        )
+
+    async with developer_api_client_factory() as api_client:
+        first_document = await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-shared-chunk-id",
+            source_file_name="first.pdf",
+            section_path="first/section",
+            content="shared deterministic content",
+            chunk_id=shared_chunk_id,
+        )
+        second_document = await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-shared-chunk-id",
+            source_file_name="second.pdf",
+            section_path="second/section",
+            content="shared deterministic content",
+            chunk_id=shared_chunk_id,
+        )
+        monkeypatch.setattr(
+            "shared.services.retrieval.workflow.planner.QueryPlanner.plan",
+            fake_plan,
+        )
+        monkeypatch.setattr(
+            "shared.services.retrieval.workflow.orchestrator.RetrievalAgent.run",
+            fake_retrieval_run,
+        )
+
+        response = await api_client.post(
+            "/api/v1/retrieval/query",
+            json={
+                "namespace": "contract-shared-chunk-id",
+                "query": "show both shared references",
+                "top_k": 1,
+                "use_agentic": True,
+            },
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    referenced_chunks = cast(list[dict[str, object]], response_json["referenced_chunks"])
+    results = cast(list[dict[str, object]], response_json["results"])
+
+    referenced_document_ids = {
+        cast(str, reference["document_id"]) for reference in referenced_chunks
+    }
+    result_document_ids = {
+        cast(str, result["source"]["document_id"]) for result in results
+    }
+
+    assert referenced_document_ids == {
+        first_document["document_id"],
+        second_document["document_id"],
+    }
+    assert result_document_ids == {
+        first_document["document_id"],
+        second_document["document_id"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_agentic_workflow_should_preserve_references_with_the_same_chunk_id_across_sections(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    shared_chunk_id = f"chunk_{uuid4().hex[:12]}"
+
+    async def fake_plan(
+        self: object,
+        *,
+        query: str,
+        kb_total_docs: int = 0,
+        kb_total_chunks: int = 0,
+    ) -> QueryPlan:
+        return QueryPlan(
+            original_query=query,
+            steps=[
+                PlannedStep(id="first", sub_query="first shared section"),
+                PlannedStep(id="second", sub_query="second shared section"),
+            ],
+            final_strategy="concat_final_parts",
+            reasoning_summary=(
+                f"forced section identity contract plan for {kb_total_docs} docs "
+                f"and {kb_total_chunks} chunks"
+            ),
+        )
+
+    async def fake_retrieval_run(
+        self: object,
+        db: object,
+        **kwargs: object,
+    ) -> AgenticResult:
+        query = str(kwargs["query"])
+        chunk = first_chunk if query == "first shared section" else second_chunk
+        return AgenticResult(
+            evidence_text=f"evidence for {chunk['section_path']}",
+            answer_text=f"answer for {chunk['section_path']}",
+            referenced_chunks=[
+                {
+                    "chunk_id": shared_chunk_id,
+                    "document_id": chunk["document_id"],
+                    "chunk_type": "text",
+                    "section_path": chunk["section_path"],
+                    "file_path": "",
+                    "job_id": chunk["job_id"],
+                }
+            ],
+            router_used="contract_fake_agent",
+        )
+
+    async with developer_api_client_factory() as api_client:
+        first_chunk = await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-shared-section-chunk-id",
+            source_file_name="same-document.pdf",
+            section_path="first/section",
+            content="repeated deterministic content",
+            chunk_id=shared_chunk_id,
+        )
+        second_chunk = await _seed_retrieval_chunk_for_existing_document(
+            user_id="local-dev-user",
+            namespace="contract-shared-section-chunk-id",
+            document=first_chunk,
+            section_path="second/section",
+            content="repeated deterministic content",
+            chunk_id=shared_chunk_id,
+        )
+        monkeypatch.setattr(
+            "shared.services.retrieval.workflow.planner.QueryPlanner.plan",
+            fake_plan,
+        )
+        monkeypatch.setattr(
+            "shared.services.retrieval.workflow.orchestrator.RetrievalAgent.run",
+            fake_retrieval_run,
+        )
+
+        response = await api_client.post(
+            "/api/v1/retrieval/query",
+            json={
+                "namespace": "contract-shared-section-chunk-id",
+                "query": "show both shared section references",
+                "top_k": 1,
+                "use_agentic": True,
+            },
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    referenced_chunks = cast(list[dict[str, object]], response_json["referenced_chunks"])
+    results = cast(list[dict[str, object]], response_json["results"])
+
+    referenced_section_paths = {
+        cast(str, reference["section_path"]) for reference in referenced_chunks
+    }
+    result_section_paths = {
+        cast(str, result["source"]["section_path"]) for result in results
+    }
+
+    assert referenced_section_paths == {
+        first_chunk["section_path"],
+        second_chunk["section_path"],
+    }
+    assert result_section_paths == {
+        first_chunk["section_path"],
+        second_chunk["section_path"],
     }
 
 

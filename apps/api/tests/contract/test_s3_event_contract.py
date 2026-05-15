@@ -93,8 +93,14 @@ async def test_should_accept_a_direct_upload_complete_event_advance_the_waiting_
 
     async with api_client_factory() as api_client:
         user_id, job_id = await _insert_waiting_file_job()
-        s3_events_module = importlib.import_module("app.api.v1.routes.s3_events")
-        monkeypatch.setattr(s3_events_module, "KBOrchestrator", FakeKBOrchestrator)
+        upload_event_service = importlib.import_module(
+            "app.services.s3_events.upload_event_service"
+        )
+        monkeypatch.setattr(
+            upload_event_service,
+            "KBOrchestrator",
+            FakeKBOrchestrator,
+        )
         response = await api_client.post(
             "/api/v1/internal/s3-events",
             json=_build_s3_event_payload(job_id),
@@ -139,8 +145,14 @@ async def test_should_accept_an_sns_wrapped_upload_complete_event_and_advance_a_
 
     async with api_client_factory() as api_client:
         _, job_id = await _insert_waiting_file_job()
-        s3_events_module = importlib.import_module("app.api.v1.routes.s3_events")
-        monkeypatch.setattr(s3_events_module, "KBOrchestrator", FakeKBOrchestrator)
+        upload_event_service = importlib.import_module(
+            "app.services.s3_events.upload_event_service"
+        )
+        monkeypatch.setattr(
+            upload_event_service,
+            "KBOrchestrator",
+            FakeKBOrchestrator,
+        )
         response = await api_client.post(
             "/api/v1/internal/s3-events",
             content=json.dumps(

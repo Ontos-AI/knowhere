@@ -623,9 +623,18 @@ async def test_should_create_a_waiting_file_job_for_a_url_source_and_enqueue_the
         def signature(self, task_name: str) -> _FakeCeleryTask:
             return _FakeCeleryTask(task_name)
 
+    def resolve_public_address(
+        host: str,
+        port: int | None,
+        *args: object,
+        **kwargs: object,
+    ) -> list[tuple[socket.AddressFamily, socket.SocketKind, int, str, tuple[str, int]]]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+
     import shared.core.celery_app as celery_app_module
     import shared.utils.http_clients as http_clients_module
 
+    monkeypatch.setattr(socket, "getaddrinfo", resolve_public_address)
     monkeypatch.setattr(
         http_clients_module,
         "get_async_client",
@@ -993,7 +1002,7 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
         )
 
     async with developer_api_client_factory() as api_client:
-        import app.api.v1.routes.jobs as jobs_route_module
+        import app.services.job_upload_confirmation_service as upload_confirmation_service
         import shared.services.storage.file_upload_service as file_upload_service_module
 
         monkeypatch.setattr(
@@ -1002,7 +1011,7 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
             _fake_verify_s3_file_exists,
         )
         monkeypatch.setattr(
-            jobs_route_module,
+            upload_confirmation_service,
             "start_workflow_for_job",
             _fake_start_workflow_for_job,
         )

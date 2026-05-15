@@ -4,13 +4,14 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from typing import Any
 from uuid import uuid4
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.core.database import get_db_context
 from shared.services.retrieval.agentic.budget import BudgetLedger
 from shared.services.retrieval.agentic.orchestrator import RetrievalAgent, _load_budget_inventory
 from shared.services.retrieval.agentic.types import AgenticResult
@@ -27,12 +28,23 @@ from shared.services.retrieval.workflow.synthesizer import compose_final_answer,
 from shared.services.retrieval.workflow.types import PlannedStep, QueryPlan, StepResult, WorkflowResult
 from shared.services.retrieval.workflow.wallet import BudgetWallet
 
+DbSessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
+
 
 class WorkflowOrchestrator:
     """Plan and execute a query workflow DAG."""
 
-    def __init__(self) -> None:
+    def __init__(self, db_factory: DbSessionFactory | None = None) -> None:
         self.parent_run_id = f'wret_{uuid4().hex[:12]}'
+        self._db_factory = db_factory
+
+    def _get_db_factory(self) -> DbSessionFactory:
+        if self._db_factory is not None:
+            return self._db_factory
+
+        from shared.core.database import get_db_context
+
+        return get_db_context
 
     async def run(
         self,
@@ -100,7 +112,6 @@ class WorkflowOrchestrator:
             await asyncio.gather(
                 *[
                     self._run_step(
-                        db,
                         step=step,
                         ledger=ledgers[step.id],
                         results_by_id=results_by_id,
@@ -198,7 +209,6 @@ class WorkflowOrchestrator:
 
     async def _run_step(
         self,
-        db: AsyncSession,
         *,
         step: PlannedStep,
         ledger: BudgetLedger,
@@ -221,7 +231,6 @@ class WorkflowOrchestrator:
                 await self._run_synthesize_step(step, ledger, results_by_id, llm_fn)
                 return
             await self._run_retrieve_step(
-                db,
                 step=step,
                 ledger=ledger,
                 results_by_id=results_by_id,
@@ -240,7 +249,6 @@ class WorkflowOrchestrator:
 
     async def _run_retrieve_step(
         self,
-        db: AsyncSession,
         *,
         step: PlannedStep,
         ledger: BudgetLedger,
@@ -261,7 +269,8 @@ class WorkflowOrchestrator:
             # AsyncSession is not safe for concurrent use.  Workflow steps may
             # run in the same topological batch, so each retrieve step opens an
             # isolated session and leaves the parent session untouched.
-            async with get_db_context() as step_db:
+            db_factory = self._get_db_factory()
+            async with db_factory() as step_db:
                 agentic_result = await RetrievalAgent().run(
                     step_db,
                     user_id=user_id,
@@ -375,8 +384,15 @@ def _dedupe_references(refs) -> list[dict[str, Any]]:
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
     for ref in refs:
-        chunk_id = str(ref.get('chunk_id') or '')
-        key = chunk_id or str(ref)
+        document_id = str(ref.get('document_id') or '').strip()
+        chunk_id = str(ref.get('chunk_id') or '').strip()
+        section_path = str(ref.get('section_path') or '').strip()
+        file_path = str(ref.get('file_path') or '').strip()
+        key = (
+            f'{document_id}:{chunk_id}:{section_path}:{file_path}'
+            if document_id and chunk_id
+            else str(ref)
+        )
         if key in seen:
             continue
         seen.add(key)

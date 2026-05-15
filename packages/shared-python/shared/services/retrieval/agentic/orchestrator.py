@@ -25,9 +25,17 @@ from loguru import logger
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import Document, DocumentChunk, RetrievalHitStat
+from shared.models.database.document import Document, DocumentChunk
 
 from shared.services.retrieval.agentic.budget import BudgetExceeded, BudgetLedger, BudgetPoolName
+from shared.services.retrieval.agentic.evidence import (
+    build_asset_url_map as _build_asset_url_map,
+    collect_media_chunks_all as _collect_media_chunks_all,
+    reconcile_deferred_assets as _reconcile_deferred_assets,
+    render_evidence as _render_evidence,
+    trim_evidence_to_budget as _trim_evidence_to_budget,
+    with_context_prompt_projection as _with_context_prompt_projection,
+)
 from shared.services.retrieval.agentic.trace import TraceRecorder
 from shared.services.retrieval.agentic.types import (
     AgentRunConfig,
@@ -37,216 +45,11 @@ from shared.services.retrieval.agentic.types import (
     DocTreeNode,
     ToolResult,
 )
-from shared.services.retrieval.app_service import (
-    generate_retrieval_asset_url,
-    _is_client_result_artifact_ref,
-)
 from shared.services.retrieval.llm_adapter import LLMFn
 from shared.services.retrieval.llm_adapter import current_llm_usage
-from shared.services.retrieval.hit_stats_service import compute_importance_score
 from shared.utils.token_estimate import estimate_tokens
 
 
-
-def _with_context_prompt_projection(
-    snapshot: dict[str, object],
-    *,
-    prompt_tokens: int,
-) -> dict[str, object]:
-    """Return a display snapshot that includes the upcoming answer prompt."""
-    projected: dict[str, object] = dict(snapshot)
-    context_raw = projected.get('context') or {}
-    if not isinstance(context_raw, dict):
-        return projected
-    context = dict(context_raw)
-    used = int(context.get('used', 0) or 0)
-    reserved = int(context.get('reserved', 0) or 0)
-    capacity = int(context.get('capacity', 0) or 0)
-    projected_used = min(capacity, used + max(int(prompt_tokens), 0))
-    projected_remaining = max(capacity - projected_used - reserved, 0)
-    context.update({
-        'used_projected_before_answer': projected_used,
-        'answer_prompt_estimate': max(int(prompt_tokens), 0),
-        'remaining': projected_remaining,
-        'used_pct': 100 if capacity <= 0 else min(
-            100,
-            int(round((projected_used + reserved) * 100 / capacity)),
-        ),
-    })
-    if projected_remaining <= 0:
-        context['status'] = 'EXHAUSTED'
-    elif context['used_pct'] >= 80:
-        context['status'] = 'CRITICAL'
-    elif context['used_pct'] >= 50:
-        context['status'] = 'TIGHT'
-    else:
-        context['status'] = 'HEALTHY'
-    projected['context'] = context
-    return projected
-
-
-
-
-
-def _collect_media_chunks(node: DocTreeNode) -> list[dict[str, Any]]:
-    """Recursively collect image/table chunks from a doc tree's leaf_content."""
-    media: list[dict[str, Any]] = []
-    for chunks in node.leaf_content.values():
-        for chunk in chunks:
-            ct = (chunk.get('chunk_type') or chunk.get('type') or '').strip().lower()
-            if ct in ('image', 'table'):
-                media.append(chunk)
-    for child in node.children.values():
-        media.extend(_collect_media_chunks(child))
-    return media
-
-
-def _collect_media_chunks_all(doc_trees: dict[str, DocTreeNode]) -> list[dict[str, Any]]:
-    """Collect media chunks from all doc trees."""
-    media: list[dict[str, Any]] = []
-    for tree in doc_trees.values():
-        media.extend(_collect_media_chunks(tree))
-    return media
-
-
-async def _build_asset_url_map(
-    media_chunks: list[dict[str, Any]],
-) -> dict[str, str]:
-    """Generate presigned asset URLs for media chunks.
-
-    Uses the same ``generate_retrieval_asset_url`` as ``_to_public_response``
-    in ``app_service.py`` — no separate logic.
-    """
-    url_map: dict[str, str] = {}
-    for chunk in media_chunks:
-        chunk_id = str(chunk.get('chunk_id') or '').strip()
-        file_path = chunk.get('file_path') or ''
-        job_id = chunk.get('job_id') or ''
-        if not chunk_id or not file_path or not job_id:
-            continue
-        if not _is_client_result_artifact_ref(file_path):
-            continue
-        try:
-            url = await generate_retrieval_asset_url(
-                job_id=str(job_id),
-                artifact_ref=str(file_path),
-            )
-            if url:
-                url_map[chunk_id] = url
-        except Exception as e:
-            logger.warning(f'Failed to generate asset URL for {chunk_id} (ignored): {e}')
-    return url_map
-
-
-def _collect_all_leaf_paths(node: DocTreeNode) -> set[str]:
-    """Recursively collect all leaf_content keys across the entire tree."""
-    paths = set(node.leaf_content.keys())
-    for child in node.children.values():
-        paths.update(_collect_all_leaf_paths(child))
-    return paths
-
-
-def _collect_visible_paths(node: DocTreeNode) -> set[str]:
-    """Collect all outline_items paths across the entire tree.
-
-    These are sections that are "visible" in the rendered tree (shown to the
-    LLM during navigation) even if no chunks have been hydrated into them yet.
-    Used as fallback targets for asset reconciliation.
-    """
-    paths = {item['path'] for item in node.outline_items if item.get('path')}
-    for child in node.children.values():
-        paths.update(_collect_visible_paths(child))
-    return paths
-
-
-def _find_closest_ancestor(path: str, target_paths: set[str]) -> str | None:
-    """Walk up a section path to find the closest ancestor in target_paths.
-
-    Example: path="kb/file/Ch1/S1.1/S1.1.1", target_paths={"kb/file/Ch1/S1.1"}
-    → returns "kb/file/Ch1/S1.1"
-
-    Uses the ' / ' separator convention from the section path format.
-    """
-    parts = path.split(' / ')
-    # Walk from most specific to least specific (skip the full path itself)
-    for i in range(len(parts) - 1, 0, -1):
-        ancestor = ' / '.join(parts[:i])
-        if ancestor in target_paths:
-            return ancestor
-    return None
-
-
-def _reconcile_deferred_assets(
-    tree: DocTreeNode,
-    pending_assets: list[dict],
-) -> None:
-    """Place collected assets into the tree based on final navigated paths.
-
-    Called ONCE after the entire BFS + discovery merge completes for a
-    document.  Asset placement uses a two-tier strategy:
-
-    1. **Exact match**: If the asset's ``owner_section_path`` matches a
-       leaf_content key, place directly (existing behavior).
-    2. **Closest visible ancestor**: If exact match fails, walk up the
-       owner_section_path hierarchy to find the nearest ancestor that
-       appears in either leaf_content or outline_items.  This handles
-       the case where the LLM stopped navigation early (e.g. at root)
-       but still requested images/tables — assets at L3 get attributed
-       to the visible L2 section on their path.
-    """
-    final_paths = _collect_all_leaf_paths(tree)
-    visible_paths = _collect_visible_paths(tree)
-    all_target_paths = final_paths | visible_paths
-
-    if not all_target_paths:
-        return
-
-    # Collect existing chunk_ids to avoid duplicates
-    existing_ids = {
-        str(row.get('chunk_id') or '')
-        for row in tree.flatten_chunk_rows()
-        if row.get('chunk_id')
-    }
-
-    placed = 0
-    ancestor_placed = 0
-    for asset in pending_assets:
-        chunk_id = str(asset.get('chunk_id') or '')
-        if chunk_id and chunk_id in existing_ids:
-            continue  # already in tree via hydrate_connected_target_rows
-
-        owner_path = (
-            asset.get('owner_section_path')
-            or asset.get('section_path')
-        )
-        if not owner_path:
-            continue
-
-        # Tier 1: exact match in leaf_content or visible outline
-        target_path = owner_path if owner_path in all_target_paths else None
-
-        # Tier 2: closest visible ancestor fallback
-        if target_path is None:
-            target_path = _find_closest_ancestor(owner_path, all_target_paths)
-            if target_path:
-                ancestor_placed += 1
-
-        if target_path is None:
-            continue  # no visible ancestor → discard
-
-        # Place into root; reparent_leaf_content will move to correct child
-        tree.add_leaf_chunks(target_path, [asset])
-        if chunk_id:
-            existing_ids.add(chunk_id)
-        placed += 1
-
-    if placed:
-        tree.reparent_leaf_content()
-        logger.info(
-            f'  deferred asset reconcile: {placed}/{len(pending_assets)} '
-            f'assets placed into {len(final_paths)} leaf + {len(visible_paths)} visible paths '
-            f'(ancestor_fallback={ancestor_placed})'
-        )
 
 
 def _build_config_from_env() -> AgentRunConfig:
@@ -271,36 +74,6 @@ def _stringify_llm_input(prompt: Any) -> str:
     except Exception:
         return str(prompt)
 
-
-async def _render_evidence(
-    db: AsyncSession,
-    doc_trees: dict[str, DocTreeNode],
-    doc_id_to_name: dict[str, str],
-) -> str:
-    """Render unified evidence text from doc trees.
-
-    Discovery paths are now handled by ``discovery_select_step`` in Phase 2
-    and merged into doc_trees — no separate fallback needed.
-    """
-    from shared.services.retrieval.agent_navigate import render_unified_doc_tree
-
-    # Build asset URL map for all media chunks (images/tables)
-    # — same pattern as _to_public_response in app_service.py
-    all_media_chunks: list[dict[str, Any]] = []
-    for doc_tree in doc_trees.values():
-        all_media_chunks.extend(_collect_media_chunks(doc_tree))
-    asset_url_map = await _build_asset_url_map(all_media_chunks)
-
-    # Render unified evidence from doc trees
-    evidence_parts: list[str] = []
-    for doc_id, doc_tree in doc_trees.items():
-        if doc_tree.has_content():
-            doc_name = doc_id_to_name.get(doc_id, doc_id)
-            rendered = render_unified_doc_tree(doc_tree, doc_name, asset_lookup=asset_url_map)
-            if rendered.strip():
-                evidence_parts.append(rendered)
-
-    return '\n\n'.join(evidence_parts) if evidence_parts else '(no evidence collected)'
 
 
 async def _load_budget_inventory(
@@ -329,135 +102,6 @@ async def _load_budget_inventory(
     doc_chunks = {str(doc_id): int(count or 0) for doc_id, count in result.all()}
     return sum(doc_chunks.values()), len(doc_chunks), doc_chunks
 
-
-def _iter_leaf_content(node: DocTreeNode):
-    for path, chunks in node.leaf_content.items():
-        yield path, chunks
-    for child in node.children.values():
-        yield from _iter_leaf_content(child)
-
-
-def _collect_confidences(node: DocTreeNode) -> dict[str, float]:
-    values = dict(node.confidence)
-    for child in node.children.values():
-        for path, score in _collect_confidences(child).items():
-            values[path] = max(values.get(path, 0.0), score)
-    return values
-
-
-def _pop_leaf_path(node: DocTreeNode, path: str) -> bool:
-    if path in node.leaf_content:
-        node.leaf_content.pop(path)
-        return True
-    for child in node.children.values():
-        if _pop_leaf_path(child, path):
-            return True
-    return False
-
-
-def _estimate_chunks_tokens(chunks: list[dict[str, Any]]) -> int:
-    text = '\n'.join(str(chunk.get('content') or '') for chunk in chunks)
-    return estimate_tokens(text)
-
-
-async def _fetch_importance_norm_scores(
-    db: AsyncSession,
-    *,
-    user_id: str,
-    namespace: str,
-    chunk_ids: list[str],
-) -> dict[str, float]:
-    if not chunk_ids:
-        return {}
-    stmt = (
-        select(
-            RetrievalHitStat.chunk_id,
-            RetrievalHitStat.hit_count,
-            RetrievalHitStat.last_hit_at,
-            RetrievalHitStat.created_at,
-        )
-        .where(RetrievalHitStat.user_id == user_id)
-        .where(RetrievalHitStat.namespace == namespace)
-        .where(RetrievalHitStat.hit_kind == 'chunk')
-        .where(RetrievalHitStat.chunk_id.in_(chunk_ids))
-    )
-    result = await db.execute(stmt)
-    scores: dict[str, float] = {}
-    for chunk_id, hit_count, last_hit_at, created_at in result.all():
-        if chunk_id and last_hit_at and created_at:
-            scores[str(chunk_id)] = compute_importance_score(hit_count, last_hit_at, created_at)
-    return scores
-
-
-async def _trim_evidence_to_budget(
-    db: AsyncSession,
-    *,
-    doc_trees: dict[str, DocTreeNode],
-    doc_id_to_name: dict[str, str],
-    context_remaining: int,
-    user_id: str,
-    namespace: str,
-    ledger: BudgetLedger | None,
-    safety_margin: float = 0.9,
-) -> str:
-    full_text = await _render_evidence(db, doc_trees, doc_id_to_name)
-    target = int(max(context_remaining, 0) * safety_margin)
-    if estimate_tokens(full_text) <= target:
-        return full_text
-
-    candidates: list[tuple[str, str, tuple[float, float, float], int]] = []
-    for doc_id, tree in doc_trees.items():
-        confidence = _collect_confidences(tree)
-        for path, chunks in _iter_leaf_content(tree):
-            chunk_ids = [
-                str(chunk.get('chunk_id'))
-                for chunk in chunks
-                if chunk.get('chunk_id')
-            ]
-            importance = 0.0
-            importance_scores = await _fetch_importance_norm_scores(
-                db,
-                user_id=user_id,
-                namespace=namespace,
-                chunk_ids=chunk_ids,
-            )
-            if importance_scores:
-                importance = max(importance_scores.values())
-            discovery_score = (
-                float(chunks[0].get('discovery_score', 0.0) or 0.0)
-                if chunks else 0.0
-            )
-            score = (float(confidence.get(path, 0.0) or 0.0), discovery_score, importance)
-            candidates.append((doc_id, path, score, _estimate_chunks_tokens(chunks)))
-
-    current_estimate = estimate_tokens(full_text)
-    removed: list[dict[str, Any]] = []
-    for doc_id, path, _score, token_estimate in sorted(
-        candidates,
-        key=lambda item: (item[2], -item[3]),
-    ):
-        if current_estimate <= target:
-            break
-        if _pop_leaf_path(doc_trees[doc_id], path):
-            confidence_score, discovery_score, importance_score = _score
-            removed.append({
-                'document_id': doc_id,
-                'document_name': doc_id_to_name.get(doc_id, doc_id),
-                'path': path,
-                'confidence_score': round(confidence_score, 4),
-                'discovery_score': round(discovery_score, 4),
-                'importance_score': round(importance_score, 4),
-                'token_estimate': token_estimate,
-            })
-            current_estimate = max(current_estimate - token_estimate, 0)
-
-    if ledger is not None:
-        ledger.trimmed_paths.extend(removed)
-    logger.info(
-        f'  agentic.trim_evidence: removed={len(removed)} '
-        f'est_tokens={current_estimate} target={target}'
-    )
-    return await _render_evidence(db, doc_trees, doc_id_to_name)
 
 
 class RetrievalAgent:

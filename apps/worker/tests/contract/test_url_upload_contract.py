@@ -13,15 +13,22 @@ from sqlalchemy.engine import Engine
 from support.contract_database import insert_contract_job, insert_contract_user
 
 
-def _load_upload_task_modules() -> tuple[Any, Engine, Any, Any]:
+def _load_upload_task_modules() -> tuple[Any, Any, Engine, Any, Any]:
     import app.core.tasks.kb_tasks as kb_tasks
+    import app.services.workload.url_upload_service as url_upload_service
     from shared.core.database_sync import get_sync_engine
     from shared.services.redis.redis_sync_service import (
         SyncJobInfoRedisService,
         SyncRedisServiceFactory,
     )
 
-    return kb_tasks, get_sync_engine(), SyncJobInfoRedisService, SyncRedisServiceFactory
+    return (
+        kb_tasks,
+        url_upload_service,
+        get_sync_engine(),
+        SyncJobInfoRedisService,
+        SyncRedisServiceFactory,
+    )
 
 
 def test_should_upload_a_url_job_to_the_expected_storage_key_and_publish_progress(
@@ -29,9 +36,13 @@ def test_should_upload_a_url_job_to_the_expected_storage_key_and_publish_progres
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    kb_tasks, engine, sync_job_info_service_cls, sync_redis_service_factory = (
-        _load_upload_task_modules()
-    )
+    (
+        kb_tasks,
+        url_upload_service,
+        engine,
+        sync_job_info_service_cls,
+        sync_redis_service_factory,
+    ) = _load_upload_task_modules()
 
     user_id = f"worker-user-{uuid4().hex[:12]}"
     job_id = f"job_url_upload_{uuid4().hex[:12]}"
@@ -47,19 +58,19 @@ def test_should_upload_a_url_job_to_the_expected_storage_key_and_publish_progres
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
 
     monkeypatch.setattr(
-        kb_tasks,
+        url_upload_service,
         "download_file_from_url",
         lambda _source_url: str(downloaded_path),
     )
     monkeypatch.setattr(
-        kb_tasks,
+        url_upload_service,
         "upload_to_s3",
         lambda local_path, storage_key, bucket: uploaded_calls.append(
             (local_path, storage_key, bucket)
         ),
     )
     monkeypatch.setattr(
-        kb_tasks,
+        url_upload_service,
         "verify_s3_file_exists",
         lambda storage_key: {"exists": storage_key == s3_key, "size": 3},
     )
@@ -112,7 +123,7 @@ def test_should_upload_a_url_job_to_the_expected_storage_key_and_publish_progres
         "file_size": 3,
     }
     assert uploaded_calls == [
-        (str(downloaded_path), s3_key, kb_tasks.settings.S3_BUCKET_NAME),
+        (str(downloaded_path), s3_key, url_upload_service.settings.S3_BUCKET_NAME),
     ]
     assert os.path.exists(downloaded_path) is False
 
@@ -140,4 +151,3 @@ def test_should_upload_a_url_job_to_the_expected_storage_key_and_publish_progres
     assert job_row["status"] == "waiting-file"
     assert job_row["source_type"] == "url"
     assert job_row["s3_key"] == s3_key
-
