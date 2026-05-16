@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Optional
 
 from app.services.document_ingestion import DocumentIngestionService
-from app.services.job_read_service import (
+from app.services.jobs import (
     get_job_result_for_user,
     list_jobs_for_user,
 )

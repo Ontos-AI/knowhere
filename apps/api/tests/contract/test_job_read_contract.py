@@ -1,3 +1,4 @@
+import importlib
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timedelta, timezone
@@ -187,3 +188,10 @@ async def test_should_forbid_access_to_a_job_owned_by_another_user(
     assert error["code"] == "PERMISSION_DENIED"
     assert error["message"] == "You don't have permission to access this job"
     assert "details" not in error
+
+
+def test_job_read_workflow_module_should_be_importable() -> None:
+    job_read_service = importlib.import_module("app.services.jobs.read_service")
+
+    assert callable(job_read_service.list_jobs_for_user)
+    assert callable(job_read_service.get_job_result_for_user)

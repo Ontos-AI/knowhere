@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.repositories.job_repository import JobRepository
-from app.services.job_read_service import check_job_permission
+from app.services.jobs import check_job_permission
 from app.services.knowledge.kb_orchestrator import KBOrchestrator
 from app.services.state_machine import JobStateMachine
 from loguru import logger

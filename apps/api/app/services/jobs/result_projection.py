@@ -109,7 +109,9 @@ def _resolve_duration_seconds(job: Any) -> float | None:
     return None
 
 
-async def _resolve_result_delivery(job: Any) -> tuple[dict[str, Any] | None, str | None, datetime]:
+async def _resolve_result_delivery(
+    job: Any,
+) -> tuple[dict[str, Any] | None, str | None, datetime]:
     job_result = job.job_result
     result_url = None
     result = None

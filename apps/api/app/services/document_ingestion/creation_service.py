@@ -12,7 +12,7 @@ from app.services.document_ingestion.scope_service import (
     is_active_document_job_unique_violation,
     raise_document_ingestion_conflict,
 )
-from app.services.job_response_projection import to_job_status_value
+from app.services.jobs.result_projection import to_job_status_value
 from app.services.rate_limit.data_structures import CurrentUser
 from loguru import logger
 from sqlalchemy.exc import IntegrityError

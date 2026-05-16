@@ -29,6 +29,11 @@ URL ingestion, or demo source materialization.
 The terminal artifact record attached to a Job. It stores delivery metadata,
 result bundle references, and the revision that publication uses.
 
+### Job Read
+
+The workflow that lists a User's Jobs and projects one Job into the public Job
+Result response shape.
+
 ### Document
 
 The retrieval-visible knowledge object produced from a Job Result after
@@ -165,6 +170,13 @@ exceptions.
 - `app/services/document_ingestion/creation_service.py`
 - `app/services/document_ingestion/confirmation_service.py`
 - `app/services/document_ingestion/scope_service.py`
+- `app/repositories/job_repository.py`
+
+### Job Read
+
+- `app/api/v1/routes/jobs.py`
+- `app/services/jobs/read_service.py`
+- `app/services/jobs/result_projection.py`
 - `app/repositories/job_repository.py`
 
 ### Job Admission

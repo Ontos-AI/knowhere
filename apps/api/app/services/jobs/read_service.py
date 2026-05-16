@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from app.repositories.job_repository import JobRepository
-from app.services.job_response_projection import (
+from app.services.jobs.result_projection import (
     build_job_result_response,
     to_job_status_value,
 )
