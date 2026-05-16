@@ -3,13 +3,13 @@
 from datetime import datetime
 from typing import Any, Dict, Optional, Sequence
 
-from app.services.state_machine import JobStateMachine
 from loguru import logger
 from sqlalchemy import and_, desc, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from shared.core.state_machine.service import AsyncStateMachineService
 from shared.models.database.job import Job
 from shared.models.database.job_state_history import JobStateHistory
 
@@ -18,7 +18,7 @@ class JobRepository:
     """Repository for Job persistence operations."""
 
     def __init__(self):
-        self.state_machine = JobStateMachine()
+        self.state_machine = AsyncStateMachineService()
 
     async def create_job(
         self,

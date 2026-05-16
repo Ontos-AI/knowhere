@@ -5,10 +5,10 @@ import os
 
 from app.repositories.job_repository import JobRepository
 from app.services.knowledge.kb_orchestrator import KBOrchestrator
-from app.services.state_machine import JobStateMachine
 from loguru import logger
 
 from shared.core.database import get_db_context
+from shared.core.state_machine.service import AsyncStateMachineService
 from shared.core.state_machine.states import JobStatus
 from shared.models.schemas.s3_event import S3Event
 
@@ -55,7 +55,7 @@ async def process_upload_events(s3_event: S3Event) -> None:
 
                 if is_job_expired(job.updated_at, settings.JOB_WAITING_EXPIRE_SECONDS):
                     logger.warning(f"Job {job_id} upload expired, marking failed")
-                    state_machine = JobStateMachine()
+                    state_machine = AsyncStateMachineService()
                     await state_machine.mark_failed(
                         db,
                         job_id,
@@ -64,7 +64,7 @@ async def process_upload_events(s3_event: S3Event) -> None:
                     )
                     continue
 
-                state_machine = JobStateMachine()
+                state_machine = AsyncStateMachineService()
                 await state_machine.transition(
                     db,
                     job_id,

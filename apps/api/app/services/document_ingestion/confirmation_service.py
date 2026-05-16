@@ -3,7 +3,6 @@ from __future__ import annotations
 from app.repositories.job_repository import JobRepository
 from app.services.jobs import check_job_permission
 from app.services.knowledge.kb_orchestrator import KBOrchestrator
-from app.services.state_machine import JobStateMachine
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +12,7 @@ from shared.core.exceptions.domain_exceptions import (
     PermissionDeniedException,
     ValidationException,
 )
+from shared.core.state_machine.service import AsyncStateMachineService
 from shared.core.state_machine.states import JobStatus
 from shared.services.storage.file_upload_service import FileUploadService
 
@@ -94,7 +94,7 @@ async def _transition_job_to_uploaded(
     job_id: str,
     trigger: str = "manual_upload_completed",
 ) -> None:
-    state_machine = JobStateMachine()
+    state_machine = AsyncStateMachineService()
     await state_machine.transition(
         db,
         job_id,
