@@ -23,6 +23,7 @@ from loguru import logger
 from shared.core.config import app_config
 from shared.core.exceptions.domain_exceptions import QStashServiceException
 from shared.models.database.webhook import WebhookEventStatus
+from shared.services.jobs.result_delivery import JobResultDeliveryResolver
 from shared.utils.url_security import (
     validate_http_url_and_resolve_ip,
 )
@@ -272,16 +273,10 @@ class QStashWebhookPublisher:
             if not job or not job.job_result:
                 return payload
 
-            job_result = job.job_result
-            if job_result.result_s3_key:
-                payload["result_url"] = app_config.get_storage_adapter().generate_presigned_url(
-                    job_result.result_s3_key,
-                    expiration=3600,
-                    method="GET",
-                )
-
-            if job_result.inline_payload:
-                payload["result"] = job_result.inline_payload
+            payload = JobResultDeliveryResolver().enrich_payload(
+                payload,
+                job_result=job.job_result,
+            )
         except Exception as exc:
             logger.error(f"Failed to enrich payload for event {event.id}: {exc}")
 

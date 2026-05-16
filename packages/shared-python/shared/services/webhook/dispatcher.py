@@ -29,6 +29,7 @@ from shared.core.exceptions.webhook_exceptions import WebhookDeliveryException
 from shared.models.database.job import Job
 from shared.models.database.webhook import WebhookEvent, WebhookEventStatus
 from shared.models.database.webhook_log import WebhookLog
+from shared.services.jobs.result_delivery import JobResultDeliveryResolver
 from shared.utils.pinned_outbound_http import (
     send_pinned_outbound_request,
 )
@@ -341,25 +342,10 @@ class WebhookDispatcher:
                     )
                     return payload
 
-                job_result = job.job_result
-
-                # Add result_url (fresh download link)
-                if job_result.result_s3_key:
-                    from shared.services.storage.job_file_storage import JobFileStorage
-
-                    result_storage = JobFileStorage()
-                    url_info = result_storage.generate_download_url(
-                        job_result.result_s3_key,
-                        bucket=result_storage.results_bucket,
-                    )
-                    payload["result_url"] = url_info["download_url"]
-                    logger.debug(
-                        f"Enriched payload with result_url for job {event.job_id}"
-                    )
-
-                # Add result (inline payload)
-                if job_result.inline_payload:
-                    payload["result"] = job_result.inline_payload
+                payload = JobResultDeliveryResolver().enrich_payload(
+                    payload,
+                    job_result=job.job_result,
+                )
 
         except Exception as e:
             logger.error(f"Failed to enrich payload for event {event.id}: {e}")

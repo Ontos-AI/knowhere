@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Literal, Optional, cast
 from urllib.parse import urlparse
 
@@ -9,9 +9,8 @@ from shared.core.billing import MicroDollar
 from shared.core.exceptions.domain_exceptions import JobOperationException
 from shared.models.schemas.job import JobResultResponse, StandardErrorObject
 from shared.models.schemas.job_metadata import JobMetadataHelper
-from shared.services.storage.job_file_storage import JobFileStorage
+from shared.services.jobs.result_delivery import JobResultDeliveryResolver
 from shared.utils.error_details import normalize_error_details
-from shared.utils.utc_now import utc_now_naive
 
 JobStatusValue = Literal[
     "pending", "waiting-file", "running", "converting", "done", "failed"
@@ -112,27 +111,19 @@ def _resolve_duration_seconds(job: Any) -> float | None:
 async def _resolve_result_delivery(
     job: Any,
 ) -> tuple[dict[str, Any] | None, str | None, datetime]:
-    job_result = job.job_result
-    result_url = None
-    result = None
-    result_url_expires_at = job.created_at
-
-    if job_result and job_result.result_s3_key:
-        result_storage = JobFileStorage()
-        result_url_info = result_storage.generate_download_url(
-            job_result.result_s3_key,
-            bucket=result_storage.results_bucket,
-        )
-        result_url = result_url_info["download_url"]
-
-        if job_result.inline_payload:
-            result = job_result.inline_payload
-
-        if result_url:
-            expires_in = int(result_url_info.get("expires_in", 3600))
-            result_url_expires_at = utc_now_naive() + timedelta(seconds=expires_in)
-
-    return result, result_url, result_url_expires_at
+    default_expires_at = require_utc(
+        job.created_at,
+        field_name="created_at",
+    )
+    delivery = JobResultDeliveryResolver().resolve(
+        job.job_result,
+        default_expires_at=default_expires_at,
+    )
+    return (
+        delivery.result,
+        delivery.result_url,
+        delivery.result_url_expires_at or default_expires_at,
+    )
 
 
 async def build_job_result_response(

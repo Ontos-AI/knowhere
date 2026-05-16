@@ -36,7 +36,9 @@ def _insert_webhook_event(
     created_at: datetime,
     updated_at: datetime | None = None,
     qstash_message_id: str | None = None,
+    payload: dict[str, Any] | None = None,
 ) -> None:
+    event_payload = payload or {"event": "job.failed", "job_id": job_id}
     connection.execute(
         text(
             """
@@ -69,13 +71,58 @@ def _insert_webhook_event(
             "id": event_id,
             "job_id": job_id,
             "target_url": target_url,
-            "payload": json.dumps({"event": "job.failed", "job_id": job_id}),
+            "payload": json.dumps(event_payload),
             "status": status,
             "attempts": attempts,
             "next_retry_at": None,
             "qstash_message_id": qstash_message_id,
             "created_at": created_at,
             "updated_at": updated_at or created_at,
+        },
+    )
+
+
+def _insert_job_result(
+    connection: Connection,
+    *,
+    job_result_id: str,
+    job_id: str,
+    result_s3_key: str,
+    inline_payload: dict[str, Any],
+) -> None:
+    timestamp = _utc_now()
+    connection.execute(
+        text(
+            """
+            INSERT INTO job_results (
+                id,
+                job_id,
+                delivery_mode,
+                inline_payload,
+                result_s3_key,
+                result_size,
+                created_at,
+                updated_at
+            ) VALUES (
+                :id,
+                :job_id,
+                'url',
+                CAST(:inline_payload AS JSON),
+                :result_s3_key,
+                :result_size,
+                :created_at,
+                :updated_at
+            )
+            """
+        ),
+        {
+            "id": job_result_id,
+            "job_id": job_id,
+            "inline_payload": json.dumps(inline_payload),
+            "result_s3_key": result_s3_key,
+            "result_size": 123,
+            "created_at": timestamp,
+            "updated_at": timestamp,
         },
     )
 
@@ -269,6 +316,128 @@ def test_should_republish_only_orphaned_pending_webhook_events_and_persist_qstas
         "qstash_message_id": None,
     }
     assert secrets_count_row["secrets_count"] == 1
+
+
+def test_should_publish_completed_webhook_with_result_delivery_payload(
+    worker_contract_environment: None,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    _, qstash_publisher, engine = _load_worker_modules()
+    from shared.services.storage.job_file_storage import JobFileStorage
+
+    user_id = f"worker-user-{uuid4().hex[:12]}"
+    target_url = "https://hooks.contract.test/worker"
+    job_id = f"job_completed_{uuid4().hex[:12]}"
+    event_id = str(uuid4())
+    result_s3_key = f"results/{job_id}.zip"
+    published_calls: list[dict[str, Any]] = []
+    signed_url_calls: list[dict[str, Any]] = []
+
+    class FakeMessageClient:
+        def publish(self, **kwargs: Any) -> SimpleNamespace:
+            published_calls.append(kwargs)
+            return SimpleNamespace(message_id=f"msg_{event_id}")
+
+    class FakeStorageAdapter:
+        def generate_presigned_url(
+            self,
+            key: str,
+            expiration: int = 3600,
+            bucket: str | None = None,
+            method: str = "GET",
+            headers: dict[str, str] | None = None,
+        ) -> str:
+            signed_url_calls.append(
+                {
+                    "key": key,
+                    "expiration": expiration,
+                    "bucket": bucket,
+                    "method": method,
+                    "headers": headers,
+                }
+            )
+            return f"signed://{bucket}/{key}?expires={expiration}"
+
+    publisher = qstash_publisher.QStashWebhookPublisher()
+    monkeypatch.setattr(
+        qstash_publisher,
+        "validate_http_url_and_resolve_ip",
+        lambda *args, **kwargs: SimpleNamespace(
+            is_valid=True,
+            error_message=None,
+            validated_ip="93.184.216.34",
+            hostname="hooks.contract.test",
+        ),
+    )
+    monkeypatch.setattr(
+        publisher,
+        "_get_client",
+        lambda: SimpleNamespace(message=FakeMessageClient()),
+    )
+    monkeypatch.setattr(
+        qstash_publisher.JobResultDeliveryResolver,
+        "__init__",
+        lambda self: setattr(
+            self,
+            "_storage",
+            JobFileStorage(storage_adapter=FakeStorageAdapter()),
+        ),
+    )
+
+    now = _utc_now()
+    with engine.begin() as connection:
+        insert_contract_user(connection, user_id=user_id)
+        insert_contract_job(
+            connection,
+            job_id=job_id,
+            user_id=user_id,
+            status="done",
+            source_type="file",
+            webhook_url=target_url,
+            webhook_enabled=True,
+            job_metadata=_build_file_job_metadata(),
+            billing_status="charged",
+        )
+        _insert_job_result(
+            connection,
+            job_result_id=str(uuid4()),
+            job_id=job_id,
+            result_s3_key=result_s3_key,
+            inline_payload={"checksum": "contract-checksum"},
+        )
+        _insert_webhook_event(
+            connection,
+            event_id=event_id,
+            job_id=job_id,
+            target_url=target_url,
+            status="pending",
+            attempts=0,
+            created_at=now,
+            payload={"event": "job.completed", "job_id": job_id},
+        )
+
+    message_id = publisher.publish_event(event_id)
+
+    assert message_id == f"msg_{event_id}"
+    assert len(published_calls) == 1
+    assert signed_url_calls == [
+        {
+            "key": result_s3_key,
+            "expiration": 3600,
+            "bucket": qstash_publisher.app_config.S3_RESULTS_BUCKET,
+            "method": "GET",
+            "headers": None,
+        }
+    ]
+
+    published_payload = json.loads(published_calls[0]["body"])
+    assert published_payload["event"] == "job.completed"
+    assert published_payload["job_id"] == job_id
+    assert published_payload["result"] == {"checksum": "contract-checksum"}
+    assert published_payload["result_url"] == (
+        f"signed://{qstash_publisher.app_config.S3_RESULTS_BUCKET}/{result_s3_key}"
+        "?expires=3600"
+    )
 
 
 def test_should_reconcile_stale_delivering_webhook_events_from_qstash_logs(
