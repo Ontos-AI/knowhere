@@ -9,10 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.models.database.document import RetrievalHitStat
 from shared.services.retrieval.agentic.budget import BudgetLedger
 from shared.services.retrieval.agentic.types import DocTreeNode
-from shared.services.retrieval.assets import (
-    generate_retrieval_asset_url,
-    is_client_result_artifact_ref,
-)
+from shared.services.retrieval.assets import build_retrieval_asset_url_map
 from shared.services.retrieval.hit_stats_service import compute_importance_score
 from shared.utils.token_estimate import estimate_tokens
 
@@ -81,27 +78,10 @@ def collect_media_chunks_all(
 async def build_asset_url_map(
     media_chunks: list[dict[str, Any]],
 ) -> dict[str, str]:
-    url_map: dict[str, str] = {}
-    for chunk in media_chunks:
-        chunk_id = str(chunk.get("chunk_id") or "").strip()
-        file_path = chunk.get("file_path") or ""
-        job_id = chunk.get("job_id") or ""
-        if not chunk_id or not file_path or not job_id:
-            continue
-        if not is_client_result_artifact_ref(file_path):
-            continue
-        try:
-            url = await generate_retrieval_asset_url(
-                job_id=str(job_id),
-                artifact_ref=str(file_path),
-            )
-            if url:
-                url_map[chunk_id] = url
-        except Exception as exc:
-            logger.warning(
-                f"Failed to generate asset URL for {chunk_id} (ignored): {exc}"
-            )
-    return url_map
+    return await build_retrieval_asset_url_map(
+        media_chunks,
+        log_context="agentic evidence",
+    )
 
 
 def _collect_all_leaf_paths(node: DocTreeNode) -> set[str]:
