@@ -19,7 +19,6 @@ from app.services.document_parser.pdf_parser import parse_pdfs
 from app.services.document_parser.pptx_pdf_rendering import (
     render_pdf_to_image_pdf as _render_pdf_to_image_pdf,
 )
-from app.services.storage.sync_storage_service import download_s3_object_to_temp
 from loguru import logger
 from markitdown import MarkItDown
 from pptx2md import ConversionConfig, convert
@@ -29,6 +28,7 @@ from shared.core.exceptions.domain_exceptions import (
     FileSystemException,
 )
 from shared.core.logging import LogEvent
+from shared.services.storage.job_file_storage import JobFileStorage
 from shared.utils.file_loading import load_file_bytes
 from shared.utils.file_utils import path_handle
 
@@ -331,7 +331,7 @@ def _parse_cached_rendered_pdf(
     logger.info(
         f"[parse_pptx] Reusing rendered PDF for MinerU URL mode: {rendered_pdf_s3_key}"
     )
-    cached_rendered_pdf_path = download_s3_object_to_temp(
+    cached_rendered_pdf_path = JobFileStorage().download_upload_to_temp(
         cached_rendered_pdf_s3_key,
         suffix=".pdf",
         temp_dir=output_dir,

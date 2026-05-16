@@ -84,6 +84,19 @@ def _save_worker_task_cache(
     return redis_service
 
 
+def _patch_verify_upload_exists(
+    monkeypatch: MonkeyPatch,
+    file_info_for_storage_key: Any,
+) -> None:
+    from shared.services.storage.job_file_storage import JobFileStorage
+
+    monkeypatch.setattr(
+        JobFileStorage,
+        "verify_upload_exists",
+        lambda self, storage_key: file_info_for_storage_key(storage_key),
+    )
+
+
 def _find_task_workspaces(root: Path, job_id: str) -> list[Path]:
     return sorted(
         path
@@ -175,11 +188,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
             "size": _SAMPLE_PDF_PATH.stat().st_size,
         }
 
-    monkeypatch.setattr(
-        parse_job_service,
-        "verify_s3_file_exists",
-        fake_verify_s3_file_exists,
-    )
+    _patch_verify_upload_exists(monkeypatch, fake_verify_s3_file_exists)
 
     def fake_download_s3_file_to_temp(
         storage_key: str, file_ext: str, temp_dir: str
@@ -856,11 +865,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
                 raw_files={},
             )
 
-    monkeypatch.setattr(
-        parse_job_service,
-        "verify_s3_file_exists",
-        fake_verify_s3_file_exists,
-    )
+    _patch_verify_upload_exists(monkeypatch, fake_verify_s3_file_exists)
     monkeypatch.setattr(parse_job_service, "download_s3_file_to_temp", fake_download_s3_file_to_temp)
     monkeypatch.setattr(parse_service, "checkerboard_inject_parse", fake_checkerboard_inject_parse)
     monkeypatch.setattr(parse_job_service, "get_result_storage", lambda: FakeResultStorage())
@@ -1052,11 +1057,7 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
                 raw_files={},
             )
 
-    monkeypatch.setattr(
-        parse_job_service,
-        "verify_s3_file_exists",
-        fake_verify_s3_file_exists,
-    )
+    _patch_verify_upload_exists(monkeypatch, fake_verify_s3_file_exists)
     monkeypatch.setattr(parse_job_service, "download_s3_file_to_temp", fake_download_s3_file_to_temp)
     monkeypatch.setattr(parse_job_service.PageEstimator, "estimate", fake_estimate_page_count)
     monkeypatch.setattr(parse_service, "checkerboard_inject_parse", fake_checkerboard_inject_parse)
@@ -1230,11 +1231,7 @@ def test_should_skip_parse_task_when_the_job_is_already_terminal(
     def fake_verify_s3_file_exists(storage_key: str) -> dict[str, Any]:
         return {"exists": storage_key == s3_key, "size": 1024}
 
-    monkeypatch.setattr(
-        parse_job_service,
-        "verify_s3_file_exists",
-        fake_verify_s3_file_exists,
-    )
+    _patch_verify_upload_exists(monkeypatch, fake_verify_s3_file_exists)
     monkeypatch.setattr(
         parse_service,
         "checkerboard_inject_parse",
@@ -1326,11 +1323,7 @@ def test_should_mark_the_job_failed_and_cleanup_the_workspace_when_parse_executi
             "size": _SAMPLE_PDF_PATH.stat().st_size,
         }
 
-    monkeypatch.setattr(
-        parse_job_service,
-        "verify_s3_file_exists",
-        fake_verify_s3_file_exists,
-    )
+    _patch_verify_upload_exists(monkeypatch, fake_verify_s3_file_exists)
 
     def fake_download_s3_file_to_temp(
         storage_key: str, file_ext: str, temp_dir: str

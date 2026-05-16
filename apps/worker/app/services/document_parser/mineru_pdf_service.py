@@ -20,6 +20,7 @@ from shared.core.exceptions.domain_exceptions import (
     UnavailableException,
 )
 from shared.core.exceptions.knowhere_exception import KnowhereException
+from shared.services.storage.job_file_storage import JobFileStorage
 from shared.utils.file_loading import is_remote
 from shared.utils.zip_download import download_and_extract_zip
 
@@ -120,10 +121,8 @@ def _inspect_mineru_source_s3_key(s3_key: Optional[str]) -> tuple[Optional[str],
         return None, False
 
     assert s3_key is not None
-    from app.services.storage.sync_storage_service import verify_s3_file_exists
-
     try:
-        existing_file = verify_s3_file_exists(s3_key, settings.S3_BUCKET_NAME)
+        existing_file = JobFileStorage().verify_upload_exists(s3_key)
     except Exception as exc:
         _log_mineru_url_mode_storage_fallback(
             operation="verify_source_object",
@@ -165,10 +164,8 @@ def resolve_mineru_source_s3_key(
         return None
 
     assert s3_key is not None
-    from app.services.storage.sync_storage_service import upload_to_s3
-
     try:
-        upload_to_s3(local_file_path, s3_key, settings.S3_BUCKET_NAME)
+        JobFileStorage().upload_source_file(local_file_path, s3_key)
     except Exception as exc:
         _log_mineru_url_mode_storage_fallback(
             operation="upload_source_object",
@@ -729,9 +726,7 @@ def parse_via_full(
 
     if resolved_s3_key is not None:
         try:
-            from app.services.storage.sync_storage_service import generate_download_url
-
-            presigned = generate_download_url(
+            presigned = JobFileStorage().generate_upload_download_url(
                 resolved_s3_key, expires_in=settings.MINERU_URL_MODE_PRESIGN_EXPIRY
             )
             presigned_url = presigned["download_url"]

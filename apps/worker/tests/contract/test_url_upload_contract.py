@@ -43,6 +43,7 @@ def test_should_upload_a_url_job_to_the_expected_storage_key_and_publish_progres
         sync_job_info_service_cls,
         sync_redis_service_factory,
     ) = _load_upload_task_modules()
+    from shared.services.storage.job_file_storage import JobFileStorage
 
     user_id = f"worker-user-{uuid4().hex[:12]}"
     job_id = f"job_url_upload_{uuid4().hex[:12]}"
@@ -58,21 +59,21 @@ def test_should_upload_a_url_job_to_the_expected_storage_key_and_publish_progres
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
 
     monkeypatch.setattr(
-        url_upload_service,
+        JobFileStorage,
         "download_file_from_url",
-        lambda _source_url: str(downloaded_path),
+        lambda self, _source_url, *, temp_dir=None: str(downloaded_path),
     )
     monkeypatch.setattr(
-        url_upload_service,
-        "upload_to_s3",
-        lambda local_path, storage_key, bucket: uploaded_calls.append(
-            (local_path, storage_key, bucket)
+        JobFileStorage,
+        "upload_source_file",
+        lambda self, local_path, storage_key: uploaded_calls.append(
+            (local_path, storage_key, self.uploads_bucket)
         ),
     )
     monkeypatch.setattr(
-        url_upload_service,
-        "verify_s3_file_exists",
-        lambda storage_key: {"exists": storage_key == s3_key, "size": 3},
+        JobFileStorage,
+        "verify_upload_exists",
+        lambda self, storage_key: {"exists": storage_key == s3_key, "size": 3},
     )
     monkeypatch.setattr(socket, "getaddrinfo", resolve_public_address)
 

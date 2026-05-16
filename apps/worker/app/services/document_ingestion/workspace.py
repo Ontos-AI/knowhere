@@ -71,9 +71,8 @@ def create_task_workspace(job_id: str) -> str:
 def download_s3_file_to_temp(s3_key: str, file_ext: str, temp_dir: str) -> str:
     """Download the source file from object storage into the task workspace."""
     storage = JobFileStorage()
-    return storage.download_to_temp(
+    return storage.download_upload_to_temp(
         s3_key,
         suffix=file_ext,
         temp_dir=temp_dir,
-        bucket=settings.S3_BUCKET_NAME,
     )

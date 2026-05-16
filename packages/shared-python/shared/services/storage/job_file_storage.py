@@ -88,6 +88,18 @@ class JobFileStorage:
         )
         return {"download_url": download_url, "expires_in": expires_in}
 
+    def generate_upload_download_url(
+        self,
+        storage_key: str,
+        *,
+        expires_in: int = 3600,
+    ) -> dict[str, Any]:
+        return self.generate_download_url(
+            storage_key,
+            bucket=self.uploads_bucket,
+            expires_in=expires_in,
+        )
+
     def verify_exists(
         self,
         storage_key: str,
@@ -115,6 +127,9 @@ class JobFileStorage:
                 original_exception=exc,
             ) from exc
 
+    def verify_upload_exists(self, storage_key: str) -> dict[str, Any]:
+        return self.verify_exists(storage_key, bucket=self.uploads_bucket)
+
     def upload_local_file(
         self,
         local_file_path: str,
@@ -130,6 +145,17 @@ class JobFileStorage:
                 operation="upload_local_file",
                 original_exception=exc,
             ) from exc
+
+    def upload_source_file(
+        self,
+        local_file_path: str,
+        storage_key: str,
+    ) -> dict[str, Any]:
+        return self.upload_local_file(
+            local_file_path,
+            storage_key,
+            bucket=self.uploads_bucket,
+        )
 
     def upload_fileobj(
         self,
@@ -205,6 +231,20 @@ class JobFileStorage:
                 operation="download_to_temp",
                 original_exception=exc,
             ) from exc
+
+    def download_upload_to_temp(
+        self,
+        storage_key: str,
+        *,
+        suffix: str,
+        temp_dir: str,
+    ) -> str:
+        return self.download_to_temp(
+            storage_key,
+            suffix=suffix,
+            temp_dir=temp_dir,
+            bucket=self.uploads_bucket,
+        )
 
     def download_file_from_url(
         self,

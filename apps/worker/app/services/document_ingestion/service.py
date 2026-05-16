@@ -20,7 +20,6 @@ from app.services.document_ingestion.workspace import (
     download_s3_file_to_temp,
 )
 from app.services.document_parser.stage_profiler import stage_timer
-from app.services.storage.sync_storage_service import verify_s3_file_exists
 from loguru import logger
 from sqlalchemy import select
 
@@ -43,6 +42,7 @@ from shared.services.redis.redis_sync_service import (
     SyncJobMetadataService,
     SyncRedisServiceFactory,
 )
+from shared.services.storage.job_file_storage import JobFileStorage
 from shared.services.storage.result_storage import get_result_storage
 from shared.services.storage.zip_result_service import ZipResultService
 
@@ -164,7 +164,7 @@ def _load_parse_job_context(
 
 
 def _assert_source_file_within_size_limit(s3_key: str) -> None:
-    file_info = verify_s3_file_exists(s3_key)
+    file_info = JobFileStorage().verify_upload_exists(s3_key)
     if not file_info.get("exists"):
         raise NotFoundException(
             resource="S3File",

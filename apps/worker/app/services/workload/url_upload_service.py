@@ -3,11 +3,6 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from app.services.storage.sync_storage_service import (
-    download_file_from_url,
-    upload_to_s3,
-    verify_s3_file_exists,
-)
 from loguru import logger
 
 from shared.core.config import settings
@@ -22,6 +17,7 @@ from shared.services.redis.redis_sync_service import (
     SyncJobMetadataService,
     SyncRedisServiceFactory,
 )
+from shared.services.storage.job_file_storage import JobFileStorage
 from shared.utils.url_file_type import resolve_file_extension_sync
 
 
@@ -78,8 +74,12 @@ def upload_url_file(
     lifecycle_service.update_progress(
         job_id, progress=10, message="Downloading file from URL..."
     )
+    storage = JobFileStorage()
     try:
-        temp_file_path = download_file_from_url(source_url)
+        temp_file_path = storage.download_file_from_url(
+            source_url,
+            temp_dir=getattr(settings, "TMP_PATH", "/tmp"),
+        )
     except Exception as exc:
         raise ValidationException(
             user_message="Failed to download file from URL",
@@ -119,7 +119,7 @@ def upload_url_file(
         lifecycle_service.update_progress(
             job_id, progress=50, message="Uploading file to S3..."
         )
-        upload_to_s3(temp_file_path, str(s3_key), settings.S3_BUCKET_NAME)
+        storage.upload_source_file(temp_file_path, str(s3_key))
         logger.info(f"File uploaded to S3: {s3_key}")
 
     finally:
@@ -130,7 +130,7 @@ def upload_url_file(
     lifecycle_service.update_progress(
         job_id, progress=80, message="Verifying upload result..."
     )
-    file_info = verify_s3_file_exists(str(s3_key))
+    file_info = storage.verify_upload_exists(str(s3_key))
     if not file_info.get("exists"):
         raise StorageServiceException(
             user_message="We failed to verify your file upload",
