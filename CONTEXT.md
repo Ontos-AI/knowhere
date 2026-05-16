@@ -102,6 +102,11 @@ keys.
 The Billing Workflow adapter that creates Stripe payment intents and checkout
 sessions for credits purchases.
 
+### Stripe Credits Settlement
+
+The Billing Workflow adapter that settles successful Stripe checkout and
+payment-intent events into credits, payment records, and tier refreshes.
+
 ### Stripe Webhook Reconciliation
 
 The Billing Workflow adapter that verifies Stripe events and reconciles credits,
