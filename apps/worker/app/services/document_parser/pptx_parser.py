@@ -29,7 +29,7 @@ from shared.core.exceptions.domain_exceptions import (
     FileSystemException,
 )
 from shared.core.logging import LogEvent
-from shared.utils.CommonHelperSync import load_file_bytes
+from shared.utils.file_loading import load_file_bytes
 from shared.utils.file_utils import path_handle
 
 # ==================== LibreOffice conversion ====================

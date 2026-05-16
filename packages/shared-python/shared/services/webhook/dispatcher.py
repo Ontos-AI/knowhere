@@ -345,13 +345,12 @@ class WebhookDispatcher:
 
                 # Add result_url (fresh download link)
                 if job_result.result_s3_key:
-                    from shared.services.storage.file_upload_service import (
-                        FileUploadService,
-                    )
+                    from shared.services.storage.job_file_storage import JobFileStorage
 
-                    upload_service = FileUploadService()
-                    url_info = await upload_service.generate_download_url(
-                        job_result.result_s3_key
+                    result_storage = JobFileStorage()
+                    url_info = result_storage.generate_download_url(
+                        job_result.result_s3_key,
+                        bucket=result_storage.results_bucket,
                     )
                     payload["result_url"] = url_info["download_url"]
                     logger.debug(

@@ -20,10 +20,7 @@ from app.services.document_ingestion.workspace import (
     download_s3_file_to_temp,
 )
 from app.services.document_parser.stage_profiler import stage_timer
-from app.services.storage.sync_storage_service import (
-    generate_download_url,
-    verify_s3_file_exists,
-)
+from app.services.storage.sync_storage_service import verify_s3_file_exists
 from loguru import logger
 from sqlalchemy import select
 
@@ -220,11 +217,7 @@ def _run_parse_job(
 
     filename = JobMetadataHelper.get_field(job_context.job_metadata, "source_file_name")
     file_ext = os.path.splitext(job_context.s3_key)[1].lower() if job_context.s3_key else ""
-    file_url = generate_download_url(
-        job_context.s3_key,
-        settings.S3_BUCKET_NAME,
-    )["download_url"]
-    local_temp_path = download_s3_file_to_temp(file_url, file_ext, input_dir)
+    local_temp_path = download_s3_file_to_temp(job_context.s3_key, file_ext, input_dir)
     logger.info(f"File downloaded: job_id={job_id}, local_path={local_temp_path}")
 
     from app.services.document_parser.internal_parse_name import (

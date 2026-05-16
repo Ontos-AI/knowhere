@@ -12,7 +12,7 @@ from shared.core.config import settings
 from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.response_process_service import eval_response
 from shared.utils.chunk_refs import CHUNK_REF_PATTERN
-from shared.utils.CommonHelperSync import load_file_bytes
+from shared.utils.file_loading import load_file_bytes
 from shared.utils.OpenAICompatibleClientSync import get_openai_client
 
 

@@ -9,7 +9,7 @@ from shared.core.billing import MicroDollar
 from shared.core.exceptions.domain_exceptions import JobOperationException
 from shared.models.schemas.job import JobResultResponse, StandardErrorObject
 from shared.models.schemas.job_metadata import JobMetadataHelper
-from shared.services.storage.file_upload_service import FileUploadService
+from shared.services.storage.job_file_storage import JobFileStorage
 from shared.utils.error_details import normalize_error_details
 from shared.utils.utc_now import utc_now_naive
 
@@ -118,9 +118,10 @@ async def _resolve_result_delivery(
     result_url_expires_at = job.created_at
 
     if job_result and job_result.result_s3_key:
-        upload_service = FileUploadService()
-        result_url_info = await upload_service.generate_download_url(
-            job_result.result_s3_key
+        result_storage = JobFileStorage()
+        result_url_info = result_storage.generate_download_url(
+            job_result.result_s3_key,
+            bucket=result_storage.results_bucket,
         )
         result_url = result_url_info["download_url"]
 

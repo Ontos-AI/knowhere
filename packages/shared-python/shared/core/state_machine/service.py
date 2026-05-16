@@ -7,7 +7,6 @@ cache management.  All methods accept an ``AsyncSession``.
 
 import asyncio
 import time
-from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from loguru import logger
@@ -19,16 +18,17 @@ from shared.core.state_machine.states import (
     JobStatus,
     is_valid_transition,
 )
+from shared.core.state_machine.transition_payloads import (
+    build_failure_transition_metadata,
+    build_progress_cache_payload,
+    build_retry_transition,
+    serialize_transition_metadata,
+    utc_now_naive,
+)
 from shared.models.database.job import Job
 from shared.models.database.job_state_audit_log import JobStateAuditLog
 from shared.services.redis import RedisServiceFactory
-from shared.utils.error_details import normalize_error_details
-from shared.utils.json_utils import make_json_safe
 from shared.utils.redis_key_builder import RedisKeyType, redis_key_builder
-
-
-def _utc_now_naive() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class AsyncStateMachineService:
@@ -136,7 +136,14 @@ class AsyncStateMachineService:
     ) -> bool:
         """Mark a job as failed with error information."""
         try:
-            normalized_details = normalize_error_details(error_details)
+            normalized_details, transition_metadata = (
+                build_failure_transition_metadata(
+                    error_message=error_message,
+                    error_code=error_code,
+                    error_details=error_details,
+                    metadata=metadata,
+                )
+            )
             await self._update_job_error(
                 db,
                 job_id,
@@ -144,12 +151,6 @@ class AsyncStateMachineService:
                 error_code,
                 normalized_details,
             )
-
-            transition_metadata = (metadata or {}).copy()
-            transition_metadata["error_message"] = error_message
-            transition_metadata["error_code"] = error_code
-            if normalized_details:
-                transition_metadata["error_details"] = normalized_details
 
             return await self.transition(
                 db,
@@ -208,16 +209,10 @@ class AsyncStateMachineService:
                 logger.error(f"Job {job_id} has no status")
                 return False
 
-            retry_target = (
-                JobStatus.PENDING.value
-                if current_state == JobStatus.FAILED.value
-                else current_state
+            retry_target, retry_metadata = build_retry_transition(
+                current_state=current_state,
+                retry_metadata=retry_metadata,
             )
-
-            retry_metadata = retry_metadata or {}
-            retry_metadata["retry_reason"] = "task_retry"
-            retry_metadata["retry_timestamp"] = str(int(time.time()))
-            retry_metadata["retry_count"] = retry_metadata.get("retry_count", 0) + 1
 
             # Always use full transition() for CAS protection — even same-state
             return await self.transition(
@@ -291,7 +286,7 @@ class AsyncStateMachineService:
             .values(
                 status=to_state,
                 version=old_version + 1,
-                updated_at=_utc_now_naive(),
+                updated_at=utc_now_naive(),
             )
         )
         return result.rowcount > 0
@@ -307,13 +302,7 @@ class AsyncStateMachineService:
         operator_type: str,
         metadata: Optional[Dict[str, Any]],
     ) -> None:
-        serialized = None
-        if metadata:
-            try:
-                serialized = make_json_safe(metadata)
-            except Exception as e:
-                logger.warning(f"Metadata serialization failed: {e}")
-                serialized = {"error": "metadata_serialization_failed"}
+        serialized = serialize_transition_metadata(metadata)
 
         db.add(
             JobStateAuditLog(
@@ -392,13 +381,20 @@ class AsyncStateMachineService:
             )
 
             progress_key = redis_key_builder.task_progress(job_id)
-            progress_data: Dict[str, Any] = {
-                "status": status,
-                "timestamp": str(int(time.time())),
-            }
+            progress_data: Dict[str, Any] = build_progress_cache_payload(
+                status=status,
+                metadata=None,
+                timestamp=int(time.time()),
+            )
             if metadata:
                 try:
-                    progress_data.update(make_json_safe(metadata))
+                    progress_data.update(
+                        build_progress_cache_payload(
+                            status=status,
+                            metadata=metadata,
+                            timestamp=int(time.time()),
+                        )
+                    )
                 except Exception as e:
                     logger.warning(f"Metadata serialization skipped: {e}")
 

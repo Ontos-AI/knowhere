@@ -1,102 +1,67 @@
-"""
-Sync storage operations for worker tasks.
-Provides S3 file operations and HTTP file downloads using sync adapters
-that yield cooperatively under gevent.
-"""
+"""Sync adapter for shared Job file storage used by worker tasks."""
 
 import os
-import tempfile
-from typing import Any, Dict, Optional
+from typing import Any
 
 from loguru import logger
 
 from shared.core.config import settings
-from shared.core.config.storage import get_cached_storage_adapter
-from shared.core.exceptions.domain_exceptions import StorageServiceException
-from shared.utils.pinned_outbound_http import download_pinned_outbound_file
-from shared.utils.url_security import validate_http_url_and_resolve_ip
+from shared.services.storage.job_file_storage import JobFileStorage
 
 
-def get_storage_adapter():
-    """Get the storage adapter for direct sync S3 operations."""
-    return get_cached_storage_adapter()
+def get_storage_adapter() -> JobFileStorage:
+    """Get the shared job file storage module for sync worker operations."""
+    return JobFileStorage()
 
 
-def verify_s3_file_exists(s3_key: str, bucket: Optional[str] = None) -> Dict[str, Any]:
-    """Verify S3 file exists using sync adapter calls."""
-    adapter = get_storage_adapter()
-    bucket_name = bucket or settings.S3_BUCKET_NAME
-    try:
-        if not adapter.exists(s3_key, bucket_name):
-            return {"exists": False}
-        size = adapter.get_object_size(s3_key, bucket_name)
-        return {"exists": True, "size": size}
-    except Exception as e:
-        if "404" in str(e) or "not found" in str(e).lower():
-            return {"exists": False}
-        raise StorageServiceException(
-            internal_message=f"S3 file verification failed: {e}",
-            operation="verify_s3_file_exists",
-            original_exception=e,
-        )
+def verify_s3_file_exists(s3_key: str, bucket: str | None = None) -> dict[str, Any]:
+    """Verify an uploaded source file exists."""
+    storage = get_storage_adapter()
+    return storage.verify_exists(
+        s3_key,
+        bucket=bucket or settings.S3_BUCKET_NAME,
+    )
 
 
 def generate_download_url(
-    s3_key: str, bucket: Optional[str] = None, expires_in: int = 3600
-) -> Dict[str, Any]:
-    """Generate presigned download URL using sync adapter."""
-    adapter = get_storage_adapter()
-    bucket_name = bucket or settings.S3_BUCKET_NAME
-    download_url = adapter.generate_presigned_url(
-        s3_key, expiration=expires_in, bucket=bucket_name, method="GET"
+    s3_key: str, bucket: str | None = None, expires_in: int = 3600
+) -> dict[str, Any]:
+    """Generate a presigned download URL for a stored object."""
+    storage = get_storage_adapter()
+    return storage.generate_download_url(
+        s3_key,
+        bucket=bucket or settings.S3_BUCKET_NAME,
+        expires_in=expires_in,
     )
-    return {"download_url": download_url, "expires_in": expires_in}
 
 
-def upload_to_s3(local_file_path: str, s3_key: str, bucket: str):
-    """Upload file to S3 using sync adapter."""
-    adapter = get_storage_adapter()
-    adapter.upload_file(local_file_path, s3_key, bucket)
+def upload_to_s3(local_file_path: str, s3_key: str, bucket: str) -> None:
+    """Upload a local file using the shared job file storage rules."""
+    storage = get_storage_adapter()
+    storage.upload_local_file(local_file_path, s3_key, bucket=bucket)
 
 
 def download_s3_object_to_temp(
     s3_key: str,
     suffix: str,
     temp_dir: str,
-    bucket: Optional[str] = None,
+    bucket: str | None = None,
 ) -> str:
     """Download an object-storage file into a task-local temp file."""
-    adapter = get_storage_adapter()
-    bucket_name = bucket or settings.S3_BUCKET_NAME
-    local_temp_path: str | None = None
-
-    try:
-        os.makedirs(temp_dir, exist_ok=True)
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=suffix,
-            dir=temp_dir,
-        ) as temp_file:
-            local_temp_path = temp_file.name
-        adapter.download_file(s3_key, local_temp_path, bucket_name)
-        return local_temp_path
-    except Exception as e:
-        if local_temp_path and os.path.exists(local_temp_path):
-            os.remove(local_temp_path)
-        raise StorageServiceException(
-            internal_message=(
-                f"Failed to download object-storage file to temp path: "
-                f"s3_key={s3_key}, temp_dir={temp_dir}, error={e}"
-            ),
-            operation="download_s3_object_to_temp",
-            original_exception=e,
-        ) from e
+    storage = get_storage_adapter()
+    return storage.download_to_temp(
+        s3_key,
+        suffix=suffix,
+        temp_dir=temp_dir,
+        bucket=bucket or settings.S3_BUCKET_NAME,
+    )
 
 
 def upload_zip_result(job_id: str, zip_file_path: str) -> str:
     """Upload ZIP result file to S3 and cleanup temp file."""
-    results_bucket = getattr(settings, "S3_RESULTS_BUCKET", settings.S3_BUCKET_NAME)
-    s3_key = f"results/{job_id}.zip"
+    storage = get_storage_adapter()
+    results_bucket = storage.results_bucket
+    s3_key = storage.build_result_zip_key(job_id=job_id)
     upload_to_s3(zip_file_path, s3_key, results_bucket)
     logger.info(f"Result ZIP uploaded: job_id={job_id}, key={s3_key}")
     try:
@@ -109,33 +74,6 @@ def upload_zip_result(job_id: str, zip_file_path: str) -> str:
 
 def download_file_from_url(file_url: str) -> str:
     """Download a URL file through SSRF validation and IP pinning."""
-    temp_file_path = ""
-    try:
-        validation = validate_http_url_and_resolve_ip(file_url)
-        if not validation.is_valid or not validation.validated_ip:
-            raise StorageServiceException(
-                internal_message=f"Invalid URL: {validation.error_message}",
-                operation="download_from_url",
-            )
-
-        temp_dir = getattr(settings, "TMP_PATH", "/tmp")
-        os.makedirs(temp_dir, exist_ok=True)
-        download_result = download_pinned_outbound_file(
-            url=validation.url,
-            pinned_ip=validation.validated_ip,
-            timeout_seconds=300,
-            user_agent="Knowhere-FileDownloader/1.0",
-            temp_dir=temp_dir,
-        )
-        temp_file_path = download_result.temp_file_path
-        return temp_file_path
-    except StorageServiceException:
-        raise
-    except Exception as e:
-        if os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
-        raise StorageServiceException(
-            internal_message=f"Failed to download file: {e}",
-            operation="download_from_url",
-            original_exception=e,
-        )
+    storage = get_storage_adapter()
+    temp_dir = getattr(settings, "TMP_PATH", "/tmp")
+    return storage.download_file_from_url(file_url, temp_dir=temp_dir)

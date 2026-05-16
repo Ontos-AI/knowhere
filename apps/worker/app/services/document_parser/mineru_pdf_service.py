@@ -20,8 +20,8 @@ from shared.core.exceptions.domain_exceptions import (
     UnavailableException,
 )
 from shared.core.exceptions.knowhere_exception import KnowhereException
-from shared.utils.CommonHelperSync import is_remote
-from shared.utils.FileDownUpUtils import s3_download_extract_zip
+from shared.utils.file_loading import is_remote
+from shared.utils.zip_download import download_and_extract_zip
 
 MINERU_UPLOAD_TIMEOUT = (
     settings.MINERU_UPLOAD_CONNECT_TIMEOUT,
@@ -369,7 +369,7 @@ def poll_mineru_task(
                     last_state = state
 
                 if state == "done":
-                    s3_download_extract_zip(
+                    download_and_extract_zip(
                         status["full_zip_url"],
                         dest_dir=output_dir,
                         keep_exts=(".md", ".jpg", ".jpeg", ".png", ".gif", ".json"),

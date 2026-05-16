@@ -4,16 +4,15 @@ import os
 import shutil
 import tempfile
 
-import requests
 from loguru import logger
 
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import (
     FileSystemException,
-    StorageServiceException,
     SystemSettingInvalidException,
     SystemSettingMissingException,
 )
+from shared.services.storage.job_file_storage import JobFileStorage
 
 
 def cleanup_temp_file(file_path: str | None) -> None:
@@ -69,34 +68,12 @@ def create_task_workspace(job_id: str) -> str:
         ) from exc
 
 
-def download_s3_file_to_temp(file_url: str, file_ext: str, temp_dir: str) -> str:
+def download_s3_file_to_temp(s3_key: str, file_ext: str, temp_dir: str) -> str:
     """Download the source file from object storage into the task workspace."""
-    local_temp_path: str | None = None
-
-    try:
-        os.makedirs(temp_dir, exist_ok=True)
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=file_ext,
-            dir=temp_dir,
-        ) as temp_file:
-            local_temp_path = temp_file.name
-            with requests.get(
-                file_url,
-                timeout=120,
-                stream=True,
-                headers={"User-Agent": "Knowhere-Worker/1.0"},
-            ) as response:
-                response.raise_for_status()
-                for chunk in response.iter_content(chunk_size=65536):
-                    if chunk:
-                        temp_file.write(chunk)
-    except requests.RequestException as exc:
-        cleanup_temp_file(local_temp_path)
-        raise StorageServiceException(
-            internal_message=f"Failed to download source file from object storage: {exc}",
-            operation="download_source_file",
-            original_exception=exc,
-        ) from exc
-
-    return local_temp_path
+    storage = JobFileStorage()
+    return storage.download_to_temp(
+        s3_key,
+        suffix=file_ext,
+        temp_dir=temp_dir,
+        bucket=settings.S3_BUCKET_NAME,
+    )

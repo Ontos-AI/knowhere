@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol
+
+from shared.services.storage.job_file_storage import JobFileStorage
+from shared.services.storage.storage_adapter import StorageAdapter
 
 _EXCLUDED_FILE_NAMES = {".DS_Store", "Thumbs.db"}
 _EXCLUDED_DIR_NAMES = {"tmp", "temp", "__pycache__"}
@@ -29,32 +33,24 @@ class ResultStorage(Protocol):
     def normalize_artifact_ref(self, artifact_ref: str | None) -> str | None: ...
 
 
-class ResultS3:
+class JobResultStorage:
     def __init__(
-        self, *, results_bucket: str | None = None, storage_adapter=None
+        self,
+        *,
+        results_bucket: str | None = None,
+        storage_adapter: StorageAdapter | None = None,
     ) -> None:
-        if results_bucket is None:
-            from shared.core.config import settings
-
-            results_bucket = getattr(
-                settings, "S3_RESULTS_BUCKET", settings.S3_BUCKET_NAME
-            )
-        self.results_bucket = results_bucket
-        self._storage_adapter = storage_adapter
-
-    @property
-    def storage_adapter(self):
-        if self._storage_adapter is None:
-            from shared.core.config.storage import get_cached_storage_adapter
-
-            self._storage_adapter = get_cached_storage_adapter()
-        return self._storage_adapter
+        self._job_file_storage = JobFileStorage(
+            storage_adapter=storage_adapter,
+            results_bucket=results_bucket,
+        )
+        self.results_bucket = self._job_file_storage.results_bucket
 
     def build_zip_key(self, *, job_id: str) -> str:
-        return f"results/{job_id}.zip"
+        return self._job_file_storage.build_result_zip_key(job_id=job_id)
 
     def build_raw_prefix(self, *, job_id: str) -> str:
-        return f"results/{job_id}/"
+        return self._job_file_storage.build_result_raw_prefix(job_id=job_id)
 
     def build_raw_key(self, *, job_id: str, relative_path: str) -> str:
         normalized = self._normalize_raw_relative_path(relative_path)
@@ -82,15 +78,21 @@ class ResultS3:
         if not zip_path.is_file():
             raise ValueError(f"Result ZIP file does not exist: {zip_file_path}")
         zip_key = self.build_zip_key(job_id=job_id)
-        self.storage_adapter.upload_file(str(zip_path), zip_key, self.results_bucket)
+        self._job_file_storage.upload_local_file(
+            str(zip_path),
+            zip_key,
+            bucket=self.results_bucket,
+        )
         self._cleanup_file(zip_path)
 
         raw_files: dict[str, str] = {}
         for file_path in self._iter_raw_files(result_path):
             relative_path = file_path.relative_to(result_path).as_posix()
             raw_key = self.build_raw_key(job_id=job_id, relative_path=relative_path)
-            self.storage_adapter.upload_file(
-                str(file_path), raw_key, self.results_bucket
+            self._job_file_storage.upload_local_file(
+                str(file_path),
+                raw_key,
+                bucket=self.results_bucket,
             )
             raw_files[relative_path] = raw_key
 
@@ -101,12 +103,11 @@ class ResultS3:
         )
 
     def generate_url(self, *, storage_key: str, expires_in: int = 3600) -> str | None:
-        return self.storage_adapter.generate_presigned_url(
+        return self._job_file_storage.generate_download_url(
             storage_key,
-            expiration=expires_in,
             bucket=self.results_bucket,
-            method="GET",
-        )
+            expires_in=expires_in,
+        )["download_url"]
 
     def generate_artifact_url(
         self, *, job_id: str, artifact_ref: str, expires_in: int = 3600
@@ -119,7 +120,7 @@ class ResultS3:
             expires_in=expires_in,
         )
 
-    def _iter_raw_files(self, result_dir: Path):
+    def _iter_raw_files(self, result_dir: Path) -> Iterator[Path]:
         for root, dir_names, file_names in os.walk(result_dir):
             dir_names[:] = [
                 dir_name
@@ -160,4 +161,4 @@ class ResultS3:
 
 
 def get_result_storage() -> ResultStorage:
-    return ResultS3()
+    return JobResultStorage()

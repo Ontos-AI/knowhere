@@ -175,23 +175,16 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
             "size": _SAMPLE_PDF_PATH.stat().st_size,
         }
 
-    def fake_generate_download_url(storage_key: str, bucket: str | None) -> dict[str, str]:
-        return {"download_url": f"https://example.test/{storage_key}"}
-
     monkeypatch.setattr(
         parse_job_service,
         "verify_s3_file_exists",
         fake_verify_s3_file_exists,
     )
-    monkeypatch.setattr(
-        parse_job_service,
-        "generate_download_url",
-        fake_generate_download_url,
-    )
 
     def fake_download_s3_file_to_temp(
-        file_url: str, file_ext: str, temp_dir: str
+        storage_key: str, file_ext: str, temp_dir: str
     ) -> str:
+        assert storage_key == s3_key
         assert file_ext == ".pdf"
         downloaded_path = Path(temp_dir) / f"downloaded{file_ext}"
         shutil.copy2(_SAMPLE_PDF_PATH, downloaded_path)
@@ -776,12 +769,10 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
             "size": _SAMPLE_PDF_PATH.stat().st_size,
         }
 
-    def fake_generate_download_url(storage_key: str, bucket: str | None) -> dict[str, str]:
-        return {"download_url": f"https://example.test/{storage_key}"}
-
     def fake_download_s3_file_to_temp(
-        file_url: str, file_ext: str, temp_dir: str
+        storage_key: str, file_ext: str, temp_dir: str
     ) -> str:
+        assert storage_key == s3_key
         downloaded_path = Path(temp_dir) / f"downloaded{file_ext}"
         shutil.copy2(_SAMPLE_PDF_PATH, downloaded_path)
         return str(downloaded_path)
@@ -869,11 +860,6 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
         parse_job_service,
         "verify_s3_file_exists",
         fake_verify_s3_file_exists,
-    )
-    monkeypatch.setattr(
-        parse_job_service,
-        "generate_download_url",
-        fake_generate_download_url,
     )
     monkeypatch.setattr(parse_job_service, "download_s3_file_to_temp", fake_download_s3_file_to_temp)
     monkeypatch.setattr(parse_service, "checkerboard_inject_parse", fake_checkerboard_inject_parse)
@@ -1016,12 +1002,10 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
             "size": _SAMPLE_PDF_PATH.stat().st_size,
         }
 
-    def fake_generate_download_url(storage_key: str, bucket: str | None) -> dict[str, str]:
-        return {"download_url": f"https://example.test/{storage_key}"}
-
     def fake_download_s3_file_to_temp(
-        file_url: str, file_ext: str, temp_dir: str
+        storage_key: str, file_ext: str, temp_dir: str
     ) -> str:
+        assert storage_key in s3_keys.values()
         assert file_ext == ".pdf"
         downloaded_path = Path(temp_dir) / f"downloaded{file_ext}"
         shutil.copy2(_SAMPLE_PDF_PATH, downloaded_path)
@@ -1072,11 +1056,6 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
         parse_job_service,
         "verify_s3_file_exists",
         fake_verify_s3_file_exists,
-    )
-    monkeypatch.setattr(
-        parse_job_service,
-        "generate_download_url",
-        fake_generate_download_url,
     )
     monkeypatch.setattr(parse_job_service, "download_s3_file_to_temp", fake_download_s3_file_to_temp)
     monkeypatch.setattr(parse_job_service.PageEstimator, "estimate", fake_estimate_page_count)
@@ -1257,13 +1236,6 @@ def test_should_skip_parse_task_when_the_job_is_already_terminal(
         fake_verify_s3_file_exists,
     )
     monkeypatch.setattr(
-        parse_job_service,
-        "generate_download_url",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("terminal parse task should not request a download URL")
-        ),
-    )
-    monkeypatch.setattr(
         parse_service,
         "checkerboard_inject_parse",
         lambda **_kwargs: (_ for _ in ()).throw(
@@ -1354,23 +1326,16 @@ def test_should_mark_the_job_failed_and_cleanup_the_workspace_when_parse_executi
             "size": _SAMPLE_PDF_PATH.stat().st_size,
         }
 
-    def fake_generate_download_url(storage_key: str, bucket: str | None) -> dict[str, str]:
-        return {"download_url": f"https://example.test/{storage_key}"}
-
     monkeypatch.setattr(
         parse_job_service,
         "verify_s3_file_exists",
         fake_verify_s3_file_exists,
     )
-    monkeypatch.setattr(
-        parse_job_service,
-        "generate_download_url",
-        fake_generate_download_url,
-    )
 
     def fake_download_s3_file_to_temp(
-        file_url: str, file_ext: str, temp_dir: str
+        storage_key: str, file_ext: str, temp_dir: str
     ) -> str:
+        assert storage_key == s3_key
         downloaded_path = Path(temp_dir) / f"downloaded{file_ext}"
         shutil.copy2(_SAMPLE_PDF_PATH, downloaded_path)
         return str(downloaded_path)
