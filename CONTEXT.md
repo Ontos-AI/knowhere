@@ -53,6 +53,16 @@ The policy checks that must pass before a new Job is created: authentication,
 guest scope, system limits, billing RPM, concurrent job limits, and daily
 quota.
 
+### Job Admission Route Policy
+
+The route-aware part of Job Admission that enforces guest API key scope and
+system limits.
+
+### Job Admission Capacity
+
+The quota-aware part of Job Admission that enforces billing RPM, concurrent
+jobs, and daily quota.
+
 ### Publication
 
 The shared workflow that turns parsed chunks into Documents, Document Sections,
