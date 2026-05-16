@@ -1,4 +1,4 @@
-"""Common worker services, including reusable knowledge-base helpers."""
+"""Common worker services."""
 
 from shared.utils.device_utils import check_internet
 from shared.utils.file_utils import clean_file, path_handle
@@ -10,39 +10,8 @@ from shared.utils.text_utils import (
     tokenize2stw_remove,
 )
 
-from .kb_utils import (
-    find_images,
-    find_matches_parsing,
-    flatten_dic2paths,
-    flatten_list,
-    gen_str_codes,
-    get_str_time,
-    html2txt,
-    merge_df,
-    process_dup_paths_df,
-    process_path_texts,
-    remove_spaces,
-    restore_graph_by_paths,
-    traverse_dict,
-)
-
 __all__ = [
-    # From kb_utils
     "count_cn_en",
-    "find_images",
-    "find_matches_parsing",
-    "flatten_dic2paths",
-    "flatten_list",
-    "gen_str_codes",
-    "get_str_time",
-    "html2txt",
-    "merge_df",
-    "process_dup_paths_df",
-    "process_path_texts",
-    "remove_spaces",
-    "restore_graph_by_paths",
-    "traverse_dict",
-    # From shared-python
     "check_internet",
     "clean_file",
     "min_max_normalize",

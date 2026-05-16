@@ -19,11 +19,8 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
-from app.services.common.kb_utils import (
-    gen_str_codes,
-    get_str_time,
-    process_dup_paths_df,
-)
+from app.services.document_parser.dataframe_helpers import process_dup_paths_df
+from app.services.document_parser.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.pymupdf_subprocess import run_in_child_process, worker
 from app.services.document_parser.toc_parser import detect_tocs_in_texts
 from loguru import logger

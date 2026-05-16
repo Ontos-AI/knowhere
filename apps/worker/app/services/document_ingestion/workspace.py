@@ -1,3 +1,5 @@
+"""Task-scoped workspace helpers for worker-side Document Ingestion."""
+
 import os
 import shutil
 import tempfile
@@ -28,10 +30,7 @@ def cleanup_temp_file(file_path: str | None) -> None:
 
 def cleanup_task_workspace(workspace_dir: str | None) -> bool:
     """Best-effort cleanup for a task-scoped temporary workspace."""
-    if not workspace_dir:
-        return False
-
-    if not os.path.isdir(workspace_dir):
+    if not workspace_dir or not os.path.isdir(workspace_dir):
         return False
 
     try:
@@ -71,15 +70,17 @@ def create_task_workspace(job_id: str) -> str:
 
 
 def download_s3_file_to_temp(file_url: str, file_ext: str, temp_dir: str) -> str:
-    """Download the source file from object storage into a task workspace file."""
-    local_temp_path = None
+    """Download the source file from object storage into the task workspace."""
+    local_temp_path: str | None = None
 
     try:
         os.makedirs(temp_dir, exist_ok=True)
         with tempfile.NamedTemporaryFile(
-            delete=False, suffix=file_ext, dir=temp_dir
-        ) as tmp_file:
-            local_temp_path = tmp_file.name
+            delete=False,
+            suffix=file_ext,
+            dir=temp_dir,
+        ) as temp_file:
+            local_temp_path = temp_file.name
             with requests.get(
                 file_url,
                 timeout=120,
@@ -89,7 +90,7 @@ def download_s3_file_to_temp(file_url: str, file_ext: str, temp_dir: str) -> str
                 response.raise_for_status()
                 for chunk in response.iter_content(chunk_size=65536):
                     if chunk:
-                        tmp_file.write(chunk)
+                        temp_file.write(chunk)
     except requests.RequestException as exc:
         cleanup_temp_file(local_temp_path)
         raise StorageServiceException(

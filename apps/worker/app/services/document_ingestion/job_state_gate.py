@@ -1,9 +1,9 @@
 """
-Worker-side job start gating.
+Worker-side Document Ingestion state gate.
 
 Keeps the worker-specific policy for when a parse task is allowed to move a
-job into ``running`` while delegating the actual state transition to the
-shared sync state machine service.
+Job into ``running`` while delegating the actual transition to the shared sync
+state machine service.
 """
 
 from typing import Any
@@ -24,11 +24,7 @@ from shared.models.database.job import Job
 
 
 def mark_job_running(job_id: str, redis_service: Any) -> bool:
-    """Transition a job from pending to running before parse execution.
-
-    Returns ``True`` when parsing should proceed. Returns ``False`` when the
-    job is already terminal and the task should skip quietly.
-    """
+    """Transition a Job from pending to running before parse execution."""
     state_machine = SyncStateMachineService(redis_service)
 
     with get_sync_db_context() as db:
@@ -45,9 +41,6 @@ def mark_job_running(job_id: str, redis_service: Any) -> bool:
         current_state = job.status
 
         if current_state == JobStatus.RUNNING.value:
-            # Likely a broker redelivery while the original worker is still
-            # processing. Let the caller proceed to RedisJobLock, which gates
-            # actual execution.
             logger.info(
                 f"Job already running (likely redelivery), deferring to lock: {job_id}"
             )

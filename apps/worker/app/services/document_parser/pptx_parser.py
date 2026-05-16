@@ -6,7 +6,7 @@ import time
 
 import jwt
 import requests
-from app.services.common.kb_utils import find_images
+from app.services.document_parser.path_helpers import find_images
 from app.services.document_parser.legacy_converter import (
     _convert_with_libreoffice,
 )

@@ -8,11 +8,8 @@ import threading
 from pathlib import Path
 
 import pandas as pd
-from app.services.common.kb_utils import (
-    gen_str_codes,
-    get_str_time,
-    process_dup_paths_df,
-)
+from app.services.document_parser.dataframe_helpers import process_dup_paths_df
+from app.services.document_parser.identifiers import gen_str_codes, get_str_time
 from loguru import logger
 from PIL import Image
 

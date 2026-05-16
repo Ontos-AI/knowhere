@@ -410,7 +410,7 @@ def first_cols_rows_html(html_str, max_items=10, max_chars=20):
     Returns:
         Tuple of (first_row_text, first_col_text) with ' | ' as separator
     """
-    from app.services.common.kb_utils import truncate_text
+    from app.services.document_parser.text_helpers import truncate_text
 
     soup = BeautifulSoup(html_str, "html.parser")
     table = soup.find("table")

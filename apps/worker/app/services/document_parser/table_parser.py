@@ -11,13 +11,9 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import openpyxl
 import pandas as pd
-from app.services.common.kb_utils import (
-    flatten_dic2paths,
-    gen_str_codes,
-    get_str_time,
-    process_dup_paths_df,
-    remove_spaces,
-)
+from app.services.document_parser.dataframe_helpers import process_dup_paths_df
+from app.services.document_parser.identifiers import gen_str_codes, get_str_time
+from app.services.document_parser.path_helpers import flatten_dic2paths, remove_spaces
 from app.services.document_parser.html_parser import df2html
 from bs4 import BeautifulSoup
 from loguru import logger

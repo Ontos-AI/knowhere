@@ -6,10 +6,7 @@ from collections import Counter, defaultdict
 
 import gevent
 import pandas as pd
-from app.services.common.kb_utils import (
-    count_cn_en,
-    truncate_text_by_tokens,
-)
+from app.services.document_parser.text_helpers import count_cn_en, truncate_text_by_tokens
 from app.services.document_parser.stage_profiler import stage_timer
 from app.services.document_parser.table_parser import df2md
 from docx.oxml.ns import qn

@@ -7,7 +7,7 @@ All I/O operations use sync services that yield cooperatively under gevent.
 
 # Base task class
 from app.core.tasks.base_task import KBBaseTask
-from app.services.workload.parse_job_service import parse_uploaded_file_job
+from app.services.document_ingestion.service import parse_uploaded_file_job
 from app.services.workload.url_upload_service import upload_url_file
 from loguru import logger
 

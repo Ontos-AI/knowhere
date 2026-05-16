@@ -35,8 +35,8 @@ def _build_pending_file_job_metadata(source_file_name: str) -> dict[str, Any]:
 
 def _load_parse_task_modules() -> tuple[Any, Any, Any, Engine, Any, Any, Any]:
     import app.core.tasks.kb_tasks as kb_tasks
+    import app.services.document_ingestion.service as parse_job_service
     import app.services.document_parser.parse_service as parse_service
-    import app.services.workload.parse_job_service as parse_job_service
     from shared.core.database_sync import get_sync_engine
     from shared.services.redis.redis_sync_service import (
         SyncJobInfoRedisService,

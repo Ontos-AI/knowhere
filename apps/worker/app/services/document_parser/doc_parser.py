@@ -6,11 +6,10 @@ import shutil
 import zipfile
 
 import pandas as pd
-from app.services.common.kb_utils import (
+from app.services.document_parser.dataframe_helpers import process_dup_paths_df
+from app.services.document_parser.identifiers import gen_str_codes, get_str_time
+from app.services.document_parser.path_helpers import (
     find_matches_parsing,
-    gen_str_codes,
-    get_str_time,
-    process_dup_paths_df,
     process_path_texts,
     remove_spaces,
 )
@@ -74,7 +73,7 @@ def _find_img_context(headings_stack, max_chars=100):
     Returns:
         The nearest valid text context, or empty string if none found
     """
-    from app.services.common.kb_utils import truncate_text
+    from app.services.document_parser.text_helpers import truncate_text
 
     try:
         content_list = headings_stack[-1].get("content", [])
@@ -236,7 +235,7 @@ def _first_cols_rows(table_block, max_items=10, max_chars=20):
     Returns:
         Tuple of (first_row_text, first_col_text) with ' | ' as separator
     """
-    from app.services.common.kb_utils import truncate_text
+    from app.services.document_parser.text_helpers import truncate_text
 
     first_row_text = ""
     first_col_text = ""
