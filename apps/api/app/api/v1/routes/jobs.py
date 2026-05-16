@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from app.services.document_ingestion_service import DocumentIngestionService
+from app.services.document_ingestion import DocumentIngestionService
 from app.services.job_read_service import (
     get_job_result_for_user,
     list_jobs_for_user,

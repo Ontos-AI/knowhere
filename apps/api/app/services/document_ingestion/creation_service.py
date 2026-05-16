@@ -8,7 +8,7 @@ from typing import cast
 from urllib.parse import urlparse
 
 from app.repositories.job_repository import JobRepository
-from app.services.job_document_scope_service import (
+from app.services.document_ingestion.scope_service import (
     is_active_document_job_unique_violation,
     raise_document_ingestion_conflict,
 )

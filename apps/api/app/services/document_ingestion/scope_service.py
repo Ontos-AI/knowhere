@@ -1,5 +1,5 @@
 """
-Document-scope rules used by job creation/update flows.
+Document-scope rules used by document-ingestion workflows.
 """
 
 from __future__ import annotations

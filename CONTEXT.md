@@ -161,9 +161,10 @@ exceptions.
 ### Document Ingestion
 
 - `app/api/v1/routes/jobs.py`
-- `app/services/job_creation_service.py`
-- `app/services/job_upload_confirmation_service.py`
-- `app/services/job_document_scope_service.py`
+- `app/services/document_ingestion/service.py`
+- `app/services/document_ingestion/creation_service.py`
+- `app/services/document_ingestion/confirmation_service.py`
+- `app/services/document_ingestion/scope_service.py`
 - `app/repositories/job_repository.py`
 
 ### Job Admission

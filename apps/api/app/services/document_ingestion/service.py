@@ -4,14 +4,14 @@ import os
 import uuid
 from typing import cast
 
-from app.services.document_ingestion_confirmation_service import (
+from app.services.document_ingestion.confirmation_service import (
     DocumentIngestionConfirmationService,
 )
-from app.services.document_ingestion_creation_service import (
+from app.services.document_ingestion.creation_service import (
     DocumentIngestionCreationService,
     ResolvedDocumentIngestionScope,
 )
-from app.services.job_document_scope_service import (
+from app.services.document_ingestion.scope_service import (
     find_active_job_for_document,
     raise_document_ingestion_conflict,
     resolve_effective_document_scope,
