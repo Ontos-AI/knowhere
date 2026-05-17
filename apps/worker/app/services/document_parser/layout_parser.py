@@ -6,7 +6,6 @@ import pandas as pd
 from app.services.document_parser.heading_candidates import (
     filter_document_headings,
     filter_markdown_headings,
-    judge_by_conditions,
     postprocess_headings,
 )
 from app.services.document_parser.heading_llm_executor import (
@@ -26,15 +25,6 @@ from app.services.document_parser.heading_tree import (
 from app.services.document_parser.stage_profiler import stage_timer
 from app.services.document_parser.table_text_parser import df2md
 from gevent.pool import Pool as GeventPool
-
-try:
-    from markitdown import MarkItDown
-except ImportError:
-    # Fall back to a pass-through shim when markitdown is unavailable.
-    class MarkItDown:
-        def convert(self, content):
-            return content
-
 
 from loguru import logger
 
@@ -91,31 +81,6 @@ def tree_to_dataframe(tree, node_to_id, original_df):
 
 def remove_isolated_nodes(tree):
     return remove_isolated_heading_nodes(tree)
-
-
-# def if_no_pos_code(reason_str: str) -> bool:
-#     """
-#     Check whether all pos_code values are zero.
-#     reason format: "POS [0, 0, ...] NEG [...]"
-#     """
-#     if not reason_str or not isinstance(reason_str, str):
-#         return True
-
-#     pos_match = re.search(r'POS\s*\[([^\]]*)\]', reason_str)
-#     if not pos_match:
-#         return True
-#     pos_content = pos_match.group(1)
-#     try:
-#         nums = [int(x.strip()) for x in pos_content.split(',') if x.strip()]
-#         return all(x == 0 for x in nums)
-#     except:
-#         return True
-
-
-
-def detect_outlines_md(line):
-    pos_code = judge_by_conditions(line)
-    any(x > 0 for x in pos_code)
 
 
 def format_toc_context_for_llm(toc_context) -> str:
@@ -711,54 +676,3 @@ def est_hierarchies_llm(
         output_dir=output_dir,
         csv_suffix=csv_suffix,
     )
-
-
-# def parse_outline_hier(markdown_text):
-#     lines = markdown_text.strip().splitlines()
-#     stack = []
-#     root = []
-#     for line in lines:
-#         line = line.replace('markdown', '')  # handle possible unexpected outputs
-#         if not line.strip():
-#             continue
-
-#         stripped = line.lstrip()
-#         indent = len(line) - len(stripped)
-#         match = re.match(r"[-*+] (.+)", stripped)
-#         if not match:
-#             continue
-
-#         title = match.group(1).strip()
-#         node = {"chapter": title, "children": [], 'serial': 1}
-#         level = indent // 2  # Two spaces per level, adjustable if needed.
-#         if level == 0:
-#             node['serial'] = len(root)+1
-#             root.append(node)
-#             stack = [(level, node)]
-#         else:
-#             while stack and stack[-1][0] >= level:
-#                 stack.pop()
-#             if stack:
-#                 parent = stack[-1][1]
-#                 node['serial'] = len(parent['children']) + 1
-#                 parent["children"].append(node)
-#             stack.append((level, node))
-#     return root
-
-
-# def outline_to_markdown(nodes, level=0, path=""):
-#     rows = []
-#     def traverse(node_list, level, path_prefix):
-#         for node in node_list:
-#             split_char = settings.SPLIT_CHAR or "/"
-#             current_path = f"{path_prefix} {split_char} {node['chapter']}" if path_prefix else node['chapter']
-#             rows.append({
-#                 "path": current_path,
-#                 "title": node["chapter"],
-#                 "thoughts": node.get("thoughts", "").strip(),
-#                 "level": level
-#             })
-#             if node.get("children"):
-#                 traverse(node["children"], level + 1, current_path)
-#     traverse(nodes, level, path)
-#     return pd.DataFrame(rows)

@@ -33,7 +33,6 @@ from shared.models.database.payment_record import PaymentRecord
 from shared.models.database.tier_limit import TierLimit
 from shared.models.database.user import User
 from shared.models.database.user_balance import UserBalance
-from shared.models.database.webhook import WebhookEvent  # noqa: F401
 from shared.services.billing import CreditsService
 from shared.utils.utc_now import utc_now_naive
 

@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from multiprocessing.process import BaseProcess
 from multiprocessing.queues import Queue as MultiprocessingQueue
 from threading import RLock
+from typing import TYPE_CHECKING
 
 from app.core.runtime_limits import read_pymupdf_max_concurrent
 from loguru import logger
@@ -33,7 +34,8 @@ from shared.core.exceptions.domain_exceptions import (
     TimeoutException,
 )
 
-from gevent.threadpool import ThreadPool as GeventThreadPool
+if TYPE_CHECKING:
+    from gevent.threadpool import ThreadPool as GeventThreadPool
 
 # Default timeout for child processes (seconds)
 DEFAULT_TIMEOUT = 3000

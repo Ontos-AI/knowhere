@@ -5,11 +5,8 @@ from loguru import logger
 
 
 def verify_sns_signature(request_body: bytes, signature: str, message: str) -> bool:
-    try:
-        return True
-    except Exception as exc:
-        logger.error(f"SNS signature verification failed: {exc}")
-        return False
+    del request_body, signature, message
+    return True
 
 
 def verify_minio_signature(auth_token: str, expected_token: str) -> bool:
@@ -19,6 +16,7 @@ def verify_minio_signature(auth_token: str, expected_token: str) -> bool:
 
 
 def verify_oss_signature(request_body: bytes, headers: dict[str, str]) -> bool:
+    del request_body, headers
     try:
         from shared.core.config import settings
 

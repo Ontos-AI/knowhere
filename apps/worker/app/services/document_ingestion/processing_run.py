@@ -67,7 +67,7 @@ class DocumentProcessingRun:
         with RedisJobLock(job_context.redis_service, job_id):
             task_workspace_dir, input_dir, output_dir = _prepare_task_workspace(job_id)
             try:
-                return _run_parse_job(
+                result = _run_parse_job(
                     job_id=job_id,
                     job_context=job_context,
                     lifecycle_service=lifecycle_service,
@@ -78,12 +78,7 @@ class DocumentProcessingRun:
             finally:
                 cleanup_task_workspace(task_workspace_dir)
 
-        raise WorkerHandlingException(
-            user_message="We could not complete document processing",
-            internal_message=(
-                f"Parse workflow exited without a result for job_id={job_id}"
-            ),
-        )
+        return result
 
 
 def _prepare_task_workspace(job_id: str) -> tuple[str, str, str]:

@@ -28,16 +28,6 @@ NAVIGATION_TOP_SUMMARY_MAX_TOKENS = 200
 NON_LLM_TOP_SUMMARY_MAX_SECTIONS = 20
 NON_LLM_TOP_SUMMARY_MAX_DEPTH = 2
 
-_TREE_EXCLUDED_TITLES = {"root", "images", "tables"}
-_TREE_TITLE_MAX_TOKENS_START = 20
-_TREE_TITLE_MAX_TOKENS_END = 5
-_TITLE_ENUM_PREFIXES = (
-    "this section covers:",
-    "this section includes",
-    "this document covers:",
-    "this document includes",
-)
-
 
 # ─── LLM Interface ───────────────────────────────────────────────────────────
 

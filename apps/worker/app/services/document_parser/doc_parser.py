@@ -440,8 +440,6 @@ def parse_docx(
     output_dir=None,
     filename="",
     file_url="",
-    start_text="",
-    end_text="",
     relative_root=None,
 ):
     doc_data = load_file_bytes(docx_path, file_url=file_url)

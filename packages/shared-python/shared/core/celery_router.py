@@ -214,16 +214,8 @@ class CeleryTaskRouter:
         """
         try:
             # TODO: temporary simplified path to avoid async work here.
-            priority_level = 1  # Default free-subscription level.
-
-            # Choose the queue by task type and priority level.
             if job_type in ["kb_management", "kb_encoding"]:
-                if priority_level >= 9:
-                    return "kb_high"
-                elif priority_level >= 5:
-                    return "kb_medium"
-                else:
-                    return "kb_low"
+                return "kb_low"
             elif job_type in ["ai_query", "user_auth", "urgent_document"]:
                 return "ai_high_priority"
             elif job_type in ["document_processing"]:

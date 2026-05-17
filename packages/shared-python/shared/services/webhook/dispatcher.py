@@ -13,7 +13,6 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Use standard db context - run_async_task handles the loop reuse
 from shared.core.database import get_db_context
 from shared.core.exceptions.webhook_exceptions import WebhookDeliveryException
 from shared.models.database.webhook import WebhookEvent, WebhookEventStatus

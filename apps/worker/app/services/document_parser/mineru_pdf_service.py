@@ -395,6 +395,8 @@ def parse_via_full(
     output_dir: str,
     s3_key: Optional[str] = None,
 ) -> None:
+    batch_id: str | None = None
+    token_id: str | None = None
     resolved_s3_key = resolve_mineru_source_s3_key(
         s3_key=s3_key,
         local_file_path=None if is_remote(pdf_url) else pdf_url,
@@ -425,6 +427,11 @@ def parse_via_full(
         )
         batch_id, upload_url, token_id = _request_upload_target(pdf_url, filename)
         _upload_file_to_mineru(pdf_url, filename, upload_url, token_id)
+
+    if batch_id is None or token_id is None:
+        raise MinerUServiceException(
+            internal_message="MinerU task setup completed without a batch id or token"
+        )
 
     poll_mineru_task(
         status_url=f"{settings.MINERU_URL}/extract-results/batch/{batch_id}",
