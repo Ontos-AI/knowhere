@@ -4,12 +4,12 @@ from __future__ import annotations
 import os
 
 from app.repositories.job_repository import JobRepository
-from app.services.knowledge.kb_orchestrator import KBOrchestrator
+from app.services.document_ingestion.handoff_service import (
+    DocumentIngestionHandoffService,
+)
 from loguru import logger
 
 from shared.core.database import get_db_context
-from shared.core.state_machine.service import AsyncStateMachineService
-from shared.core.state_machine.states import JobStatus
 from shared.models.schemas.s3_event import S3Event
 
 
@@ -25,6 +25,7 @@ async def process_upload_events(s3_event: S3Event) -> None:
     try:
         upload_events = s3_event.get_upload_events()
         job_repo = JobRepository()
+        handoff_service = DocumentIngestionHandoffService()
 
         for event in upload_events:
             s3_key = event.object_key or event.s3.get("object", {}).get("key")
@@ -55,39 +56,15 @@ async def process_upload_events(s3_event: S3Event) -> None:
 
                 if is_job_expired(job.updated_at, settings.JOB_WAITING_EXPIRE_SECONDS):
                     logger.warning(f"Job {job_id} upload expired, marking failed")
-                    state_machine = AsyncStateMachineService()
-                    await state_machine.mark_failed(
-                        db,
-                        job_id,
-                        "Upload expired: file was not uploaded within the allowed time window",
-                        error_code="UPLOAD_EXPIRED",
-                    )
+                    await handoff_service.mark_upload_expired(db, job=job)
                     continue
 
-                state_machine = AsyncStateMachineService()
-                await state_machine.transition(
-                    db,
-                    job_id,
-                    JobStatus.PENDING.value,
-                    "s3_upload_completed",
-                    None,
-                    "system",
+                await handoff_service.start_uploaded_file_workflow(
+                    db=db,
+                    job=job,
+                    user_id=str(job.user_id),
+                    trigger="s3_upload_completed",
                 )
-
-                if job.job_type == "kb_management":
-                    orchestrator = KBOrchestrator()
-                    await orchestrator.start_workflow(
-                        db=db,
-                        job_id=job_id,
-                        source_type="file",
-                        file_path=None,
-                        file_url=None,
-                        user_id=str(job.user_id),
-                    )
-                else:
-                    logger.warning(
-                        f"Unsupported job type for upload event: {job.job_type}, job_id={job_id}"
-                    )
 
                 logger.info(f"Triggered processing for job {job_id}")
 

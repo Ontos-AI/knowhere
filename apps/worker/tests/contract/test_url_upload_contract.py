@@ -38,11 +38,12 @@ def test_should_upload_a_url_job_to_the_expected_storage_key_and_publish_progres
 ) -> None:
     (
         kb_tasks,
-        url_upload_service,
+        _url_upload_service,
         engine,
         sync_job_info_service_cls,
         sync_redis_service_factory,
     ) = _load_upload_task_modules()
+    from shared.core.config import settings
     from shared.services.storage.job_file_storage import JobFileStorage
 
     user_id = f"worker-user-{uuid4().hex[:12]}"
@@ -124,7 +125,7 @@ def test_should_upload_a_url_job_to_the_expected_storage_key_and_publish_progres
         "file_size": 3,
     }
     assert uploaded_calls == [
-        (str(downloaded_path), s3_key, url_upload_service.settings.S3_BUCKET_NAME),
+        (str(downloaded_path), s3_key, settings.S3_BUCKET_NAME),
     ]
     assert os.path.exists(downloaded_path) is False
 

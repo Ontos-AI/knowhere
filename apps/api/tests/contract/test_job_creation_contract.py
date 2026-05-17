@@ -980,19 +980,18 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
         assert bucket is None
         return {"exists": True, "s3_key": s3_key}
 
-    async def _fake_start_workflow_for_job(
+    async def _fake_start_workflow(
+        self: object,
         db: object,
         job_id: str,
-        job_type: str,
         source_type: str,
+        file_path: str | None,
+        file_url: str | None,
         user_id: str,
-        file_path: str | None = None,
-        file_url: str | None = None,
     ) -> None:
         started_workflows.append(
             {
                 "job_id": job_id,
-                "job_type": job_type,
                 "source_type": source_type,
                 "user_id": user_id,
                 "file_path": file_path,
@@ -1002,7 +1001,7 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
         )
 
     async with developer_api_client_factory() as api_client:
-        import app.services.document_ingestion.confirmation_service as document_ingestion_confirmation_service
+        import app.services.knowledge.kb_orchestrator as kb_orchestrator_module
         import shared.services.storage.file_upload_service as file_upload_service_module
 
         monkeypatch.setattr(
@@ -1011,9 +1010,9 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
             _fake_verify_s3_file_exists,
         )
         monkeypatch.setattr(
-            document_ingestion_confirmation_service,
-            "_start_job_workflow",
-            _fake_start_workflow_for_job,
+            kb_orchestrator_module.KBOrchestrator,
+            "start_workflow",
+            _fake_start_workflow,
         )
 
         create_response = await api_client.post("/api/v1/jobs", json=payload)
@@ -1035,7 +1034,6 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
     assert started_workflows == [
         {
             "job_id": job_id,
-            "job_type": "kb_management",
             "source_type": "file",
             "user_id": "local-dev-user",
             "file_path": None,

@@ -93,11 +93,11 @@ async def test_should_accept_a_direct_upload_complete_event_advance_the_waiting_
 
     async with api_client_factory() as api_client:
         user_id, job_id = await _insert_waiting_file_job()
-        upload_event_service = importlib.import_module(
-            "app.services.s3_events.upload_event_service"
+        handoff_service = importlib.import_module(
+            "app.services.document_ingestion.handoff_service"
         )
         monkeypatch.setattr(
-            upload_event_service,
+            handoff_service,
             "KBOrchestrator",
             FakeKBOrchestrator,
         )
@@ -145,11 +145,11 @@ async def test_should_accept_an_sns_wrapped_upload_complete_event_and_advance_a_
 
     async with api_client_factory() as api_client:
         _, job_id = await _insert_waiting_file_job()
-        upload_event_service = importlib.import_module(
-            "app.services.s3_events.upload_event_service"
+        handoff_service = importlib.import_module(
+            "app.services.document_ingestion.handoff_service"
         )
         monkeypatch.setattr(
-            upload_event_service,
+            handoff_service,
             "KBOrchestrator",
             FakeKBOrchestrator,
         )

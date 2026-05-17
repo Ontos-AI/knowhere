@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from app.repositories.job_repository import JobRepository
+from app.services.document_ingestion.handoff_service import (
+    DocumentIngestionHandoffService,
+)
 from app.services.jobs import check_job_permission
-from app.services.knowledge.kb_orchestrator import KBOrchestrator
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,11 +14,8 @@ from shared.core.exceptions.domain_exceptions import (
     PermissionDeniedException,
     ValidationException,
 )
-from shared.core.state_machine.service import AsyncStateMachineService
 from shared.core.state_machine.states import JobStatus
 from shared.services.storage.file_upload_service import FileUploadService
-
-_JOB_TYPE_KB_MANAGEMENT = "kb_management"
 
 
 class DocumentIngestionConfirmationService:
@@ -25,9 +24,11 @@ class DocumentIngestionConfirmationService:
         *,
         job_repository: JobRepository | None = None,
         file_upload_service: FileUploadService | None = None,
+        handoff_service: DocumentIngestionHandoffService | None = None,
     ) -> None:
         self._job_repository = job_repository or JobRepository()
         self._file_upload_service = file_upload_service or FileUploadService()
+        self._handoff_service = handoff_service or DocumentIngestionHandoffService()
 
     async def confirm_upload(
         self,
@@ -66,13 +67,11 @@ class DocumentIngestionConfirmationService:
                     ],
                 )
 
-            await _transition_job_to_uploaded(db, job_id=job_id)
-            await _start_job_workflow(
+            await self._handoff_service.start_uploaded_file_workflow(
                 db=db,
-                job_id=job_id,
-                job_type=job.job_type,
-                source_type="file",
+                job=job,
                 user_id=user_id,
+                trigger="manual_upload_completed",
             )
             return {"message": "File upload confirmed; processing started"}
         except NotFoundException:
@@ -86,53 +85,3 @@ class DocumentIngestionConfirmationService:
             raise JobOperationException(
                 internal_message=f"Failed to confirm upload: {str(exc)}"
             )
-
-
-async def _transition_job_to_uploaded(
-    db: AsyncSession,
-    *,
-    job_id: str,
-    trigger: str = "manual_upload_completed",
-) -> None:
-    state_machine = AsyncStateMachineService()
-    await state_machine.transition(
-        db,
-        job_id,
-        JobStatus.PENDING.value,
-        trigger,
-        None,
-        "system",
-    )
-
-
-async def _start_job_workflow(
-    db: AsyncSession,
-    *,
-    job_id: str,
-    job_type: str,
-    source_type: str,
-    user_id: str,
-    file_path: str | None = None,
-    file_url: str | None = None,
-) -> None:
-    if job_type == _JOB_TYPE_KB_MANAGEMENT:
-        orchestrator = KBOrchestrator()
-        await orchestrator.start_workflow(
-            db=db,
-            job_id=job_id,
-            source_type=source_type,
-            file_path=file_path,
-            file_url=file_url,
-            user_id=user_id,
-        )
-        return
-
-    raise ValidationException(
-        user_message="Unsupported job type",
-        violations=[
-            {
-                "field": "job_type",
-                "description": f"Job type '{job_type}' is not supported",
-            }
-        ],
-    )
