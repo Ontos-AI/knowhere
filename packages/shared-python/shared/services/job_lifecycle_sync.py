@@ -25,6 +25,7 @@ from shared.models.database.job import Job
 from shared.models.database.document import DocumentSection
 from shared.models.database.job_result import JobChunk, JobResult
 from shared.models.database.webhook import WebhookEvent, WebhookEventStatus
+from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.billing.credits_sync_service import SyncCreditsService
 from shared.services.redis.redis_sync_service import (
     SyncRedisServiceFactory,
@@ -374,7 +375,7 @@ class SyncJobLifecycleService:
 
         namespaces: list[str] = []
         metadata = job.job_metadata or {}
-        new_namespace = metadata.get("namespace") or "default"
+        new_namespace = JobMetadataHelper.get_namespace(metadata, "default") or "default"
         namespaces.append(new_namespace)
 
         if previous_document_scope and previous_document_scope.get("namespace"):

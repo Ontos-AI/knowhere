@@ -204,7 +204,7 @@ class DocumentIngestionService:
         current_user: CurrentUser,
     ) -> ResolvedDocumentIngestionScope:
         job_metadata = cast(JobMetadata, JobMetadataHelper.create_from_request(payload))
-        requested_document_id = cast(str | None, job_metadata.get("document_id"))
+        requested_document_id = JobMetadataHelper.get_document_id(job_metadata)
         if requested_document_id:
             active_job = await find_active_job_for_document(
                 db,
@@ -239,8 +239,11 @@ class DocumentIngestionService:
                     active_job_id=active_job.job_id,
                 )
 
-        job_metadata["document_id"] = effective_document_id
-        job_metadata["namespace"] = effective_namespace
+        JobMetadataHelper.set_document_scope(
+            job_metadata,
+            document_id=effective_document_id,
+            namespace=effective_namespace,
+        )
         return ResolvedDocumentIngestionScope(
             job_metadata=job_metadata,
             document_id=effective_document_id,

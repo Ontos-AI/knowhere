@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -14,6 +13,15 @@ from app.services.connect_builder.summary_builder import (
 )
 from app.services.document_ingestion.job_state_gate import mark_job_running
 from app.services.document_ingestion.page_estimator import PageEstimator
+from app.services.document_ingestion.processing_billing import (
+    charge_parse_job_pages,
+    record_processing_start,
+)
+from app.services.document_ingestion.processing_context import (
+    ParseJobContext,
+    assert_source_file_within_size_limit,
+    load_parse_job_context,
+)
 from app.services.document_ingestion.workspace import (
     cleanup_task_workspace,
     create_task_workspace,
@@ -21,46 +29,19 @@ from app.services.document_ingestion.workspace import (
 )
 from app.services.document_parser.stage_profiler import stage_timer
 from loguru import logger
-from sqlalchemy import select
 
-from shared.core.config import settings
-from shared.core.database_sync import get_sync_db_context
 from shared.core.exceptions.domain_exceptions import (
-    InsufficientCreditsException,
-    NotFoundException,
-    ValidationException,
     WorkerHandlingException,
 )
-from shared.models.database.job import Job
 from shared.models.schemas.job_metadata import JobMetadataHelper
-from shared.services.billing.work_billing_service import WorkBillingService
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 from shared.services.job_lifecycle_sync import get_sync_job_lifecycle_service
 from shared.services.redis.distributed_lock import RedisJobLock
 from shared.services.redis.redis_sync_service import (
-    SyncJobInfoRedisService,
-    SyncJobMetadataService,
     SyncRedisServiceFactory,
 )
-from shared.services.storage.job_file_storage import JobFileStorage
 from shared.services.storage.result_storage import get_result_storage
 from shared.services.storage.zip_result_service import ZipResultService
-
-
-@dataclass(frozen=True)
-class _ParseJobContext:
-    job_metadata: dict[str, object]
-    job_user_id: str | None
-    metadata_service: SyncJobMetadataService
-    redis_service: Any
-    s3_key: str
-
-
-@dataclass(frozen=True)
-class _ParseJobBillingSnapshot:
-    billing_amount_micro_dollars: int
-    billing_credits: float
-    billing_status: str
 
 
 class DocumentProcessingRun:
@@ -71,8 +52,8 @@ class DocumentProcessingRun:
         lifecycle_service = get_sync_job_lifecycle_service()
 
         redis_service = SyncRedisServiceFactory.get_service()
-        job_context = _load_parse_job_context(job_id, user_id, redis_service)
-        _assert_source_file_within_size_limit(job_context.s3_key)
+        job_context = load_parse_job_context(job_id, user_id, redis_service)
+        assert_source_file_within_size_limit(job_context.s3_key)
 
         should_process = mark_job_running(job_id, job_context.redis_service)
         if not should_process:
@@ -105,97 +86,6 @@ class DocumentProcessingRun:
         )
 
 
-def _load_parse_job_context(
-    job_id: str,
-    requested_user_id: str | None,
-    redis_service: Any,
-) -> _ParseJobContext:
-    job_info_service = SyncJobInfoRedisService(redis_service)
-    job_info = job_info_service.get_job_info(job_id)
-
-    if not job_info:
-        logger.warning(
-            f"JobInfo not found in Redis for job_id={job_id}; falling back to database"
-        )
-        with get_sync_db_context() as fallback_db:
-            job_row = fallback_db.execute(
-                select(Job).where(Job.job_id == job_id)
-            ).scalar_one_or_none()
-
-        if not job_row or not job_row.s3_key:
-            raise NotFoundException(
-                resource="JobInfo",
-                resource_id=job_id,
-                internal_message="job info not found in Redis or database",
-            )
-
-        s3_key: str = job_row.s3_key
-        job_user_id: str | None = (
-            str(job_row.user_id) if job_row.user_id else requested_user_id
-        )
-        logger.info(f"Recovered JobInfo from database: job_id={job_id}, s3_key={s3_key}")
-    else:
-        raw_s3_key = job_info.get("s3_key")
-        if not isinstance(raw_s3_key, str) or not raw_s3_key:
-            raise NotFoundException(
-                resource="JobInfo",
-                resource_id="s3_key",
-                internal_message="Missing s3_key in job_info",
-            )
-
-        s3_key = raw_s3_key
-        raw_job_user_id = job_info.get("user_id")
-        job_user_id = (
-            raw_job_user_id if isinstance(raw_job_user_id, str) else requested_user_id
-        )
-
-    metadata_service = SyncJobMetadataService(redis_service)
-    raw_job_metadata = metadata_service.get_metadata(job_id)
-    if not isinstance(raw_job_metadata, dict) or not raw_job_metadata:
-        raise NotFoundException(
-            resource="JobMetadata",
-            resource_id=job_id,
-            internal_message=f"Job metadata not found for job_id={job_id}",
-        )
-
-    return _ParseJobContext(
-        job_metadata=dict(raw_job_metadata),
-        job_user_id=job_user_id,
-        metadata_service=metadata_service,
-        redis_service=redis_service,
-        s3_key=s3_key,
-    )
-
-
-def _assert_source_file_within_size_limit(s3_key: str) -> None:
-    file_info = JobFileStorage().verify_upload_exists(s3_key)
-    if not file_info.get("exists"):
-        raise NotFoundException(
-            resource="S3File",
-            resource_id=s3_key,
-            internal_message=f"S3 file not found: {s3_key}",
-        )
-
-    logger.info(f"S3 file verified: {s3_key}")
-
-    file_size = file_info.get("size", 0)
-    file_extension = os.path.splitext(s3_key)[1].lower()
-    if file_size > settings.MAX_FILE_SIZE:
-        limit_mb = settings.MAX_FILE_SIZE // (1024 * 1024)
-        raise ValidationException(
-            user_message=f"File size exceeds limit (max {limit_mb}MB for {file_extension})",
-            violations=[
-                {
-                    "field": "file_size",
-                    "description": (
-                        f"Size {file_size} bytes exceeds limit of "
-                        f"{settings.MAX_FILE_SIZE} bytes"
-                    ),
-                }
-            ],
-        )
-
-
 def _prepare_task_workspace(job_id: str) -> tuple[str, str, str]:
     task_workspace_dir = create_task_workspace(job_id)
     input_dir = os.path.join(task_workspace_dir, "input")
@@ -211,7 +101,7 @@ def _prepare_task_workspace(job_id: str) -> tuple[str, str, str]:
 def _run_parse_job(
     *,
     job_id: str,
-    job_context: _ParseJobContext,
+    job_context: ParseJobContext,
     lifecycle_service: Any,
     input_dir: str,
     output_dir: str,
@@ -219,7 +109,9 @@ def _run_parse_job(
 ) -> dict[str, object]:
     lifecycle_service.update_progress(job_id, progress=10, message="Parsing document...")
 
-    filename = JobMetadataHelper.get_field(job_context.job_metadata, "source_file_name")
+    filename = JobMetadataHelper.get_source_file_name(
+        job_context.job_metadata,
+    ) or os.path.basename(job_context.s3_key)
     file_ext = os.path.splitext(job_context.s3_key)[1].lower() if job_context.s3_key else ""
     local_temp_path = download_s3_file_to_temp(job_context.s3_key, file_ext, input_dir)
     logger.info(f"File downloaded: job_id={job_id}, local_path={local_temp_path}")
@@ -246,13 +138,13 @@ def _run_parse_job(
     logger.info(f"Workload estimation: job_id={job_id}, page_count={page_count}")
 
     processing_started_at = datetime.now(timezone.utc)
-    billing_snapshot = _charge_parse_job_pages(
+    billing_snapshot = charge_parse_job_pages(
         job_id=job_id,
         filename=filename,
         job_user_id=job_context.job_user_id,
         page_count=page_count,
     )
-    _record_processing_start(
+    record_processing_start(
         job_id=job_id,
         job_context=job_context,
         billing_snapshot=billing_snapshot,
@@ -359,116 +251,22 @@ def _run_parse_job(
     )
 
 
-def _charge_parse_job_pages(
-    *,
-    job_id: str,
-    filename: str | None,
-    job_user_id: str | None,
-    page_count: int,
-) -> _ParseJobBillingSnapshot:
-    if not job_user_id:
-        raise NotFoundException(
-            resource="JobInfo",
-            resource_id="user_id",
-            internal_message=f"Missing user_id in job info for job_id={job_id}",
-        )
-
-    billing_service = WorkBillingService()
-    billing_filename = filename or ""
-    billing_status = "skipped"
-    billing_amount_micro_dollars = 0
-    billing_credits = 0.0
-
-    with get_sync_db_context() as db:
-        job_result = db.execute(select(Job).where(Job.job_id == job_id).with_for_update())
-        job = job_result.scalar_one_or_none()
-
-        if job and getattr(job, "billing_status", "") == "charged":
-            logger.info(f"Job already charged: {job_id}")
-            billing_status = "charged"
-            billing_amount_micro_dollars = int(job.credits_charged or 0)
-            billing_credits = billing_amount_micro_dollars / 1_000_000
-        else:
-            try:
-                billing_result = billing_service.charge_for_pages(
-                    session=db,
-                    user_id=job_user_id,
-                    page_count=page_count,
-                    filename=billing_filename,
-                )
-            except InsufficientCreditsException:
-                logger.warning(f"Billing failed: job_id={job_id}, user_id={job_user_id}")
-                billing_amount = billing_service.estimate_page_charge(
-                    page_count=page_count
-                )
-                if job:
-                    job.page_count = page_count
-                    job.credits_charged = billing_amount.amount_micro_dollars
-                    job.billing_status = "billing_failed"
-                    db.commit()
-
-                raise InsufficientCreditsException(
-                    user_message=(
-                        "Insufficient credits to process this document "
-                        f"({page_count} pages required, cost: "
-                        f"{billing_amount.credits})."
-                    ),
-                    required_credits=billing_amount.credits,
-                    internal_message=(
-                        f"job_id={job_id}, user_id={job_user_id}, "
-                        f"page_count={page_count}"
-                    ),
-                )
-
-            billing_status = billing_result.billing_status
-            billing_amount_micro_dollars = billing_result.amount_micro_dollars
-            billing_credits = billing_result.credits
-            if job:
-                job.page_count = page_count
-                job.credits_charged = billing_amount_micro_dollars
-                job.billing_status = billing_status
-
-    return _ParseJobBillingSnapshot(
-        billing_amount_micro_dollars=billing_amount_micro_dollars,
-        billing_credits=billing_credits,
-        billing_status=billing_status,
-    )
-
-
-def _record_processing_start(
-    *,
-    job_id: str,
-    job_context: _ParseJobContext,
-    billing_snapshot: _ParseJobBillingSnapshot,
-    page_count: int,
-    processing_started_at: datetime,
-) -> None:
-    metadata_updates = {
-        "page_count": page_count,
-        "billing_status": billing_snapshot.billing_status,
-        "billing_amount_micro_dollars": billing_snapshot.billing_amount_micro_dollars,
-        "billing_credits": billing_snapshot.billing_credits,
-        "processing_started_at": processing_started_at.isoformat(),
-    }
-    job_context.metadata_service.update_metadata(job_id, metadata_updates)
-    job_context.job_metadata.update(metadata_updates)
-
-
 def _finalize_parse_job_success(
     *,
     add_dir: str,
     chunks: list[dict[str, Any]],
-    job_context: _ParseJobContext,
+    job_context: ParseJobContext,
     job_id: str,
     lifecycle_service: Any,
     parsed_contents_df: pd.DataFrame,
     processing_started_at: datetime,
     task_workspace_dir: str,
 ) -> dict[str, object]:
-    source_file_name = JobMetadataHelper.get_field(
+    source_file_name = JobMetadataHelper.get_source_file_name(
         job_context.job_metadata,
-        "source_file_name",
-    ) or JobMetadataHelper.get_field(job_context.job_metadata, "source_url")
+    ) or JobMetadataHelper.get_source_url(job_context.job_metadata)
+    if not source_file_name:
+        source_file_name = os.path.basename(job_context.s3_key)
     if isinstance(source_file_name, str) and "/" in source_file_name:
         source_file_name = os.path.basename(source_file_name)
 
@@ -522,7 +320,7 @@ def _finalize_parse_job_success(
     job_context.metadata_service.update_metadata(job_id, processing_timing_updates)
     job_context.job_metadata.update(processing_timing_updates)
 
-    data_id = JobMetadataHelper.get_field(job_context.job_metadata, "data_id")
+    data_id = JobMetadataHelper.get_data_id(job_context.job_metadata)
     zip_service = ZipResultService()
     zip_file_path, checksum, statistics, zip_size = zip_service.generate_zip_package(
         job_id=job_id,

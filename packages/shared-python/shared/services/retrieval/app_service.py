@@ -4,20 +4,10 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-import shared.services.retrieval.execution_plan as execution_plan
-from shared.services.retrieval.channels import content_channel, path_channel, term_channel
 from shared.services.retrieval.execution_plan import RetrievalExecutionPlan
-from shared.services.retrieval.execution_plan import list_graph_routed_chunks
 from shared.services.retrieval.scoring import merge_channels_rrf
 
-__all__ = [
-    "content_channel",
-    "list_graph_routed_chunks",
-    "merge_channels_rrf",
-    "path_channel",
-    "run_retrieval_query",
-    "term_channel",
-]
+__all__ = ["merge_channels_rrf", "run_retrieval_query"]
 
 
 async def run_retrieval_query(
@@ -39,7 +29,6 @@ async def run_retrieval_query(
     internal_recall_k: int | None = None,
     use_agentic: bool | None = None,
 ) -> dict[str, Any]:
-    _sync_legacy_adapter_overrides()
     request: dict[str, Any] = {
         "db": db,
         "user_id": user_id,
@@ -59,10 +48,3 @@ async def run_retrieval_query(
         "use_agentic": use_agentic,
     }
     return await RetrievalExecutionPlan(request).execute()
-
-
-def _sync_legacy_adapter_overrides() -> None:
-    execution_plan.path_channel = path_channel
-    execution_plan.content_channel = content_channel
-    execution_plan.term_channel = term_channel
-    execution_plan.list_graph_routed_chunks = list_graph_routed_chunks

@@ -66,12 +66,7 @@ def to_job_status_value(status: str) -> JobStatusValue:
 
 
 def _resolve_original_request(job_metadata: Optional[dict[str, Any]]) -> dict[str, Any]:
-    original_request = (
-        job_metadata.get("original_request")
-        if isinstance(job_metadata, dict)
-        else {}
-    )
-    return original_request if isinstance(original_request, dict) else {}
+    return JobMetadataHelper.get_original_request(job_metadata)
 
 
 def _resolve_source_file_name(original_request: dict[str, Any]) -> str | None:
@@ -97,8 +92,8 @@ def _resolve_parsing_params(
     original_request: dict[str, Any],
 ) -> dict[str, Any]:
     parsing_params = original_request.get("parsing_params") or {}
-    if not parsing_params and isinstance(job_metadata, dict):
-        parsing_params = job_metadata.get("parsing_params") or {}
+    if not parsing_params:
+        parsing_params = JobMetadataHelper.get_parsing_params_dict(job_metadata)
     return parsing_params if isinstance(parsing_params, dict) else {}
 
 
@@ -139,11 +134,11 @@ async def build_job_result_response(
 
     return JobResultResponse(
         job_id=job.job_id,
-        namespace=JobMetadataHelper.get_field(job_metadata, "namespace"),
+        namespace=JobMetadataHelper.get_namespace(job_metadata),
         document_id=resolve_public_document_id(job),
         status=to_job_status_value(job.status),
         source_type=job.source_type,
-        data_id=JobMetadataHelper.get_field(job_metadata, "data_id"),
+        data_id=JobMetadataHelper.get_data_id(job_metadata),
         created_at=require_utc(job.created_at, field_name="created_at"),
         progress=progress,
         error=build_error_response(job, job_metadata),

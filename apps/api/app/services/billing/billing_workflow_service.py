@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import app.services.billing.billing_command_workflow as billing_command_workflow
 from app.services.billing.billing_command_workflow import BillingCommandWorkflow
-from app.services.billing.billing_command_workflow import StripePurchaseService
-from app.services.billing.billing_command_workflow import StripeWebhookService
 from app.services.billing.billing_read_model import BillingReadModel, ParseUsageResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,12 +14,7 @@ from shared.models.schemas.billing import (
     UsageStatsResponse,
 )
 
-__all__ = [
-    "BillingWorkflowService",
-    "ParseUsageResponse",
-    "StripePurchaseService",
-    "StripeWebhookService",
-]
+__all__ = ["BillingWorkflowService", "ParseUsageResponse"]
 
 
 class BillingWorkflowService:
@@ -41,7 +33,6 @@ class BillingWorkflowService:
         request: BuyCreditsRequest,
         user_id: str,
     ) -> PaymentIntentResponse:
-        _sync_legacy_adapter_overrides()
         return await self._command_workflow.buy_credits(
             request=request,
             user_id=user_id,
@@ -107,7 +98,6 @@ class BillingWorkflowService:
         request: BuyCreditsPackageRequest,
         user_id: str,
     ) -> CheckoutSessionResponse:
-        _sync_legacy_adapter_overrides()
         return await self._command_workflow.buy_credits_package(
             db,
             request=request,
@@ -121,14 +111,8 @@ class BillingWorkflowService:
         payload: bytes,
         stripe_signature: str | None,
     ) -> dict[str, object]:
-        _sync_legacy_adapter_overrides()
         return await self._command_workflow.handle_stripe_webhook(
             db,
             payload=payload,
             stripe_signature=stripe_signature,
         )
-
-
-def _sync_legacy_adapter_overrides() -> None:
-    billing_command_workflow.StripePurchaseService = StripePurchaseService
-    billing_command_workflow.StripeWebhookService = StripeWebhookService

@@ -25,6 +25,7 @@ from shared.core.exceptions.domain_exceptions import (
 from shared.core.state_machine.states import JobStatus
 from shared.models.database.job import Job
 from shared.models.schemas.job import JobCreate, JobResponse
+from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.redis import JobInfoRedisService, RedisServiceFactory
 from shared.services.redis.job_metadata_service import JobMetadataService
 from shared.services.storage.file_upload_service import FileUploadService
@@ -151,8 +152,10 @@ class DocumentIngestionCreationService:
         assert payload.file_name is not None
         file_extension = os.path.splitext(payload.file_name)[1]
         s3_key = f"uploads/{job_id}{file_extension}"
-        scope.job_metadata["source_file_name"] = payload.file_name
-        scope.job_metadata["source_type"] = "file"
+        JobMetadataHelper.set_file_source(
+            scope.job_metadata,
+            source_file_name=payload.file_name,
+        )
 
         job = await self._create_waiting_job(
             db,
@@ -224,12 +227,10 @@ class DocumentIngestionCreationService:
             file_extension=file_extension,
         )
         s3_key = f"uploads/{job_id}{file_extension}"
-        scope.job_metadata.update(
-            {
-                "source_file_name": source_file_name,
-                "source_url": payload.source_url,
-                "source_type": "url",
-            }
+        JobMetadataHelper.set_url_source(
+            scope.job_metadata,
+            source_file_name=source_file_name,
+            source_url=payload.source_url,
         )
 
         job = await self._create_waiting_job(

@@ -35,7 +35,7 @@ def _build_pending_file_job_metadata(source_file_name: str) -> dict[str, Any]:
 
 def _load_parse_task_modules() -> tuple[Any, Any, Any, Engine, Any, Any, Any]:
     import app.core.tasks.kb_tasks as kb_tasks
-    import app.services.document_ingestion.service as parse_job_service
+    import app.services.document_ingestion.processing_run as parse_job_service
     import app.services.document_parser.parse_service as parse_service
     from shared.core.database_sync import get_sync_engine
     from shared.services.redis.redis_sync_service import (
@@ -53,6 +53,12 @@ def _load_parse_task_modules() -> tuple[Any, Any, Any, Engine, Any, Any, Any]:
         SyncJobMetadataService,
         SyncRedisServiceFactory,
     )
+
+
+def _load_worker_settings() -> Any:
+    from shared.core.config import settings
+
+    return settings
 
 
 def _save_worker_task_cache(
@@ -143,6 +149,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
         sync_job_metadata_service_cls,
         sync_redis_service_factory,
     ) = _load_parse_task_modules()
+    settings = _load_worker_settings()
 
     user_id: str = f"worker-user-{uuid4().hex[:12]}"
     job_id: str = f"job_parse_success_{uuid4().hex[:12]}"
@@ -179,8 +186,8 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
     )
 
     _bind_parse_task_to_current_module(monkeypatch, kb_tasks=kb_tasks)
-    monkeypatch.setattr(parse_job_service.settings, "TMP_PATH", str(tmp_path))
-    monkeypatch.setattr(parse_job_service.settings, "BILLING_ENABLED", billing_enabled)
+    monkeypatch.setattr(settings, "TMP_PATH", str(tmp_path))
+    monkeypatch.setattr(settings, "BILLING_ENABLED", billing_enabled)
 
     def fake_verify_s3_file_exists(storage_key: str) -> dict[str, Any]:
         return {
@@ -338,8 +345,8 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
             },
         },
     ]
-    expected_credits_charged = 3 * int(parse_job_service.settings.MICRO_DOLLARS_PER_PAGE)
-    expected_initial_balance = int(parse_job_service.settings.FREE_PLAN_INITIAL_CREDITS) * 1_000_000
+    expected_credits_charged = 3 * int(settings.MICRO_DOLLARS_PER_PAGE)
+    expected_initial_balance = int(settings.FREE_PLAN_INITIAL_CREDITS) * 1_000_000
 
     assert result == {
         "status": "success",
@@ -583,6 +590,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
         sync_job_metadata_service_cls,
         sync_redis_service_factory,
     ) = _load_parse_task_modules()
+    settings = _load_worker_settings()
 
     user_id: str = f"worker-user-{uuid4().hex[:12]}"
     existing_job_id: str = f"job_existing_{uuid4().hex[:12]}"
@@ -765,8 +773,8 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
     )
 
     _bind_parse_task_to_current_module(monkeypatch, kb_tasks=kb_tasks)
-    monkeypatch.setattr(parse_job_service.settings, "TMP_PATH", str(tmp_path))
-    monkeypatch.setattr(parse_job_service.settings, "BILLING_ENABLED", False)
+    monkeypatch.setattr(settings, "TMP_PATH", str(tmp_path))
+    monkeypatch.setattr(settings, "BILLING_ENABLED", False)
 
     def fake_cleanup_task_workspace(workspace_dir: str | None) -> bool:
         captured_artifacts["workspace_dir"] = workspace_dir
@@ -958,6 +966,7 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
         sync_job_metadata_service_cls,
         sync_redis_service_factory,
     ) = _load_parse_task_modules()
+    settings = _load_worker_settings()
 
     user_id: str = f"worker-concurrent-user-{uuid4().hex[:12]}"
     job_ids: list[str] = [f"job_cb_{index}_{uuid4().hex[:12]}" for index in range(2)]
@@ -998,8 +1007,8 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
         )
 
     _bind_parse_task_to_current_module(monkeypatch, kb_tasks=kb_tasks)
-    monkeypatch.setattr(parse_job_service.settings, "TMP_PATH", str(tmp_path))
-    monkeypatch.setattr(parse_job_service.settings, "BILLING_ENABLED", True)
+    monkeypatch.setattr(settings, "TMP_PATH", str(tmp_path))
+    monkeypatch.setattr(settings, "BILLING_ENABLED", True)
 
     def fake_verify_s3_file_exists(storage_key: str) -> dict[str, Any]:
         return {
@@ -1069,9 +1078,9 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
     with ThreadPoolExecutor(max_workers=len(job_ids)) as executor:
         results = list(executor.map(run_parse_task, job_ids))
 
-    expected_credits_charged = int(parse_job_service.settings.MICRO_DOLLARS_PER_PAGE)
+    expected_credits_charged = int(settings.MICRO_DOLLARS_PER_PAGE)
     expected_initial_balance = (
-        int(parse_job_service.settings.FREE_PLAN_INITIAL_CREDITS) * 1_000_000
+        int(settings.FREE_PLAN_INITIAL_CREDITS) * 1_000_000
     )
 
     with engine.begin() as connection:
@@ -1195,6 +1204,7 @@ def test_should_skip_parse_task_when_the_job_is_already_terminal(
         sync_job_metadata_service_cls,
         sync_redis_service_factory,
     ) = _load_parse_task_modules()
+    settings = _load_worker_settings()
 
     user_id: str = f"worker-user-{uuid4().hex[:12]}"
     job_id: str = f"job_parse_skipped_{uuid4().hex[:12]}"
@@ -1227,7 +1237,7 @@ def test_should_skip_parse_task_when_the_job_is_already_terminal(
     )
 
     _bind_parse_task_to_current_module(monkeypatch, kb_tasks=kb_tasks)
-    monkeypatch.setattr(parse_job_service.settings, "TMP_PATH", str(tmp_path))
+    monkeypatch.setattr(settings, "TMP_PATH", str(tmp_path))
     def fake_verify_s3_file_exists(storage_key: str) -> dict[str, Any]:
         return {"exists": storage_key == s3_key, "size": 1024}
 
@@ -1284,6 +1294,7 @@ def test_should_mark_the_job_failed_and_cleanup_the_workspace_when_parse_executi
         sync_job_metadata_service_cls,
         sync_redis_service_factory,
     ) = _load_parse_task_modules()
+    settings = _load_worker_settings()
 
     user_id: str = f"worker-user-{uuid4().hex[:12]}"
     job_id: str = f"job_parse_failure_{uuid4().hex[:12]}"
@@ -1316,7 +1327,7 @@ def test_should_mark_the_job_failed_and_cleanup_the_workspace_when_parse_executi
     )
 
     _bind_parse_task_to_current_module(monkeypatch, kb_tasks=kb_tasks)
-    monkeypatch.setattr(parse_job_service.settings, "TMP_PATH", str(tmp_path))
+    monkeypatch.setattr(settings, "TMP_PATH", str(tmp_path))
     def fake_verify_s3_file_exists(storage_key: str) -> dict[str, Any]:
         return {
             "exists": storage_key == s3_key,
@@ -1355,8 +1366,8 @@ def test_should_mark_the_job_failed_and_cleanup_the_workspace_when_parse_executi
     assert result.status == "FAILURE"
     assert _find_task_workspaces(tmp_path, job_id) == []
 
-    expected_credits_charged = 3 * int(parse_job_service.settings.MICRO_DOLLARS_PER_PAGE)
-    expected_initial_balance = int(parse_job_service.settings.FREE_PLAN_INITIAL_CREDITS) * 1_000_000
+    expected_credits_charged = 3 * int(settings.MICRO_DOLLARS_PER_PAGE)
+    expected_initial_balance = int(settings.FREE_PLAN_INITIAL_CREDITS) * 1_000_000
 
     with engine.begin() as connection:
         job_row = (
