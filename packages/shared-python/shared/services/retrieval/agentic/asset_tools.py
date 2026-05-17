@@ -32,15 +32,15 @@ def build_connected_owner_map(text_chunks: list[dict[str, Any]]) -> dict[str, st
     return owner_map
 
 
-async def count_assets_under_scope(
+async def _load_scope_sections(
     db: AsyncSession,
     *,
     document_id: str,
     job_result_id: str,
     scope_paths: list[str],
-) -> tuple[int, int]:
-    scope_section_stmt = (
-        select(DocumentSection.section_id)
+) -> list[tuple[str, str]]:
+    section_stmt = (
+        select(DocumentSection.section_id, DocumentSection.section_path)
         .where(DocumentSection.document_id == document_id)
         .where(DocumentSection.job_result_id == job_result_id)
     )
@@ -49,9 +49,25 @@ async def count_assets_under_scope(
         for scope in scope_paths:
             scope_filters.append(DocumentSection.section_path == scope)
             scope_filters.append(DocumentSection.section_path.like(f"{scope} / %"))
-        scope_section_stmt = scope_section_stmt.where(or_(*scope_filters))
-    scope_section_ids = await db.execute(scope_section_stmt)
-    all_section_ids = [row[0] for row in scope_section_ids.all()]
+        section_stmt = section_stmt.where(or_(*scope_filters))
+    rows = (await db.execute(section_stmt)).all()
+    return [(section_id, section_path or "") for section_id, section_path in rows]
+
+
+async def count_assets_under_scope(
+    db: AsyncSession,
+    *,
+    document_id: str,
+    job_result_id: str,
+    scope_paths: list[str],
+) -> tuple[int, int]:
+    section_rows = await _load_scope_sections(
+        db,
+        document_id=document_id,
+        job_result_id=job_result_id,
+        scope_paths=scope_paths,
+    )
+    all_section_ids = [section_id for section_id, _section_path in section_rows]
 
     if not all_section_ids:
         return 0, 0
@@ -170,20 +186,12 @@ async def asset_filter_step(
             else []
         )
 
-        section_stmt = (
-            select(DocumentSection.section_id, DocumentSection.section_path)
-            .where(DocumentSection.document_id == document_id)
-            .where(DocumentSection.job_result_id == job_result_id)
+        section_rows = await _load_scope_sections(
+            db,
+            document_id=document_id,
+            job_result_id=job_result_id,
+            scope_paths=scope_list,
         )
-        if scope_list:
-            from sqlalchemy import or_
-
-            scope_filters = []
-            for scope in scope_list:
-                scope_filters.append(DocumentSection.section_path == scope)
-                scope_filters.append(DocumentSection.section_path.like(f"{scope} / %"))
-            section_stmt = section_stmt.where(or_(*scope_filters))
-        section_rows = (await db.execute(section_stmt)).all()
         section_ids = {row[0] for row in section_rows}
 
         if not section_ids:
