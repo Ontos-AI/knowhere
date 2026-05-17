@@ -702,7 +702,7 @@ async def test_agentic_workflow_should_preserve_references_with_the_same_chunk_i
             fake_plan,
         )
         monkeypatch.setattr(
-            "shared.services.retrieval.workflow.orchestrator.RetrievalAgent.run",
+            "shared.services.retrieval.workflow.step_runner.RetrievalAgent.run",
             fake_retrieval_run,
         )
 
@@ -813,7 +813,7 @@ async def test_agentic_workflow_should_preserve_references_with_the_same_chunk_i
             fake_plan,
         )
         monkeypatch.setattr(
-            "shared.services.retrieval.workflow.orchestrator.RetrievalAgent.run",
+            "shared.services.retrieval.workflow.step_runner.RetrievalAgent.run",
             fake_retrieval_run,
         )
 

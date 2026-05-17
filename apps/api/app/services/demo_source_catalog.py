@@ -1,4 +1,4 @@
-"""Canonical Demo Source catalog and payload shaping."""
+"""Canonical Demo Source catalog and file access."""
 
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+
+from app.services.demo_source_projection import DemoSourceProjection
 
 
 @dataclass(frozen=True)
@@ -129,10 +130,16 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
 
 
 class DemoSourceCatalog:
+    def __init__(self, *, projection: DemoSourceProjection | None = None) -> None:
+        self._projection = projection or DemoSourceProjection()
+
     def get_catalog(self) -> dict[str, Any]:
         return {
             "sources": [
-                self._source_catalog_payload(source)
+                self._projection.source_catalog_payload(
+                    source=source,
+                    chunks=_load_source_chunks(source),
+                )
                 for source in _DEMO_SOURCE_DEFINITIONS
             ],
         }
@@ -157,8 +164,12 @@ class DemoSourceCatalog:
             "title": source.title,
             "mime_type": source.mime_type,
             "chunks": [
-                _chunk_payload(source=source, chunk=chunk)
-                for chunk in page_chunks
+                self._projection.chunk_payload(
+                    source=source,
+                    chunk=chunk,
+                    sort_order=start + index,
+                )
+                for index, chunk in enumerate(page_chunks)
             ],
             "pagination": {
                 "page": page,
@@ -178,12 +189,21 @@ class DemoSourceCatalog:
         if source is None:
             return None
 
-        for chunk in _load_source_chunks(source):
-            if demo_chunk_id in {_canonical_chunk_id(source, chunk), chunk["chunk_id"]}:
+        chunks = _load_source_chunks(source)
+        for sort_order, chunk in enumerate(chunks):
+            if self._projection.matches_chunk_id(
+                source=source,
+                chunk=chunk,
+                demo_chunk_id=demo_chunk_id,
+            ):
                 return {
                     "demo_source_id": source.demo_source_id,
                     "canonical_document_id": source.canonical_document_id,
-                    "chunk": _chunk_payload(source=source, chunk=chunk),
+                    "chunk": self._projection.chunk_payload(
+                        source=source,
+                        chunk=chunk,
+                        sort_order=sort_order,
+                    ),
                 }
 
         return None
@@ -237,95 +257,10 @@ class DemoSourceCatalog:
         return _DATA_ROOT / source.asset_directory
 
     def publication_chunks(self, source: DemoSourceDefinition) -> list[dict[str, Any]]:
-        return [
-            _publication_chunk(source=source, chunk=chunk)
-            for chunk in _load_source_chunks(source)
-        ]
-
-    def _source_catalog_payload(self, source: DemoSourceDefinition) -> dict[str, Any]:
-        return {
-            "demo_source_id": source.demo_source_id,
-            "canonical_document_id": source.canonical_document_id,
-            "title": source.title,
-            "mime_type": source.mime_type,
-            "size_bytes": source.size_bytes,
-            "status": "ready",
-            "chunk_count": source.chunk_count,
-            "original_file": {
-                "url": f"/api/v1/demo/sources/{source.demo_source_id}/original",
-                "mime_type": source.mime_type,
-                "size_bytes": source.size_bytes,
-                "can_download": False,
-            },
-            "examples": [
-                self._example_payload(source=source, example=example)
-                for example in source.examples
-            ],
-        }
-
-    def _example_payload(
-        self,
-        *,
-        source: DemoSourceDefinition,
-        example: DemoExampleDefinition,
-    ) -> dict[str, Any]:
-        return {
-            "id": example.id,
-            "question": example.question,
-            "answer": example.answer,
-            "citations": [
-                _citation_payload(source=source, citation=citation)
-                for citation in example.citations
-            ],
-        }
-
-
-def _publication_chunk(
-    *,
-    source: DemoSourceDefinition,
-    chunk: dict[str, Any],
-) -> dict[str, Any]:
-    materialized_chunk = dict(chunk)
-    metadata = _metadata(materialized_chunk)
-    raw_path = _first_string(metadata.get("path"), materialized_chunk.get("path"))
-    publication_path = _publication_path(source=source, raw_path=raw_path)
-    file_path = _first_string(
-        metadata.get("file_path"),
-        metadata.get("filePath"),
-        materialized_chunk.get("file_path"),
-        materialized_chunk.get("path") if _is_media_chunk(materialized_chunk) else None,
-    )
-
-    metadata["path"] = publication_path
-    if file_path:
-        metadata["file_path"] = file_path
-        materialized_chunk["file_path"] = file_path
-    materialized_chunk["path"] = publication_path
-    materialized_chunk["metadata"] = metadata
-    return materialized_chunk
-
-
-def _publication_path(
-    *,
-    source: DemoSourceDefinition,
-    raw_path: str | None,
-) -> str:
-    prefix = f"Default_Root/{source.title}"
-    raw = str(raw_path or "").strip()
-    if not raw:
-        return prefix
-
-    if "-->" in raw:
-        sections = [part.strip() for part in raw.split("-->")[1:] if part.strip()]
-        return "/".join([prefix, *sections]) if sections else prefix
-
-    if raw.startswith("images/") or raw.startswith("tables/"):
-        return f"{prefix}/Assets/{raw}"
-
-    parts = [part.strip() for part in raw.split("/") if part.strip()]
-    if len(parts) >= 2 and parts[0] == "Default_Root":
-        return raw
-    return prefix
+        return self._projection.publication_chunks(
+            source=source,
+            chunks=_load_source_chunks(source),
+        )
 
 
 def _normalize_asset_path(asset_path: str) -> Path | None:
@@ -336,131 +271,6 @@ def _normalize_asset_path(asset_path: str) -> Path | None:
     if any(part == ".." or part.startswith(".") for part in parts):
         return None
     return Path(*parts)
-
-
-def _citation_payload(
-    *,
-    source: DemoSourceDefinition,
-    citation: DemoCitationDefinition,
-) -> dict[str, Any]:
-    chunk = _resolve_citation_chunk(source=source, citation=citation)
-    return {
-        "demo_source_id": source.demo_source_id,
-        "canonical_document_id": source.canonical_document_id,
-        "canonical_chunk_id": _canonical_chunk_id(source, chunk),
-        "chunk_id": chunk["chunk_id"],
-        "chunk_type": _normalize_chunk_type(chunk.get("type")),
-        "content": citation.content,
-        "description": citation.description,
-        "source": {
-            "document_id": source.canonical_document_id,
-            "source_file_name": source.title,
-            "section_path": citation.section_path,
-        },
-    }
-
-
-def _resolve_citation_chunk(
-    *,
-    source: DemoSourceDefinition,
-    citation: DemoCitationDefinition,
-) -> dict[str, Any]:
-    chunks = _load_source_chunks(source)
-    normalized_content = _normalize_text(citation.content)
-    if normalized_content:
-        for chunk in chunks:
-            if normalized_content in _normalize_text(str(chunk.get("content") or "")):
-                return chunk
-
-    for chunk in chunks:
-        if str(chunk.get("path") or "") == citation.section_path:
-            return chunk
-
-    raise ValueError(
-        "Demo citation does not resolve to a canonical chunk: "
-        f"demo_source_id={source.demo_source_id}, section_path={citation.section_path}"
-    )
-
-
-def _chunk_payload(
-    *,
-    source: DemoSourceDefinition,
-    chunk: dict[str, Any],
-) -> dict[str, Any]:
-    metadata = _metadata(chunk)
-    file_path = _first_string(
-        metadata.get("file_path"),
-        metadata.get("filePath"),
-        chunk.get("file_path"),
-        chunk.get("path") if _is_media_chunk(chunk) else None,
-    )
-    return {
-        "id": _canonical_chunk_id(source, chunk),
-        "chunk_id": chunk["chunk_id"],
-        "chunk_type": _normalize_chunk_type(chunk.get("type")),
-        "content": str(chunk.get("content") or ""),
-        "section_path": str(chunk.get("path") or "") or None,
-        "source_chunk_path": str(chunk.get("path") or "") or None,
-        "file_path": file_path,
-        "sort_order": _sort_order(source=source, chunk=chunk),
-        "metadata": metadata,
-        "asset_url": _asset_url(source=source, file_path=file_path),
-        "created_at": None,
-    }
-
-
-def _sort_order(
-    *,
-    source: DemoSourceDefinition,
-    chunk: dict[str, Any],
-) -> int:
-    try:
-        return _load_source_chunks(source).index(chunk)
-    except ValueError:
-        return 0
-
-
-def _metadata(chunk: dict[str, Any]) -> dict[str, Any]:
-    metadata = chunk.get("metadata")
-    return dict(metadata) if isinstance(metadata, dict) else {}
-
-
-def _is_media_chunk(chunk: dict[str, Any]) -> bool:
-    return _normalize_chunk_type(chunk.get("type")) in {"image", "table"}
-
-
-def _canonical_chunk_id(
-    source: DemoSourceDefinition,
-    chunk: dict[str, Any],
-) -> str:
-    return f"{source.demo_source_id}:{chunk['chunk_id']}"
-
-
-def _asset_url(
-    *,
-    source: DemoSourceDefinition,
-    file_path: str | None,
-) -> str | None:
-    if not file_path:
-        return None
-    encoded_path = quote(file_path, safe="/")
-    return f"/api/v1/demo/sources/{source.demo_source_id}/assets/{encoded_path}"
-
-
-def _normalize_chunk_type(value: object) -> str:
-    raw = str(value or "").strip().split("\n", 1)[0].lower()
-    return raw if raw in {"text", "image", "table"} else "text"
-
-
-def _first_string(*values: object) -> str | None:
-    for value in values:
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
-
-
-def _normalize_text(value: str) -> str:
-    return " ".join(value.lower().split())
 
 
 @lru_cache(maxsize=8)
