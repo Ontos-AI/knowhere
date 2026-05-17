@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from shared.services.retrieval.assets import enrich_rows_with_retrieval_asset_urls
-from shared.services.retrieval.hydration import (
+from shared.services.retrieval.row_utils import (
     PUBLIC_RESULT_FIELDS,
     PUBLIC_SOURCE_FIELDS,
 )

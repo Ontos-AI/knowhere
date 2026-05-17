@@ -10,10 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.services.retrieval.channels import content_channel, path_channel, term_channel
 from shared.services.retrieval.graph_service import GraphQueryService
-from shared.services.retrieval.hydration import (
-    assemble_retrieval_results,
-    hydrate_referenced_chunk_rows,
-)
+from shared.services.retrieval.reference_hydration import hydrate_referenced_chunk_rows
+from shared.services.retrieval.result_assembly import assemble_retrieval_results
 from shared.services.retrieval.ranking import rank_retrieval_candidates
 from shared.services.retrieval.response_projection import (
     attach_citation,

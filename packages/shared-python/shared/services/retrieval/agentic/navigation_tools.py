@@ -28,10 +28,8 @@ from shared.services.retrieval.agentic.section_tree import (
     load_child_sections,
 )
 from shared.services.retrieval.agentic.types import DocTreeNode
-from shared.services.retrieval.hydration import (
-    hydrate_connected_target_rows,
-    hydrate_paths_to_rows,
-)
+from shared.services.retrieval.connected_hydration import hydrate_connected_target_rows
+from shared.services.retrieval.path_hydration import hydrate_paths_to_rows
 from shared.services.retrieval.lexical_text import normalize_section_path
 from shared.services.retrieval.llm_adapter import LLMFn
 
