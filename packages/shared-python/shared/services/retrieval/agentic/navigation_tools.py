@@ -22,10 +22,8 @@ from shared.services.retrieval.agentic.prompts import (
     format_budget_block,
     parse_action_response,
 )
-from shared.services.retrieval.agentic.section_tree import (
-    format_items_for_llm,
-    load_child_sections,
-)
+from shared.services.retrieval.agentic.section_prompt_projection import format_items_for_llm
+from shared.services.retrieval.agentic.section_tree import load_child_sections
 from shared.services.retrieval.agentic.selection_hydration import (
     hydrate_path_selections_into_node,
 )
