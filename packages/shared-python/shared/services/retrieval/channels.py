@@ -12,7 +12,7 @@ from loguru import logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.graph_service import is_excluded_section
+from shared.services.retrieval.section_filters import is_excluded_section
 from shared.utils.text_utils import tokenize_for_retrieval
 
 
