@@ -344,6 +344,7 @@ async def test_should_return_ok_without_mutating_state_when_the_callback_has_no_
     )
 
     assert event_row is not None
+    assert log_count_row is not None
     assert event_row["status"] == "pending"
     assert event_row["attempts"] == 0
     assert cast(int, log_count_row["count"]) == 0

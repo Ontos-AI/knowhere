@@ -358,6 +358,24 @@ def clear_application_modules() -> None:
             sys.modules.pop(module_name, None)
             continue
 
+        if module_name == "shared.services.storage" or module_name.startswith(
+            "shared.services.storage."
+        ):
+            sys.modules.pop(module_name, None)
+            continue
+
+        if module_name == "shared.services.jobs" or module_name.startswith(
+            "shared.services.jobs."
+        ):
+            sys.modules.pop(module_name, None)
+            continue
+
+        if module_name == "shared.services.webhook" or module_name.startswith(
+            "shared.services.webhook."
+        ):
+            sys.modules.pop(module_name, None)
+            continue
+
         if module_name == "app" or module_name.startswith("app."):
             sys.modules.pop(module_name, None)
 

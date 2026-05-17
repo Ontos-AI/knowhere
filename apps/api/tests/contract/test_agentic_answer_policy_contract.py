@@ -4,9 +4,10 @@ import pytest
 
 from shared.services.retrieval.agentic.policy import attempt_answer
 from shared.services.retrieval.agentic.types import AgentRunConfig, AgentState
+from shared.services.retrieval.llm_adapter import LLMFnInput
 
 
-async def _malformed_json_wrapper(_prompt: str) -> str:
+async def _malformed_json_wrapper(_prompt: LLMFnInput) -> str:
     return '{"status": "DONE", "answer": "truncated"'
 
 

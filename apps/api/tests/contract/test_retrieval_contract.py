@@ -135,6 +135,10 @@ async def _seed_retrieval_chunk_for_existing_document(
     }
 
 
+def _result_source(result: dict[str, object]) -> dict[str, object]:
+    return cast(dict[str, object], result["source"])
+
+
 @pytest.mark.asyncio
 async def test_should_return_seeded_retrieval_results_for_the_authenticated_user(
     developer_api_client_factory: Callable[
@@ -208,7 +212,7 @@ async def test_should_default_the_namespace_to_default_when_it_is_omitted(
 
     assert response_json["namespace"] == "default"
     assert len(results) == 1
-    assert results[0]["source"]["document_id"] == seeded_document["document_id"]
+    assert _result_source(results[0])["document_id"] == seeded_document["document_id"]
 
 
 @pytest.mark.asyncio
@@ -435,7 +439,7 @@ async def test_legacy_retrieval_should_rank_hot_chunk_before_cold_chunk_when_dis
     results = cast(list[dict[str, object]], response_json["results"])
 
     assert len(results) == 1
-    assert results[0]["source"]["document_id"] == hot_document["document_id"]
+    assert _result_source(results[0])["document_id"] == hot_document["document_id"]
 
 
 @pytest.mark.asyncio
@@ -726,7 +730,7 @@ async def test_agentic_workflow_should_preserve_references_with_the_same_chunk_i
         cast(str, reference["document_id"]) for reference in referenced_chunks
     }
     result_document_ids = {
-        cast(str, result["source"]["document_id"]) for result in results
+        cast(str, _result_source(result)["document_id"]) for result in results
     }
 
     assert referenced_document_ids == {
@@ -837,7 +841,7 @@ async def test_agentic_workflow_should_preserve_references_with_the_same_chunk_i
         cast(str, reference["section_path"]) for reference in referenced_chunks
     }
     result_section_paths = {
-        cast(str, result["source"]["section_path"]) for result in results
+        cast(str, _result_source(result)["section_path"]) for result in results
     }
 
     assert referenced_section_paths == {
@@ -918,7 +922,7 @@ async def test_should_exclude_matching_document_ids_from_the_response(
     results = cast(list[dict[str, object]], response_json["results"])
 
     assert len(results) == 1
-    assert results[0]["source"]["document_id"] == included_document["document_id"]
+    assert _result_source(results[0])["document_id"] == included_document["document_id"]
 
 
 @pytest.mark.asyncio
@@ -963,5 +967,5 @@ async def test_should_exclude_matching_sections_from_the_response(
     results = cast(list[dict[str, object]], response_json["results"])
 
     assert len(results) == 1
-    assert results[0]["source"]["document_id"] == included_document["document_id"]
-    assert results[0]["source"]["section_path"] == included_document["section_path"]
+    assert _result_source(results[0])["document_id"] == included_document["document_id"]
+    assert _result_source(results[0])["section_path"] == included_document["section_path"]

@@ -208,7 +208,7 @@ def _parse_xlsx_path(
     xlsx_path: str,
     session: ParseSession,
 ) -> tuple[str, pd.DataFrame | None]:
-    from app.services.document_parser.table_parser import parse_xlsx
+    from app.services.document_parser.excel_table_parser import parse_xlsx
 
     parsed_df = parse_xlsx(
         xlsx_path,

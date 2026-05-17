@@ -1,7 +1,5 @@
 # pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportOptionalOperand=false, reportOptionalSubscript=false, reportReturnType=false
 import datetime
-import io
-import os
 import re
 import threading
 import uuid
@@ -9,28 +7,16 @@ from collections import OrderedDict
 
 import numpy as np
 import pandas as pd
-from app.services.document_parser.dataframe_helpers import process_dup_paths_df
-from app.services.document_parser.excel_structure_parser import parse_excel_structure
-from app.services.document_parser.identifiers import gen_str_codes, get_str_time
-from app.services.document_parser.parser_rows import ParsedRow, ParsedRowsBuilder
-from app.services.document_parser.path_helpers import flatten_dic2paths, remove_spaces
-from app.services.document_parser.table_asset_writer import (
-    TableAssetInput,
-    write_table_asset,
-)
+from app.services.document_parser.identifiers import gen_str_codes
+from app.services.document_parser.path_helpers import flatten_dic2paths
 from app.services.document_parser.dataframe_html_renderer import df2html
 from bs4 import BeautifulSoup
 from loguru import logger
 
-from shared.core.exceptions.domain_exceptions import TableParsingException
-from shared.core.exceptions.knowhere_exception import KnowhereException
 from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.response_process_service import eval_response
-from shared.utils.chunk_refs import build_chunk_ref
-from shared.utils.file_loading import load_file_bytes
-from shared.utils.file_utils import path_handle
 from shared.utils.OpenAICompatibleClientSync import get_openai_client
-from shared.utils.text_utils import remove_duplicates_orderkept, tokenize2stw_remove
+from shared.utils.text_utils import remove_duplicates_orderkept
 
 # ── Table filename sanitizer ────────────────────────────
 # Max byte-safe filename length. Most filesystems cap at 255 bytes; we leave
@@ -638,196 +624,28 @@ def format_tb_scope(df, num):
 
 
 def parse_xlsx(
-    file_path,
-    file_name,
-    output_dir,
-    baseurl,
-    base_llm_paras=None,
-    window_h=10,
-    relative_root=None,
-    use_precision_mode=True,
-    include_hidden_sheets=False,
-):
-    """
-    Parse Excel file and extract table content.
+    file_path: str,
+    file_name: str,
+    output_dir: str,
+    baseurl: str,
+    base_llm_paras: dict | None = None,
+    window_h: int = 10,
+    relative_root: str | None = None,
+    use_precision_mode: bool = True,
+    include_hidden_sheets: bool = False,
+) -> pd.DataFrame:
+    from app.services.document_parser.excel_table_parser import (
+        parse_xlsx as parse_excel_xlsx,
+    )
 
-    Args:
-        file_path: Path or URL to the Excel file
-        file_name: Display name for the file
-        output_dir: Directory to save extracted tables
-        baseurl: Base URL for file loading
-        base_llm_paras: LLM parameters for summarization
-        window_h: Window size for table scope
-        relative_root: Root path for relative paths
-        use_precision_mode: If True, use openpyxl merged cell metadata for accurate
-                           header detection. If False, use LLM/heuristic mode.
-                           Default is True for better accuracy.
-        include_hidden_sheets: If True, parse hidden/very-hidden sheets. Default False.
-
-    Returns:
-        DataFrame with parsed table information
-    """
-    time_stamp = get_str_time()
-    df_list = []
-
-    table_data = load_file_bytes(file_path, file_url=baseurl)
-    table_stream = io.BytesIO(table_data)
-
-    tb_dir = os.path.join(output_dir, "tables")
-    os.makedirs(tb_dir, exist_ok=True)
-    all_tb_paths = []
-    exist_sheets = []
-
-    if use_precision_mode:
-        # PRECISION MODE: Use openpyxl metadata for accurate header detection
-        logger.info("Using precision mode for Excel header detection")
-        try:
-            sheets_dict = parse_excel_structure(
-                table_stream, include_hidden_sheets=include_hidden_sheets
-            )
-            precision_mode_active = True
-        except Exception as e:
-            logger.warning(f"Precision mode failed, falling back to legacy mode: {e}")
-            table_stream.seek(0)  # Reset stream position
-            sheets_dict = pd.read_excel(table_stream, sheet_name=None)
-            precision_mode_active = False
-    else:
-        # LEGACY MODE: Use pandas read_excel + LLM/heuristic header detection
-        sheets_dict = pd.read_excel(table_stream, sheet_name=None)
-        precision_mode_active = False
-
-    all_sheets = sheets_dict.items()
-
-    for sheet_name, sheet_content in all_sheets:
-        sheet_name = sheet_name.strip()
-        if sheet_name in exist_sheets:
-            sheet_name = sheet_name + str(len(exist_sheets))
-        else:
-            exist_sheets.append(sheet_name)
-
-        sheet_tbs = [sheet_content]
-        for tb in sheet_tbs:
-            try:
-                tb = postprocess_tb(tb, drop=True)
-                if len(tb) == 0 or tb.empty or tb.isna().all().all():
-                    continue
-
-                # In precision mode, headers are already set by parse_excel_structure
-                # In legacy mode, use LLM/heuristic header parsing
-                if not precision_mode_active:
-                    tb = parse_headers(tb, paras=base_llm_paras)
-
-                # Drop _src_row column before converting to HTML/keywords
-                # (_src_row is a debug column added by Excel structure parsing for cross-referencing)
-                src_row_cols = [
-                    c
-                    for c in tb.columns
-                    if (isinstance(c, tuple) and c[0] == "_src_row") or c == "_src_row"
-                ]
-                if src_row_cols:
-                    tb = tb.drop(columns=src_row_cols)
-
-                # Get row header column count from DataFrame attrs (set in parse_excel_structure)
-                row_header_cols = tb.attrs.get("row_header_cols", 0)
-
-                tb_paths, tb_strs = parse_tb_contents(
-                    tb,
-                    parent_dic={file_name: {sheet_name: {}}},
-                    file_name=file_name,
-                    sheet_name=sheet_name,
-                    row_header_cols=row_header_cols,
-                )
-
-                # Unified LLM extraction: title + keywords + summary in one call
-                # (consistent with doc_parser.py and md_parser.py)
-                llm_title = None
-                llm_summary = None
-                tb_keywords = ""
-                if base_llm_paras["summary_table"]:
-                    from app.services.document_parser.txt_parser import (
-                        extract_title_keywords_summary,
-                    )
-
-                    llm_title, tb_keywords, llm_summary = (
-                        extract_title_keywords_summary(tb_strs, max_keywords=3)
-                    )
-
-                # Build tb_summary: table index + optional LLM summary
-                table_index = f"table-{sheet_name}"
-                if llm_summary:
-                    tb_summary = f"{table_index}\n{llm_summary}"
-                else:
-                    # Fallback: use mechanical column keywords when LLM is off
-                    tb_keywords_fallback = parse_tb_keywords(tb)
-                    tb_summary = table_index
-                    tb_keywords = tb_keywords if tb_keywords else tb_keywords_fallback
-
-                # Use a filesystem-safe filename so LLM titles like "A/B" do not
-                # accidentally create nested paths under tables/.
-                effective_name = llm_title if llm_title else sheet_name
-                tb_name = (
-                    path_handle(
-                        remove_spaces("table-" + effective_name), mode="clean_single"
-                    )
-                    + ".html"
-                )
-                soup = BeautifulSoup(tb_strs, features="html.parser")
-                tb_html_str = soup.prettify()
-
-                # Use same temp_uid for both marker and know_id (aligned with doc_parser/md_parser)
-                temp_uid = gen_str_codes(tb_strs + str(sheet_name))
-                tb_ref = build_chunk_ref(f"tables/{tb_name}")
-                tb_bottom_content = f"{tb_ref}\nTable summary:\n{tb_summary}\nMain columns:\n{tb_keywords}"
-
-                bottom_tokens = tokenize2stw_remove(
-                    [tb_bottom_content], base_llm_paras["stopwords"]
-                )
-
-                all_tb_paths.extend(tb_paths)
-                table_row = write_table_asset(
-                    TableAssetInput(
-                        html=tb_html_str,
-                        output_dir=output_dir,
-                        table_name=tb_name,
-                        summary=tb_summary,
-                        keywords=tb_keywords,
-                        know_id=temp_uid,
-                        addtime=time_stamp,
-                        content=tb_bottom_content,
-                        tokens=bottom_tokens,
-                        length=len(tb_strs),
-                    )
-                )
-                df_list.append(table_row.to_list())
-
-            except KnowhereException:
-                raise
-            except Exception as e:
-                logger.error(f"Table parsing failed: {e}")
-                raise TableParsingException(
-                    user_message="Failed to parse Excel table content",
-                    reason="TABLE_PROCESSING_FAILED",
-                    internal_message=str(e),
-                    original_exception=e,
-                )
-
-    rows_builder = ParsedRowsBuilder()
-    for row_values in df_list:
-        rows_builder.append(
-            ParsedRow(
-                content=str(row_values[0]),
-                path=str(row_values[1]),
-                type=str(row_values[2]),
-                length=int(row_values[3]),
-                keywords=str(row_values[4]),
-                summary=str(row_values[5]),
-                know_id=str(row_values[6]),
-                tokens=str(row_values[7]),
-                connectto=str(row_values[8]),
-                addtime=str(row_values[9]),
-                page_nums=str(row_values[10]),
-            )
-        )
-    table_df = rows_builder.to_dataframe()
-    table_df = process_dup_paths_df(table_df)
-    return table_df
+    return parse_excel_xlsx(
+        file_path=file_path,
+        file_name=file_name,
+        output_dir=output_dir,
+        baseurl=baseurl,
+        base_llm_paras=base_llm_paras,
+        window_h=window_h,
+        relative_root=relative_root,
+        use_precision_mode=use_precision_mode,
+        include_hidden_sheets=include_hidden_sheets,
+    )
