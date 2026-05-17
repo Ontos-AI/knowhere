@@ -10,11 +10,12 @@ import time
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import func as sa_func
-from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import DocumentChunk, DocumentSection
+from shared.services.retrieval.agentic.asset_tools import (
+    build_asset_tools_block,
+    count_assets_under_scope,
+)
 from shared.services.retrieval.agentic.budget import BudgetExceeded
 from shared.services.retrieval.agentic.prompts import (
     ACTION_PROMPT,
@@ -74,13 +75,13 @@ async def navigate_step(
         selectable = {
             item["path"]: item for item in items if item.get("selectable", False)
         }
-        total_images, total_tables = await _count_assets_under_scope(
+        total_images, total_tables = await count_assets_under_scope(
             db,
             document_id=document_id,
             job_result_id=job_result_id,
             scope_paths=scope_paths,
         )
-        tools_block = _build_tools_block(total_images, total_tables)
+        tools_block = build_asset_tools_block(total_images, total_tables)
 
         items_text, overflowed = format_items_for_llm(items)
         prompt = _build_navigation_prompt(
@@ -235,73 +236,6 @@ async def discovery_select_step(
     except Exception as exc:
         logger.error(f"  discovery_select_step failed for doc={document_id}: {exc}")
         return node
-
-
-async def _count_assets_under_scope(
-    db: AsyncSession,
-    *,
-    document_id: str,
-    job_result_id: str,
-    scope_paths: list[str],
-) -> tuple[int, int]:
-    scope_section_stmt = (
-        select(DocumentSection.section_id)
-        .where(DocumentSection.document_id == document_id)
-        .where(DocumentSection.job_result_id == job_result_id)
-    )
-    if scope_paths:
-        scope_filters = []
-        for scope in scope_paths:
-            scope_filters.append(DocumentSection.section_path == scope)
-            scope_filters.append(DocumentSection.section_path.like(f"{scope} / %"))
-        scope_section_stmt = scope_section_stmt.where(or_(*scope_filters))
-    scope_section_ids = await db.execute(scope_section_stmt)
-    all_section_ids = [row[0] for row in scope_section_ids.all()]
-
-    if not all_section_ids:
-        return 0, 0
-
-    count_stmt = (
-        select(
-            DocumentChunk.chunk_type,
-            sa_func.count(DocumentChunk.id),
-        )
-        .where(DocumentChunk.document_id == document_id)
-        .where(DocumentChunk.job_result_id == job_result_id)
-        .where(DocumentChunk.section_id.in_(all_section_ids))
-        .where(DocumentChunk.chunk_type.in_(["image", "table"]))
-        .group_by(DocumentChunk.chunk_type)
-    )
-    count_result = await db.execute(count_stmt)
-
-    total_images = 0
-    total_tables = 0
-    for chunk_type, count in count_result.all():
-        if chunk_type == "image":
-            total_images = count
-        elif chunk_type == "table":
-            total_tables = count
-    return total_images, total_tables
-
-
-def _build_tools_block(total_images: int, total_tables: int) -> str:
-    if total_images <= 0 and total_tables <= 0:
-        return ""
-
-    tools_lines = ["\nOptional asset tools (usable with NAVIGATE or STOP):\n"]
-    if total_images > 0:
-        tools_lines.append(
-            f"  FIND_IMAGES — Extract image/chart assets under the current scope ({total_images} available).\n"
-        )
-    if total_tables > 0:
-        tools_lines.append(
-            f"  FIND_TABLES — Extract table/data assets under the current scope ({total_tables} available).\n"
-        )
-    tools_lines.append(
-        "  Note: with NAVIGATE selections, asset tools are limited to the selected sections; "
-        "with STOP or no selections, they use the current scope.\n"
-    )
-    return "".join(tools_lines)
 
 
 def _build_navigation_prompt(
