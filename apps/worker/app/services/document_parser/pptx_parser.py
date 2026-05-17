@@ -11,13 +11,11 @@ from app.services.document_parser.legacy_converter import (
     _convert_with_libreoffice,
 )
 from app.services.document_parser.md_parser import parse_md
-from app.services.document_parser.mineru_pdf_service import (
-    get_existing_mineru_source_s3_key,
-)
 from app.services.document_parser.parser_log_utils import truncate_log_value
-from app.services.document_parser.pdf_parser import parse_pdfs
-from app.services.document_parser.pptx_pdf_rendering import (
-    render_pdf_to_image_pdf as _render_pdf_to_image_pdf,
+from app.services.document_parser.rendered_pdf_transform import (
+    build_rendered_pdf_s3_key,
+    parse_cached_rendered_pdf,
+    parse_rendered_pdf_bytes,
 )
 from loguru import logger
 from markitdown import MarkItDown
@@ -28,7 +26,6 @@ from shared.core.exceptions.domain_exceptions import (
     FileSystemException,
 )
 from shared.core.logging import LogEvent
-from shared.services.storage.job_file_storage import JobFileStorage
 from shared.utils.file_loading import load_file_bytes
 from shared.utils.file_utils import path_handle
 
@@ -306,50 +303,6 @@ class _ILoveApiConcurrencyExceeded(Exception):
     pass
 
 
-def _build_rendered_pdf_s3_key(job_id: str | None) -> str | None:
-    """Store rendered parser artifacts under a stable transform/ prefix."""
-    if settings.ENVIRONMENT == "development" or not job_id:
-        return None
-    return f"transform/{job_id}.rendered.pdf"
-
-
-def _parse_cached_rendered_pdf(
-    rendered_pdf_s3_key: str | None,
-    filename: str,
-    output_dir: str,
-    base_llm_paras,
-    relative_root,
-):
-    """Parse a previously rendered PPTX PDF from S3 without re-reading the source deck."""
-    if rendered_pdf_s3_key is None:
-        return None
-
-    cached_rendered_pdf_s3_key = get_existing_mineru_source_s3_key(rendered_pdf_s3_key)
-    if cached_rendered_pdf_s3_key is None:
-        return None
-
-    logger.info(
-        f"[parse_pptx] Reusing rendered PDF for MinerU URL mode: {rendered_pdf_s3_key}"
-    )
-    cached_rendered_pdf_path = JobFileStorage().download_upload_to_temp(
-        cached_rendered_pdf_s3_key,
-        suffix=".pdf",
-        temp_dir=output_dir,
-    )
-    try:
-        return parse_pdfs(
-            cached_rendered_pdf_path,
-            filename,
-            output_dir,
-            base_llm_paras,
-            relative_root=relative_root,
-            s3_key=cached_rendered_pdf_s3_key,
-        )
-    finally:
-        if os.path.exists(cached_rendered_pdf_path):
-            os.remove(cached_rendered_pdf_path)
-
-
 # ==================== main parsing entrance ====================
 
 
@@ -372,12 +325,12 @@ def parse_pptx(
         - "to_pdf_api": use iLoveAPI to convert to PDF, then parse via MinerU (recommended)
     """
     rendered_pdf_s3_key = (
-        _build_rendered_pdf_s3_key(job_id)
+        build_rendered_pdf_s3_key(job_id)
         if strategy in {"to_pdf_api", "to_pdf"}
         else None
     )
     if strategy in {"to_pdf_api", "to_pdf"}:
-        cached_result = _parse_cached_rendered_pdf(
+        cached_result = parse_cached_rendered_pdf(
             rendered_pdf_s3_key=rendered_pdf_s3_key,
             filename=filename,
             output_dir=output_dir,
@@ -491,27 +444,14 @@ def _parse_pptx_via_api(
     # Step 1: PPTX → PDF (in memory)
     pdf_bytes = _pptx_bytes_to_pdf_bytes(pptx_data, filename)
 
-    # Step 2: PDF → image-only PDF (in memory)
-    img_pdf_bytes = _render_pdf_to_image_pdf(pdf_bytes)
-
-    # Step 3: Write to output_dir for MinerU upload, then clean up
-    tmp_path = os.path.join(output_dir, "_pptx_tmp.pdf")
-    with open(tmp_path, "wb") as f:
-        f.write(img_pdf_bytes)
-
-    try:
-        parsed_df = parse_pdfs(
-            tmp_path,
-            filename=filename,
-            output_dir=output_dir,
-            base_llm_paras=base_llm_paras,
-            relative_root=relative_root,
-            s3_key=rendered_pdf_s3_key,
-        )
-        return parsed_df
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+    return parse_rendered_pdf_bytes(
+        pdf_bytes=pdf_bytes,
+        filename=filename,
+        output_dir=output_dir,
+        base_llm_paras=base_llm_paras,
+        relative_root=relative_root,
+        rendered_pdf_s3_key=rendered_pdf_s3_key,
+    )
 
 
 def _parse_pptx_via_libreoffice(
@@ -552,25 +492,14 @@ def _parse_pptx_via_libreoffice(
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    img_pdf_bytes = _render_pdf_to_image_pdf(pdf_bytes)
-
-    tmp_path = os.path.join(output_dir, "_pptx_tmp.pdf")
-    with open(tmp_path, "wb") as f:
-        f.write(img_pdf_bytes)
-
-    try:
-        parsed_df = parse_pdfs(
-            tmp_path,
-            filename=filename,
-            output_dir=output_dir,
-            base_llm_paras=base_llm_paras,
-            relative_root=relative_root,
-            s3_key=rendered_pdf_s3_key,
-        )
-        return parsed_df
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+    return parse_rendered_pdf_bytes(
+        pdf_bytes=pdf_bytes,
+        filename=filename,
+        output_dir=output_dir,
+        base_llm_paras=base_llm_paras,
+        relative_root=relative_root,
+        rendered_pdf_s3_key=rendered_pdf_s3_key,
+    )
 
 
 def _parse_pptx_to_md(pptx_data, filename, output_dir, base_llm_paras, relative_root):

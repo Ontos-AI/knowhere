@@ -52,6 +52,35 @@ The retrieval-visible text, image, or table row attached to a Document Section.
 The workflow that creates a Job, accepts a file or URL source, confirms upload
 state, and starts parsing work.
 
+### Worker Document Parsing
+
+The worker-side workflow that turns a source file into parsed DataFrame rows,
+parsed assets, and parser debug artifacts before chunk conversion and result
+packaging.
+
+### Parser Input
+
+The typed worker-side parse request assembled from Job metadata, parser options,
+source-file identity, output naming, and storage transform keys.
+
+### Document Format Routing
+
+The Worker Document Parsing module that selects one concrete parser adapter for
+the source document format while keeping format-specific conversion details out
+of the stable parser entrypoint.
+
+### Rendered PDF Transform
+
+The Worker Document Parsing module that reuses or creates rendered PDF artifacts
+for PDF-backed parsing paths, including PPTX-to-PDF fallback handling, image-only
+PDF rendering, temporary PDF materialization, MinerU handoff, and cleanup.
+
+### Heading Hierarchy
+
+The Worker Document Parsing module that predicts section levels from Markdown
+lines, DOCX blocks, TOC context, layout metadata, heuristics, and optional LLM
+inference.
+
 ### Job Admission
 
 The policy checks that must pass before a new Job is created: authentication,
@@ -230,11 +259,39 @@ exceptions.
 - `app/api/v1/routes/qstash_callbacks.py`
 - `app/services/qstash_callback_service.py`
 
+## apps/worker Workflow Ownership
+
+### Worker Document Parsing
+
+- `app/services/document_parser/parse_service.py`
+- `app/services/document_parser/orchestration/parse_input.py`
+- `app/services/document_parser/orchestration/parse_session.py`
+- `app/services/document_parser/orchestration/route_parse.py`
+- `app/services/document_parser/orchestration/format_router.py`
+- `app/services/document_parser/orchestration/format_adapters.py`
+
+### Rendered PDF Transform
+
+- `app/services/document_parser/rendered_pdf_transform.py`
+- `app/services/document_parser/pptx_pdf_rendering.py`
+- `app/services/document_parser/pdf_parser.py`
+- `app/services/document_parser/pptx_parser.py`
+
+### Heading Hierarchy
+
+- `app/services/document_parser/heading_hierarchy.py`
+- `app/services/document_parser/layout_parser.py`
+- `app/services/document_parser/md_parser.py`
+- `app/services/document_parser/doc_parser.py`
+
 ## Invariants
 
 - `apps/api` coordinates workflows. Parsing, publication, retrieval internals,
   storage mechanics, and state-machine implementation mostly live outside the
   route modules.
+- Worker Document Parsing exposes `checkerboard_inject_parse` as the stable
+  parser entrypoint; parser option shaping, format routing, rendered PDF
+  transforms, and heading inference stay behind that entrypoint.
 - A Job and a Document are not the same thing. Jobs track intake and processing;
   Documents track retrieval-visible knowledge state.
 - `current_job_result_id` selects the active revision of a Document.

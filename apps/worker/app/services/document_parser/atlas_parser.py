@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 from app.services.document_parser.dataframe_helpers import process_dup_paths_df
 from app.services.document_parser.identifiers import gen_str_codes, get_str_time
+from app.services.document_parser.parser_rows import ParsedRow, ParsedRowsBuilder
 from app.services.document_parser.pymupdf_subprocess import run_in_child_process, worker
 from app.services.document_parser.toc_parser import detect_tocs_in_texts
 from loguru import logger
@@ -373,7 +374,7 @@ def parse_atlas(
         )
 
     # ── Phase 3: Build chunks ──
-    df_list = []
+    rows_builder = ParsedRowsBuilder()
     custom_md_lines = []
     skipped_null = 0
     used_image_names: set[str] = set()
@@ -431,26 +432,20 @@ def parse_atlas(
         else:
             chunk_path = safe_title
 
-        # Build df row (11 columns)
         # Atlas chunks are image-primary: use IMAGE marker directly.
         # find_matches_parsing() prepends "PTXT\n" which causes downstream
         # chunk type classifier to misclassify as "text" instead of "image".
-        match_type = "image"
         tokens = tokenize2stw_remove([content], stopwords)
-        df_list.append(
-            [
-                content,  # content
-                chunk_path,  # path
-                match_type,  # type
-                len(content),  # length
-                "",  # keywords
-                "",  # summary
-                know_id,  # know_id
-                tokens,  # tokens
-                "",  # connectto
-                time_stamp,  # addtime
-                str(page_num),  # page_nums
-            ]
+        rows_builder.append(
+            ParsedRow(
+                content=content,
+                path=chunk_path,
+                type="image",
+                know_id=know_id,
+                addtime=time_stamp,
+                tokens=tokens,
+                page_nums=str(page_num),
+            )
         )
 
         # Build custom md line
@@ -468,8 +463,9 @@ def parse_atlas(
     with open(custom_md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(custom_md_lines))
 
+    df = rows_builder.to_dataframe()
     logger.info(
-        f"📐 Atlas pipeline complete: {len(df_list)} chunks created "
+        f"📐 Atlas pipeline complete: {len(df)} chunks created "
         f"(skipped {len(toc_page_set)} TOC + {skipped_null} null pages, total {total_pages})"
     )
 
@@ -477,9 +473,5 @@ def parse_atlas(
     #       Currently atlas chunks are flat with no parent-child relationships.
     #       Future: integrate with hierarchy builder for unified schema.
 
-    # ── Build DataFrame ──
-    all_cols = settings.ALL_DF_COLS.split(",")
-
-    df = pd.DataFrame(df_list, columns=all_cols)
     df = process_dup_paths_df(df)
     return df

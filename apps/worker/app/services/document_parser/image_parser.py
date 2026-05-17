@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 from app.services.document_parser.dataframe_helpers import process_dup_paths_df
 from app.services.document_parser.identifiers import gen_str_codes, get_str_time
+from app.services.document_parser.parser_rows import ParsedRow, ParsedRowsBuilder
 from loguru import logger
 from PIL import Image
 
@@ -224,7 +225,6 @@ def parse_image(
     relative_root=None,
 ):
     split_char = settings.SPLIT_CHAR or "/"
-    df_list = []
     time_stamp = get_str_time()
     os.makedirs(output_dir, exist_ok=True)
     img_dir = os.path.join(output_dir, "images")
@@ -355,23 +355,19 @@ def parse_image(
     )
     img_ref = build_chunk_ref(relative_img_path)
     img_bottom_content = f"{img_ref}\nImage Content:\n{image_content}"
-    df_list.append(
-        [
-            img_bottom_content,
-            relative_img_path,
-            "image",
-            len(img_bottom_content),
-            "",
-            image_summary,
-            temp_uid,
-            "",
-            "",
-            time_stamp,
-            "",
-        ]
+    rows_builder = ParsedRowsBuilder()
+    rows_builder.append(
+        ParsedRow(
+            content=img_bottom_content,
+            path=relative_img_path,
+            type="image",
+            summary=image_summary,
+            know_id=temp_uid,
+            addtime=time_stamp,
+        )
     )
 
-    img_df = pd.DataFrame(df_list, columns=settings.ALL_DF_COLS.split(","))
+    img_df = rows_builder.to_dataframe()
     img_df = process_dup_paths_df(img_df)
 
     return img_df

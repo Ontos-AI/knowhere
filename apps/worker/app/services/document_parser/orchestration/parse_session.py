@@ -6,6 +6,7 @@ from typing import Any
 
 from app.services.document_parser.atlas_classifier import classify_atlas_with_vlm
 from app.services.document_parser.doc_profiler import profile_document
+from app.services.document_parser.orchestration.parse_input import ParseInput
 from app.services.document_parser.stage_profiler import stage_timer
 from loguru import logger
 
@@ -32,69 +33,84 @@ class ParseSession:
     relative_root: str
     s3_key: str | None
 
+    @classmethod
+    def from_input(
+        cls,
+        *,
+        parse_input: ParseInput,
+        base_llm_paras: dict[str, object],
+        full_output_dir: str,
+        profile: Any,
+        relative_root: str,
+    ) -> "ParseSession":
+        return cls(
+            base_llm_paras=base_llm_paras,
+            base_url=parse_input.base_url,
+            file_full_path=parse_input.file_full_path,
+            filename=parse_input.filename,
+            fragment_content=parse_input.fragment_content,
+            full_output_dir=full_output_dir,
+            internal_output_filename=parse_input.internal_output_filename,
+            job_id=parse_input.job_id,
+            kb_dir=parse_input.kb_dir,
+            output_dir=parse_input.output_dir,
+            profile=profile,
+            relative_root=relative_root,
+            s3_key=parse_input.s3_key,
+        )
 
-def build_parse_session(
-    *,
-    add_frag_desc: str,
-    base_url: str,
-    doc_type: str,
-    file_full_path: str,
-    filename: str,
-    fragment_content: str,
-    internal_output_filename: str,
-    job_id: str | None,
-    kb_dir: str,
-    llm_histories: int,
-    output_dir: str,
-    s3_key: str | None,
-    smart_title_parse: bool,
-    stopwords: list[str] | None,
-    summary_image: bool,
-    summary_table: bool,
-    summary_txt: bool,
-) -> ParseSession:
+
+def build_parse_session(parse_input: ParseInput) -> ParseSession:
     """Build the parser routing session from explicit parse inputs."""
+    parse_options = parse_input.options
     base_llm_paras = {
-        "llm_histories": llm_histories,
-        "smart_title_parse": smart_title_parse,
-        "summary_image": summary_image,
-        "summary_table": summary_table,
-        "summary_txt": summary_txt,
-        "stopwords": stopwords,
-        "doc_type": doc_type,
-        "frag_desc": add_frag_desc,
+        "llm_histories": parse_options.llm_histories,
+        "smart_title_parse": parse_options.smart_title_parse,
+        "summary_image": parse_options.summary_image,
+        "summary_table": parse_options.summary_table,
+        "summary_txt": parse_options.summary_txt,
+        "stopwords": parse_options.stopwords,
+        "doc_type": parse_options.doc_type,
+        "frag_desc": parse_options.add_frag_desc,
         "model_name": settings.NORMOL_MODEL,
         "hierarchy_model_name": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
     }
 
-    logger.debug(f"baseurl: {base_url}")
-    logger.debug(f"file_full_path: {file_full_path}")
+    logger.debug(f"baseurl: {parse_input.base_url}")
+    logger.debug(f"file_full_path: {parse_input.file_full_path}")
 
     relative_root, full_output_dir = _resolve_output_paths(
-        filename=filename,
-        internal_output_filename=internal_output_filename,
-        kb_dir=kb_dir,
-        output_dir=output_dir,
+        filename=parse_input.filename,
+        internal_output_filename=parse_input.internal_output_filename,
+        kb_dir=parse_input.kb_dir,
+        output_dir=parse_input.output_dir,
     )
     logger.debug(f"relative_root: {relative_root}")
     logger.debug(f"full_output_dir: {full_output_dir}")
 
-    with stage_timer("document.profile", filename=filename):
-        profile = profile_document(file_full_path, internal_output_filename)
+    with stage_timer("document.profile", filename=parse_input.filename):
+        profile = profile_document(
+            parse_input.file_full_path,
+            parse_input.internal_output_filename,
+        )
     logger.info(f"📋 DocProfile: {profile.summary()}")
     logger.debug(f"📋 Reasoning: {profile.reasoning}")
 
     if profile.atlas_candidate and profile.doc_category not in ("atlas", "ppt_converted"):
-        logger.info(f"🔍 Atlas candidate detected, running VLM visual check for {filename}")
-        with stage_timer("document.atlas_vlm_check", filename=filename):
-            vlm_is_atlas = classify_atlas_with_vlm(file_full_path)
+        logger.info(
+            f"🔍 Atlas candidate detected, running VLM visual check for {parse_input.filename}"
+        )
+        with stage_timer("document.atlas_vlm_check", filename=parse_input.filename):
+            vlm_is_atlas = classify_atlas_with_vlm(parse_input.file_full_path)
         if vlm_is_atlas:
             profile.doc_category = "atlas"
             profile.reasoning += " | vlm_confirmed_atlas=True"
-            logger.info(f"✅ VLM confirmed atlas for {filename}")
+            logger.info(f"✅ VLM confirmed atlas for {parse_input.filename}")
         else:
             profile.reasoning += " | vlm_confirmed_atlas=False"
-            logger.info(f"ℹ️ VLM rejected atlas for {filename}, routing as generic")
+            logger.info(
+                f"ℹ️ VLM rejected atlas for {parse_input.filename}, routing as generic"
+            )
 
     if profile.file_type == "pdf" and profile.page_count > PDF_PAGE_LIMIT:
         raise ValidationException(
@@ -111,28 +127,34 @@ def build_parse_session(
         )
 
     if profile.doc_category == "atlas":
-        filename, internal_output_filename, relative_root, full_output_dir = _rename_atlas_output(
-            filename=filename,
-            internal_output_filename=internal_output_filename,
-            kb_dir=kb_dir,
-            output_dir=output_dir,
+        filename, internal_output_filename, relative_root, full_output_dir = (
+            _rename_atlas_output(
+                filename=parse_input.filename,
+                internal_output_filename=parse_input.internal_output_filename,
+                kb_dir=parse_input.kb_dir,
+                output_dir=parse_input.output_dir,
+            )
         )
         logger.info(f"📐 Atlas output renamed: {filename}")
+        parse_input = ParseInput(
+            file_full_path=parse_input.file_full_path,
+            filename=filename,
+            output_dir=parse_input.output_dir,
+            internal_output_filename=internal_output_filename,
+            job_id=parse_input.job_id,
+            kb_dir=parse_input.kb_dir,
+            options=parse_input.options,
+            base_url=parse_input.base_url,
+            fragment_content=parse_input.fragment_content,
+            s3_key=parse_input.s3_key,
+        )
 
-    return ParseSession(
+    return ParseSession.from_input(
+        parse_input=parse_input,
         base_llm_paras=base_llm_paras,
-        base_url=base_url,
-        file_full_path=file_full_path,
-        filename=filename,
-        fragment_content=fragment_content,
         full_output_dir=full_output_dir,
-        internal_output_filename=internal_output_filename,
-        job_id=job_id,
-        kb_dir=kb_dir,
-        output_dir=output_dir,
         profile=profile,
         relative_root=relative_root,
-        s3_key=s3_key,
     )
 
 

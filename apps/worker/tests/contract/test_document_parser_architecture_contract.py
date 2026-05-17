@@ -1,0 +1,732 @@
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import pandas as pd
+
+
+def test_parse_input_builds_typed_llm_parameters(
+    worker_contract_environment: None,
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.orchestration.parse_input import (
+        ParseInput,
+        ParseOptions,
+    )
+    from app.services.document_parser.orchestration.parse_session import (
+        build_parse_session,
+    )
+
+    monkeypatch.setattr(
+        "app.services.document_parser.orchestration.parse_session.profile_document",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            file_type="pdf",
+            page_count=3,
+            atlas_candidate=False,
+            doc_category="generic",
+            summary=lambda: "profile",
+            reasoning="test",
+        ),
+    )
+
+    parse_input = ParseInput(
+        file_full_path=str(tmp_path / "sample.pdf"),
+        filename="sample.pdf",
+        output_dir=str(tmp_path),
+        internal_output_filename="internal.pdf",
+        job_id="job-1",
+        kb_dir="Default_Root",
+        options=ParseOptions(
+            doc_type="auto",
+            llm_histories=7,
+            smart_title_parse=False,
+            summary_image=False,
+            summary_table=True,
+            summary_txt=False,
+            stopwords=["the"],
+            add_frag_desc="fragment",
+        ),
+        s3_key="uploads/sample.pdf",
+    )
+
+    session = build_parse_session(parse_input)
+
+    assert session.base_llm_paras == {
+        "llm_histories": 7,
+        "smart_title_parse": False,
+        "summary_image": False,
+        "summary_table": True,
+        "summary_txt": False,
+        "stopwords": ["the"],
+        "doc_type": "auto",
+        "frag_desc": "fragment",
+        "model_name": session.base_llm_paras["model_name"],
+        "hierarchy_model_name": session.base_llm_paras["hierarchy_model_name"],
+    }
+    assert session.relative_root == "Default_Root/sample.pdf"
+
+
+def test_document_format_router_uses_adapters(
+    worker_contract_environment: None,
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.orchestration.format_router import (
+        DocumentFormat,
+        get_document_parse_adapter,
+        resolve_document_format,
+    )
+    from app.services.document_parser.orchestration.parse_input import ParseInput
+    from app.services.document_parser.orchestration.parse_session import ParseSession
+    from app.services.document_parser.orchestration.route_parse import route_document_parse
+
+    assert resolve_document_format("/tmp/report.PDF") == DocumentFormat.PDF
+    assert resolve_document_format("/tmp/report.docx") == DocumentFormat.DOCX
+    assert get_document_parse_adapter(DocumentFormat.PDF).document_format == DocumentFormat.PDF
+
+    parsed_df = pd.DataFrame([{"content": "ok"}])
+
+    monkeypatch.setattr(
+        "app.services.document_parser.pdf_parser.parse_pdfs",
+        lambda *_args, **_kwargs: parsed_df,
+    )
+
+    profile = SimpleNamespace(route="standard", doc_category="generic")
+    parse_input = ParseInput(
+        file_full_path=str(tmp_path / "report.pdf"),
+        filename="report.pdf",
+        output_dir=str(tmp_path),
+        internal_output_filename="report.pdf",
+    )
+    session = ParseSession.from_input(
+        parse_input=parse_input,
+        base_llm_paras={},
+        full_output_dir=str(tmp_path),
+        profile=profile,
+        relative_root="Default_Root/report.pdf",
+    )
+
+    output_dir, actual_df = route_document_parse(session)
+
+    assert output_dir == str(tmp_path)
+    assert actual_df is parsed_df
+
+
+def test_rendered_pdf_transform_centralizes_temporary_pdf_cleanup(
+    worker_contract_environment: None,
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.rendered_pdf_transform import (
+        parse_rendered_pdf_bytes,
+    )
+
+    parsed_df = pd.DataFrame([{"content": "pptx"}])
+    seen_pdf_bytes: list[bytes] = []
+
+    def fake_parse_pdfs(pdf_path: str, **_kwargs: Any) -> pd.DataFrame:
+        seen_pdf_bytes.append(Path(pdf_path).read_bytes())
+        assert Path(pdf_path).exists()
+        return parsed_df
+
+    monkeypatch.setattr(
+        "app.services.document_parser.rendered_pdf_transform.parse_pdfs",
+        fake_parse_pdfs,
+    )
+    monkeypatch.setattr(
+        "app.services.document_parser.rendered_pdf_transform.render_pdf_to_image_pdf",
+        lambda pdf_bytes: pdf_bytes,
+    )
+
+    actual_df = parse_rendered_pdf_bytes(
+        pdf_bytes=b"rendered",
+        filename="slides.pptx",
+        output_dir=str(tmp_path),
+        base_llm_paras={},
+        relative_root="Default_Root/slides.pptx",
+        rendered_pdf_s3_key="transforms/job.pdf",
+    )
+
+    assert actual_df is parsed_df
+    assert seen_pdf_bytes == [b"rendered"]
+    assert not (tmp_path / "_pptx_tmp.pdf").exists()
+
+
+def test_heading_hierarchy_module_wraps_prediction(
+    worker_contract_environment: None,
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.heading_hierarchy import (
+        HeadingHierarchyInput,
+        predict_heading_hierarchy,
+    )
+
+    expected_df = pd.DataFrame(
+        [{"id": 1, "heading": "Intro", "level": 1, "reason": "test"}]
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_pred_titles(*args: Any, **kwargs: Any) -> pd.DataFrame:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return expected_df
+
+    monkeypatch.setattr(
+        "app.services.document_parser.heading_hierarchy.pred_titles",
+        fake_pred_titles,
+    )
+
+    actual_df = predict_heading_hierarchy(
+        HeadingHierarchyInput(
+            infos=[(1, "Intro")],
+            doc_type="md",
+            smart_parse=True,
+            model_name="hierarchy-model",
+            output_dir=str(tmp_path),
+            layout_json_path=str(tmp_path / "layout.json"),
+        )
+    )
+
+    assert actual_df is expected_df
+    assert captured["kwargs"]["doc_type"] == "md"
+    assert captured["kwargs"]["smart_parse"] is True
+    assert captured["kwargs"]["model_name"] == "hierarchy-model"
+
+
+def test_parser_row_builder_owns_dataframe_column_order(
+    worker_contract_environment: None,
+) -> None:
+    from app.services.document_parser.parser_rows import ParsedRow, ParsedRowsBuilder
+
+    builder = ParsedRowsBuilder()
+    builder.append(
+        ParsedRow(
+            content="chunk text",
+            path="Default_Root/doc/Section",
+            type="text",
+            keywords="alpha;beta",
+            summary="summary",
+            know_id="chunk-1",
+            tokens="alpha->beta",
+            connectto="",
+            page_nums="1,2",
+            addtime="now",
+        )
+    )
+
+    parsed_df = builder.to_dataframe()
+
+    assert list(parsed_df.columns) == [
+        "content",
+        "path",
+        "type",
+        "length",
+        "keywords",
+        "summary",
+        "know_id",
+        "tokens",
+        "connectto",
+        "addtime",
+        "page_nums",
+    ]
+    assert parsed_df.iloc[0].to_dict() == {
+        "content": "chunk text",
+        "path": "Default_Root/doc/Section",
+        "type": "text",
+        "length": len("chunk text"),
+        "keywords": "alpha;beta",
+        "summary": "summary",
+        "know_id": "chunk-1",
+        "tokens": "alpha->beta",
+        "connectto": "",
+        "addtime": "now",
+        "page_nums": "1,2",
+    }
+
+
+def test_inline_asset_module_builds_image_and_table_rows(
+    worker_contract_environment: None,
+) -> None:
+    from app.services.document_parser.inline_asset import (
+        build_image_asset_row,
+        build_table_asset_row,
+    )
+
+    image_row = build_image_asset_row(
+        content="\nImage summary\n[images/image-1.png]\n",
+        relative_path="images/image-1.png",
+        summary="image-1\nImage summary",
+        know_id="image-1",
+        addtime="now",
+        page_nums="3",
+    )
+    table_row = build_table_asset_row(
+        content="<table></table>",
+        relative_path="tables/table-1.html",
+        summary="table-1\nTable summary",
+        keywords="column",
+        know_id="table-1",
+        addtime="now",
+        page_nums="4",
+    )
+
+    assert image_row.type == "image"
+    assert image_row.path == "images/image-1.png"
+    assert image_row.summary == "image-1\nImage summary"
+    assert table_row.type == "table"
+    assert table_row.path == "tables/table-1.html"
+    assert table_row.keywords == "column"
+
+
+def test_table_asset_writer_creates_table_row_and_html_file(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.table_asset_writer import (
+        TableAssetInput,
+        write_table_asset,
+    )
+
+    row = write_table_asset(
+        TableAssetInput(
+            html="<table><tr><td>A</td></tr></table>",
+            output_dir=str(tmp_path),
+            table_name="table-1",
+            summary="table-1",
+            keywords="A",
+            know_id="table-1",
+            addtime="now",
+        )
+    )
+
+    assert (tmp_path / "tables" / "table-1.html").read_text(encoding="utf-8")
+    assert row.type == "table"
+    assert row.path == "tables/table-1.html"
+    assert row.content == "<table><tr><td>A</td></tr></table>"
+
+
+def test_docx_asset_store_owns_asset_filesystem_lifecycle(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.docx_asset_store import DocxAssetStore
+
+    store = DocxAssetStore(str(tmp_path))
+    (tmp_path / "images").mkdir()
+    (tmp_path / "tables").mkdir()
+    (tmp_path / "images" / "stale.png").write_bytes(b"stale")
+    (tmp_path / "tables" / "stale.html").write_text("stale", encoding="utf-8")
+
+    store.reset()
+    image_asset = store.write_image("image-1 raw", ".png", b"image")
+    renamed_asset = store.rename_image(image_asset, "image-1 final")
+    table_asset = store.write_table("table-1 final", "<table></table>")
+
+    assert not (tmp_path / "images" / "stale.png").exists()
+    assert not (tmp_path / "tables" / "stale.html").exists()
+    assert renamed_asset.relative_path == "images/image-1 final.png"
+    assert (tmp_path / "images" / "image-1 final.png").read_bytes() == b"image"
+    assert table_asset.relative_path == "tables/table-1 final.html"
+    assert (tmp_path / "tables" / "table-1 final.html").read_text(
+        encoding="utf-8"
+    ) == "<table></table>"
+
+
+def test_docx_block_stream_emits_document_ordered_blocks(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.docx_block_stream import iter_block_items
+    from docx import Document
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    docx_path = tmp_path / "sample.docx"
+    document = Document()
+    document.add_paragraph("Intro")
+    table = document.add_table(rows=1, cols=1)
+    table.cell(0, 0).text = "Cell"
+    document.save(docx_path)
+
+    block_events = list(iter_block_items(docx_path.read_bytes()))
+
+    assert block_events[0][0] == 1
+    assert isinstance(block_events[0][1], Paragraph)
+    assert block_events[0][1].text == "Intro"
+    assert block_events[0][2] == "PTXT"
+    assert isinstance(block_events[1][1], Table)
+    assert block_events[1][2] == "TABLE"
+
+
+def test_html_table_modules_separate_docx_and_dataframe_rendering(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.dataframe_html_renderer import df2html
+    from app.services.document_parser.docx_table_html import table2html
+    from docx import Document
+
+    docx_path = tmp_path / "table.docx"
+    document = Document()
+    table = document.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "A"
+    table.cell(0, 1).text = "B"
+    document.save(docx_path)
+
+    loaded_table = Document(str(docx_path)).tables[0]
+    docx_html = table2html(loaded_table, cell_image_map={(0, 1): "image summary"})
+
+    dataframe_html = df2html(
+        pd.DataFrame([["North", "North", 3]], columns=["Region", "Group", "Value"]),
+        row_header_cols=2,
+    )
+
+    assert docx_html == (
+        "<table border='1'><tr><td>A</td>"
+        "<td>B<br/><em>image summary</em></td></tr></table>"
+    )
+    assert '<th scope="row" colspan="2">North</th>' in dataframe_html
+    assert "<td>3</td>" in dataframe_html
+
+
+def test_mineru_modules_separate_client_and_task_polling(
+    worker_contract_environment: None,
+) -> None:
+    from app.services.document_parser.mineru_client import get_mineru_headers
+    from app.services.document_parser.mineru_task_polling import (
+        get_batch_status,
+        get_polling_interval_for_state,
+    )
+
+    assert get_mineru_headers("token") == {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer token",
+    }
+    assert get_batch_status({"data": {"extract_result": [{"state": "done"}]}}) == {
+        "state": "done"
+    }
+    assert get_batch_status({"data": {"extract_result": {"state": "failed"}}}) == {
+        "state": "failed"
+    }
+    assert get_polling_interval_for_state("pending", 2) == 8.0
+    assert get_polling_interval_for_state("running", 2) == 10.0
+    assert get_polling_interval_for_state("waiting-file", 2) == 15.0
+
+
+def test_doc_profile_model_owns_profile_contract_and_metadata(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    import json
+
+    from app.services.document_parser.doc_profile_model import (
+        DocProfile,
+        save_profile_metadata,
+    )
+
+    profile = DocProfile(
+        file_type="pdf",
+        route="fast",
+        decision_band="safe_fast",
+        page_count=3,
+        avg_text_density=123.4,
+        avg_image_coverage=0.05,
+        page_details=[{"page": 1}],
+        sample_text="hidden",
+    )
+
+    save_profile_metadata(profile, str(tmp_path))
+    saved_profile = json.loads((tmp_path / "profile.json").read_text(encoding="utf-8"))
+
+    assert "page_details" not in saved_profile
+    assert "sample_text" not in saved_profile
+    assert saved_profile["file_type"] == "pdf"
+    assert "route=fast" in profile.summary()
+
+
+def test_doc_profiler_dispatches_pdf_to_pdf_profile_module(
+    worker_contract_environment: None,
+    monkeypatch: Any,
+) -> None:
+    from app.services.document_parser.doc_profile_model import DocProfile
+    from app.services.document_parser.doc_profiler import profile_document
+
+    called_paths: list[str] = []
+
+    def fake_profile_pdf(path: str) -> DocProfile:
+        called_paths.append(path)
+        return DocProfile(file_type="pdf", page_count=2)
+
+    monkeypatch.setattr(
+        "app.services.document_parser.doc_profiler.profile_pdf",
+        fake_profile_pdf,
+    )
+
+    pdf_profile = profile_document("/tmp/input.bin", filename="report.pdf")
+    docx_profile = profile_document("/tmp/input.bin", filename="report.docx")
+
+    assert called_paths == ["/tmp/input.bin"]
+    assert pdf_profile.file_type == "pdf"
+    assert docx_profile.file_type == "docx"
+    assert docx_profile.route == "standard"
+
+
+def test_excel_structure_parser_is_table_structure_seam(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    import openpyxl
+
+    from app.services.document_parser.excel_structure_parser import (
+        parse_excel_structure,
+    )
+
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Budget"
+    worksheet["A1"] = "Region"
+    worksheet["B1"] = "Value"
+    worksheet["A2"] = "North"
+    worksheet["B2"] = 10
+    workbook_path = tmp_path / "budget.xlsx"
+    workbook.save(workbook_path)
+
+    parsed_sheets = parse_excel_structure(str(workbook_path), split_subtables=False)
+
+    assert list(parsed_sheets.keys()) == ["Budget"]
+    assert parsed_sheets["Budget"].attrs["row_header_cols"] >= 0
+    assert "North" in parsed_sheets["Budget"].astype(str).to_string()
+
+
+def test_heading_hierarchy_exposes_candidate_and_tree_modules(
+    worker_contract_environment: None,
+) -> None:
+    from app.services.document_parser.heading_candidates import filter_markdown_headings
+    from app.services.document_parser.heading_tree import cleanup_heading_tree
+
+    candidates = filter_markdown_headings(["# Intro", "body", "## Detail"])
+    cleaned = cleanup_heading_tree(
+        pd.DataFrame(
+            [
+                {"id": 0, "heading": "Intro", "level": 1, "reason": ""},
+                {"id": 2, "heading": "Detail", "level": 2, "reason": ""},
+            ]
+        )
+    )
+
+    assert candidates[["id", "heading", "level"]].to_dict("records")[0] == {
+        "id": 0,
+        "heading": "Intro",
+        "level": 1,
+    }
+    assert cleaned["heading"].tolist() == ["Intro", "Detail"]
+
+
+def test_heading_llm_executor_owns_prompt_execution_and_fallback(
+    worker_contract_environment: None,
+    monkeypatch: Any,
+) -> None:
+    from app.services.document_parser.heading_llm_executor import (
+        execute_llm_heading_hierarchy,
+    )
+
+    monkeypatch.setenv("KB_LAYOUT_LLM_COMPACT_INPUT", "true")
+    raw_preds = pd.DataFrame(
+        [
+            {"id": 0, "heading": "body", "level": -1, "reason": ""},
+            {"id": 1, "heading": "Intro", "level": -2, "reason": "POS [1] NEG [0]"},
+            {"id": 2, "heading": "body", "level": -1, "reason": ""},
+        ]
+    )
+    judged_prompts: list[pd.DataFrame] = []
+    saved_files: list[str] = []
+
+    def fake_hierarchy_judge(
+        df: pd.DataFrame,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> list[dict[str, int]]:
+        judged_prompts.append(df.copy())
+        return [{"id": 1, "level": 1}]
+
+    def unexpected_fallback(_df: pd.DataFrame) -> pd.DataFrame:
+        raise AssertionError("fallback should not run")
+
+    actual_df = execute_llm_heading_hierarchy(
+        raw_preds=raw_preds,
+        prompt_limt=4000,
+        hierarchy_judge=fake_hierarchy_judge,
+        fallback_hierarchy=unexpected_fallback,
+        save_intermediate_csv=lambda _df, _output_dir, filename: saved_files.append(
+            filename
+        ),
+        model_name="hierarchy-model",
+    )
+
+    assert actual_df["level"].tolist() == [-1, 1, -1]
+    assert "Intro" in judged_prompts[0]["heading"].tolist()
+    assert judged_prompts[0]["heading"].tolist().count("[1 BODY LINES]") == 2
+    assert saved_files == ["preds_3_llm_base", "preds_4_llm_final"]
+
+    body_only = pd.DataFrame(
+        [{"id": 0, "heading": "body", "level": -1, "reason": ""}]
+    )
+    skipped_df = execute_llm_heading_hierarchy(
+        raw_preds=body_only,
+        prompt_limt=4000,
+        hierarchy_judge=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("LLM should not run without heading candidates")
+        ),
+        fallback_hierarchy=unexpected_fallback,
+        save_intermediate_csv=lambda *_args: None,
+    )
+
+    assert skipped_df["level"].tolist() == [-1]
+
+
+def test_markdown_deferred_summary_module_updates_rows_and_refs(
+    worker_contract_environment: None,
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    import app.services.document_parser.markdown_deferred_summary as deferred_summary
+    from app.services.document_parser.markdown_deferred_summary import (
+        MarkdownDeferredSummaryInput,
+        apply_markdown_deferred_summaries,
+    )
+
+    image_dir = tmp_path / "images"
+    table_dir = tmp_path / "tables"
+    image_dir.mkdir()
+    table_dir.mkdir()
+    (image_dir / "image-3-old.png").write_bytes(b"image")
+    (table_dir / "table-0 old.html").write_text("<table></table>", encoding="utf-8")
+
+    rows: list[list[str | int]] = [
+        [
+            "[images/image-3-old.png]",
+            "images/image-3-old.png",
+            "image",
+            24,
+            "",
+            "image-3",
+            "image-id",
+            "",
+            "",
+            "now",
+            "",
+        ],
+        [
+            "[tables/table-0 old.html]",
+            "tables/table-0 old.html",
+            "table",
+            25,
+            "",
+            "table-0",
+            "table-id",
+            "",
+            "",
+            "now",
+            "",
+        ],
+        [
+            "long text",
+            "Root/Text",
+            "text",
+            9,
+            "",
+            "",
+            "text-id",
+            "",
+            "",
+            "now",
+            "",
+        ],
+    ]
+
+    monkeypatch.setattr(deferred_summary, "_get_vision_client", lambda: object())
+    monkeypatch.setattr(
+        deferred_summary,
+        "ask_image",
+        lambda *_args, **_kwargs: "Better Image\nImage summary",
+    )
+
+    def fake_extract(text: str, **_kwargs: Any) -> tuple[str, str, str]:
+        if "<table" in text:
+            return "Better Table", "table-keyword", "table summary"
+        return "Text", "text-keyword", "text summary"
+
+    monkeypatch.setattr(
+        deferred_summary, "extract_title_keywords_summary", fake_extract
+    )
+
+    apply_markdown_deferred_summaries(
+        MarkdownDeferredSummaryInput(
+            rows=rows,
+            tasks=[
+                ("image", 0, "images/image-3-old.png", str(image_dir), "image-3-old", ".png"),
+                ("table", 1, "<table></table>", str(table_dir), "table-0 old", 0),
+                ("text", 2, "long text"),
+            ],
+            output_dir=str(tmp_path),
+        )
+    )
+
+    assert rows[0][1] == "images/image-3-Better Image.png"
+    assert "[images/image-3-Better Image.png]" in str(rows[0][0])
+    assert rows[0][5] == "image-3\nImage summary"
+    assert (image_dir / "image-3-Better Image.png").exists()
+    assert rows[1][1] == "tables/table-0 Better Table.html"
+    assert rows[1][4] == "table-keyword"
+    assert rows[1][5] == "table-0\ntable summary"
+    assert (table_dir / "table-0 Better Table.html").exists()
+    assert rows[2][4] == "text-keyword"
+    assert rows[2][5] == "text summary"
+
+
+def test_toc_modules_separate_docx_detection_from_hierarchy_payloads(
+    worker_contract_environment: None,
+) -> None:
+    from app.services.document_parser.toc_docx import infer_toc_level_from_text
+    from app.services.document_parser.toc_hierarchy import build_toc_hierarchy_payload
+
+    assert infer_toc_level_from_text("1.2 Scope") == 2
+    payload = build_toc_hierarchy_payload(
+        [
+            {"id": 3, "heading": "1 Overview", "level": 1},
+            {"id": 4, "heading": "1.1 Detail", "level": 2},
+        ],
+        toc_range=(3, 4),
+        scan_range=(3, 5),
+    )
+
+    assert payload is not None
+    assert payload["toc_range"] == (3, 4)
+    assert payload["scan_range"] == (3, 5)
+    assert payload["toc_tree"] == {"1 Overview": {"1.1 Detail": {}}}
+
+
+def test_format_adapters_do_not_expose_lazy_any_wrappers(
+    worker_contract_environment: None,
+) -> None:
+    import app.services.document_parser.orchestration.format_adapters as format_adapters
+
+    wrapper_names = [
+        "parse_fragment",
+        "parse_texts",
+        "parse_md",
+        "parse_image",
+        "parse_pdfs",
+        "parse_docx",
+        "convert_doc2dics",
+        "doc_to_docx",
+        "xls_to_xlsx",
+        "parse_xlsx",
+        "parse_pptx",
+    ]
+
+    assert not any(hasattr(format_adapters, wrapper_name) for wrapper_name in wrapper_names)

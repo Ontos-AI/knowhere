@@ -6,19 +6,22 @@ import re
 import threading
 import uuid
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
-import openpyxl
 import pandas as pd
 from app.services.document_parser.dataframe_helpers import process_dup_paths_df
+from app.services.document_parser.excel_structure_parser import parse_excel_structure
 from app.services.document_parser.identifiers import gen_str_codes, get_str_time
+from app.services.document_parser.parser_rows import ParsedRow, ParsedRowsBuilder
 from app.services.document_parser.path_helpers import flatten_dic2paths, remove_spaces
-from app.services.document_parser.html_parser import df2html
+from app.services.document_parser.table_asset_writer import (
+    TableAssetInput,
+    write_table_asset,
+)
+from app.services.document_parser.dataframe_html_renderer import df2html
 from bs4 import BeautifulSoup
 from loguru import logger
 
-from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import TableParsingException
 from shared.core.exceptions.knowhere_exception import KnowhereException
 from shared.services.ai.prompt_service import build_prompt
@@ -81,817 +84,6 @@ def sanitize_table_name_from_header(raw_header_text: str) -> str:
 
 
 g_tbl_lock = threading.Lock()
-
-# ============================================================================
-# PRECISION MODE: Excel Header Detection with Merge Cell Metadata
-# ============================================================================
-
-
-def _get_merged_cell_value(ws, row: int, col: int, merged_ranges: list):
-    """
-    Get the value of a cell, accounting for merged cell regions.
-    For merged cells, returns the value from the top-left corner of the merge range.
-
-    Args:
-        ws: openpyxl worksheet
-        row: 1-indexed row number
-        col: 1-indexed column number
-        merged_ranges: list of merged cell ranges from ws.merged_cells.ranges
-
-    Returns:
-        The cell value (from merge origin if applicable)
-    """
-    for mr in merged_ranges:
-        if mr.min_row <= row <= mr.max_row and mr.min_col <= col <= mr.max_col:
-            # This cell is part of a merged region, get value from top-left
-            return ws.cell(mr.min_row, mr.min_col).value
-    # Not a merged cell, return direct value
-    return ws.cell(row, col).value
-
-
-# ============================================================================
-# NEW: Enhanced Header Detection with Row/Column MultiIndex Support
-# ============================================================================
-
-# Data types that indicate a cell is data, not header (parameterized for future extension)
-DATA_TYPES_TO_EXCLUDE = (int, float, datetime.datetime)
-
-
-def _get_unique_cells_in_row(
-    ws, row: int, col_range: Tuple[int, int], merged_ranges: list
-) -> List[dict]:
-    """Get all unique cells in a row, treating merged cells as single cells.
-
-    Returns: List of {col_start, col_end, value, is_merged}
-    """
-    c_start, c_end = col_range
-    cells = []
-    visited_cols = set()
-
-    for col in range(c_start, c_end + 1):
-        if col in visited_cols:
-            continue
-
-        in_merge = False
-        for mr in merged_ranges:
-            if mr.min_row <= row <= mr.max_row and mr.min_col <= col <= mr.max_col:
-                val = ws.cell(mr.min_row, mr.min_col).value
-                merge_col_end = min(mr.max_col, c_end)
-
-                for mc in range(mr.min_col, merge_col_end + 1):
-                    visited_cols.add(mc)
-
-                cells.append(
-                    {
-                        "col_start": mr.min_col,
-                        "col_end": merge_col_end,
-                        "value": val,
-                        "is_merged": True,
-                    }
-                )
-                in_merge = True
-                break
-
-        if not in_merge:
-            val = ws.cell(row, col).value
-            cells.append(
-                {"col_start": col, "col_end": col, "value": val, "is_merged": False}
-            )
-            visited_cols.add(col)
-
-    return cells
-
-
-def _get_unique_cells_in_col(
-    ws, col: int, row_range: Tuple[int, int], merged_ranges: list
-) -> List[dict]:
-    """Get all unique cells in a column, treating merged cells as single cells."""
-    r_start, r_end = row_range
-    cells = []
-    visited_rows = set()
-
-    for row in range(r_start, r_end + 1):
-        if row in visited_rows:
-            continue
-
-        in_merge = False
-        for mr in merged_ranges:
-            if mr.min_row <= row <= mr.max_row and mr.min_col <= col <= mr.max_col:
-                val = ws.cell(mr.min_row, mr.min_col).value
-                merge_row_end = min(mr.max_row, r_end)
-
-                for mr_row in range(mr.min_row, merge_row_end + 1):
-                    visited_rows.add(mr_row)
-
-                cells.append(
-                    {
-                        "row_start": mr.min_row,
-                        "row_end": merge_row_end,
-                        "value": val,
-                        "is_merged": True,
-                    }
-                )
-                in_merge = True
-                break
-
-        if not in_merge:
-            val = ws.cell(row, col).value
-            cells.append(
-                {"row_start": row, "row_end": row, "value": val, "is_merged": False}
-            )
-            visited_rows.add(row)
-
-    return cells
-
-
-def _is_candidate_header_row(
-    ws,
-    row: int,
-    col_range: Tuple[int, int],
-    merged_ranges: list,
-    exclude_types: tuple = DATA_TYPES_TO_EXCLUDE,
-) -> bool:
-    """Check if a row is a candidate header row.
-
-    Logic: Row is a candidate if all cells are text (no numbers/dates).
-    Merged cells are treated as single cells.
-    """
-    cells = _get_unique_cells_in_row(ws, row, col_range, merged_ranges)
-
-    has_any_value = False
-    for cell in cells:
-        val = cell["value"]
-        if val is None:
-            continue
-        has_any_value = True
-
-        if isinstance(val, bool):
-            continue
-        if isinstance(val, exclude_types):
-            return False
-
-    return has_any_value
-
-
-def _is_candidate_header_col(
-    ws,
-    col: int,
-    row_range: Tuple[int, int],
-    merged_ranges: list,
-    exclude_types: tuple = DATA_TYPES_TO_EXCLUDE,
-) -> bool:
-    """Check if a column is a candidate header column (for row index)."""
-    cells = _get_unique_cells_in_col(ws, col, row_range, merged_ranges)
-
-    has_any_value = False
-    for cell in cells:
-        val = cell["value"]
-        if val is None:
-            continue
-        has_any_value = True
-
-        if isinstance(val, bool):
-            continue
-        if isinstance(val, exclude_types):
-            return False
-
-    return has_any_value
-
-
-def _detect_header_regions(
-    ws, row_range: Tuple[int, int], col_range: Tuple[int, int], merged_ranges: list
-) -> Tuple[List[int], List[int]]:
-    """Detect header rows and columns.
-
-    Scans rows first, then scans columns only in the data region (excluding header rows).
-    This prevents header row content from influencing column header detection.
-
-    Returns:
-        header_rows: List of candidate header row numbers (1-indexed)
-        header_cols: List of candidate header column numbers (1-indexed)
-    """
-    r_start, r_end = row_range
-    c_start, c_end = col_range
-
-    # Scan for candidate header rows (top to bottom)
-    header_rows = []
-    for row in range(r_start, r_end + 1):
-        if _is_candidate_header_row(ws, row, col_range, merged_ranges):
-            header_rows.append(row)
-        else:
-            break
-
-    # Determine data region (excluding header rows)
-    data_row_start = header_rows[-1] + 1 if header_rows else r_start
-
-    # Skip column scanning if no data rows remain
-    if data_row_start > r_end:
-        return header_rows, []
-
-    # Scan for candidate header columns (left to right) - only in data region
-    header_cols = []
-    data_row_range = (data_row_start, r_end)
-    for col in range(c_start, c_end + 1):
-        if _is_candidate_header_col(ws, col, data_row_range, merged_ranges):
-            header_cols.append(col)
-        else:
-            break
-
-    return header_rows, header_cols
-
-
-def _build_column_multiindex(
-    ws, header_rows: List[int], col_range: Tuple[int, int], merged_ranges: list
-) -> Union[pd.Index, pd.MultiIndex]:
-    """Build column MultiIndex from header rows."""
-    c_start, c_end = col_range
-    levels = []
-
-    for row in header_rows:
-        row_values = []
-        for col in range(c_start, c_end + 1):
-            val = _get_merged_cell_value(ws, row, col, merged_ranges)
-            row_values.append(str(val).strip() if val else "")
-        levels.append(row_values)
-
-    # Forward fill for merged cells
-    for idx, level in enumerate(levels):
-        filled = []
-        last = ""
-        for val in level:
-            if val:
-                last = val
-            filled.append(last if last else val)
-        levels[idx] = filled
-
-    if len(levels) == 1:
-        return pd.Index(levels[0])
-    return pd.MultiIndex.from_arrays(levels)
-
-
-def _build_row_multiindex(
-    ws,
-    header_cols: List[int],
-    row_range: Tuple[int, int],
-    merged_ranges: list,
-    header_rows: List[int] = None,
-) -> Union[pd.Index, pd.MultiIndex]:
-    """Build row MultiIndex from header columns.
-
-    Args:
-        header_rows: If provided, use the last header row's values as index names
-    """
-    r_start, r_end = row_range
-    levels = []
-    names = []
-
-    for col in header_cols:
-        col_values = []
-        for row in range(r_start, r_end + 1):
-            val = _get_merged_cell_value(ws, row, col, merged_ranges)
-            col_values.append(str(val).strip() if val else "")
-        levels.append(col_values)
-
-        # Get the column name from the last header row
-        if header_rows:
-            name_row = header_rows[-1]
-            name_val = _get_merged_cell_value(ws, name_row, col, merged_ranges)
-            names.append(str(name_val).strip() if name_val else None)
-        else:
-            names.append(None)
-
-    # Forward fill for merged cells
-    for idx, level in enumerate(levels):
-        filled = []
-        last = ""
-        for val in level:
-            if val:
-                last = val
-            filled.append(last if last else val)
-        levels[idx] = filled
-
-    if len(levels) == 1:
-        idx = pd.Index(levels[0])
-        idx.name = names[0] if names else None
-        return idx
-    return pd.MultiIndex.from_arrays(levels, names=names)
-
-
-def _parse_subtable(
-    ws, row_range: Tuple[int, int], col_range: Tuple[int, int], merged_ranges: list
-) -> dict:
-    """Parse a subtable with new header detection logic.
-
-    Returns:
-        dict with keys: df, header_rows, header_cols, fallback_col_header, fallback_row_header
-    """
-    r_start, r_end = row_range
-    c_start, c_end = col_range
-
-    header_rows, header_cols = _detect_header_regions(
-        ws, row_range, col_range, merged_ranges
-    )
-
-    total_rows = r_end - r_start + 1
-    total_cols = c_end - c_start + 1
-
-    # Fall-back check: if all rows/cols are headers, treat as no-header
-    fallback_col_header = len(header_rows) == total_rows
-    fallback_row_header = len(header_cols) == total_cols
-
-    # Determine data region
-    if fallback_col_header:
-        data_row_start = r_start
-        columns = None
-    else:
-        data_row_start = header_rows[-1] + 1 if header_rows else r_start
-        columns = (
-            _build_column_multiindex(ws, header_rows, col_range, merged_ranges)
-            if header_rows
-            else None
-        )
-
-    if fallback_row_header:
-        data_col_start = c_start
-        row_index = None
-    else:
-        data_col_start = header_cols[-1] + 1 if header_cols else c_start
-        row_index = (
-            _build_row_multiindex(
-                ws, header_cols, (data_row_start, r_end), merged_ranges, header_rows
-            )
-            if header_cols
-            else None
-        )
-
-    # Read data
-    data = []
-    for row in range(data_row_start, r_end + 1):
-        row_data = []
-        for col in range(data_col_start, c_end + 1):
-            val = _get_merged_cell_value(ws, row, col, merged_ranges)
-            row_data.append(val)
-        data.append(row_data)
-
-    # Adjust column index if there are row index columns
-    if columns is not None and header_cols and not fallback_row_header:
-        if isinstance(columns, pd.MultiIndex):
-            columns = columns[len(header_cols) :]
-        else:
-            columns = columns[len(header_cols) :]
-
-    df = pd.DataFrame(data, columns=columns, index=row_index)
-
-    # Append original Excel row numbers as the last column for cross-referencing
-    excel_row_numbers = list(range(data_row_start, r_end + 1))
-    if isinstance(df.columns, pd.MultiIndex):
-        n_levels = df.columns.nlevels
-        src_row_key = tuple(["_src_row"] + [""] * (n_levels - 1))
-        df[src_row_key] = excel_row_numbers
-    else:
-        df["_src_row"] = excel_row_numbers
-
-    return {
-        "df": df,
-        "header_rows": header_rows if not fallback_col_header else [],
-        "header_cols": header_cols if not fallback_row_header else [],
-        "fallback_col_header": fallback_col_header,
-        "fallback_row_header": fallback_row_header,
-    }
-
-
-# ============================================================================
-# Sheet Splitting: Detect true separators and split into subtables
-# ============================================================================
-
-
-def _find_effective_range(
-    ws, row_range: Tuple[int, int], col_range: Tuple[int, int]
-) -> Tuple[Tuple[int, int], Tuple[int, int]]:
-    """Find the effective (non-empty) row and column ranges within a region."""
-    r_start, r_end = row_range
-    c_start, c_end = col_range
-
-    eff_r_start, eff_r_end = None, None
-    eff_c_start, eff_c_end = None, None
-
-    for row in range(r_start, r_end + 1):
-        for col in range(c_start, c_end + 1):
-            if ws.cell(row, col).value is not None:
-                if eff_r_start is None:
-                    eff_r_start = row
-                eff_r_end = row
-                if eff_c_start is None or col < eff_c_start:
-                    eff_c_start = col
-                if eff_c_end is None or col > eff_c_end:
-                    eff_c_end = col
-
-    if eff_r_start is None:
-        return ((r_start, r_start), (c_start, c_start))
-
-    return ((eff_r_start, eff_r_end), (eff_c_start, eff_c_end))
-
-
-def _is_true_separator_row(
-    ws, row: int, effective_col_range: Tuple[int, int], merged_ranges: list = None
-) -> bool:
-    """Check if a row is a true separator (all empty within effective column range).
-
-    Considers merged cells - a cell is not empty if it's part of any merged range.
-    """
-    c_start, c_end = effective_col_range
-    merged_ranges = merged_ranges or []
-
-    for col in range(c_start, c_end + 1):
-        # Check if cell has a value
-        if ws.cell(row, col).value is not None:
-            return False
-        # Check if cell is part of a merged range
-        for mr in merged_ranges:
-            if mr.min_row <= row <= mr.max_row and mr.min_col <= col <= mr.max_col:
-                return False  # Part of a merge, not truly empty
-    return True
-
-
-def _is_true_separator_col(
-    ws, col: int, effective_row_range: Tuple[int, int], merged_ranges: list = None
-) -> bool:
-    """Check if a column is a true separator (all empty within effective row range).
-
-    Considers merged cells - a cell is not empty if it's part of any merged range.
-    """
-    r_start, r_end = effective_row_range
-    merged_ranges = merged_ranges or []
-
-    for row in range(r_start, r_end + 1):
-        # Check if cell has a value
-        if ws.cell(row, col).value is not None:
-            return False
-        # Check if cell is part of a merged range
-        for mr in merged_ranges:
-            if mr.min_row <= row <= mr.max_row and mr.min_col <= col <= mr.max_col:
-                return False  # Part of a merge, not truly empty
-    return True
-
-
-def _find_separator_groups(items: List[int]) -> List[List[int]]:
-    """Group consecutive separator items together."""
-    if not items:
-        return []
-
-    groups = []
-    current_group = [items[0]]
-
-    for i in range(1, len(items)):
-        if items[i] == items[i - 1] + 1:
-            current_group.append(items[i])
-        else:
-            groups.append(current_group)
-            current_group = [items[i]]
-
-    groups.append(current_group)
-    return groups
-
-
-def _split_sheet_recursive(
-    ws,
-    row_range: Tuple[int, int],
-    col_range: Tuple[int, int],
-    merged_ranges: list = None,
-    min_rows: int = 2,
-    min_cols: int = 2,
-) -> List[Tuple[Tuple[int, int], Tuple[int, int]]]:
-    """
-    Recursively split a sheet region into subtables based on true separators.
-
-    Args:
-        merged_ranges: List of merged cell ranges to consider when detecting separators
-
-    Returns list of (row_range, col_range) tuples for each subtable.
-    """
-    r_start, r_end = row_range
-    c_start, c_end = col_range
-    merged_ranges = merged_ranges or []
-
-    # Find effective range (trim empty edges)
-    (eff_r_start, eff_r_end), (eff_c_start, eff_c_end) = _find_effective_range(
-        ws, row_range, col_range
-    )
-
-    # If region is too small or empty, return as-is or empty
-    if eff_r_end - eff_r_start + 1 < min_rows or eff_c_end - eff_c_start + 1 < min_cols:
-        if eff_r_start is not None:
-            return [((eff_r_start, eff_r_end), (eff_c_start, eff_c_end))]
-        return []
-
-    # Find true separator rows (considering merged cells)
-    separator_rows = []
-    for row in range(eff_r_start + 1, eff_r_end):
-        if _is_true_separator_row(ws, row, (eff_c_start, eff_c_end), merged_ranges):
-            separator_rows.append(row)
-
-    # Find true separator columns (considering merged cells)
-    separator_cols = []
-    for col in range(eff_c_start + 1, eff_c_end):
-        if _is_true_separator_col(ws, col, (eff_r_start, eff_r_end), merged_ranges):
-            separator_cols.append(col)
-
-    # Group consecutive separators
-    row_groups = _find_separator_groups(separator_rows)
-    col_groups = _find_separator_groups(separator_cols)
-
-    # Choose split direction
-    do_row_split = len(row_groups) > 0 and (
-        len(col_groups) == 0 or len(row_groups) <= len(col_groups)
-    )
-    do_col_split = len(col_groups) > 0 and not do_row_split
-
-    if do_row_split:
-        subtables = []
-        prev_end = eff_r_start
-        for group in row_groups:
-            if group[0] > prev_end:
-                sub_result = _split_sheet_recursive(
-                    ws,
-                    (prev_end, group[0] - 1),
-                    (eff_c_start, eff_c_end),
-                    merged_ranges,
-                    min_rows,
-                    min_cols,
-                )
-                subtables.extend(sub_result)
-            prev_end = group[-1] + 1
-        if prev_end <= eff_r_end:
-            sub_result = _split_sheet_recursive(
-                ws,
-                (prev_end, eff_r_end),
-                (eff_c_start, eff_c_end),
-                merged_ranges,
-                min_rows,
-                min_cols,
-            )
-            subtables.extend(sub_result)
-        return subtables
-
-    elif do_col_split:
-        subtables = []
-        prev_end = eff_c_start
-        for group in col_groups:
-            if group[0] > prev_end:
-                sub_result = _split_sheet_recursive(
-                    ws,
-                    (eff_r_start, eff_r_end),
-                    (prev_end, group[0] - 1),
-                    merged_ranges,
-                    min_rows,
-                    min_cols,
-                )
-                subtables.extend(sub_result)
-            prev_end = group[-1] + 1
-        if prev_end <= eff_c_end:
-            sub_result = _split_sheet_recursive(
-                ws,
-                (eff_r_start, eff_r_end),
-                (prev_end, eff_c_end),
-                merged_ranges,
-                min_rows,
-                min_cols,
-            )
-            subtables.extend(sub_result)
-        return subtables
-
-    else:
-        return [((eff_r_start, eff_r_end), (eff_c_start, eff_c_end))]
-
-
-# ============================================================================
-# Post-split Merge: Absorb small fragments into nearest neighbor
-# ============================================================================
-
-
-def _count_non_empty_cells(
-    ws, row_range: Tuple[int, int], col_range: Tuple[int, int]
-) -> int:
-    """Count non-empty cells in a region."""
-    count = 0
-    for r in range(row_range[0], row_range[1] + 1):
-        for c in range(col_range[0], col_range[1] + 1):
-            if ws.cell(r, c).value is not None:
-                count += 1
-    return count
-
-
-def _merge_small_subtables(
-    ws, subtables: List[Tuple[Tuple[int, int], Tuple[int, int]]], min_cells: int = 4
-) -> List[Tuple[Tuple[int, int], Tuple[int, int]]]:
-    """Merge subtables that have too few non-empty cells into their nearest neighbor.
-
-    This is a post-processing step after _split_sheet_recursive to prevent
-    over-fragmentation. Fragments with fewer than min_cells non-empty cells
-    are iteratively absorbed into the nearest neighbor subtable (by bounding-box
-    distance), expanding the neighbor's bounding box to encompass both regions.
-
-    Args:
-        ws: openpyxl worksheet
-        subtables: list of (row_range, col_range) tuples from _split_sheet_recursive
-        min_cells: minimum non-empty cells for a subtable to be kept standalone
-
-    Returns:
-        Merged list of (row_range, col_range) tuples
-    """
-    if len(subtables) <= 1:
-        return subtables
-
-    # Build working list with cell counts
-    items = []
-    for rr, cr in subtables:
-        count = _count_non_empty_cells(ws, rr, cr)
-        items.append({"rr": rr, "cr": cr, "cells": count})
-
-    # Iteratively merge the smallest sub-threshold fragment
-    changed = True
-    while changed and len(items) > 1:
-        changed = False
-
-        # Find the smallest fragment below threshold
-        min_idx = None
-        for i, item in enumerate(items):
-            if item["cells"] < min_cells:
-                if min_idx is None or item["cells"] < items[min_idx]["cells"]:
-                    min_idx = i
-
-        if min_idx is None:
-            break  # All subtables are above threshold
-
-        # Find nearest neighbor by bounding-box gap distance
-        src = items[min_idx]
-        best_j = None
-        best_dist = float("inf")
-        for j, tgt in enumerate(items):
-            if j == min_idx:
-                continue
-            row_gap = max(
-                0, tgt["rr"][0] - src["rr"][1] - 1, src["rr"][0] - tgt["rr"][1] - 1
-            )
-            col_gap = max(
-                0, tgt["cr"][0] - src["cr"][1] - 1, src["cr"][0] - tgt["cr"][1] - 1
-            )
-            dist = row_gap + col_gap
-            if dist < best_dist or (
-                dist == best_dist and tgt["cells"] > items[best_j]["cells"]
-            ):
-                best_dist = dist
-                best_j = j
-
-        if best_j is None:
-            break  # Should not happen when len(items) > 1
-
-        # Merge: expand neighbor's bounding box to encompass both
-        tgt = items[best_j]
-        merged_rr = (min(src["rr"][0], tgt["rr"][0]), max(src["rr"][1], tgt["rr"][1]))
-        merged_cr = (min(src["cr"][0], tgt["cr"][0]), max(src["cr"][1], tgt["cr"][1]))
-        items[best_j] = {
-            "rr": merged_rr,
-            "cr": merged_cr,
-            "cells": src["cells"] + tgt["cells"],
-        }
-
-        logger.debug(
-            f"Merged small fragment (rows={src['rr']}, cols={src['cr']}, "
-            f"cells={src['cells']}) into neighbor (rows={tgt['rr']}, cols={tgt['cr']})"
-        )
-
-        del items[min_idx]
-        changed = True
-
-    return [(item["rr"], item["cr"]) for item in items]
-
-
-def parse_headers_from_excel(
-    file_source: Union[str, io.BytesIO],
-    sheet_name: Optional[str] = None,
-    split_subtables: bool = True,
-    include_hidden_sheets: bool = False,
-) -> Dict[str, pd.DataFrame]:
-    """
-    Parse Excel file using openpyxl to accurately detect headers via merged cell metadata.
-
-    This is the PRECISION MODE for Excel parsing - it uses the actual merge cell
-    information from the Excel file to build correct MultiIndex headers without
-    relying on LLM or heuristics.
-
-    Args:
-        file_source: Path to Excel file or BytesIO stream
-        sheet_name: Specific sheet to parse (None = all sheets)
-        split_subtables: If True, split sheets into subtables based on empty row/column separators (default: True)
-        include_hidden_sheets: If True, parse hidden/very-hidden sheets. Default False (skip them).
-
-    Returns:
-        Dictionary mapping sheet/subtable names to DataFrames with correctly set headers
-        When split_subtables=True, keys are like 'SheetName', 'SheetName_2', 'SheetName_3' etc.
-    """
-    try:
-        # Load workbook with data_only=True to get calculated values
-        if isinstance(file_source, str):
-            wb = openpyxl.load_workbook(file_source, data_only=True)
-        else:
-            # BytesIO stream
-            file_source.seek(0)  # Ensure we're at the start
-            wb = openpyxl.load_workbook(file_source, data_only=True)
-
-        results = {}
-        sheets_to_parse = [sheet_name] if sheet_name else wb.sheetnames
-
-        for sn in sheets_to_parse:
-            if sn not in wb.sheetnames:
-                logger.warning(f"Sheet '{sn}' not found in workbook, skipping")
-                continue
-
-            ws = wb[sn]
-
-            # Skip hidden sheets unless explicitly included
-            if not include_hidden_sheets and ws.sheet_state != "visible":
-                logger.info(
-                    f"Sheet '{sn}' is hidden (state={ws.sheet_state}), skipping"
-                )
-                continue
-
-            # Skip empty sheets
-            if ws.max_row is None or ws.max_row == 0:
-                logger.debug(f"Sheet '{sn}' is empty, skipping")
-                continue
-
-            # Get merged cell ranges
-            merged_ranges = list(ws.merged_cells.ranges)
-            logger.debug(f"Sheet '{sn}': found {len(merged_ranges)} merged cell ranges")
-
-            if split_subtables:
-                # Split sheet into subtables (considers merged cells)
-                subtable_regions = _split_sheet_recursive(
-                    ws, (1, ws.max_row), (1, ws.max_column or 1), merged_ranges
-                )
-                # Merge back small fragments to prevent over-fragmentation
-                before_count = len(subtable_regions)
-                subtable_regions = _merge_small_subtables(ws, subtable_regions)
-                if len(subtable_regions) != before_count:
-                    logger.info(
-                        f"Sheet '{sn}': merged {before_count} subtables → {len(subtable_regions)} "
-                        f"(absorbed {before_count - len(subtable_regions)} small fragments)"
-                    )
-                logger.debug(
-                    f"Sheet '{sn}': {len(subtable_regions)} subtables after merge"
-                )
-
-                for idx, (row_range, col_range) in enumerate(subtable_regions):
-                    result = _parse_subtable(ws, row_range, col_range, merged_ranges)
-                    df = result["df"]
-
-                    # Store header_cols count in DataFrame attrs for later use in HTML rendering
-                    df.attrs["row_header_cols"] = len(result["header_cols"])
-
-                    # Generate unique key for each subtable
-                    if idx == 0:
-                        key = sn
-                    else:
-                        key = f"{sn}_{idx + 1}"
-
-                    logger.debug(
-                        f"Subtable '{key}': rows={row_range}, cols={col_range}, "
-                        f"header_rows={result['header_rows']}, header_cols={result['header_cols']}"
-                    )
-
-                    results[key] = df
-            else:
-                # Treat entire sheet as one subtable
-                row_range = (1, ws.max_row)
-                col_range = (1, ws.max_column or 1)
-
-                result = _parse_subtable(ws, row_range, col_range, merged_ranges)
-                df = result["df"]
-
-                # Store header_cols count in DataFrame attrs for later use in HTML rendering
-                df.attrs["row_header_cols"] = len(result["header_cols"])
-
-                logger.debug(
-                    f"Sheet '{sn}': header_rows={result['header_rows']}, "
-                    f"header_cols={result['header_cols']}, "
-                    f"fallback_col={result['fallback_col_header']}, "
-                    f"fallback_row={result['fallback_row_header']}"
-                )
-
-                results[sn] = df
-
-        wb.close()
-        return results
-
-    except Exception as e:
-        logger.error(f"Error parsing Excel with precision mode: {e}")
-        raise TableParsingException(
-            user_message="Failed to parse Excel file headers",
-            reason="EXCEL_PRECISION_PARSE_FAILED",
-            internal_message=str(e),
-            original_exception=e,
-        )
 
 
 def identify_tables(line):
@@ -1490,7 +682,7 @@ def parse_xlsx(
         # PRECISION MODE: Use openpyxl metadata for accurate header detection
         logger.info("Using precision mode for Excel header detection")
         try:
-            sheets_dict = parse_headers_from_excel(
+            sheets_dict = parse_excel_structure(
                 table_stream, include_hidden_sheets=include_hidden_sheets
             )
             precision_mode_active = True
@@ -1520,13 +712,13 @@ def parse_xlsx(
                 if len(tb) == 0 or tb.empty or tb.isna().all().all():
                     continue
 
-                # In precision mode, headers are already correctly set by parse_headers_from_excel
+                # In precision mode, headers are already set by parse_excel_structure
                 # In legacy mode, use LLM/heuristic header parsing
                 if not precision_mode_active:
                     tb = parse_headers(tb, paras=base_llm_paras)
 
                 # Drop _src_row column before converting to HTML/keywords
-                # (_src_row is a debug column added by _parse_subtable for cross-referencing)
+                # (_src_row is a debug column added by Excel structure parsing for cross-referencing)
                 src_row_cols = [
                     c
                     for c in tb.columns
@@ -1535,7 +727,7 @@ def parse_xlsx(
                 if src_row_cols:
                     tb = tb.drop(columns=src_row_cols)
 
-                # Get row header column count from DataFrame attrs (set in parse_headers_from_excel)
+                # Get row header column count from DataFrame attrs (set in parse_excel_structure)
                 row_header_cols = tb.attrs.get("row_header_cols", 0)
 
                 tb_paths, tb_strs = parse_tb_contents(
@@ -1579,16 +771,12 @@ def parse_xlsx(
                     )
                     + ".html"
                 )
-                tb_path = os.path.join(tb_dir, tb_name)
                 soup = BeautifulSoup(tb_strs, features="html.parser")
                 tb_html_str = soup.prettify()
-                with open(tb_path, "w", encoding="utf-8") as f:
-                    f.write(tb_html_str)
 
                 # Use same temp_uid for both marker and know_id (aligned with doc_parser/md_parser)
                 temp_uid = gen_str_codes(tb_strs + str(sheet_name))
-                relative_tb_path = f"tables/{tb_name}"
-                tb_ref = build_chunk_ref(relative_tb_path)
+                tb_ref = build_chunk_ref(f"tables/{tb_name}")
                 tb_bottom_content = f"{tb_ref}\nTable summary:\n{tb_summary}\nMain columns:\n{tb_keywords}"
 
                 bottom_tokens = tokenize2stw_remove(
@@ -1596,22 +784,21 @@ def parse_xlsx(
                 )
 
                 all_tb_paths.extend(tb_paths)
-                # Use relative path for tables: "tables/xxx.html"
-                df_list.append(
-                    [
-                        tb_bottom_content,
-                        relative_tb_path,
-                        "table",
-                        len(tb_strs),
-                        tb_keywords,
-                        tb_summary,
-                        temp_uid,
-                        bottom_tokens,
-                        "",
-                        time_stamp,
-                        "",
-                    ]
+                table_row = write_table_asset(
+                    TableAssetInput(
+                        html=tb_html_str,
+                        output_dir=output_dir,
+                        table_name=tb_name,
+                        summary=tb_summary,
+                        keywords=tb_keywords,
+                        know_id=temp_uid,
+                        addtime=time_stamp,
+                        content=tb_bottom_content,
+                        tokens=bottom_tokens,
+                        length=len(tb_strs),
+                    )
                 )
+                df_list.append(table_row.to_list())
 
             except KnowhereException:
                 raise
@@ -1624,6 +811,23 @@ def parse_xlsx(
                     original_exception=e,
                 )
 
-    table_df = pd.DataFrame(df_list, columns=settings.ALL_DF_COLS.split(","))
+    rows_builder = ParsedRowsBuilder()
+    for row_values in df_list:
+        rows_builder.append(
+            ParsedRow(
+                content=str(row_values[0]),
+                path=str(row_values[1]),
+                type=str(row_values[2]),
+                length=int(row_values[3]),
+                keywords=str(row_values[4]),
+                summary=str(row_values[5]),
+                know_id=str(row_values[6]),
+                tokens=str(row_values[7]),
+                connectto=str(row_values[8]),
+                addtime=str(row_values[9]),
+                page_nums=str(row_values[10]),
+            )
+        )
+    table_df = rows_builder.to_dataframe()
     table_df = process_dup_paths_df(table_df)
     return table_df

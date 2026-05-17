@@ -2,6 +2,7 @@
 
 import pandas as pd
 
+from app.services.document_parser.orchestration.parse_input import ParseInput, ParseOptions
 from app.services.document_parser.orchestration.parse_session import build_parse_session
 from app.services.document_parser.orchestration.postprocess import apply_parse_postprocess
 from app.services.document_parser.orchestration.route_parse import route_document_parse
@@ -27,25 +28,28 @@ def checkerboard_inject_parse(
     s3_key: str | None = None,
 ) -> tuple[str, pd.DataFrame | None]:
     """Run the stable parser seam using dedicated orchestration modules."""
-    session = build_parse_session(
-        add_frag_desc=add_frag_desc,
-        base_url=base_url,
-        doc_type=doc_type,
+    parse_input = ParseInput(
         file_full_path=file_full_path,
         filename=filename,
-        fragment_content=fragment_content,
         internal_output_filename=internal_output_filename,
         job_id=job_id,
         kb_dir=kb_dir,
-        llm_histories=llm_histories,
         output_dir=output_dir,
+        options=ParseOptions(
+            add_frag_desc=add_frag_desc,
+            doc_type=doc_type,
+            llm_histories=llm_histories,
+            smart_title_parse=smart_title_parse,
+            stopwords=stopwords,
+            summary_image=summary_image,
+            summary_table=summary_table,
+            summary_txt=summary_txt,
+        ),
+        base_url=base_url,
+        fragment_content=fragment_content,
         s3_key=s3_key,
-        smart_title_parse=smart_title_parse,
-        stopwords=stopwords,
-        summary_image=summary_image,
-        summary_table=summary_table,
-        summary_txt=summary_txt,
     )
+    session = build_parse_session(parse_input)
     full_output_dir, parsed_df = route_document_parse(session)
     parsed_df = apply_parse_postprocess(full_output_dir, parsed_df)
     return full_output_dir, parsed_df
