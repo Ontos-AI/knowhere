@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from loguru import logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.retrieval.lexical_ranker import (
+    rank_rows_by_bm25,
+    tokenize_query_for_ranker,
+)
 from shared.services.retrieval.section_filters import is_excluded_section
-from shared.utils.text_utils import tokenize_for_retrieval
 
 
 _SCOPED_CORPUS_CTE = """
@@ -193,56 +195,6 @@ async def content_channel(
     )
 
 
-def _tokenize_query(query: str) -> list[str]:
-    return tokenize_for_retrieval(query, dedupe=True)
-
-
-def _bm25_rerank(
-    rows: list[dict[str, Any]],
-    query_tokens: list[str],
-    *,
-    search_field: str,
-) -> list[dict[str, Any]]:
-    """Rank matching rows with BM25 over pre-tokenized search text."""
-    try:
-        from rank_bm25 import BM25Okapi
-    except ImportError:
-        logger.warning("rank_bm25 not installed, skipping BM25 re-rank")
-        ranked_rows: list[dict[str, Any]] = []
-        query_token_set = set(query_tokens)
-        for row in rows:
-            tokens = [token for token in str(row.get(search_field) or "").split() if token]
-            overlap = len(query_token_set.intersection(tokens))
-            if overlap <= 0:
-                continue
-            row["score"] = float(overlap)
-            ranked_rows.append(row)
-        ranked_rows.sort(key=lambda r: r["score"], reverse=True)
-        return ranked_rows
-
-    corpus: list[list[str]] = []
-    ranked_rows: list[dict[str, Any]] = []
-    query_token_set = set(query_tokens)
-    for row in rows:
-        tokens = [token for token in str(row.get(search_field) or "").split() if token]
-        if not tokens or not query_token_set.intersection(tokens):
-            continue
-        corpus.append(tokens)
-        ranked_rows.append(row)
-
-    if not corpus or not query_tokens:
-        return []
-
-    bm25 = BM25Okapi(corpus)
-    scores = bm25.get_scores(query_tokens)
-
-    for i, row in enumerate(ranked_rows):
-        row["score"] = float(scores[i])
-
-    ranked_rows.sort(key=lambda r: r["score"], reverse=True)
-    return ranked_rows
-
-
 async def _bm25_channel(
     db: AsyncSession,
     *,
@@ -260,7 +212,7 @@ async def _bm25_channel(
     if search_field not in {"content_search_text", "path_search_text"}:
         raise ValueError(f"Unsupported search_field: {search_field}")
 
-    query_tokens = _tokenize_query(query)
+    query_tokens = tokenize_query_for_ranker(query)
     if not query_tokens:
         return []
 
@@ -287,7 +239,7 @@ async def _bm25_channel(
     rows = [_row_to_dict(r) for r in result.all()]
     rows = _filter_excluded_sections(rows, exclude_sections)
 
-    ranked_rows = _bm25_rerank(rows, query_tokens, search_field=search_field)
+    ranked_rows = rank_rows_by_bm25(rows, query_tokens, search_field=search_field)
     return ranked_rows[:top_k]
 
 
@@ -312,7 +264,7 @@ async def term_channel(
     Note: top_k is already effective_recall_k from app_service.
     """
     query_lower = query.lower().strip()
-    query_tokens = _tokenize_query(query)
+    query_tokens = tokenize_query_for_ranker(query)
     if not query_lower or not query_tokens:
         return []
 
