@@ -228,6 +228,7 @@ exceptions.
 
 - `app/api/v1/routes/demo.py`
 - `app/services/demo_document_service.py`
+- `app/services/demo_source_materializer.py`
 
 ### Billing Workflow
 

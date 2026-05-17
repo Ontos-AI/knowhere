@@ -139,10 +139,10 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
     monkeypatch.setenv("RETRIEVAL_AGENTIC_ENABLED", "false")
 
     async with developer_api_client_factory() as api_client:
-        import app.services.demo_document_service as demo_document_service
+        import app.services.demo_source_materializer as demo_source_materializer
 
         monkeypatch.setattr(
-            demo_document_service,
+            demo_source_materializer,
             "get_result_storage",
             lambda: fake_result_storage,
         )
@@ -272,6 +272,66 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
 
 
 @pytest.mark.asyncio
+async def test_should_materialize_each_normalized_demo_source_once_per_request(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    fake_result_storage = FakeResultStorage()
+
+    async with developer_api_client_factory() as api_client:
+        import app.services.demo_source_materializer as demo_source_materializer
+
+        monkeypatch.setattr(
+            demo_source_materializer,
+            "get_result_storage",
+            lambda: fake_result_storage,
+        )
+        response = await api_client.post(
+            "/api/v1/demo/materializations",
+            json={
+                "namespace": "contract-demo-deduplicate",
+                "demo_source_ids": [
+                    DEMO_SOURCE_ID,
+                    f" {DEMO_SOURCE_ID} ",
+                    DEMO_SOURCE_ID,
+                    "",
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+
+    body = cast(dict[str, Any], response.json())
+    sources = cast(list[dict[str, Any]], body["sources"])
+    assert [source["demo_source_id"] for source in sources] == [DEMO_SOURCE_ID]
+
+    materialization_rows = await ContractDatabase.fetch_all(
+        """
+        SELECT demo_source_id, document_id
+        FROM demo_materializations
+        WHERE user_id = 'local-dev-user'
+          AND namespace = 'contract-demo-deduplicate'
+        """,
+    )
+    job_rows = await ContractDatabase.fetch_all(
+        """
+        SELECT job_id
+        FROM jobs
+        WHERE user_id = 'local-dev-user'
+          AND job_metadata ->> 'namespace' = 'contract-demo-deduplicate'
+          AND job_metadata ->> 'demo_source_id' = :demo_source_id
+        """,
+        {"demo_source_id": DEMO_SOURCE_ID},
+    )
+
+    assert len(materialization_rows) == 1
+    assert len(job_rows) == 1
+    assert len(fake_result_storage.raw_files_by_job_id) == 1
+
+
+@pytest.mark.asyncio
 async def test_should_serialize_concurrent_first_demo_materialization(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
@@ -281,10 +341,10 @@ async def test_should_serialize_concurrent_first_demo_materialization(
     fake_result_storage = FakeResultStorage()
 
     async with developer_api_client_factory() as api_client:
-        import app.services.demo_document_service as demo_document_service
+        import app.services.demo_source_materializer as demo_source_materializer
 
         monkeypatch.setattr(
-            demo_document_service,
+            demo_source_materializer,
             "get_result_storage",
             lambda: fake_result_storage,
         )
@@ -377,10 +437,10 @@ async def test_should_reject_mixed_demo_materialization_selection_before_upload(
     fake_result_storage = FakeResultStorage()
 
     async with developer_api_client_factory() as api_client:
-        import app.services.demo_document_service as demo_document_service
+        import app.services.demo_source_materializer as demo_source_materializer
 
         monkeypatch.setattr(
-            demo_document_service,
+            demo_source_materializer,
             "get_result_storage",
             lambda: fake_result_storage,
         )
