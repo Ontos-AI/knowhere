@@ -179,8 +179,8 @@ def test_should_republish_only_orphaned_pending_webhook_events_and_persist_qstas
         ),
     )
     monkeypatch.setattr(
-        publisher,
-        "_get_client",
+        publisher._client_adapter,
+        "get_client",
         lambda: SimpleNamespace(message=FakeMessageClient()),
     )
 
@@ -323,6 +323,8 @@ def test_should_publish_completed_webhook_with_result_delivery_payload(
     monkeypatch: MonkeyPatch,
 ) -> None:
     _, qstash_publisher, engine = _load_worker_modules()
+    from shared.core.config import app_config
+    from shared.services.jobs.result_delivery import JobResultDeliveryResolver
     from shared.services.storage.job_file_storage import JobFileStorage
 
     user_id = f"worker-user-{uuid4().hex[:12]}"
@@ -358,7 +360,6 @@ def test_should_publish_completed_webhook_with_result_delivery_payload(
             )
             return f"signed://{bucket}/{key}?expires={expiration}"
 
-    publisher = qstash_publisher.QStashWebhookPublisher()
     monkeypatch.setattr(
         qstash_publisher,
         "validate_http_url_and_resolve_ip",
@@ -370,18 +371,19 @@ def test_should_publish_completed_webhook_with_result_delivery_payload(
         ),
     )
     monkeypatch.setattr(
-        publisher,
-        "_get_client",
-        lambda: SimpleNamespace(message=FakeMessageClient()),
-    )
-    monkeypatch.setattr(
-        qstash_publisher.JobResultDeliveryResolver,
+        JobResultDeliveryResolver,
         "__init__",
         lambda self: setattr(
             self,
             "_storage",
             JobFileStorage(storage_adapter=FakeStorageAdapter()),
         ),
+    )
+    publisher = qstash_publisher.QStashWebhookPublisher()
+    monkeypatch.setattr(
+        publisher._client_adapter,
+        "get_client",
+        lambda: SimpleNamespace(message=FakeMessageClient()),
     )
 
     now = _utc_now()
@@ -424,7 +426,7 @@ def test_should_publish_completed_webhook_with_result_delivery_payload(
         {
             "key": result_s3_key,
             "expiration": 3600,
-            "bucket": qstash_publisher.app_config.S3_RESULTS_BUCKET,
+            "bucket": app_config.S3_RESULTS_BUCKET,
             "method": "GET",
             "headers": None,
         }
@@ -435,7 +437,7 @@ def test_should_publish_completed_webhook_with_result_delivery_payload(
     assert published_payload["job_id"] == job_id
     assert published_payload["result"] == {"checksum": "contract-checksum"}
     assert published_payload["result_url"] == (
-        f"signed://{qstash_publisher.app_config.S3_RESULTS_BUCKET}/{result_s3_key}"
+        f"signed://{app_config.S3_RESULTS_BUCKET}/{result_s3_key}"
         "?expires=3600"
     )
 
