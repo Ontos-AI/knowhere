@@ -8,8 +8,6 @@ The enriched doc_nav.json is written back to disk.
 Usage (standalone):
     from app.services.connect_builder.summary_builder import enrich_doc_nav_summaries
     enrich_doc_nav_summaries(kb_dir, source_file="report.pdf")
-
-Called by graph_builder.build_and_deploy() after file deploy, before KG build.
 """
 
 import json
@@ -131,10 +129,9 @@ def ensure_doc_nav_json(
     if os.path.exists(nav_path) and not overwrite:
         return nav_path
 
-    # Re-use ZipResultService's builder to keep the format canonical
-    from shared.services.storage.zip_result_service import ZipResultService
-    svc = ZipResultService()
-    doc_nav = svc._build_doc_nav(chunks, source_file_name)
+    from shared.services.storage.zip_result_schema import ZipResultSchemaBuilder
+
+    doc_nav = ZipResultSchemaBuilder().build_doc_nav(chunks, source_file_name)
 
     _save_doc_nav(file_dir, doc_nav)
     return nav_path

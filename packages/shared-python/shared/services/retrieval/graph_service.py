@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 _SECTION_EXCLUSION_PAGE_MULTIPLIER = 2
 
-# ── Keyword overlap config (aligned with connect_builder DEFAULT_CONFIG) ──
+# ── Keyword overlap config for document-level publication graph ──
 _MIN_KEYWORD_OVERLAP = 3
 _KEYWORD_SCORE_WEIGHT = 1.0
 _MIN_SCORE_THRESHOLD = 0.8
@@ -54,7 +54,7 @@ def is_excluded_section(
     return False
 
 
-# ── Keyword extraction & scoring (aligned with connect_builder/builder.py) ──
+# ── Keyword extraction & scoring for document-level publication graph ──
 
 def _normalize_keyword(keyword: str) -> str:
     """Normalize a keyword: lowercase, strip, collapse spaces."""
@@ -63,7 +63,7 @@ def _normalize_keyword(keyword: str) -> str:
 
 
 def _extract_keywords_from_chunk_metadata(meta: dict) -> list[str]:
-    """Extract keywords from chunk metadata, same logic as builder._get_keywords."""
+    """Extract keywords from chunk metadata."""
     if not isinstance(meta, dict):
         return []
     # Try metadata.keywords
@@ -81,7 +81,7 @@ def _compute_tfidf_keywords(
     chunk_metadata_list: list[dict[str, Any]],
     top_k: int = 10,
 ) -> list[str]:
-    """Compute TF-IDF keywords from chunk metadata, aligned with graph_builder."""
+    """Compute TF-IDF keywords from chunk metadata."""
     df_count: dict[str, int] = {}
     tf_count: dict[str, int] = {}
     total = len(chunk_metadata_list) or 1
@@ -112,7 +112,7 @@ def _compute_keyword_score(
     kws_b: set[str],
     weight: float = 1.0,
 ) -> float:
-    """Character-length-weighted keyword overlap score (aligned with builder.py).
+    """Character-length-weighted keyword overlap score.
 
     Longer tokens contribute more: '施工现场'(4) has 2x weight of '交底'(2).
     Formula: score = weight * sum(len(kw) for shared) / min(sum(len) for A, sum(len) for B)
@@ -169,7 +169,6 @@ class DocumentGraphService:
     - Only document-level nodes (no section nodes)
     - Document nodes carry rich metadata: top_keywords, chunks_count, types, top_summary
     - Edges are keyword-overlap-based cross-document connections with meaningful scores
-    - Edge scoring uses connect_builder DEFAULT_CONFIG thresholds
     """
 
     def publish_document_graph(self, db: Session, *, user_id: str, namespace: str, document_id: str, job_result_id: str) -> None:
@@ -237,9 +236,8 @@ class DocumentGraphService:
         )
         db.flush()
 
-        # ── Keyword-overlap-based cross-document edges (aligned with KB edges) ──
-        # Only create edges where keyword overlap score >= threshold,
-        # matching connect_builder DEFAULT_CONFIG parameters.
+        # ── Keyword-overlap-based cross-document edges ──
+        # Only create edges where keyword overlap score >= threshold.
         other_doc_nodes = list(
             db.execute(
                 select(GraphNode)
