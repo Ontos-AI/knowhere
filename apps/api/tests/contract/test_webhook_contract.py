@@ -1,6 +1,7 @@
 import importlib
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
+from types import SimpleNamespace
 from typing import cast
 from uuid import uuid4
 
@@ -163,11 +164,15 @@ async def test_should_trigger_a_webhook_for_an_owned_terminal_job_with_a_matchin
     event_id: str = ""
 
     class FakeDispatcher:
-        async def _send_webhook(self, db, event, is_manual: bool = False):
-            assert is_manual is True
+        async def send_manual_webhook(self, db, event):
             assert event.id == event_id
             assert event.job_id == job_id
-            return True, 202, 118, None
+            return SimpleNamespace(
+                success=True,
+                status_code=202,
+                duration_ms=118,
+                error_message=None,
+            )
 
     async with developer_api_client_factory() as api_client:
         job_id = await _insert_webhook_job(user_id="local-dev-user", status="done")

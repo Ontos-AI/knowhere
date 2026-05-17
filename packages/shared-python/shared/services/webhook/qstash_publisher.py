@@ -11,10 +11,7 @@ Uses QStash's managed retry and callback infrastructure. Every publish includes:
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
-import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -24,6 +21,7 @@ from shared.core.config import app_config
 from shared.core.exceptions.domain_exceptions import QStashServiceException
 from shared.models.database.webhook import WebhookEventStatus
 from shared.services.jobs.result_delivery import JobResultDeliveryResolver
+from shared.services.webhook.signing import sign_webhook_payload
 from shared.utils.url_security import (
     validate_http_url_and_resolve_ip,
 )
@@ -134,7 +132,7 @@ class QStashWebhookPublisher:
                 return None
 
             # Sign payload with our HMAC
-            signature = self._sign_payload(payload, secret)
+            signature = sign_webhook_payload(payload, secret)
 
             # Publish to QStash
             try:
@@ -345,20 +343,6 @@ class QStashWebhookPublisher:
         secret_obj.last_used_at = datetime.now(timezone.utc).replace(tzinfo=None)
         db.add(secret_obj)
         return fernet.decrypt(secret_obj.secret_encrypted)
-
-    @staticmethod
-    def _sign_payload(payload: Dict[str, Any], secret: str) -> str:
-        """Generate HMAC-SHA256 signature matching the existing Knowhere format."""
-        timestamp = int(time.time())
-        payload_str = json.dumps(payload, separators=(",", ":"))
-        signed_content = f"{timestamp}.{payload_str}"
-        sig = hmac.new(
-            secret.encode("utf-8"),
-            signed_content.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
-        return f"t={timestamp},v1={sig}"
-
 
 # Module-level singleton
 _publisher: Optional[QStashWebhookPublisher] = None
