@@ -10,10 +10,8 @@ from shared.services.retrieval.cache_service import (
     get_cached_retrieval_query_result,
     set_cached_retrieval_query_result,
 )
-from shared.services.retrieval.execution_routes import (
-    RetrievalRouteContext,
-    run_retrieval_route,
-)
+from shared.services.retrieval.execution_routes import run_retrieval_route
+from shared.services.retrieval.route_types import RetrievalRouteContext
 from shared.services.retrieval.hit_stats_recorder import (
     schedule_retrieval_hit_stats_update,
 )
