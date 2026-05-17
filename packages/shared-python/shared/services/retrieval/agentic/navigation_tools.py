@@ -15,7 +15,6 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import DocumentChunk, DocumentSection
-from shared.services.retrieval.agentic import asset_tools
 from shared.services.retrieval.agentic.budget import BudgetExceeded
 from shared.services.retrieval.agentic.prompts import (
     ACTION_PROMPT,
@@ -27,9 +26,10 @@ from shared.services.retrieval.agentic.section_tree import (
     format_items_for_llm,
     load_child_sections,
 )
+from shared.services.retrieval.agentic.selection_hydration import (
+    hydrate_path_selections_into_node,
+)
 from shared.services.retrieval.agentic.types import DocTreeNode
-from shared.services.retrieval.connected_hydration import hydrate_connected_target_rows
-from shared.services.retrieval.path_hydration import hydrate_paths_to_rows
 from shared.services.retrieval.lexical_text import normalize_section_path
 from shared.services.retrieval.llm_adapter import LLMFn
 
@@ -141,7 +141,7 @@ async def navigate_step(
                     "hydrate_mode": "self_only",
                 })
 
-        await _hydrate_selections_into_node(
+        await hydrate_path_selections_into_node(
             db,
             node=node,
             path_selections=path_selections,
@@ -216,7 +216,7 @@ async def discovery_select_step(
             root_path_selections=root_path_selections,
             node=node,
         )
-        await _hydrate_discovery_selections_into_node(
+        await hydrate_path_selections_into_node(
             db,
             node=node,
             path_selections=path_selections,
@@ -341,56 +341,6 @@ def _build_navigation_prompt(
     return prompt
 
 
-async def _hydrate_selections_into_node(
-    db: AsyncSession,
-    *,
-    node: DocTreeNode,
-    path_selections: list[dict[str, Any]],
-    user_id: str,
-    namespace: str,
-    document_id: str,
-    job_result_id: str,
-) -> None:
-    chunks = await hydrate_paths_to_rows(
-        db,
-        path_selections=path_selections,
-        user_id=user_id,
-        namespace=namespace,
-        document_id=document_id,
-    )
-    if not chunks:
-        return
-
-    connected = await hydrate_connected_target_rows(
-        db=db,
-        rows=chunks,
-        exclude_document_ids=[],
-        exclude_sections=[],
-    )
-    if connected:
-        owner_map = asset_tools.build_connected_owner_map(chunks)
-        for chunk in connected:
-            if not chunk.get("owner_section_path"):
-                chunk["owner_section_path"] = owner_map.get(str(chunk.get("chunk_id") or ""))
-        chunks = chunks + connected
-
-    root_map = await asset_tools.resolve_root_asset_owners(
-        db,
-        document_id=document_id,
-        job_result_id=job_result_id,
-        chunks=chunks,
-    )
-    if root_map:
-        for chunk in chunks:
-            if chunk.get("owner_section_path"):
-                continue
-            chunk_id = str(chunk.get("chunk_id") or "")
-            if chunk_id in root_map:
-                chunk["owner_section_path"] = root_map[chunk_id]
-
-    _add_chunks_to_node(node, chunks)
-
-
 def _project_discovery_hints(
     hints: list[dict[str, Any]],
     *,
@@ -492,71 +442,3 @@ def _build_discovery_path_selections(
         })
 
     return path_selections
-
-
-async def _hydrate_discovery_selections_into_node(
-    db: AsyncSession,
-    *,
-    node: DocTreeNode,
-    path_selections: list[dict[str, Any]],
-    user_id: str,
-    namespace: str,
-    document_id: str,
-) -> None:
-    chunks = await hydrate_paths_to_rows(
-        db,
-        path_selections=path_selections,
-        user_id=user_id,
-        namespace=namespace,
-        document_id=document_id,
-    )
-    if not chunks:
-        return
-
-    connected = await hydrate_connected_target_rows(
-        db=db,
-        rows=chunks,
-        exclude_document_ids=[],
-        exclude_sections=[],
-    )
-    if connected:
-        owner_map = asset_tools.build_connected_owner_map(chunks)
-        for chunk in connected:
-            if not chunk.get("owner_section_path"):
-                chunk["owner_section_path"] = owner_map.get(str(chunk.get("chunk_id") or ""))
-        chunks = chunks + connected
-
-    job_result_id = next(
-        (str(chunk["job_result_id"]) for chunk in chunks if chunk.get("job_result_id")),
-        None,
-    )
-    root_map = (
-        await asset_tools.resolve_root_asset_owners(
-            db,
-            document_id=document_id,
-            job_result_id=job_result_id,
-            chunks=chunks,
-        )
-        if job_result_id
-        else {}
-    )
-    if root_map:
-        for chunk in chunks:
-            if chunk.get("owner_section_path"):
-                continue
-            chunk_id = str(chunk.get("chunk_id") or "")
-            if chunk_id in root_map:
-                chunk["owner_section_path"] = root_map[chunk_id]
-
-    _add_chunks_to_node(node, chunks)
-
-
-def _add_chunks_to_node(node: DocTreeNode, chunks: list[dict[str, Any]]) -> None:
-    for chunk in chunks:
-        real_path = (
-            chunk.get("owner_section_path")
-            or chunk.get("section_path")
-            or chunk.get("source_chunk_path")
-        )
-        if real_path:
-            node.add_leaf_chunks(str(real_path), [chunk])
