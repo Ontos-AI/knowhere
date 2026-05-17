@@ -393,6 +393,212 @@ def test_html_table_modules_separate_docx_and_dataframe_rendering(
     assert "<td>3</td>" in dataframe_html
 
 
+def test_table_text_parser_owns_markdown_table_text_contract(
+    worker_contract_environment: None,
+) -> None:
+    from app.services.document_parser.table_text_parser import (
+        df2md,
+        extract_tables_by_forms,
+        identify_tables,
+        sanitize_table_name_from_header,
+    )
+
+    markdown_table = "\n".join(
+        [
+            "| Product | Revenue |",
+            "| --- | ---: |",
+            "| Notebook | 42 |",
+        ]
+    )
+
+    is_table, table_form, _tables = identify_tables("| Product | Revenue |")
+    table_html = extract_tables_by_forms(markdown_table, form="md")
+    markdown_output = df2md(pd.DataFrame([{"City": "北京", "Value": 7}]))
+
+    assert is_table is True
+    assert table_form == "md"
+    assert table_html is not None
+    assert "<th>Product</th>" in table_html
+    assert "<td>Notebook</td>" in table_html
+    assert "---" not in table_html
+    assert sanitize_table_name_from_header("A | Revenue | Revenue | 市场") == (
+        "Revenue 市场"
+    )
+    assert "| City | Value |" in markdown_output
+    assert "| 北京 | 7     |" in markdown_output
+
+
+def test_table_frame_parser_owns_dataframe_table_contract(
+    worker_contract_environment: None,
+) -> None:
+    from app.services.document_parser.table_frame_parser import (
+        parse_tb_contents,
+        parse_tb_keywords,
+        postprocess_tb,
+    )
+
+    raw_frame = pd.DataFrame(
+        [["North\nAmerica", 42, None]],
+        columns=["Region\nName", "Revenue", None],
+    )
+
+    normalized_frame = postprocess_tb(raw_frame, drop=True)
+    paths, table_html = parse_tb_contents(
+        normalized_frame,
+        parent_dic={"budget.xlsx": {"Visible": {}}},
+        file_name="budget.xlsx",
+        sheet_name="Visible",
+    )
+    keywords = parse_tb_keywords(normalized_frame)
+
+    assert normalized_frame.columns.tolist() == ["RegionName", "Revenue"]
+    assert "NorthAmerica" in table_html
+    assert "RegionName" in keywords
+    assert "Revenue" in keywords
+    assert "budget.xlsx/Visible/RegionName" in paths
+    assert "budget.xlsx/Visible/Revenue" in paths
+
+
+def test_markdown_table_asset_module_owns_table_asset_contract(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.markdown_table_asset import (
+        MarkdownTableAssetRequest,
+        build_markdown_table_asset,
+    )
+    from app.services.document_parser.markdown_deferred_task import (
+        TableDeferredSummaryTask,
+    )
+
+    table_dir = tmp_path / "tables"
+    table_dir.mkdir()
+    table_html = (
+        "<table><thead><tr><th>Product</th><th>Revenue</th></tr></thead>"
+        "<tbody><tr><td>Notebook</td><td>42</td></tr></tbody></table>"
+    )
+
+    asset = build_markdown_table_asset(
+        MarkdownTableAssetRequest(
+            table_html=table_html,
+            table_dir=str(table_dir),
+            table_count=3,
+            timestamp="now",
+            current_page_number=9,
+            summary_table=True,
+            row_index=7,
+        )
+    )
+
+    assert asset.content_item == f"\n[{asset.relative_path}]\n"
+    assert asset.row_values[1] == asset.relative_path
+    assert asset.row_values[2] == "table"
+    assert asset.row_values[5] == "table-3"
+    assert asset.row_values[10] == "9"
+    assert asset.deferred_task == TableDeferredSummaryTask(
+        row_index=7,
+        table_html=table_html,
+        table_dir=str(table_dir),
+        table_name=Path(asset.relative_path).stem,
+        table_count=2,
+    )
+    assert "border='1'" in (tmp_path / asset.relative_path).read_text(
+        encoding="utf-8"
+    )
+
+
+def test_markdown_image_asset_module_owns_image_materialization_contract(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.markdown_image_asset import (
+        MarkdownImageAssetRequest,
+        build_markdown_image_name,
+        build_markdown_image_asset,
+    )
+    from app.services.document_parser.markdown_deferred_task import (
+        ImageDeferredSummaryTask,
+    )
+
+    image_dir = tmp_path / "images"
+    image_dir.mkdir()
+    source_image = tmp_path / "raw.png"
+    source_image.write_bytes(b"same pixels")
+    seen_images: dict[str, dict[str, str]] = {}
+
+    image_asset = build_markdown_image_asset(
+        MarkdownImageAssetRequest(
+            output_dir=str(tmp_path),
+            image_dir=str(image_dir),
+            image_path=str(source_image),
+            image_name=build_markdown_image_name(
+                image_count=2,
+                last_context="Revenue Chart",
+            ),
+            image_count=2,
+            last_context="Revenue Chart",
+            image_summary="Sales by region",
+            timestamp="now",
+            current_page_number=8,
+            seen_images=seen_images,
+            summary_image=True,
+            row_index=4,
+        )
+    )
+
+    assert image_asset.content_item is not None
+    assert image_asset.row_values is not None
+    assert image_asset.cache_key is not None
+    assert image_asset.cache_entry is not None
+    assert image_asset.should_advance_image_count is True
+    assert image_asset.row_values[1] == "images/image-2-Revenue Ch.png"
+    assert image_asset.row_values[2] == "image"
+    assert image_asset.row_values[5] == "image-2\nSales by region"
+    assert image_asset.row_values[10] == "8"
+    assert image_asset.deferred_task == ImageDeferredSummaryTask(
+        row_index=4,
+        relative_path="images/image-2-Revenue Ch.png",
+        image_dir=str(image_dir),
+        image_name="image-2-Revenue Ch",
+        image_suffix=".png",
+    )
+    assert (tmp_path / "images" / "image-2-Revenue Ch.png").read_bytes() == (
+        b"same pixels"
+    )
+    assert not source_image.exists()
+
+    seen_images[image_asset.cache_key] = image_asset.cache_entry
+    duplicate_source = tmp_path / "duplicate.png"
+    duplicate_source.write_bytes(b"same pixels")
+
+    duplicate_asset = build_markdown_image_asset(
+        MarkdownImageAssetRequest(
+            output_dir=str(tmp_path),
+            image_dir=str(image_dir),
+            image_path=str(duplicate_source),
+            image_name=build_markdown_image_name(
+                image_count=3,
+                last_context="Other Chart",
+            ),
+            image_count=3,
+            last_context="Other Chart",
+            image_summary=None,
+            timestamp="now",
+            current_page_number=9,
+            seen_images=seen_images,
+            summary_image=True,
+            row_index=5,
+        )
+    )
+
+    assert duplicate_asset.content_item == image_asset.content_item
+    assert duplicate_asset.row_values is not None
+    assert duplicate_asset.row_values[1] == "images/image-2-Revenue Ch.png"
+    assert duplicate_asset.deferred_task is None
+    assert duplicate_asset.should_advance_image_count is False
+    assert not duplicate_source.exists()
+
+
 def test_mineru_modules_separate_client_and_task_polling(
     worker_contract_environment: None,
 ) -> None:
@@ -598,6 +804,11 @@ def test_markdown_deferred_summary_module_updates_rows_and_refs(
         MarkdownDeferredSummaryInput,
         apply_markdown_deferred_summaries,
     )
+    from app.services.document_parser.markdown_deferred_task import (
+        ImageDeferredSummaryTask,
+        TableDeferredSummaryTask,
+        TextDeferredSummaryTask,
+    )
 
     image_dir = tmp_path / "images"
     table_dir = tmp_path / "tables"
@@ -668,9 +879,21 @@ def test_markdown_deferred_summary_module_updates_rows_and_refs(
         MarkdownDeferredSummaryInput(
             rows=rows,
             tasks=[
-                ("image", 0, "images/image-3-old.png", str(image_dir), "image-3-old", ".png"),
-                ("table", 1, "<table></table>", str(table_dir), "table-0 old", 0),
-                ("text", 2, "long text"),
+                ImageDeferredSummaryTask(
+                    row_index=0,
+                    relative_path="images/image-3-old.png",
+                    image_dir=str(image_dir),
+                    image_name="image-3-old",
+                    image_suffix=".png",
+                ),
+                TableDeferredSummaryTask(
+                    row_index=1,
+                    table_html="<table></table>",
+                    table_dir=str(table_dir),
+                    table_name="table-0 old",
+                    table_count=0,
+                ),
+                TextDeferredSummaryTask(row_index=2, content="long text"),
             ],
             output_dir=str(tmp_path),
         )

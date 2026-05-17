@@ -8,6 +8,10 @@ from typing import Any
 import pandas as pd
 
 from app.services.document_parser.dataframe_helpers import process_dup_paths_df
+from app.services.document_parser.markdown_deferred_task import (
+    MarkdownDeferredSummaryTask,
+    TextDeferredSummaryTask,
+)
 from app.services.document_parser.parser_rows import ParsedRow, ParsedRowsBuilder
 
 ParserRowValues = list[str | int]
@@ -36,7 +40,7 @@ class MarkdownParseState:
     base_level: int | None = None
     path: str = ""
     path_counter: dict[str, int] = field(default_factory=dict)
-    deferred_llm_tasks: list[tuple[Any, ...]] = field(default_factory=list)
+    deferred_llm_tasks: list[MarkdownDeferredSummaryTask] = field(default_factory=list)
     seen_images: dict[str, dict[str, str]] = field(default_factory=dict)
     image_count: int = 1
     table_count: int = 1
@@ -137,7 +141,7 @@ class MarkdownParseState:
     def append_row(self, row: ParserRowValues) -> None:
         self.rows.append(row)
 
-    def schedule_deferred_task(self, task: tuple[Any, ...]) -> None:
+    def schedule_deferred_task(self, task: MarkdownDeferredSummaryTask) -> None:
         self.deferred_llm_tasks.append(task)
 
     def collect_text_summary_tasks(self, summary_len: int) -> None:
@@ -153,7 +157,9 @@ class MarkdownParseState:
                 continue
             content = str(entry[0])
             if len(content) > summary_len and not entry[4] and not entry[5]:
-                self.deferred_llm_tasks.append(("text", index, content))
+                self.deferred_llm_tasks.append(
+                    TextDeferredSummaryTask(row_index=index, content=content)
+                )
 
     def to_dataframe(self) -> pd.DataFrame:
         rows_builder = ParsedRowsBuilder()

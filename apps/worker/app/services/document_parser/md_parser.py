@@ -3,28 +3,30 @@ import json
 import os
 import re
 import shutil
-from pathlib import Path
 
 from app.services.document_parser.identifiers import gen_str_codes, get_str_time
-from app.services.document_parser.inline_asset import (
-    build_image_asset_row,
-    build_table_asset_row,
-)
 from app.services.document_parser.markdown_deferred_summary import (
     MarkdownDeferredSummaryInput,
     apply_markdown_deferred_summaries,
 )
+from app.services.document_parser.markdown_image_asset import (
+    MarkdownImageAssetRequest,
+    build_markdown_image_name,
+    build_markdown_image_asset,
+)
 from app.services.document_parser.markdown_parse_state import MarkdownParseState
+from app.services.document_parser.markdown_table_asset import (
+    MarkdownTableAssetRequest,
+    build_markdown_table_asset,
+)
 from app.services.document_parser.parser_rows import ParsedRow
 from app.services.document_parser.path_helpers import find_matches_parsing
 from app.services.document_parser.html_parser import (
-    first_cols_rows_html,
     merge_html_tables,
 )
 from app.services.document_parser.image_parser import (
     MD_IMAGE_PATTERN,
     detect_summary_img_md,
-    perceptual_hash,
 )
 from app.services.document_parser.heading_hierarchy import (
     HeadingHierarchyInput,
@@ -32,55 +34,17 @@ from app.services.document_parser.heading_hierarchy import (
 )
 from app.services.document_parser.heading_candidates import md_heading_match
 from app.services.document_parser.stage_profiler import stage_timer
-from app.services.document_parser.table_parser import (
+from app.services.document_parser.table_text_parser import (
     extract_tables_by_forms,
     identify_tables,
-    sanitize_table_name_from_header,
 )
 from app.services.document_parser.toc_parser import detect_tocs_in_texts
 from app.services.document_parser.txt_parser import extract_title_keywords_summary
 from loguru import logger
 
 from shared.core.config import settings
-from shared.utils.chunk_refs import build_chunk_ref, has_chunk_ref
-from shared.utils.file_utils import path_handle
+from shared.utils.chunk_refs import has_chunk_ref
 from shared.utils.text_utils import tokenize2stw_remove
-
-
-def resolve_workspace_image_path(
-    candidate_path: Path, workspace_path: Path
-) -> Path | None:
-    """Return the candidate only when it exists inside the current job workspace."""
-    resolved_path = candidate_path.resolve(strict=False)
-    try:
-        resolved_path.relative_to(workspace_path)
-    except ValueError:
-        return None
-    return resolved_path if resolved_path.exists() else None
-
-
-def resolve_markdown_image_source_path(output_dir: str, img_path: str) -> Path | None:
-    """Handle local absolute refs and container cwd-relative refs safely."""
-    if not img_path:
-        return None
-
-    workspace_path = Path(output_dir).resolve()
-    raw_path = Path(img_path).expanduser()
-    candidate_paths = (
-        [raw_path]
-        if raw_path.is_absolute()
-        else [
-            workspace_path / raw_path,
-            Path.cwd() / raw_path,
-        ]
-    )
-
-    for candidate_path in candidate_paths:
-        resolved_path = resolve_workspace_image_path(candidate_path, workspace_path)
-        if resolved_path is not None:
-            return resolved_path
-
-    return None
 
 
 def find_surround_context(md_lines, lid):
@@ -365,112 +329,47 @@ def parse_md(
 
         else:  # no path change, remain in the same hierarchy
             # a. handle lines containing images (LLM deferred to post-loop parallel batch)
-            img_name_context = path_handle(last_context[:10], mode="clean_single")
-            img_name = f"image-{str(parser_state.image_count)}-{img_name_context}"
             # Always skip inline LLM — vision calls are deferred to parallel batch
             imgs = detect_summary_img_md(line, last_context, output_dir, mode=False)
+            image_name = build_markdown_image_name(
+                image_count=parser_state.image_count,
+                last_context=last_context,
+            )
 
-            for img_path, img_title, img_summary in imgs:
-                img_suffix = os.path.splitext(img_path)[-1]
-                update_img_path = os.path.join(img_dir, f"{img_name}{img_suffix}")
-
-                # Check if source image file exists before renaming
-                source_path = resolve_markdown_image_source_path(output_dir, img_path)
-                if source_path is None or not source_path.exists():
-                    logger.warning(f"Image file not found, skipping rename: {img_path}")
-                    parser_state.image_count += 1
-                    continue
-
-                # Document-level dedup: perceptual hash for visual duplicates
-                with open(source_path, "rb") as f:
-                    img_binary_hash = perceptual_hash(f.read())
-
-                if img_binary_hash in parser_state.seen_images:
-                    cached = parser_state.seen_images[img_binary_hash]
-                    parser_state.append_content_item(cached["img_content"])
-                    parser_state.append_row(
-                        build_image_asset_row(
-                            content=cached["img_content"],
-                            relative_path=cached["relative_img_path"],
-                            summary=cached["img_summary_field"],
-                            know_id=cached["temp_uid"],
-                            addtime=parser_state.timestamp,
-                            page_nums=str(parser_state.current_page_number)
-                            if parser_state.current_page_number > 0
-                            else "",
-                        ).to_list()
+            for img_path, _img_title, img_summary in imgs:
+                image_asset = build_markdown_image_asset(
+                    MarkdownImageAssetRequest(
+                        output_dir=output_dir,
+                        image_dir=img_dir,
+                        image_path=img_path,
+                        image_name=image_name,
+                        image_count=parser_state.image_count,
+                        last_context=last_context,
+                        image_summary=img_summary,
+                        timestamp=parser_state.timestamp,
+                        current_page_number=parser_state.current_page_number,
+                        seen_images=parser_state.seen_images,
+                        summary_image=bool(base_llm_paras["summary_image"]),
+                        row_index=len(parser_state.rows),
                     )
-                    logger.debug(
-                        f"Skipped duplicate image (hash={img_binary_hash[:12]}...)"
-                    )
-                    # Remove unused source file since we reuse the cached image
-                    try:
-                        source_path.unlink()
-                    except OSError:
-                        pass
-                    continue
-
-                os.rename(source_path, update_img_path)
-
-                # Image index (always present)
-                image_index = f"image-{parser_state.image_count}"
-
-                # Fallback: LLM summary -> last_context -> None
-                effective_summary = img_summary or last_context or None
-
-                # Deterministic know_id: use image binary hash
-                temp_uid = gen_str_codes(img_binary_hash)
-                relative_img_path = f"images/{img_name}{img_suffix}"
-                img_ref = build_chunk_ref(relative_img_path)
-
-                # Build img_summary_field for df_list: image-n + optional summary
-                if effective_summary:
-                    img_summary_field = f"{image_index}\n{effective_summary}"
-                else:
-                    img_summary_field = image_index
-
-                # Build image_ref for content: optional summary + image path ref
-                if effective_summary:
-                    img_content = f"\n{effective_summary}\n{img_ref}\n"
-                else:
-                    img_content = f"\n{img_ref}\n"
-
-                parser_state.append_content_item(img_content)
-
-                parser_state.append_row(
-                    build_image_asset_row(
-                        content=img_content,
-                        relative_path=relative_img_path,
-                        summary=img_summary_field,
-                        know_id=temp_uid,
-                        addtime=parser_state.timestamp,
-                        page_nums=str(parser_state.current_page_number)
-                        if parser_state.current_page_number > 0
-                        else "",
-                    ).to_list()
                 )
-
-                # Cache result for document-level dedup
-                parser_state.seen_images[img_binary_hash] = {
-                    "relative_img_path": relative_img_path,
-                    "img_content": img_content,
-                    "img_summary_field": img_summary_field,
-                    "temp_uid": temp_uid,
-                }
-
-                if base_llm_paras["summary_image"]:
-                    # Store img_dir, img_name, img_suffix for post-loop rename (mirrors table deferred task)
-                    parser_state.schedule_deferred_task(
-                        (
-                            "image",
-                            len(parser_state.rows) - 1,
-                            relative_img_path,
-                            img_dir,
-                            img_name,
-                            img_suffix,
-                        )
+                if (
+                    image_asset.content_item is not None
+                    and image_asset.row_values is not None
+                ):
+                    parser_state.append_content_item(image_asset.content_item)
+                    parser_state.append_row(image_asset.row_values)
+                if (
+                    image_asset.cache_key is not None
+                    and image_asset.cache_entry is not None
+                ):
+                    parser_state.seen_images[image_asset.cache_key] = (
+                        image_asset.cache_entry
                     )
-                parser_state.image_count += 1
+                if image_asset.deferred_task is not None:
+                    parser_state.schedule_deferred_task(image_asset.deferred_task)
+                if image_asset.should_advance_image_count:
+                    parser_state.image_count += 1
 
             # TODO for large and dense tables, such as "Epstein flight logs",
             # integrate tabula-py as an independent extraction path to solve VLM hallucinations and misplacement
@@ -502,76 +401,21 @@ def parse_md(
                 else:
                     continue  # Unknown form, skip
 
-                # Extract first row and first column for fallback file naming only
-                first_row_text, first_col_text = first_cols_rows_html(tb_str)
-
-                # Table index (always present)
-                table_index = f"table-{parser_state.table_count}"
-
-                # LLM title + keywords + summary deferred to post-loop parallel batch
-                llm_title = None
-                llm_summary = None
-                tb_keywords = ""
-
-                # Build tb_summary for df_list: table-n + optional LLM summary
-                if llm_summary:
-                    tb_summary = f"{table_index}\n{llm_summary}"
-                else:
-                    tb_summary = table_index
-
-                raw_tb_name = (
-                    sanitize_table_name_from_header(first_row_text)
-                    if first_row_text
-                    else ""
-                )
-                # Use LLM title for filename when available, fallback to sanitized header
-                effective_name = llm_title if llm_title else raw_tb_name
-                tb_name = path_handle(
-                    f"table-{str(parser_state.table_count)} {effective_name}",
-                    mode="clean_single",
-                )
-                temp_uid = gen_str_codes((tb_str + str(parser_state.table_count)))
-
-                relative_tb_path = f"tables/{tb_name}.html"
-                tb_ref = build_chunk_ref(relative_tb_path)
-
-                # Build table_ref for content: optional LLM summary + table path ref
-                if llm_summary:
-                    parser_state.append_content_item(f"\n{llm_summary}\n{tb_ref}\n")
-                else:
-                    parser_state.append_content_item(f"\n{tb_ref}\n")
-                tb_path = os.path.join(tb_dir, f"{tb_name}.html")
-                # Add border to HTML tables for consistent display
-                tb_str_with_border = tb_str.replace(
-                    "<table>", "<table border='1'>"
-                ).replace("<table ", "<table border='1' ")
-                with open(tb_path, "w", encoding="utf-8") as f:
-                    f.write(tb_str_with_border)
-
-                parser_state.append_row(
-                    build_table_asset_row(
-                        content=tb_str,
-                        relative_path=relative_tb_path,
-                        summary=tb_summary,
-                        keywords=tb_keywords,
-                        know_id=temp_uid,
-                        addtime=parser_state.timestamp,
-                        page_nums=str(parser_state.current_page_number)
-                        if parser_state.current_page_number > 0
-                        else "",
-                    ).to_list()
-                )
-                if base_llm_paras["summary_table"]:
-                    parser_state.schedule_deferred_task(
-                        (
-                            "table",
-                            len(parser_state.rows) - 1,
-                            tb_str,
-                            tb_dir,
-                            tb_name,
-                            parser_state.table_count - 1,
-                        )
+                table_asset = build_markdown_table_asset(
+                    MarkdownTableAssetRequest(
+                        table_html=tb_str,
+                        table_dir=tb_dir,
+                        table_count=parser_state.table_count,
+                        timestamp=parser_state.timestamp,
+                        current_page_number=parser_state.current_page_number,
+                        summary_table=bool(base_llm_paras["summary_table"]),
+                        row_index=len(parser_state.rows),
                     )
+                )
+                parser_state.append_content_item(table_asset.content_item)
+                parser_state.append_row(table_asset.row_values)
+                if table_asset.deferred_task is not None:
+                    parser_state.schedule_deferred_task(table_asset.deferred_task)
                 parser_state.table_lines = []
                 parser_state.table_count += 1
 

@@ -3,12 +3,18 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, TypeGuard
+from typing import Literal, TypeGuard
 
 import gevent
+from app.services.document_parser.markdown_deferred_task import (
+    ImageDeferredSummaryTask,
+    MarkdownDeferredSummaryTask,
+    TableDeferredSummaryTask,
+    TextDeferredSummaryTask,
+)
 from app.services.document_parser.image_parser import _get_vision_client, ask_image
 from app.services.document_parser.stage_profiler import stage_timer
-from app.services.document_parser.table_parser import sanitize_table_name_from_header
+from app.services.document_parser.table_text_parser import sanitize_table_name_from_header
 from app.services.document_parser.txt_parser import (
     extract_title_keywords_summary,
     split_title_summary,
@@ -23,7 +29,7 @@ from shared.utils.file_utils import path_handle
 DeferredResult = (
     tuple[
         int,
-        str,
+        Literal["image", "table", "text"],
         tuple[str | None, str | None] | tuple[str, str, str] | tuple[str, str],
     ]
 )
@@ -35,7 +41,7 @@ TextSummaryResult = tuple[str, str]
 @dataclass(frozen=True)
 class MarkdownDeferredSummaryInput:
     rows: list[list[str | int]]
-    tasks: list[tuple[Any, ...]]
+    tasks: list[MarkdownDeferredSummaryTask]
     output_dir: str
     summary_len: int = 1500
 
@@ -46,9 +52,15 @@ def apply_markdown_deferred_summaries(
     if not deferred_input.tasks:
         return
 
-    image_task_count = sum(1 for task in deferred_input.tasks if task[0] == "image")
-    table_task_count = sum(1 for task in deferred_input.tasks if task[0] == "table")
-    text_task_count = sum(1 for task in deferred_input.tasks if task[0] == "text")
+    image_task_count = sum(
+        1 for task in deferred_input.tasks if isinstance(task, ImageDeferredSummaryTask)
+    )
+    table_task_count = sum(
+        1 for task in deferred_input.tasks if isinstance(task, TableDeferredSummaryTask)
+    )
+    text_task_count = sum(
+        1 for task in deferred_input.tasks if isinstance(task, TextDeferredSummaryTask)
+    )
     logger.info(
         f"Running {len(deferred_input.tasks)} deferred summary LLM calls in parallel"
     )
@@ -101,47 +113,43 @@ def _run_deferred_summary_tasks(
 
 
 def _run_deferred_summary_task(
-    task: tuple[Any, ...],
+    task: MarkdownDeferredSummaryTask,
     deferred_input: MarkdownDeferredSummaryInput,
 ) -> DeferredResult | None:
-    task_type, row_index = task[0], task[1]
     try:
-        if task_type == "image":
-            relative_path = task[2]
+        if isinstance(task, ImageDeferredSummaryTask):
             client = _get_vision_client()
             # TODO: Risk of missing text content if MinerU outputted a pure text image.
             # Consider adding judge-image-type and OCR fallback as done in image_parser.parse_image.
             llm_resp = ask_image(
-                client, deferred_input.output_dir, paths_=[relative_path]
+                client, deferred_input.output_dir, paths_=[task.relative_path]
             )
             if llm_resp:
                 img_title, img_summary = split_title_summary(llm_resp)
             else:
                 img_title, img_summary = None, None
-            return row_index, task_type, (img_title, img_summary)
+            return task.row_index, "image", (img_title, img_summary)
 
-        if task_type == "table":
-            table_html = task[2]
+        if isinstance(task, TableDeferredSummaryTask):
             title, keywords, summary = extract_title_keywords_summary(
-                table_html, max_keywords=3
+                task.table_html, max_keywords=3
             )
-            return row_index, task_type, (title, keywords, summary)
+            return task.row_index, "table", (title, keywords, summary)
 
-        if task_type == "text":
-            text_content = task[2]
+        if isinstance(task, TextDeferredSummaryTask):
             _, keywords, summary = extract_title_keywords_summary(
-                text_content,
+                task.content,
                 max_keywords=3,
                 summary_len=deferred_input.summary_len,
             )
-            return row_index, task_type, (keywords, summary)
+            return task.row_index, "text", (keywords, summary)
     except Exception as exc:
         logger.warning(
-            f"Deferred {task_type} LLM call failed for idx={row_index}: {exc}"
+            f"Deferred summary LLM call failed for idx={task.row_index}: {exc}"
         )
         return None
 
-    logger.warning(f"Unknown deferred markdown summary task type: {task_type}")
+    logger.warning(f"Unknown deferred markdown summary task type: {type(task).__name__}")
     return None
 
 
@@ -149,7 +157,7 @@ def _apply_deferred_summary_results(
     deferred_input: MarkdownDeferredSummaryInput,
     results: list[DeferredResult | None],
 ) -> None:
-    deferred_by_index = {task[1]: task for task in deferred_input.tasks}
+    deferred_by_index = {task.row_index: task for task in deferred_input.tasks}
 
     for result in results:
         if result is None:
@@ -162,7 +170,7 @@ def _apply_deferred_summary_results(
                 continue
             _apply_image_summary_result(
                 deferred_input.rows,
-                deferred_by_index[row_index],
+                _get_image_task(deferred_by_index[row_index]),
                 row_index,
                 task_result,
             )
@@ -172,7 +180,7 @@ def _apply_deferred_summary_results(
                 continue
             _apply_table_summary_result(
                 deferred_input.rows,
-                deferred_by_index[row_index],
+                _get_table_task(deferred_by_index[row_index]),
                 row_index,
                 task_result,
             )
@@ -207,9 +215,21 @@ def _is_text_summary_result(result: object) -> TypeGuard[TextSummaryResult]:
     )
 
 
+def _get_image_task(task: MarkdownDeferredSummaryTask) -> ImageDeferredSummaryTask:
+    if isinstance(task, ImageDeferredSummaryTask):
+        return task
+    raise TypeError(f"Expected image deferred task, got {type(task).__name__}")
+
+
+def _get_table_task(task: MarkdownDeferredSummaryTask) -> TableDeferredSummaryTask:
+    if isinstance(task, TableDeferredSummaryTask):
+        return task
+    raise TypeError(f"Expected table deferred task, got {type(task).__name__}")
+
+
 def _apply_image_summary_result(
     rows: list[list[str | int]],
-    original_task: tuple[Any, ...],
+    original_task: ImageDeferredSummaryTask,
     row_index: int,
     result: ImageSummaryResult,
 ) -> None:
@@ -222,11 +242,9 @@ def _apply_image_summary_result(
     if not img_title:
         return
 
-    image_dir, old_img_name, image_suffix = (
-        original_task[3],
-        original_task[4],
-        original_task[5],
-    )
+    image_dir = original_task.image_dir
+    old_img_name = original_task.image_name
+    image_suffix = original_task.image_suffix
     safe_title = path_handle(str(img_title), mode="clean_single")
     img_num_match = re.match(r"image-(\d+)", str(old_img_name))
     img_num = (
@@ -250,7 +268,7 @@ def _apply_image_summary_result(
 
 def _apply_table_summary_result(
     rows: list[list[str | int]],
-    original_task: tuple[Any, ...],
+    original_task: TableDeferredSummaryTask,
     row_index: int,
     result: TableSummaryResult,
 ) -> None:
@@ -264,11 +282,9 @@ def _apply_table_summary_result(
     if not title:
         return
 
-    table_dir, old_table_name, table_count = (
-        original_task[3],
-        original_task[4],
-        original_task[5],
-    )
+    table_dir = original_task.table_dir
+    old_table_name = original_task.table_name
+    table_count = original_task.table_count
     safe_title = sanitize_table_name_from_header(str(title))
     new_table_name = path_handle(
         f"table-{table_count} {safe_title}", mode="clean_single"

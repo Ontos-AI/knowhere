@@ -28,7 +28,7 @@ from app.services.document_parser.image_parser import (
     ask_image,
     perceptual_hash,
 )
-from app.services.document_parser.table_parser import sanitize_table_name_from_header
+from app.services.document_parser.table_text_parser import sanitize_table_name_from_header
 from app.services.document_parser.toc_docx import build_docx_toc_hierarchies
 from app.services.document_parser.txt_parser import postprocess_leaf_dics
 from docx.text.paragraph import Paragraph

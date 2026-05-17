@@ -24,7 +24,7 @@ from app.services.document_parser.heading_tree import (
     tree_to_dataframe as heading_tree_to_dataframe,
 )
 from app.services.document_parser.stage_profiler import stage_timer
-from app.services.document_parser.table_parser import df2md
+from app.services.document_parser.table_text_parser import df2md
 from gevent.pool import Pool as GeventPool
 
 try:

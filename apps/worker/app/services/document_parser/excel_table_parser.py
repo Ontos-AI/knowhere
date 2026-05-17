@@ -16,7 +16,7 @@ from app.services.document_parser.table_asset_writer import (
     TableAssetInput,
     write_table_asset,
 )
-from app.services.document_parser.table_parser import (
+from app.services.document_parser.table_frame_parser import (
     parse_headers,
     parse_tb_contents,
     parse_tb_keywords,

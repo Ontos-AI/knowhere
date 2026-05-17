@@ -15,7 +15,7 @@ import pandas as pd
 from app.services.document_parser.toc_hierarchy import eval_toc_levels
 from app.services.document_parser.text_helpers import normalize_md, truncate_text_by_tokens
 from app.services.document_parser.stage_profiler import stage_timer
-from app.services.document_parser.table_parser import df2md
+from app.services.document_parser.table_text_parser import df2md
 from gevent.pool import Pool as GeventPool
 from loguru import logger
 

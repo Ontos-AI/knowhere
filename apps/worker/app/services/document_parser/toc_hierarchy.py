@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 from app.services.document_parser.layout_parser import hiearchy_llm
 from app.services.document_parser.stage_profiler import stage_timer
-from app.services.document_parser.table_parser import df2md
+from app.services.document_parser.table_text_parser import df2md
 from app.services.document_parser.text_helpers import normalize_md
 from loguru import logger
 from pandas import Index
