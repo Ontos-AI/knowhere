@@ -9,7 +9,12 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic import asset_tools, discovery_tools, navigation_tools
+from shared.services.retrieval.agentic import (
+    asset_tools,
+    discovery_selection,
+    discovery_tools,
+    navigation_tools,
+)
 from shared.services.retrieval.agentic.types import DocTreeNode, ToolResult
 from shared.services.retrieval.llm_adapter import LLMFn
 
@@ -134,7 +139,7 @@ async def discovery_select_step(
     revision_hint: str | None = None,
     budget_snapshot: dict | None = None,
 ) -> DocTreeNode:
-    return await navigation_tools.discovery_select_step(
+    return await discovery_selection.discovery_select_step(
         db,
         document_id=document_id,
         query=query,
