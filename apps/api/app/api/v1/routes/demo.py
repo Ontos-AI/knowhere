@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.demo.document_service import DemoDocumentService
-from app.services.rate_limit.dependencies import CurrentUser, with_current_user
+from app.api.dependencies.job_admission import with_current_user
+from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field

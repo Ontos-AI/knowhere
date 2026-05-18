@@ -17,8 +17,7 @@ from app.services.document_ingestion.scope_service import (
     resolve_effective_document_scope,
 )
 from app.services.rate_limit.data_structures import CurrentUser
-from app.services.rate_limit.dependencies import enforce_job_creation_capacity
-from fastapi import Request
+from app.services.rate_limit.job_admission_service import JobAdmissionService
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,11 +46,13 @@ class DocumentIngestionService:
         *,
         creation_service: DocumentIngestionCreationService | None = None,
         confirmation_service: DocumentIngestionConfirmationService | None = None,
+        job_admission_service: JobAdmissionService | None = None,
     ) -> None:
         self._creation_service = creation_service or DocumentIngestionCreationService()
         self._confirmation_service = (
             confirmation_service or DocumentIngestionConfirmationService()
         )
+        self._job_admission_service = job_admission_service or JobAdmissionService()
 
     async def create_job(
         self,
@@ -59,7 +60,6 @@ class DocumentIngestionService:
         *,
         payload: JobCreate,
         current_user: CurrentUser,
-        request: Request,
     ) -> JobResponse:
         try:
             job_id = f"job_{uuid.uuid4().hex[:12]}"
@@ -70,8 +70,7 @@ class DocumentIngestionService:
                 current_user=current_user,
             )
 
-            await enforce_job_creation_capacity(
-                request=request,
+            await self._job_admission_service.enforce_job_creation_capacity(
                 db=db,
                 current_user=current_user,
             )

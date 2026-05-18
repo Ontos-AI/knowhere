@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.services.rate_limit.config import RateLimitConfig
-from app.services.rate_limit.data_structures import CurrentUser
+from app.services.rate_limit.data_structures import CurrentUser, RouteAdmissionContext
 from app.services.rate_limit.job_admission_capacity_service import (
     JobAdmissionCapacityService,
 )
@@ -9,7 +9,6 @@ from app.services.rate_limit.job_admission_route_policy_service import (
     JobAdmissionRoutePolicyService,
 )
 from app.services.rate_limit.tier_service import TierService
-from fastapi import Request
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,12 +31,12 @@ class JobAdmissionService:
     async def resolve_current_user(
         self,
         *,
-        request: Request,
+        route_context: RouteAdmissionContext,
         user_id: str,
     ) -> CurrentUser:
         user_tier = await TierService.get_tier(user_id)
         self._route_policy_service.enforce_guest_api_key_scope(
-            request=request,
+            route_context=route_context,
             user_tier=user_tier,
         )
         current_user = CurrentUser(user_id=user_id, user_tier=user_tier)
@@ -49,7 +48,7 @@ class JobAdmissionService:
 
             try:
                 await self._route_policy_service.enforce_user_system_limit(
-                    request=request,
+                    route_context=route_context,
                     config=config,
                     user_id=user_id,
                 )
@@ -72,8 +71,14 @@ class JobAdmissionService:
     ) -> None:
         await self._capacity_service.enforce_billing_limits(current_user=current_user)
 
-    async def enforce_route_system_limit(self, *, request: Request) -> None:
-        await self._route_policy_service.enforce_route_system_limit(request=request)
+    async def enforce_route_system_limit(
+        self,
+        *,
+        route_context: RouteAdmissionContext,
+    ) -> None:
+        await self._route_policy_service.enforce_route_system_limit(
+            route_context=route_context,
+        )
 
     async def enforce_job_creation_capacity(
         self,

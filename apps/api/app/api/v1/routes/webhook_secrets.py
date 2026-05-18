@@ -6,7 +6,8 @@ Endpoints for managing user webhook signing secrets.
 
 from typing import List, Optional
 
-from app.services.rate_limit.dependencies import CurrentUser, with_current_user
+from app.api.dependencies.job_admission import with_current_user
+from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -1,7 +1,7 @@
 """Guest registration routes."""
 
 from app.services.guest.guest_registration_service import GuestRegistrationService
-from app.services.rate_limit.dependencies import require_route_system_limit
+from app.api.dependencies.job_admission import require_route_system_limit
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -16,6 +16,15 @@ class CurrentUser:
 
 
 @dataclass(frozen=True)
+class RouteAdmissionContext:
+    """HTTP route facts needed by the Job Admission workflow."""
+
+    method: str
+    path: str
+    limit_identifier: str
+
+
+@dataclass(frozen=True)
 class TierLimits:
     """
     Rate limits for a specific billing tier.

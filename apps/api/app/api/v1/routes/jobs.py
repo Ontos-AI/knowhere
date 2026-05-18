@@ -12,12 +12,12 @@ from app.services.jobs import (
     get_job_result_for_user,
     list_jobs_for_user,
 )
-from app.services.rate_limit.dependencies import (
-    CurrentUser,
+from app.api.dependencies.job_admission import (
     require_billing_limits,
     with_current_user,
 )
-from fastapi import APIRouter, Depends, Query, Request
+from app.services.rate_limit.data_structures import CurrentUser
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.database import get_db
@@ -40,7 +40,6 @@ _document_ingestion_service = DocumentIngestionService()
 @router.post("/", include_in_schema=False)
 async def create_job(  # pyright: ignore[reportGeneralTypeIssues]
     payload: JobCreate,
-    http_request: Request,
     current_user: CurrentUser = Depends(require_billing_limits),
     db: AsyncSession = Depends(get_db),
 ):
@@ -51,7 +50,6 @@ async def create_job(  # pyright: ignore[reportGeneralTypeIssues]
         db,
         payload=payload,
         current_user=current_user,
-        request=http_request,
     )
 
 
