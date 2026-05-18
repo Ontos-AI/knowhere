@@ -2,22 +2,38 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, Protocol
 from urllib.parse import quote
 
-if TYPE_CHECKING:
-    from app.services.demo_source_catalog import (
-        DemoCitationDefinition,
-        DemoExampleDefinition,
-        DemoSourceDefinition,
-    )
+
+class _DemoCitationDefinition(Protocol):
+    section_path: str
+    description: str
+    content: str
+
+
+class _DemoExampleDefinition(Protocol):
+    id: str
+    question: str
+    answer: str
+    citations: tuple[_DemoCitationDefinition, ...]
+
+
+class _DemoSourceDefinition(Protocol):
+    demo_source_id: str
+    canonical_document_id: str
+    title: str
+    mime_type: str
+    size_bytes: int
+    chunk_count: int
+    examples: tuple[_DemoExampleDefinition, ...]
 
 
 class DemoSourceProjection:
     def source_catalog_payload(
         self,
         *,
-        source: DemoSourceDefinition,
+        source: _DemoSourceDefinition,
         chunks: tuple[dict[str, Any], ...],
     ) -> dict[str, Any]:
         return {
@@ -43,7 +59,7 @@ class DemoSourceProjection:
     def chunk_payload(
         self,
         *,
-        source: DemoSourceDefinition,
+        source: _DemoSourceDefinition,
         chunk: dict[str, Any],
         sort_order: int,
     ) -> dict[str, Any]:
@@ -71,7 +87,7 @@ class DemoSourceProjection:
     def publication_chunks(
         self,
         *,
-        source: DemoSourceDefinition,
+        source: _DemoSourceDefinition,
         chunks: tuple[dict[str, Any], ...],
     ) -> list[dict[str, Any]]:
         return [
@@ -82,7 +98,7 @@ class DemoSourceProjection:
     def canonical_chunk_id(
         self,
         *,
-        source: DemoSourceDefinition,
+        source: _DemoSourceDefinition,
         chunk: dict[str, Any],
     ) -> str:
         return f"{source.demo_source_id}:{chunk['chunk_id']}"
@@ -90,7 +106,7 @@ class DemoSourceProjection:
     def matches_chunk_id(
         self,
         *,
-        source: DemoSourceDefinition,
+        source: _DemoSourceDefinition,
         chunk: dict[str, Any],
         demo_chunk_id: str,
     ) -> bool:
@@ -102,8 +118,8 @@ class DemoSourceProjection:
     def _example_payload(
         self,
         *,
-        source: DemoSourceDefinition,
-        example: DemoExampleDefinition,
+        source: _DemoSourceDefinition,
+        example: _DemoExampleDefinition,
         chunks: tuple[dict[str, Any], ...],
     ) -> dict[str, Any]:
         return {
@@ -119,8 +135,8 @@ class DemoSourceProjection:
     def _citation_payload(
         self,
         *,
-        source: DemoSourceDefinition,
-        citation: DemoCitationDefinition,
+        source: _DemoSourceDefinition,
+        citation: _DemoCitationDefinition,
         chunks: tuple[dict[str, Any], ...],
     ) -> dict[str, Any]:
         chunk = _resolve_citation_chunk(source=source, citation=citation, chunks=chunks)
@@ -142,7 +158,7 @@ class DemoSourceProjection:
 
 def _publication_chunk(
     *,
-    source: DemoSourceDefinition,
+    source: _DemoSourceDefinition,
     chunk: dict[str, Any],
 ) -> dict[str, Any]:
     materialized_chunk = dict(chunk)
@@ -167,7 +183,7 @@ def _publication_chunk(
 
 def _publication_path(
     *,
-    source: DemoSourceDefinition,
+    source: _DemoSourceDefinition,
     raw_path: str | None,
 ) -> str:
     prefix = f"Default_Root/{source.title}"
@@ -190,8 +206,8 @@ def _publication_path(
 
 def _resolve_citation_chunk(
     *,
-    source: DemoSourceDefinition,
-    citation: DemoCitationDefinition,
+    source: _DemoSourceDefinition,
+    citation: _DemoCitationDefinition,
     chunks: tuple[dict[str, Any], ...],
 ) -> dict[str, Any]:
     normalized_content = _normalize_text(citation.content)
@@ -221,7 +237,7 @@ def _is_media_chunk(chunk: dict[str, Any]) -> bool:
 
 def _asset_url(
     *,
-    source: DemoSourceDefinition,
+    source: _DemoSourceDefinition,
     file_path: str | None,
 ) -> str | None:
     if not file_path:

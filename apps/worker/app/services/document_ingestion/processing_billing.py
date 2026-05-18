@@ -41,9 +41,9 @@ def charge_parse_job_pages(
 
     billing_service = WorkBillingService()
     billing_filename = filename or ""
-    billing_status = "skipped"
-    billing_amount_micro_dollars = 0
-    billing_credits = 0.0
+    billing_status: str
+    billing_amount_micro_dollars: int
+    billing_credits: float
 
     with get_sync_db_context() as db:
         job_result = db.execute(select(Job).where(Job.job_id == job_id).with_for_update())

@@ -436,11 +436,6 @@ def _profile_pdf_worker(queue, file_path: str) -> None:
         drawing_table_signal = line_like_items >= TABLE_DRAWING_LINE_THRESHOLD and (
             (horizontal_line_items >= 2 and vertical_line_items >= 2)
             or rect_items >= TABLE_DRAWING_RECT_THRESHOLD
-            or (
-                line_like_items >= TABLE_DRAWING_STRONG_THRESHOLD
-                and horizontal_line_items >= 3
-                and vertical_line_items >= 3
-            )
         )
         # NOTE:
         # `page.find_tables()` produces too many false positives on Word / Writer
