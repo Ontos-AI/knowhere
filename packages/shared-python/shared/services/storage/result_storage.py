@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+from loguru import logger
 
 from shared.services.storage.job_file_storage import JobFileStorage
 from shared.services.storage.storage_adapter import StorageAdapter
@@ -24,13 +26,16 @@ class UploadedResultBundle:
 class ResultStorage(Protocol):
     def upload(
         self, *, job_id: str, result_dir: str, zip_file_path: str
-    ) -> UploadedResultBundle: ...
+    ) -> UploadedResultBundle:
+        raise NotImplementedError
 
     def generate_artifact_url(
         self, *, job_id: str, artifact_ref: str, expires_in: int = 3600
-    ) -> str | None: ...
+    ) -> str | None:
+        raise NotImplementedError
 
-    def normalize_artifact_ref(self, artifact_ref: str | None) -> str | None: ...
+    def normalize_artifact_ref(self, artifact_ref: str | None) -> str | None:
+        raise NotImplementedError
 
 
 class JobResultStorage:
@@ -156,8 +161,8 @@ class JobResultStorage:
     def _cleanup_file(self, file_path: Path) -> None:
         try:
             file_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"Failed to clean up result file {file_path}: {exc}")
 
 
 def get_result_storage() -> ResultStorage:

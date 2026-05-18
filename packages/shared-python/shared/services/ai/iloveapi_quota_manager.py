@@ -124,8 +124,8 @@ return redis.call('DECR', key)
                                     ),
                                 )
                             )
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as exc:
+                logger.debug(f"Invalid I Love API token JSON ignored: {exc}")
 
         if not specs and legacy_pub and legacy_sec:
             specs.append(

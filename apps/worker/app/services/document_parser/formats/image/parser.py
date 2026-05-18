@@ -319,20 +319,18 @@ def parse_image(
         if inferred_suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
             img_name = img_stem or img_name
         if auto_rename:
-            update_img_path = os.path.join(img_dir, f"{img_name}{img_suffix}")
+            target_img_path = os.path.join(img_dir, f"{img_name}{img_suffix}")
             if os.path.exists(img_path):
-                if img_path != update_img_path:
-                    os.rename(img_path, update_img_path)
+                if img_path != target_img_path:
+                    os.rename(img_path, target_img_path)
                 # Store the relative filename for path construction
                 final_img_name = f"{img_name}{img_suffix}"
             else:
                 logger.warning(
                     f"Image file missing before rename, keeping original name: {filename}"
                 )
-                update_img_path = img_path
                 final_img_name = filename
         else:
-            update_img_path = img_path
             final_img_name = filename
     except KnowhereException:
         raise

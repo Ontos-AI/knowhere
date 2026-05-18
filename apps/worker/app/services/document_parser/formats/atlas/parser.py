@@ -143,8 +143,8 @@ def _vlm_extract_page_info(output_dir: str, img_name: str) -> str:
         if vlm_path != img_path:
             try:
                 os.remove(vlm_path)
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug(f"Failed to remove compressed atlas image {vlm_path}: {exc}")
 
         if result:
             return result.strip()

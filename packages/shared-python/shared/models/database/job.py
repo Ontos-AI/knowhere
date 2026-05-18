@@ -6,8 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-# Forward references avoid circular imports.
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import Any, Dict, Optional
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -26,13 +25,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from shared.core.database import Base
 from shared.utils.utc_now import utc_now_naive
-
-
-if TYPE_CHECKING:
-    from shared.models.database.job_result import JobResult
-    from shared.models.database.job_state_audit_log import JobStateAuditLog
-    from shared.models.database.job_state_history import JobStateHistory
-    from shared.models.database.webhook_log import WebhookLog
 
 
 class Job(Base):
@@ -113,22 +105,22 @@ class Job(Base):
 
     # Relationships — default to noload to prevent implicit SELECTs.
     # Use explicit selectinload() in queries that need related data.
-    state_history: Mapped[list["JobStateHistory"]] = relationship(
+    state_history: Mapped[list[Any]] = relationship(
         "JobStateHistory",
         back_populates="job",
         cascade="all, delete-orphan",
         lazy="noload",
     )
-    state_audit_logs: Mapped[list["JobStateAuditLog"]] = relationship(
+    state_audit_logs: Mapped[list[Any]] = relationship(
         "JobStateAuditLog",
         back_populates="job",
         cascade="all, delete-orphan",
         lazy="noload",
     )
-    webhook_logs: Mapped[list["WebhookLog"]] = relationship(
+    webhook_logs: Mapped[list[Any]] = relationship(
         "WebhookLog", back_populates="job", cascade="all, delete-orphan", lazy="noload"
     )
-    job_result: Mapped[Optional["JobResult"]] = relationship(
+    job_result: Mapped[Optional[Any]] = relationship(
         "JobResult", back_populates="job", uselist=False, lazy="noload"
     )
 

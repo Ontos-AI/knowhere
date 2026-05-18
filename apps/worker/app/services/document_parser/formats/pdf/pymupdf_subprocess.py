@@ -121,13 +121,13 @@ def _close_result_queue(result_queue: MultiprocessingQueue) -> None:
     """Release parent-side queue resources once the child result is no longer needed."""
     try:
         result_queue.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"Failed to close PyMuPDF result queue: {exc}")
 
     try:
         result_queue.join_thread()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"Failed to join PyMuPDF result queue thread: {exc}")
 
 
 def _run_worker_in_spawned_process(

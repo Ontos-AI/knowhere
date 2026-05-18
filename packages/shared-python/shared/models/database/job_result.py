@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text
@@ -11,9 +11,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from shared.core.database import Base
 from shared.utils.utc_now import utc_now_naive
-
-if TYPE_CHECKING:
-    from shared.models.database.job import Job
 
 
 class JobResult(Base):
@@ -57,7 +54,7 @@ class JobResult(Base):
         nullable=False,
     )
 
-    job: Mapped["Job"] = relationship(
+    job: Mapped[Any] = relationship(
         "Job", back_populates="job_result", lazy="joined"
     )
     chunks: Mapped[List["JobChunk"]] = relationship(

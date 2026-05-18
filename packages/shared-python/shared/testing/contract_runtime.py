@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Protocol, cast
@@ -77,23 +78,36 @@ CONTRACT_DEVELOPER_USER_NAME: str = "Local Development User"
 CONTRACT_DEVELOPER_USER_EMAIL: str = "local-dev-user@knowhere.local"
 CONTRACT_DEVELOPER_USER_TIER: str = "tier_5"
 CONTRACT_DEVELOPER_API_KEY_NAME: str = "contract-developer-api-key"
-_contract_storage_prepared: bool = False
 _contract_storage_database_url: str | None = None
 _contract_fake_redis_server: fakeredis.FakeServer = fakeredis.FakeServer()
 
 
+@dataclass
+class ContractStorageRuntimeState:
+    is_prepared: bool = False
+
+
+_contract_storage_runtime_state: ContractStorageRuntimeState = (
+    ContractStorageRuntimeState()
+)
+
+
 class PostgreSQLProcess(Protocol):
     @property
-    def host(self) -> str: ...
+    def host(self) -> str:
+        raise NotImplementedError
 
     @property
-    def port(self) -> int: ...
+    def port(self) -> int:
+        raise NotImplementedError
 
     @property
-    def user(self) -> str: ...
+    def user(self) -> str:
+        raise NotImplementedError
 
     @property
-    def password(self) -> str | None: ...
+    def password(self) -> str | None:
+        raise NotImplementedError
 
 
 def _ensure_import_paths() -> None:
@@ -113,13 +127,12 @@ def _ensure_test_directories() -> None:
 
 def _reset_contract_storage_state(database_url: str) -> None:
     global _contract_storage_database_url
-    global _contract_storage_prepared
 
     if _contract_storage_database_url == database_url:
         return
 
     _contract_storage_database_url = database_url
-    _contract_storage_prepared = False
+    _contract_storage_runtime_state.is_prepared = False
 
 
 def _ensure_contract_postgresql_port(database_url: URL) -> None:
@@ -596,7 +609,6 @@ def drop_contract_database(
     postgresql_process: PostgreSQLProcess | None = None,
 ) -> None:
     global _contract_storage_database_url
-    global _contract_storage_prepared
 
     contract_database_url = get_contract_database_url(postgresql_process)
     contract_database_name = make_url(contract_database_url).database
@@ -611,7 +623,7 @@ def drop_contract_database(
 
     if _contract_storage_database_url == contract_database_url:
         _contract_storage_database_url = None
-        _contract_storage_prepared = False
+        _contract_storage_runtime_state.is_prepared = False
 
 
 def _run_contract_migrations() -> None:
@@ -679,16 +691,14 @@ async def _create_contract_engine() -> AsyncEngine:
 
 
 async def prepare_contract_storage() -> None:
-    global _contract_storage_prepared
-
     _ensure_import_paths()
 
-    if not _contract_storage_prepared:
+    if not _contract_storage_runtime_state.is_prepared:
         _recreate_contract_database()
         _initialize_contract_database()
         _run_contract_migrations()
         _assert_contract_schema_ready()
-        _contract_storage_prepared = True
+        _contract_storage_runtime_state.is_prepared = True
 
     await reset_contract_database()
     await reset_contract_redis()

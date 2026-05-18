@@ -390,11 +390,13 @@ def _parse_retry_after(exc: openai.RateLimitError) -> int:
     """Extract Retry-After seconds from a RateLimitError, with sane bounds."""
     try:
         if hasattr(exc, "response") and exc.response is not None:
-            header_value = exc.response.headers.get("retry-after") or exc.response.headers.get("Retry-After")
+            header_value = exc.response.headers.get(
+                "retry-after"
+            ) or exc.response.headers.get("Retry-After")
             if header_value:
                 return max(1, min(int(header_value), 120))
-    except (ValueError, TypeError, AttributeError):
-        pass
+    except (ValueError, TypeError, AttributeError) as parse_error:
+        logger.debug(f"Could not parse retry-after header: {parse_error}")
     return settings.ALI_TOKEN_COOLDOWN_SECONDS
 
 

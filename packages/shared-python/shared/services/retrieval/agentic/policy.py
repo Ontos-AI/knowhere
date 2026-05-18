@@ -27,17 +27,21 @@ from shared.utils.token_estimate import estimate_tokens
 def _parse_answer_response(text: str) -> dict[str, Any] | None:
     """Extract a JSON answer object from LLM response text."""
     text = text.strip()
-    try:
-        return json.loads(text)
-    except (json.JSONDecodeError, ValueError):
-        pass
+    parsed = _load_json_object(text)
+    if parsed is not None:
+        return parsed
     match = re.search(r'\{.*\}', text, re.DOTALL)
     if match:
-        try:
-            return json.loads(match.group())
-        except (json.JSONDecodeError, ValueError):
-            pass
+        return _load_json_object(match.group())
     return None
+
+
+def _load_json_object(raw_value: str) -> dict[str, Any] | None:
+    try:
+        parsed = json.loads(raw_value)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _looks_like_json_wrapper(text: str) -> bool:
@@ -78,7 +82,7 @@ def _budget_line_parts(budget_snapshot: dict | None, pool_name: str) -> dict[str
             min(100, round(remaining_int * 100 / capacity_int)),
         )
     except (TypeError, ValueError):
-        pass
+        remaining_pct = 'unknown'
     return {
         'status': pool.get('status', 'HEALTHY'),
         'remaining': remaining,

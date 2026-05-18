@@ -205,10 +205,10 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     text = text.strip()
     try:
         parsed = json.loads(text)
-        if isinstance(parsed, dict):
-            return parsed
     except (ValueError, json.JSONDecodeError):
-        pass
+        parsed = None
+    if isinstance(parsed, dict):
+        return parsed
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
         raise ValueError("no JSON object found")

@@ -531,12 +531,8 @@ def parse_docx(
             outline_level = outline_dic.get(ele_num, -1)
             if outline_level > 0:
                 # logger.debug('Found a title: ', text, ' current level: ', outline_level)
-                try:
-                    last_heading = headings_stack[-1]["heading"]
-                    if last_heading == text:
-                        continue
-                except Exception:
-                    pass
+                if headings_stack and headings_stack[-1].get("heading") == text:
+                    continue
 
                 while headings_stack and headings_stack[-1]["level"] >= outline_level:
                     headings_stack.pop()

@@ -124,8 +124,8 @@ def extract_md_headings(md_lines: List[str]) -> List[dict]:
                     if text:
                         text_key = normalize_content(text)
                         occurrence_counter[text_key] += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(f"Failed to collect table metadata from Markdown: {exc}")
             continue
 
         if is_heading:
@@ -212,8 +212,10 @@ def build_layout_height_map(layout_json_path: str) -> Dict[str, List[dict]]:
                                             "type": "table",
                                         }
                                     )
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug(
+                                f"Failed to collect table metadata from layout span: {exc}"
+                            )
                     continue
 
                 # Regular text span

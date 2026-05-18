@@ -105,8 +105,11 @@ class TraceRecorder:
             logger.debug(f'agentic trace: failed to create run {self._run_id}: {e}')
             try:
                 await self._db.rollback()
-            except Exception:
-                pass
+            except Exception as rollback_error:
+                logger.debug(
+                    f'agentic trace: failed to roll back create failure '
+                    f'{self._run_id}: {rollback_error}'
+                )
 
     def record_step(
         self,
@@ -213,5 +216,8 @@ class TraceRecorder:
             logger.debug(f'agentic trace: failed to complete run {self._run_id}: {e}')
             try:
                 await self._db.rollback()
-            except Exception:
-                pass
+            except Exception as rollback_error:
+                logger.debug(
+                    f'agentic trace: failed to roll back completion failure '
+                    f'{self._run_id}: {rollback_error}'
+                )

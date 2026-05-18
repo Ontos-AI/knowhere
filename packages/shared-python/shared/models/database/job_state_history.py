@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import Any, Dict, Optional
 from uuid import uuid4
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, String
@@ -11,9 +11,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from shared.core.database import Base
 from shared.utils.utc_now import utc_now_naive
-
-if TYPE_CHECKING:
-    from shared.models.database.job import Job
 
 
 class JobStateHistory(Base):
@@ -44,7 +41,7 @@ class JobStateHistory(Base):
     )
 
     # Relationships.
-    job: Mapped["Job"] = relationship("Job", back_populates="state_history")
+    job: Mapped[Any] = relationship("Job", back_populates="state_history")
 
     # Indexes.
     __table_args__ = (
