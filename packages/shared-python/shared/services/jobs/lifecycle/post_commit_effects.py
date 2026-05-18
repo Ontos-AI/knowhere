@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
-from shared.services.jobs.lifecycle.publication import SyncJobPublicationFinalizer
+from shared.services.jobs.lifecycle.publication import (
+    RetrievalCacheInvalidation,
+    SyncJobPublicationFinalizer,
+)
 from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
 
 
 @dataclass(frozen=True)
 class PostCommitEffectPlan:
-    retrieval_cache_invalidations: tuple[dict[str, Any], ...] = field(
+    retrieval_cache_invalidations: tuple[RetrievalCacheInvalidation, ...] = field(
         default_factory=tuple
     )
     webhook_event_ids: tuple[str, ...] = field(default_factory=tuple)
@@ -22,7 +24,7 @@ class PostCommitEffectPlan:
     def from_success(
         cls,
         *,
-        cache_invalidation: dict[str, Any] | None,
+        cache_invalidation: RetrievalCacheInvalidation | None,
         webhook_event_id: str | None,
     ) -> PostCommitEffectPlan:
         return cls(

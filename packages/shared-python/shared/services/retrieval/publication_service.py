@@ -9,7 +9,7 @@ boundaries and call this service, not define retrieval state construction.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import uuid4
 
 from loguru import logger
@@ -26,6 +26,7 @@ from shared.services.retrieval.publication_content import (
 )
 from shared.services.retrieval.publication_models import (
     DocumentPublicationScope,
+    ExistingDocumentScope,
     PublishedDocumentState,
 )
 
@@ -42,7 +43,7 @@ class RetrievalPublicationService:
         db: Session,
         *,
         job_id: str,
-    ) -> Optional[Dict[str, str]]:
+    ) -> ExistingDocumentScope | None:
         job = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
         if not job:
             return None
@@ -58,7 +59,10 @@ class RetrievalPublicationService:
         if not document:
             return None
 
-        return {"document_id": document.document_id, "namespace": document.namespace}
+        return ExistingDocumentScope(
+            document_id=document.document_id,
+            namespace=document.namespace,
+        )
 
     def publish_document_state(
         self,
@@ -66,8 +70,8 @@ class RetrievalPublicationService:
         *,
         job_id: str,
         job_result_id: str,
-        chunks: List[Dict[str, Any]],
-    ) -> Optional[Dict[str, Any]]:
+        chunks: list[dict[str, Any]],
+    ) -> PublishedDocumentState | None:
         job = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
         if not job:
             logger.warning(f"Job not found for document publication: {job_id}")
@@ -86,8 +90,8 @@ class RetrievalPublicationService:
         *,
         job: Job,
         job_result_id: str,
-        chunks: List[Dict[str, Any]],
-    ) -> Optional[Dict[str, Any]]:
+        chunks: list[dict[str, Any]],
+    ) -> PublishedDocumentState | None:
 
         job_metadata = job.job_metadata or {}
         namespace = normalize_retrieval_namespace(job_metadata.get("namespace"))
@@ -109,7 +113,7 @@ class RetrievalPublicationService:
                 namespace=namespace,
                 document_id=None,
                 skipped_all_duplicate=True,
-            ).to_dict()
+            )
 
         document = self._upsert_document_revision(
             db,
@@ -146,7 +150,7 @@ class RetrievalPublicationService:
             user_id=str(job.user_id),
             namespace=namespace,
             document_id=document.document_id,
-        ).to_dict()
+        )
 
     def _upsert_document_revision(
         self,

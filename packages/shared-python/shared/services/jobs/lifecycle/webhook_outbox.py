@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -9,6 +10,11 @@ from sqlalchemy.orm import Session
 
 from shared.models.database.job import Job
 from shared.models.database.webhook import WebhookEvent, WebhookEventStatus
+
+
+@dataclass(frozen=True)
+class WebhookOutboxEvent:
+    event_id: str
 
 
 class SyncJobWebhookOutbox:
@@ -21,7 +27,7 @@ class SyncJobWebhookOutbox:
         job_id: str,
         event_type: str,
         extra_payload: dict[str, Any] | None = None,
-    ) -> WebhookEvent | None:
+    ) -> WebhookOutboxEvent | None:
         result = db.execute(select(Job).where(Job.job_id == job_id))
         job = result.scalar_one_or_none()
 
@@ -54,12 +60,12 @@ class SyncJobWebhookOutbox:
         db.add(event)
         db.flush()
         logger.info(f"WebhookEvent created: event_id={event.id}, job_id={job_id}")
-        return event
+        return WebhookOutboxEvent(event_id=event.id)
 
-    def enqueue_after_commit(self, webhook_event: WebhookEvent | None) -> None:
+    def enqueue_after_commit(self, webhook_event: WebhookOutboxEvent | None) -> None:
         if not webhook_event:
             return
-        self.enqueue_event_id_after_commit(webhook_event.id)
+        self.enqueue_event_id_after_commit(webhook_event.event_id)
 
     def enqueue_event_id_after_commit(self, webhook_event_id: str | None) -> None:
         if not webhook_event_id:

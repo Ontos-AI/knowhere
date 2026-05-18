@@ -54,4 +54,9 @@ async def handle_qstash_failure(request: Request) -> Response:
 
 
 def _to_response(outcome: QStashCallbackOutcome) -> Response:
-    return Response(status_code=outcome.status_code, content=outcome.content)
+    content_by_kind = {
+        "processed": "OK",
+        "missing_event_id": "OK (no event_id)",
+        "event_not_found": "OK (event not found)",
+    }
+    return Response(status_code=200, content=content_by_kind[outcome.kind])

@@ -13,12 +13,23 @@ from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
 from shared.services.retrieval.publication_service import RetrievalPublicationService
+from shared.services.retrieval.publication_models import (
+    ExistingDocumentScope,
+    PublishedDocumentState,
+)
+
+
+@dataclass(frozen=True)
+class RetrievalCacheInvalidation:
+    user_id: str
+    namespaces: tuple[str, ...]
+    job_id: str
 
 
 @dataclass(frozen=True)
 class JobPublicationOutcome:
-    published_document_state: dict[str, str] | None
-    cache_invalidation: dict[str, Any] | None
+    published_document_state: PublishedDocumentState | None
+    cache_invalidation: RetrievalCacheInvalidation | None
 
 
 class SyncJobPublicationFinalizer:
@@ -57,7 +68,7 @@ class SyncJobPublicationFinalizer:
             if section_summaries:
                 self._backfill_section_summaries(
                     db,
-                    document_id=published_document_state.get("document_id", ""),
+                    document_id=published_document_state.document_id or "",
                     job_result_id=job_result_id,
                     section_summaries=section_summaries,
                 )
@@ -80,16 +91,16 @@ class SyncJobPublicationFinalizer:
 
     def invalidate_cache_after_commit(
         self,
-        cache_invalidation: dict[str, Any] | None,
+        cache_invalidation: RetrievalCacheInvalidation | None,
     ) -> None:
         if not cache_invalidation:
             return
 
         try:
             redis_service = SyncRedisServiceFactory.get_service()
-            user_id = cache_invalidation["user_id"]
+            user_id = cache_invalidation.user_id
             seen: set[str] = set()
-            for raw_namespace in cache_invalidation["namespaces"]:
+            for raw_namespace in cache_invalidation.namespaces:
                 namespace = normalize_retrieval_namespace(str(raw_namespace))
                 if not namespace or namespace in seen:
                     continue
@@ -98,7 +109,7 @@ class SyncJobPublicationFinalizer:
         except Exception as exc:
             logger.warning(
                 "Failed to invalidate retrieval cache after publication "
-                f"(ignored): job_id={cache_invalidation.get('job_id')}, error={exc}"
+                f"(ignored): job_id={cache_invalidation.job_id}, error={exc}"
             )
 
     def _backfill_section_summaries(
@@ -136,28 +147,33 @@ class SyncJobPublicationFinalizer:
         db: Session,
         *,
         job_id: str,
-        published_document_state: dict[str, str] | None,
-        previous_document_scope: dict[str, str] | None,
-    ) -> dict[str, Any] | None:
+        published_document_state: PublishedDocumentState | None,
+        previous_document_scope: ExistingDocumentScope | None,
+    ) -> RetrievalCacheInvalidation | None:
         job = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
         if not job:
             return None
 
         metadata = job.job_metadata or {}
-        namespaces = [
+        namespaces: list[str] = [
             JobMetadataHelper.get_namespace(metadata, "default") or "default",
         ]
-        if previous_document_scope and previous_document_scope.get("namespace"):
-            namespaces.append(previous_document_scope["namespace"])
-        if published_document_state and published_document_state.get("namespace"):
-            namespaces.append(published_document_state["namespace"])
+        if previous_document_scope:
+            namespaces.append(previous_document_scope.namespace)
+        if published_document_state:
+            namespaces.append(published_document_state.namespace)
 
-        return {"user_id": str(job.user_id), "namespaces": namespaces, "job_id": job_id}
+        return RetrievalCacheInvalidation(
+            user_id=str(job.user_id),
+            namespaces=tuple(namespaces),
+            job_id=job_id,
+        )
 
 
 def _should_publish_document_graph(
-    published_document_state: dict[str, str] | None,
+    published_document_state: PublishedDocumentState | None,
 ) -> bool:
-    return published_document_state is not None and not published_document_state.get(
-        "skipped_all_duplicate"
+    return (
+        published_document_state is not None
+        and not published_document_state.skipped_all_duplicate
     )

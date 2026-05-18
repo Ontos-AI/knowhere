@@ -79,9 +79,8 @@ class SyncJobLifecycleService:
                 delivery_mode=delivery_mode,
                 section_summaries=section_summaries,
             ),
-            should_commit=lambda finalization: finalization.response.get("status")
-            == "success",
-            build_response=lambda finalization: finalization.response,
+            should_commit=lambda finalization: finalization.response.should_commit(),
+            build_response=lambda finalization: finalization.response.to_dict(),
             build_effect_plan=lambda finalization: finalization.post_commit_effects,
             run_after_commit_effects=self._post_commit_effect_runner.run,
         )

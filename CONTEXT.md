@@ -102,6 +102,13 @@ chunk conversion and result packaging.
 The generated ZIP bundle metadata used by terminal Job finalization, including
 ZIP path, checksum, statistics, and byte size.
 
+### ZIP Result Packaging
+
+The storage-side module set that turns parsed chunks and parser artifacts into a
+Generated Result Package. `ZipResultService` is the orchestration interface;
+resource discovery, schema projection, and physical ZIP writing live in
+separate modules.
+
 ### Workload Estimate
 
 The worker-side estimate used for billing and processing metadata. It records

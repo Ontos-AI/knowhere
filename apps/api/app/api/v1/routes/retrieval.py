@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.database import get_db
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
-from shared.services.retrieval import run_retrieval_query
+from shared.services.retrieval.app_service import run_retrieval_query
 
 router = APIRouter(tags=["Retrieval"])
 

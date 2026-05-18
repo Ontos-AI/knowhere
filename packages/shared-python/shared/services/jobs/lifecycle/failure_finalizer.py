@@ -83,7 +83,7 @@ class SyncJobFailureFinalizer:
         return JobFailureFinalization(
             succeeded=True,
             post_commit_effects=PostCommitEffectPlan.from_failure(
-                webhook_event_id=webhook_event.id if webhook_event else None,
+                webhook_event_id=webhook_event.event_id if webhook_event else None,
             ),
         )
 

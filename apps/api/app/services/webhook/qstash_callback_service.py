@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Literal
 from uuid import NAMESPACE_URL, uuid5
 
 from loguru import logger
@@ -15,10 +15,25 @@ from shared.models.database.webhook import WebhookEvent, WebhookEventStatus
 from shared.models.database.webhook_log import WebhookLog
 
 
+QStashCallbackOutcomeKind = Literal["processed", "missing_event_id", "event_not_found"]
+
+
 @dataclass(frozen=True)
 class QStashCallbackOutcome:
-    status_code: int
-    content: str
+    kind: QStashCallbackOutcomeKind
+    event_id: str | None = None
+
+    @classmethod
+    def processed(cls, *, event_id: str) -> QStashCallbackOutcome:
+        return cls(kind="processed", event_id=event_id)
+
+    @classmethod
+    def missing_event_id(cls) -> QStashCallbackOutcome:
+        return cls(kind="missing_event_id")
+
+    @classmethod
+    def event_not_found(cls, *, event_id: str) -> QStashCallbackOutcome:
+        return cls(kind="event_not_found", event_id=event_id)
 
 
 def get_qstash_verification_url(callback_path: str, request_url: str) -> str:
@@ -64,7 +79,7 @@ def handle_qstash_success_callback(raw_body: bytes) -> QStashCallbackOutcome:
 
     if not event_id:
         logger.warning("QStash callback: missing event_id, cannot correlate")
-        return QStashCallbackOutcome(status_code=200, content="OK (no event_id)")
+        return QStashCallbackOutcome.missing_event_id()
 
     retried = data.get("retried", 0)
     logger.info(
@@ -86,7 +101,7 @@ def handle_qstash_failure_callback(raw_body: bytes) -> QStashCallbackOutcome:
 
     if not event_id:
         logger.warning("QStash failure callback: missing event_id, cannot correlate")
-        return QStashCallbackOutcome(status_code=200, content="OK (no event_id)")
+        return QStashCallbackOutcome.missing_event_id()
 
     retried = data.get("retried", 0)
     max_retries = data.get("maxRetries", 0)
@@ -110,7 +125,7 @@ def extract_callback_data(body: bytes) -> dict[str, Any]:
         return {"raw": body.decode("utf-8", errors="replace")}
 
 
-def find_event_id(data: dict[str, Any]) -> Optional[str]:
+def find_event_id(data: dict[str, Any]) -> str | None:
     source_header = data.get("sourceHeader", {}) or {}
     event_id = normalize_header_value(
         source_header.get("X-Knowhere-Event-Id")
@@ -124,7 +139,7 @@ def find_event_id(data: dict[str, Any]) -> Optional[str]:
     return event_id
 
 
-def normalize_header_value(value: Any) -> Optional[str]:
+def normalize_header_value(value: Any) -> str | None:
     if isinstance(value, list):
         if not value:
             return None
@@ -141,7 +156,7 @@ def normalize_header_value(value: Any) -> Optional[str]:
 
 
 def build_callback_log_idempotency_key(
-    qstash_message_id: Optional[str],
+    qstash_message_id: str | None,
     event_id: str,
 ) -> str:
     if qstash_message_id:
@@ -149,7 +164,7 @@ def build_callback_log_idempotency_key(
     return event_id
 
 
-def get_response_status_code(value: Any) -> Optional[int]:
+def get_response_status_code(value: Any) -> int | None:
     if value is None:
         return None
 
@@ -159,7 +174,7 @@ def get_response_status_code(value: Any) -> Optional[int]:
         return None
 
 
-def is_success_response_status(status_code: Optional[int]) -> bool:
+def is_success_response_status(status_code: int | None) -> bool:
     return status_code is not None and 200 <= status_code < 300
 
 
@@ -208,10 +223,7 @@ def process_qstash_callback(
 
         if not event:
             logger.warning(f"QStash {log_label}: event {event_id} not found in DB")
-            return QStashCallbackOutcome(
-                status_code=200,
-                content="OK (event not found)",
-            )
+            return QStashCallbackOutcome.event_not_found(event_id=event_id)
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         event_status = resolve_event_status(event.status, callback_status)
@@ -240,4 +252,4 @@ def process_qstash_callback(
         db.add(log)
         db.commit()
 
-    return QStashCallbackOutcome(status_code=200, content="OK")
+    return QStashCallbackOutcome.processed(event_id=event_id)

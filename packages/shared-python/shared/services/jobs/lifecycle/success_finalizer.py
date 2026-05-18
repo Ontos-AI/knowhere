@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
 from sqlalchemy.orm import Session
@@ -14,8 +14,38 @@ from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
 
 
 @dataclass(frozen=True)
+class JobSuccessResponse:
+    status: Literal["success", "failed"]
+    job_id: str
+    stored_count: int | None = None
+    reason: str | None = None
+
+    @classmethod
+    def completed(cls, *, job_id: str, stored_count: int) -> JobSuccessResponse:
+        return cls(status="success", job_id=job_id, stored_count=stored_count)
+
+    @classmethod
+    def state_transition_failed(cls, *, job_id: str) -> JobSuccessResponse:
+        return cls(status="failed", job_id=job_id, reason="state_transition_failed")
+
+    def should_commit(self) -> bool:
+        return self.status == "success"
+
+    def to_dict(self) -> dict[str, Any]:
+        response: dict[str, Any] = {
+            "status": self.status,
+            "job_id": self.job_id,
+        }
+        if self.stored_count is not None:
+            response["stored_count"] = self.stored_count
+        if self.reason:
+            response["reason"] = self.reason
+        return response
+
+
+@dataclass(frozen=True)
 class JobSuccessFinalization:
-    response: dict[str, Any]
+    response: JobSuccessResponse
     post_commit_effects: PostCommitEffectPlan
 
 
@@ -82,11 +112,7 @@ class SyncJobSuccessFinalizer:
                 f"reason={transition_outcome.reason}"
             )
             return JobSuccessFinalization(
-                response={
-                    "status": "failed",
-                    "job_id": job_id,
-                    "reason": "state_transition_failed",
-                },
+                response=JobSuccessResponse.state_transition_failed(job_id=job_id),
                 post_commit_effects=PostCommitEffectPlan.none(),
             )
 
@@ -96,13 +122,12 @@ class SyncJobSuccessFinalizer:
             event_type="job.completed",
         )
         return JobSuccessFinalization(
-            response={
-                "status": "success",
-                "job_id": job_id,
-                "stored_count": stored_count,
-            },
+            response=JobSuccessResponse.completed(
+                job_id=job_id,
+                stored_count=stored_count,
+            ),
             post_commit_effects=PostCommitEffectPlan.from_success(
                 cache_invalidation=publication_outcome.cache_invalidation,
-                webhook_event_id=webhook_event.id if webhook_event else None,
+                webhook_event_id=webhook_event.event_id if webhook_event else None,
             ),
         )
