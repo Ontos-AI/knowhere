@@ -7,26 +7,51 @@ from urllib.parse import quote
 
 
 class _DemoCitationDefinition(Protocol):
-    section_path: str
-    description: str
-    content: str
+    @property
+    def section_path(self) -> str: ...
+
+    @property
+    def description(self) -> str: ...
+
+    @property
+    def content(self) -> str: ...
 
 
 class _DemoExampleDefinition(Protocol):
-    id: str
-    question: str
-    answer: str
-    citations: tuple[_DemoCitationDefinition, ...]
+    @property
+    def id(self) -> str: ...
+
+    @property
+    def question(self) -> str: ...
+
+    @property
+    def answer(self) -> str: ...
+
+    @property
+    def citations(self) -> tuple[_DemoCitationDefinition, ...]: ...
 
 
 class _DemoSourceDefinition(Protocol):
-    demo_source_id: str
-    canonical_document_id: str
-    title: str
-    mime_type: str
-    size_bytes: int
-    chunk_count: int
-    examples: tuple[_DemoExampleDefinition, ...]
+    @property
+    def demo_source_id(self) -> str: ...
+
+    @property
+    def canonical_document_id(self) -> str: ...
+
+    @property
+    def title(self) -> str: ...
+
+    @property
+    def mime_type(self) -> str: ...
+
+    @property
+    def size_bytes(self) -> int: ...
+
+    @property
+    def chunk_count(self) -> int: ...
+
+    @property
+    def examples(self) -> tuple[_DemoExampleDefinition, ...]: ...
 
 
 class DemoSourceProjection:
