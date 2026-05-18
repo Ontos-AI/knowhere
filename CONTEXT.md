@@ -122,7 +122,8 @@ quota.
 ### Job Admission Route Policy
 
 The route-aware part of Job Admission that enforces guest API key scope and
-system limits.
+system limits from plain route-admission context built by HTTP dependency
+adapters.
 
 ### Job Admission Capacity
 
@@ -231,8 +232,10 @@ managers such as Ali, iLoveAPI, and MinerU.
 ### HTTP Adapters
 
 `apps/api/app/api/v1/routes/*`
+`apps/api/app/api/dependencies/*`
 
-These modules translate HTTP requests into application workflow calls.
+These modules translate HTTP requests and dependency context into application
+workflow calls.
 
 ### Application Workflows
 
@@ -254,7 +257,8 @@ These modules own database reads and writes for API-side workflows.
 
 These modules own the lower-level implementations for publication, retrieval,
 state machines, storage, Redis-backed metadata, billing primitives, and core
-exceptions.
+exceptions. Shared Job lifecycle finalization lives under
+`packages/shared-python/shared/services/jobs/lifecycle/*`.
 
 ## apps/api Workflow Ownership
 
@@ -276,13 +280,15 @@ exceptions.
 
 ### Job Admission
 
+- `app/api/dependencies/auth.py`
+- `app/api/dependencies/job_admission.py`
+- `app/services/auth/*`
 - `app/services/rate_limit/*`
-- `app/core/dependencies.py`
 
 ### Document Lifecycle
 
 - `app/api/v1/routes/documents.py`
-- `app/services/document_service.py`
+- `app/services/documents/lifecycle_service.py`
 - `app/repositories/document_repository.py`
 
 ### Retrieval
@@ -329,6 +335,22 @@ headers, acknowledges malformed or unsafe events, and triggers upload handoff.
 
 - `app/api/v1/routes/qstash_callbacks.py`
 - `app/services/qstash_callback_service.py`
+
+The route owns QStash HTTP signature verification and HTTP response projection.
+The workflow owns callback parsing, event status resolution, and webhook log
+side effects.
+
+## Shared Workflow Ownership
+
+### Job Lifecycle Finalization
+
+- `shared/services/jobs/lifecycle/service.py`
+- `shared/services/jobs/lifecycle/success_finalizer.py`
+- `shared/services/jobs/lifecycle/failure_finalizer.py`
+- `shared/services/jobs/lifecycle/result_writer.py`
+- `shared/services/jobs/lifecycle/publication.py`
+- `shared/services/jobs/lifecycle/post_commit_effects.py`
+- `shared/services/jobs/lifecycle/webhook_outbox.py`
 
 ## apps/worker Workflow Ownership
 
