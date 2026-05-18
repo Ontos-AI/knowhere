@@ -1,6 +1,4 @@
-"""
-Application service for document lifecycle routes.
-"""
+"""Application workflow for document lifecycle routes."""
 
 from __future__ import annotations
 

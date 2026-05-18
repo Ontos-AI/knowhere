@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-from app.services.document_service import DocumentService
 from app.api.dependencies.job_admission import with_current_user
+from app.services.documents.lifecycle_service import DocumentService
 from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
