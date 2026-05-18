@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import httpx
 import uvicorn
 from fastapi import FastAPI
 from starlette.routing import Route
@@ -18,7 +17,6 @@ from loguru import logger
 from contextlib import asynccontextmanager
 from app.api.api_router import api_router
 from app.core.middleware import setup_cors, LoggingMiddleware
-from app.core.image_cli import ImageCli
 from app.core.exception_handlers import setup_exception_handlers
 from app.mcp import create_retrieval_mcp_server
 from app.services.rate_limit.rule_loader import load_rules
@@ -58,8 +56,6 @@ async def lifespan(app: FastAPI):
 
     await redis_pool_manager.init_pool()
     logger.info("Redis connection pool created.")
-
-    ImageCli.http_client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
 
     # Initialize rate limiter rules from DB.
     # Changes now require a pod restart to take effect.
