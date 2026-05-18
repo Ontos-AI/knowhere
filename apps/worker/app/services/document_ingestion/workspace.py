@@ -3,6 +3,8 @@
 import os
 import shutil
 import tempfile
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from loguru import logger
 
@@ -13,6 +15,34 @@ from shared.core.exceptions.domain_exceptions import (
     SystemSettingMissingException,
 )
 from shared.services.storage.job_file_storage import JobFileStorage
+
+CleanupTaskWorkspace = Callable[[str | None], bool]
+
+
+@dataclass(frozen=True)
+class TemporaryParseWorkspace:
+    """Task-local folders for parser input, parser output, and ZIP generation."""
+
+    root_dir: str
+    input_dir: str
+    output_dir: str
+
+    @classmethod
+    def create(cls, job_id: str) -> "TemporaryParseWorkspace":
+        root_dir = create_task_workspace(job_id)
+        input_dir = os.path.join(root_dir, "input")
+        output_dir = os.path.join(root_dir, "output")
+        os.makedirs(input_dir, exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
+        logger.info(f"Task workspace ready: job_id={job_id}, workspace={root_dir}")
+        return cls(root_dir=root_dir, input_dir=input_dir, output_dir=output_dir)
+
+    def cleanup(
+        self,
+        cleanup_workspace: CleanupTaskWorkspace | None = None,
+    ) -> bool:
+        resolved_cleanup = cleanup_workspace or cleanup_task_workspace
+        return resolved_cleanup(self.root_dir)
 
 
 def cleanup_temp_file(file_path: str | None) -> None:

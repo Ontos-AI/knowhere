@@ -75,10 +75,22 @@ The worker-side workflow that turns a source file into parsed DataFrame rows,
 parsed assets, and parser debug artifacts before chunk conversion and result
 packaging.
 
+### Worker Document Processing
+
+The worker-side Document Ingestion coordinator. It prepares task-local source
+files, bills the workload estimate, invokes Worker Document Parsing, builds the
+result package, uploads artifacts, and finalizes the Job.
+
+### Temporary Parse Workspace
+
+The task-local folder set used by Worker Document Processing: input files,
+parser output files, and generated result packages. It is temporary worker
+storage, not a retrieval Namespace or durable document scope.
+
 ### Parse Output
 
 The stable parser adapter result with an output directory and optional parsed
-DataFrame. It owns legacy tuple compatibility for older parser callers.
+DataFrame.
 
 ### Parse Artifact
 
@@ -140,6 +152,11 @@ jobs, and daily quota.
 The shared workflow that turns parsed chunks into Documents, Document Sections,
 Document Chunks, and document graph state.
 
+### Publication Content
+
+The Publication module that replaces a single Document revision's Document
+Sections and Document Chunks from parsed chunk rows.
+
 ### Retrieval
 
 The query workflow that returns cited evidence from published documents.
@@ -164,6 +181,12 @@ top-k, and data-type overrides while preserving the request policy.
 
 An API-owned canonical document shipped with the repository for demo and guest
 flows.
+
+### Demo Source Validation
+
+The repeatable script workflow that validates Demo Source catalog metadata,
+canonical chunks, citation projection, original file size, and regenerated
+doc_nav.json output.
 
 ### Demo Source Materialization
 
@@ -308,6 +331,9 @@ admission dependencies.
 
 - `app/api/v1/routes/retrieval.py`
 - `packages/shared-python/shared/services/retrieval/app_service.py`
+- `packages/shared-python/shared/services/retrieval/publication_service.py`
+- `packages/shared-python/shared/services/retrieval/publication_content.py`
+- `packages/shared-python/shared/services/retrieval/publication_models.py`
 - `packages/shared-python/shared/services/retrieval/execution/*`
 - `packages/shared-python/shared/services/retrieval/search/*`
 - `packages/shared-python/shared/services/retrieval/hydration/*`
@@ -323,6 +349,7 @@ admission dependencies.
 
 - `app/api/v1/routes/demo.py`
 - `app/services/demo/*`
+- `apps/api/scripts/validate_demo_documents.py`
 
 ### Billing Workflow
 
@@ -376,6 +403,17 @@ side effects.
 - `shared/services/jobs/lifecycle/webhook_outbox.py`
 
 ## apps/worker Workflow Ownership
+
+### Worker Document Processing
+
+- `app/services/document_ingestion/service.py`
+- `app/services/document_ingestion/processing_run.py`
+- `app/services/document_ingestion/source_preparation.py`
+- `app/services/document_ingestion/parse_execution.py`
+- `app/services/document_ingestion/success_finalization.py`
+- `app/services/document_ingestion/workspace.py`
+- `app/services/document_ingestion/parse_result_package.py`
+- `app/services/document_ingestion/processing_billing.py`
 
 ### Worker Document Parsing
 

@@ -133,6 +133,9 @@ class DemoSourceCatalog:
     def __init__(self, *, projection: DemoSourceProjection | None = None) -> None:
         self._projection = projection or DemoSourceProjection()
 
+    def list_sources(self) -> tuple[DemoSourceDefinition, ...]:
+        return _DEMO_SOURCE_DEFINITIONS
+
     def get_catalog(self) -> dict[str, Any]:
         return {
             "sources": [

@@ -13,21 +13,20 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from loguru import logger
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from shared.models.database.document import Document, DocumentChunk, DocumentSection
+from shared.models.database.document import Document
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
-from shared.services.retrieval.search.lexical_text import (
-    build_content_lexical_text,
-    build_content_search_text,
-    build_path_lexical_text,
-    build_path_search_text,
-    build_term_search_text,
-    section_path_from_chunk_path,
+from shared.services.retrieval.publication_content import (
+    replace_document_revision_content,
+)
+from shared.services.retrieval.publication_models import (
+    DocumentPublicationScope,
+    PublishedDocumentState,
 )
 
 
@@ -93,7 +92,9 @@ class RetrievalPublicationService:
         job_metadata = job.job_metadata or {}
         namespace = normalize_retrieval_namespace(job_metadata.get("namespace"))
         document_id = job_metadata.get("document_id")
-        source_file_name = job_metadata.get("source_file_name") or job_metadata.get("file_name")
+        source_file_name = job_metadata.get("source_file_name") or job_metadata.get(
+            "file_name"
+        )
 
         deduped_chunks = chunks
 
@@ -103,14 +104,60 @@ class RetrievalPublicationService:
                 f"⏭️  All chunks are duplicates of existing documents. "
                 f"Skipping document creation for job_id={job.job_id}."
             )
-            return {
-                "user_id": str(job.user_id),
-                "namespace": namespace,
-                "document_id": None,
-                "skipped_all_duplicate": True,
-            }
+            return PublishedDocumentState(
+                user_id=str(job.user_id),
+                namespace=namespace,
+                document_id=None,
+                skipped_all_duplicate=True,
+            ).to_dict()
 
-        # ── Document upsert (original logic, but only for deduped chunks) ──
+        document = self._upsert_document_revision(
+            db,
+            job=job,
+            job_result_id=job_result_id,
+            document_id=str(document_id) if document_id else None,
+            namespace=namespace,
+            source_file_name=str(source_file_name) if source_file_name else None,
+        )
+        if document is None:
+            return None
+
+        self._bind_job_result_document(
+            db,
+            job_result_id=job_result_id,
+            document_id=document.document_id,
+        )
+        namespace = normalize_retrieval_namespace(namespace or document.namespace)
+        scope = DocumentPublicationScope(
+            user_id=str(job.user_id),
+            namespace=namespace,
+            document_id=document.document_id,
+            job_result_id=job_result_id,
+            source_file_name=str(source_file_name) if source_file_name else None,
+        )
+        replace_document_revision_content(
+            db,
+            scope=scope,
+            chunks=deduped_chunks,
+        )
+
+        db.flush()
+        return PublishedDocumentState(
+            user_id=str(job.user_id),
+            namespace=namespace,
+            document_id=document.document_id,
+        ).to_dict()
+
+    def _upsert_document_revision(
+        self,
+        db: Session,
+        *,
+        job: Job,
+        job_result_id: str,
+        document_id: str | None,
+        namespace: str,
+        source_file_name: str | None,
+    ) -> Document | None:
         document = None
         if document_id:
             document = db.execute(
@@ -133,14 +180,14 @@ class RetrievalPublicationService:
             )
             db.add(document)
         else:
-            namespace = normalize_retrieval_namespace(namespace or document.namespace)
             if self._is_stale_document_completion(
                 db,
                 document=document,
                 job=job,
             ):
                 logger.warning(
-                    f"Skipping stale document publication: job_id={job.job_id}, document_id={document.document_id}"
+                    "Skipping stale document publication: "
+                    f"job_id={job.job_id}, document_id={document.document_id}"
                 )
                 return None
             document.status = "active"
@@ -150,109 +197,19 @@ class RetrievalPublicationService:
             document.updated_at = utc_now_naive()
 
         db.flush()
-        document_id = document.document_id
+        return document
+
+    def _bind_job_result_document(
+        self,
+        db: Session,
+        *,
+        job_result_id: str,
+        document_id: str,
+    ) -> None:
         result = db.execute(select(JobResult).where(JobResult.id == job_result_id))
         job_result = result.scalar_one_or_none()
         if job_result:
             job_result.document_id = document_id
-        namespace = normalize_retrieval_namespace(namespace or document.namespace)
-
-        db.execute(
-            delete(DocumentChunk)
-            .where(DocumentChunk.document_id == document_id)
-            .where(DocumentChunk.job_result_id == job_result_id)
-        )
-        db.execute(
-            delete(DocumentSection)
-            .where(DocumentSection.document_id == document_id)
-            .where(DocumentSection.job_result_id == job_result_id)
-        )
-
-        # ── Insert only deduped (non-duplicate) chunks ──────────────────
-        sections_by_path: Dict[str, DocumentSection] = {}
-        for index, chunk in enumerate(deduped_chunks):
-            chunk_metadata = chunk.get("metadata") or {}
-            source_path = chunk_metadata.get("path") or chunk.get("path")
-            section_path = section_path_from_chunk_path(
-                source_path,
-                source_file_name=source_file_name,
-            )
-            section = sections_by_path.get(section_path)
-            if section is None:
-                path_parts = [p for p in section_path.split(" / ") if p]
-                # Ensure all ancestor sections exist (top-down)
-                for depth in range(1, len(path_parts) + 1):
-                    ancestor_path = " / ".join(path_parts[:depth])
-                    if ancestor_path in sections_by_path:
-                        continue
-                    ancestor_parent_id = None
-                    if depth > 1:
-                        parent_path = " / ".join(path_parts[:depth - 1])
-                        parent = sections_by_path.get(parent_path)
-                        if parent is not None:
-                            ancestor_parent_id = parent.section_id
-                    ancestor_section = DocumentSection(
-                        user_id=str(job.user_id),
-                        namespace=namespace,
-                        document_id=document_id,
-                        job_result_id=job_result_id,
-                        parent_section_id=ancestor_parent_id,
-                        section_path=ancestor_path,
-                        section_title=path_parts[depth - 1],
-                        section_level=depth,
-                        section_metadata={},
-                        sort_order=len(sections_by_path),
-                    )
-                    db.add(ancestor_section)
-                    db.flush()
-                    sections_by_path[ancestor_path] = ancestor_section
-                section = sections_by_path[section_path]
-
-            chunk_id = chunk.get("chunk_id") or f"chunk_{uuid4().hex[:12]}"
-            section_summary = section.summary if section else None
-            section_path_str = section.section_path if section else "Root"
-            section_title_str = section.section_title if section else None
-            path_text = f"{source_file_name or ''} {section_path_str}".strip()
-
-            db.add(
-                DocumentChunk(
-                    id=f"dchk_{uuid4().hex[:12]}",
-                    chunk_id=chunk_id,
-                    user_id=str(job.user_id),
-                    namespace=namespace,
-                    document_id=document_id,
-                    job_result_id=job_result_id,
-                    section_id=section.section_id,
-                    chunk_type=chunk.get("type") or chunk.get("chunk_type") or "text",
-                    content=chunk.get("content") or chunk.get("text"),
-                    content_lexical_text=build_content_lexical_text(chunk),
-                    path_lexical_text=build_path_lexical_text(
-                        source_path,
-                        source_file_name=source_file_name,
-                    ),
-                    content_search_text=build_content_search_text(
-                        chunk, section_summary=section_summary
-                    ),
-                    path_search_text=build_path_search_text(
-                        source_file_name=source_file_name,
-                        section_path=section_path_str,
-                        section_title=section_title_str,
-                        section_summary=section_summary,
-                    ),
-                    term_search_text=build_term_search_text(chunk, path_text=path_text),
-                    source_chunk_path=source_path,
-                    file_path=chunk_metadata.get("file_path") or chunk.get("file_path"),
-                    chunk_metadata=chunk_metadata,
-                    sort_order=chunk.get("order", index),
-                )
-            )
-
-        db.flush()
-        return {
-            "user_id": str(job.user_id),
-            "namespace": namespace,
-            "document_id": document_id,
-        }
 
     def publish_document_graph(
         self,
