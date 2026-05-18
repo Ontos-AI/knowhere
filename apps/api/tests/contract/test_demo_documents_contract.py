@@ -139,10 +139,10 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
     monkeypatch.setenv("RETRIEVAL_AGENTIC_ENABLED", "false")
 
     async with developer_api_client_factory() as api_client:
-        import app.services.demo_source_materializer as demo_source_materializer
+        import app.services.demo.source_materializer as source_materializer_module
 
         monkeypatch.setattr(
-            demo_source_materializer,
+            source_materializer_module,
             "get_result_storage",
             lambda: fake_result_storage,
         )
@@ -281,10 +281,10 @@ async def test_should_materialize_each_normalized_demo_source_once_per_request(
     fake_result_storage = FakeResultStorage()
 
     async with developer_api_client_factory() as api_client:
-        import app.services.demo_source_materializer as demo_source_materializer
+        import app.services.demo.source_materializer as source_materializer_module
 
         monkeypatch.setattr(
-            demo_source_materializer,
+            source_materializer_module,
             "get_result_storage",
             lambda: fake_result_storage,
         )
@@ -341,10 +341,10 @@ async def test_should_serialize_concurrent_first_demo_materialization(
     fake_result_storage = FakeResultStorage()
 
     async with developer_api_client_factory() as api_client:
-        import app.services.demo_source_materializer as demo_source_materializer
+        import app.services.demo.source_materializer as source_materializer_module
 
         monkeypatch.setattr(
-            demo_source_materializer,
+            source_materializer_module,
             "get_result_storage",
             lambda: fake_result_storage,
         )
@@ -437,10 +437,10 @@ async def test_should_reject_mixed_demo_materialization_selection_before_upload(
     fake_result_storage = FakeResultStorage()
 
     async with developer_api_client_factory() as api_client:
-        import app.services.demo_source_materializer as demo_source_materializer
+        import app.services.demo.source_materializer as source_materializer_module
 
         monkeypatch.setattr(
-            demo_source_materializer,
+            source_materializer_module,
             "get_result_storage",
             lambda: fake_result_storage,
         )

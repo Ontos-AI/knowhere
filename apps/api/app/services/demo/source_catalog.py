@@ -9,7 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from app.services.demo_source_projection import DemoSourceProjection
+from app.services.demo.source_projection import DemoSourceProjection
 
 
 @dataclass(frozen=True)
@@ -39,7 +39,7 @@ class DemoSourceDefinition:
     examples: tuple[DemoExampleDefinition, ...]
 
 
-_DATA_ROOT = Path(__file__).resolve().parents[1] / "data" / "demo_documents"
+_DATA_ROOT = Path(__file__).resolve().parents[2] / "data" / "demo_documents"
 _ASSET_DIRECTORY_NAMES = frozenset({"images", "tables"})
 _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
     DemoSourceDefinition(

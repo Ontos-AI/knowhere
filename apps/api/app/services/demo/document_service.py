@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from app.services.demo_source_catalog import DemoSourceCatalog
-from app.services.demo_source_materializer import (
+from app.services.demo.source_catalog import DemoSourceCatalog
+from app.services.demo.source_materializer import (
     DemoSourceMaterializer,
     MaterializedDemoSource,
 )

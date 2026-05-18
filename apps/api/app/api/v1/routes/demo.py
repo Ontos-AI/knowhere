@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.demo_document_service import DemoDocumentService
+from app.services.demo.document_service import DemoDocumentService
 from app.services.rate_limit.dependencies import CurrentUser, with_current_user
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
@@ -16,7 +16,7 @@ from shared.core.exceptions.domain_exceptions import NotFoundException
 
 router = APIRouter(tags=["Demo Documents"])
 
-_demo_document_service = DemoDocumentService()
+_demo_service = DemoDocumentService()
 
 
 class DemoMaterializeRequest(BaseModel):
@@ -33,7 +33,7 @@ class DemoMaterializeRequest(BaseModel):
 @router.get("/catalog")
 async def get_demo_catalog() -> dict[str, Any]:
     """Return API-owned canonical demo source metadata and curated Q/A."""
-    return _demo_document_service.get_catalog()
+    return _demo_service.get_catalog()
 
 
 @router.get("/sources/{demo_source_id}/chunks")
@@ -43,7 +43,7 @@ async def list_demo_source_chunks(
     page_size: int = Query(50, ge=1, le=200, description="Items per page"),
 ) -> dict[str, Any]:
     """Return paginated canonical chunks for a demo source."""
-    response = _demo_document_service.list_chunks(
+    response = _demo_service.list_chunks(
         demo_source_id=demo_source_id,
         page=page,
         page_size=page_size,
@@ -59,7 +59,7 @@ async def get_demo_source_chunk(
     demo_chunk_id: str,
 ) -> dict[str, Any]:
     """Return one canonical demo chunk for citation focusing."""
-    response = _demo_document_service.get_chunk(
+    response = _demo_service.get_chunk(
         demo_source_id=demo_source_id,
         demo_chunk_id=demo_chunk_id,
     )
@@ -75,7 +75,7 @@ async def get_demo_source_chunk(
 @router.get("/sources/{demo_source_id}/original")
 async def get_demo_source_original(demo_source_id: str) -> FileResponse:
     """Return the canonical original file for preview."""
-    file_path = _demo_document_service.get_original_file_path(
+    file_path = _demo_service.get_original_file_path(
         demo_source_id=demo_source_id,
     )
     if file_path is None:
@@ -95,7 +95,7 @@ async def get_demo_source_asset(
     asset_path: str,
 ) -> FileResponse:
     """Return a canonical parsed media or table asset for preview."""
-    file_path = _demo_document_service.get_asset_file_path(
+    file_path = _demo_service.get_asset_file_path(
         demo_source_id=demo_source_id,
         asset_path=asset_path,
     )
@@ -118,7 +118,7 @@ async def materialize_demo_sources(
     """Copy canonical demo sources into the authenticated user's namespace."""
     namespace = (payload.namespace or "default").strip() or "default"
     try:
-        materialized_sources = await _demo_document_service.materialize_sources(
+        materialized_sources = await _demo_service.materialize_sources(
             db,
             user_id=current_user.user_id,
             namespace=namespace,

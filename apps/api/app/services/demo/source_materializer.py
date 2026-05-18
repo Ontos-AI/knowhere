@@ -10,7 +10,7 @@ from hashlib import blake2b
 from pathlib import Path
 from uuid import uuid4
 
-from app.services.demo_source_catalog import DemoSourceCatalog, DemoSourceDefinition
+from app.services.demo.source_catalog import DemoSourceCatalog, DemoSourceDefinition
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
