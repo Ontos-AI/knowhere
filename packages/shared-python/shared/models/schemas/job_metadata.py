@@ -4,6 +4,8 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
+
 
 class JobMetadataBase(BaseModel):
     """Base schema for stored job metadata."""
@@ -39,9 +41,10 @@ class JobMetadataHelper:
     @staticmethod
     def create_from_request(request, **kwargs) -> Dict[str, Any]:
         """Build metadata from a JobCreate request without embedding user_config."""
+        namespace = normalize_retrieval_namespace(request.namespace)
         metadata = {
             "original_request": request.model_dump(),
-            "namespace": request.namespace or "default",
+            "namespace": namespace,
             "document_id": request.document_id,
             "parsing_params": (
                 request.parsing_params.model_dump() if request.parsing_params else None
@@ -115,7 +118,8 @@ class JobMetadataHelper:
         metadata: Optional[Dict[str, Any]], default: str | None = None
     ) -> str | None:
         """Return the retrieval namespace stored in metadata."""
-        return JobMetadataHelper.get_string_field(metadata, "namespace", default)
+        namespace = JobMetadataHelper.get_string_field(metadata, "namespace", default)
+        return normalize_retrieval_namespace(namespace) if namespace is not None else None
 
     @staticmethod
     def get_document_id(metadata: Optional[Dict[str, Any]]) -> str | None:

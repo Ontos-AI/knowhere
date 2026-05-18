@@ -411,8 +411,8 @@ side effects.
 - `apps/api` coordinates workflows. Parsing, publication, retrieval internals,
   storage mechanics, and state-machine implementation mostly live outside the
   route modules.
-- Worker Document Parsing exposes `checkerboard_inject_parse` as the stable
-  legacy parser entrypoint; parser option shaping, format routing, rendered PDF
+- Worker Document Parsing exposes `checkerboard_parse_output` as the stable
+  parser entrypoint; parser option shaping, format routing, rendered PDF
   transforms, typed Parse Output, and heading inference stay behind that
   entrypoint.
 - A Job and a Document are not the same thing. Jobs track intake and processing;

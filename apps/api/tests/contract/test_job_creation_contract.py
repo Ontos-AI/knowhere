@@ -567,6 +567,44 @@ async def test_should_return_not_found_when_creating_a_job_for_an_archived_docum
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("namespace_value", [None, "", "   "])
+async def test_should_inherit_existing_document_namespace_when_update_namespace_is_blank(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    namespace_value: str | None,
+) -> None:
+    document_id = f"doc_contract_{uuid4().hex[:12]}"
+    existing_namespace = "contract.jobs.custom"
+    payload: dict[str, object] = {
+        "document_id": document_id,
+        "namespace": namespace_value,
+        "source_type": "file",
+        "file_name": "replacement-upload.pdf",
+        "data_id": "contract-document-update",
+    }
+
+    async with developer_api_client_factory() as api_client:
+        await _insert_document(
+            document_id=document_id,
+            namespace=existing_namespace,
+        )
+        response = await api_client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 200
+
+    response_json: dict[str, object] = response.json()
+    job_id = cast(str, response_json["job_id"])
+    job_metadata = cast(dict[str, object], (await _load_job_record(job_id))["job_metadata"])
+    original_request = cast(dict[str, object], job_metadata["original_request"])
+
+    assert response_json["namespace"] == existing_namespace
+    assert job_metadata["document_id"] == document_id
+    assert job_metadata["namespace"] == existing_namespace
+    assert original_request["namespace"] == namespace_value
+
+
+@pytest.mark.asyncio
 async def test_should_create_a_waiting_file_job_for_a_url_source_and_enqueue_the_upload_worker(
     monkeypatch: MonkeyPatch,
     developer_api_client_factory: Callable[

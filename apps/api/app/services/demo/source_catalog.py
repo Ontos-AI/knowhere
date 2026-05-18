@@ -65,7 +65,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 citations=(
                     DemoCitationDefinition(
                         section_path=(
-                            "Default_Root/TSLA-Q4-2025-Update.pdf-->OTHER UPDATES"
+                            "TSLA-Q4-2025-Update.pdf-->OTHER UPDATES"
                         ),
                         description="xAI investment",
                         content=(
@@ -89,7 +89,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 citations=(
                     DemoCitationDefinition(
                         section_path=(
-                            "Default_Root/TSLA-Q4-2025-Update.pdf-->SUMMARY-->"
+                            "TSLA-Q4-2025-Update.pdf-->SUMMARY-->"
                             "Energy generation and storage"
                         ),
                         description="Storage deployment growth",
@@ -113,7 +113,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 citations=(
                     DemoCitationDefinition(
                         section_path=(
-                            "Default_Root/TSLA-Q4-2025-Update.pdf-->OUTLOOK-->"
+                            "TSLA-Q4-2025-Update.pdf-->OUTLOOK-->"
                             "Product"
                         ),
                         description="2026 production plans",

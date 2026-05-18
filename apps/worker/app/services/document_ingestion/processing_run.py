@@ -13,8 +13,8 @@ from app.services.connect_builder.summary_builder import (
 from app.services.document_ingestion.job_state_gate import mark_job_running
 from app.services.document_ingestion.page_estimator import PageEstimator
 from app.services.document_ingestion.parse_result_package import (
-    GeneratedResultPackage,
     ParseArtifact,
+    build_generated_result_package,
     build_parse_result_package,
 )
 from app.services.document_ingestion.processing_billing import (
@@ -169,17 +169,12 @@ def _run_parse_job(
         filename=filename,
         doc_type=doc_type,
     ):
-        namespace = JobMetadataHelper.get_namespace(
-            job_context.job_metadata,
-            "default",
-        )
-        add_dir, parsed_contents_df = parse_service.checkerboard_inject_parse(
+        parse_output = parse_service.checkerboard_parse_output(
             file_full_path=local_temp_path,
             filename=filename,
             output_dir=output_dir,
             job_id=job_id,
             internal_output_filename=internal_parse_name,
-            namespace=namespace or "default",
             doc_type=doc_type,
             smart_title_parse=JobMetadataHelper.get_parsing_param(
                 job_context.job_metadata,
@@ -211,8 +206,8 @@ def _run_parse_job(
 
     logger.info(
         "File parsing completed: "
-        f"job_id={job_id}, add_dir={add_dir}, "
-        f"chunks={len(parsed_contents_df) if parsed_contents_df is not None else 0}"
+        f"job_id={job_id}, output_dir={parse_output.output_dir}, "
+        f"chunks={parse_output.rows_count}"
     )
 
     lifecycle_service.update_progress(
@@ -223,8 +218,7 @@ def _run_parse_job(
     result_package = build_parse_result_package(
         job_id=job_id,
         filename=filename,
-        add_dir=add_dir,
-        parsed_contents_df=parsed_contents_df,
+        parse_output=parse_output,
     )
 
     lifecycle_service.update_progress(
@@ -319,7 +313,7 @@ def _finalize_parse_job_success(
 
     data_id = JobMetadataHelper.get_data_id(job_context.job_metadata)
     zip_service = ZipResultService()
-    generated_package = GeneratedResultPackage.from_legacy_tuple(
+    generated_package = build_generated_result_package(
         *zip_service.generate_zip_package(
             job_id=job_id,
             chunks=chunks,

@@ -10,6 +10,7 @@ from shared.services.chunks.chunk_connections import (
     normalize_connect_to_targets,
     parse_relationship_refs,
 )
+from shared.services.chunks.document_path import split_document_path
 from shared.utils.text_utils import truncate_content_preview
 from shared.utils.utc_now import utc_now_naive
 
@@ -254,7 +255,10 @@ class ZipResultSchemaBuilder:
                     }
                 )
 
-        sections = self._build_section_tree(text_chunks)
+        sections = self._build_section_tree(
+            text_chunks,
+            source_file_name=source_file_name,
+        )
         stats["max_depth"] = _max_depth(sections)
         return {
             "version": "1.0",
@@ -270,20 +274,24 @@ class ZipResultSchemaBuilder:
     def _build_section_tree(
         self,
         text_chunks: List[Dict[str, Any]],
+        *,
+        source_file_name: str,
     ) -> List[Dict[str, Any]]:
         root_children: Dict[str, dict] = {}
 
         for chunk in text_chunks:
             path = chunk.get("path", "")
-            parts = [part.strip() for part in path.split("/") if part.strip()]
-            section_parts = parts[2:] if len(parts) > 2 else []
+            root_parts, section_parts = split_document_path(
+                path,
+                source_file_name=source_file_name,
+            )
 
             if not section_parts:
                 key = "__root__"
                 if key not in root_children:
                     root_children[key] = {
                         "title": "Root",
-                        "path": "/".join(parts[:2]) if len(parts) >= 2 else path,
+                        "path": "/".join(root_parts) if root_parts else path,
                         "summary": chunk.get("summary", ""),
                         "chunk_count": 0,
                         "_children_map": {},
@@ -294,7 +302,7 @@ class ZipResultSchemaBuilder:
                 continue
 
             current_level = root_children
-            full_section_path_parts = parts[:2]
+            full_section_path_parts = list(root_parts)
             for index, part in enumerate(section_parts):
                 full_section_path_parts.append(part)
                 if part not in current_level:

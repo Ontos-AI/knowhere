@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
+from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
 from shared.services.retrieval.search.lexical_text import (
     build_content_lexical_text,
@@ -90,7 +91,7 @@ class RetrievalPublicationService:
     ) -> Optional[Dict[str, Any]]:
 
         job_metadata = job.job_metadata or {}
-        namespace = job_metadata.get("namespace") or "default"
+        namespace = normalize_retrieval_namespace(job_metadata.get("namespace"))
         document_id = job_metadata.get("document_id")
         source_file_name = job_metadata.get("source_file_name") or job_metadata.get("file_name")
 
@@ -132,7 +133,7 @@ class RetrievalPublicationService:
             )
             db.add(document)
         else:
-            namespace = namespace or document.namespace
+            namespace = normalize_retrieval_namespace(namespace or document.namespace)
             if self._is_stale_document_completion(
                 db,
                 document=document,
@@ -154,7 +155,7 @@ class RetrievalPublicationService:
         job_result = result.scalar_one_or_none()
         if job_result:
             job_result.document_id = document_id
-        namespace = namespace or document.namespace
+        namespace = normalize_retrieval_namespace(namespace or document.namespace)
 
         db.execute(
             delete(DocumentChunk)
@@ -172,7 +173,10 @@ class RetrievalPublicationService:
         for index, chunk in enumerate(deduped_chunks):
             chunk_metadata = chunk.get("metadata") or {}
             source_path = chunk_metadata.get("path") or chunk.get("path")
-            section_path = section_path_from_chunk_path(source_path)
+            section_path = section_path_from_chunk_path(
+                source_path,
+                source_file_name=source_file_name,
+            )
             section = sections_by_path.get(section_path)
             if section is None:
                 path_parts = [p for p in section_path.split(" / ") if p]
@@ -222,7 +226,10 @@ class RetrievalPublicationService:
                     chunk_type=chunk.get("type") or chunk.get("chunk_type") or "text",
                     content=chunk.get("content") or chunk.get("text"),
                     content_lexical_text=build_content_lexical_text(chunk),
-                    path_lexical_text=build_path_lexical_text(source_path),
+                    path_lexical_text=build_path_lexical_text(
+                        source_path,
+                        source_file_name=source_file_name,
+                    ),
                     content_search_text=build_content_search_text(
                         chunk, section_summary=section_summary
                     ),
@@ -269,7 +276,7 @@ class RetrievalPublicationService:
     ) -> None:
 
         metadata = job.job_metadata or {}
-        namespace = metadata.get("namespace") or "default"
+        namespace = normalize_retrieval_namespace(metadata.get("namespace"))
         document_id = metadata.get("document_id")
         if not document_id:
             document = db.execute(

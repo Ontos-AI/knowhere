@@ -225,7 +225,7 @@ def _publication_path(
     source: _DemoSourceDefinition,
     raw_path: str | None,
 ) -> str:
-    prefix = f"Default_Root/{source.title}"
+    prefix = source.title
     raw = str(raw_path or "").strip()
     if not raw:
         return prefix
@@ -238,8 +238,11 @@ def _publication_path(
         return f"{prefix}/Assets/{raw}"
 
     parts = [part.strip() for part in raw.split("/") if part.strip()]
-    if len(parts) >= 2 and parts[0] == "Default_Root":
+    if parts and parts[0] == source.title:
         return raw
+    if len(parts) >= 2 and parts[0] == "Default_Root":
+        section_parts = parts[2:] if parts[1] == source.title else parts[1:]
+        return "/".join([prefix, *section_parts]) if section_parts else prefix
     return prefix
 
 

@@ -5,6 +5,7 @@ from typing import Any
 
 from loguru import logger
 
+from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.redis import RedisServiceFactory
 
 _RETRIEVAL_CACHE_TTL_SECONDS = 300
@@ -13,6 +14,7 @@ _VERSION_FALLBACK = 0
 
 
 def _namespace_version_key(*, user_id: str, namespace: str) -> str:
+    namespace = normalize_retrieval_namespace(namespace)
     return f"retrieval:version:{user_id}:{namespace}"
 
 
@@ -75,6 +77,7 @@ def _query_cache_key(
     exclude_sections: list[dict[str, str]],
     **extra_params: Any,
 ) -> str:
+    namespace = normalize_retrieval_namespace(namespace)
     digest = _cache_shape_digest(
         query=query,
         top_k=top_k,
@@ -110,7 +113,8 @@ async def invalidate_retrieval_cache_namespaces(
     *, user_id: str, namespaces: list[str]
 ) -> None:
     seen: set[str] = set()
-    for namespace in namespaces:
+    for raw_namespace in namespaces:
+        namespace = normalize_retrieval_namespace(raw_namespace)
         if not namespace or namespace in seen:
             continue
         seen.add(namespace)
@@ -184,6 +188,7 @@ async def set_cached_retrieval_query_result(
 
 
 def _workflow_plan_cache_key(*, user_id: str, namespace: str, query: str) -> str:
+    namespace = normalize_retrieval_namespace(namespace)
     digest = hashlib.sha256(query.encode("utf-8")).hexdigest()
     return f"retrieval:workflow:plan:{user_id}:{namespace}:{digest}"
 

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.database import get_db
 from shared.core.exceptions.domain_exceptions import NotFoundException
+from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 
 router = APIRouter(tags=["Documents"])
 
@@ -41,11 +42,11 @@ async def _archive_document_response(
 
 @router.get("")
 async def list_documents(
-    namespace: str | None = Query(None),
+    namespace: str | None = Query(None, max_length=255),
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    effective_namespace = namespace or "default"
+    effective_namespace = normalize_retrieval_namespace(namespace)
     documents = await _document_service.list_documents(
         db,
         user_id=current_user.user_id,

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from shared.services.chunks.document_path import split_document_path
 from shared.utils.text_utils import tokenize_contents_for_retrieval
 
 
@@ -57,23 +58,36 @@ def build_content_lexical_text(chunk: dict[str, Any]) -> Optional[str]:
     return "\n".join(lexical_parts) if lexical_parts else content
 
 
-def section_path_from_chunk_path(source_path: Optional[str]) -> str:
+def section_path_from_chunk_path(
+    source_path: Optional[str],
+    *,
+    source_file_name: str | None = None,
+) -> str:
     """Extract section hierarchy from chunk path.
 
-    Expected format: "<namespace>/<file>.ext/<Section>/<Subsection>/..."
+    Expected format: "<file>.ext/<Section>/<Subsection>/..."
     Returns " / "-joined section parts, or "Root" if no section hierarchy.
     """
     if not source_path:
         return "Root"
-    parts = split_section_path(source_path)
-    section_parts = parts[2:]  # skip namespace + filename
+    _, section_parts = split_document_path(
+        source_path,
+        source_file_name=source_file_name,
+    )
     if not section_parts:
         return "Root"
-    return normalize_section_path(" / ".join(section_parts))
+    return " / ".join(section_parts)
 
 
-def build_path_lexical_text(source_path: Optional[str]) -> Optional[str]:
-    section_path = section_path_from_chunk_path(source_path)
+def build_path_lexical_text(
+    source_path: Optional[str],
+    *,
+    source_file_name: str | None = None,
+) -> Optional[str]:
+    section_path = section_path_from_chunk_path(
+        source_path,
+        source_file_name=source_file_name,
+    )
     if not section_path:
         return None
     normalized_path = section_path.replace(" / ", " ")

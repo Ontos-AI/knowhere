@@ -17,6 +17,7 @@ from shared.core.exceptions.domain_exceptions import (
     ValidationException,
 )
 from shared.models.database.job import Job
+from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 
 _ACTIVE_JOB_STATUSES = ("waiting-file", "pending", "running", "converting")
 
@@ -74,8 +75,9 @@ async def resolve_effective_document_scope(
     requested_namespace: Optional[str],
     repository: DocumentRepository | None = None,
 ) -> tuple[str, str]:
+    effective_requested_namespace = normalize_retrieval_namespace(requested_namespace)
     if not document_id:
-        return f"doc_{uuid.uuid4().hex[:12]}", requested_namespace or "default"
+        return f"doc_{uuid.uuid4().hex[:12]}", effective_requested_namespace
 
     document = await (repository or DocumentRepository()).get_document(
         db,
@@ -88,7 +90,8 @@ async def resolve_effective_document_scope(
             resource_id=document_id,
             internal_message=f"Document not found for update flow: {document_id}",
         )
-    if requested_namespace and requested_namespace != document.namespace:
+    has_requested_namespace = bool(str(requested_namespace or "").strip())
+    if has_requested_namespace and effective_requested_namespace != document.namespace:
         raise ValidationException(
             user_message="namespace must match the existing document namespace",
             violations=[

@@ -9,11 +9,12 @@ from app.api.dependencies.current_user import with_current_user
 from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.database import get_db
 from shared.core.exceptions.domain_exceptions import NotFoundException
+from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 
 router = APIRouter(tags=["Demo Documents"])
 
@@ -23,12 +24,21 @@ _demo_service = DemoDocumentService()
 class DemoMaterializeRequest(BaseModel):
     """Request to copy selected canonical demo sources into a namespace."""
 
-    namespace: str | None = Field(None, description="Target retrieval namespace")
+    namespace: str | None = Field(
+        None,
+        max_length=255,
+        description="Target retrieval namespace",
+    )
     demo_source_ids: list[str] = Field(
         default_factory=list,
         min_length=1,
         description="Canonical demo source IDs to materialize",
     )
+
+    @field_validator("namespace")
+    @classmethod
+    def normalize_namespace(cls, namespace: str | None) -> str:
+        return normalize_retrieval_namespace(namespace)
 
 
 @router.get("/catalog")
@@ -117,7 +127,7 @@ async def materialize_demo_sources(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Copy canonical demo sources into the authenticated user's namespace."""
-    namespace = (payload.namespace or "default").strip() or "default"
+    namespace = normalize_retrieval_namespace(payload.namespace)
     try:
         materialized_sources = await _demo_service.materialize_sources(
             db,

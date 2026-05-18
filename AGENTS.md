@@ -73,7 +73,7 @@ flowchart TB
     end
 
     subgraph PARSE["② Document Parsing (Worker)"]
-        Queue --> Router["parse_service.checkerboard_inject_parse"]
+        Queue --> Router["parse_service.checkerboard_parse_output"]
         Router --> Profiler["profiling.doc_profiler.profile_document"]
         Profiler --> PDF["formats.pdf.parser → MinerU"]
         Profiler --> DOCX["formats.docx.parser.parse_docx"]
@@ -120,18 +120,15 @@ flowchart TB
 ### Entry Point
 
 `apps/worker/app/services/document_parser/parse_service.py` →
-`checkerboard_inject_parse()`
+`checkerboard_parse_output()`
 
-This is the legacy tuple-compatible entry for all file types. Internally,
-`checkerboard_parse_output()` and parser adapters use the typed `ParseOutput`
-contract. The parser flow:
+This is the typed `ParseOutput` entry for all file types. The parser flow:
 
 1. **Profiles** the document via `profiling.doc_profiler.profile_document()` to detect
    file type, page count, and special categories (e.g. `atlas`).
 2. **Routes** to the appropriate parser based on file extension.
 3. **Post-processes**: cleans up unreferenced images, compresses PNG→JPG.
-4. Returns typed parse output internally, with `(output_dir, parsed_df)` kept as
-   the compatibility shape for older callers.
+4. Returns typed parse output with task-local artifact paths.
 
 ### Parser Routing Table
 

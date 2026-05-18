@@ -28,7 +28,6 @@ class FragmentParseAdapter:
             session.fragment_content,
             filename=session.filename,
             output_dir=session.output_dir,
-            namespace=session.namespace,
             base_llm_paras=session.base_llm_paras,
         )
         return ParseOutput(output_dir=full_output_dir, parsed_df=parsed_df)

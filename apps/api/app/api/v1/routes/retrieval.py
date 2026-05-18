@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.database import get_db
+from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval import run_retrieval_query
 
 router = APIRouter(tags=["Retrieval"])
@@ -23,7 +24,9 @@ class ExcludeSection(BaseModel):
 
 class RetrievalQueryRequest(BaseModel):
     namespace: str | None = Field(
-        None, description="Effective namespace; defaults to default"
+        None,
+        max_length=255,
+        description="Effective namespace; defaults to default",
     )
     query: str
     top_k: int = 10
@@ -67,6 +70,11 @@ class RetrievalQueryRequest(BaseModel):
                 raise ValueError(f"Invalid channel: {ch}. Must be one of {valid}")
         return v
 
+    @field_validator("namespace")
+    @classmethod
+    def normalize_namespace(cls, namespace: str | None) -> str:
+        return normalize_retrieval_namespace(namespace)
+
 
 class RetrievalQueryResponse(BaseModel):
     namespace: str
@@ -86,7 +94,7 @@ async def query_retrieval(
     return await run_retrieval_query(
         db=db,
         user_id=current_user.user_id,
-        namespace=payload.namespace or "default",
+        namespace=normalize_retrieval_namespace(payload.namespace),
         query=payload.query,
         top_k=payload.top_k,
         exclude_document_ids=payload.exclude_document_ids,

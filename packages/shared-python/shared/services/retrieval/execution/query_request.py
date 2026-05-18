@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.execution.route_types import RetrievalRouteContext
 from shared.services.retrieval.settings import (
     INTERNAL_RECALL_K_MULTIPLIER,
@@ -55,7 +56,7 @@ class RetrievalQuery:
         return cls(
             db=db,
             user_id=user_id,
-            namespace=namespace,
+            namespace=normalize_retrieval_namespace(namespace),
             query=str(query).strip(),
             top_k=top_k,
             exclude_document_ids=exclude_document_ids,

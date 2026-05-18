@@ -42,7 +42,9 @@ class JobCreate(BaseModel):
     """Request payload for creating a job."""
 
     namespace: Optional[str] = Field(
-        None, description="Retrieval namespace; defaults to default"
+        None,
+        max_length=255,
+        description="Retrieval namespace; defaults to default",
     )
     document_id: Optional[str] = Field(
         None, description="Existing document ID for update flows"

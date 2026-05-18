@@ -11,11 +11,11 @@ from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.database import get_db_context
+from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval import run_retrieval_query
 
 DbFactory = Callable[[], AsyncContextManager[AsyncSession]]
 KNOWHERE_NAMESPACE_HEADER = "x-knowhere-namespace"
-DEFAULT_NAMESPACE = "default"
 
 
 def create_public_mcp_transport_security() -> TransportSecuritySettings:
@@ -44,10 +44,10 @@ def resolve_mcp_namespace(*, ctx: Context | None) -> str:
     try:
         request = get_mcp_request(ctx)
     except (RuntimeError, ValueError):
-        return DEFAULT_NAMESPACE
+        return normalize_retrieval_namespace(None)
     headers = getattr(request, "headers", {}) or {}
-    namespace = str(get_header(headers, KNOWHERE_NAMESPACE_HEADER) or "").strip()
-    return namespace or DEFAULT_NAMESPACE
+    namespace = get_header(headers, KNOWHERE_NAMESPACE_HEADER)
+    return normalize_retrieval_namespace(namespace)
 
 
 def to_mcp_query_response(response: dict[str, Any]) -> dict[str, Any]:

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from shared.models.database.document import DocumentSection
 from shared.models.database.job import Job
 from shared.models.schemas.job_metadata import JobMetadataHelper
+from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
 from shared.services.retrieval.publication_service import RetrievalPublicationService
 
@@ -88,7 +89,8 @@ class SyncJobPublicationFinalizer:
             redis_service = SyncRedisServiceFactory.get_service()
             user_id = cache_invalidation["user_id"]
             seen: set[str] = set()
-            for namespace in cache_invalidation["namespaces"]:
+            for raw_namespace in cache_invalidation["namespaces"]:
+                namespace = normalize_retrieval_namespace(str(raw_namespace))
                 if not namespace or namespace in seen:
                     continue
                 seen.add(namespace)

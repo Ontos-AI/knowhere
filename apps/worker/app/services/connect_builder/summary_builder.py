@@ -334,7 +334,7 @@ def build_section_summary_lookup(file_dir: str) -> Dict[str, str]:
     """Build a flat {section_path: summary} dict from all nodes in doc_nav.json.
 
     Keys use the DocumentSection.section_path format produced by
-    ``section_path_from_chunk_path`` (strips namespace + filename prefix,
+    ``section_path_from_chunk_path`` (strips the filename prefix,
     joins remaining parts with ``" / "``).
 
     Traverses the full section tree at all depths.  Used by the publication
@@ -354,12 +354,16 @@ def build_section_summary_lookup(file_dir: str) -> Dict[str, str]:
         return {}
 
     lookup: Dict[str, str] = {}
+    source_file_name = str(doc_nav.get("file_name") or "")
 
     def _walk(node: Dict[str, Any]) -> None:
         nav_path = node.get("path", "")
         summary = node.get("summary", "")
         if nav_path and summary:
-            section_path = section_path_from_chunk_path(nav_path)
+            section_path = section_path_from_chunk_path(
+                nav_path,
+                source_file_name=source_file_name,
+            )
             if section_path and section_path != "Root":
                 lookup[section_path] = summary
         for child in node.get("children", []):

@@ -9,8 +9,8 @@ import os
 from typing import Any, Optional
 
 from app.services.document_parser.formats.markdown.parser import parse_md
-from app.services.document_parser.orchestration.namespace_path_segment import (
-    build_namespace_path_segment,
+from app.services.document_parser.orchestration.path_segment import (
+    build_parser_path_segment,
 )
 from loguru import logger
 from openai.types.chat import ChatCompletionMessageParam
@@ -56,7 +56,6 @@ def parse_fragment(
     fragment_content: str,
     filename: Optional[str] = None,
     output_dir: Optional[str] = None,
-    namespace: str = "default",
     base_llm_paras: Optional[dict[str, Any]] = None,
     **kwargs,
 ):
@@ -67,7 +66,6 @@ def parse_fragment(
         fragment_content: The text content to parse
         filename: Optional filename, if not provided will be auto-generated
         output_dir: Base output directory
-        namespace: Retrieval namespace used for parser-relative paths
         base_llm_paras: LLM parameters for parsing
 
     Returns:
@@ -92,13 +90,13 @@ def parse_fragment(
     logger.debug(f"Fragment filename: {filename}")
 
     # Build relative_root and full_output_dir
-    namespace_segment = build_namespace_path_segment(namespace)
-    filename_segment = path_handle(filename, mode="clean_single")
-    if not isinstance(filename_segment, str) or filename_segment in {"", ".", ".."}:
-        filename_segment = f"fragment_{os.urandom(4).hex()}.fragment"
-    relative_root = f"{namespace_segment}/{filename_segment}"
+    filename_segment = build_parser_path_segment(
+        filename,
+        default=f"fragment_{os.urandom(4).hex()}.fragment",
+    )
+    relative_root = filename_segment
     full_output_dir = os.path.realpath(
-        os.path.join(output_dir, namespace_segment, filename_segment)
+        os.path.join(output_dir, filename_segment)
     )
     resolved_output_dir = os.path.realpath(output_dir)
     if (

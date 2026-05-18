@@ -111,6 +111,12 @@ def _find_task_workspaces(root: Path, job_id: str) -> list[Path]:
     )
 
 
+def _build_fake_parse_output(*, output_dir: Path, rows: list[dict[str, Any]]) -> Any:
+    from app.services.document_parser.orchestration.parse_output import ParseOutput
+
+    return ParseOutput(output_dir=str(output_dir), parsed_df=pd.DataFrame(rows))
+
+
 def _bind_parse_task_to_current_module(
     monkeypatch: MonkeyPatch,
     *,
@@ -206,11 +212,10 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
         shutil.copy2(_SAMPLE_PDF_PATH, downloaded_path)
         return str(downloaded_path)
 
-    def fake_checkerboard_inject_parse(**kwargs: Any) -> tuple[str, pd.DataFrame]:
+    def fake_checkerboard_parse_output(**kwargs: Any) -> Any:
         captured_artifacts["parse_kwargs"] = kwargs
         output_dir = (
             Path(str(kwargs["output_dir"]))
-            / str(kwargs["namespace"])
             / str(kwargs["internal_output_filename"])
         )
         images_dir = output_dir / "images"
@@ -225,7 +230,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
         parsed_rows: list[dict[str, Any]] = [
             {
                 "content": text_content_with_refs,
-                "path": f"worker-contract/{file_root}/公司研究/自主可控加强，寒武纪或迎来营收快速放量周期",
+                "path": f"{file_root}/公司研究/自主可控加强，寒武纪或迎来营收快速放量周期",
                 "type": "text",
                 "length": len(text_content_with_refs),
                 "keywords": "",
@@ -246,7 +251,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
             },
             {
                 "content": "chunk-2",
-                "path": f"worker-contract/{file_root}/相关研报/要点",
+                "path": f"{file_root}/相关研报/要点",
                 "type": "text",
                 "length": 7,
                 "keywords": "",
@@ -259,7 +264,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
             },
             {
                 "content": "image caption",
-                "path": f"worker-contract/{file_root}/images/page-1.png",
+                "path": f"{file_root}/images/page-1.png",
                 "type": "image",
                 "length": 13,
                 "keywords": "",
@@ -272,7 +277,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
             },
             {
                 "content": "table content",
-                "path": f"worker-contract/{file_root}/tables/table-1.html",
+                "path": f"{file_root}/tables/table-1.html",
                 "type": "table",
                 "length": 13,
                 "keywords": "",
@@ -284,7 +289,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
                 "page_nums": "3",
             },
         ]
-        return str(output_dir), pd.DataFrame(parsed_rows)
+        return _build_fake_parse_output(output_dir=output_dir, rows=parsed_rows)
 
     class FakeResultStorage:
         def upload(self, *, job_id: str, result_dir: str, zip_file_path: str) -> Any:
@@ -317,7 +322,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
             )
 
     monkeypatch.setattr(parse_job_service, "download_s3_file_to_temp", fake_download_s3_file_to_temp)
-    monkeypatch.setattr(parse_service, "checkerboard_inject_parse", fake_checkerboard_inject_parse)
+    monkeypatch.setattr(parse_service, "checkerboard_parse_output", fake_checkerboard_parse_output)
     monkeypatch.setattr(parse_job_service, "get_result_storage", lambda: FakeResultStorage())
 
     result = document_ingestion_tasks.parse_task.run(job_id, user_id, "document_ingestion")
@@ -361,11 +366,9 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
     assert captured_artifacts["parse_kwargs"]["filename"] == source_file_name
     assert captured_artifacts["parse_kwargs"]["internal_output_filename"] == source_file_name
     assert Path(str(captured_artifacts["parse_kwargs"]["file_full_path"])).name == source_file_name
-    assert captured_artifacts["parse_kwargs"]["namespace"] == "worker-contract"
+    assert "namespace" not in captured_artifacts["parse_kwargs"]
     assert "kb_dir" not in captured_artifacts["parse_kwargs"]
-    assert captured_artifacts["result_dir"].endswith(
-        "worker-contract/contract-parse.pdf"
-    )
+    assert captured_artifacts["result_dir"].endswith("contract-parse.pdf")
     assert captured_artifacts["doc_nav"]["file_name"] == source_file_name
     assert captured_artifacts["doc_nav"]["sections"][0]["title"] == "公司研究"
     assert captured_artifacts["manifest"]["HIERARCHY"] == {
@@ -749,7 +752,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
                         :result_id,
                         'text',
                         'already published text',
-                        'worker-contract/existing.pdf/Section/Duplicate text',
+                        'existing.pdf/Section/Duplicate text',
                         NULL,
                         CAST(:text_metadata AS JSON),
                         0,
@@ -764,7 +767,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
                         :result_id,
                         'image',
                         'already published image',
-                        'worker-contract/existing.pdf/images/duplicate.png',
+                        'existing.pdf/images/duplicate.png',
                         'images/duplicate.png',
                         CAST(:image_metadata AS JSON),
                         1,
@@ -826,10 +829,9 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
         shutil.copy2(_SAMPLE_PDF_PATH, downloaded_path)
         return str(downloaded_path)
 
-    def fake_checkerboard_inject_parse(**kwargs: Any) -> tuple[str, pd.DataFrame]:
+    def fake_checkerboard_parse_output(**kwargs: Any) -> Any:
         output_dir = (
             Path(str(kwargs["output_dir"]))
-            / str(kwargs["namespace"])
             / str(kwargs["internal_output_filename"])
         )
         images_dir = output_dir / "images"
@@ -841,7 +843,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
         parsed_rows: list[dict[str, Any]] = [
             {
                 "content": "duplicate text",
-                "path": f"worker-contract/{file_root}/Section/Duplicate text",
+                "path": f"{file_root}/Section/Duplicate text",
                 "type": "text",
                 "length": 14,
                 "keywords": "",
@@ -854,7 +856,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
             },
             {
                 "content": "duplicate image",
-                "path": f"worker-contract/{file_root}/images/duplicate.png",
+                "path": f"{file_root}/images/duplicate.png",
                 "type": "image",
                 "length": 15,
                 "keywords": "",
@@ -867,7 +869,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
             },
             {
                 "content": "new text",
-                "path": f"worker-contract/{file_root}/Section/New text",
+                "path": f"{file_root}/Section/New text",
                 "type": "text",
                 "length": 8,
                 "keywords": "",
@@ -879,7 +881,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
                 "page_nums": "3",
             },
         ]
-        return str(output_dir), pd.DataFrame(parsed_rows)
+        return _build_fake_parse_output(output_dir=output_dir, rows=parsed_rows)
 
     class FakeResultStorage:
         def upload(self, *, job_id: str, result_dir: str, zip_file_path: str) -> Any:
@@ -907,7 +909,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
 
     _patch_verify_upload_exists(monkeypatch, fake_verify_s3_file_exists)
     monkeypatch.setattr(parse_job_service, "download_s3_file_to_temp", fake_download_s3_file_to_temp)
-    monkeypatch.setattr(parse_service, "checkerboard_inject_parse", fake_checkerboard_inject_parse)
+    monkeypatch.setattr(parse_service, "checkerboard_parse_output", fake_checkerboard_parse_output)
     monkeypatch.setattr(parse_job_service, "get_result_storage", lambda: FakeResultStorage())
     monkeypatch.setattr(parse_job_service, "cleanup_task_workspace", fake_cleanup_task_workspace)
 
@@ -1065,10 +1067,9 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
         billing_start_barrier.wait(timeout=10)
         return WorkloadEstimate(page_count=1, method="contract_fake")
 
-    def fake_checkerboard_inject_parse(**kwargs: Any) -> tuple[str, pd.DataFrame]:
+    def fake_checkerboard_parse_output(**kwargs: Any) -> Any:
         output_dir = (
             Path(str(kwargs["output_dir"]))
-            / str(kwargs["namespace"])
             / str(kwargs["internal_output_filename"])
         )
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -1078,7 +1079,7 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
         parsed_rows: list[dict[str, Any]] = [
             {
                 "content": "chunk body",
-                "path": f"worker-contract/{file_root}/Section/Point",
+                "path": f"{file_root}/Section/Point",
                 "type": "text",
                 "length": 10,
                 "keywords": "",
@@ -1090,7 +1091,7 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
                 "page_nums": "1",
             }
         ]
-        return str(output_dir), pd.DataFrame(parsed_rows)
+        return _build_fake_parse_output(output_dir=output_dir, rows=parsed_rows)
 
     class FakeResultStorage:
         def upload(self, *, job_id: str, result_dir: str, zip_file_path: str) -> Any:
@@ -1107,7 +1108,7 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
         "estimate_workload",
         fake_estimate_workload,
     )
-    monkeypatch.setattr(parse_service, "checkerboard_inject_parse", fake_checkerboard_inject_parse)
+    monkeypatch.setattr(parse_service, "checkerboard_parse_output", fake_checkerboard_parse_output)
     monkeypatch.setattr(parse_job_service, "get_result_storage", lambda: FakeResultStorage())
 
     def run_parse_task(job_id: str) -> dict[str, Any]:
@@ -1282,7 +1283,7 @@ def test_should_skip_parse_task_when_the_job_is_already_terminal(
     _patch_verify_upload_exists(monkeypatch, fake_verify_s3_file_exists)
     monkeypatch.setattr(
         parse_service,
-        "checkerboard_inject_parse",
+        "checkerboard_parse_output",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("terminal parse task should not invoke the parser")
         ),
@@ -1385,7 +1386,7 @@ def test_should_mark_the_job_failed_and_cleanup_the_workspace_when_parse_executi
     monkeypatch.setattr(parse_job_service, "download_s3_file_to_temp", fake_download_s3_file_to_temp)
     monkeypatch.setattr(
         parse_service,
-        "checkerboard_inject_parse",
+        "checkerboard_parse_output",
         lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("parse failed")),
     )
     monkeypatch.setattr(

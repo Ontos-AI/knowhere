@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.services.document_parser.formats.atlas.classifier import classify_atlas_with_vlm
-from app.services.document_parser.orchestration.namespace_path_segment import (
-    build_namespace_path_segment,
+from app.services.document_parser.orchestration.path_segment import (
+    build_parser_path_segment,
 )
 from app.services.document_parser.orchestration.parse_input import ParseInput
 from app.services.document_parser.profiling.doc_profiler import profile_document
@@ -29,7 +29,6 @@ class ParseSession:
     full_output_dir: str
     internal_output_filename: str
     job_id: str | None
-    namespace: str
     output_dir: str
     profile: Any
     relative_root: str
@@ -54,7 +53,6 @@ class ParseSession:
             full_output_dir=full_output_dir,
             internal_output_filename=parse_input.internal_output_filename,
             job_id=parse_input.job_id,
-            namespace=parse_input.namespace,
             output_dir=parse_input.output_dir,
             profile=profile,
             relative_root=relative_root,
@@ -84,7 +82,6 @@ def build_parse_session(parse_input: ParseInput) -> ParseSession:
     relative_root, full_output_dir = _resolve_output_paths(
         filename=parse_input.filename,
         internal_output_filename=parse_input.internal_output_filename,
-        namespace=parse_input.namespace,
         output_dir=parse_input.output_dir,
     )
     logger.debug(f"relative_root: {relative_root}")
@@ -133,7 +130,6 @@ def build_parse_session(parse_input: ParseInput) -> ParseSession:
             _rename_atlas_output(
                 filename=parse_input.filename,
                 internal_output_filename=parse_input.internal_output_filename,
-                namespace=parse_input.namespace,
                 output_dir=parse_input.output_dir,
             )
         )
@@ -144,7 +140,6 @@ def build_parse_session(parse_input: ParseInput) -> ParseSession:
             output_dir=parse_input.output_dir,
             internal_output_filename=internal_output_filename,
             job_id=parse_input.job_id,
-            namespace=parse_input.namespace,
             options=parse_input.options,
             base_url=parse_input.base_url,
             fragment_content=parse_input.fragment_content,
@@ -164,7 +159,6 @@ def _rename_atlas_output(
     *,
     filename: str,
     internal_output_filename: str,
-    namespace: str,
     output_dir: str,
 ) -> tuple[str, str, str, str]:
     name_base, _ = os.path.splitext(filename)
@@ -174,7 +168,6 @@ def _rename_atlas_output(
     relative_root, full_output_dir = _resolve_output_paths(
         filename=atlas_filename,
         internal_output_filename=atlas_internal_filename,
-        namespace=namespace,
         output_dir=output_dir,
     )
     return atlas_filename, atlas_internal_filename, relative_root, full_output_dir
@@ -184,23 +177,18 @@ def _resolve_output_paths(
     *,
     filename: str,
     internal_output_filename: str,
-    namespace: str,
     output_dir: str,
 ) -> tuple[str, str]:
-    namespace_segment = build_namespace_path_segment(namespace)
-    relative_root = (
-        f"{namespace_segment}/{filename}" if filename else namespace_segment
+    filename_segment = build_parser_path_segment(filename)
+    internal_filename_segment = build_parser_path_segment(
+        internal_output_filename,
+        default=filename_segment,
     )
-    internal_relative_root = (
-        f"{namespace_segment}/{internal_output_filename}"
-        if internal_output_filename
-        else namespace_segment
-    )
+    relative_root = filename_segment
 
     full_output_dir = os.path.join(
         output_dir,
-        namespace_segment,
-        internal_output_filename,
+        internal_filename_segment,
     )
     resolved_output_dir = os.path.realpath(output_dir)
     resolved_full_output_dir = os.path.realpath(full_output_dir)
@@ -213,5 +201,5 @@ def _resolve_output_paths(
         )
     os.makedirs(resolved_full_output_dir, exist_ok=True)
 
-    logger.debug(f"internal_relative_root: {internal_relative_root}")
+    logger.debug(f"internal_output_root: {internal_filename_segment}")
     return relative_root, resolved_full_output_dir

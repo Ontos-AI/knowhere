@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.execution.plan import (
     run_retrieval_query as execute_retrieval_query,
 )
@@ -34,7 +35,7 @@ async def run_retrieval_query(
     return await execute_retrieval_query(
         db=db,
         user_id=user_id,
-        namespace=namespace,
+        namespace=normalize_retrieval_namespace(namespace),
         query=query,
         top_k=top_k,
         exclude_document_ids=exclude_document_ids,

@@ -22,7 +22,6 @@ class ParseInput:
     output_dir: str
     internal_output_filename: str
     job_id: str | None = None
-    namespace: str = "default"
     options: ParseOptions = field(default_factory=ParseOptions)
     base_url: str = ""
     fragment_content: str = ""

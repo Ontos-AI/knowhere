@@ -29,15 +29,16 @@ def test_xlsx_parser_contract_uses_stable_entrypoint_and_ignores_hidden_sheets(
     worker_contract_environment: None,
     tmp_path: Path,
 ) -> None:
-    from app.services.document_parser.parse_service import checkerboard_inject_parse
+    from app.services.document_parser.parse_service import checkerboard_parse_output
 
     workbook_path = tmp_path / "budget.xlsx"
+    output_root = tmp_path / "parser-output"
     _write_contract_workbook(workbook_path)
 
-    full_output_dir, parsed_df = checkerboard_inject_parse(
+    parse_output = checkerboard_parse_output(
         file_full_path=str(workbook_path),
         filename="budget.xlsx",
-        output_dir=str(tmp_path),
+        output_dir=str(output_root),
         internal_output_filename="budget.xlsx",
         summary_image=False,
         summary_table=False,
@@ -46,7 +47,9 @@ def test_xlsx_parser_contract_uses_stable_entrypoint_and_ignores_hidden_sheets(
         stopwords=[],
     )
 
-    assert full_output_dir.endswith("default/budget.xlsx")
+    full_output_dir = parse_output.output_dir
+    parsed_df = parse_output.parsed_df
+    assert full_output_dir.endswith("budget.xlsx")
     assert parsed_df is not None
     assert parsed_df["type"].tolist() == ["table"]
     assert parsed_df["path"].tolist() == ["tables/table-Visible.html"]
@@ -63,22 +66,21 @@ def test_xlsx_parser_contract_uses_stable_entrypoint_and_ignores_hidden_sheets(
     assert "Hidden" not in table_html_text
 
 
-def test_parser_maps_namespace_to_task_local_path_segment(
+def test_parser_maps_document_name_to_task_local_path_segment(
     worker_contract_environment: None,
     tmp_path: Path,
 ) -> None:
-    from app.services.document_parser.parse_service import checkerboard_inject_parse
+    from app.services.document_parser.parse_service import checkerboard_parse_output
 
     workbook_path = tmp_path / "budget.xlsx"
     output_root = tmp_path / "parser-output"
     _write_contract_workbook(workbook_path)
 
-    full_output_dir, parsed_df = checkerboard_inject_parse(
+    parse_output = checkerboard_parse_output(
         file_full_path=str(workbook_path),
-        filename="budget.xlsx",
+        filename="/tmp/../images.xlsx",
         output_dir=str(output_root),
-        internal_output_filename="budget.xlsx",
-        namespace="/tmp/../images",
+        internal_output_filename="../../images.xlsx",
         summary_image=False,
         summary_table=False,
         summary_txt=False,
@@ -86,10 +88,12 @@ def test_parser_maps_namespace_to_task_local_path_segment(
         stopwords=[],
     )
 
+    full_output_dir = parse_output.output_dir
+    parsed_df = parse_output.parsed_df
     assert (
         os.path.commonpath([str(output_root.resolve()), full_output_dir])
         == str(output_root.resolve())
     )
-    assert full_output_dir.endswith("_tmp_.._images/budget.xlsx")
+    assert full_output_dir.endswith("images.xlsx")
     assert parsed_df is not None
     assert parsed_df["path"].tolist() == ["tables/table-Visible.html"]
