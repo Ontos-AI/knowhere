@@ -107,7 +107,9 @@ class RetrievalQuery:
             filter_mode=self.filter_mode,
             channels=self.channels,
             channel_weights=self.channel_weights,
+            rerank=self.rerank,
             threshold=self.threshold,
+            internal_recall_k=self.internal_recall_k,
             effective_recall_k=self.resolve_effective_recall_k(),
             use_agentic=self.use_agentic,
         )

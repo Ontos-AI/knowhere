@@ -18,6 +18,10 @@ from sqlalchemy.orm import Session
 
 from shared.core.database_sync import get_sync_db_context
 from shared.services.job_failure_sync import SyncJobFailureFinalizer
+from shared.services.job_post_commit_effects_sync import (
+    PostCommitEffectPlan,
+    SyncJobPostCommitEffectRunner,
+)
 from shared.services.job_success_sync import SyncJobSuccessFinalizer
 from shared.services.redis.redis_sync_service import (
     SyncRedisServiceFactory,
@@ -34,6 +38,7 @@ class SyncJobLifecycleService:
     def __init__(self) -> None:
         self._success_finalizer = SyncJobSuccessFinalizer()
         self._failure_finalizer = SyncJobFailureFinalizer()
+        self._post_commit_effect_runner = SyncJobPostCommitEffectRunner()
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -77,7 +82,8 @@ class SyncJobLifecycleService:
             should_commit=lambda finalization: finalization.response.get("status")
             == "success",
             build_response=lambda finalization: finalization.response,
-            run_after_commit=self._success_finalizer.run_post_commit_actions,
+            build_effect_plan=lambda finalization: finalization.post_commit_effects,
+            run_after_commit_effects=self._post_commit_effect_runner.run,
         )
 
     def finalize_job_failure(
@@ -110,11 +116,10 @@ class SyncJobLifecycleService:
                 error_details=error_details,
                 should_refund=should_refund,
             ),
-            should_commit=lambda finalization: finalization[0],
-            build_response=lambda finalization: finalization[0],
-            run_after_commit=lambda finalization: (
-                self._failure_finalizer.enqueue_webhook_after_commit(finalization[1])
-            ),
+            should_commit=lambda finalization: finalization.succeeded,
+            build_response=lambda finalization: finalization.succeeded,
+            build_effect_plan=lambda finalization: finalization.post_commit_effects,
+            run_after_commit_effects=self._post_commit_effect_runner.run,
         )
 
     def update_progress(
@@ -173,7 +178,8 @@ def _run_lifecycle_transaction(
     finalize: Callable[[Session], _FinalizationT],
     should_commit: Callable[[_FinalizationT], bool],
     build_response: Callable[[_FinalizationT], _ResponseT],
-    run_after_commit: Callable[[_FinalizationT], None],
+    build_effect_plan: Callable[[_FinalizationT], PostCommitEffectPlan],
+    run_after_commit_effects: Callable[[PostCommitEffectPlan], None],
 ) -> _ResponseT:
     with get_sync_db_context() as db:
         try:
@@ -185,7 +191,7 @@ def _run_lifecycle_transaction(
             db.commit()
             logger.info(f"Job {job_id} {label} transaction committed")
 
-            run_after_commit(finalization)
+            run_after_commit_effects(build_effect_plan(finalization))
             return build_response(finalization)
 
         except Exception as exc:

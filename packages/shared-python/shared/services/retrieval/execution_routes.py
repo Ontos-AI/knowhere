@@ -104,21 +104,12 @@ async def _run_agentic_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
     from shared.services.retrieval.workflow.orchestrator import WorkflowOrchestrator
+    from shared.services.retrieval.workflow.run_request import WorkflowRunRequest
 
     workflow = WorkflowOrchestrator()
-    workflow_result = await workflow.run(
+    workflow_result = await workflow.run_request(
         context.db,
-        user_id=context.user_id,
-        namespace=context.namespace,
-        query=context.query,
-        top_k=context.top_k,
-        exclude_document_ids=context.exclude_document_ids,
-        exclude_sections=context.exclude_sections,
-        data_type=context.data_type,
-        signal_paths=context.signal_paths,
-        filter_mode=context.filter_mode,
-        channels=context.channels,
-        channel_weights=context.channel_weights,
+        request=WorkflowRunRequest.from_route_context(context),
     )
 
     resolved_references = await resolve_workflow_references(

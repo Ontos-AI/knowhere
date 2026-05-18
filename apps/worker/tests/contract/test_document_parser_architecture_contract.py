@@ -80,6 +80,7 @@ def test_document_format_router_uses_adapters(
         resolve_document_format,
     )
     from app.services.document_parser.orchestration.parse_input import ParseInput
+    from app.services.document_parser.orchestration.parse_output import ParseOutput
     from app.services.document_parser.orchestration.parse_session import ParseSession
     from app.services.document_parser.orchestration.route_parse import route_document_parse
 
@@ -109,10 +110,10 @@ def test_document_format_router_uses_adapters(
         relative_root="Default_Root/report.pdf",
     )
 
-    output_dir, actual_df = route_document_parse(session)
+    output = route_document_parse(session)
 
-    assert output_dir == str(tmp_path)
-    assert actual_df is parsed_df
+    assert output == ParseOutput(output_dir=str(tmp_path), parsed_df=parsed_df)
+    assert output.as_legacy_tuple() == (str(tmp_path), parsed_df)
 
 
 def test_parse_pipeline_owns_route_and_postprocess_contract(
@@ -121,6 +122,7 @@ def test_parse_pipeline_owns_route_and_postprocess_contract(
     tmp_path: Path,
 ) -> None:
     from app.services.document_parser.orchestration.parse_input import ParseInput
+    from app.services.document_parser.orchestration.parse_output import ParseOutput
     from app.services.document_parser.orchestration.parse_pipeline import (
         ParsePipelineResult,
         run_parse_pipeline,
@@ -143,7 +145,7 @@ def test_parse_pipeline_owns_route_and_postprocess_contract(
     )
     monkeypatch.setattr(
         "app.services.document_parser.orchestration.parse_pipeline.route_document_parse",
-        lambda _session: (routed_output_dir, routed_df),
+        lambda _session: ParseOutput(output_dir=routed_output_dir, parsed_df=routed_df),
     )
 
     def fake_postprocess(output_dir: str, parsed_df: pd.DataFrame | None) -> pd.DataFrame:
@@ -170,6 +172,40 @@ def test_parse_pipeline_owns_route_and_postprocess_contract(
         parsed_df=processed_df,
     )
     assert result.as_legacy_tuple() == (routed_output_dir, processed_df)
+
+
+def test_parser_service_keeps_legacy_tuple_compatibility(
+    worker_contract_environment: None,
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    import app.services.document_parser.parse_service as parse_service
+    from app.services.document_parser.orchestration.parse_output import ParseOutput
+
+    parsed_df = pd.DataFrame([{"content": "legacy"}])
+    expected_output = ParseOutput(output_dir=str(tmp_path), parsed_df=parsed_df)
+
+    monkeypatch.setattr(
+        parse_service,
+        "run_parse_pipeline",
+        lambda _parse_input: expected_output,
+    )
+
+    output = parse_service.checkerboard_parse_output(
+        file_full_path=str(tmp_path / "legacy.pdf"),
+        filename="legacy.pdf",
+        output_dir=str(tmp_path),
+        internal_output_filename="legacy.pdf",
+    )
+    legacy_tuple = parse_service.checkerboard_inject_parse(
+        file_full_path=str(tmp_path / "legacy.pdf"),
+        filename="legacy.pdf",
+        output_dir=str(tmp_path),
+        internal_output_filename="legacy.pdf",
+    )
+
+    assert output is expected_output
+    assert legacy_tuple == (str(tmp_path), parsed_df)
 
 
 def test_rendered_pdf_transform_centralizes_temporary_pdf_cleanup(

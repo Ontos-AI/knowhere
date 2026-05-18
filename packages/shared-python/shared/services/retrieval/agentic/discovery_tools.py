@@ -131,7 +131,11 @@ async def bottom_discovery(
             channel_lists.append(term_rows)
             weight_list.append(effective_weights.get("term", CHANNEL_WEIGHT_TERM))
 
-        fused_rows = merge_channels_rrf(channel_lists, weight_list, top_k) if channel_lists else []
+        fused_rows = (
+            merge_channels_rrf(channel_lists, weight_list, effective_recall_k)
+            if channel_lists
+            else []
+        )
         fused_rows = merge_same_section_rows(fused_rows)
 
         if fused_rows:

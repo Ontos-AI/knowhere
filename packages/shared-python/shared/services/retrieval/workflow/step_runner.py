@@ -81,6 +81,7 @@ class WorkflowStepRunner:
                     filter_mode=request.filter_mode,
                     channels=request.channels,
                     channel_weights=request.channel_weights,
+                    internal_recall_k=request.internal_recall_k,
                     ledger=ledger,
                     parent_run_id=self._parent_run_id,
                     workflow_step_id=step.id,

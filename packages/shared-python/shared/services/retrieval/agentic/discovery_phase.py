@@ -32,6 +32,7 @@ async def run_initial_discovery(
     filter_mode: str,
     channels: list[str] | None,
     channel_weights: dict[str, float] | None,
+    internal_recall_k: int | None,
     bootstrap_llm_fn: LLMFn | None,
 ) -> list[dict[str, Any]]:
     discovery_kwargs: dict[str, Any] = {
@@ -46,6 +47,7 @@ async def run_initial_discovery(
         "filter_mode": filter_mode,
         "channels": channels,
         "channel_weights": channel_weights,
+        "internal_recall_k": internal_recall_k,
     }
 
     logger.info("  agentic: Phase 1 — discovery + document selection")

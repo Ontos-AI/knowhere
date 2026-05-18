@@ -119,13 +119,16 @@ flowchart TB
 `apps/worker/app/services/document_parser/parse_service.py` →
 `checkerboard_inject_parse()`
 
-This is the universal entry for all file types. It:
+This is the legacy tuple-compatible entry for all file types. Internally,
+`checkerboard_parse_output()` and parser adapters use the typed `ParseOutput`
+contract. The parser flow:
 
 1. **Profiles** the document via `doc_profiler.profile_document()` to detect
    file type, page count, and special categories (e.g. `atlas`).
 2. **Routes** to the appropriate parser based on file extension.
 3. **Post-processes**: cleans up unreferenced images, compresses PNG→JPG.
-4. Returns `(output_dir, parsed_df)` — the parsed DataFrame.
+4. Returns typed parse output internally, with `(output_dir, parsed_df)` kept as
+   the compatibility shape for older callers.
 
 ### Parser Routing Table
 

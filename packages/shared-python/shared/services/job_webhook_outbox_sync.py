@@ -59,27 +59,31 @@ class SyncJobWebhookOutbox:
     def enqueue_after_commit(self, webhook_event: WebhookEvent | None) -> None:
         if not webhook_event:
             return
+        self.enqueue_event_id_after_commit(webhook_event.id)
 
+    def enqueue_event_id_after_commit(self, webhook_event_id: str | None) -> None:
+        if not webhook_event_id:
+            return
         try:
             from shared.services.webhook.qstash_publisher import (
                 get_qstash_webhook_publisher,
             )
 
             publisher = get_qstash_webhook_publisher()
-            message_id = publisher.publish_event(webhook_event.id)
+            message_id = publisher.publish_event(webhook_event_id)
             if not message_id:
                 logger.warning(
-                    f"Webhook publish failed after commit: event_id={webhook_event.id}"
+                    f"Webhook publish failed after commit: event_id={webhook_event_id}"
                 )
                 return
             logger.info(
-                f"Webhook published after commit: event_id={webhook_event.id}, "
+                f"Webhook published after commit: event_id={webhook_event_id}, "
                 f"message_id={message_id}"
             )
         except Exception as exc:
             logger.error(
                 "Failed to publish webhook after commit (event persisted): "
-                f"event_id={webhook_event.id}, error={exc}"
+                f"event_id={webhook_event_id}, error={exc}"
             )
 
 

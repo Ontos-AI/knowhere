@@ -267,3 +267,36 @@ def test_should_expose_sync_state_machine_rejection_reason(
     assert outcome.from_state == "done"
     assert outcome.to_state == "running"
     assert outcome.attempts == 1
+
+
+def test_should_keep_sync_state_machine_bool_facade_for_missing_jobs(
+    worker_contract_environment: None,
+) -> None:
+    from shared.core.database_sync import get_sync_db_context
+    from shared.core.state_machine.service_sync import SyncStateMachineService
+    from shared.core.state_machine.states import JobStatus
+    from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
+
+    missing_job_id = f"job_missing_{uuid4().hex[:12]}"
+    state_machine = SyncStateMachineService(
+        redis_service=SyncRedisServiceFactory.get_service()
+    )
+
+    with get_sync_db_context() as db:
+        outcome = state_machine.transition_outcome(
+            db,
+            missing_job_id,
+            JobStatus.RUNNING.value,
+            transition_reason="contract_missing_job",
+        )
+        did_transition = state_machine.transition(
+            db,
+            missing_job_id,
+            JobStatus.RUNNING.value,
+            transition_reason="contract_missing_job_bool",
+        )
+
+    assert outcome.succeeded is False
+    assert outcome.reason == "job_not_found"
+    assert outcome.attempts == 1
+    assert did_transition is False

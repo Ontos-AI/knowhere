@@ -21,7 +21,9 @@ class RetrievalRouteContext:
     filter_mode: str
     channels: list[str] | None
     channel_weights: dict[str, float] | None
+    rerank: bool
     threshold: float
+    internal_recall_k: int | None
     effective_recall_k: int
     use_agentic: bool | None
 

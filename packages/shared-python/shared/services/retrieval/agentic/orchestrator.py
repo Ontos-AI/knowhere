@@ -85,6 +85,7 @@ class RetrievalAgent:
         filter_mode: str = 'delete',
         channels: list[str] | None = None,
         channel_weights: dict[str, float] | None = None,
+        internal_recall_k: int | None = None,
         config: AgentRunConfig | None = None,
         ledger: BudgetLedger | None = None,
         parent_run_id: str | None = None,
@@ -133,6 +134,7 @@ class RetrievalAgent:
                 'exclude_document_ids': exclude_document_ids,
                 'exclude_sections': exclude_sections,
                 'signal_paths': signal_paths,
+                'internal_recall_k': internal_recall_k,
             },
             parent_run_id=parent_run_id,
             workflow_step_id=workflow_step_id,
@@ -174,6 +176,7 @@ class RetrievalAgent:
             filter_mode=filter_mode,
             channels=channels,
             channel_weights=channel_weights,
+            internal_recall_k=internal_recall_k,
             bootstrap_llm_fn=bootstrap_llm_fn,
         )
 

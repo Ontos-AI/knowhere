@@ -29,6 +29,18 @@ URL ingestion, or demo source materialization.
 The terminal artifact record attached to a Job. It stores delivery metadata,
 result bundle references, and the revision that publication uses.
 
+### Job Transition Outcome
+
+The typed result of a Job state-machine transition. It preserves whether the
+transition succeeded, the target state, previous state when known, attempt
+count, and rejection reason while keeping older boolean facades available.
+
+### Job Post-Commit Effect
+
+A post-transaction side effect planned during terminal Job finalization and run
+only after the database commit succeeds. Current effects include retrieval cache
+invalidation and outbound webhook publication.
+
 ### Job Read
 
 The workflow that lists a User's Jobs and projects one Job into the public Job
@@ -57,6 +69,26 @@ state, and starts parsing work.
 The worker-side workflow that turns a source file into parsed DataFrame rows,
 parsed assets, and parser debug artifacts before chunk conversion and result
 packaging.
+
+### Parse Output
+
+The stable parser adapter result with an output directory and optional parsed
+DataFrame. It owns legacy tuple compatibility for older parser callers.
+
+### Parse Artifact
+
+The ingestion-side parsed content artifact. It validates parser output before
+chunk conversion and result packaging.
+
+### Generated Result Package
+
+The generated ZIP bundle metadata used by terminal Job finalization, including
+ZIP path, checksum, statistics, and byte size.
+
+### Workload Estimate
+
+The worker-side estimate used for billing and processing metadata. It records
+page count, estimation method, and any fallback reason.
 
 ### Parser Input
 
@@ -105,6 +137,22 @@ Document Chunks, and document graph state.
 ### Retrieval
 
 The query workflow that returns cited evidence from published documents.
+
+### Retrieval Query
+
+The typed retrieval request that owns cache-shaping fields and route policy:
+scope, filters, data type, channels, ranking options, and agentic toggle.
+
+### Workflow Run Request
+
+The agentic Retrieval request passed through planning and step execution. It
+preserves user scope, filters, channel policy, internal recall, and explicit
+ranking policy fields for the workflow path.
+
+### Workflow Step Request
+
+The per-step projection of a Workflow Run Request. It applies step-level query,
+top-k, and data-type overrides while preserving the request policy.
 
 ### Demo Source
 
@@ -255,6 +303,11 @@ exceptions.
 - `app/api/v1/routes/s3_events.py`
 - `app/services/s3_events/*`
 
+### Storage Event Intake
+
+The internal workflow that decodes S3-compatible storage events, sanitizes
+headers, acknowledges malformed or unsafe events, and triggers upload handoff.
+
 ### Async Callbacks
 
 - `app/api/v1/routes/qstash_callbacks.py`
@@ -291,10 +344,15 @@ exceptions.
   storage mechanics, and state-machine implementation mostly live outside the
   route modules.
 - Worker Document Parsing exposes `checkerboard_inject_parse` as the stable
-  parser entrypoint; parser option shaping, format routing, rendered PDF
-  transforms, and heading inference stay behind that entrypoint.
+  legacy parser entrypoint; parser option shaping, format routing, rendered PDF
+  transforms, typed Parse Output, and heading inference stay behind that
+  entrypoint.
 - A Job and a Document are not the same thing. Jobs track intake and processing;
   Documents track retrieval-visible knowledge state.
+- Terminal Job finalization should plan post-commit effects with primitive
+  identifiers and run them after the database transaction commits.
+- State-machine callers that need diagnostics should consume Job Transition
+  Outcome; boolean state-machine methods remain compatibility facades.
 - `current_job_result_id` selects the active revision of a Document.
 - Namespace is part of the retrieval contract, not a UI-only label.
 - Demo Sources should behave like normal Documents after materialization.

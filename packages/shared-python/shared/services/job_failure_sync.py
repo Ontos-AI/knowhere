@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
@@ -9,10 +10,16 @@ from sqlalchemy.orm import Session
 from shared.core.response import build_standard_error_response
 from shared.core.state_machine.service_sync import SyncStateMachineService
 from shared.models.database.job import Job
-from shared.models.database.webhook import WebhookEvent
 from shared.services.billing.credits_sync_service import SyncCreditsService
+from shared.services.job_post_commit_effects_sync import PostCommitEffectPlan
 from shared.services.job_webhook_outbox_sync import SyncJobWebhookOutbox
 from shared.utils.error_details import normalize_error_details
+
+
+@dataclass(frozen=True)
+class JobFailureFinalization:
+    succeeded: bool
+    post_commit_effects: PostCommitEffectPlan
 
 
 class SyncJobFailureFinalizer:
@@ -38,7 +45,7 @@ class SyncJobFailureFinalizer:
         error_code: str,
         error_details: dict[str, Any] | None,
         should_refund: bool,
-    ) -> tuple[bool, WebhookEvent | None]:
+    ) -> JobFailureFinalization:
         transition_outcome = self._state_machine.mark_failed_outcome(
             db,
             job_id,
@@ -51,7 +58,10 @@ class SyncJobFailureFinalizer:
                 f"Job {job_id} mark_failed transition failed: "
                 f"reason={transition_outcome.reason}"
             )
-            return False, None
+            return JobFailureFinalization(
+                succeeded=False,
+                post_commit_effects=PostCommitEffectPlan.none(),
+            )
 
         if should_refund:
             self._try_refund_credits(db, job_id)
@@ -70,10 +80,12 @@ class SyncJobFailureFinalizer:
                 ),
             },
         )
-        return True, webhook_event
-
-    def enqueue_webhook_after_commit(self, webhook_event: WebhookEvent | None) -> None:
-        self._webhook_outbox.enqueue_after_commit(webhook_event)
+        return JobFailureFinalization(
+            succeeded=True,
+            post_commit_effects=PostCommitEffectPlan.from_failure(
+                webhook_event_id=webhook_event.id if webhook_event else None,
+            ),
+        )
 
     def _try_refund_credits(self, db: Session, job_id: str) -> None:
         try:

@@ -7,7 +7,7 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from shared.core.state_machine.service_sync import SyncStateMachineService
-from shared.models.database.webhook import WebhookEvent
+from shared.services.job_post_commit_effects_sync import PostCommitEffectPlan
 from shared.services.job_publication_sync import SyncJobPublicationFinalizer
 from shared.services.job_result_sync import SyncJobResultWriter
 from shared.services.job_webhook_outbox_sync import SyncJobWebhookOutbox
@@ -16,8 +16,7 @@ from shared.services.job_webhook_outbox_sync import SyncJobWebhookOutbox
 @dataclass(frozen=True)
 class JobSuccessFinalization:
     response: dict[str, Any]
-    cache_invalidation: dict[str, Any] | None
-    webhook_event: WebhookEvent | None
+    post_commit_effects: PostCommitEffectPlan
 
 
 class SyncJobSuccessFinalizer:
@@ -88,8 +87,7 @@ class SyncJobSuccessFinalizer:
                     "job_id": job_id,
                     "reason": "state_transition_failed",
                 },
-                cache_invalidation=None,
-                webhook_event=None,
+                post_commit_effects=PostCommitEffectPlan.none(),
             )
 
         webhook_event = self._webhook_outbox.create_event(
@@ -103,15 +101,8 @@ class SyncJobSuccessFinalizer:
                 "job_id": job_id,
                 "stored_count": stored_count,
             },
-            cache_invalidation=publication_outcome.cache_invalidation,
-            webhook_event=webhook_event,
+            post_commit_effects=PostCommitEffectPlan.from_success(
+                cache_invalidation=publication_outcome.cache_invalidation,
+                webhook_event_id=webhook_event.id if webhook_event else None,
+            ),
         )
-
-    def run_post_commit_actions(
-        self,
-        finalization: JobSuccessFinalization,
-    ) -> None:
-        self._publication_finalizer.invalidate_cache_after_commit(
-            finalization.cache_invalidation,
-        )
-        self._webhook_outbox.enqueue_after_commit(finalization.webhook_event)

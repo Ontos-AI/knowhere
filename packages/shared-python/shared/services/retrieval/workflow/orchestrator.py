@@ -75,6 +75,9 @@ class WorkflowOrchestrator:
         filter_mode: str = 'delete',
         channels: list[str] | None = None,
         channel_weights: dict[str, float] | None = None,
+        internal_recall_k: int | None = None,
+        rerank: bool = False,
+        threshold: float = 0.0,
         llm_fn=None,
     ) -> WorkflowResult:
         request = WorkflowRunRequest(
@@ -89,6 +92,9 @@ class WorkflowOrchestrator:
             filter_mode=filter_mode,
             channels=channels,
             channel_weights=channel_weights,
+            internal_recall_k=internal_recall_k,
+            rerank=rerank,
+            threshold=threshold,
         )
         return await self.run_request(db, request=request, llm_fn=llm_fn)
 

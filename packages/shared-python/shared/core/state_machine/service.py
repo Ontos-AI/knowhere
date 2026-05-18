@@ -16,7 +16,6 @@ from sqlalchemy.orm import load_only
 
 from shared.core.state_machine.states import (
     JobStatus,
-    is_valid_transition,
 )
 from shared.core.state_machine.transition_payloads import (
     build_failure_transition_metadata,
@@ -26,6 +25,16 @@ from shared.core.state_machine.transition_payloads import (
     utc_now_naive,
 )
 from shared.core.state_machine.transition_outcome import JobTransitionOutcome
+from shared.core.state_machine.transition_runner import (
+    MAX_TRANSITION_ATTEMPTS,
+    TransitionJobSnapshot,
+    build_cas_conflict_outcome,
+    build_rollback_exception_outcome,
+    build_transition_exception_outcome,
+    get_cas_retry_delay_seconds,
+    prepare_transition_attempt,
+    should_retry_cas_conflict,
+)
 from shared.models.database.job import Job
 from shared.models.database.job_state_audit_log import JobStateAuditLog
 from shared.services.redis import RedisServiceFactory
@@ -76,35 +85,45 @@ class AsyncStateMachineService:
         auto_commit: bool = True,
     ) -> JobTransitionOutcome:
         """Execute a state transition and preserve the reason if it is rejected."""
-        max_retries = 3
+        max_retries = MAX_TRANSITION_ATTEMPTS
 
         for attempt in range(max_retries):
             attempts = attempt + 1
             try:
                 job = await self._get_job_with_version(db, job_id)
-                if not job:
+                prepared = prepare_transition_attempt(
+                    job_id=job_id,
+                    to_state=to_state,
+                    snapshot=(
+                        TransitionJobSnapshot(status=job.status, version=job.version)
+                        if job
+                        else None
+                    ),
+                    attempts=attempts,
+                )
+                if prepared.outcome is not None:
+                    if prepared.outcome.reason == "job_not_found":
+                        logger.error(f"Job {job_id} does not exist")
+                    elif prepared.outcome.reason == "invalid_transition":
+                        logger.warning(
+                            f"Job {job_id}: illegal transition "
+                            f"{prepared.outcome.from_state} → {to_state}, rejected"
+                        )
+                    return prepared.outcome
+
+                if not prepared.can_write:
                     logger.error(f"Job {job_id} does not exist")
-                    return JobTransitionOutcome.rejected(
+                    return build_transition_exception_outcome(
                         job_id=job_id,
                         to_state=to_state,
-                        reason="job_not_found",
                         attempts=attempts,
+                        error="transition precondition did not provide state/version",
                     )
 
-                if not is_valid_transition(job.status, to_state):
-                    logger.warning(
-                        f"Job {job_id}: illegal transition {job.status} → {to_state}, rejected"
-                    )
-                    return JobTransitionOutcome.rejected(
-                        job_id=job_id,
-                        from_state=job.status,
-                        to_state=to_state,
-                        reason="invalid_transition",
-                        attempts=attempts,
-                    )
-
-                old_state = job.status
-                old_version = job.version
+                old_state = prepared.from_state
+                old_version = prepared.version
+                assert old_state is not None
+                assert old_version is not None
 
                 # Record audit log (before CAS so the INSERT is within the same tx)
                 await self._record_audit_log(
@@ -144,19 +163,18 @@ class AsyncStateMachineService:
                     )
 
                 # CAS miss — retry with backoff
-                if attempt < max_retries - 1:
+                if should_retry_cas_conflict(attempt, max_attempts=max_retries):
                     logger.warning(
                         f"Job {job_id} CAS conflict, retry {attempt + 1}/{max_retries}"
                     )
-                    await asyncio.sleep(0.1 * (2**attempt))
+                    await asyncio.sleep(get_cas_retry_delay_seconds(attempt))
                     continue
                 else:
                     logger.error(f"Job {job_id} CAS retries exhausted")
-                    return JobTransitionOutcome.rejected(
+                    return build_cas_conflict_outcome(
                         job_id=job_id,
                         from_state=old_state,
                         to_state=to_state,
-                        reason="cas_conflict",
                         attempts=attempts,
                     )
 
@@ -167,26 +185,24 @@ class AsyncStateMachineService:
                         await db.rollback()
                 except Exception as rollback_err:
                     logger.warning(f"Job {job_id} rollback failed: {rollback_err}")
-                    return JobTransitionOutcome.rejected(
+                    return build_rollback_exception_outcome(
                         job_id=job_id,
                         to_state=to_state,
-                        reason="rollback_exception",
                         attempts=attempts,
-                        error_message=str(rollback_err),
+                        error=rollback_err,
                     )
-                return JobTransitionOutcome.rejected(
+                return build_transition_exception_outcome(
                     job_id=job_id,
                     to_state=to_state,
-                    reason="transition_exception",
                     attempts=attempts,
-                    error_message=str(e),
+                    error=e,
                 )
 
-        return JobTransitionOutcome.rejected(
+        return build_cas_conflict_outcome(
             job_id=job_id,
             to_state=to_state,
-            reason="cas_conflict",
             attempts=max_retries,
+            from_state=None,
         )
 
     async def mark_failed(

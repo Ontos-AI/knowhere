@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import datetime, timezone
-from typing import cast
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests.support.contract_database import ContractDatabase
 from shared.services.retrieval.agentic.types import AgenticResult
 from shared.services.retrieval.query_request import RetrievalQuery
+from shared.services.retrieval.workflow.run_request import WorkflowRunRequest
 from shared.services.retrieval.workflow.types import PlannedStep, QueryPlan, WorkflowResult
 
 
@@ -179,6 +180,205 @@ def test_retrieval_query_owns_cache_and_route_request_shape() -> None:
     assert route_context.allowed_chunk_types == {"text"}
     assert route_context.effective_recall_k == 17
     assert route_context.use_agentic is False
+
+    workflow_request = WorkflowRunRequest.from_route_context(route_context)
+    assert workflow_request.top_k == 5
+    assert workflow_request.data_type == 2
+    assert workflow_request.signal_paths == ["Root"]
+    assert workflow_request.filter_mode == "keep"
+    assert workflow_request.channels == ["content"]
+    assert workflow_request.channel_weights == {"content": 1.5}
+    assert workflow_request.internal_recall_k == 17
+    assert workflow_request.threshold == 0.2
+    assert workflow_request.rerank is True
+    assert (
+        workflow_request.for_step(
+            PlannedStep(id="explicit-recall", sub_query="explicit", top_k=9)
+        ).internal_recall_k
+        == 17
+    )
+
+
+def test_agentic_workflow_should_recompute_default_recall_for_step_top_k() -> None:
+    query = RetrievalQuery.from_parameters(
+        db=cast(AsyncSession, object()),
+        user_id="user-1",
+        namespace="contract-retrieval",
+        query="alpha",
+        top_k=1,
+        exclude_document_ids=[],
+        exclude_sections=[],
+        use_agentic=True,
+    )
+
+    workflow_request = WorkflowRunRequest.from_route_context(query.build_route_context())
+    step_request = workflow_request.for_step(
+        PlannedStep(id="wide-step", sub_query="wide alpha", top_k=10)
+    )
+
+    assert workflow_request.internal_recall_k is None
+    assert step_request.top_k == 10
+    assert step_request.internal_recall_k == 20
+
+
+@pytest.mark.asyncio
+async def test_agentic_workflow_should_pass_full_request_policy_to_step_adapter(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured_requests: list[dict[str, object]] = []
+
+    async def fake_plan(
+        self: object,
+        *,
+        query: str,
+        kb_total_docs: int = 0,
+        kb_total_chunks: int = 0,
+    ) -> QueryPlan:
+        return QueryPlan(
+            original_query=query,
+            steps=[PlannedStep(id="request-policy", sub_query="policy marker")],
+            final_strategy="concat_final_parts",
+            reasoning_summary=(
+                f"request policy contract for {kb_total_docs} docs "
+                f"and {kb_total_chunks} chunks"
+            ),
+        )
+
+    async def fake_retrieval_run(
+        self: object,
+        db: object,
+        **kwargs: object,
+    ) -> AgenticResult:
+        del self, db
+        captured_requests.append(kwargs)
+        return AgenticResult(
+            evidence_text="policy evidence",
+            answer_text="policy answer",
+            referenced_chunks=[
+                {
+                    "chunk_id": policy_document["chunk_id"],
+                    "document_id": policy_document["document_id"],
+                    "chunk_type": "text",
+                    "section_path": policy_document["section_path"],
+                    "file_path": "",
+                    "job_id": policy_document["job_id"],
+                }
+            ],
+            router_used="contract_fake_agent",
+        )
+
+    async with developer_api_client_factory() as api_client:
+        policy_document = await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-agentic-request-policy",
+            source_file_name="policy.pdf",
+            section_path="Root/Policy",
+            content="policy marker content",
+        )
+        await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-agentic-request-policy",
+            source_file_name="filler.pdf",
+            section_path="Root/Filler",
+            content="filler content",
+        )
+        monkeypatch.setattr(
+            "shared.services.retrieval.workflow.planner.QueryPlanner.plan",
+            fake_plan,
+        )
+        monkeypatch.setattr(
+            "shared.services.retrieval.workflow.step_runner.RetrievalAgent.run",
+            fake_retrieval_run,
+        )
+
+        response = await api_client.post(
+            "/api/v1/retrieval/query",
+            json={
+                "namespace": "contract-agentic-request-policy",
+                "query": "policy marker",
+                "top_k": 1,
+                "data_type": 2,
+                "signal_paths": ["Root"],
+                "filter_mode": "keep",
+                "channels": ["content"],
+                "channel_weights": {"content": 2.0},
+                "internal_recall_k": 23,
+                "threshold": 0.4,
+                "rerank": True,
+                "use_agentic": True,
+            },
+        )
+
+    assert response.status_code == 200
+
+    assert len(captured_requests) == 1
+    request = captured_requests[0]
+    assert request["user_id"] == "local-dev-user"
+    assert request["namespace"] == "contract-agentic-request-policy"
+    assert request["query"] == "policy marker"
+    assert request["top_k"] == 1
+    assert request["exclude_document_ids"] == []
+    assert request["exclude_sections"] == []
+    assert request["data_type"] == 2
+    assert request["signal_paths"] == ["Root"]
+    assert request["filter_mode"] == "keep"
+    assert request["channels"] == ["content"]
+    assert request["channel_weights"] == {"content": 2.0}
+    assert request["internal_recall_k"] == 23
+
+
+@pytest.mark.asyncio
+async def test_agentic_discovery_should_use_internal_recall_for_fusion(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    from shared.services.retrieval.agentic import discovery_tools
+
+    requested_top_k: list[int] = []
+
+    async def fake_empty_channel(
+        _db: AsyncSession,
+        **_kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        return []
+
+    async def fake_content_channel(
+        _db: AsyncSession,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        requested_top_k.append(cast(int, kwargs["top_k"]))
+        return [
+            {
+                "chunk_id": f"chunk-{index}",
+                "document_id": f"doc-{index}",
+                "section_path": f"Root/{index}",
+                "content": f"content {index}",
+            }
+            for index in range(5)
+        ]
+
+    monkeypatch.setattr(discovery_tools, "path_channel", fake_empty_channel)
+    monkeypatch.setattr(discovery_tools, "content_channel", fake_content_channel)
+    monkeypatch.setattr(discovery_tools, "term_channel", fake_empty_channel)
+
+    result = await discovery_tools.bottom_discovery(
+        cast(AsyncSession, None),
+        user_id="local-dev-user",
+        namespace="contract-agentic-recall-policy",
+        query="recall marker",
+        top_k=1,
+        exclude_document_ids=[],
+        exclude_sections=[],
+        channels=["content"],
+        internal_recall_k=4,
+    )
+
+    fused_rows = cast(list[dict[str, Any]], result.payload["fused_rows"])
+
+    assert requested_top_k == [4]
+    assert len(fused_rows) == 4
 
 
 @pytest.mark.asyncio
@@ -608,10 +808,15 @@ async def test_agentic_retrieval_should_not_hydrate_references_outside_request_s
     monkeypatch: MonkeyPatch,
 ) -> None:
     class FakeWorkflowOrchestrator:
-        async def run(self, *_args: object, **kwargs: object) -> WorkflowResult:
+        async def run_request(
+            self,
+            _db: AsyncSession,
+            *,
+            request: WorkflowRunRequest,
+        ) -> WorkflowResult:
             return WorkflowResult(
-                namespace=str(kwargs["namespace"]),
-                query=str(kwargs["query"]),
+                namespace=request.namespace,
+                query=request.query,
                 router_used="workflow_single_step",
                 answer_text="foreign reference answer",
                 referenced_chunks=[
@@ -682,10 +887,15 @@ async def test_agentic_retrieval_should_drop_references_that_do_not_match_the_hy
     monkeypatch: MonkeyPatch,
 ) -> None:
     class FakeWorkflowOrchestrator:
-        async def run(self, *_args: object, **kwargs: object) -> WorkflowResult:
+        async def run_request(
+            self,
+            _db: AsyncSession,
+            *,
+            request: WorkflowRunRequest,
+        ) -> WorkflowResult:
             return WorkflowResult(
-                namespace=str(kwargs["namespace"]),
-                query=str(kwargs["query"]),
+                namespace=request.namespace,
+                query=request.query,
                 router_used="workflow_single_step",
                 answer_text="mismatched section answer",
                 referenced_chunks=[
