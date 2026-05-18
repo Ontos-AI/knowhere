@@ -281,9 +281,15 @@ exceptions. Shared Job lifecycle finalization lives under
 ### Job Admission
 
 - `app/api/dependencies/auth.py`
+- `app/api/dependencies/current_user.py`
+- `app/api/dependencies/route_admission.py`
 - `app/api/dependencies/job_admission.py`
 - `app/services/auth/*`
 - `app/services/rate_limit/*`
+
+`auth.py`, `current_user.py`, and `route_admission.py` are HTTP dependency
+adapters. `job_admission.py` owns only the route-level billing and system-limit
+admission dependencies.
 
 ### Document Lifecycle
 

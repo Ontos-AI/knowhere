@@ -1,8 +1,8 @@
-"""FastAPI adapters for the Job Admission workflow."""
+"""FastAPI current-user dependency adapters."""
 
 from typing import AsyncGenerator
 
-from app.api.dependencies.current_user import with_current_user
+from app.api.dependencies.auth import get_current_user_id
 from app.api.dependencies.route_admission import get_route_admission_context
 from app.services.rate_limit.data_structures import (
     CurrentUser,
@@ -14,16 +14,12 @@ from fastapi import Depends
 _job_admission_service = JobAdmissionService()
 
 
-async def require_billing_limits(
-    current_user: CurrentUser = Depends(with_current_user),
-) -> AsyncGenerator[CurrentUser, None]:
-    await _job_admission_service.enforce_billing_limits(current_user=current_user)
-    yield current_user
-
-
-async def require_route_system_limit(
+async def with_current_user(
     route_context: RouteAdmissionContext = Depends(get_route_admission_context),
-) -> None:
-    await _job_admission_service.enforce_route_system_limit(
+    user_id: str = Depends(get_current_user_id),
+) -> AsyncGenerator[CurrentUser, None]:
+    current_user = await _job_admission_service.resolve_current_user(
         route_context=route_context,
+        user_id=user_id,
     )
+    yield current_user

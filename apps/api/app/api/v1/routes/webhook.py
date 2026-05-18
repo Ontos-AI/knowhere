@@ -9,7 +9,7 @@ from typing import Optional
 
 from app.repositories.job_repository import JobRepository
 from app.repositories.webhook_repository import WebhookRepository
-from app.api.dependencies.job_admission import with_current_user
+from app.api.dependencies.current_user import with_current_user
 from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends, Query
 from loguru import logger

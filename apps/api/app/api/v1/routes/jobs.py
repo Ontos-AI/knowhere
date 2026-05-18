@@ -12,10 +12,8 @@ from app.services.jobs import (
     get_job_result_for_user,
     list_jobs_for_user,
 )
-from app.api.dependencies.job_admission import (
-    require_billing_limits,
-    with_current_user,
-)
+from app.api.dependencies.current_user import with_current_user
+from app.api.dependencies.job_admission import require_billing_limits
 from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
