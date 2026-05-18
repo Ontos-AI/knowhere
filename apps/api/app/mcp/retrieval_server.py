@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Annotated, Any, AsyncContextManager, Callable
 
-from app.core.dependencies import get_current_user_id
+from app.services.auth.current_user_authentication_service import (
+    get_current_user_authentication_service,
+)
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field
@@ -81,10 +83,9 @@ async def resolve_mcp_user_id(*, ctx: Context | None, db: AsyncSession) -> str:
     request = get_mcp_request(ctx)
     headers = getattr(request, "headers", {}) or {}
     authorization = get_header(headers, "authorization")
-    return await get_current_user_id(
-        request=request,
+    return await get_current_user_authentication_service().authenticate_authorization_header(
+        db,
         authorization=authorization,
-        db=db,
     )
 
 

@@ -2,7 +2,7 @@
 
 from typing import AsyncGenerator
 
-from app.core.dependencies import get_current_user_id
+from app.api.dependencies.auth import get_current_user_id
 from app.services.rate_limit.data_structures import CurrentUser
 from app.services.rate_limit.job_admission_service import JobAdmissionService
 from fastapi import Depends, Request

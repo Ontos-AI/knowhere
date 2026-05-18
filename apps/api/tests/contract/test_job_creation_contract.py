@@ -429,10 +429,12 @@ async def test_should_reject_authenticated_user_id_missing_from_user_table(
     }
 
     async with api_client_factory() as api_client:
-        from app.core import dependencies as auth_dependencies
+        from app.services.auth.dashboard_jwt_authentication_service import (
+            get_dashboard_jwt_authentication_service,
+        )
 
         monkeypatch.setattr(
-            auth_dependencies,
+            get_dashboard_jwt_authentication_service(),
             "_get_verification_key",
             lambda _token: jwt_secret,
         )
