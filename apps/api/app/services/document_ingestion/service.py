@@ -121,6 +121,8 @@ class DocumentIngestionService:
             raise
         except PermissionDeniedException:
             raise
+        except UnavailableException:
+            raise
         except ValidationException:
             raise
         except Exception as exc:

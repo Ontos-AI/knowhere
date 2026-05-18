@@ -12,6 +12,7 @@ from shared.core.exceptions.domain_exceptions import (
     JobOperationException,
     NotFoundException,
     PermissionDeniedException,
+    UnavailableException,
     ValidationException,
 )
 from shared.core.state_machine.states import JobStatus
@@ -77,6 +78,8 @@ class DocumentIngestionConfirmationService:
         except NotFoundException:
             raise
         except PermissionDeniedException:
+            raise
+        except UnavailableException:
             raise
         except ValidationException:
             raise

@@ -4,7 +4,6 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-import pandas as pd
 from app.services.connect_builder.summary_builder import (
     build_section_summary_lookup,
     enrich_doc_nav_summaries,
@@ -13,6 +12,11 @@ from app.services.connect_builder.summary_builder import (
 )
 from app.services.document_ingestion.job_state_gate import mark_job_running
 from app.services.document_ingestion.page_estimator import PageEstimator
+from app.services.document_ingestion.parse_result_package import (
+    GeneratedResultPackage,
+    ParseArtifact,
+    build_parse_result_package,
+)
 from app.services.document_ingestion.processing_billing import (
     charge_parse_job_pages,
     record_processing_start,
@@ -30,11 +34,7 @@ from app.services.document_ingestion.workspace import (
 from app.services.document_parser.stage_profiler import stage_timer
 from loguru import logger
 
-from shared.core.exceptions.domain_exceptions import (
-    WorkerHandlingException,
-)
 from shared.models.schemas.job_metadata import JobMetadataHelper
-from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 from shared.services.job_lifecycle_sync import get_sync_job_lifecycle_service
 from shared.services.redis.distributed_lock import RedisJobLock
 from shared.services.redis.redis_sync_service import (
@@ -129,22 +129,28 @@ def _run_parse_job(
         f"internal_filename={internal_parse_name}, local_path={local_temp_path}"
     )
 
-    page_count = PageEstimator.estimate(local_temp_path)
-    logger.info(f"Workload estimation: job_id={job_id}, page_count={page_count}")
+    workload_estimate = PageEstimator.estimate_workload(local_temp_path)
+    page_count = workload_estimate.page_count
+    logger.info(
+        "Workload estimation: "
+        f"job_id={job_id}, page_count={page_count}, "
+        f"method={workload_estimate.method}, "
+        f"fallback_reason={workload_estimate.fallback_reason}"
+    )
 
     processing_started_at = datetime.now(timezone.utc)
     billing_snapshot = charge_parse_job_pages(
         job_id=job_id,
         filename=filename,
         job_user_id=job_context.job_user_id,
-        page_count=page_count,
+        workload_estimate=workload_estimate,
     )
     record_processing_start(
         job_id=job_id,
         job_context=job_context,
         billing_snapshot=billing_snapshot,
-        page_count=page_count,
         processing_started_at=processing_started_at,
+        workload_estimate=workload_estimate,
     )
 
     doc_type = JobMetadataHelper.get_parsing_param(
@@ -209,38 +215,33 @@ def _run_parse_job(
         f"chunks={len(parsed_contents_df) if parsed_contents_df is not None else 0}"
     )
 
-    if parsed_contents_df is None:
-        raise WorkerHandlingException(
-            user_message="We could not extract content from your file",
-            internal_message="File parsing failed, no content returned from parser",
-        )
-
-    if parsed_contents_df.empty:
-        logger.warning(
-            f"No content returned from file parsing: job_id={job_id}, filename={filename}"
-        )
-
     lifecycle_service.update_progress(
         job_id,
         progress=30,
         message="Parse completed, preparing chunks...",
     )
-    chunks = dataframe_to_chunks(parsed_contents_df)
+    result_package = build_parse_result_package(
+        job_id=job_id,
+        filename=filename,
+        add_dir=add_dir,
+        parsed_contents_df=parsed_contents_df,
+    )
 
     lifecycle_service.update_progress(
         job_id,
         progress=70,
         message="Chunks ready, generating zip...",
     )
-    logger.info(f"Chunks prepared: job_id={job_id}, count={len(chunks)}")
+    logger.info(
+        f"Chunks prepared: job_id={job_id}, count={len(result_package.chunks)}"
+    )
 
     return _finalize_parse_job_success(
-        add_dir=add_dir,
-        chunks=chunks,
+        parse_artifact=result_package.artifact,
+        chunks=result_package.chunks,
         job_context=job_context,
         job_id=job_id,
         lifecycle_service=lifecycle_service,
-        parsed_contents_df=parsed_contents_df,
         processing_started_at=processing_started_at,
         task_workspace_dir=task_workspace_dir,
     )
@@ -248,12 +249,11 @@ def _run_parse_job(
 
 def _finalize_parse_job_success(
     *,
-    add_dir: str,
+    parse_artifact: ParseArtifact,
     chunks: list[dict[str, Any]],
     job_context: ParseJobContext,
     job_id: str,
     lifecycle_service: Any,
-    parsed_contents_df: pd.DataFrame,
     processing_started_at: datetime,
     task_workspace_dir: str,
 ) -> dict[str, object]:
@@ -267,6 +267,8 @@ def _finalize_parse_job_success(
 
     document_top_summary = ""
     section_summaries: dict[str, str] = {}
+    add_dir = parse_artifact.add_dir
+    parsed_contents_df = parse_artifact.dataframe
     if add_dir and source_file_name:
         if "path" in parsed_contents_df.columns:
             ensure_doc_nav_json(
@@ -317,22 +319,17 @@ def _finalize_parse_job_success(
 
     data_id = JobMetadataHelper.get_data_id(job_context.job_metadata)
     zip_service = ZipResultService()
-    zip_file_path, checksum, statistics, zip_size = zip_service.generate_zip_package(
-        job_id=job_id,
-        chunks=chunks,
-        add_dir=str(add_dir) if add_dir else "",
-        source_file_name=source_file_name,
-        data_id=data_id,
-        job_metadata=job_context.job_metadata,
-        parsed_df=parsed_contents_df,
-        temp_dir=task_workspace_dir,
-    )
-    del statistics
-
-    checksum_value = (
-        checksum.get("value", "")
-        if isinstance(checksum, dict)
-        else (checksum or "")
+    generated_package = GeneratedResultPackage.from_legacy_tuple(
+        *zip_service.generate_zip_package(
+            job_id=job_id,
+            chunks=chunks,
+            add_dir=str(add_dir) if add_dir else "",
+            source_file_name=source_file_name,
+            data_id=data_id,
+            job_metadata=job_context.job_metadata,
+            parsed_df=parsed_contents_df,
+            temp_dir=task_workspace_dir,
+        )
     )
 
     lifecycle_service.update_progress(
@@ -343,22 +340,29 @@ def _finalize_parse_job_success(
     result_bundle = get_result_storage().upload(
         job_id=job_id,
         result_dir=str(add_dir) if add_dir else "",
-        zip_file_path=zip_file_path,
+        zip_file_path=generated_package.zip_file_path,
     )
     result_s3_key = result_bundle.zip_key
     stored_count = 0
 
-    lifecycle_service.update_progress(job_id, progress=100, message="Task complete!")
-    lifecycle_service.finalize_job_success(
+    finalization_response = lifecycle_service.finalize_job_success(
         job_id=job_id,
         chunks=chunks,
         result_s3_key=result_s3_key,
-        checksum=checksum_value,
-        zip_size=zip_size,
+        checksum=generated_package.checksum_value,
+        zip_size=generated_package.zip_size,
         stored_count=stored_count,
         delivery_mode="url",
         section_summaries=section_summaries,
     )
+    if finalization_response.get("status") != "success":
+        logger.error(
+            f"Worker processing finalization failed: job_id={job_id}, "
+            f"response={finalization_response}"
+        )
+        return dict(finalization_response)
+
+    lifecycle_service.update_progress(job_id, progress=100, message="Task complete!")
 
     logger.info(
         f"Worker processing complete: job_id={job_id}, result_s3_key={result_s3_key}"

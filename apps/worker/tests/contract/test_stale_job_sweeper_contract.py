@@ -224,3 +224,46 @@ def test_should_record_retry_transition_through_sync_state_machine(
     assert progress["status"] == "pending"
     assert progress["worker"] == "contract"
     assert progress["retry_count"] == 1
+
+
+def test_should_expose_sync_state_machine_rejection_reason(
+    worker_contract_environment: None,
+) -> None:
+    from shared.core.database_sync import get_sync_db_context
+    from shared.core.state_machine.service_sync import SyncStateMachineService
+    from shared.core.state_machine.states import JobStatus
+    from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
+
+    job_id = f"job_outcome_{uuid4().hex[:12]}"
+    user_id = f"worker-user-{uuid4().hex[:12]}"
+    _, engine = _load_worker_modules()
+
+    with engine.begin() as connection:
+        insert_contract_user(connection, user_id=user_id)
+        insert_contract_job(
+            connection,
+            job_id=job_id,
+            user_id=user_id,
+            status="done",
+            source_type="file",
+            webhook_enabled=False,
+            job_metadata=_build_file_job_metadata(),
+        )
+
+    state_machine = SyncStateMachineService(
+        redis_service=SyncRedisServiceFactory.get_service()
+    )
+
+    with get_sync_db_context() as db:
+        outcome = state_machine.transition_outcome(
+            db,
+            job_id,
+            JobStatus.RUNNING.value,
+            transition_reason="contract_invalid_transition",
+        )
+
+    assert outcome.succeeded is False
+    assert outcome.reason == "invalid_transition"
+    assert outcome.from_state == "done"
+    assert outcome.to_state == "running"
+    assert outcome.attempts == 1

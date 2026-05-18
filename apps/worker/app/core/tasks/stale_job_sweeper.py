@@ -103,14 +103,14 @@ def expire_stale_jobs() -> dict:
                     return {"status": "success", "expired": 0, "skipped": 0}
 
                 for job in expired_jobs:
-                    success = state_machine.mark_failed(
+                    outcome = state_machine.mark_failed_outcome(
                         db,
                         job.job_id,
                         error_message=JOB_EXPIRED_ERROR_MESSAGE,
                         error_code=JOB_EXPIRED_ERROR_CODE,
                         metadata={"sweeper": True, "stale_status": job.status},
                     )
-                    if success:
+                    if outcome.succeeded:
                         expired_count += 1
                         logger.info(
                             f"Expired stale job {job.job_id} (was {job.status})"
@@ -118,7 +118,7 @@ def expire_stale_jobs() -> dict:
                     else:
                         skipped_count += 1
                         logger.debug(
-                            f"Job {job.job_id} already transitioned (CAS miss)"
+                            f"Job {job.job_id} was not expired: reason={outcome.reason}"
                         )
 
             if expired_count > 0:

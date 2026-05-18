@@ -13,16 +13,25 @@ from shared.services.retrieval.agentic.orchestrator import RetrievalAgent
 from shared.services.retrieval.agentic.types import AgenticResult
 from shared.services.retrieval.llm_adapter import LLMFn
 from shared.services.retrieval.workflow.reference_projection import WorkflowReferenceProjection
+from shared.services.retrieval.workflow.run_request import WorkflowStepRequest
 from shared.services.retrieval.workflow.synthesizer import synthesize_step
 from shared.services.retrieval.workflow.types import PlannedStep, StepResult, StepStatus
 
 DbSessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
+RetrievalAgentFactory = Callable[[], RetrievalAgent]
 
 
 class WorkflowStepRunner:
-    def __init__(self, *, db_factory: DbSessionFactory, parent_run_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        db_factory: DbSessionFactory,
+        parent_run_id: str,
+        agent_factory: RetrievalAgentFactory | None = None,
+    ) -> None:
         self._db_factory = db_factory
         self._parent_run_id = parent_run_id
+        self._agent_factory = agent_factory or RetrievalAgent
         self._references = WorkflowReferenceProjection()
 
     async def run_step(
@@ -32,16 +41,7 @@ class WorkflowStepRunner:
         ledger: BudgetLedger,
         results_by_id: dict[str, StepResult],
         semaphore: asyncio.Semaphore,
-        user_id: str,
-        namespace: str,
-        top_k: int,
-        exclude_document_ids: list[str],
-        exclude_sections: list[dict[str, str]],
-        data_type: int,
-        signal_paths: list[str] | None,
-        filter_mode: str,
-        channels: list[str] | None,
-        channel_weights: dict[str, float] | None,
+        request: WorkflowStepRequest,
         llm_fn: LLMFn | None,
     ) -> None:
         async with semaphore:
@@ -52,16 +52,7 @@ class WorkflowStepRunner:
                 step=step,
                 ledger=ledger,
                 results_by_id=results_by_id,
-                user_id=user_id,
-                namespace=namespace,
-                top_k=top_k,
-                exclude_document_ids=exclude_document_ids,
-                exclude_sections=exclude_sections,
-                data_type=data_type,
-                signal_paths=signal_paths,
-                filter_mode=filter_mode,
-                channels=channels,
-                channel_weights=channel_weights,
+                request=request,
                 llm_fn=llm_fn,
             )
 
@@ -71,34 +62,25 @@ class WorkflowStepRunner:
         step: PlannedStep,
         ledger: BudgetLedger,
         results_by_id: dict[str, StepResult],
-        user_id: str,
-        namespace: str,
-        top_k: int,
-        exclude_document_ids: list[str],
-        exclude_sections: list[dict[str, str]],
-        data_type: int,
-        signal_paths: list[str] | None,
-        filter_mode: str,
-        channels: list[str] | None,
-        channel_weights: dict[str, float] | None,
+        request: WorkflowStepRequest,
         llm_fn: LLMFn | None,
     ) -> None:
         try:
             async with self._db_factory() as step_db:
-                agentic_result = await RetrievalAgent().run(
+                agentic_result = await self._agent_factory().run(
                     step_db,
-                    user_id=user_id,
-                    namespace=namespace,
-                    query=step.sub_query,
-                    top_k=top_k,
+                    user_id=request.user_id,
+                    namespace=request.namespace,
+                    query=request.query,
+                    top_k=request.top_k,
                     llm_fn=llm_fn,
-                    exclude_document_ids=exclude_document_ids,
-                    exclude_sections=exclude_sections,
-                    data_type=data_type,
-                    signal_paths=signal_paths,
-                    filter_mode=filter_mode,
-                    channels=channels,
-                    channel_weights=channel_weights,
+                    exclude_document_ids=request.exclude_document_ids,
+                    exclude_sections=request.exclude_sections,
+                    data_type=request.data_type,
+                    signal_paths=request.signal_paths,
+                    filter_mode=request.filter_mode,
+                    channels=request.channels,
+                    channel_weights=request.channel_weights,
                     ledger=ledger,
                     parent_run_id=self._parent_run_id,
                     workflow_step_id=step.id,

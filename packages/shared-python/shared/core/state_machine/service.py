@@ -25,6 +25,7 @@ from shared.core.state_machine.transition_payloads import (
     serialize_transition_metadata,
     utc_now_naive,
 )
+from shared.core.state_machine.transition_outcome import JobTransitionOutcome
 from shared.models.database.job import Job
 from shared.models.database.job_state_audit_log import JobStateAuditLog
 from shared.services.redis import RedisServiceFactory
@@ -51,20 +52,56 @@ class AsyncStateMachineService:
         auto_commit: bool = True,
     ) -> bool:
         """Execute an optimistic-lock state transition with up to 3 retries."""
+        outcome = await self.transition_outcome(
+            db,
+            job_id,
+            to_state,
+            transition_reason,
+            operator_id,
+            operator_type,
+            metadata,
+            auto_commit=auto_commit,
+        )
+        return outcome.as_bool()
+
+    async def transition_outcome(
+        self,
+        db: AsyncSession,
+        job_id: str,
+        to_state: str,
+        transition_reason: str = "normal_transition",
+        operator_id: Optional[str] = None,
+        operator_type: str = "system",
+        metadata: Optional[Dict[str, Any]] = None,
+        auto_commit: bool = True,
+    ) -> JobTransitionOutcome:
+        """Execute a state transition and preserve the reason if it is rejected."""
         max_retries = 3
 
         for attempt in range(max_retries):
+            attempts = attempt + 1
             try:
                 job = await self._get_job_with_version(db, job_id)
                 if not job:
                     logger.error(f"Job {job_id} does not exist")
-                    return False
+                    return JobTransitionOutcome.rejected(
+                        job_id=job_id,
+                        to_state=to_state,
+                        reason="job_not_found",
+                        attempts=attempts,
+                    )
 
                 if not is_valid_transition(job.status, to_state):
                     logger.warning(
                         f"Job {job_id}: illegal transition {job.status} → {to_state}, rejected"
                     )
-                    return False
+                    return JobTransitionOutcome.rejected(
+                        job_id=job_id,
+                        from_state=job.status,
+                        to_state=to_state,
+                        reason="invalid_transition",
+                        attempts=attempts,
+                    )
 
                 old_state = job.status
                 old_version = job.version
@@ -99,7 +136,12 @@ class AsyncStateMachineService:
                     logger.info(
                         f"Job {job_id} state transition: {old_state} → {to_state}"
                     )
-                    return True
+                    return JobTransitionOutcome.transitioned(
+                        job_id=job_id,
+                        from_state=old_state,
+                        to_state=to_state,
+                        attempts=attempts,
+                    )
 
                 # CAS miss — retry with backoff
                 if attempt < max_retries - 1:
@@ -110,7 +152,13 @@ class AsyncStateMachineService:
                     continue
                 else:
                     logger.error(f"Job {job_id} CAS retries exhausted")
-                    return False
+                    return JobTransitionOutcome.rejected(
+                        job_id=job_id,
+                        from_state=old_state,
+                        to_state=to_state,
+                        reason="cas_conflict",
+                        attempts=attempts,
+                    )
 
             except Exception as e:
                 logger.error(f"Job {job_id} transition failed: {e}")
@@ -119,9 +167,27 @@ class AsyncStateMachineService:
                         await db.rollback()
                 except Exception as rollback_err:
                     logger.warning(f"Job {job_id} rollback failed: {rollback_err}")
-                return False
+                    return JobTransitionOutcome.rejected(
+                        job_id=job_id,
+                        to_state=to_state,
+                        reason="rollback_exception",
+                        attempts=attempts,
+                        error_message=str(rollback_err),
+                    )
+                return JobTransitionOutcome.rejected(
+                    job_id=job_id,
+                    to_state=to_state,
+                    reason="transition_exception",
+                    attempts=attempts,
+                    error_message=str(e),
+                )
 
-        return False
+        return JobTransitionOutcome.rejected(
+            job_id=job_id,
+            to_state=to_state,
+            reason="cas_conflict",
+            attempts=max_retries,
+        )
 
     async def mark_failed(
         self,
@@ -135,6 +201,30 @@ class AsyncStateMachineService:
         auto_commit: bool = True,
     ) -> bool:
         """Mark a job as failed with error information."""
+        outcome = await self.mark_failed_outcome(
+            db,
+            job_id,
+            error_message,
+            error_code=error_code,
+            error_details=error_details,
+            operator_id=operator_id,
+            metadata=metadata,
+            auto_commit=auto_commit,
+        )
+        return outcome.as_bool()
+
+    async def mark_failed_outcome(
+        self,
+        db: AsyncSession,
+        job_id: str,
+        error_message: str,
+        error_code: str = "UNKNOWN",
+        error_details: Optional[Dict[str, Any]] = None,
+        operator_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        auto_commit: bool = True,
+    ) -> JobTransitionOutcome:
+        """Mark a job as failed and expose why the transition was rejected."""
         try:
             normalized_details, transition_metadata = (
                 build_failure_transition_metadata(
@@ -152,7 +242,7 @@ class AsyncStateMachineService:
                 normalized_details,
             )
 
-            return await self.transition(
+            return await self.transition_outcome(
                 db,
                 job_id,
                 JobStatus.FAILED.value,
@@ -164,7 +254,13 @@ class AsyncStateMachineService:
             )
         except Exception as e:
             logger.error(f"Failed to mark Job {job_id} as failed: {e}")
-            return False
+            return JobTransitionOutcome.rejected(
+                job_id=job_id,
+                to_state=JobStatus.FAILED.value,
+                reason="transition_exception",
+                attempts=1,
+                error_message=str(e),
+            )
 
     async def mark_completed(
         self,
@@ -175,8 +271,26 @@ class AsyncStateMachineService:
         auto_commit: bool = True,
     ) -> bool:
         """Mark a job as completed."""
+        outcome = await self.mark_completed_outcome(
+            db,
+            job_id,
+            result_metadata=result_metadata,
+            operator_id=operator_id,
+            auto_commit=auto_commit,
+        )
+        return outcome.as_bool()
+
+    async def mark_completed_outcome(
+        self,
+        db: AsyncSession,
+        job_id: str,
+        result_metadata: Optional[Dict[str, Any]] = None,
+        operator_id: Optional[str] = None,
+        auto_commit: bool = True,
+    ) -> JobTransitionOutcome:
+        """Mark a job as completed and expose why the transition was rejected."""
         try:
-            return await self.transition(
+            return await self.transition_outcome(
                 db,
                 job_id,
                 JobStatus.DONE.value,
@@ -188,7 +302,13 @@ class AsyncStateMachineService:
             )
         except Exception as e:
             logger.error(f"Failed to mark Job {job_id} as completed: {e}")
-            return False
+            return JobTransitionOutcome.rejected(
+                job_id=job_id,
+                to_state=JobStatus.DONE.value,
+                reason="transition_exception",
+                attempts=1,
+                error_message=str(e),
+            )
 
     async def handle_retry(
         self,

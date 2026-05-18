@@ -39,15 +39,18 @@ class SyncJobFailureFinalizer:
         error_details: dict[str, Any] | None,
         should_refund: bool,
     ) -> tuple[bool, WebhookEvent | None]:
-        transition_ok = self._state_machine.mark_failed(
+        transition_outcome = self._state_machine.mark_failed_outcome(
             db,
             job_id,
             error_message,
             error_code=error_code,
             error_details=error_details,
         )
-        if not transition_ok:
-            logger.error(f"Job {job_id} mark_failed transition failed")
+        if not transition_outcome.succeeded:
+            logger.error(
+                f"Job {job_id} mark_failed transition failed: "
+                f"reason={transition_outcome.reason}"
+            )
             return False, None
 
         if should_refund:

@@ -1041,3 +1041,84 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
             "db_bound": True,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_should_preserve_retryable_confirm_upload_transition_rejection(
+    monkeypatch: MonkeyPatch,
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    payload: dict[str, str] = {
+        "namespace": "contract-jobs",
+        "source_type": "file",
+        "file_name": "confirm-upload-retry.pdf",
+        "data_id": "contract-job-confirm-upload-retry",
+    }
+
+    async def _fake_verify_s3_file_exists(
+        self: object,
+        s3_key: str,
+        bucket: str | None = None,
+    ) -> dict[str, object]:
+        assert bucket is None
+        return {"exists": True, "s3_key": s3_key}
+
+    async def _fake_transition_outcome(
+        self: object,
+        db: object,
+        job_id: str,
+        to_state: str,
+        transition_reason: str = "normal_transition",
+        operator_id: str | None = None,
+        operator_type: str = "system",
+        metadata: dict[str, object] | None = None,
+        auto_commit: bool = True,
+    ) -> object:
+        del self, db, transition_reason, operator_id, operator_type, metadata, auto_commit
+
+        from shared.core.state_machine.transition_outcome import JobTransitionOutcome
+
+        return JobTransitionOutcome.rejected(
+            job_id=job_id,
+            to_state=to_state,
+            reason="cas_conflict",
+            attempts=3,
+        )
+
+    async with developer_api_client_factory() as api_client:
+        import shared.core.state_machine.service as state_machine_module
+        import shared.services.storage.file_upload_service as file_upload_service_module
+
+        monkeypatch.setattr(
+            file_upload_service_module.FileUploadService,
+            "verify_s3_file_exists",
+            _fake_verify_s3_file_exists,
+        )
+        monkeypatch.setattr(
+            state_machine_module.AsyncStateMachineService,
+            "transition_outcome",
+            _fake_transition_outcome,
+        )
+
+        create_response = await api_client.post("/api/v1/jobs", json=payload)
+        assert create_response.status_code == 200
+
+        create_response_json: dict[str, object] = create_response.json()
+        job_id = cast(str, create_response_json["job_id"])
+
+        confirm_response = await api_client.post(f"/api/v1/jobs/{job_id}/confirm-upload")
+
+    assert confirm_response.status_code == 503
+    assert confirm_response.headers["retry-after"] == "120"
+    assert confirm_response.headers["x-request-id"]
+
+    response_json: dict[str, object] = confirm_response.json()
+    error = cast(dict[str, object], response_json["error"])
+    details = cast(dict[str, object], error["details"])
+
+    assert response_json["success"] is False
+    assert error["code"] == "UNAVAILABLE"
+    assert error["message"] == "Job state is still settling. Retrying shortly."
+    assert details["retry_after"] == 120

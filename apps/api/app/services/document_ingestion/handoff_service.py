@@ -3,9 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.knowledge.kb_orchestrator import KBOrchestrator
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.core.exceptions.domain_exceptions import ValidationException
+from shared.core.config import settings
+from shared.core.exceptions.domain_exceptions import (
+    UnavailableException,
+    ValidationException,
+)
 from shared.core.state_machine.service import AsyncStateMachineService
 from shared.core.state_machine.states import JobStatus
 
@@ -32,7 +37,7 @@ class DocumentIngestionHandoffService:
         user_id: str,
         trigger: str,
     ) -> None:
-        await self._state_machine.transition(
+        outcome = await self._state_machine.transition_outcome(
             db,
             job.job_id,
             JobStatus.PENDING.value,
@@ -40,6 +45,19 @@ class DocumentIngestionHandoffService:
             None,
             "system",
         )
+        if not outcome.succeeded:
+            logger.warning(
+                "Upload handoff transition rejected: "
+                f"job_id={job.job_id}, reason={outcome.reason}"
+            )
+            raise UnavailableException(
+                internal_message=(
+                    f"Could not advance uploaded job {job.job_id} to pending: "
+                    f"{outcome.reason}"
+                ),
+                retry_after=settings.KB_TASK_RETRY_COUNTDOWN,
+                user_message="Job state is still settling. Retrying shortly.",
+            )
 
         if job.job_type != _JOB_TYPE_KB_MANAGEMENT:
             raise ValidationException(
@@ -64,9 +82,14 @@ class DocumentIngestionHandoffService:
         )
 
     async def mark_upload_expired(self, db: AsyncSession, *, job: Any) -> None:
-        await self._state_machine.mark_failed(
+        outcome = await self._state_machine.mark_failed_outcome(
             db,
             job.job_id,
             "Upload expired: file was not uploaded within the allowed time window",
             error_code="UPLOAD_EXPIRED",
         )
+        if not outcome.succeeded:
+            logger.warning(
+                "Upload expiry transition rejected: "
+                f"job_id={job.job_id}, reason={outcome.reason}"
+            )

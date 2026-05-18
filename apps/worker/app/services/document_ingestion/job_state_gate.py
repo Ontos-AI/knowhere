@@ -72,17 +72,18 @@ def mark_job_running(job_id: str, redis_service: Any) -> bool:
                 ),
             )
 
-        if not state_machine.transition(
+        outcome = state_machine.transition_outcome(
             db,
             job_id,
             JobStatus.RUNNING.value,
             "start_processing",
             operator_type="system",
-        ):
+        )
+        if not outcome.succeeded:
             raise UnavailableException(
                 internal_message=(
                     f"Failed to transition job {job_id} from pending to running; "
-                    "the state may have changed concurrently"
+                    f"reason={outcome.reason}"
                 ),
                 retry_after=settings.KB_TASK_RETRY_COUNTDOWN,
                 user_message="Job state is still settling. Retrying shortly.",

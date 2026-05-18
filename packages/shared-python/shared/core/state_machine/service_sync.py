@@ -24,6 +24,7 @@ from shared.core.state_machine.transition_payloads import (
     serialize_transition_metadata,
     utc_now_naive,
 )
+from shared.core.state_machine.transition_outcome import JobTransitionOutcome
 from shared.models.database.job import Job
 from shared.models.database.job_state_audit_log import JobStateAuditLog
 from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
@@ -49,20 +50,53 @@ class SyncStateMachineService:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Execute an optimistic-lock state transition with up to 3 retries."""
+        return self.transition_outcome(
+            db,
+            job_id,
+            to_state,
+            transition_reason,
+            operator_id,
+            operator_type,
+            metadata,
+        ).as_bool()
+
+    def transition_outcome(
+        self,
+        db: Session,
+        job_id: str,
+        to_state: str,
+        transition_reason: str = "normal_transition",
+        operator_id: Optional[str] = None,
+        operator_type: str = "system",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> JobTransitionOutcome:
+        """Execute a state transition and preserve the reason if it is rejected."""
         max_retries = 3
 
         for attempt in range(max_retries):
+            attempts = attempt + 1
             try:
                 job = self._get_job_with_version(db, job_id)
                 if not job:
                     logger.error(f"Job {job_id} does not exist")
-                    return False
+                    return JobTransitionOutcome.rejected(
+                        job_id=job_id,
+                        to_state=to_state,
+                        reason="job_not_found",
+                        attempts=attempts,
+                    )
 
                 if not is_valid_transition(job.status, to_state):
                     logger.warning(
                         f"Job {job_id}: illegal transition {job.status} → {to_state}, rejected"
                     )
-                    return False
+                    return JobTransitionOutcome.rejected(
+                        job_id=job_id,
+                        from_state=job.status,
+                        to_state=to_state,
+                        reason="invalid_transition",
+                        attempts=attempts,
+                    )
 
                 old_state = job.status
                 old_version = job.version
@@ -85,7 +119,12 @@ class SyncStateMachineService:
                     logger.info(
                         f"Job {job_id} state transition: {old_state} → {to_state}"
                     )
-                    return True
+                    return JobTransitionOutcome.transitioned(
+                        job_id=job_id,
+                        from_state=old_state,
+                        to_state=to_state,
+                        attempts=attempts,
+                    )
 
                 if attempt < max_retries - 1:
                     logger.warning(
@@ -97,7 +136,13 @@ class SyncStateMachineService:
                     continue
                 else:
                     logger.error(f"Job {job_id} CAS retries exhausted")
-                    return False
+                    return JobTransitionOutcome.rejected(
+                        job_id=job_id,
+                        from_state=old_state,
+                        to_state=to_state,
+                        reason="cas_conflict",
+                        attempts=attempts,
+                    )
 
             except Exception as e:
                 logger.error(f"Job {job_id} transition failed: {e}")
@@ -106,9 +151,27 @@ class SyncStateMachineService:
                         db.rollback()
                 except Exception as rollback_err:
                     logger.warning(f"Job {job_id} rollback failed: {rollback_err}")
-                return False
+                    return JobTransitionOutcome.rejected(
+                        job_id=job_id,
+                        to_state=to_state,
+                        reason="rollback_exception",
+                        attempts=attempts,
+                        error_message=str(rollback_err),
+                    )
+                return JobTransitionOutcome.rejected(
+                    job_id=job_id,
+                    to_state=to_state,
+                    reason="transition_exception",
+                    attempts=attempts,
+                    error_message=str(e),
+                )
 
-        return False
+        return JobTransitionOutcome.rejected(
+            job_id=job_id,
+            to_state=to_state,
+            reason="cas_conflict",
+            attempts=max_retries,
+        )
 
     def mark_failed(
         self,
@@ -121,6 +184,27 @@ class SyncStateMachineService:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Mark a job as failed with error information."""
+        return self.mark_failed_outcome(
+            db,
+            job_id,
+            error_message,
+            error_code=error_code,
+            error_details=error_details,
+            operator_id=operator_id,
+            metadata=metadata,
+        ).as_bool()
+
+    def mark_failed_outcome(
+        self,
+        db: Session,
+        job_id: str,
+        error_message: str,
+        error_code: str = "UNKNOWN",
+        error_details: Optional[Dict[str, Any]] = None,
+        operator_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> JobTransitionOutcome:
+        """Mark a job as failed and expose why the transition was rejected."""
         try:
             normalized_details, transition_metadata = (
                 build_failure_transition_metadata(
@@ -138,7 +222,7 @@ class SyncStateMachineService:
                 normalized_details,
             )
 
-            return self.transition(
+            return self.transition_outcome(
                 db,
                 job_id,
                 JobStatus.FAILED.value,
@@ -149,7 +233,13 @@ class SyncStateMachineService:
             )
         except Exception as e:
             logger.error(f"Failed to mark Job {job_id} as failed: {e}")
-            return False
+            return JobTransitionOutcome.rejected(
+                job_id=job_id,
+                to_state=JobStatus.FAILED.value,
+                reason="transition_exception",
+                attempts=1,
+                error_message=str(e),
+            )
 
     def mark_completed(
         self,
@@ -159,8 +249,23 @@ class SyncStateMachineService:
         operator_id: Optional[str] = None,
     ) -> bool:
         """Mark a job as completed."""
+        return self.mark_completed_outcome(
+            db,
+            job_id,
+            result_metadata=result_metadata,
+            operator_id=operator_id,
+        ).as_bool()
+
+    def mark_completed_outcome(
+        self,
+        db: Session,
+        job_id: str,
+        result_metadata: Optional[Dict[str, Any]] = None,
+        operator_id: Optional[str] = None,
+    ) -> JobTransitionOutcome:
+        """Mark a job as completed and expose why the transition was rejected."""
         try:
-            return self.transition(
+            return self.transition_outcome(
                 db,
                 job_id,
                 JobStatus.DONE.value,
@@ -171,7 +276,13 @@ class SyncStateMachineService:
             )
         except Exception as e:
             logger.error(f"Failed to mark Job {job_id} as completed: {e}")
-            return False
+            return JobTransitionOutcome.rejected(
+                job_id=job_id,
+                to_state=JobStatus.DONE.value,
+                reason="transition_exception",
+                attempts=1,
+                error_message=str(e),
+            )
 
     def handle_retry(
         self,

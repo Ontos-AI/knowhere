@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from app.services.document_ingestion.page_estimator import WorkloadEstimate
 from app.services.document_ingestion.processing_context import ParseJobContext
 from loguru import logger
 from sqlalchemy import select
@@ -28,8 +29,9 @@ def charge_parse_job_pages(
     job_id: str,
     filename: str | None,
     job_user_id: str | None,
-    page_count: int,
+    workload_estimate: WorkloadEstimate,
 ) -> ParseJobBillingSnapshot:
+    page_count = workload_estimate.page_count
     if not job_user_id:
         raise NotFoundException(
             resource="JobInfo",
@@ -104,15 +106,20 @@ def record_processing_start(
     job_id: str,
     job_context: ParseJobContext,
     billing_snapshot: ParseJobBillingSnapshot,
-    page_count: int,
     processing_started_at: datetime,
+    workload_estimate: WorkloadEstimate,
 ) -> None:
     metadata_updates = {
-        "page_count": page_count,
+        "page_count": workload_estimate.page_count,
         "billing_status": billing_snapshot.billing_status,
         "billing_amount_micro_dollars": billing_snapshot.billing_amount_micro_dollars,
         "billing_credits": billing_snapshot.billing_credits,
         "processing_started_at": processing_started_at.isoformat(),
+        "workload_estimate_method": workload_estimate.method,
     }
+    if workload_estimate.fallback_reason is not None:
+        metadata_updates["workload_estimate_fallback_reason"] = (
+            workload_estimate.fallback_reason
+        )
     job_context.metadata_service.update_metadata(job_id, metadata_updates)
     job_context.job_metadata.update(metadata_updates)

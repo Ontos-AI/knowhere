@@ -68,7 +68,7 @@ class SyncJobSuccessFinalizer:
             section_summaries=section_summaries,
         )
 
-        transition_ok = self._state_machine.mark_completed(
+        transition_outcome = self._state_machine.mark_completed_outcome(
             db,
             job_id,
             result_metadata={
@@ -77,8 +77,11 @@ class SyncJobSuccessFinalizer:
                 "delivery_mode": delivery_mode,
             },
         )
-        if not transition_ok:
-            logger.error(f"Job {job_id} mark_completed transition failed")
+        if not transition_outcome.succeeded:
+            logger.error(
+                f"Job {job_id} mark_completed transition failed: "
+                f"reason={transition_outcome.reason}"
+            )
             return JobSuccessFinalization(
                 response={
                     "status": "failed",

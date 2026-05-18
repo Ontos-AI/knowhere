@@ -397,6 +397,8 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
     metadata = sync_job_metadata_service_cls(redis_service).get_metadata(job_id)
     assert metadata is not None
     assert metadata["page_count"] == 3
+    assert metadata["workload_estimate_method"] == "pdf_metadata"
+    assert "workload_estimate_fallback_reason" not in metadata
     assert metadata["billing_status"] == expected_billing_status
     if billing_enabled:
         assert metadata["billing_amount_micro_dollars"] == expected_credits_charged
@@ -1053,9 +1055,11 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
 
     billing_start_barrier = Barrier(len(job_ids))
 
-    def fake_estimate_page_count(file_path: str) -> int:
+    def fake_estimate_workload(file_path: str) -> Any:
+        from app.services.document_ingestion.page_estimator import WorkloadEstimate
+
         billing_start_barrier.wait(timeout=10)
-        return 1
+        return WorkloadEstimate(page_count=1, method="contract_fake")
 
     def fake_checkerboard_inject_parse(**kwargs: Any) -> tuple[str, pd.DataFrame]:
         output_dir = (
@@ -1094,7 +1098,11 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
 
     _patch_verify_upload_exists(monkeypatch, fake_verify_s3_file_exists)
     monkeypatch.setattr(parse_job_service, "download_s3_file_to_temp", fake_download_s3_file_to_temp)
-    monkeypatch.setattr(parse_job_service.PageEstimator, "estimate", fake_estimate_page_count)
+    monkeypatch.setattr(
+        parse_job_service.PageEstimator,
+        "estimate_workload",
+        fake_estimate_workload,
+    )
     monkeypatch.setattr(parse_service, "checkerboard_inject_parse", fake_checkerboard_inject_parse)
     monkeypatch.setattr(parse_job_service, "get_result_storage", lambda: FakeResultStorage())
 
@@ -1304,6 +1312,23 @@ def test_should_skip_parse_task_when_the_job_is_already_terminal(
 
     assert job_result_count == 0
     assert audit_transition_count == 0
+
+
+def test_should_make_workload_estimate_fallback_reason_explicit(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_ingestion.page_estimator import PageEstimator
+
+    unknown_file = tmp_path / "payload.unknown"
+    unknown_file.write_text("content", encoding="utf-8")
+
+    estimate = PageEstimator.estimate_workload(str(unknown_file))
+
+    assert estimate.page_count == 1
+    assert estimate.method == "unknown_file_type"
+    assert estimate.fallback_reason == "unknown_file_type:.unknown"
+    assert PageEstimator.estimate(str(unknown_file)) == 1
 
 
 def test_should_mark_the_job_failed_and_cleanup_the_workspace_when_parse_execution_raises(

@@ -18,6 +18,7 @@ from shared.services.retrieval.llm_adapter import (
 )
 from shared.services.retrieval.workflow.plan_service import WorkflowPlanService
 from shared.services.retrieval.workflow.reference_projection import WorkflowReferenceProjection
+from shared.services.retrieval.workflow.run_request import WorkflowRunRequest
 from shared.services.retrieval.workflow.runtime_config import WorkflowRuntimeConfig
 from shared.services.retrieval.workflow.step_runner import WorkflowStepRunner
 from shared.services.retrieval.workflow.synthesizer import compose_final_answer
@@ -25,14 +26,31 @@ from shared.services.retrieval.workflow.types import StepResult, WorkflowResult
 from shared.services.retrieval.workflow.wallet import BudgetWallet
 
 DbSessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
+WorkflowStepRunnerFactory = Callable[[DbSessionFactory, str], WorkflowStepRunner]
+
+
+def _create_workflow_step_runner(
+    db_factory: DbSessionFactory,
+    parent_run_id: str,
+) -> WorkflowStepRunner:
+    return WorkflowStepRunner(db_factory=db_factory, parent_run_id=parent_run_id)
 
 
 class WorkflowOrchestrator:
     """Plan and execute a query workflow DAG."""
 
-    def __init__(self, db_factory: DbSessionFactory | None = None) -> None:
+    def __init__(
+        self,
+        db_factory: DbSessionFactory | None = None,
+        plan_service: WorkflowPlanService | None = None,
+        step_runner_factory: WorkflowStepRunnerFactory | None = None,
+    ) -> None:
         self.parent_run_id = f'wret_{uuid4().hex[:12]}'
         self._db_factory = db_factory
+        self._plan_service = plan_service or WorkflowPlanService()
+        self._step_runner_factory = (
+            step_runner_factory or _create_workflow_step_runner
+        )
 
     def _get_db_factory(self) -> DbSessionFactory:
         if self._db_factory is not None:
@@ -59,6 +77,28 @@ class WorkflowOrchestrator:
         channel_weights: dict[str, float] | None = None,
         llm_fn=None,
     ) -> WorkflowResult:
+        request = WorkflowRunRequest(
+            user_id=user_id,
+            namespace=namespace,
+            query=query,
+            top_k=top_k,
+            exclude_document_ids=exclude_document_ids,
+            exclude_sections=exclude_sections,
+            data_type=data_type,
+            signal_paths=signal_paths,
+            filter_mode=filter_mode,
+            channels=channels,
+            channel_weights=channel_weights,
+        )
+        return await self.run_request(db, request=request, llm_fn=llm_fn)
+
+    async def run_request(
+        self,
+        db: AsyncSession,
+        *,
+        request: WorkflowRunRequest,
+        llm_fn=None,
+    ) -> WorkflowResult:
         t0 = time.monotonic()
         config = WorkflowRuntimeConfig.from_env()
         llm_fn = llm_fn or create_retrieval_llm_fn()
@@ -72,16 +112,16 @@ class WorkflowOrchestrator:
         )
         total_chunks, total_docs, _chunks_count_by_doc = await _load_budget_inventory(
             db,
-            user_id=user_id,
-            namespace=namespace,
-            exclude_document_ids=exclude_document_ids,
+            user_id=request.user_id,
+            namespace=request.namespace,
+            exclude_document_ids=request.exclude_document_ids,
         )
         planner_ledger.total_chunks = total_chunks
         planner_ledger.total_docs = total_docs
-        plan = await WorkflowPlanService().load_or_create(
-            user_id=user_id,
-            namespace=namespace,
-            query=query,
+        plan = await self._plan_service.load_or_create(
+            user_id=request.user_id,
+            namespace=request.namespace,
+            query=request.query,
             planner_llm=planner_llm,
             planner_ledger=planner_ledger,
             max_steps=config.max_steps,
@@ -99,9 +139,9 @@ class WorkflowOrchestrator:
         ledgers = await wallet.allocate(plan)
         results_by_id: dict[str, StepResult] = {}
         sem = asyncio.Semaphore(config.parallel_max)
-        step_runner = WorkflowStepRunner(
-            db_factory=self._get_db_factory(),
-            parent_run_id=self.parent_run_id,
+        step_runner = self._step_runner_factory(
+            self._get_db_factory(),
+            self.parent_run_id,
         )
 
         for batch in plan.topological_batches():
@@ -112,16 +152,7 @@ class WorkflowOrchestrator:
                         ledger=ledgers[step.id],
                         results_by_id=results_by_id,
                         semaphore=sem,
-                        user_id=user_id,
-                        namespace=namespace,
-                        top_k=step.top_k or top_k,
-                        exclude_document_ids=exclude_document_ids,
-                        exclude_sections=exclude_sections,
-                        data_type=step.data_type or data_type,
-                        signal_paths=signal_paths,
-                        filter_mode=filter_mode,
-                        channels=channels,
-                        channel_weights=channel_weights,
+                        request=request.for_step(step),
                         llm_fn=llm_fn,
                     )
                     for step in batch
@@ -146,8 +177,8 @@ class WorkflowOrchestrator:
             elapsed_ms,
         )
         return WorkflowResult(
-            namespace=namespace,
-            query=query,
+            namespace=request.namespace,
+            query=request.query,
             router_used='workflow_decomposed' if len(plan.steps) > 1 else 'workflow_single_step',
             answer_text=answer_text,
             plan=plan,

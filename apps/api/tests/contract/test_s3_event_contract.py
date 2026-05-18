@@ -10,6 +10,8 @@ from uuid import uuid4
 import pytest
 from httpx import AsyncClient
 from pytest import MonkeyPatch
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.support.contract_database import ContractDatabase
 
@@ -205,6 +207,43 @@ async def test_should_accept_an_sns_wrapped_upload_complete_event_and_advance_a_
 
     assert job_row is not None
     assert job_row["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_should_expose_async_state_machine_rejection_reason(
+    api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+) -> None:
+    from shared.core.state_machine.service import AsyncStateMachineService
+    from shared.core.state_machine.states import JobStatus
+    from shared.testing.contract_runtime import get_contract_database_url
+
+    async with api_client_factory():
+        _, job_id = await _insert_waiting_file_job()
+        engine = create_async_engine(get_contract_database_url(), future=True)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text("UPDATE jobs SET status = 'done' WHERE job_id = :job_id"),
+                    {"job_id": job_id},
+                )
+
+            async with session_factory() as db:
+                outcome = await AsyncStateMachineService().transition_outcome(
+                    db,
+                    job_id,
+                    JobStatus.RUNNING.value,
+                    transition_reason="contract_invalid_transition",
+                )
+        finally:
+            await engine.dispose()
+
+    assert outcome.succeeded is False
+    assert outcome.reason == "invalid_transition"
+    assert outcome.from_state == "done"
+    assert outcome.to_state == "running"
+    assert outcome.attempts == 1
 
 
 @pytest.mark.asyncio
