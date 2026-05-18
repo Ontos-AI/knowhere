@@ -17,12 +17,12 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from shared.core.database_sync import get_sync_db_context
-from shared.services.job_failure_sync import SyncJobFailureFinalizer
-from shared.services.job_post_commit_effects_sync import (
+from shared.services.jobs.lifecycle.failure_finalizer import SyncJobFailureFinalizer
+from shared.services.jobs.lifecycle.post_commit_effects import (
     PostCommitEffectPlan,
     SyncJobPostCommitEffectRunner,
 )
-from shared.services.job_success_sync import SyncJobSuccessFinalizer
+from shared.services.jobs.lifecycle.success_finalizer import SyncJobSuccessFinalizer
 from shared.services.redis.redis_sync_service import (
     SyncRedisServiceFactory,
 )

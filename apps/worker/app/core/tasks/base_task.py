@@ -44,7 +44,7 @@ class KBBaseTask(Task):
         # Finalize failure directly to the database.
         if job_id:
             try:
-                from shared.services.job_lifecycle_sync import (
+                from shared.services.jobs.lifecycle.service import (
                     get_sync_job_lifecycle_service,
                 )
 

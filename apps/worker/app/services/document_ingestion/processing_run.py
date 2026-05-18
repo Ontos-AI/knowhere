@@ -35,7 +35,7 @@ from app.services.document_parser.stage_profiler import stage_timer
 from loguru import logger
 
 from shared.models.schemas.job_metadata import JobMetadataHelper
-from shared.services.job_lifecycle_sync import get_sync_job_lifecycle_service
+from shared.services.jobs.lifecycle.service import get_sync_job_lifecycle_service
 from shared.services.redis.distributed_lock import RedisJobLock
 from shared.services.redis.redis_sync_service import (
     SyncRedisServiceFactory,

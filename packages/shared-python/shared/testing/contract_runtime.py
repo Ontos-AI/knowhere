@@ -65,7 +65,7 @@ _MODULE_NAMES_TO_CLEAR: tuple[str, ...] = (
     "shared.core.state_machine.service_sync",
     "shared.services.billing.credits_sync_service",
     "shared.services.billing.work_billing_service",
-    "shared.services.job_lifecycle_sync",
+    "shared.services.jobs.lifecycle.service",
     "shared.services.retrieval.app_service",
     "shared.services.retrieval.publication_service",
     "shared.services.webhook",

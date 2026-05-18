@@ -11,8 +11,8 @@ from shared.core.response import build_standard_error_response
 from shared.core.state_machine.service_sync import SyncStateMachineService
 from shared.models.database.job import Job
 from shared.services.billing.credits_sync_service import SyncCreditsService
-from shared.services.job_post_commit_effects_sync import PostCommitEffectPlan
-from shared.services.job_webhook_outbox_sync import SyncJobWebhookOutbox
+from shared.services.jobs.lifecycle.post_commit_effects import PostCommitEffectPlan
+from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
 from shared.utils.error_details import normalize_error_details
 
 

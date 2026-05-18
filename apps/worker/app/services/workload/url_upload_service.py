@@ -13,7 +13,7 @@ from app.services.workload.url_upload_transfer import (
     upload_temp_file_to_source_storage,
     verify_source_upload,
 )
-from shared.services.job_lifecycle_sync import get_sync_job_lifecycle_service
+from shared.services.jobs.lifecycle.service import get_sync_job_lifecycle_service
 from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
 
 

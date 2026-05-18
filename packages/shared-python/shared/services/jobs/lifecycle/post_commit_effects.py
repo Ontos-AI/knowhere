@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from shared.services.job_publication_sync import SyncJobPublicationFinalizer
-from shared.services.job_webhook_outbox_sync import SyncJobWebhookOutbox
+from shared.services.jobs.lifecycle.publication import SyncJobPublicationFinalizer
+from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
 
 
 @dataclass(frozen=True)
