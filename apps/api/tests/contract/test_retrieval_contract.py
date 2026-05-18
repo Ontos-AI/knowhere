@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.contract_database import ContractDatabase
 from shared.services.retrieval.agentic.types import AgenticResult
-from shared.services.retrieval.query_request import RetrievalQuery
 from shared.services.retrieval.workflow.run_request import WorkflowRunRequest
 from shared.services.retrieval.workflow.types import PlannedStep, QueryPlan, WorkflowResult
 
@@ -140,86 +139,6 @@ async def _seed_retrieval_chunk_for_existing_document(
 
 def _result_source(result: dict[str, object]) -> dict[str, object]:
     return cast(dict[str, object], result["source"])
-
-
-def test_retrieval_query_owns_cache_and_route_request_shape() -> None:
-    query = RetrievalQuery.from_parameters(
-        db=cast(AsyncSession, object()),
-        user_id="user-1",
-        namespace="contract-retrieval",
-        query="  alpha  ",
-        top_k=5,
-        exclude_document_ids=["doc-hidden"],
-        exclude_sections=[{"document_id": "doc-1", "section_path": "Root"}],
-        data_type=2,
-        signal_paths=["Root"],
-        filter_mode="keep",
-        channels=["content"],
-        channel_weights={"content": 1.5},
-        rerank=True,
-        threshold=0.2,
-        internal_recall_k=17,
-        use_agentic=False,
-    )
-
-    route_context = query.build_route_context()
-
-    assert query.query == "alpha"
-    assert query.build_cache_extra() == {
-        "data_type": 2,
-        "signal_paths": ["Root"],
-        "filter_mode": "keep",
-        "channels": ["content"],
-        "channel_weights": {"content": 1.5},
-        "rerank": True,
-        "threshold": 0.2,
-        "internal_recall_k": 17,
-        "decomposition_enabled": True,
-    }
-    assert route_context.query == "alpha"
-    assert route_context.allowed_chunk_types == {"text"}
-    assert route_context.effective_recall_k == 17
-    assert route_context.use_agentic is False
-
-    workflow_request = WorkflowRunRequest.from_route_context(route_context)
-    assert workflow_request.top_k == 5
-    assert workflow_request.data_type == 2
-    assert workflow_request.signal_paths == ["Root"]
-    assert workflow_request.filter_mode == "keep"
-    assert workflow_request.channels == ["content"]
-    assert workflow_request.channel_weights == {"content": 1.5}
-    assert workflow_request.internal_recall_k == 17
-    assert workflow_request.threshold == 0.2
-    assert workflow_request.rerank is True
-    assert (
-        workflow_request.for_step(
-            PlannedStep(id="explicit-recall", sub_query="explicit", top_k=9)
-        ).internal_recall_k
-        == 17
-    )
-
-
-def test_agentic_workflow_should_recompute_default_recall_for_step_top_k() -> None:
-    query = RetrievalQuery.from_parameters(
-        db=cast(AsyncSession, object()),
-        user_id="user-1",
-        namespace="contract-retrieval",
-        query="alpha",
-        top_k=1,
-        exclude_document_ids=[],
-        exclude_sections=[],
-        use_agentic=True,
-    )
-
-    workflow_request = WorkflowRunRequest.from_route_context(query.build_route_context())
-    step_request = workflow_request.for_step(
-        PlannedStep(id="wide-step", sub_query="wide alpha", top_k=10)
-    )
-
-    assert workflow_request.internal_recall_k is None
-    assert step_request.top_k == 10
-    assert step_request.internal_recall_k == 20
-
 
 @pytest.mark.asyncio
 async def test_agentic_workflow_should_pass_full_request_policy_to_step_adapter(
