@@ -1,7 +1,7 @@
 """Prompt projection for agentic section navigation."""
 from __future__ import annotations
 
-from shared.services.text_processing.tokenization import truncate_content_preview
+from shared.utils.text_utils import truncate_content_preview
 
 
 def format_items_for_llm(

@@ -13,7 +13,7 @@ _MAX_TABLE_NAME_CHARS = 80
 
 def sanitize_table_name_from_header(raw_header_text: str) -> str:
     """Build a concise, filesystem-safe table name from raw first-row header text."""
-    from shared.services.text_processing.tokenization import _is_meaningful_token
+    from shared.utils.text_utils import _is_meaningful_token
 
     if not raw_header_text:
         return ""

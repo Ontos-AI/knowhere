@@ -10,8 +10,8 @@ from shared.services.chunks.chunk_connections import (
     normalize_connect_to_targets,
     parse_relationship_refs,
 )
-from shared.services.text_processing.tokenization import truncate_content_preview
-from shared.core.time import utc_now_naive
+from shared.utils.text_utils import truncate_content_preview
+from shared.utils.utc_now import utc_now_naive
 
 
 class ZipResultSchemaBuilder:

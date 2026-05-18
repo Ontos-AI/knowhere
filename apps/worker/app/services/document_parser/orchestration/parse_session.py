@@ -12,7 +12,7 @@ from loguru import logger
 
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import ValidationException
-from app.services.common.file_utils import path_handle
+from shared.utils.file_utils import path_handle
 
 PDF_PAGE_LIMIT = 600
 

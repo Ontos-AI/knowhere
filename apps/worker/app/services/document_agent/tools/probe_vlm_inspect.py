@@ -71,7 +71,7 @@ def _call_vlm(
     max_tokens: int = 900,
 ) -> tuple[str, dict[str, int]]:
     from shared.core.config import settings
-    from shared.services.ai.openai_compatible_client_sync import get_openai_client
+    from shared.utils.OpenAICompatibleClientSync import get_openai_client
 
     effective_model = model or settings.IMAGE_MODEL or "qwen3.5-flash"
     client = get_openai_client(model=effective_model)

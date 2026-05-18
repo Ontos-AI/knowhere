@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 from loguru import logger
 
 from shared.services.redis.redis_service import RedisService
-from shared.services.redis.key_builder import redis_key_builder
+from shared.utils.redis_key_builder import redis_key_builder
 
 
 class RedisMonitor:

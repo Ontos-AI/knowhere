@@ -210,7 +210,7 @@ async def test_should_reject_an_sns_subscription_confirmation_url_that_resolves_
     async with api_client_factory() as api_client:
         monkeypatch.setattr(socket, "getaddrinfo", resolve_private_address)
         pinned_http_module = importlib.import_module(
-            "shared.services.http.pinned_outbound"
+            "shared.utils.pinned_outbound_http"
         )
         monkeypatch.setattr(
             pinned_http_module.aiohttp,

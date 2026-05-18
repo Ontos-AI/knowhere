@@ -10,7 +10,7 @@ from typing import List, Optional, Protocol, cast
 
 from syntok.tokenizer import Tokenizer as _SyntokTokenizer
 
-from shared.services.chunks.chunk_refs import CHUNK_REF_PATTERN
+from shared.utils.chunk_refs import CHUNK_REF_PATTERN
 
 try:
     from blingfire import text_to_words as _blingfire_text_to_words

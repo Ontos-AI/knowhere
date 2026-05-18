@@ -19,7 +19,7 @@ from shared.core.exceptions.domain_exceptions import (
     ValidationException,
 )
 from shared.models.database.api_key import APIKey
-from shared.services.auth.api_key_tokens import generate_api_key, hash_api_key, mask_api_key
+from shared.utils.api_keys import generate_api_key, hash_api_key, mask_api_key
 
 
 class APIKeyListItem(TypedDict):

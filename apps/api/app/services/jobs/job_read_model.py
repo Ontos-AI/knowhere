@@ -20,7 +20,7 @@ from shared.core.exceptions.domain_exceptions import (
 )
 from shared.models.schemas.job import JobList, JobResultResponse
 from shared.services.redis import RedisServiceFactory
-from shared.core.time import utc_now_naive
+from shared.utils.utc_now import utc_now_naive
 
 
 class JobReadModel:

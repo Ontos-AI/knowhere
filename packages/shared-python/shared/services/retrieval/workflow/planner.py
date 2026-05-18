@@ -11,7 +11,7 @@ from loguru import logger
 from shared.services.retrieval.agentic.budget import BudgetExceeded, BudgetLedger
 from shared.services.retrieval.llm_adapter import LLMFn, current_llm_usage
 from shared.services.retrieval.workflow.types import FinalStrategy, OutputRole, PlannedStep, QueryPlan, StepKind
-from shared.services.retrieval.token_estimate import estimate_tokens
+from shared.utils.token_estimate import estimate_tokens
 
 
 _PLAN_SCHEMA = {

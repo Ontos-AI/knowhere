@@ -26,8 +26,8 @@ from shared.core.exceptions.domain_exceptions import (
     FileSystemException,
 )
 from shared.core.logging import LogEvent
-from app.services.common.file_loading import load_file_bytes
-from app.services.common.file_utils import path_handle
+from shared.utils.file_loading import load_file_bytes
+from shared.utils.file_utils import path_handle
 
 # ==================== LibreOffice conversion ====================
 
@@ -56,7 +56,7 @@ def pptx_to_pdf_libreoffice(pptx_path, outdir="."):
 
 def _get_iloveapi_token_lease():
     """acquire iLoveAPI token lease from the quotas pool and generate a JWT token"""
-    from shared.services.ai.iloveapi_quota_manager import get_iloveapi_quota_manager
+    from shared.utils.iloveapi_quota_manager import get_iloveapi_quota_manager
 
     quota_manager = get_iloveapi_quota_manager()
 
@@ -111,7 +111,7 @@ def _pptx_bytes_to_pdf_bytes(pptx_bytes: bytes, filename: str) -> bytes:
     Acquires an in-flight slot before starting. Slots are released only if
     the Redis-backed reservation actually succeeded.
     """
-    from shared.services.ai.iloveapi_quota_manager import get_iloveapi_quota_manager
+    from shared.utils.iloveapi_quota_manager import get_iloveapi_quota_manager
 
     quota_manager = get_iloveapi_quota_manager()
 

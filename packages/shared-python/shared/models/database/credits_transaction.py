@@ -12,7 +12,7 @@ from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from shared.core.database import Base
-from shared.core.time import utc_now_naive
+from shared.utils.utc_now import utc_now_naive
 
 
 class CreditsTransaction(Base):

@@ -5,8 +5,8 @@ import re
 from typing import Any
 
 from bs4 import BeautifulSoup
-from shared.services.chunks.chunk_refs import extract_chunk_refs
-from app.services.common.file_utils import path_handle
+from shared.utils.chunk_refs import extract_chunk_refs
+from shared.utils.file_utils import path_handle
 
 SUMMARY_PATH_MARKERS: tuple[str, ...] = ("summary", "\u6458\u8981\u603b\u7ed3")
 

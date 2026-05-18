@@ -17,9 +17,9 @@ from openai.types.chat import ChatCompletionMessageParam
 
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import LLMServiceException
-from shared.services.http.client_pool import get_sync_client
-from shared.services.ai.llm_mock import build_mock_chat_completion_response
-from shared.core.security import mask_api_key
+from shared.utils.http_clients import get_sync_client
+from shared.utils.llm_mock import build_mock_chat_completion_response
+from shared.utils.security_utils import mask_api_key
 
 LOCAL_DEBUG = os.getenv("LOCAL_DEBUG", "0") == "1"
 LLMUsage = dict[str, int]
@@ -185,7 +185,7 @@ class OpenAICompatibleClientSync:
         api_kwargs: Dict[str, Any],
     ) -> tuple[str, LLMUsage]:
         """Acquire a token, make the call, and retry inline on 429."""
-        from shared.services.ai.ali_quota_manager import get_ali_quota_manager
+        from shared.utils.ali_quota_manager import get_ali_quota_manager
 
         quota_manager = get_ali_quota_manager()
         base_url: Optional[str] = self._base_url

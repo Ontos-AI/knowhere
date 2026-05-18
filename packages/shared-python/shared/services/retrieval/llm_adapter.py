@@ -87,7 +87,7 @@ def create_retrieval_llm_fn(
     effective_model = model or _resolve_default_model()
 
     async def llm_fn(prompt: LLMFnInput) -> str:
-        from shared.services.ai.openai_compatible_client_sync import get_openai_client
+        from shared.utils.OpenAICompatibleClientSync import get_openai_client
 
         client = get_openai_client(model=effective_model)
         current_llm_usage.set(None)
@@ -118,7 +118,7 @@ def create_retrieval_planner_fn(
     effective_model = model or _resolve_planner_model(thinking=thinking)
 
     async def llm_fn(prompt: LLMFnInput) -> str:
-        from shared.services.ai.openai_compatible_client_sync import get_openai_client
+        from shared.utils.OpenAICompatibleClientSync import get_openai_client
 
         client = get_openai_client(model=effective_model)
         current_llm_usage.set(None)
@@ -159,7 +159,7 @@ def create_retrieval_vlm_fn(
         return None
 
     async def vlm_fn(prompt: LLMFnInput) -> str:
-        from shared.services.ai.openai_compatible_client_sync import get_openai_client
+        from shared.utils.OpenAICompatibleClientSync import get_openai_client
 
         client = get_openai_client(model=effective_model)
         current_llm_usage.set(None)

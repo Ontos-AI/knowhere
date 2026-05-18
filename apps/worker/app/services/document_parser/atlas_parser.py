@@ -27,8 +27,8 @@ from app.services.document_parser.toc_parser import detect_tocs_in_texts
 from loguru import logger
 
 from shared.core.config import settings
-from shared.services.chunks.chunk_refs import build_chunk_ref
-from shared.services.text_processing.tokenization import tokenize2stw_remove
+from shared.utils.chunk_refs import build_chunk_ref
+from shared.utils.text_utils import tokenize2stw_remove
 
 # ─── Config ───────────────────────────────────────────────────────────
 VLM_CONCURRENCY = 3  # concurrent VLM calls

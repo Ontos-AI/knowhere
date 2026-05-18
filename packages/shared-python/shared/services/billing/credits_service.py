@@ -24,7 +24,7 @@ from shared.models.database.credits_transaction import CreditsTransaction
 from shared.models.database.payment_record import PaymentRecord
 from shared.models.database.user_balance import UserBalance
 from shared.repositories.credits_repository import CreditsRepository
-from shared.core.time import utc_now_naive
+from shared.utils.utc_now import utc_now_naive
 
 NON_EXPIRING_CREDIT_TRANSACTION_TYPES: tuple[str, ...] = ("refund",)
 

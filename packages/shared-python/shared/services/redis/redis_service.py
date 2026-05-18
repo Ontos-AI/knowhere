@@ -13,7 +13,7 @@ from shared.core.exceptions.redis_exceptions import (
     RedisConnectionError,
     RedisOperationError,
 )
-from shared.services.redis.retry_policy import RedisHealthChecker, RedisRetry
+from shared.utils.redis_retry import RedisHealthChecker, RedisRetry
 
 ResponseT = TypeVar("ResponseT")
 
@@ -87,7 +87,7 @@ class RedisService:
 
             if isinstance(value, (dict, list)):
                 # Use make_json_safe so complex types serialize consistently.
-                from shared.core.serialization import make_json_safe
+                from shared.utils.json_utils import make_json_safe
 
                 safe_value = make_json_safe(value)
                 value = json.dumps(safe_value, ensure_ascii=False)

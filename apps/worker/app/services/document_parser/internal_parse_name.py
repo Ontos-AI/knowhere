@@ -4,7 +4,7 @@
 import os
 from dataclasses import dataclass
 
-from app.services.common.file_utils import path_handle
+from shared.utils.file_utils import path_handle
 
 
 @dataclass(frozen=True)

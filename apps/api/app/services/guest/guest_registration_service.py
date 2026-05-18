@@ -24,7 +24,7 @@ from shared.models.schemas.guest import (
     GuestRegisterResponse,
 )
 from shared.services.billing.credits_service import CreditsService
-from shared.services.auth.api_key_tokens import generate_api_key, hash_api_key, mask_api_key
+from shared.utils.api_keys import generate_api_key, hash_api_key, mask_api_key
 
 _GUEST_TIER: str = "guest"
 _GUEST_KEY_NAME_PREFIX: str = "guest-device"

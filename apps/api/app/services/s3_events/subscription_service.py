@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from loguru import logger
 
-from shared.services.http.pinned_outbound import send_pinned_outbound_request
-from shared.services.http.url_security import validate_http_url_and_resolve_ip_async
+from shared.utils.pinned_outbound_http import send_pinned_outbound_request
+from shared.utils.url_security import validate_http_url_and_resolve_ip_async
 
 
 SNS_SUBSCRIPTION_TIMEOUT_SECONDS = 10

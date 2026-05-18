@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 
 from shared.services.redis.redis_service import RedisService
-from shared.services.redis.key_builder import RedisKeyType, redis_key_builder
+from shared.utils.redis_key_builder import RedisKeyType, redis_key_builder
 
 
 class TaskRedisService:

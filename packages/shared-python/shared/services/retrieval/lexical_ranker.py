@@ -4,7 +4,7 @@ from typing import Any
 
 from loguru import logger
 
-from shared.services.text_processing.tokenization import tokenize_for_retrieval
+from shared.utils.text_utils import tokenize_for_retrieval
 
 
 def tokenize_query_for_ranker(query: str) -> list[str]:

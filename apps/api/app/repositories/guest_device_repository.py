@@ -6,7 +6,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.guest_device import GuestDevice
-from shared.core.time import utc_now_naive
+from shared.utils.utc_now import utc_now_naive
 
 
 class GuestDeviceRepository(BaseRepository[GuestDevice, dict, dict]):

@@ -10,7 +10,7 @@ from shared.core.exceptions.domain_exceptions import (
     ValidationException,
 )
 from shared.services.storage.job_file_storage import JobFileStorage
-from shared.services.http.url_file_type import resolve_file_extension_sync
+from shared.utils.url_file_type import resolve_file_extension_sync
 
 
 def resolve_supported_url_extension(source_url: str) -> str:

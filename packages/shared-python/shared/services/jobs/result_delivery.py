@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from shared.services.storage.job_file_storage import JobFileStorage
-from shared.core.time import utc_now_naive
+from shared.utils.utc_now import utc_now_naive
 
 
 @dataclass(frozen=True)

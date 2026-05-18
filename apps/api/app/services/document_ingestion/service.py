@@ -35,8 +35,8 @@ from shared.core.exceptions.domain_exceptions import (
 from shared.core.exceptions.webhook_exceptions import WebhookConfigException
 from shared.models.schemas.job import ConfirmUploadRequest, JobCreate, JobResponse
 from shared.models.schemas.job_metadata import JobMetadataHelper
-from shared.services.http.url_file_type import resolve_file_extension_async
-from shared.services.http.url_security import validate_http_url_and_resolve_ip_async
+from shared.utils.url_file_type import resolve_file_extension_async
+from shared.utils.url_security import validate_http_url_and_resolve_ip_async
 
 JobMetadata = dict[str, object]
 
