@@ -74,13 +74,13 @@ flowchart TB
 
     subgraph PARSE["② Document Parsing (Worker)"]
         Queue --> Router["parse_service.checkerboard_inject_parse"]
-        Router --> Profiler["doc_profiler.profile_document"]
-        Profiler --> PDF["pdf_parser → MinerU"]
-        Profiler --> DOCX["doc_parser.parse_docx"]
-        Profiler --> PPTX["pptx_parser → iLoveAPI → PDF"]
-        Profiler --> XLSX["table_parser.parse_xlsx"]
-        Profiler --> MD["md_parser.parse_md"]
-        Profiler --> IMG["image_parser.parse_image"]
+        Router --> Profiler["profiling.doc_profiler.profile_document"]
+        Profiler --> PDF["formats.pdf.parser → MinerU"]
+        Profiler --> DOCX["formats.docx.parser.parse_docx"]
+        Profiler --> PPTX["formats.pptx.parser → iLoveAPI → PDF"]
+        Profiler --> XLSX["formats.excel.table_parser.parse_xlsx"]
+        Profiler --> MD["formats.markdown.parser.parse_md"]
+        Profiler --> IMG["formats.image.parser.parse_image"]
         PDF --> DF["pd.DataFrame (ALL_DF_COLS)"]
         DOCX --> DF
         PPTX --> DF
@@ -126,7 +126,7 @@ This is the legacy tuple-compatible entry for all file types. Internally,
 `checkerboard_parse_output()` and parser adapters use the typed `ParseOutput`
 contract. The parser flow:
 
-1. **Profiles** the document via `doc_profiler.profile_document()` to detect
+1. **Profiles** the document via `profiling.doc_profiler.profile_document()` to detect
    file type, page count, and special categories (e.g. `atlas`).
 2. **Routes** to the appropriate parser based on file extension.
 3. **Post-processes**: cleans up unreferenced images, compresses PNG→JPG.
@@ -137,22 +137,22 @@ contract. The parser flow:
 
 | Extension | Parser Module | Strategy |
 |:---|:---|:---|
-| `.pdf` | `pdf_parser.parse_pdfs` | MinerU API → `md_parser` → `layout_parser.pred_titles` |
-| `.docx` | `doc_parser.parse_docx` + `convert_doc2dics` | OXML iteration → heading detection → hierarchical tree |
-| `.doc` | `legacy_converter.doc_to_docx` → `.docx` pipeline | LibreOffice headless conversion first |
-| `.pptx` | `pptx_parser.parse_pptx` | iLoveAPI PPTX→PDF → MinerU pipeline |
-| `.xlsx` | `table_parser.parse_xlsx` | Sheet-by-sheet HTML table extraction |
-| `.xls` | `legacy_converter.xls_to_xlsx` → `.xlsx` pipeline | LibreOffice conversion first |
-| `.md` | `md_parser.parse_md` | Markdown heading parsing + LLM summaries |
-| `.txt` | `txt_parser.parse_texts` → `md_parser` | Read lines then route to MD parser |
-| `.png/.jpg` | `image_parser.parse_image` | VLM image description + OCR |
-| `.fragment` | `fragment_parser.parse_fragment` | Raw text fragment ingestion |
+| `.pdf` | `formats.pdf.parser.parse_pdfs` | MinerU API → Markdown parser → `structure.layout_parser.pred_titles` |
+| `.docx` | `formats.docx.parser.parse_docx` + `convert_doc2dics` | OXML iteration → heading detection → hierarchical tree |
+| `.doc` | `conversion.legacy_converter.doc_to_docx` → `.docx` pipeline | LibreOffice headless conversion first |
+| `.pptx` | `formats.pptx.parser.parse_pptx` | iLoveAPI PPTX→PDF → MinerU pipeline |
+| `.xlsx` | `formats.excel.table_parser.parse_xlsx` | Sheet-by-sheet HTML table extraction |
+| `.xls` | `conversion.legacy_converter.xls_to_xlsx` → `.xlsx` pipeline | LibreOffice conversion first |
+| `.md` | `formats.markdown.parser.parse_md` | Markdown heading parsing + LLM summaries |
+| `.txt` | `formats.text.parser.parse_texts` → Markdown parser | Read lines then route to MD parser |
+| `.png/.jpg` | `formats.image.parser.parse_image` | VLM image description + OCR |
+| `.fragment` | `formats.fragment.parser.parse_fragment` | Raw text fragment ingestion |
 
-### Heading Detection: `layout_parser.pred_titles()`
+### Heading Detection: `structure.layout_parser.pred_titles()`
 
 The core hierarchical recognition module. Determines heading levels using:
 
-1. **TOC-first**: If a DOCX TOC exists (`toc_parser.build_docx_toc_hierarchies`),
+1. **TOC-first**: If a DOCX TOC exists (`structure.toc_parser.build_docx_toc_hierarchies`),
    use it as ground truth for heading levels.
 2. **Regex patterns**: Match numbered headings like `1.2.3`, `第X章`, `（一）`.
 3. **LLM smart parse**: When `smart_title_parse=True`, send candidate headings
@@ -161,7 +161,7 @@ The core hierarchical recognition module. Determines heading levels using:
 4. **Font clustering (PDF)**: K-means on span heights from MinerU `layout.json`
    to group headings into 5 discrete tiers.
 
-### DOCX Parsing Deep Dive: `doc_parser.py`
+### DOCX Parsing Deep Dive: `formats/docx/parser.py`
 
 ```mermaid
 flowchart LR
@@ -194,11 +194,11 @@ Key logic in `parse_docx()`:
 
 ```mermaid
 flowchart LR
-    PDF[pdf_parser] --> MinerU[MinerU Cloud API]
+    PDF[formats.pdf.parser] --> MinerU[MinerU Cloud API]
     MinerU --> MDFile[Markdown + layout.json]
-    MDFile --> MDParser[md_parser.parse_md]
+    MDFile --> MDParser[formats.markdown.parser.parse_md]
     MDParser --> EvalHeadings[eval_md_headings + layout.json]
-    EvalHeadings --> PredTitles[layout_parser.pred_titles]
+    EvalHeadings --> PredTitles[structure.layout_parser.pred_titles]
     PredTitles --> Chunks[Hierarchical Chunks]
 ```
 
@@ -210,7 +210,7 @@ flowchart LR
 | Heading hierarchy recognition | `HIERARCHY_LLM_MODEL` | Falls back to `NORMOL_MODEL` |
 | Image description (VLM) | `IMAGE_MODEL` | `qwen3.5-flash` |
 | Image OCR / Q&A | `IMAGE_MODEL_MAX` | `qwen3.5-flash` |
-| Atlas classification | VLM via `atlas_classifier` | `IMAGE_MODEL` |
+| Atlas classification | VLM via `formats.atlas.classifier` | `IMAGE_MODEL` |
 
 ---
 
@@ -428,7 +428,7 @@ Used by agentic retrieval for 2-level section browsing. Structure:
 ```
 
 The `HIERARCHY` field is a nested dict representing the full heading tree
-discovered by `layout_parser.pred_titles()`. Each key is a heading title;
+discovered by `structure.layout_parser.pred_titles()`. Each key is a heading title;
 its value is a dict of child headings (empty `{}` for leaf nodes).
 
 ### Intermediate DataFrame (`ALL_DF_COLS`)

@@ -362,20 +362,26 @@ side effects.
 - `app/services/document_parser/orchestration/route_parse.py`
 - `app/services/document_parser/orchestration/format_router.py`
 - `app/services/document_parser/orchestration/format_adapters.py`
+- `app/services/document_parser/formats/*`
+- `app/services/document_parser/providers/*`
+- `app/services/document_parser/structure/*`
+- `app/services/document_parser/tables/*`
+- `app/services/document_parser/assets/*`
+- `app/services/document_parser/support/*`
 
 ### Rendered PDF Transform
 
-- `app/services/document_parser/rendered_pdf_transform.py`
-- `app/services/document_parser/pptx_pdf_rendering.py`
-- `app/services/document_parser/pdf_parser.py`
-- `app/services/document_parser/pptx_parser.py`
+- `app/services/document_parser/formats/pdf/rendered_transform.py`
+- `app/services/document_parser/formats/pdf/pptx_rendering.py`
+- `app/services/document_parser/formats/pdf/parser.py`
+- `app/services/document_parser/formats/pptx/parser.py`
 
 ### Heading Hierarchy
 
-- `app/services/document_parser/heading_hierarchy.py`
-- `app/services/document_parser/layout_parser.py`
-- `app/services/document_parser/md_parser.py`
-- `app/services/document_parser/doc_parser.py`
+- `app/services/document_parser/structure/heading_hierarchy.py`
+- `app/services/document_parser/structure/layout_parser.py`
+- `app/services/document_parser/formats/markdown/parser.py`
+- `app/services/document_parser/formats/docx/parser.py`
 
 ## Invariants
 

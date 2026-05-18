@@ -136,7 +136,7 @@ class PageEstimator:
     @classmethod
     def _count_doc(cls, file_path: str) -> int:
         """Estimate pages for DOC by converting it to DOCX first."""
-        from app.services.document_parser.legacy_converter import doc_to_docx
+        from app.services.document_parser.conversion.legacy_converter import doc_to_docx
 
         with tempfile.TemporaryDirectory(prefix="page-estimator-doc-") as temp_dir:
             converted_path, _ = doc_to_docx(file_path, temp_dir)
@@ -159,7 +159,7 @@ class PageEstimator:
     @classmethod
     def _count_xls(cls, file_path: str) -> int:
         """Estimate pages for XLS by converting it to XLSX first."""
-        from app.services.document_parser.legacy_converter import xls_to_xlsx
+        from app.services.document_parser.conversion.legacy_converter import xls_to_xlsx
 
         with tempfile.TemporaryDirectory(prefix="page-estimator-xls-") as temp_dir:
             converted_path, _ = xls_to_xlsx(file_path, temp_dir)

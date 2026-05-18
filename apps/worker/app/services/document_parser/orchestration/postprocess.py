@@ -4,11 +4,11 @@ import os
 import re
 
 import pandas as pd
-from app.services.document_parser.image_compressor import (
+from app.services.document_parser.assets.image_compressor import (
     apply_rename_map_to_dataframe,
     compress_output_images,
 )
-from app.services.document_parser.stage_profiler import stage_timer
+from app.services.document_parser.support.stage_profiler import stage_timer
 from loguru import logger
 
 

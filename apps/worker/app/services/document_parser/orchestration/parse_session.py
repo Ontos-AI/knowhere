@@ -4,10 +4,10 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.document_parser.atlas_classifier import classify_atlas_with_vlm
-from app.services.document_parser.doc_profiler import profile_document
+from app.services.document_parser.formats.atlas.classifier import classify_atlas_with_vlm
+from app.services.document_parser.profiling.doc_profiler import profile_document
 from app.services.document_parser.orchestration.parse_input import ParseInput
-from app.services.document_parser.stage_profiler import stage_timer
+from app.services.document_parser.support.stage_profiler import stage_timer
 from loguru import logger
 
 from shared.core.config import settings

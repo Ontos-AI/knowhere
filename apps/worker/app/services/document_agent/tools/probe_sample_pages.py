@@ -6,7 +6,7 @@ import gc
 import statistics
 from typing import Any, Literal
 
-from app.services.document_parser.pymupdf_subprocess import run_in_child_process, worker
+from app.services.document_parser.formats.pdf.pymupdf_subprocess import run_in_child_process, worker
 
 SampleStrategy = Literal["stratified", "uniform", "key_pages"]
 

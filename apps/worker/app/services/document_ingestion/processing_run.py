@@ -31,7 +31,7 @@ from app.services.document_ingestion.workspace import (
     create_task_workspace,
     download_s3_file_to_temp,
 )
-from app.services.document_parser.stage_profiler import stage_timer
+from app.services.document_parser.support.stage_profiler import stage_timer
 from loguru import logger
 
 from shared.models.schemas.job_metadata import JobMetadataHelper
@@ -111,7 +111,7 @@ def _run_parse_job(
     local_temp_path = download_s3_file_to_temp(job_context.s3_key, file_ext, input_dir)
     logger.info(f"File downloaded: job_id={job_id}, local_path={local_temp_path}")
 
-    from app.services.document_parser.internal_parse_name import (
+    from app.services.document_parser.support.internal_parse_name import (
         prepare_internal_parse_input,
     )
     from app.services.document_parser import parse_service
