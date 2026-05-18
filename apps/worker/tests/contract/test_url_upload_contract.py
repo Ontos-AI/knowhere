@@ -14,7 +14,7 @@ from support.contract_database import insert_contract_job, insert_contract_user
 
 
 def _load_upload_task_modules() -> tuple[Any, Any, Engine, Any, Any]:
-    import app.core.tasks.kb_tasks as kb_tasks
+    import app.core.tasks.document_ingestion_tasks as document_ingestion_tasks
     import app.services.workload.url_upload_service as url_upload_service
     from shared.core.database_sync import get_sync_engine
     from shared.services.redis.redis_sync_service import (
@@ -23,11 +23,29 @@ def _load_upload_task_modules() -> tuple[Any, Any, Engine, Any, Any]:
     )
 
     return (
-        kb_tasks,
+        document_ingestion_tasks,
         url_upload_service,
         get_sync_engine(),
         SyncJobInfoRedisService,
         SyncRedisServiceFactory,
+    )
+
+
+def _bind_upload_task_to_current_module(
+    monkeypatch: MonkeyPatch,
+    *,
+    document_ingestion_tasks: Any,
+) -> None:
+    monkeypatch.setitem(
+        document_ingestion_tasks.upload_url_file_task._orig_run.__globals__,
+        "_upload_url_file",
+        document_ingestion_tasks._upload_url_file,
+    )
+    monkeypatch.setattr(
+        document_ingestion_tasks.upload_url_file_task,
+        "__trace__",
+        None,
+        raising=False,
     )
 
 
@@ -37,14 +55,13 @@ def test_should_upload_a_url_job_to_the_expected_storage_key_and_publish_progres
     tmp_path: Path,
 ) -> None:
     (
-        kb_tasks,
-        _url_upload_service,
+        document_ingestion_tasks,
+        url_upload_service,
         engine,
         sync_job_info_service_cls,
         sync_redis_service_factory,
     ) = _load_upload_task_modules()
     from shared.core.config import settings
-    from shared.services.storage.job_file_storage import JobFileStorage
 
     user_id = f"worker-user-{uuid4().hex[:12]}"
     job_id = f"job_url_upload_{uuid4().hex[:12]}"
@@ -56,27 +73,50 @@ def test_should_upload_a_url_job_to_the_expected_storage_key_and_publish_progres
     def resolve_public_address(
         host: str,
         port: int | None,
+        *args: object,
+        **kwargs: object,
     ) -> list[tuple[socket.AddressFamily, socket.SocketKind, int, str, tuple[str, int]]]:
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
 
     monkeypatch.setattr(
-        JobFileStorage,
-        "download_file_from_url",
-        lambda self, _source_url, *, temp_dir=None: str(downloaded_path),
+        url_upload_service,
+        "download_source_url_to_temp",
+        lambda _source_url: str(downloaded_path),
+    )
+    monkeypatch.setitem(
+        document_ingestion_tasks.upload_url_file.__globals__,
+        "download_source_url_to_temp",
+        lambda _source_url: str(downloaded_path),
     )
     monkeypatch.setattr(
-        JobFileStorage,
-        "upload_source_file",
-        lambda self, local_path, storage_key: uploaded_calls.append(
-            (local_path, storage_key, self.uploads_bucket)
+        url_upload_service,
+        "upload_temp_file_to_source_storage",
+        lambda *, temp_file_path, s3_key: uploaded_calls.append(
+            (temp_file_path, s3_key, settings.S3_BUCKET_NAME)
+        ),
+    )
+    monkeypatch.setitem(
+        document_ingestion_tasks.upload_url_file.__globals__,
+        "upload_temp_file_to_source_storage",
+        lambda *, temp_file_path, s3_key: uploaded_calls.append(
+            (temp_file_path, s3_key, settings.S3_BUCKET_NAME)
         ),
     )
     monkeypatch.setattr(
-        JobFileStorage,
-        "verify_upload_exists",
-        lambda self, storage_key: {"exists": storage_key == s3_key, "size": 3},
+        url_upload_service,
+        "verify_source_upload",
+        lambda storage_key: {"exists": storage_key == s3_key, "size": 3},
+    )
+    monkeypatch.setitem(
+        document_ingestion_tasks.upload_url_file.__globals__,
+        "verify_source_upload",
+        lambda storage_key: {"exists": storage_key == s3_key, "size": 3},
     )
     monkeypatch.setattr(socket, "getaddrinfo", resolve_public_address)
+    _bind_upload_task_to_current_module(
+        monkeypatch,
+        document_ingestion_tasks=document_ingestion_tasks,
+    )
 
     downloaded_path.write_bytes(b"pdf")
 
@@ -106,16 +146,16 @@ def test_should_upload_a_url_job_to_the_expected_storage_key_and_publish_progres
             "s3_key": s3_key,
             "user_id": user_id,
             "webhook_enabled": False,
-            "job_type": "kb_management",
+            "job_type": "document_ingestion",
             "source_type": "url",
         },
     )
 
-    result = kb_tasks.upload_url_file_task.run(
+    result = document_ingestion_tasks.upload_url_file_task.run(
         job_id,
         source_url,
         user_id,
-        "kb_management",
+        "document_ingestion",
     )
 
     assert result == {

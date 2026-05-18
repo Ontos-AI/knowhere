@@ -32,7 +32,11 @@ celery_app = Celery(
 # Priority is handled via Celery's Redis transport priority support
 # (task_queue_max_priority + task_default_priority).
 celery_app.conf.task_queues = (
-    # Knowledge-base queues (routed by priority in task invocation)
+    # Document Ingestion queues (routed by priority in task invocation)
+    Queue("document_ingestion_high", routing_key="document_ingestion.high"),
+    Queue("document_ingestion_medium", routing_key="document_ingestion.medium"),
+    Queue("document_ingestion_low", routing_key="document_ingestion.low"),
+    # Pre-rename ingestion queues kept until old broker messages have drained.
     Queue("kb_high", routing_key="kb.high"),
     Queue("kb_medium", routing_key="kb.medium"),
     Queue("kb_low", routing_key="kb.low"),
@@ -87,7 +91,10 @@ celery_app.conf.update(
     beat_max_loop_interval=30,
     # Task routing
     task_routes={
-        # Knowledge base tasks (default medium priority)
+        # Document Ingestion tasks (default medium priority)
+        "app.core.tasks.document_ingestion_tasks.*": {
+            "queue": "document_ingestion_medium"
+        },
         "app.core.tasks.kb_tasks.*": {"queue": "kb_medium"},
         # Webhook orphan recovery
         "app.core.tasks.webhook_tasks.recover_orphaned_webhooks": {"queue": "default"},

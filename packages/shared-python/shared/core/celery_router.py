@@ -13,6 +13,20 @@ from shared.core.celery_app import get_celery_app
 
 # Note: get_queue_for_job has been simplified and no longer needs direct DB access.
 
+_DOCUMENT_INGESTION_TASK_TYPE = "document_ingestion"
+_LEGACY_DOCUMENT_INGESTION_TASK_TYPES = frozenset(
+    {
+        "kb_encoding",
+        "kb_management",
+    }
+)
+
+
+def _normalize_task_type(task_type: str) -> str:
+    if task_type in _LEGACY_DOCUMENT_INGESTION_TASK_TYPES:
+        return _DOCUMENT_INGESTION_TASK_TYPE
+    return task_type
+
 
 class TaskType(Enum):
     """Task-type enum."""
@@ -21,12 +35,11 @@ class TaskType(Enum):
     USER_AUTH = "user_auth"
     URGENT_DOCUMENT = "urgent_document"
     DOCUMENT_PROCESSING = "document_processing"
-    KB_ENCODING = "kb_encoding"
+    DOCUMENT_INGESTION = "document_ingestion"
     BATCH_PROCESSING = "batch_processing"
     ANALYTICS = "analytics"
     BACKUP = "backup"
     LOG_PROCESSING = "log_processing"
-    KB_MANAGEMENT = "kb_management"
 
 
 class UserLevel(Enum):
@@ -75,12 +88,11 @@ class CeleryTaskRouter:
             TaskType.USER_AUTH: 10,
             TaskType.URGENT_DOCUMENT: 10,
             TaskType.DOCUMENT_PROCESSING: 5,
-            TaskType.KB_ENCODING: 5,
+            TaskType.DOCUMENT_INGESTION: 6,
             TaskType.BATCH_PROCESSING: 5,
             TaskType.ANALYTICS: 1,
             TaskType.BACKUP: 1,
             TaskType.LOG_PROCESSING: 1,
-            TaskType.KB_MANAGEMENT: 6,
         }
 
         # User-level weights.
@@ -171,7 +183,7 @@ class CeleryTaskRouter:
         """
         try:
             # Parse the task type.
-            task_type_enum = TaskType(task_type)
+            task_type_enum = TaskType(_normalize_task_type(task_type))
 
             # Parse the user level.
             user_level = UserLevel(kwargs.get("user_level", "standard"))
@@ -206,7 +218,7 @@ class CeleryTaskRouter:
         Resolve the queue name for a job based on job type and subscription.
 
         Args:
-            job_type: Task type such as kb_management or ai_query.
+            job_type: Task type such as document_ingestion or ai_query.
             user_id: User ID.
 
         Returns:
@@ -214,8 +226,10 @@ class CeleryTaskRouter:
         """
         try:
             # TODO: temporary simplified path to avoid async work here.
-            if job_type in ["kb_management", "kb_encoding"]:
+            if job_type in _LEGACY_DOCUMENT_INGESTION_TASK_TYPES:
                 return "kb_low"
+            if job_type == _DOCUMENT_INGESTION_TASK_TYPE:
+                return "document_ingestion_low"
             elif job_type in ["ai_query", "user_auth", "urgent_document"]:
                 return "ai_high_priority"
             elif job_type in ["document_processing"]:
@@ -235,8 +249,10 @@ class CeleryTaskRouter:
         except Exception as e:
             logger.error(f"Failed to get queue for user {user_id}: {e}")
             # Default to a medium-priority queue on failure.
-            if job_type in ["kb_management", "kb_encoding"]:
+            if job_type in _LEGACY_DOCUMENT_INGESTION_TASK_TYPES:
                 return "kb_medium"
+            if job_type == _DOCUMENT_INGESTION_TASK_TYPE:
+                return "document_ingestion_medium"
             elif job_type in ["ai_query", "user_auth", "urgent_document"]:
                 return "ai_high_priority"
             else:
@@ -305,7 +321,7 @@ static_routes = (
 )
 
 # Celery supports router list: try function router first, fallback to static dict
-# 1. task_router.route_task: Dynamic routing (based on user subscription, for kb_tasks)
+# 1. task_router.route_task: Dynamic routing for Document Ingestion tasks.
 # 2. static_routes: Static routing (webhook and other fixed routes, from celery_app.py)
 celery_app.conf.task_routes = [
     task_router.route_task,  # Dynamic routing priority

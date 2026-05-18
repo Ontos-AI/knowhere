@@ -51,7 +51,7 @@ class Job(Base):
     )
 
     # Basic Job Info
-    job_type: Mapped[str] = mapped_column(String(50), nullable=False)  # kb_management
+    job_type: Mapped[str] = mapped_column(String(50), nullable=False)  # document_ingestion
     status: Mapped[str] = mapped_column(
         String(50), nullable=False, default="pending"
     )  # PRD Status: pending, waiting-file, running, converting, done, failed

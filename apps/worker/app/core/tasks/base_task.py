@@ -1,5 +1,5 @@
 """
-Base Celery task class for KB worker tasks.
+Base Celery task class for worker-side Document Ingestion tasks.
 Provides centralized exception handling with direct DB writes for failure finalization.
 """
 
@@ -13,15 +13,15 @@ from shared.core.exceptions.knowhere_exception import KnowhereException
 from shared.core.logging import LogEvent
 
 
-class KBBaseTask(Task):
-    """Knowledge Base base task class - provides centralized exception handling."""
+class DocumentIngestionBaseTask(Task):
+    """Base task class for worker-side Document Ingestion error handling."""
 
     def on_success(self, retval, task_id, args, kwargs):
         """Task success callback."""
         logger.bind(
             event=LogEvent.WORKER_TASK_COMPLETE.value,
             task_id=task_id,
-        ).info("KB task completed successfully")
+        ).info("Document Ingestion task completed successfully")
 
     def on_failure(self, exc, task_id, args, kwargs, einfo):
         """Task failure callback — finalize failure directly to the database."""
@@ -84,4 +84,4 @@ class KBBaseTask(Task):
             task_id=task_id,
             job_id=job_id,
             retry_count=self.request.retries,
-        ).warning(f"KB task retrying: {exc}")
+        ).warning(f"Document Ingestion task retrying: {exc}")

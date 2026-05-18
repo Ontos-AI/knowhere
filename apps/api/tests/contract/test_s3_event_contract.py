@@ -31,7 +31,9 @@ def _build_s3_event_payload(job_id: str) -> dict[str, object]:
     }
 
 
-async def _insert_waiting_file_job() -> tuple[str, str]:
+async def _insert_waiting_file_job(
+    *, job_type: str = "document_ingestion"
+) -> tuple[str, str]:
     user_id = f"contract-s3-user-{uuid4().hex[:12]}"
     job_id = f"job_{uuid4().hex[:12]}"
 
@@ -40,7 +42,7 @@ async def _insert_waiting_file_job() -> tuple[str, str]:
         job_id=job_id,
         user_id=user_id,
         status="waiting-file",
-        job_type="kb_management",
+        job_type=job_type,
         source_type="file",
         s3_key=f"uploads/{job_id}.pdf",
     )
@@ -67,29 +69,24 @@ async def test_should_accept_a_direct_upload_complete_event_advance_the_waiting_
     api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
     monkeypatch: MonkeyPatch,
 ) -> None:
-    workflow_calls: list[dict[str, str | None]] = []
+    workflow_calls: list[dict[str, str]] = []
     user_id: str = ""
     job_id: str = ""
 
-    class FakeKBOrchestrator:
-        async def start_workflow(
+    class FakeDocumentIngestionWorkerDispatcher:
+        async def start_uploaded_file_parse(
             self,
-            db,
+            *,
             job_id: str,
-            source_type: str,
-            file_path: str | None,
-            file_url: str | None,
             user_id: str,
-        ) -> None:
+        ) -> str:
             workflow_calls.append(
                 {
                     "job_id": job_id,
-                    "source_type": source_type,
-                    "file_path": file_path,
-                    "file_url": file_url,
                     "user_id": user_id,
                 }
             )
+            return "contract-task-id"
 
     async with api_client_factory() as api_client:
         user_id, job_id = await _insert_waiting_file_job()
@@ -98,8 +95,8 @@ async def test_should_accept_a_direct_upload_complete_event_advance_the_waiting_
         )
         monkeypatch.setattr(
             handoff_service,
-            "KBOrchestrator",
-            FakeKBOrchestrator,
+            "DocumentIngestionWorkerDispatcher",
+            FakeDocumentIngestionWorkerDispatcher,
         )
         response = await api_client.post(
             "/api/v1/internal/s3-events",
@@ -116,9 +113,60 @@ async def test_should_accept_a_direct_upload_complete_event_advance_the_waiting_
     assert workflow_calls == [
         {
             "job_id": job_id,
-            "source_type": "file",
-            "file_path": None,
-            "file_url": None,
+            "user_id": user_id,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_should_accept_a_pre_rename_waiting_file_job_type_during_upload_handoff(
+    api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    workflow_calls: list[dict[str, str]] = []
+    user_id: str = ""
+    job_id: str = ""
+
+    class FakeDocumentIngestionWorkerDispatcher:
+        async def start_uploaded_file_parse(
+            self,
+            *,
+            job_id: str,
+            user_id: str,
+        ) -> str:
+            workflow_calls.append(
+                {
+                    "job_id": job_id,
+                    "user_id": user_id,
+                }
+            )
+            return "contract-task-id"
+
+    async with api_client_factory() as api_client:
+        user_id, job_id = await _insert_waiting_file_job(job_type="kb_management")
+        handoff_service = importlib.import_module(
+            "app.services.document_ingestion.handoff_service"
+        )
+        monkeypatch.setattr(
+            handoff_service,
+            "DocumentIngestionWorkerDispatcher",
+            FakeDocumentIngestionWorkerDispatcher,
+        )
+        response = await api_client.post(
+            "/api/v1/internal/s3-events",
+            json=_build_s3_event_payload(job_id),
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "Event handled successfully"}
+
+    job_row = await ContractDatabase.fetch_job(job_id)
+
+    assert job_row is not None
+    assert job_row["status"] == "pending"
+    assert workflow_calls == [
+        {
+            "job_id": job_id,
             "user_id": user_id,
         }
     ]
@@ -131,17 +179,14 @@ async def test_should_accept_an_sns_wrapped_upload_complete_event_and_advance_a_
 ) -> None:
     job_id: str = ""
 
-    class FakeKBOrchestrator:
-        async def start_workflow(
+    class FakeDocumentIngestionWorkerDispatcher:
+        async def start_uploaded_file_parse(
             self,
-            db,
+            *,
             job_id: str,
-            source_type: str,
-            file_path: str | None,
-            file_url: str | None,
             user_id: str,
-        ) -> None:
-            return None
+        ) -> str:
+            return "contract-task-id"
 
     async with api_client_factory() as api_client:
         _, job_id = await _insert_waiting_file_job()
@@ -150,8 +195,8 @@ async def test_should_accept_an_sns_wrapped_upload_complete_event_and_advance_a_
         )
         monkeypatch.setattr(
             handoff_service,
-            "KBOrchestrator",
-            FakeKBOrchestrator,
+            "DocumentIngestionWorkerDispatcher",
+            FakeDocumentIngestionWorkerDispatcher,
         )
         response = await api_client.post(
             "/api/v1/internal/s3-events",

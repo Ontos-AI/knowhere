@@ -39,7 +39,7 @@ def insert_contract_job(
     *,
     job_id: str,
     user_id: str,
-    job_type: str = "kb_management",
+    job_type: str = "document_ingestion",
     status: str = "pending",
     source_type: str = "file",
     file_path: str | None = None,

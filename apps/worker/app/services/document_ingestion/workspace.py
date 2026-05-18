@@ -58,7 +58,10 @@ def create_task_workspace(job_id: str) -> str:
 
     try:
         os.makedirs(temp_root, exist_ok=True)
-        return tempfile.mkdtemp(prefix=f"kb_task_{job_id}_", dir=temp_root)
+        return tempfile.mkdtemp(
+            prefix=f"document_ingestion_task_{job_id}_",
+            dir=temp_root,
+        )
     except (OSError, PermissionError) as exc:
         raise FileSystemException(
             user_message="System error preparing temporary storage",

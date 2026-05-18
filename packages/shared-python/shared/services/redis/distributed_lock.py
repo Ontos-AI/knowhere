@@ -130,7 +130,7 @@ class RedisJobLock:
                 internal_message=(
                     f"Could not acquire processing lock for job {self._job_id}"
                 ),
-                retry_after=settings.KB_TASK_RETRY_COUNTDOWN,
+                retry_after=settings.DOCUMENT_INGESTION_TASK_RETRY_COUNTDOWN,
             )
         return self
 

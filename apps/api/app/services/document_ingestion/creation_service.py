@@ -31,7 +31,10 @@ from shared.services.redis.job_metadata_service import JobMetadataService
 from shared.services.storage.file_upload_service import FileUploadService
 from shared.services.http.url_file_type import resolve_file_extension_async
 
-_JOB_TYPE_KB_MANAGEMENT = "kb_management"
+_DOCUMENT_INGESTION_JOB_TYPE = "document_ingestion"
+_URL_UPLOAD_TASK_NAME = (
+    "app.core.tasks.document_ingestion_tasks.upload_url_file_task"
+)
 JobMetadata = dict[str, object]
 UploadHeaders = dict[str, str]
 
@@ -95,7 +98,7 @@ class DocumentIngestionCreationService:
                 db=db,
                 job_id=job_id,
                 user_id=user_id,
-                job_type=_JOB_TYPE_KB_MANAGEMENT,
+                job_type=_DOCUMENT_INGESTION_JOB_TYPE,
                 source_type=source_type,
                 file_path=None,
                 webhook_url=webhook_url,
@@ -134,7 +137,7 @@ class DocumentIngestionCreationService:
             "s3_key": s3_key,
             "user_id": user_id,
             "webhook_enabled": webhook_enabled,
-            "job_type": _JOB_TYPE_KB_MANAGEMENT,
+            "job_type": _DOCUMENT_INGESTION_JOB_TYPE,
             "source_type": source_type,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -313,10 +316,8 @@ def _schedule_url_upload(*, job_id: str, source_url: str, user_id: str) -> None:
     from shared.core.celery_app import get_celery_app
 
     celery_app = get_celery_app()
-    upload_url_file_task = celery_app.signature(
-        "app.core.tasks.kb_tasks.upload_url_file_task"
-    )
+    upload_url_file_task = celery_app.signature(_URL_UPLOAD_TASK_NAME)
     upload_url_file_task.apply_async(
         args=[job_id, source_url, user_id],
-        kwargs={"job_type": _JOB_TYPE_KB_MANAGEMENT},
+        kwargs={"job_type": _DOCUMENT_INGESTION_JOB_TYPE},
     )

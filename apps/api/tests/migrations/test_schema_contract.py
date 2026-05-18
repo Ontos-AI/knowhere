@@ -88,7 +88,7 @@ def _insert_job(
         {
             "job_id": job_id,
             "user_id": user_id,
-            "job_type": "kb_management",
+            "job_type": "document_ingestion",
             "status": status,
             "source_type": "file",
             "webhook_enabled": False,

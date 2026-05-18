@@ -15,7 +15,7 @@ from shared.services.worker_health import start_worker_heartbeat, stop_worker_he
 
 def _register_task_modules() -> None:
     """Import task modules for Celery side-effect registration."""
-    import app.core.tasks.kb_tasks  # noqa: F401
+    import app.core.tasks.document_ingestion_tasks  # noqa: F401
     import app.core.tasks.stale_job_sweeper  # noqa: F401
     import app.core.tasks.webhook_tasks  # noqa: F401
 
@@ -114,7 +114,9 @@ def run_worker() -> None:
         f"--loglevel={log_level}",
         f"--hostname={node_name}",
         "-Q",
-        "kb_high,kb_medium,kb_low,ai_high_priority,default",
+        "document_ingestion_high,document_ingestion_medium,"
+        "document_ingestion_low,kb_high,kb_medium,kb_low,"
+        "ai_high_priority,default",
         "--without-gossip",
         "--without-mingle",
     ]

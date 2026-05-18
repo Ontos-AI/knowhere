@@ -97,7 +97,7 @@ def create_retrieval_mcp_server(
     server = FastMCP(
         "knowhere-retrieval",
         instructions=(
-            "Use this server to search knowledge. "
+            "Use this server to search published documents. "
             "If you need information before answering, try searching with this tool."
         ),
         streamable_http_path=streamable_http_path,
@@ -106,10 +106,10 @@ def create_retrieval_mcp_server(
     )
 
     @server.tool(
-        name="kb.query",
-        description="Search for information and return relevant knowledge snippets.",
+        name="retrieval.query",
+        description="Search published documents and return relevant snippets.",
     )
-    async def kb_query(
+    async def query_documents(
         query: Annotated[str, Field(description="What you want to search for.")],
         top_k: Annotated[
             int, Field(description="Maximum number of results to return.")

@@ -52,7 +52,7 @@ def mark_job_running(job_id: str, redis_service: Any) -> bool:
                     f"Parse task started before upload transition completed for job {job_id}; "
                     f"current_state={current_state}"
                 ),
-                retry_after=settings.KB_TASK_RETRY_COUNTDOWN,
+                retry_after=settings.DOCUMENT_INGESTION_TASK_RETRY_COUNTDOWN,
                 user_message="Job is not ready for processing yet. Retrying shortly.",
             )
 
@@ -85,7 +85,7 @@ def mark_job_running(job_id: str, redis_service: Any) -> bool:
                     f"Failed to transition job {job_id} from pending to running; "
                     f"reason={outcome.reason}"
                 ),
-                retry_after=settings.KB_TASK_RETRY_COUNTDOWN,
+                retry_after=settings.DOCUMENT_INGESTION_TASK_RETRY_COUNTDOWN,
                 user_message="Job state is still settling. Retrying shortly.",
             )
 

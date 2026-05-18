@@ -33,7 +33,7 @@ knowhereapi-main/
 │   ├── api/          # FastAPI REST API (port 5005)
 │   │   ├── app/
 │   │   │   ├── api/v1/routes/   # Endpoint handlers
-│   │   │   ├── services/        # Business logic (auth, knowledge, billing)
+│   │   │   ├── services/        # Business logic (auth, ingestion, billing)
 │   │   │   └── repositories/    # Data access layer
 │   │   └── main.py              # Entrypoint, runs migrations on start
 │   ├── worker/       # Celery worker for async document processing
@@ -214,17 +214,17 @@ flowchart LR
 
 ---
 
-## Persisted Knowledge Base Schema (On-Disk Output)
+## Persisted Document Corpus Schema (On-Disk Output)
 
-After parsing and chunk conversion, results are persisted to `~/.knowhere/{kb_name}/`.
+After parsing and chunk conversion, results are persisted to `~/.knowhere/{corpus_name}/`.
 This on-disk structure is the **authoritative persisted format** — the intermediate
 DataFrame is an internal detail. Below is the complete schema.
 
-### KB-Level Directory Layout
+### Corpus-Level Directory Layout
 
 ```text
-~/.knowhere/{kb_name}/
-├── knowledge_graph.json           # KB-wide graph: file metadata + cross-doc edges
+~/.knowhere/{corpus_name}/
+├── knowledge_graph.json           # corpus-wide graph: file metadata + cross-doc edges
 ├── chunk_stats.json               # Per-chunk retrieval hit analytics {chunk_id → stats}
 ├── {source_file_name}/            # One directory per ingested document
 │   ├── chunks.json                # All parsed chunks for this document
@@ -239,12 +239,12 @@ DataFrame is an internal detail. Below is the complete schema.
 │   └── toc_hierarchies.json       # Debug: extracted TOC structure (DOCX only)
 ```
 
-### `knowledge_graph.json` — KB-Wide Graph
+### `knowledge_graph.json` — Corpus-Wide Graph
 
 ```json
 {
   "version": "2.0",
-  "kb_id": "test_kb",
+  "corpus_id": "test-corpus",
   "stats": { "total_files": 3, "total_chunks": 364, "total_cross_file_edges": 0 },
   "files": {
     "AI_Security_Report.docx": {
@@ -605,7 +605,7 @@ Unlike legacy retrieval which relied on static `hydrate_mode` tags, hydration is
 4. Cleans asset path references from content
 5. Attaches citation: `{document_id, chunk_id, source_file_name, section_path}`
 
-### Small KB Optimization
+### Small Corpus Optimization
 
 When `total_chunks <= top_k`, skips the full pipeline and returns all chunks
 directly (router: `small_kb_all`).

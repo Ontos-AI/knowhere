@@ -163,7 +163,7 @@ async def _insert_active_job(
                 {
                     "job_id": job_id,
                     "user_id": user_id,
-                    "job_type": "kb_management",
+                    "job_type": "document_ingestion",
                     "status": status,
                     "source_type": "file",
                     "webhook_enabled": False,
@@ -244,7 +244,7 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         original_request = cast(dict[str, object], job_metadata["original_request"])
 
         assert job_row["user_id"] == "local-dev-user"
-        assert job_row["job_type"] == "kb_management"
+        assert job_row["job_type"] == "document_ingestion"
         assert job_row["status"] == "waiting-file"
         assert job_row["source_type"] == "file"
         assert job_row["s3_key"] == f"uploads/{job_id}.pdf"
@@ -272,7 +272,7 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         assert cached_metadata["source_file_name"] == payload["file_name"]
         assert cached_job_info["job_id"] == job_id
         assert cached_job_info["user_id"] == "local-dev-user"
-        assert cached_job_info["job_type"] == "kb_management"
+        assert cached_job_info["job_type"] == "document_ingestion"
         assert cached_job_info["source_type"] == "file"
         assert cached_job_info["s3_key"] == f"uploads/{job_id}.pdf"
         assert cached_job_info["webhook_enabled"] is False
@@ -675,7 +675,7 @@ async def test_should_create_a_waiting_file_job_for_a_url_source_and_enqueue_the
         original_request = cast(dict[str, object], job_metadata["original_request"])
 
         assert job_row["user_id"] == "local-dev-user"
-        assert job_row["job_type"] == "kb_management"
+        assert job_row["job_type"] == "document_ingestion"
         assert job_row["status"] == "waiting-file"
         assert job_row["source_type"] == "url"
         assert job_row["s3_key"] == f"uploads/{job_id}.pdf"
@@ -705,15 +705,15 @@ async def test_should_create_a_waiting_file_job_for_a_url_source_and_enqueue_the
         assert cached_metadata["source_url"] == payload["source_url"]
         assert cached_job_info["job_id"] == job_id
         assert cached_job_info["user_id"] == "local-dev-user"
-        assert cached_job_info["job_type"] == "kb_management"
+        assert cached_job_info["job_type"] == "document_ingestion"
         assert cached_job_info["source_type"] == "url"
         assert cached_job_info["s3_key"] == f"uploads/{job_id}.pdf"
         assert cached_job_info["webhook_enabled"] is False
         assert scheduled_tasks == [
             {
-                "task_name": "app.core.tasks.kb_tasks.upload_url_file_task",
+                "task_name": "app.core.tasks.document_ingestion_tasks.upload_url_file_task",
                 "args": [job_id, payload["source_url"], "local-dev-user"],
-                "kwargs": {"job_type": "kb_management"},
+                "kwargs": {"job_type": "document_ingestion"},
             }
         ]
 
@@ -842,9 +842,9 @@ async def test_should_accept_a_private_url_source_when_creating_a_url_job_in_loc
     assert job_metadata["source_url"] == source_url
     assert scheduled_tasks == [
         {
-            "task_name": "app.core.tasks.kb_tasks.upload_url_file_task",
+            "task_name": "app.core.tasks.document_ingestion_tasks.upload_url_file_task",
             "args": [job_id, source_url, "local-dev-user"],
-            "kwargs": {"job_type": "kb_management"},
+            "kwargs": {"job_type": "document_ingestion"},
         }
     ]
 
@@ -982,28 +982,22 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
         assert bucket is None
         return {"exists": True, "s3_key": s3_key}
 
-    async def _fake_start_workflow(
+    async def _fake_start_uploaded_file_parse(
         self: object,
-        db: object,
+        *,
         job_id: str,
-        source_type: str,
-        file_path: str | None,
-        file_url: str | None,
         user_id: str,
-    ) -> None:
+    ) -> str:
         started_workflows.append(
             {
                 "job_id": job_id,
-                "source_type": source_type,
                 "user_id": user_id,
-                "file_path": file_path,
-                "file_url": file_url,
-                "db_bound": db is not None,
             }
         )
+        return "contract-task-id"
 
     async with developer_api_client_factory() as api_client:
-        import app.services.knowledge.kb_orchestrator as kb_orchestrator_module
+        import app.services.document_ingestion.worker_dispatcher as dispatcher_module
         import shared.services.storage.file_upload_service as file_upload_service_module
 
         monkeypatch.setattr(
@@ -1012,9 +1006,9 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
             _fake_verify_s3_file_exists,
         )
         monkeypatch.setattr(
-            kb_orchestrator_module.KBOrchestrator,
-            "start_workflow",
-            _fake_start_workflow,
+            dispatcher_module.DocumentIngestionWorkerDispatcher,
+            "start_uploaded_file_parse",
+            _fake_start_uploaded_file_parse,
         )
 
         create_response = await api_client.post("/api/v1/jobs", json=payload)
@@ -1036,11 +1030,7 @@ async def test_should_confirm_upload_and_start_processing_for_a_waiting_file_job
     assert started_workflows == [
         {
             "job_id": job_id,
-            "source_type": "file",
             "user_id": "local-dev-user",
-            "file_path": None,
-            "file_url": None,
-            "db_bound": True,
         }
     ]
 

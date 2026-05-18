@@ -71,7 +71,7 @@ async def lifespan(app: FastAPI):
     mcp_server = getattr(app.state, "retrieval_mcp_server", None)
     mcp_session_manager = getattr(mcp_server, "session_manager", None)
 
-    logger.info("knowledge library API service started!")
+    logger.info("Document API service started!")
     if mcp_session_manager is not None:
         async with mcp_session_manager.run():
             yield
@@ -94,7 +94,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"async HTTP client close failed: {e}")
 
-    logger.info("knowledge library API service stopped!")
+    logger.info("Document API service stopped!")
     await safe_dispose_engine(engine)
     logger.info("database engine connection pool disposed.")
     logger.info("service stopped.")
@@ -135,7 +135,7 @@ def create_app() -> FastAPI:
 
     @app.get("/", tags=["Root"])
     async def read_root():
-        return {"message": f"Welcome to {app.title} - Knowledge Base API Service!"}
+        return {"message": f"Welcome to {app.title} - Document API Service!"}
 
     @app.api_route("/health", methods=["GET", "HEAD"], tags=["Health"])
     async def health_check():
@@ -169,11 +169,10 @@ def create_app() -> FastAPI:
     return app
 
 
-# Worker settings removed as DsTasks.py was deleted
 app = create_app()
 
 if __name__ == "__main__":
-    logger.info("Knowledge Base API service starting...")
+    logger.info("Document API service starting...")
     port = 5005
     reload = False  # Enable hot reload
     host = "0.0.0.0"

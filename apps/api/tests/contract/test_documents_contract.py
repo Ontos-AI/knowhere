@@ -310,7 +310,7 @@ async def _insert_document_revision_with_chunks(
                     ) VALUES (
                         :job_id,
                         :user_id,
-                        'kb_management',
+                        'document_ingestion',
                         'done',
                         'url',
                         FALSE,

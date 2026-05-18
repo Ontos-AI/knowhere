@@ -1,1 +1,1 @@
-"""Celery task package for worker-side knowledge-base jobs."""
+"""Celery task package for worker-side Document Ingestion jobs."""

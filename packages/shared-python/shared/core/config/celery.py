@@ -23,9 +23,13 @@ class CeleryConfig(BaseModel):
     )
 
     # Task retry configuration
-    KB_TASK_MAX_RETRIES: int = Field(default=2, description="KB task max retries")
-    KB_TASK_RETRY_COUNTDOWN: int = Field(
-        default=120, description="KB task retry countdown (seconds)"
+    DOCUMENT_INGESTION_TASK_MAX_RETRIES: int = Field(
+        default=2,
+        description="Document Ingestion task max retries",
+    )
+    DOCUMENT_INGESTION_TASK_RETRY_COUNTDOWN: int = Field(
+        default=120,
+        description="Document Ingestion task retry countdown (seconds)",
     )
     PYMUPDF_MAX_CONCURRENT: int = Field(
         default=2,
@@ -40,7 +44,7 @@ class CeleryConfig(BaseModel):
             "user_auth": 10,
             "urgent_document": 10,
             "document_processing": 5,
-            "kb_encoding": 5,
+            "document_ingestion": 6,
             "batch_processing": 5,
             "analytics": 1,
             "backup": 1,
@@ -56,7 +60,7 @@ class CeleryConfig(BaseModel):
             "user_auth": "auth_queue",
             "urgent_document": "document_urgent",
             "document_processing": "document_processing",
-            "kb_encoding": "kb_encoding",
+            "document_ingestion": "document_ingestion_low",
             "batch_processing": "batch_processing",
             "analytics": "analytics_queue",
             "backup": "backup_queue",

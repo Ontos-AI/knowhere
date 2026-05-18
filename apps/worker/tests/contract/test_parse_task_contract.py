@@ -34,7 +34,7 @@ def _build_pending_file_job_metadata(source_file_name: str) -> dict[str, Any]:
 
 
 def _load_parse_task_modules() -> tuple[Any, Any, Any, Engine, Any, Any, Any]:
-    import app.core.tasks.kb_tasks as kb_tasks
+    import app.core.tasks.document_ingestion_tasks as document_ingestion_tasks
     import app.services.document_ingestion.processing_run as parse_job_service
     import app.services.document_parser.parse_service as parse_service
     from shared.core.database_sync import get_sync_engine
@@ -45,7 +45,7 @@ def _load_parse_task_modules() -> tuple[Any, Any, Any, Engine, Any, Any, Any]:
     )
 
     return (
-        kb_tasks,
+        document_ingestion_tasks,
         parse_service,
         parse_job_service,
         get_sync_engine(),
@@ -82,7 +82,7 @@ def _save_worker_task_cache(
             "s3_key": s3_key,
             "user_id": user_id,
             "webhook_enabled": False,
-            "job_type": "kb_management",
+            "job_type": "document_ingestion",
             "source_type": "file",
         },
     )
@@ -107,21 +107,21 @@ def _find_task_workspaces(root: Path, job_id: str) -> list[Path]:
     return sorted(
         path
         for path in root.iterdir()
-        if path.is_dir() and path.name.startswith(f"kb_task_{job_id}_")
+        if path.is_dir() and path.name.startswith(f"document_ingestion_task_{job_id}_")
     )
 
 
 def _bind_parse_task_to_current_module(
     monkeypatch: MonkeyPatch,
     *,
-    kb_tasks: Any,
+    document_ingestion_tasks: Any,
 ) -> None:
     monkeypatch.setitem(
-        kb_tasks.parse_task._orig_run.__globals__,
+        document_ingestion_tasks.parse_task._orig_run.__globals__,
         "_parse",
-        kb_tasks._parse,
+        document_ingestion_tasks._parse,
     )
-    monkeypatch.setattr(kb_tasks.parse_task, "__trace__", None, raising=False)
+    monkeypatch.setattr(document_ingestion_tasks.parse_task, "__trace__", None, raising=False)
 
 
 @pytest.mark.parametrize(
@@ -141,7 +141,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
 ) -> None:
     monkeypatch.setenv("BILLING_ENABLED", "true" if billing_enabled else "false")
     (
-        kb_tasks,
+        document_ingestion_tasks,
         parse_service,
         parse_job_service,
         engine,
@@ -185,7 +185,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
         sync_redis_service_factory=sync_redis_service_factory,
     )
 
-    _bind_parse_task_to_current_module(monkeypatch, kb_tasks=kb_tasks)
+    _bind_parse_task_to_current_module(monkeypatch, document_ingestion_tasks=document_ingestion_tasks)
     monkeypatch.setattr(settings, "TMP_PATH", str(tmp_path))
     monkeypatch.setattr(settings, "BILLING_ENABLED", billing_enabled)
 
@@ -320,7 +320,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
     monkeypatch.setattr(parse_service, "checkerboard_inject_parse", fake_checkerboard_inject_parse)
     monkeypatch.setattr(parse_job_service, "get_result_storage", lambda: FakeResultStorage())
 
-    result = kb_tasks.parse_task.run(job_id, user_id, "kb_management")
+    result = document_ingestion_tasks.parse_task.run(job_id, user_id, "document_ingestion")
 
     expected_summary = "This document includes: 公司研究, 相关研报"
     expected_connect_to = [
@@ -610,7 +610,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
 ) -> None:
     monkeypatch.setenv("BILLING_ENABLED", "false")
     (
-        kb_tasks,
+        document_ingestion_tasks,
         parse_service,
         parse_job_service,
         engine,
@@ -800,7 +800,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
         sync_redis_service_factory=sync_redis_service_factory,
     )
 
-    _bind_parse_task_to_current_module(monkeypatch, kb_tasks=kb_tasks)
+    _bind_parse_task_to_current_module(monkeypatch, document_ingestion_tasks=document_ingestion_tasks)
     monkeypatch.setattr(settings, "TMP_PATH", str(tmp_path))
     monkeypatch.setattr(settings, "BILLING_ENABLED", False)
 
@@ -907,7 +907,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
     monkeypatch.setattr(parse_job_service, "get_result_storage", lambda: FakeResultStorage())
     monkeypatch.setattr(parse_job_service, "cleanup_task_workspace", fake_cleanup_task_workspace)
 
-    result = kb_tasks.parse_task.run(job_id, user_id, "kb_management")
+    result = document_ingestion_tasks.parse_task.run(job_id, user_id, "document_ingestion")
 
     assert result["contents_count"] == 3
     assert "images/duplicate.png" in captured_artifacts["zip_entries"]
@@ -986,7 +986,7 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
     tmp_path: Path,
 ) -> None:
     (
-        kb_tasks,
+        document_ingestion_tasks,
         parse_service,
         parse_job_service,
         engine,
@@ -1034,7 +1034,7 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
             sync_redis_service_factory=sync_redis_service_factory,
         )
 
-    _bind_parse_task_to_current_module(monkeypatch, kb_tasks=kb_tasks)
+    _bind_parse_task_to_current_module(monkeypatch, document_ingestion_tasks=document_ingestion_tasks)
     monkeypatch.setattr(settings, "TMP_PATH", str(tmp_path))
     monkeypatch.setattr(settings, "BILLING_ENABLED", True)
 
@@ -1107,7 +1107,7 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
     monkeypatch.setattr(parse_job_service, "get_result_storage", lambda: FakeResultStorage())
 
     def run_parse_task(job_id: str) -> dict[str, Any]:
-        return dict(kb_tasks.parse_task.run(job_id, user_id, "kb_management"))
+        return dict(document_ingestion_tasks.parse_task.run(job_id, user_id, "document_ingestion"))
 
     with ThreadPoolExecutor(max_workers=len(job_ids)) as executor:
         results = list(executor.map(run_parse_task, job_ids))
@@ -1230,7 +1230,7 @@ def test_should_skip_parse_task_when_the_job_is_already_terminal(
     tmp_path: Path,
 ) -> None:
     (
-        kb_tasks,
+        document_ingestion_tasks,
         parse_service,
         parse_job_service,
         engine,
@@ -1270,7 +1270,7 @@ def test_should_skip_parse_task_when_the_job_is_already_terminal(
         sync_redis_service_factory=sync_redis_service_factory,
     )
 
-    _bind_parse_task_to_current_module(monkeypatch, kb_tasks=kb_tasks)
+    _bind_parse_task_to_current_module(monkeypatch, document_ingestion_tasks=document_ingestion_tasks)
     monkeypatch.setattr(settings, "TMP_PATH", str(tmp_path))
     def fake_verify_s3_file_exists(storage_key: str) -> dict[str, Any]:
         return {"exists": storage_key == s3_key, "size": 1024}
@@ -1284,7 +1284,7 @@ def test_should_skip_parse_task_when_the_job_is_already_terminal(
         ),
     )
 
-    result = kb_tasks.parse_task.run(job_id, user_id, "kb_management")
+    result = document_ingestion_tasks.parse_task.run(job_id, user_id, "document_ingestion")
 
     assert result == {
         "status": "skipped",
@@ -1320,7 +1320,7 @@ def test_should_mark_the_job_failed_and_cleanup_the_workspace_when_parse_executi
     tmp_path: Path,
 ) -> None:
     (
-        kb_tasks,
+        document_ingestion_tasks,
         parse_service,
         parse_job_service,
         engine,
@@ -1360,7 +1360,7 @@ def test_should_mark_the_job_failed_and_cleanup_the_workspace_when_parse_executi
         sync_redis_service_factory=sync_redis_service_factory,
     )
 
-    _bind_parse_task_to_current_module(monkeypatch, kb_tasks=kb_tasks)
+    _bind_parse_task_to_current_module(monkeypatch, document_ingestion_tasks=document_ingestion_tasks)
     monkeypatch.setattr(settings, "TMP_PATH", str(tmp_path))
     def fake_verify_s3_file_exists(storage_key: str) -> dict[str, Any]:
         return {
@@ -1392,8 +1392,8 @@ def test_should_mark_the_job_failed_and_cleanup_the_workspace_when_parse_executi
         ),
     )
 
-    result = kb_tasks.parse_task.apply(
-        args=[job_id, user_id, "kb_management"],
+    result = document_ingestion_tasks.parse_task.apply(
+        args=[job_id, user_id, "document_ingestion"],
         throw=False,
     )
 

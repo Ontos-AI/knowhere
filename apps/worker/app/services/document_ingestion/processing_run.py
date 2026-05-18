@@ -277,14 +277,14 @@ def _finalize_parse_job_success(
                 source_file_name=str(source_file_name),
             )
         try:
-            kb_dir_for_enrich = os.path.dirname(str(add_dir))
+            document_root_for_enrich = os.path.dirname(str(add_dir))
             summary_use_llm = JobMetadataHelper.get_parsing_param(
                 job_context.job_metadata,
                 "summary_use_llm",
                 False,
             )
             enrich_doc_nav_summaries(
-                kb_dir_for_enrich,
+                document_root_for_enrich,
                 source_file=str(source_file_name),
                 use_llm=summary_use_llm,
             )

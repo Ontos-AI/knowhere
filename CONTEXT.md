@@ -64,6 +64,11 @@ The retrieval-visible text, image, or table row attached to a Document Section.
 The workflow that creates a Job, accepts a file or URL source, confirms upload
 state, and starts parsing work.
 
+### Document Ingestion Worker Dispatch
+
+The API-side handoff that advances an uploaded file Job to pending state and
+enqueues the worker parse task with the user-aware Celery queue policy.
+
 ### Worker Document Parsing
 
 The worker-side workflow that turns a source file into parsed DataFrame rows,
@@ -268,7 +273,9 @@ exceptions. Shared Job lifecycle finalization lives under
 - `app/services/document_ingestion/service.py`
 - `app/services/document_ingestion/creation_service.py`
 - `app/services/document_ingestion/confirmation_service.py`
+- `app/services/document_ingestion/handoff_service.py`
 - `app/services/document_ingestion/scope_service.py`
+- `app/services/document_ingestion/worker_dispatcher.py`
 - `app/repositories/job_repository.py`
 
 ### Job Read

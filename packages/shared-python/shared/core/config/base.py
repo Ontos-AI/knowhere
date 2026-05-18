@@ -25,7 +25,7 @@ class BaseConfig(BaseSettings):
         description="Application version read from the APP_VERSION environment variable",
     )
     APP_DESCRIPTION: str = Field(
-        default="AI-powered document parsing, retrieval, and knowledge access backend",
+        default="AI-powered document parsing and retrieval backend",
         description="Application description",
     )
 
