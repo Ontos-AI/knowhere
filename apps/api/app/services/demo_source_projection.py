@@ -8,50 +8,64 @@ from urllib.parse import quote
 
 class _DemoCitationDefinition(Protocol):
     @property
-    def section_path(self) -> str: ...
+    def section_path(self) -> str:
+        raise NotImplementedError
 
     @property
-    def description(self) -> str: ...
+    def description(self) -> str:
+        raise NotImplementedError
 
     @property
-    def content(self) -> str: ...
+    def content(self) -> str:
+        raise NotImplementedError
 
 
 class _DemoExampleDefinition(Protocol):
     @property
-    def id(self) -> str: ...
+    def id(self) -> str:
+        raise NotImplementedError
 
     @property
-    def question(self) -> str: ...
+    def question(self) -> str:
+        raise NotImplementedError
 
     @property
-    def answer(self) -> str: ...
+    def answer(self) -> str:
+        raise NotImplementedError
 
     @property
-    def citations(self) -> tuple[_DemoCitationDefinition, ...]: ...
+    def citations(self) -> tuple[_DemoCitationDefinition, ...]:
+        raise NotImplementedError
 
 
 class _DemoSourceDefinition(Protocol):
     @property
-    def demo_source_id(self) -> str: ...
+    def demo_source_id(self) -> str:
+        raise NotImplementedError
 
     @property
-    def canonical_document_id(self) -> str: ...
+    def canonical_document_id(self) -> str:
+        raise NotImplementedError
 
     @property
-    def title(self) -> str: ...
+    def title(self) -> str:
+        raise NotImplementedError
 
     @property
-    def mime_type(self) -> str: ...
+    def mime_type(self) -> str:
+        raise NotImplementedError
 
     @property
-    def size_bytes(self) -> int: ...
+    def size_bytes(self) -> int:
+        raise NotImplementedError
 
     @property
-    def chunk_count(self) -> int: ...
+    def chunk_count(self) -> int:
+        raise NotImplementedError
 
     @property
-    def examples(self) -> tuple[_DemoExampleDefinition, ...]: ...
+    def examples(self) -> tuple[_DemoExampleDefinition, ...]:
+        raise NotImplementedError
 
 
 class DemoSourceProjection:
