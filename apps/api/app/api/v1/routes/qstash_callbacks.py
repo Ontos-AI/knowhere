@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from app.services import qstash_callback_service
-from app.services.qstash_callback_service import QStashCallbackOutcome
+from app.services.webhook import qstash_callback_service
+from app.services.webhook.qstash_callback_service import QStashCallbackOutcome
 from fastapi import APIRouter, Request, Response
 
 router = APIRouter(tags=["QStash Callbacks"])

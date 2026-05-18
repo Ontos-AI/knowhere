@@ -48,7 +48,9 @@ async def test_should_return_unauthorized_for_an_invalid_qstash_callback_signatu
     monkeypatch: MonkeyPatch,
 ) -> None:
     async with api_client_factory() as api_client:
-        qstash_module = importlib.import_module("app.services.qstash_callback_service")
+        qstash_module = importlib.import_module(
+            "app.services.webhook.qstash_callback_service"
+        )
         monkeypatch.setattr(qstash_module, "verify_qstash_signature", lambda *args: False)
         response = await api_client.post(
             "/api/v1/webhooks/qstash/callback",
@@ -70,7 +72,9 @@ async def test_should_mark_the_matching_event_delivered_and_persist_a_webhook_lo
 
     async with api_client_factory() as api_client:
         job_id, event_id = await _insert_qstash_event()
-        qstash_module = importlib.import_module("app.services.qstash_callback_service")
+        qstash_module = importlib.import_module(
+            "app.services.webhook.qstash_callback_service"
+        )
         monkeypatch.setattr(qstash_module, "verify_qstash_signature", lambda *args: True)
         response = await api_client.post(
             "/api/v1/webhooks/qstash/callback",
@@ -133,7 +137,9 @@ async def test_should_keep_the_matching_event_delivering_for_retry_callback_with
             status="delivering",
             qstash_message_id="qstash-message-retry",
         )
-        qstash_module = importlib.import_module("app.services.qstash_callback_service")
+        qstash_module = importlib.import_module(
+            "app.services.webhook.qstash_callback_service"
+        )
         monkeypatch.setattr(qstash_module, "verify_qstash_signature", lambda *args: True)
         response = await api_client.post(
             "/api/v1/webhooks/qstash/callback",
@@ -197,7 +203,9 @@ async def test_should_not_downgrade_terminal_event_when_retry_callback_arrives_l
             attempts=4,
             qstash_message_id="qstash-message-late-retry",
         )
-        qstash_module = importlib.import_module("app.services.qstash_callback_service")
+        qstash_module = importlib.import_module(
+            "app.services.webhook.qstash_callback_service"
+        )
         monkeypatch.setattr(qstash_module, "verify_qstash_signature", lambda *args: True)
         response = await api_client.post(
             "/api/v1/webhooks/qstash/callback",
@@ -257,7 +265,9 @@ async def test_should_mark_the_matching_event_failed_and_persist_the_error_on_fa
 
     async with api_client_factory() as api_client:
         job_id, event_id = await _insert_qstash_event()
-        qstash_module = importlib.import_module("app.services.qstash_callback_service")
+        qstash_module = importlib.import_module(
+            "app.services.webhook.qstash_callback_service"
+        )
         monkeypatch.setattr(qstash_module, "verify_qstash_signature", lambda *args: True)
         response = await api_client.post(
             "/api/v1/webhooks/qstash/failure",
@@ -318,7 +328,9 @@ async def test_should_return_ok_without_mutating_state_when_the_callback_has_no_
 
     async with api_client_factory() as api_client:
         _, event_id = await _insert_qstash_event()
-        qstash_module = importlib.import_module("app.services.qstash_callback_service")
+        qstash_module = importlib.import_module(
+            "app.services.webhook.qstash_callback_service"
+        )
         monkeypatch.setattr(qstash_module, "verify_qstash_signature", lambda *args: True)
         response = await api_client.post(
             "/api/v1/webhooks/qstash/callback",

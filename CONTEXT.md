@@ -318,7 +318,7 @@ exceptions. Shared Job lifecycle finalization lives under
 
 - `app/api/v1/routes/webhook.py`
 - `app/api/v1/routes/webhook_secrets.py`
-- `app/services/webhook_service.py`
+- `app/services/webhook/*`
 - `app/repositories/webhook_repository.py`
 
 ### Internal Storage Events
@@ -334,7 +334,7 @@ headers, acknowledges malformed or unsafe events, and triggers upload handoff.
 ### Async Callbacks
 
 - `app/api/v1/routes/qstash_callbacks.py`
-- `app/services/qstash_callback_service.py`
+- `app/services/webhook/qstash_callback_service.py`
 
 The route owns QStash HTTP signature verification and HTTP response projection.
 The workflow owns callback parsing, event status resolution, and webhook log
