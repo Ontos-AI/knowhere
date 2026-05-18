@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, TypeAlias, TypedDict
 
-from shared.utils.chunk_refs import ChunkRefSpan, extract_chunk_ref_spans
+from shared.services.chunks.chunk_refs import ChunkRefSpan, extract_chunk_ref_spans
 
 
 class PositionPayload(TypedDict):

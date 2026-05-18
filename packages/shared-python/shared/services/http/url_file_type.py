@@ -12,7 +12,7 @@ from loguru import logger
 
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import ValidationException
-from shared.utils.url_security import (
+from shared.services.http.url_security import (
     HTTPURLValidationResult,
     SafePublicHTTPURL,
     validate_http_url_and_resolve_ip,
@@ -116,7 +116,7 @@ async def resolve_file_extension_async(url: str) -> str | None:
         return ext
 
     try:
-        from shared.utils.http_clients import get_async_client
+        from shared.services.http.client_pool import get_async_client
 
         client = get_async_client()
         response = None
@@ -167,7 +167,7 @@ def resolve_file_extension_sync(url: str) -> str | None:
         return ext
 
     try:
-        from shared.utils.http_clients import get_sync_client
+        from shared.services.http.client_pool import get_sync_client
 
         client = get_sync_client()
         response = None

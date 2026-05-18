@@ -26,7 +26,7 @@ from shared.services.redis.redis_sync_service import (
     SyncRedisService,
     SyncRedisServiceFactory,
 )
-from shared.utils.quota_manager import BaseQuotaManager, TokenConfig
+from shared.services.ai.quota_manager import BaseQuotaManager, TokenConfig
 
 
 class ILoveApiQuotaManager(BaseQuotaManager):

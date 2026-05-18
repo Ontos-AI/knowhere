@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.core.logging import logger
 from shared.models.database.payment_record import PaymentRecord
 from shared.services.billing import CreditsService
-from shared.utils.utc_now import utc_now_naive
+from shared.core.time import utc_now_naive
 
 
 class StripeRefundReconciliationService:

@@ -13,7 +13,7 @@ from shared.models.database.job import Job
 from shared.services.billing.credits_sync_service import SyncCreditsService
 from shared.services.job_post_commit_effects_sync import PostCommitEffectPlan
 from shared.services.job_webhook_outbox_sync import SyncJobWebhookOutbox
-from shared.utils.error_details import normalize_error_details
+from shared.core.error_details import normalize_error_details
 
 
 @dataclass(frozen=True)

@@ -18,7 +18,7 @@ from shared.core.exceptions.domain_exceptions import (
     AuthException,
 )
 from shared.models.database.user import User
-from shared.utils.api_keys import is_api_key_token
+from shared.services.auth.api_key_tokens import is_api_key_token
 
 # Standard JWKS endpoint path (fixed, following OpenID Connect convention)
 JWKS_ENDPOINT_PATH = "/api/auth/jwks"

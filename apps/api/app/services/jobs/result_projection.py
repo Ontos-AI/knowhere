@@ -10,7 +10,7 @@ from shared.core.exceptions.domain_exceptions import JobOperationException
 from shared.models.schemas.job import JobResultResponse, StandardErrorObject
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.jobs.result_delivery import JobResultDeliveryResolver
-from shared.utils.error_details import normalize_error_details
+from shared.core.error_details import normalize_error_details
 
 JobStatusValue = Literal[
     "pending", "waiting-file", "running", "converting", "done", "failed"

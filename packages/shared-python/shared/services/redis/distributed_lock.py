@@ -18,7 +18,7 @@ from loguru import logger
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import UnavailableException
 from shared.services.redis.redis_sync_service import SyncRedisService
-from shared.utils.redis_key_builder import redis_key_builder
+from shared.services.redis.key_builder import redis_key_builder
 
 # Lua script: atomically check owner token then delete.
 # Prevents a stale owner from accidentally deleting a lock

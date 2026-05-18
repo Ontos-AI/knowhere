@@ -23,8 +23,8 @@ from gevent.pool import Pool as GeventPool
 from loguru import logger
 
 from shared.core.config import settings
-from shared.utils.chunk_refs import build_chunk_ref
-from shared.utils.file_utils import path_handle
+from shared.services.chunks.chunk_refs import build_chunk_ref
+from app.services.common.file_utils import path_handle
 
 DeferredResult = (
     tuple[

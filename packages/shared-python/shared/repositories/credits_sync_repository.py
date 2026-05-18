@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from shared.models.database.credits_transaction import CreditsTransaction
 from shared.models.database.payment_record import PaymentRecord
 from shared.models.database.user_balance import UserBalance
-from shared.utils.utc_now import utc_now_naive
+from shared.core.time import utc_now_naive
 
 
 class SyncCreditsRepository:

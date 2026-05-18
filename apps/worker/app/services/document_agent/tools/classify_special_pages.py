@@ -141,7 +141,7 @@ def classify_special_pages(
 
     try:
         from shared.core.config import settings
-        from shared.utils.OpenAICompatibleClientSync import get_openai_client
+        from shared.services.ai.openai_compatible_client_sync import get_openai_client
 
         effective_model = model or settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL
         client = get_openai_client(model=effective_model)

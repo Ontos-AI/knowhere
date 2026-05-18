@@ -632,7 +632,7 @@ async def test_should_create_a_waiting_file_job_for_a_url_source_and_enqueue_the
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
 
     import shared.core.celery_app as celery_app_module
-    import shared.utils.http_clients as http_clients_module
+    import shared.services.http.client_pool as http_clients_module
 
     monkeypatch.setattr(socket, "getaddrinfo", resolve_public_address)
     monkeypatch.setattr(
@@ -926,7 +926,7 @@ async def test_should_reject_a_url_source_when_file_type_detection_redirects_to_
             assert follow_redirects is False
             return _FakeHeadResponse()
 
-    import shared.utils.http_clients as http_clients_module
+    import shared.services.http.client_pool as http_clients_module
     monkeypatch.setattr(
         http_clients_module,
         "get_async_client",

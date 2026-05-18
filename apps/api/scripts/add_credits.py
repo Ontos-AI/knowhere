@@ -34,7 +34,7 @@ from shared.models.database.tier_limit import TierLimit
 from shared.models.database.user import User
 from shared.models.database.user_balance import UserBalance
 from shared.services.billing import CreditsService
-from shared.utils.utc_now import utc_now_naive
+from shared.core.time import utc_now_naive
 
 
 def _build_parser() -> argparse.ArgumentParser:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from shared.utils.text_utils import _CN_EN_NUM_RE
+from shared.services.text_processing.tokenization import _CN_EN_NUM_RE
 
 _CN_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
 EN_START_LIMIT = 15

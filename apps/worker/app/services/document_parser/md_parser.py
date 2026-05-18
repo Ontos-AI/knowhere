@@ -43,8 +43,8 @@ from app.services.document_parser.txt_parser import extract_title_keywords_summa
 from loguru import logger
 
 from shared.core.config import settings
-from shared.utils.chunk_refs import has_chunk_ref
-from shared.utils.text_utils import tokenize2stw_remove
+from shared.services.chunks.chunk_refs import has_chunk_ref
+from shared.services.text_processing.tokenization import tokenize2stw_remove
 
 
 def find_surround_context(md_lines, lid):
@@ -215,7 +215,7 @@ def parse_md(
     relative_root=None,
 ):
     if md_lines is None and file_path is not None:
-        from shared.utils.file_loading import is_remote, load_file_bytes
+        from app.services.common.file_loading import is_remote, load_file_bytes
 
         if is_remote(file_path):
             file_bytes = load_file_bytes(file_path)

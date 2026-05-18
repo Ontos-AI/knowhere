@@ -12,7 +12,7 @@ from redis import Redis as SyncRedisClient
 from redis.connection import BlockingConnectionPool
 
 from shared.core.config.redis import RedisConfigManager
-from shared.utils.redis_key_builder import RedisKeyType, redis_key_builder
+from shared.services.redis.key_builder import RedisKeyType, redis_key_builder
 
 
 class SyncRedisService:
@@ -69,7 +69,7 @@ class SyncRedisService:
             client = self._get_client()
             full_key = self._build_key(key)
             if isinstance(value, (dict, list)):
-                from shared.utils.json_utils import make_json_safe
+                from shared.core.serialization import make_json_safe
 
                 safe_value = make_json_safe(value)
                 value = json.dumps(safe_value, ensure_ascii=False)
@@ -407,7 +407,7 @@ class SyncTaskRedisService:
 
     def save_task_result(self, task_id: str, result: Dict[str, Any]) -> bool:
         try:
-            from shared.utils.json_utils import make_json_safe
+            from shared.core.serialization import make_json_safe
 
             task_ttl = redis_key_builder.get_key_ttl(RedisKeyType.TASK)
             result_key = self.redis._build_key(redis_key_builder.task_result(task_id))

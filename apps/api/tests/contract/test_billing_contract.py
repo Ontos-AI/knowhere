@@ -12,7 +12,7 @@ from httpx import AsyncClient
 from pytest import MonkeyPatch
 
 from tests.support.contract_database import ContractDatabase
-from shared.utils.api_keys import hash_api_key
+from shared.services.auth.api_key_tokens import hash_api_key
 
 
 def _utc_now() -> datetime:

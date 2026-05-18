@@ -2,4 +2,4 @@ name: "Knowhere CodeQL config"
 
 paths-ignore:
   - apps/api/scripts/**
-  - packages/shared-python/shared/utils/api_keys.py
+  - packages/shared-python/shared/services/auth/api_key_tokens.py

@@ -47,10 +47,12 @@ knowhereapi-main/
 │   └── shared-python/shared/    # Shared library (pip: knowhere-shared)
 │       ├── models/database/     # SQLAlchemy ORM models
 │       ├── models/schemas/      # Pydantic request/response schemas
+│       ├── core/                # Shared primitives: time, serialization, security
 │       ├── services/retrieval/  # Core retrieval engine
 │       ├── services/chunks/     # DataFrame → ChunkPayload conversion
 │       ├── services/ai/         # LLM prompt service & AI client
-│       └── utils/               # Text, file, and chunk utilities
+│       ├── services/http/       # Outbound HTTP clients and URL safety
+│       └── services/text_processing/ # Shared text tokenization helpers
 └── deploy/                      # Docker Compose & deployment scripts
 ```
 

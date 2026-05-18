@@ -19,7 +19,7 @@ from urllib3.util import Timeout
 from urllib3.util.connection import create_connection
 
 from shared.core.exceptions.domain_exceptions import ValidationException
-from shared.utils.url_security import SafePublicHTTPURL
+from shared.services.http.url_security import SafePublicHTTPURL
 
 
 @dataclass(frozen=True)

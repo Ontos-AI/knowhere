@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from shared.core.logging import logger
-from shared.utils.text_utils import count_cn_en
+from shared.services.text_processing.tokenization import count_cn_en
 
 WORDS_PER_PAGE = 500
 ROWS_PER_PAGE = 50

@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from shared.core.state_machine.states import JobStatus
-from shared.utils.error_details import normalize_error_details
-from shared.utils.json_utils import make_json_safe
+from shared.core.error_details import normalize_error_details
+from shared.core.serialization import make_json_safe
 
 
 def utc_now_naive() -> datetime:

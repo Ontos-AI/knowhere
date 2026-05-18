@@ -74,7 +74,7 @@ def shutdown_worker(**kwargs) -> None:
         logger.warning(f"Worker heartbeat cleanup failed: {exc}")
 
     try:
-        from shared.utils.http_clients import close_sync_client
+        from shared.services.http.client_pool import close_sync_client
 
         close_sync_client()
         logger.info("Worker sync HTTP client closed")

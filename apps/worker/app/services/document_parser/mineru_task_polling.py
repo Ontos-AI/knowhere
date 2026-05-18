@@ -22,7 +22,7 @@ from shared.core.exceptions.domain_exceptions import (
     UnavailableException,
 )
 from shared.core.exceptions.knowhere_exception import KnowhereException
-from shared.utils.zip_download import download_and_extract_zip
+from shared.services.http.zip_download import download_and_extract_zip
 
 
 def get_batch_status(data: dict[str, Any]) -> Optional[dict[str, Any]]:

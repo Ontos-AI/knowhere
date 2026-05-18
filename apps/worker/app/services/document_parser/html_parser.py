@@ -15,7 +15,7 @@ import pandas as pd
 from bs4 import BeautifulSoup
 
 from shared.core.exceptions.domain_exceptions import TableParsingException
-from shared.utils.text_utils import remove_duplicates_orderkept
+from shared.services.text_processing.tokenization import remove_duplicates_orderkept
 
 
 class HTMLHeaderExpander:

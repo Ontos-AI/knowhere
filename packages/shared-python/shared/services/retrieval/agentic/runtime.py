@@ -12,7 +12,7 @@ from shared.models.database.document import Document, DocumentChunk
 from shared.services.retrieval.agentic.budget import BudgetExceeded, BudgetPoolName
 from shared.services.retrieval.agentic.types import AgentRunConfig, AgentState
 from shared.services.retrieval.llm_adapter import LLMFn, current_llm_usage
-from shared.utils.token_estimate import estimate_tokens
+from shared.services.retrieval.token_estimate import estimate_tokens
 
 
 def build_config_from_env() -> AgentRunConfig:

@@ -15,8 +15,8 @@ from app.services.document_parser.markdown_deferred_task import (
 from app.services.document_parser.markdown_parse_state import ParserRowValues
 from loguru import logger
 
-from shared.utils.chunk_refs import build_chunk_ref
-from shared.utils.file_utils import path_handle
+from shared.services.chunks.chunk_refs import build_chunk_ref
+from app.services.common.file_utils import path_handle
 
 
 @dataclass(frozen=True)

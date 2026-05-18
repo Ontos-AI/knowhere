@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from shared.utils.text_utils import tokenize_contents_for_retrieval
+from shared.services.text_processing.tokenization import tokenize_contents_for_retrieval
 
 
 def normalize_section_path(path: Optional[str]) -> str:

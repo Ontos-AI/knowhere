@@ -25,7 +25,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from shared.core.database import Base
-from shared.utils.utc_now import utc_now_naive
+from shared.core.time import utc_now_naive
 
 
 if TYPE_CHECKING:

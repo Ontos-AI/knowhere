@@ -14,7 +14,7 @@ from shared.services.redis.redis_sync_service import (
     SyncRedisService,
     SyncRedisServiceFactory,
 )
-from shared.utils.quota_manager import BaseQuotaManager, TokenConfig, TokenLease
+from shared.services.ai.quota_manager import BaseQuotaManager, TokenConfig, TokenLease
 
 # Backward-compatible aliases so existing imports keep working
 MinerUTokenConfig = TokenConfig

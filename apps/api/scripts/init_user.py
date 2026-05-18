@@ -18,7 +18,7 @@ from shared.models.database.user import User
 from shared.models.database.user_balance import UserBalance
 from shared.services.billing.credits_service import CreditsService
 from shared.services.auth.user_table_bootstrap import ensure_better_auth_user_table
-from shared.utils.api_keys import generate_api_key, hash_api_key, mask_api_key
+from shared.services.auth.api_key_tokens import generate_api_key, hash_api_key, mask_api_key
 
 _DEFAULT_API_KEY_NAME: str = "standalone-api-key"
 _DEFAULT_USER_TIER: str = "tier_5"

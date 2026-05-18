@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.core.config import redis_pool_manager
 from shared.core.database import get_db_context
 from shared.services.redis.redis_service import RedisService
-from shared.utils.api_keys import hash_api_key
+from shared.services.auth.api_key_tokens import hash_api_key
 
 _API_KEY_USER_CACHE_TTL_SECONDS: int = 3600
 

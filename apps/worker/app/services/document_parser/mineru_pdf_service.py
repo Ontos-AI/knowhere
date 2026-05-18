@@ -23,7 +23,7 @@ from shared.core.exceptions.domain_exceptions import (
     UnavailableException,
 )
 from shared.services.storage.job_file_storage import JobFileStorage
-from shared.utils.file_loading import is_remote
+from app.services.common.file_loading import is_remote
 
 MINERU_UPLOAD_TIMEOUT = (
     settings.MINERU_UPLOAD_CONNECT_TIMEOUT,

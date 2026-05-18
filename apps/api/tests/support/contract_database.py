@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from shared.testing.contract_runtime import get_contract_database_url
-from shared.utils.api_keys import hash_api_key
+from shared.services.auth.api_key_tokens import hash_api_key
 
 
 async def _create_contract_engine() -> AsyncEngine:
