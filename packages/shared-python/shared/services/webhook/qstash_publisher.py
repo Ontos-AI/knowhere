@@ -26,7 +26,7 @@ from shared.services.webhook.qstash_client import (
 from shared.services.webhook.qstash_payload import QStashPayloadEnricher
 from shared.services.webhook.qstash_secret_resolver import QStashSecretResolver
 from shared.services.webhook.signing import sign_webhook_payload
-from shared.utils.url_security import (
+from shared.services.http.url_security import (
     validate_http_url_and_resolve_ip,
 )
 

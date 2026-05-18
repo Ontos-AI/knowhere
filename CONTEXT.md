@@ -208,6 +208,24 @@ delivery logs.
 The verified async callback used to continue background work after external
 delivery.
 
+### Public URL Policy
+
+The shared URL safety workflow used before Knowhere reaches user-provided or
+third-party HTTP targets. It validates public HTTP/HTTPS URLs, pins resolved
+addresses for outbound requests, blocks unsafe redirects, and detects URL file
+types for Document Ingestion.
+
+### Redis State
+
+The shared Redis-backed runtime state used by background work, rate limits,
+state-machine progress, distributed locks, and job metadata. It owns Redis key
+language and Redis retry policy.
+
+### Quota Token Pool
+
+The shared Redis-backed token leasing workflow used by provider-specific quota
+managers such as Ali, iLoveAPI, and MinerU.
+
 ## apps/api Module Map
 
 ### HTTP Adapters

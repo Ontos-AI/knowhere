@@ -24,7 +24,7 @@ from loguru import logger
 
 from shared.core.config import settings
 from shared.utils.chunk_refs import build_chunk_ref
-from shared.utils.file_utils import path_handle
+from app.services.common.file_utils import path_handle
 
 DeferredResult = (
     tuple[

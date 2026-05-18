@@ -1,4 +1,4 @@
-"""Compatibility wrapper for shared quota token-pool services."""
+"""Shared quota and token-pool services."""
 
 from shared.services.quota.token_pool import BaseQuotaManager, TokenConfig, TokenLease
 

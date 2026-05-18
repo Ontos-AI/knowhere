@@ -13,8 +13,8 @@ from loguru import logger
 from openai.types.chat import ChatCompletionMessageParam
 
 from shared.core.config import settings
-from shared.utils.file_utils import path_handle
-from shared.utils.OpenAICompatibleClientSync import get_openai_client
+from app.services.common.file_utils import path_handle
+from shared.services.ai.openai_compatible_client_sync import get_openai_client
 
 
 def generate_fragment_title(content: str, max_tokens: int = 30) -> Optional[str]:

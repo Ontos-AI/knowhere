@@ -50,7 +50,10 @@ knowhereapi-main/
 │       ├── services/retrieval/  # Core retrieval engine
 │       ├── services/chunks/     # DataFrame → ChunkPayload conversion
 │       ├── services/ai/         # LLM prompt service & AI client
-│       └── utils/               # Text, file, and chunk utilities
+│       ├── services/http/       # Public URL validation and outbound HTTP
+│       ├── services/redis/      # Redis state, key language, and retry policy
+│       ├── services/quota/      # Shared token-pool quota primitives
+│       └── utils/               # Compatibility and generic text/chunk utilities
 └── deploy/                      # Docker Compose & deployment scripts
 ```
 

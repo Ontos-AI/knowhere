@@ -37,7 +37,7 @@ from shared.core.state_machine.transition_runner import (
 from shared.models.database.job import Job
 from shared.models.database.job_state_audit_log import JobStateAuditLog
 from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
-from shared.utils.redis_key_builder import RedisKeyType, redis_key_builder
+from shared.services.redis.key_builder import RedisKeyType, redis_key_builder
 
 
 class SyncStateMachineService:

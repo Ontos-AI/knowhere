@@ -215,7 +215,7 @@ def parse_md(
     relative_root=None,
 ):
     if md_lines is None and file_path is not None:
-        from shared.utils.file_loading import is_remote, load_file_bytes
+        from app.services.common.file_loading import is_remote, load_file_bytes
 
         if is_remote(file_path):
             file_bytes = load_file_bytes(file_path)

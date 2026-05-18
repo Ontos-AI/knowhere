@@ -23,9 +23,9 @@ from shared.core.exceptions.knowhere_exception import KnowhereException
 from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.response_process_service import eval_response
 from shared.utils.chunk_refs import build_chunk_ref
-from shared.utils.file_loading import is_remote, load_file_bytes
-from shared.utils.file_utils import path_handle
-from shared.utils.OpenAICompatibleClientSync import (
+from app.services.common.file_loading import is_remote, load_file_bytes
+from app.services.common.file_utils import path_handle
+from shared.services.ai.openai_compatible_client_sync import (
     OpenAICompatibleClientSync,
     get_openai_client,
 )

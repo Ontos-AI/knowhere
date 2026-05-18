@@ -16,7 +16,7 @@ from app.services.document_parser.markdown_parse_state import ParserRowValues
 from loguru import logger
 
 from shared.utils.chunk_refs import build_chunk_ref
-from shared.utils.file_utils import path_handle
+from app.services.common.file_utils import path_handle
 
 
 @dataclass(frozen=True)

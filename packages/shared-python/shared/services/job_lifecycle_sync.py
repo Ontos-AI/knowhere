@@ -26,7 +26,7 @@ from shared.services.job_success_sync import SyncJobSuccessFinalizer
 from shared.services.redis.redis_sync_service import (
     SyncRedisServiceFactory,
 )
-from shared.utils.redis_key_builder import RedisKeyType, redis_key_builder
+from shared.services.redis.key_builder import RedisKeyType, redis_key_builder
 
 
 class SyncJobLifecycleService:

@@ -102,7 +102,7 @@ def _png_to_data_url(path: str) -> Optional[str]:
 def _call_vlm(image_data_urls: list[str]) -> bool:
     """Call VLM with preview images. Returns True if atlas, False otherwise."""
     from shared.core.config import settings
-    from shared.utils.OpenAICompatibleClientSync import get_openai_client
+    from shared.services.ai.openai_compatible_client_sync import get_openai_client
 
     model = settings.IMAGE_MODEL or "qwen-vl-plus"
     client = get_openai_client(model=model)

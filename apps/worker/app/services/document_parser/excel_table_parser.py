@@ -28,8 +28,8 @@ from loguru import logger
 from shared.core.exceptions.domain_exceptions import TableParsingException
 from shared.core.exceptions.knowhere_exception import KnowhereException
 from shared.utils.chunk_refs import build_chunk_ref
-from shared.utils.file_loading import load_file_bytes
-from shared.utils.file_utils import path_handle
+from app.services.common.file_loading import load_file_bytes
+from app.services.common.file_utils import path_handle
 from shared.utils.text_utils import tokenize2stw_remove
 
 

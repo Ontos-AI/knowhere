@@ -29,7 +29,7 @@ from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.redis import JobInfoRedisService, RedisServiceFactory
 from shared.services.redis.job_metadata_service import JobMetadataService
 from shared.services.storage.file_upload_service import FileUploadService
-from shared.utils.url_file_type import resolve_file_extension_async
+from shared.services.http.url_file_type import resolve_file_extension_async
 
 _JOB_TYPE_KB_MANAGEMENT = "kb_management"
 JobMetadata = dict[str, object]

@@ -21,7 +21,7 @@ from loguru import logger
 
 from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.response_process_service import eval_response
-from shared.utils.OpenAICompatibleClientSync import get_openai_client
+from shared.services.ai.openai_compatible_client_sync import get_openai_client
 
 
 # ==================== Markdown TOC Detection Functions ====================

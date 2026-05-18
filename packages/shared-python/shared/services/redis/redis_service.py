@@ -13,7 +13,7 @@ from shared.core.exceptions.redis_exceptions import (
     RedisConnectionError,
     RedisOperationError,
 )
-from shared.utils.redis_retry import RedisHealthChecker, RedisRetry
+from shared.services.redis.retry_policy import RedisHealthChecker, RedisRetry
 
 ResponseT = TypeVar("ResponseT")
 

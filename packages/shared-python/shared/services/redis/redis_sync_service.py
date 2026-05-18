@@ -12,7 +12,7 @@ from redis import Redis as SyncRedisClient
 from redis.connection import BlockingConnectionPool
 
 from shared.core.config.redis import RedisConfigManager
-from shared.utils.redis_key_builder import RedisKeyType, redis_key_builder
+from shared.services.redis.key_builder import RedisKeyType, redis_key_builder
 
 
 class SyncRedisService:

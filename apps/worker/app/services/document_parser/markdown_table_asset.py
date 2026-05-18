@@ -15,7 +15,7 @@ from app.services.document_parser.markdown_parse_state import ParserRowValues
 from app.services.document_parser.table_text_parser import sanitize_table_name_from_header
 
 from shared.utils.chunk_refs import build_chunk_ref
-from shared.utils.file_utils import path_handle
+from app.services.common.file_utils import path_handle
 
 
 @dataclass(frozen=True)
