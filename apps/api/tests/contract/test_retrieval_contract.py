@@ -153,16 +153,16 @@ async def test_agentic_workflow_should_pass_full_request_policy_to_step_adapter(
         self: object,
         *,
         query: str,
-        kb_total_docs: int = 0,
-        kb_total_chunks: int = 0,
+        corpus_total_docs: int = 0,
+        corpus_total_chunks: int = 0,
     ) -> QueryPlan:
         return QueryPlan(
             original_query=query,
             steps=[PlannedStep(id="request-policy", sub_query="policy marker")],
             final_strategy="concat_final_parts",
             reasoning_summary=(
-                f"request policy contract for {kb_total_docs} docs "
-                f"and {kb_total_chunks} chunks"
+                f"request policy contract for {corpus_total_docs} docs "
+                f"and {corpus_total_chunks} chunks"
             ),
         )
 
@@ -280,7 +280,7 @@ async def test_should_return_seeded_retrieval_results_for_the_authenticated_user
 
     assert response_json["namespace"] == "contract-retrieval"
     assert response_json["query"] == "alpha"
-    assert response_json["router_used"] == "small_kb_all"
+    assert response_json["router_used"] == "small_corpus_all"
     assert len(results) == 1
     assert results[0]["chunk_type"] == "text"
     assert results[0]["content"] == "alpha contract retrieval content"
@@ -763,8 +763,8 @@ async def test_agentic_workflow_should_preserve_references_with_the_same_chunk_i
         self: object,
         *,
         query: str,
-        kb_total_docs: int = 0,
-        kb_total_chunks: int = 0,
+        corpus_total_docs: int = 0,
+        corpus_total_chunks: int = 0,
     ) -> QueryPlan:
         return QueryPlan(
             original_query=query,
@@ -774,8 +774,8 @@ async def test_agentic_workflow_should_preserve_references_with_the_same_chunk_i
             ],
             final_strategy="concat_final_parts",
             reasoning_summary=(
-                f"forced two-step contract plan for {kb_total_docs} docs "
-                f"and {kb_total_chunks} chunks"
+                f"forced two-step contract plan for {corpus_total_docs} docs "
+                f"and {corpus_total_chunks} chunks"
             ),
         )
 
@@ -874,8 +874,8 @@ async def test_agentic_workflow_should_preserve_references_with_the_same_chunk_i
         self: object,
         *,
         query: str,
-        kb_total_docs: int = 0,
-        kb_total_chunks: int = 0,
+        corpus_total_docs: int = 0,
+        corpus_total_chunks: int = 0,
     ) -> QueryPlan:
         return QueryPlan(
             original_query=query,
@@ -885,8 +885,8 @@ async def test_agentic_workflow_should_preserve_references_with_the_same_chunk_i
             ],
             final_strategy="concat_final_parts",
             reasoning_summary=(
-                f"forced section identity contract plan for {kb_total_docs} docs "
-                f"and {kb_total_chunks} chunks"
+                f"forced section identity contract plan for {corpus_total_docs} docs "
+                f"and {corpus_total_chunks} chunks"
             ),
         )
 

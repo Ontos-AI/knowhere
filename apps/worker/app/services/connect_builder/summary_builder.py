@@ -7,7 +7,7 @@ The enriched doc_nav.json is written back to disk.
 
 Usage (standalone):
     from app.services.connect_builder.summary_builder import enrich_doc_nav_summaries
-    enrich_doc_nav_summaries(kb_dir, source_file="report.pdf")
+    enrich_doc_nav_summaries(document_workspace_dir, source_file="report.pdf")
 """
 
 import json
@@ -263,7 +263,7 @@ def _build_nav_top_summary(
 
 
 def enrich_doc_nav_summaries(
-    kb_dir: str,
+    document_workspace_dir: str,
     source_file: Optional[str] = None,
     force: bool = False,
     use_llm: bool = True,
@@ -271,7 +271,7 @@ def enrich_doc_nav_summaries(
     """Enrich doc_nav.json with bottom-up recursive summaries.
 
     Args:
-        kb_dir: Absolute path to the KB directory.
+        document_workspace_dir: Absolute path to the temporary document workspace.
         source_file: If given, only process this file. Otherwise process all.
         force: If True, regenerate even if summaries already exist.
         use_llm: If True, use LLM for multi-child aggregation.
@@ -287,13 +287,13 @@ def enrich_doc_nav_summaries(
     else:
         targets = [
             entry
-            for entry in os.listdir(kb_dir)
-            if os.path.isdir(os.path.join(kb_dir, entry))
+            for entry in os.listdir(document_workspace_dir)
+            if os.path.isdir(os.path.join(document_workspace_dir, entry))
             and not entry.startswith(".")
         ]
 
     for file_name in targets:
-        file_dir = os.path.join(kb_dir, file_name)
+        file_dir = os.path.join(document_workspace_dir, file_name)
         doc_nav = _load_doc_nav(file_dir)
         if doc_nav is None:
             logger.debug(f"No {DOC_NAV_FILENAME} for {file_name}, skipping")
@@ -334,7 +334,7 @@ def build_section_summary_lookup(file_dir: str) -> Dict[str, str]:
     """Build a flat {section_path: summary} dict from all nodes in doc_nav.json.
 
     Keys use the DocumentSection.section_path format produced by
-    ``section_path_from_chunk_path`` (strips kb_root + filename prefix,
+    ``section_path_from_chunk_path`` (strips namespace + filename prefix,
     joins remaining parts with ``" / "``).
 
     Traverses the full section tree at all depths.  Used by the publication
@@ -342,7 +342,7 @@ def build_section_summary_lookup(file_dir: str) -> Dict[str, str]:
 
     Args:
         file_dir: Absolute path to the file-level directory
-                  (e.g. ~/.knowhere/{kb_id}/{source_file_name}/).
+                  inside the task-scoped parse workspace.
 
     Returns:
         Dict mapping section_path → summary string (empty dict on any error).

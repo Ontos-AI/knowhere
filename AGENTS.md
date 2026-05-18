@@ -608,7 +608,7 @@ Unlike legacy retrieval which relied on static `hydrate_mode` tags, hydration is
 ### Small Corpus Optimization
 
 When `total_chunks <= top_k`, skips the full pipeline and returns all chunks
-directly (router: `small_kb_all`).
+directly (router: `small_corpus_all`).
 
 ### Caching
 

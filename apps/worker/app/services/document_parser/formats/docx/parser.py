@@ -634,7 +634,7 @@ def convert_doc2dics(
             ]
             pure_text = "\n".join(text_items).strip()
             know_id = gen_str_codes(pure_text)
-            # Use relative_root for path instead of absolute kb_dir
+            # Use relative_root for path instead of the absolute output directory.
             path_suffix = key if key.strip() else ""
             know_path = (
                 split_char.join([relative_root, path_suffix])

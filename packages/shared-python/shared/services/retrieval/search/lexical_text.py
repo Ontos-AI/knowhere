@@ -60,13 +60,13 @@ def build_content_lexical_text(chunk: dict[str, Any]) -> Optional[str]:
 def section_path_from_chunk_path(source_path: Optional[str]) -> str:
     """Extract section hierarchy from chunk path.
 
-    Expected format: "<kb_root>/<file>.ext/<Section>/<Subsection>/..."
+    Expected format: "<namespace>/<file>.ext/<Section>/<Subsection>/..."
     Returns " / "-joined section parts, or "Root" if no section hierarchy.
     """
     if not source_path:
         return "Root"
     parts = split_section_path(source_path)
-    section_parts = parts[2:]  # skip kb_root + filename
+    section_parts = parts[2:]  # skip namespace + filename
     if not section_parts:
         return "Root"
     return normalize_section_path(" / ".join(section_parts))

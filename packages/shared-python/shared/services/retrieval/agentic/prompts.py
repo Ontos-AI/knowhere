@@ -10,17 +10,17 @@ FILE_SELECT_PROMPT = """\
 You are a document routing assistant.
 
 {budget_block}
-Below is a knowledge base overview showing all available documents,
+Below is a document corpus overview showing all available documents,
 their navigation summaries, chunk counts, and media counts.
 
-=== Knowledge Base Overview ===
+=== Document Corpus Overview ===
 {overview}
 === End Overview ===
 
 User query: {query}
 {revision_context}
 Based on the query, select documents that may contain relevant information.
-If NO document in the knowledge base is relevant to the query, return an EMPTY array [].
+If NO document in the corpus is relevant to the query, return an EMPTY array [].
 Return ONLY a JSON array of document IDs, e.g.: ["doc_abc123", "doc_def456"]
 Do not include any explanation.
 """

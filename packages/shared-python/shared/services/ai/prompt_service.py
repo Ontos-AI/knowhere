@@ -3,7 +3,7 @@ Prompt Service for Document Parsing
 Only contains prompts required for document parsing workflow.
 
 Removed prompts for:
-- RAG/Knowledge Base: talk-kb, merge-answers, judge-kb, rerank, connect-kb, detect-contradict
+- Retrieval corpus: talk, merge-answers, judge, rerank, connect, detect-contradict
 - Document Generation: gen-titles-oneoff, gen-root-titles, gen-thoughts, reason-content-layout,
                        rewrite-paras, rewrite-sentence, construct-table, reason-source
 - Table Filling: filling-tb-kv, filling-tb-ck

@@ -23,9 +23,9 @@ from shared.services.retrieval.search.scoped_corpus import (
 async def run_retrieval_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
-    small_kb_outcome = await _try_run_small_kb_route(context)
-    if small_kb_outcome is not None:
-        return small_kb_outcome
+    small_corpus_outcome = await _try_run_small_corpus_route(context)
+    if small_corpus_outcome is not None:
+        return small_corpus_outcome
 
     if _should_use_agentic_route(context.use_agentic):
         return await _run_agentic_route(context)
@@ -33,7 +33,7 @@ async def run_retrieval_route(
     return await run_legacy_retrieval_route(context)
 
 
-async def _try_run_small_kb_route(
+async def _try_run_small_corpus_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome | None:
     try:
@@ -46,7 +46,7 @@ async def _try_run_small_kb_route(
         )
     except Exception as exc:
         logger.warning(
-            f"Failed to count scoped chunks, skipping small KB optimization: {exc}"
+            f"Failed to count scoped chunks, skipping small corpus optimization: {exc}"
         )
         total_chunk_count = context.top_k + 1
 
@@ -55,7 +55,7 @@ async def _try_run_small_kb_route(
         return None
 
     logger.info(
-        f"  Small KB optimization: {total_chunk_count} chunks "
+        f"  Small corpus optimization: {total_chunk_count} chunks "
         f"<= top_k={context.top_k}, returning all"
     )
     all_rows = await load_all_scoped_chunks(
@@ -69,7 +69,7 @@ async def _try_run_small_kb_route(
         filter_mode=context.filter_mode,
     )
     logger.info(
-        f"  small_kb load: loaded={len(all_rows)} rows after signal/exclude filters"
+        f"  small_corpus load: loaded={len(all_rows)} rows after signal/exclude filters"
     )
     assembled_rows = await assemble_retrieval_results(
         db=context.db,
@@ -82,13 +82,13 @@ async def _try_run_small_kb_route(
     response = {
         "namespace": context.namespace,
         "query": context.query,
-        "router_used": "small_kb_all",
+        "router_used": "small_corpus_all",
         "results": results,
     }
     return RetrievalRouteOutcome(
         response=response,
         hit_stats_results=results,
-        completion_label="Small KB",
+        completion_label="Small corpus",
         completion_count=len(results),
         completion_detail="results",
     )

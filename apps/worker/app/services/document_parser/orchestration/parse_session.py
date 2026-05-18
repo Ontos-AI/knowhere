@@ -5,14 +5,16 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.services.document_parser.formats.atlas.classifier import classify_atlas_with_vlm
-from app.services.document_parser.profiling.doc_profiler import profile_document
+from app.services.document_parser.orchestration.namespace_path_segment import (
+    build_namespace_path_segment,
+)
 from app.services.document_parser.orchestration.parse_input import ParseInput
+from app.services.document_parser.profiling.doc_profiler import profile_document
 from app.services.document_parser.support.stage_profiler import stage_timer
 from loguru import logger
 
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import ValidationException
-from app.services.common.file_utils import path_handle
 
 PDF_PAGE_LIMIT = 600
 
@@ -27,7 +29,7 @@ class ParseSession:
     full_output_dir: str
     internal_output_filename: str
     job_id: str | None
-    kb_dir: str
+    namespace: str
     output_dir: str
     profile: Any
     relative_root: str
@@ -52,7 +54,7 @@ class ParseSession:
             full_output_dir=full_output_dir,
             internal_output_filename=parse_input.internal_output_filename,
             job_id=parse_input.job_id,
-            kb_dir=parse_input.kb_dir,
+            namespace=parse_input.namespace,
             output_dir=parse_input.output_dir,
             profile=profile,
             relative_root=relative_root,
@@ -82,7 +84,7 @@ def build_parse_session(parse_input: ParseInput) -> ParseSession:
     relative_root, full_output_dir = _resolve_output_paths(
         filename=parse_input.filename,
         internal_output_filename=parse_input.internal_output_filename,
-        kb_dir=parse_input.kb_dir,
+        namespace=parse_input.namespace,
         output_dir=parse_input.output_dir,
     )
     logger.debug(f"relative_root: {relative_root}")
@@ -131,7 +133,7 @@ def build_parse_session(parse_input: ParseInput) -> ParseSession:
             _rename_atlas_output(
                 filename=parse_input.filename,
                 internal_output_filename=parse_input.internal_output_filename,
-                kb_dir=parse_input.kb_dir,
+                namespace=parse_input.namespace,
                 output_dir=parse_input.output_dir,
             )
         )
@@ -142,7 +144,7 @@ def build_parse_session(parse_input: ParseInput) -> ParseSession:
             output_dir=parse_input.output_dir,
             internal_output_filename=internal_output_filename,
             job_id=parse_input.job_id,
-            kb_dir=parse_input.kb_dir,
+            namespace=parse_input.namespace,
             options=parse_input.options,
             base_url=parse_input.base_url,
             fragment_content=parse_input.fragment_content,
@@ -162,7 +164,7 @@ def _rename_atlas_output(
     *,
     filename: str,
     internal_output_filename: str,
-    kb_dir: str,
+    namespace: str,
     output_dir: str,
 ) -> tuple[str, str, str, str]:
     name_base, _ = os.path.splitext(filename)
@@ -172,7 +174,7 @@ def _rename_atlas_output(
     relative_root, full_output_dir = _resolve_output_paths(
         filename=atlas_filename,
         internal_output_filename=atlas_internal_filename,
-        kb_dir=kb_dir,
+        namespace=namespace,
         output_dir=output_dir,
     )
     return atlas_filename, atlas_internal_filename, relative_root, full_output_dir
@@ -182,30 +184,34 @@ def _resolve_output_paths(
     *,
     filename: str,
     internal_output_filename: str,
-    kb_dir: str,
+    namespace: str,
     output_dir: str,
 ) -> tuple[str, str]:
-    split_char = settings.SPLIT_CHAR or "/"
-    kb_dir_parts = kb_dir.split(split_char)
-
-    if filename and "images" not in kb_dir_parts:
-        relative_root = "/".join(kb_dir_parts + [filename])
-    else:
-        relative_root = "/".join(kb_dir_parts)
-
-    if internal_output_filename and "images" not in kb_dir_parts:
-        internal_relative_root = "/".join(kb_dir_parts + [internal_output_filename])
-    else:
-        internal_relative_root = "/".join(kb_dir_parts)
+    namespace_segment = build_namespace_path_segment(namespace)
+    relative_root = (
+        f"{namespace_segment}/{filename}" if filename else namespace_segment
+    )
+    internal_relative_root = (
+        f"{namespace_segment}/{internal_output_filename}"
+        if internal_output_filename
+        else namespace_segment
+    )
 
     full_output_dir = os.path.join(
         output_dir,
-        internal_relative_root.replace("/", os.sep),
+        namespace_segment,
+        internal_output_filename,
     )
-    sanitized_output_dir = path_handle(full_output_dir, mode="sanitize")
-    if not isinstance(sanitized_output_dir, str) or not sanitized_output_dir:
-        raise ValueError(f"Failed to sanitize parser output directory: {full_output_dir}")
-    os.makedirs(sanitized_output_dir, exist_ok=True)
+    resolved_output_dir = os.path.realpath(output_dir)
+    resolved_full_output_dir = os.path.realpath(full_output_dir)
+    if (
+        os.path.commonpath([resolved_output_dir, resolved_full_output_dir])
+        != resolved_output_dir
+    ):
+        raise ValueError(
+            f"Parser output directory escaped task workspace: {full_output_dir}"
+        )
+    os.makedirs(resolved_full_output_dir, exist_ok=True)
 
     logger.debug(f"internal_relative_root: {internal_relative_root}")
-    return relative_root, sanitized_output_dir
+    return relative_root, resolved_full_output_dir

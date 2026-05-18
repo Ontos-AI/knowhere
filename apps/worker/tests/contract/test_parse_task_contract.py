@@ -28,7 +28,7 @@ def _build_pending_file_job_metadata(source_file_name: str) -> dict[str, Any]:
         "namespace": "worker-contract",
         "source_type": "file",
         "source_file_name": source_file_name,
-        "kb_dir": "Default_Root",
+        "parsing_params": {"kb_dir": "legacy-ignored"},
     }
     return job_metadata
 
@@ -210,7 +210,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
         captured_artifacts["parse_kwargs"] = kwargs
         output_dir = (
             Path(str(kwargs["output_dir"]))
-            / str(kwargs["kb_dir"])
+            / str(kwargs["namespace"])
             / str(kwargs["internal_output_filename"])
         )
         images_dir = output_dir / "images"
@@ -225,7 +225,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
         parsed_rows: list[dict[str, Any]] = [
             {
                 "content": text_content_with_refs,
-                "path": f"Default_Root/{file_root}/公司研究/自主可控加强，寒武纪或迎来营收快速放量周期",
+                "path": f"worker-contract/{file_root}/公司研究/自主可控加强，寒武纪或迎来营收快速放量周期",
                 "type": "text",
                 "length": len(text_content_with_refs),
                 "keywords": "",
@@ -246,7 +246,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
             },
             {
                 "content": "chunk-2",
-                "path": f"Default_Root/{file_root}/相关研报/要点",
+                "path": f"worker-contract/{file_root}/相关研报/要点",
                 "type": "text",
                 "length": 7,
                 "keywords": "",
@@ -259,7 +259,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
             },
             {
                 "content": "image caption",
-                "path": f"Default_Root/{file_root}/images/page-1.png",
+                "path": f"worker-contract/{file_root}/images/page-1.png",
                 "type": "image",
                 "length": 13,
                 "keywords": "",
@@ -272,7 +272,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
             },
             {
                 "content": "table content",
-                "path": f"Default_Root/{file_root}/tables/table-1.html",
+                "path": f"worker-contract/{file_root}/tables/table-1.html",
                 "type": "table",
                 "length": 13,
                 "keywords": "",
@@ -361,7 +361,11 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
     assert captured_artifacts["parse_kwargs"]["filename"] == source_file_name
     assert captured_artifacts["parse_kwargs"]["internal_output_filename"] == source_file_name
     assert Path(str(captured_artifacts["parse_kwargs"]["file_full_path"])).name == source_file_name
-    assert captured_artifacts["result_dir"].endswith("Default_Root/contract-parse.pdf")
+    assert captured_artifacts["parse_kwargs"]["namespace"] == "worker-contract"
+    assert "kb_dir" not in captured_artifacts["parse_kwargs"]
+    assert captured_artifacts["result_dir"].endswith(
+        "worker-contract/contract-parse.pdf"
+    )
     assert captured_artifacts["doc_nav"]["file_name"] == source_file_name
     assert captured_artifacts["doc_nav"]["sections"][0]["title"] == "公司研究"
     assert captured_artifacts["manifest"]["HIERARCHY"] == {
@@ -745,7 +749,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
                         :result_id,
                         'text',
                         'already published text',
-                        'Default_Root/existing.pdf/Section/Duplicate text',
+                        'worker-contract/existing.pdf/Section/Duplicate text',
                         NULL,
                         CAST(:text_metadata AS JSON),
                         0,
@@ -760,7 +764,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
                         :result_id,
                         'image',
                         'already published image',
-                        'Default_Root/existing.pdf/images/duplicate.png',
+                        'worker-contract/existing.pdf/images/duplicate.png',
                         'images/duplicate.png',
                         CAST(:image_metadata AS JSON),
                         1,
@@ -825,7 +829,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
     def fake_checkerboard_inject_parse(**kwargs: Any) -> tuple[str, pd.DataFrame]:
         output_dir = (
             Path(str(kwargs["output_dir"]))
-            / str(kwargs["kb_dir"])
+            / str(kwargs["namespace"])
             / str(kwargs["internal_output_filename"])
         )
         images_dir = output_dir / "images"
@@ -837,7 +841,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
         parsed_rows: list[dict[str, Any]] = [
             {
                 "content": "duplicate text",
-                "path": f"Default_Root/{file_root}/Section/Duplicate text",
+                "path": f"worker-contract/{file_root}/Section/Duplicate text",
                 "type": "text",
                 "length": 14,
                 "keywords": "",
@@ -850,7 +854,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
             },
             {
                 "content": "duplicate image",
-                "path": f"Default_Root/{file_root}/images/duplicate.png",
+                "path": f"worker-contract/{file_root}/images/duplicate.png",
                 "type": "image",
                 "length": 15,
                 "keywords": "",
@@ -863,7 +867,7 @@ def test_should_export_full_result_when_publication_deduplicates_existing_chunks
             },
             {
                 "content": "new text",
-                "path": f"Default_Root/{file_root}/Section/New text",
+                "path": f"worker-contract/{file_root}/Section/New text",
                 "type": "text",
                 "length": 8,
                 "keywords": "",
@@ -1064,7 +1068,7 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
     def fake_checkerboard_inject_parse(**kwargs: Any) -> tuple[str, pd.DataFrame]:
         output_dir = (
             Path(str(kwargs["output_dir"]))
-            / str(kwargs["kb_dir"])
+            / str(kwargs["namespace"])
             / str(kwargs["internal_output_filename"])
         )
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -1074,7 +1078,7 @@ def test_should_initialize_billing_once_for_concurrent_parse_tasks(
         parsed_rows: list[dict[str, Any]] = [
             {
                 "content": "chunk body",
-                "path": f"Default_Root/{file_root}/Section/Point",
+                "path": f"worker-contract/{file_root}/Section/Point",
                 "type": "text",
                 "length": 10,
                 "keywords": "",

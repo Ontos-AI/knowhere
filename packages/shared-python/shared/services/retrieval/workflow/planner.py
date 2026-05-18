@@ -34,7 +34,7 @@ _PLANNER_PROMPT = """\
 You are a retrieval workflow planner. Think step by step before answering.
 
 User query: {query}
-Knowledge base inventory: {kb_total_docs} docs / {kb_total_chunks} chunks.
+Document corpus inventory: {corpus_total_docs} docs / {corpus_total_chunks} chunks.
 Wallet status: total_budget={total_budget} tokens (planner_used={planner_used}).
 
 Decide whether the query needs decomposition into multiple sub-queries.
@@ -80,16 +80,16 @@ class QueryPlanner:
         self,
         *,
         query: str,
-        kb_total_docs: int = 0,
-        kb_total_chunks: int = 0,
+        corpus_total_docs: int = 0,
+        corpus_total_chunks: int = 0,
     ) -> QueryPlan:
         if self._llm_fn is None:
             return QueryPlan.single_step(query, reason="planner_llm_unavailable")
 
         prompt = _PLANNER_PROMPT.format(
             query=query,
-            kb_total_docs=kb_total_docs,
-            kb_total_chunks=kb_total_chunks,
+            corpus_total_docs=corpus_total_docs,
+            corpus_total_chunks=corpus_total_chunks,
             total_budget=self._total_budget,
             planner_used=self._planner_used(),
             max_steps=self._max_steps,

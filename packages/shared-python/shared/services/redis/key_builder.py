@@ -10,7 +10,6 @@ class RedisKeyType(Enum):
     USER = "user"
     TASK = "task"
     CONVERSATION = "conversation"
-    KNOWLEDGE_BASE = "kb"
     SESSION = "session"
     CACHE = "cache"
     QUEUE = "queue"
@@ -105,24 +104,6 @@ class RedisKeyBuilder:
     def conversation_context(self, conversation_id: str) -> str:
         """Conversation context key."""
         return self.build_key(RedisKeyType.CONVERSATION, conversation_id, "context")
-
-    # ==================== Knowledge Base Keys ====================
-
-    def kb_status(self, user_id: str) -> str:
-        """Knowledge-base status key."""
-        return self.build_key(RedisKeyType.KNOWLEDGE_BASE, user_id, "status")
-
-    def kb_vectors(self, user_id: str) -> str:
-        """Knowledge-base vectors key."""
-        return self.build_key(RedisKeyType.KNOWLEDGE_BASE, user_id, "vectors")
-
-    def kb_metadata(self, user_id: str) -> str:
-        """Knowledge-base metadata key."""
-        return self.build_key(RedisKeyType.KNOWLEDGE_BASE, user_id, "metadata")
-
-    def kb_index(self, user_id: str) -> str:
-        """Knowledge-base index key."""
-        return self.build_key(RedisKeyType.KNOWLEDGE_BASE, user_id, "index")
 
     # ==================== Session Keys ====================
 
@@ -270,7 +251,6 @@ class RedisKeyBuilder:
             RedisKeyType.USER: 86400,  # 1 day (user_config cache).
             RedisKeyType.TASK: 86400,  # 1 day.
             RedisKeyType.CONVERSATION: 3600 * 2,  # 2 hours.
-            RedisKeyType.KNOWLEDGE_BASE: 86400 * 30,  # 30 days.
             RedisKeyType.SESSION: 3600,  # 1 hour.
             RedisKeyType.CACHE: 3600,  # 1 hour.
             RedisKeyType.QUEUE: 86400,  # 1 day.

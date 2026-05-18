@@ -169,17 +169,17 @@ def _run_parse_job(
         filename=filename,
         doc_type=doc_type,
     ):
+        namespace = JobMetadataHelper.get_namespace(
+            job_context.job_metadata,
+            "default",
+        )
         add_dir, parsed_contents_df = parse_service.checkerboard_inject_parse(
             file_full_path=local_temp_path,
             filename=filename,
             output_dir=output_dir,
             job_id=job_id,
             internal_output_filename=internal_parse_name,
-            kb_dir=JobMetadataHelper.get_parsing_param(
-                job_context.job_metadata,
-                "kb_dir",
-                "Default_Root",
-            ),
+            namespace=namespace or "default",
             doc_type=doc_type,
             smart_title_parse=JobMetadataHelper.get_parsing_param(
                 job_context.job_metadata,

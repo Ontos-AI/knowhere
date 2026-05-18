@@ -15,7 +15,7 @@ def checkerboard_parse_output(
     output_dir: str,
     internal_output_filename: str,
     job_id: str | None = None,
-    kb_dir: str = "Default_Root",
+    namespace: str = "default",
     llm_histories: int = 5,
     smart_title_parse: bool = True,
     summary_image: bool = True,
@@ -34,7 +34,6 @@ def checkerboard_parse_output(
         filename=filename,
         internal_output_filename=internal_output_filename,
         job_id=job_id,
-        kb_dir=kb_dir,
         output_dir=output_dir,
         options=ParseOptions(
             add_frag_desc=add_frag_desc,
@@ -48,6 +47,7 @@ def checkerboard_parse_output(
         ),
         base_url=base_url,
         fragment_content=fragment_content,
+        namespace=namespace,
         s3_key=s3_key,
     )
     return run_parse_pipeline(parse_input)
@@ -59,7 +59,7 @@ def checkerboard_inject_parse(
     output_dir: str,
     internal_output_filename: str,
     job_id: str | None = None,
-    kb_dir: str = "Default_Root",
+    namespace: str = "default",
     llm_histories: int = 5,
     smart_title_parse: bool = True,
     summary_image: bool = True,
@@ -79,7 +79,7 @@ def checkerboard_inject_parse(
         output_dir=output_dir,
         internal_output_filename=internal_output_filename,
         job_id=job_id,
-        kb_dir=kb_dir,
+        namespace=namespace,
         llm_histories=llm_histories,
         smart_title_parse=smart_title_parse,
         summary_image=summary_image,

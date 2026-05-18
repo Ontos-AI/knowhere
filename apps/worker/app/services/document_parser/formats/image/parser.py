@@ -97,12 +97,12 @@ def local_image_to_data_url(path, cut=True, min_size=None, max_size=None):
     return img_data_base64
 
 
-def process_img_path4read(paths_, kb_dir, cut):
+def process_img_path4read(paths_, image_root_dir, cut):
     urls = []
     for path_ in paths_:
         if not is_remote(path_):
-            kb_dir = Path(kb_dir).resolve()
-            url_ = local_image_to_data_url(kb_dir / path_, cut)
+            resolved_image_root = Path(image_root_dir).resolve()
+            url_ = local_image_to_data_url(resolved_image_root / path_, cut)
             if url_ is not None:
                 urls.append(url_)
         else:
@@ -112,7 +112,7 @@ def process_img_path4read(paths_, kb_dir, cut):
 
 def ask_image(
     client: OpenAICompatibleClientSync,
-    kb_dir,
+    image_root_dir,
     paths_,
     title_text="",
     task="summary-images",
@@ -138,7 +138,7 @@ def ask_image(
     if not valid_paths:
         return None
 
-    urls_ = process_img_path4read(valid_paths, kb_dir, size_cut)
+    urls_ = process_img_path4read(valid_paths, image_root_dir, size_cut)
 
     if task in ("summary-images", "atlas-page-info"):
         image_model = settings.IMAGE_MODEL or "gpt-4-vision-preview"
@@ -187,14 +187,14 @@ def ask_image(
         return None
 
 
-def detect_summary_img_md(line, last_context, kb_dir, mode=False):
+def detect_summary_img_md(line, last_context, image_root_dir, mode=False):
     client = _get_vision_client()
     imgs = []
     img_paths = re.findall(MD_IMAGE_PATTERN, line, flags=re.IGNORECASE)
     for i, ip in enumerate(img_paths):
         if mode:
             try:
-                llm_resp = ask_image(client, kb_dir, paths_=[ip])
+                llm_resp = ask_image(client, image_root_dir, paths_=[ip])
                 if llm_resp:
                     from app.services.document_parser.formats.text.parser import (
                         split_title_summary,

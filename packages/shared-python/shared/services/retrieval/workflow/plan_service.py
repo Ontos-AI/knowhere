@@ -25,8 +25,8 @@ class WorkflowPlanService:
         max_steps: int,
         wallet_total: int,
         per_retrieve: int,
-        kb_total_docs: int,
-        kb_total_chunks: int,
+        corpus_total_docs: int,
+        corpus_total_chunks: int,
     ) -> QueryPlan:
         try:
             cached = await get_cached_workflow_plan(user_id=user_id, namespace=namespace, query=query)
@@ -44,8 +44,8 @@ class WorkflowPlanService:
         )
         plan = await planner.plan(
             query=query,
-            kb_total_docs=kb_total_docs,
-            kb_total_chunks=kb_total_chunks,
+            corpus_total_docs=corpus_total_docs,
+            corpus_total_chunks=corpus_total_chunks,
         )
         try:
             await set_cached_workflow_plan(

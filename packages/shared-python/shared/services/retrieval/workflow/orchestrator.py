@@ -133,8 +133,8 @@ class WorkflowOrchestrator:
             max_steps=config.max_steps,
             wallet_total=config.wallet_total_budget,
             per_retrieve=config.per_retrieve_step_budget,
-            kb_total_docs=total_docs,
-            kb_total_chunks=total_chunks,
+            corpus_total_docs=total_docs,
+            corpus_total_chunks=total_chunks,
         )
 
         wallet = BudgetWallet(

@@ -17,9 +17,6 @@ class ParsingParams(BaseModel):
 
     model: Literal["base", "advanced"] = Field("base", description="Parsing model")
     ocr_enabled: bool = Field(False, description="Enable OCR")
-    kb_dir: Optional[str] = Field(
-        "Default_Root", description="Knowledge-base directory"
-    )
     doc_type: Literal["auto", "pdf", "docx", "txt", "md"] = Field(
         "auto", description="Document type"
     )
