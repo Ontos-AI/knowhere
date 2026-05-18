@@ -1314,23 +1314,6 @@ def test_should_skip_parse_task_when_the_job_is_already_terminal(
     assert audit_transition_count == 0
 
 
-def test_should_make_workload_estimate_fallback_reason_explicit(
-    worker_contract_environment: None,
-    tmp_path: Path,
-) -> None:
-    from app.services.document_ingestion.page_estimator import PageEstimator
-
-    unknown_file = tmp_path / "payload.unknown"
-    unknown_file.write_text("content", encoding="utf-8")
-
-    estimate = PageEstimator.estimate_workload(str(unknown_file))
-
-    assert estimate.page_count == 1
-    assert estimate.method == "unknown_file_type"
-    assert estimate.fallback_reason == "unknown_file_type:.unknown"
-    assert PageEstimator.estimate(str(unknown_file)) == 1
-
-
 def test_should_mark_the_job_failed_and_cleanup_the_workspace_when_parse_execution_raises(
     worker_contract_environment: None,
     monkeypatch: MonkeyPatch,

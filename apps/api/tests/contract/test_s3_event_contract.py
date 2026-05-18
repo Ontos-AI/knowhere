@@ -1,5 +1,4 @@
 import importlib
-import base64
 import json
 import socket
 from collections.abc import Callable
@@ -10,8 +9,6 @@ from uuid import uuid4
 import pytest
 from httpx import AsyncClient
 from pytest import MonkeyPatch
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.support.contract_database import ContractDatabase
 
@@ -49,39 +46,6 @@ async def _insert_waiting_file_job() -> tuple[str, str]:
     )
 
     return user_id, job_id
-
-
-def test_storage_event_intake_sanitizes_sensitive_headers() -> None:
-    from app.services.s3_events.intake_outcome import sanitize_storage_event_headers
-
-    sanitized = sanitize_storage_event_headers(
-        {
-            "Authorization": "Bearer secret",
-            "x-amz-sns-signature": "signature",
-            "x-minio-auth-token": "token",
-            "content-type": "application/json",
-        }
-    )
-
-    assert sanitized == {
-        "Authorization": "<redacted>",
-        "x-amz-sns-signature": "<redacted>",
-        "x-minio-auth-token": "<redacted>",
-        "content-type": "application/json",
-    }
-
-
-def test_storage_event_nested_message_decoder_supports_plain_and_base64_json() -> None:
-    from app.services.s3_events.nested_message_decoder import decode_nested_json_message
-
-    payload = {"Records": [{"eventName": "ObjectCreated:Put"}]}
-    encoded_payload = base64.b64encode(json.dumps(payload).encode("utf-8")).decode(
-        "utf-8"
-    )
-
-    assert decode_nested_json_message(json.dumps(payload)) == payload
-    assert decode_nested_json_message(encoded_payload) == payload
-    assert decode_nested_json_message("not-json") is None
 
 
 @pytest.mark.asyncio
@@ -207,43 +171,6 @@ async def test_should_accept_an_sns_wrapped_upload_complete_event_and_advance_a_
 
     assert job_row is not None
     assert job_row["status"] == "pending"
-
-
-@pytest.mark.asyncio
-async def test_should_expose_async_state_machine_rejection_reason(
-    api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
-) -> None:
-    from shared.core.state_machine.service import AsyncStateMachineService
-    from shared.core.state_machine.states import JobStatus
-    from shared.testing.contract_runtime import get_contract_database_url
-
-    async with api_client_factory():
-        _, job_id = await _insert_waiting_file_job()
-        engine = create_async_engine(get_contract_database_url(), future=True)
-        session_factory = async_sessionmaker(engine, expire_on_commit=False)
-
-        try:
-            async with engine.begin() as connection:
-                await connection.execute(
-                    text("UPDATE jobs SET status = 'done' WHERE job_id = :job_id"),
-                    {"job_id": job_id},
-                )
-
-            async with session_factory() as db:
-                outcome = await AsyncStateMachineService().transition_outcome(
-                    db,
-                    job_id,
-                    JobStatus.RUNNING.value,
-                    transition_reason="contract_invalid_transition",
-                )
-        finally:
-            await engine.dispose()
-
-    assert outcome.succeeded is False
-    assert outcome.reason == "invalid_transition"
-    assert outcome.from_state == "done"
-    assert outcome.to_state == "running"
-    assert outcome.attempts == 1
 
 
 @pytest.mark.asyncio

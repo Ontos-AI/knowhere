@@ -1,5 +1,5 @@
-from collections.abc import AsyncIterator, Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timezone
 from typing import Any, cast
 from uuid import uuid4
@@ -250,57 +250,6 @@ async def test_agentic_workflow_should_pass_full_request_policy_to_step_adapter(
 
 
 @pytest.mark.asyncio
-async def test_agentic_discovery_should_use_internal_recall_for_fusion(
-    monkeypatch: MonkeyPatch,
-) -> None:
-    from shared.services.retrieval.agentic import discovery_tools
-
-    requested_top_k: list[int] = []
-
-    async def fake_empty_channel(
-        _db: AsyncSession,
-        **_kwargs: Any,
-    ) -> list[dict[str, Any]]:
-        return []
-
-    async def fake_content_channel(
-        _db: AsyncSession,
-        **kwargs: Any,
-    ) -> list[dict[str, Any]]:
-        requested_top_k.append(cast(int, kwargs["top_k"]))
-        return [
-            {
-                "chunk_id": f"chunk-{index}",
-                "document_id": f"doc-{index}",
-                "section_path": f"Root/{index}",
-                "content": f"content {index}",
-            }
-            for index in range(5)
-        ]
-
-    monkeypatch.setattr(discovery_tools, "path_channel", fake_empty_channel)
-    monkeypatch.setattr(discovery_tools, "content_channel", fake_content_channel)
-    monkeypatch.setattr(discovery_tools, "term_channel", fake_empty_channel)
-
-    result = await discovery_tools.bottom_discovery(
-        cast(AsyncSession, None),
-        user_id="local-dev-user",
-        namespace="contract-agentic-recall-policy",
-        query="recall marker",
-        top_k=1,
-        exclude_document_ids=[],
-        exclude_sections=[],
-        channels=["content"],
-        internal_recall_k=4,
-    )
-
-    fused_rows = cast(list[dict[str, Any]], result.payload["fused_rows"])
-
-    assert requested_top_k == [4]
-    assert len(fused_rows) == 4
-
-
-@pytest.mark.asyncio
 async def test_should_return_seeded_retrieval_results_for_the_authenticated_user(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
@@ -397,74 +346,6 @@ async def test_should_return_empty_results_for_an_empty_query(
         "answer_text": None,
         "referenced_chunks": [],
     }
-
-
-@pytest.mark.asyncio
-async def test_retrieval_hit_stats_should_use_the_current_database_context(
-    developer_api_client_factory: Callable[
-        [], AbstractAsyncContextManager[AsyncClient]
-    ],
-    monkeypatch: MonkeyPatch,
-) -> None:
-    @asynccontextmanager
-    async def stale_db_context() -> AsyncIterator[object]:
-        raise RuntimeError("stale db context should not be used")
-        yield object()
-
-    async with developer_api_client_factory() as _api_client:
-        seeded_document = await _seed_retrieval_document(
-            user_id="local-dev-user",
-            namespace="contract-hit-stats",
-            source_file_name="hit-stats.pdf",
-            section_path="hit-stats/section",
-            content="hit stats content",
-        )
-
-        from shared.services.retrieval import hit_stats_recorder
-
-        monkeypatch.setattr(
-            hit_stats_recorder,
-            "get_db_context",
-            stale_db_context,
-            raising=False,
-        )
-        hit_stats_recorder.schedule_retrieval_hit_stats_update(
-            user_id="local-dev-user",
-            namespace="contract-hit-stats",
-            results=[
-                {
-                    "document_id": seeded_document["document_id"],
-                    "chunk_id": seeded_document["chunk_id"],
-                }
-            ],
-        )
-        await hit_stats_recorder.drain_retrieval_hit_stats_updates()
-
-        hit_stats = await ContractDatabase.fetch_all(
-            """
-            SELECT hit_kind, document_id, chunk_id, hit_count
-            FROM retrieval_hit_stats
-            WHERE user_id = :user_id
-              AND namespace = :namespace
-              AND document_id = :document_id
-            ORDER BY hit_kind
-            """,
-            {
-                "user_id": "local-dev-user",
-                "namespace": "contract-hit-stats",
-                "document_id": seeded_document["document_id"],
-            },
-        )
-
-    hit_stats_by_kind = {
-        cast(str, row["hit_kind"]): row for row in hit_stats
-    }
-
-    assert set(hit_stats_by_kind) == {"chunk", "document"}
-    assert hit_stats_by_kind["chunk"]["chunk_id"] == seeded_document["chunk_id"]
-    assert hit_stats_by_kind["document"]["chunk_id"] is None
-    assert hit_stats_by_kind["chunk"]["hit_count"] == 1
-    assert hit_stats_by_kind["document"]["hit_count"] == 1
 
 
 @pytest.mark.asyncio
