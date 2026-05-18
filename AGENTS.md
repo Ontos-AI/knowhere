@@ -53,7 +53,7 @@ knowhereapi-main/
 │       ├── services/http/       # Public URL validation and outbound HTTP
 │       ├── services/redis/      # Redis state, key language, and retry policy
 │       ├── services/quota/      # Shared token-pool quota primitives
-│       └── utils/               # Compatibility and generic text/chunk utilities
+│       └── utils/               # Generic text, chunk, and API helpers
 └── deploy/                      # Docker Compose & deployment scripts
 ```
 

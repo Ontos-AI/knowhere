@@ -208,13 +208,6 @@ def _fast_path_worker(queue, pdf_path, output_dir, image_dir):
     )
 
 
-def upload_and_parse(
-    pdf_url: str, filename: str, output_dir: str, s3_key: str | None = None
-) -> None:
-    """Compatibility wrapper for the extracted MinerU workflow module."""
-    parse_via_full(pdf_url, filename, output_dir, s3_key=s3_key)
-
-
 def parse_pdfs(
     pdf_path,
     filename,
@@ -259,14 +252,14 @@ def parse_pdfs(
     #     )
     # else:
     #     with stage_timer("pdf.extract.standard", filename=filename):
-    #         upload_and_parse(pdf_path, filename, output_dir, s3_key=s3_key)
+    #         parse_via_full(pdf_path, filename, output_dir, s3_key=s3_key)
     #         _inject_page_markers(output_dir)
 
     logger.info(
         f"🛡️ Conservative mode: forcing MinerU (standard) for {filename} [route={route}]"
     )
     with stage_timer("pdf.extract.standard", filename=filename):
-        upload_and_parse(pdf_path, filename, output_dir, s3_key=s3_key)
+        parse_via_full(pdf_path, filename, output_dir, s3_key=s3_key)
 
         # Inject page markers from MinerU layout.json
         _inject_page_markers(output_dir)
