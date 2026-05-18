@@ -19,8 +19,8 @@ from sqlalchemy.orm import Session
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
-from shared.services.retrieval.graph_service import DocumentGraphService, GraphScope
-from shared.services.retrieval.lexical_text import (
+from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
+from shared.services.retrieval.search.lexical_text import (
     build_content_lexical_text,
     build_content_search_text,
     build_path_lexical_text,

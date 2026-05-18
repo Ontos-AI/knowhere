@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
-from shared.services.retrieval.section_filters import is_excluded_section
+from shared.services.retrieval.search.section_filters import is_excluded_section
 
 
 async def count_scoped_chunks(

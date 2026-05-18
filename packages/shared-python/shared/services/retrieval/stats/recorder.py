@@ -5,7 +5,7 @@ from typing import Any
 
 from loguru import logger
 
-from shared.services.retrieval.hit_stats_service import record_retrieval_hits
+from shared.services.retrieval.stats.service import record_retrieval_hits
 
 
 _pending_retrieval_hit_stat_tasks: set[asyncio.Task[None]] = set()

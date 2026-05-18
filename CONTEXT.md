@@ -294,7 +294,14 @@ exceptions. Shared Job lifecycle finalization lives under
 ### Retrieval
 
 - `app/api/v1/routes/retrieval.py`
-- shared retrieval modules in `packages/shared-python/shared/services/retrieval/*`
+- `packages/shared-python/shared/services/retrieval/app_service.py`
+- `packages/shared-python/shared/services/retrieval/execution/*`
+- `packages/shared-python/shared/services/retrieval/search/*`
+- `packages/shared-python/shared/services/retrieval/hydration/*`
+- `packages/shared-python/shared/services/retrieval/graph/*`
+- `packages/shared-python/shared/services/retrieval/stats/*`
+- `packages/shared-python/shared/services/retrieval/workflow/*`
+- `packages/shared-python/shared/services/retrieval/agentic/*`
 
 ### Demo Source Materialization
 

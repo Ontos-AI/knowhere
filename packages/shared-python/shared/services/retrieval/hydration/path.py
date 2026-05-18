@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
-from shared.services.retrieval.lexical_text import normalize_section_path
-from shared.services.retrieval.scoring import get_row_path
+from shared.services.retrieval.search.lexical_text import normalize_section_path
+from shared.services.retrieval.search.scoring import get_row_path
 
 
 async def hydrate_paths_to_rows(

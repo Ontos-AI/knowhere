@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.services.retrieval.agentic import asset_tools
 from shared.services.retrieval.agentic.types import DocTreeNode
-from shared.services.retrieval.connected_hydration import hydrate_connected_target_rows
-from shared.services.retrieval.path_hydration import hydrate_paths_to_rows
+from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
+from shared.services.retrieval.hydration.path import hydrate_paths_to_rows
 
 
 async def hydrate_path_selections_into_node(

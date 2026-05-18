@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from shared.services.retrieval.route_types import RetrievalRouteContext
+from shared.services.retrieval.execution.route_types import RetrievalRouteContext
 from shared.services.retrieval.settings import INTERNAL_RECALL_K_MULTIPLIER
 from shared.services.retrieval.workflow.types import PlannedStep
 

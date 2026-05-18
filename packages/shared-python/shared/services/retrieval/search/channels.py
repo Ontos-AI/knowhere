@@ -11,11 +11,11 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.lexical_ranker import (
+from shared.services.retrieval.search.lexical_ranker import (
     rank_rows_by_bm25,
     tokenize_query_for_ranker,
 )
-from shared.services.retrieval.section_filters import is_excluded_section
+from shared.services.retrieval.search.section_filters import is_excluded_section
 
 
 _SCOPED_CORPUS_CTE = """

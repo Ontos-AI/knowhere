@@ -8,8 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import RetrievalHitStat
-from shared.services.retrieval.hit_stats_service import compute_importance_score
-from shared.services.retrieval.scoring import get_row_path
+from shared.services.retrieval.stats.service import compute_importance_score
+from shared.services.retrieval.search.scoring import get_row_path
 
 
 def get_candidate_key(row: dict[str, Any]) -> str:

@@ -4,10 +4,10 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.execution_plan import (
+from shared.services.retrieval.execution.plan import (
     run_retrieval_query as execute_retrieval_query,
 )
-from shared.services.retrieval.scoring import merge_channels_rrf
+from shared.services.retrieval.search.scoring import merge_channels_rrf
 
 __all__ = ["merge_channels_rrf", "run_retrieval_query"]
 

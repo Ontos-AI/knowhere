@@ -17,7 +17,7 @@ from shared.services.retrieval.agentic.selection_hydration import (
     hydrate_path_selections_into_node,
 )
 from shared.services.retrieval.agentic.types import DocTreeNode
-from shared.services.retrieval.lexical_text import normalize_section_path
+from shared.services.retrieval.search.lexical_text import normalize_section_path
 from shared.services.retrieval.llm_adapter import LLMFn
 
 

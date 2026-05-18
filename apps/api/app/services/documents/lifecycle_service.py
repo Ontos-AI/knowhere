@@ -14,7 +14,7 @@ from shared.models.database.document import DocumentChunk, DocumentSection
 from shared.services.retrieval.cache_service import (
     invalidate_retrieval_cache_namespaces,
 )
-from shared.services.retrieval.graph_service import DocumentGraphService, GraphScope
+from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
 
 
 def document_payload(document) -> dict[str, Any]:

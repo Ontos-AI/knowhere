@@ -451,15 +451,15 @@ async def test_legacy_retrieval_should_rank_hot_chunk_before_cold_chunk_when_dis
             return []
 
         monkeypatch.setattr(
-            "shared.services.retrieval.legacy_route.path_channel",
+            "shared.services.retrieval.execution.legacy_route.path_channel",
             fake_path_channel,
         )
         monkeypatch.setattr(
-            "shared.services.retrieval.legacy_route.content_channel",
+            "shared.services.retrieval.execution.legacy_route.content_channel",
             fake_content_channel,
         )
         monkeypatch.setattr(
-            "shared.services.retrieval.legacy_route.list_graph_routed_chunks",
+            "shared.services.retrieval.execution.legacy_route.list_graph_routed_chunks",
             fake_graph_routing,
         )
 

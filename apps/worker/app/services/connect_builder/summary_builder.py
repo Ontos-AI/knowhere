@@ -347,7 +347,7 @@ def build_section_summary_lookup(file_dir: str) -> Dict[str, str]:
     Returns:
         Dict mapping section_path → summary string (empty dict on any error).
     """
-    from shared.services.retrieval.lexical_text import section_path_from_chunk_path
+    from shared.services.retrieval.search.lexical_text import section_path_from_chunk_path
 
     doc_nav = _load_doc_nav(file_dir)
     if doc_nav is None:

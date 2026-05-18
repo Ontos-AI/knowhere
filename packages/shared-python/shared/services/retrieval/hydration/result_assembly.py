@@ -4,8 +4,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.connected_hydration import hydrate_connected_target_rows
-from shared.services.retrieval.row_utils import (
+from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
+from shared.services.retrieval.hydration.row_utils import (
     clean_content,
     filter_excluded_rows,
     iter_connected_target_ids,

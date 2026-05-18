@@ -6,9 +6,9 @@ from .cache_service import (
     invalidate_retrieval_cache_namespaces,
     set_cached_retrieval_query_result,
 )
-from .graph_query_service import GraphQueryService
-from .graph_service import DocumentGraphService, GraphScope
-from .hit_stats_service import record_retrieval_hits
+from .graph.query_service import GraphQueryService
+from .graph.service import DocumentGraphService, GraphScope
+from .stats.service import record_retrieval_hits
 from .llm_adapter import create_retrieval_llm_fn, create_retrieval_planner_fn
 
 __all__ = [

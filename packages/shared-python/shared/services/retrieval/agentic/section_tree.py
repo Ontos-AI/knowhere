@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import DocumentSection
 from shared.services.retrieval.agentic.section_counts import attach_section_counts
-from shared.services.retrieval.lexical_text import normalize_section_path, split_section_path
+from shared.services.retrieval.search.lexical_text import normalize_section_path, split_section_path
 
 
 async def load_child_sections(

@@ -4,17 +4,17 @@ import os
 
 from loguru import logger
 
-from shared.services.retrieval.legacy_route import run_legacy_retrieval_route
-from shared.services.retrieval.reference_resolver import resolve_workflow_references
-from shared.services.retrieval.result_assembly import assemble_retrieval_results
-from shared.services.retrieval.response_projection import (
+from shared.services.retrieval.execution.legacy_route import run_legacy_retrieval_route
+from shared.services.retrieval.execution.reference_resolver import resolve_workflow_references
+from shared.services.retrieval.hydration.result_assembly import assemble_retrieval_results
+from shared.services.retrieval.execution.response_projection import (
     attach_citation,
 )
-from shared.services.retrieval.route_types import (
+from shared.services.retrieval.execution.route_types import (
     RetrievalRouteContext,
     RetrievalRouteOutcome,
 )
-from shared.services.retrieval.scoped_corpus import (
+from shared.services.retrieval.search.scoped_corpus import (
     count_scoped_chunks,
     load_all_scoped_chunks,
 )

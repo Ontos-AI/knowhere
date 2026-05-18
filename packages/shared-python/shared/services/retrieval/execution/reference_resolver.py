@@ -5,11 +5,11 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.reference_hydration import hydrate_referenced_chunk_rows
-from shared.services.retrieval.response_projection import (
+from shared.services.retrieval.hydration.reference import hydrate_referenced_chunk_rows
+from shared.services.retrieval.execution.response_projection import (
     enrich_referenced_chunks_with_asset_urls,
 )
-from shared.services.retrieval.row_utils import build_reference_lookup_key
+from shared.services.retrieval.hydration.row_utils import build_reference_lookup_key
 
 
 @dataclass(frozen=True)

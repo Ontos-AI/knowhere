@@ -13,7 +13,7 @@ from shared.models.database.document import (
     GraphEdge,
     GraphNode,
 )
-from shared.services.retrieval.graph_keywords import (
+from shared.services.retrieval.graph.keywords import (
     KEYWORD_SCORE_WEIGHT,
     MIN_KEYWORD_OVERLAP,
     MIN_SCORE_THRESHOLD,

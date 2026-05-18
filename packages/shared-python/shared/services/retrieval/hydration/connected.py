@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
-from shared.services.retrieval.row_utils import (
+from shared.services.retrieval.hydration.row_utils import (
     filter_excluded_rows,
     iter_connected_target_ids,
     normalize_chunk_type,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from shared.services.retrieval.section_filters import is_excluded_section
+from shared.services.retrieval.search.section_filters import is_excluded_section
 
 MEDIA_CHUNK_TYPES = {'image', 'table'}
 PUBLIC_RESULT_FIELDS = {

@@ -533,6 +533,15 @@ debug CSVs (`preds_*.csv`) are saved alongside for troubleshooting.
 
 `shared/services/retrieval/app_service.py` → `run_retrieval_query()`
 
+Core retrieval internals are grouped by ownership:
+
+- `execution/`: request shaping, route selection, legacy route execution, and public response projection.
+- `search/`: lexical channels, scoring, section filters, and candidate ranking.
+- `hydration/`: row/path/reference hydration, inline assets, and result assembly.
+- `graph/`: document graph publication/query support.
+- `stats/`: retrieval hit recording.
+- `workflow/` and `agentic/`: agentic planning and navigation flows.
+
 ### Two Retrieval Modes
 
 The system supports two modes, controlled globally by `RETRIEVAL_AGENTIC_ENABLED` and locally via the per-request `use_agentic` toggle.
@@ -549,7 +558,7 @@ flowchart LR
     T --> RRF
     RRF --> Graph[Legacy Graph Routing]
     Graph --> Rank[Dual-priority ranking]
-    Rank --> Assemble[assemble_retrieval_results]
+    Rank --> Assemble[hydration.result_assembly]
 ```
 
 **Channel weights** (default): path=1.0, content=2.0, term=1.5
@@ -584,7 +593,7 @@ Unlike legacy retrieval which relied on static `hydrate_mode` tags, hydration is
 
 ### Result Assembly
 
-`assemble_retrieval_results()`:
+`hydration.result_assembly.assemble_retrieval_results()`:
 
 1. Filters by `exclude_document_ids` and `exclude_sections`
 2. Filters by `allowed_chunk_types` (data_type parameter)

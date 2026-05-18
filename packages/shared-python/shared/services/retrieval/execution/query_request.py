@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.route_types import RetrievalRouteContext
+from shared.services.retrieval.execution.route_types import RetrievalRouteContext
 from shared.services.retrieval.settings import (
     INTERNAL_RECALL_K_MULTIPLIER,
     resolve_allowed_chunk_types,

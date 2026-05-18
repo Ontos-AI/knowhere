@@ -22,9 +22,9 @@ from shared.services.retrieval.agentic.prompts import (
     parse_json_array,
 )
 from shared.services.retrieval.agentic.types import ToolResult
-from shared.services.retrieval.channels import content_channel, path_channel, term_channel
+from shared.services.retrieval.search.channels import content_channel, path_channel, term_channel
 from shared.services.retrieval.llm_adapter import LLMFn
-from shared.services.retrieval.scoring import (
+from shared.services.retrieval.search.scoring import (
     merge_channels_rrf,
     merge_same_section_rows,
     normalize_row_scores,

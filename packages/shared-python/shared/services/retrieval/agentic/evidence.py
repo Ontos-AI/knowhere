@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.models.database.document import RetrievalHitStat
 from shared.services.retrieval.agentic.budget import BudgetLedger
 from shared.services.retrieval.agentic.types import DocTreeNode
-from shared.services.retrieval.assets import build_retrieval_asset_url_map
-from shared.services.retrieval.hit_stats_service import compute_importance_score
+from shared.services.retrieval.hydration.assets import build_retrieval_asset_url_map
+from shared.services.retrieval.stats.service import compute_importance_score
 from shared.utils.token_estimate import estimate_tokens
 
 

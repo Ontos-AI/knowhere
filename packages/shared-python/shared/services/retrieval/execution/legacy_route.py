@@ -6,16 +6,16 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.channels import content_channel, path_channel, term_channel
-from shared.services.retrieval.graph_query_service import GraphQueryService
-from shared.services.retrieval.ranking import rank_retrieval_candidates
-from shared.services.retrieval.response_projection import attach_citation
-from shared.services.retrieval.result_assembly import assemble_retrieval_results
-from shared.services.retrieval.route_types import (
+from shared.services.retrieval.search.channels import content_channel, path_channel, term_channel
+from shared.services.retrieval.graph.query_service import GraphQueryService
+from shared.services.retrieval.search.ranking import rank_retrieval_candidates
+from shared.services.retrieval.execution.response_projection import attach_citation
+from shared.services.retrieval.hydration.result_assembly import assemble_retrieval_results
+from shared.services.retrieval.execution.route_types import (
     RetrievalRouteContext,
     RetrievalRouteOutcome,
 )
-from shared.services.retrieval.scoring import (
+from shared.services.retrieval.search.scoring import (
     get_row_path,
     merge_channels_rrf,
     merge_same_section_rows,

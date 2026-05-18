@@ -4,7 +4,7 @@ from typing import Any
 
 from loguru import logger
 
-from shared.services.retrieval.row_utils import MEDIA_CHUNK_TYPES, normalize_chunk_type
+from shared.services.retrieval.hydration.row_utils import MEDIA_CHUNK_TYPES, normalize_chunk_type
 from shared.services.storage.result_storage import get_result_storage
 
 
