@@ -1,4 +1,5 @@
 import importlib
+import base64
 import json
 import socket
 from collections.abc import Callable
@@ -46,6 +47,39 @@ async def _insert_waiting_file_job() -> tuple[str, str]:
     )
 
     return user_id, job_id
+
+
+def test_storage_event_intake_sanitizes_sensitive_headers() -> None:
+    from app.services.s3_events.intake_outcome import sanitize_storage_event_headers
+
+    sanitized = sanitize_storage_event_headers(
+        {
+            "Authorization": "Bearer secret",
+            "x-amz-sns-signature": "signature",
+            "x-minio-auth-token": "token",
+            "content-type": "application/json",
+        }
+    )
+
+    assert sanitized == {
+        "Authorization": "<redacted>",
+        "x-amz-sns-signature": "<redacted>",
+        "x-minio-auth-token": "<redacted>",
+        "content-type": "application/json",
+    }
+
+
+def test_storage_event_nested_message_decoder_supports_plain_and_base64_json() -> None:
+    from app.services.s3_events.nested_message_decoder import decode_nested_json_message
+
+    payload = {"Records": [{"eventName": "ObjectCreated:Put"}]}
+    encoded_payload = base64.b64encode(json.dumps(payload).encode("utf-8")).decode(
+        "utf-8"
+    )
+
+    assert decode_nested_json_message(json.dumps(payload)) == payload
+    assert decode_nested_json_message(encoded_payload) == payload
+    assert decode_nested_json_message("not-json") is None
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,9 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.execution_plan import RetrievalExecutionPlan
+from shared.services.retrieval.execution_plan import (
+    run_retrieval_query as execute_retrieval_query,
+)
 from shared.services.retrieval.scoring import merge_channels_rrf
 
 __all__ = ["merge_channels_rrf", "run_retrieval_query"]
@@ -29,22 +31,21 @@ async def run_retrieval_query(
     internal_recall_k: int | None = None,
     use_agentic: bool | None = None,
 ) -> dict[str, Any]:
-    request: dict[str, Any] = {
-        "db": db,
-        "user_id": user_id,
-        "namespace": namespace,
-        "query": query,
-        "top_k": top_k,
-        "exclude_document_ids": exclude_document_ids,
-        "exclude_sections": exclude_sections,
-        "data_type": data_type,
-        "signal_paths": signal_paths,
-        "filter_mode": filter_mode,
-        "channels": channels,
-        "channel_weights": channel_weights,
-        "rerank": rerank,
-        "threshold": threshold,
-        "internal_recall_k": internal_recall_k,
-        "use_agentic": use_agentic,
-    }
-    return await RetrievalExecutionPlan(request).execute()
+    return await execute_retrieval_query(
+        db=db,
+        user_id=user_id,
+        namespace=namespace,
+        query=query,
+        top_k=top_k,
+        exclude_document_ids=exclude_document_ids,
+        exclude_sections=exclude_sections,
+        data_type=data_type,
+        signal_paths=signal_paths,
+        filter_mode=filter_mode,
+        channels=channels,
+        channel_weights=channel_weights,
+        rerank=rerank,
+        threshold=threshold,
+        internal_recall_k=internal_recall_k,
+        use_agentic=use_agentic,
+    )

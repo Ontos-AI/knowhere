@@ -1,6 +1,7 @@
 """S3 event webhook routes."""
 
 from app.services.s3_events.service import safely_handle_s3_event_post
+from app.services.s3_events.intake_outcome import sanitize_storage_event_headers
 from fastapi import APIRouter, Header, Request
 from loguru import logger
 
@@ -40,7 +41,7 @@ async def handle_s3_events(
 ) -> dict[str, str]:
     """Handle S3-event POST requests from AWS SNS, MinIO, OSS, or tests."""
     logger.bind(event=LogEvent.S3_WEBHOOK_EVENT).info(
-        f"S3 event Headers: {dict(request.headers)}"
+        f"S3 event Headers: {sanitize_storage_event_headers(dict(request.headers))}"
     )
     if request.client:
         logger.info(f"Client IP: {request.client.host}")

@@ -7,9 +7,11 @@ from uuid import uuid4
 import pytest
 from httpx import AsyncClient
 from pytest import MonkeyPatch
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.contract_database import ContractDatabase
 from shared.services.retrieval.agentic.types import AgenticResult
+from shared.services.retrieval.query_request import RetrievalQuery
 from shared.services.retrieval.workflow.types import PlannedStep, QueryPlan, WorkflowResult
 
 
@@ -137,6 +139,46 @@ async def _seed_retrieval_chunk_for_existing_document(
 
 def _result_source(result: dict[str, object]) -> dict[str, object]:
     return cast(dict[str, object], result["source"])
+
+
+def test_retrieval_query_owns_cache_and_route_request_shape() -> None:
+    query = RetrievalQuery.from_parameters(
+        db=cast(AsyncSession, object()),
+        user_id="user-1",
+        namespace="contract-retrieval",
+        query="  alpha  ",
+        top_k=5,
+        exclude_document_ids=["doc-hidden"],
+        exclude_sections=[{"document_id": "doc-1", "section_path": "Root"}],
+        data_type=2,
+        signal_paths=["Root"],
+        filter_mode="keep",
+        channels=["content"],
+        channel_weights={"content": 1.5},
+        rerank=True,
+        threshold=0.2,
+        internal_recall_k=17,
+        use_agentic=False,
+    )
+
+    route_context = query.build_route_context()
+
+    assert query.query == "alpha"
+    assert query.build_cache_extra() == {
+        "data_type": 2,
+        "signal_paths": ["Root"],
+        "filter_mode": "keep",
+        "channels": ["content"],
+        "channel_weights": {"content": 1.5},
+        "rerank": True,
+        "threshold": 0.2,
+        "internal_recall_k": 17,
+        "decomposition_enabled": True,
+    }
+    assert route_context.query == "alpha"
+    assert route_context.allowed_chunk_types == {"text"}
+    assert route_context.effective_recall_k == 17
+    assert route_context.use_agentic is False
 
 
 @pytest.mark.asyncio
@@ -628,6 +670,72 @@ async def test_agentic_retrieval_should_not_hydrate_references_outside_request_s
     results = cast(list[dict[str, object]], response_json["results"])
 
     assert request_document["document_id"] != foreign_document["document_id"]
+    assert referenced_chunks == []
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_agentic_retrieval_should_drop_references_that_do_not_match_the_hydrated_section(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    class FakeWorkflowOrchestrator:
+        async def run(self, *_args: object, **kwargs: object) -> WorkflowResult:
+            return WorkflowResult(
+                namespace=str(kwargs["namespace"]),
+                query=str(kwargs["query"]),
+                router_used="workflow_single_step",
+                answer_text="mismatched section answer",
+                referenced_chunks=[
+                    {
+                        "chunk_id": visible_chunk["chunk_id"],
+                        "document_id": visible_chunk["document_id"],
+                        "chunk_type": "text",
+                        "section_path": "wrong/section",
+                        "file_path": None,
+                        "job_id": visible_chunk["job_id"],
+                    }
+                ],
+            )
+
+    async with developer_api_client_factory() as api_client:
+        visible_chunk = await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-reference-section-match",
+            source_file_name="visible.pdf",
+            section_path="right/section",
+            content="visible scoped content",
+        )
+        await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-reference-section-match",
+            source_file_name="filler.pdf",
+            section_path="filler/section",
+            content="filler content",
+        )
+        monkeypatch.setattr(
+            "shared.services.retrieval.workflow.orchestrator.WorkflowOrchestrator",
+            FakeWorkflowOrchestrator,
+        )
+
+        response = await api_client.post(
+            "/api/v1/retrieval/query",
+            json={
+                "namespace": "contract-reference-section-match",
+                "query": "visible",
+                "top_k": 1,
+                "use_agentic": True,
+            },
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    referenced_chunks = cast(list[dict[str, object]], response_json["referenced_chunks"])
+    results = cast(list[dict[str, object]], response_json["results"])
+
     assert referenced_chunks == []
     assert results == []
 

@@ -10,6 +10,9 @@ from app.services.s3_events.event_handlers import (
     handle_sns_event,
     is_oss_event,
 )
+from app.services.s3_events.intake_outcome import (
+    build_storage_event_error_acknowledgement,
+)
 
 
 async def handle_s3_event_post(
@@ -48,5 +51,7 @@ async def safely_handle_s3_event_post(
             minio_auth_token=minio_auth_token,
         )
     except Exception as exc:
+        outcome = build_storage_event_error_acknowledgement()
         logger.error(f"Failed to handle S3 event: {exc}")
-        return {"message": "Event handling completed"}
+        logger.warning(f"S3 event intake outcome: reason={outcome.reason}")
+        return outcome.to_response()

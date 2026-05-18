@@ -10,9 +10,11 @@ using the same transactional outbox pattern for webhook events.
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any, Dict, List, Optional, TypeVar
 
 from loguru import logger
+from sqlalchemy.orm import Session
 
 from shared.core.database_sync import get_sync_db_context
 from shared.services.job_failure_sync import SyncJobFailureFinalizer
@@ -58,34 +60,25 @@ class SyncJobLifecycleService:
         """
         logger.info(f"Finalizing job success: job_id={job_id}")
 
-        with get_sync_db_context() as db:
-            try:
-                finalization = self._success_finalizer.finalize(
-                    db,
-                    job_id=job_id,
-                    result_s3_key=result_s3_key,
-                    checksum=checksum,
-                    zip_size=zip_size,
-                    chunks=chunks or [],
-                    stored_count=stored_count,
-                    delivery_mode=delivery_mode,
-                    section_summaries=section_summaries,
-                )
-                if finalization.response.get("status") != "success":
-                    db.rollback()
-                    return finalization.response
-
-                db.commit()
-                logger.info(f"Job {job_id} success transaction committed")
-
-                self._success_finalizer.run_post_commit_actions(finalization)
-
-                return finalization.response
-
-            except Exception as exc:
-                logger.error(f"Failed to finalize job success {job_id}: {exc}")
-                db.rollback()
-                raise
+        return _run_lifecycle_transaction(
+            job_id=job_id,
+            label="success",
+            finalize=lambda db: self._success_finalizer.finalize(
+                db,
+                job_id=job_id,
+                result_s3_key=result_s3_key,
+                checksum=checksum,
+                zip_size=zip_size,
+                chunks=chunks or [],
+                stored_count=stored_count,
+                delivery_mode=delivery_mode,
+                section_summaries=section_summaries,
+            ),
+            should_commit=lambda finalization: finalization.response.get("status")
+            == "success",
+            build_response=lambda finalization: finalization.response,
+            run_after_commit=self._success_finalizer.run_post_commit_actions,
+        )
 
     def finalize_job_failure(
         self,
@@ -106,31 +99,23 @@ class SyncJobLifecycleService:
         """
         logger.info(f"Finalizing job failure: job_id={job_id}")
 
-        with get_sync_db_context() as db:
-            try:
-                transition_ok, webhook_event = self._failure_finalizer.finalize(
-                    db,
-                    job_id=job_id,
-                    error_message=error_message,
-                    error_code=error_code,
-                    error_details=error_details,
-                    should_refund=should_refund,
-                )
-                if not transition_ok:
-                    db.rollback()
-                    return False
-
-                db.commit()
-                logger.info(f"Job {job_id} failure transaction committed")
-
-                self._failure_finalizer.enqueue_webhook_after_commit(webhook_event)
-
-                return True
-
-            except Exception as exc:
-                logger.error(f"Failed to finalize job failure {job_id}: {exc}")
-                db.rollback()
-                raise
+        return _run_lifecycle_transaction(
+            job_id=job_id,
+            label="failure",
+            finalize=lambda db: self._failure_finalizer.finalize(
+                db,
+                job_id=job_id,
+                error_message=error_message,
+                error_code=error_code,
+                error_details=error_details,
+                should_refund=should_refund,
+            ),
+            should_commit=lambda finalization: finalization[0],
+            build_response=lambda finalization: finalization[0],
+            run_after_commit=lambda finalization: (
+                self._failure_finalizer.enqueue_webhook_after_commit(finalization[1])
+            ),
+        )
 
     def update_progress(
         self,
@@ -175,3 +160,35 @@ def get_sync_job_lifecycle_service() -> SyncJobLifecycleService:
     if _lifecycle_service is None:
         _lifecycle_service = SyncJobLifecycleService()
     return _lifecycle_service
+
+
+_FinalizationT = TypeVar("_FinalizationT")
+_ResponseT = TypeVar("_ResponseT")
+
+
+def _run_lifecycle_transaction(
+    *,
+    job_id: str,
+    label: str,
+    finalize: Callable[[Session], _FinalizationT],
+    should_commit: Callable[[_FinalizationT], bool],
+    build_response: Callable[[_FinalizationT], _ResponseT],
+    run_after_commit: Callable[[_FinalizationT], None],
+) -> _ResponseT:
+    with get_sync_db_context() as db:
+        try:
+            finalization = finalize(db)
+            if not should_commit(finalization):
+                db.rollback()
+                return build_response(finalization)
+
+            db.commit()
+            logger.info(f"Job {job_id} {label} transaction committed")
+
+            run_after_commit(finalization)
+            return build_response(finalization)
+
+        except Exception as exc:
+            logger.error(f"Failed to finalize job {label} {job_id}: {exc}")
+            db.rollback()
+            raise

@@ -433,7 +433,7 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
             connection.execute(
                 text(
                     """
-                    SELECT delivery_mode, result_s3_key, result_size, inline_payload
+                    SELECT id, delivery_mode, result_s3_key, result_size, inline_payload
                     FROM job_results
                     WHERE job_id = :job_id
                     """
@@ -442,6 +442,21 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
             )
             .mappings()
             .one()
+        )
+        job_chunks = list(
+            connection.execute(
+                text(
+                    """
+                    SELECT chunk_type, text, path, sort_order
+                    FROM job_chunks
+                    WHERE job_result_id = :job_result_id
+                    ORDER BY sort_order
+                    """
+                ),
+                {"job_result_id": job_result_row["id"]},
+            )
+            .mappings()
+            .all()
         )
         document_row = (
             connection.execute(
@@ -546,6 +561,17 @@ def test_should_parse_a_pending_file_job_and_persist_the_published_result_state(
     assert job_result_row["result_s3_key"] == f"results/{job_id}.zip"
     assert job_result_row["result_size"] > 0
     assert dict(job_result_row["inline_payload"])["checksum"]
+    assert [chunk["chunk_type"] for chunk in job_chunks] == [
+        "text",
+        "text",
+        "image",
+        "table",
+    ]
+    assert job_chunks[0]["text"] == text_content_with_refs
+    assert job_chunks[0]["path"].endswith(
+        "公司研究/自主可控加强，寒武纪或迎来营收快速放量周期"
+    )
+    assert job_chunks[0]["sort_order"] == 0
     assert document_row["namespace"] == "worker-contract"
     assert document_row["status"] == "active"
     assert document_row["source_file_name"] == source_file_name

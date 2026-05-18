@@ -11,17 +11,13 @@ from shared.services.retrieval.cache_service import (
     set_cached_retrieval_query_result,
 )
 from shared.services.retrieval.execution_routes import run_retrieval_route
-from shared.services.retrieval.route_types import RetrievalRouteContext
 from shared.services.retrieval.hit_stats_recorder import (
     schedule_retrieval_hit_stats_update,
 )
 from shared.services.retrieval.response_projection import (
     project_public_retrieval_response,
 )
-from shared.services.retrieval.settings import (
-    INTERNAL_RECALL_K_MULTIPLIER,
-    resolve_allowed_chunk_types,
-)
+from shared.services.retrieval.query_request import RetrievalQuery
 
 
 async def run_retrieval_query(
@@ -45,108 +41,7 @@ async def run_retrieval_query(
 ) -> dict[str, Any]:
     """Run retrieval through the plan module."""
     return await RetrievalExecutionPlan(
-        {
-            "db": db,
-            "user_id": user_id,
-            "namespace": namespace,
-            "query": query,
-            "top_k": top_k,
-            "exclude_document_ids": exclude_document_ids,
-            "exclude_sections": exclude_sections,
-            "data_type": data_type,
-            "signal_paths": signal_paths,
-            "filter_mode": filter_mode,
-            "channels": channels,
-            "channel_weights": channel_weights,
-            "rerank": rerank,
-            "threshold": threshold,
-            "internal_recall_k": internal_recall_k,
-            "use_agentic": use_agentic,
-        }
-    ).execute()
-
-
-class RetrievalExecutionPlan:
-    def __init__(self, request: dict[str, Any]) -> None:
-        self.request = request
-
-    async def execute(self) -> dict[str, Any]:
-        db: AsyncSession = self.request["db"]
-        user_id: str = self.request["user_id"]
-        namespace: str = self.request["namespace"]
-        query: str = str(self.request["query"]).strip()
-        top_k: int = self.request["top_k"]
-        exclude_document_ids: list[str] = self.request["exclude_document_ids"]
-        exclude_sections: list[dict[str, str]] = self.request["exclude_sections"]
-        data_type: int = self.request["data_type"]
-        signal_paths: list[str] | None = self.request["signal_paths"]
-        filter_mode: str = self.request["filter_mode"]
-        channels: list[str] | None = self.request["channels"]
-        channel_weights: dict[str, float] | None = self.request["channel_weights"]
-        rerank: bool = self.request["rerank"]
-        threshold: float = self.request["threshold"]
-        internal_recall_k: int | None = self.request["internal_recall_k"]
-        use_agentic: bool | None = self.request["use_agentic"]
-
-        start_time = time.monotonic()
-        _log_retrieval_start(
-            query=query,
-            user_id=user_id,
-            namespace=namespace,
-            top_k=top_k,
-            data_type=data_type,
-            exclude_document_ids=exclude_document_ids,
-            exclude_sections=exclude_sections,
-        )
-
-        if not query:
-            logger.info("  ⛔ Empty query filtered, skipping retrieval pipeline")
-            return {
-                "namespace": namespace,
-                "query": query,
-                "router_used": "empty_query_filtered",
-                "results": [],
-            }
-
-        allowed_chunk_types: set[str] | None = resolve_allowed_chunk_types(data_type)
-        effective_recall_k = (
-            internal_recall_k
-            if internal_recall_k is not None
-            else top_k * INTERNAL_RECALL_K_MULTIPLIER
-        )
-        logger.info(
-            f"  allowed_chunk_types={allowed_chunk_types}  "
-            f"effective_recall_k={effective_recall_k}  "
-            f"signal_paths={signal_paths}  filter_mode={filter_mode}  "
-            f"rerank={rerank}  threshold={threshold}"
-        )
-
-        cache_extra = {
-            "data_type": data_type,
-            "signal_paths": signal_paths,
-            "filter_mode": filter_mode,
-            "channels": channels,
-            "channel_weights": channel_weights,
-            "rerank": rerank,
-            "threshold": threshold,
-            "internal_recall_k": internal_recall_k,
-            "decomposition_enabled": True,
-        }
-        cache_version, cached_response = await _read_cached_response(
-            user_id=user_id,
-            namespace=namespace,
-            query=query,
-            top_k=top_k,
-            exclude_document_ids=exclude_document_ids,
-            exclude_sections=exclude_sections,
-            cache_extra=cache_extra,
-        )
-        if cached_response is not None:
-            return cached_response
-
-        logger.debug(f"  📦 Cache miss (version={cache_version}), running full pipeline")
-
-        route_context = RetrievalRouteContext(
+        RetrievalQuery.from_parameters(
             db=db,
             user_id=user_id,
             namespace=namespace,
@@ -154,34 +49,88 @@ class RetrievalExecutionPlan:
             top_k=top_k,
             exclude_document_ids=exclude_document_ids,
             exclude_sections=exclude_sections,
-            allowed_chunk_types=allowed_chunk_types,
             data_type=data_type,
             signal_paths=signal_paths,
             filter_mode=filter_mode,
             channels=channels,
             channel_weights=channel_weights,
+            rerank=rerank,
             threshold=threshold,
-            effective_recall_k=effective_recall_k,
+            internal_recall_k=internal_recall_k,
             use_agentic=use_agentic,
         )
-        outcome = await run_retrieval_route(route_context)
+    ).execute()
+
+
+class RetrievalExecutionPlan:
+    def __init__(self, request: RetrievalQuery) -> None:
+        self.request = request
+
+    async def execute(self) -> dict[str, Any]:
+        request = self.request
+
+        start_time = time.monotonic()
+        _log_retrieval_start(
+            query=request.query,
+            user_id=request.user_id,
+            namespace=request.namespace,
+            top_k=request.top_k,
+            data_type=request.data_type,
+            exclude_document_ids=request.exclude_document_ids,
+            exclude_sections=request.exclude_sections,
+        )
+
+        if not request.query:
+            logger.info("  ⛔ Empty query filtered, skipping retrieval pipeline")
+            return {
+                "namespace": request.namespace,
+                "query": request.query,
+                "router_used": "empty_query_filtered",
+                "results": [],
+            }
+
+        allowed_chunk_types = request.resolve_allowed_chunk_types()
+        effective_recall_k = request.resolve_effective_recall_k()
+        logger.info(
+            f"  allowed_chunk_types={allowed_chunk_types}  "
+            f"effective_recall_k={effective_recall_k}  "
+            f"signal_paths={request.signal_paths}  filter_mode={request.filter_mode}  "
+            f"rerank={request.rerank}  threshold={request.threshold}"
+        )
+
+        cache_extra = request.build_cache_extra()
+        cache_version, cached_response = await _read_cached_response(
+            user_id=request.user_id,
+            namespace=request.namespace,
+            query=request.query,
+            top_k=request.top_k,
+            exclude_document_ids=request.exclude_document_ids,
+            exclude_sections=request.exclude_sections,
+            cache_extra=cache_extra,
+        )
+        if cached_response is not None:
+            return cached_response
+
+        logger.debug(f"  📦 Cache miss (version={cache_version}), running full pipeline")
+
+        outcome = await run_retrieval_route(request.build_route_context())
 
         if cache_version is not None:
             await _write_cached_response(
-                user_id=user_id,
-                namespace=namespace,
+                user_id=request.user_id,
+                namespace=request.namespace,
                 version=cache_version,
-                query=query,
-                top_k=top_k,
-                exclude_document_ids=exclude_document_ids,
-                exclude_sections=exclude_sections,
+                query=request.query,
+                top_k=request.top_k,
+                exclude_document_ids=request.exclude_document_ids,
+                exclude_sections=request.exclude_sections,
                 response=outcome.response,
                 cache_extra=cache_extra,
             )
 
         _schedule_hit_stats_update(
-            user_id=user_id,
-            namespace=namespace,
+            user_id=request.user_id,
+            namespace=request.namespace,
             results=outcome.hit_stats_results,
         )
         _log_retrieval_complete(

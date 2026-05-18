@@ -5,11 +5,10 @@ import os
 from loguru import logger
 
 from shared.services.retrieval.legacy_route import run_legacy_retrieval_route
-from shared.services.retrieval.reference_hydration import hydrate_referenced_chunk_rows
+from shared.services.retrieval.reference_resolver import resolve_workflow_references
 from shared.services.retrieval.result_assembly import assemble_retrieval_results
 from shared.services.retrieval.response_projection import (
     attach_citation,
-    enrich_referenced_chunks_with_asset_urls,
 )
 from shared.services.retrieval.route_types import (
     RetrievalRouteContext,
@@ -122,41 +121,21 @@ async def _run_agentic_route(
         channel_weights=context.channel_weights,
     )
 
-    enriched_refs = await enrich_referenced_chunks_with_asset_urls(
-        workflow_result.referenced_chunks,
-    )
-
-    workflow_result_rows = await hydrate_referenced_chunk_rows(
+    resolved_references = await resolve_workflow_references(
         db=context.db,
         user_id=context.user_id,
         namespace=context.namespace,
-        refs=enriched_refs,
+        refs=workflow_result.referenced_chunks,
     )
-    scoped_reference_keys = {
-        (
-            str(row.get("document_id") or "").strip(),
-            str(row.get("chunk_id") or "").strip(),
-        )
-        for row in workflow_result_rows
-    }
-    enriched_refs = [
-        ref
-        for ref in enriched_refs
-        if (
-            str(ref.get("document_id") or "").strip(),
-            str(ref.get("chunk_id") or "").strip(),
-        )
-        in scoped_reference_keys
-    ]
     assembled_workflow_rows = await assemble_retrieval_results(
         db=context.db,
-        rows=workflow_result_rows,
+        rows=resolved_references.rows,
         exclude_document_ids=context.exclude_document_ids,
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
     )
     response = workflow_result.to_api_response()
-    response["referenced_chunks"] = enriched_refs
+    response["referenced_chunks"] = resolved_references.refs
     response["results"] = [attach_citation(row) for row in assembled_workflow_rows]
 
     completion_detail = (
@@ -165,8 +144,8 @@ async def _run_agentic_route(
     )
     return RetrievalRouteOutcome(
         response=response,
-        hit_stats_results=enriched_refs,
+        hit_stats_results=resolved_references.refs,
         completion_label="AGENTIC RETRIEVAL",
-        completion_count=len(enriched_refs),
+        completion_count=len(resolved_references.refs),
         completion_detail=completion_detail,
     )

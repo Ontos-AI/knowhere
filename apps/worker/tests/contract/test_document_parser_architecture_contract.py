@@ -115,6 +115,63 @@ def test_document_format_router_uses_adapters(
     assert actual_df is parsed_df
 
 
+def test_parse_pipeline_owns_route_and_postprocess_contract(
+    worker_contract_environment: None,
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.orchestration.parse_input import ParseInput
+    from app.services.document_parser.orchestration.parse_pipeline import (
+        ParsePipelineResult,
+        run_parse_pipeline,
+    )
+
+    routed_df = pd.DataFrame([{"content": "routed"}])
+    processed_df = pd.DataFrame([{"content": "processed"}])
+    routed_output_dir = str(tmp_path / "routed")
+
+    monkeypatch.setattr(
+        "app.services.document_parser.orchestration.parse_session.profile_document",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            file_type="pdf",
+            page_count=1,
+            atlas_candidate=False,
+            doc_category="generic",
+            summary=lambda: "profile",
+            reasoning="test",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.document_parser.orchestration.parse_pipeline.route_document_parse",
+        lambda _session: (routed_output_dir, routed_df),
+    )
+
+    def fake_postprocess(output_dir: str, parsed_df: pd.DataFrame | None) -> pd.DataFrame:
+        assert output_dir == routed_output_dir
+        assert parsed_df is routed_df
+        return processed_df
+
+    monkeypatch.setattr(
+        "app.services.document_parser.orchestration.parse_pipeline.apply_parse_postprocess",
+        fake_postprocess,
+    )
+
+    result = run_parse_pipeline(
+        ParseInput(
+            file_full_path=str(tmp_path / "contract.pdf"),
+            filename="contract.pdf",
+            output_dir=str(tmp_path),
+            internal_output_filename="contract.pdf",
+        )
+    )
+
+    assert result == ParsePipelineResult(
+        output_dir=routed_output_dir,
+        parsed_df=processed_df,
+    )
+    assert result.as_legacy_tuple() == (routed_output_dir, processed_df)
+
+
 def test_rendered_pdf_transform_centralizes_temporary_pdf_cleanup(
     worker_contract_environment: None,
     monkeypatch: Any,

@@ -3,9 +3,7 @@
 import pandas as pd
 
 from app.services.document_parser.orchestration.parse_input import ParseInput, ParseOptions
-from app.services.document_parser.orchestration.parse_session import build_parse_session
-from app.services.document_parser.orchestration.postprocess import apply_parse_postprocess
-from app.services.document_parser.orchestration.route_parse import route_document_parse
+from app.services.document_parser.orchestration.parse_pipeline import run_parse_pipeline
 
 
 def checkerboard_inject_parse(
@@ -49,7 +47,4 @@ def checkerboard_inject_parse(
         fragment_content=fragment_content,
         s3_key=s3_key,
     )
-    session = build_parse_session(parse_input)
-    full_output_dir, parsed_df = route_document_parse(session)
-    parsed_df = apply_parse_postprocess(full_output_dir, parsed_df)
-    return full_output_dir, parsed_df
+    return run_parse_pipeline(parse_input).as_legacy_tuple()

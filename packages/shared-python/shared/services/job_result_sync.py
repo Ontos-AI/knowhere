@@ -61,13 +61,19 @@ class SyncJobResultWriter:
         for index, chunk in enumerate(chunks):
             chunk_identifier = chunk.get("chunk_id") or str(uuid4())
             metadata = chunk.get("metadata")
+            chunk_text = chunk.get("text") or chunk.get("content")
+            chunk_path = (
+                metadata.get("path")
+                if isinstance(metadata, dict) and metadata.get("path")
+                else chunk.get("path")
+            )
             chunk_models.append(
                 JobChunk(
                     job_result_id=job_result_id,
                     chunk_id=chunk_identifier,
                     chunk_type=chunk.get("type", "paragraph"),
-                    text=chunk.get("text"),
-                    path=metadata.get("path") if isinstance(metadata, dict) else None,
+                    text=str(chunk_text) if chunk_text is not None else None,
+                    path=str(chunk_path) if chunk_path is not None else None,
                     chunk_metadata=metadata,
                     sort_order=chunk.get("order", index),
                 )

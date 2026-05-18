@@ -1,11 +1,11 @@
 """Storage event protocol handlers."""
 from __future__ import annotations
 
-import base64
 import json
 import os
 from typing import Any
 
+from app.services.s3_events.nested_message_decoder import decode_nested_json_message
 from app.services.s3_events.signature_verification import (
     verify_minio_signature,
     verify_oss_signature,
@@ -169,24 +169,8 @@ def _unwrap_mns_message(event_data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(inner, str):
         return event_data
 
-    decoded = _decode_mns_inner_json(inner)
+    decoded = decode_nested_json_message(inner)
     if decoded is not None:
         logger.info(f"Decoded MNS Message payload: {decoded}")
         return decoded
     return event_data
-
-
-def _decode_mns_inner_json(inner: str) -> dict[str, Any] | None:
-    try:
-        decoded_bytes = base64.b64decode(inner, validate=True)
-        decoded_str = decoded_bytes.decode("utf-8")
-        decoded = json.loads(decoded_str)
-        return decoded if isinstance(decoded, dict) else None
-    except Exception:
-        pass
-
-    try:
-        decoded = json.loads(inner)
-        return decoded if isinstance(decoded, dict) else None
-    except Exception:
-        return None
