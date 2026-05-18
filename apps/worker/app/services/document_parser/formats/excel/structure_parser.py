@@ -551,8 +551,6 @@ def _split_sheet_recursive(
     min_rows: int = 2,
     min_cols: int = 2,
 ) -> List[Tuple[Tuple[int, int], Tuple[int, int]]]:
-    row_start, row_end = row_range
-    col_start, col_end = col_range
     merged_ranges = merged_ranges or []
 
     (effective_row_start, effective_row_end), (

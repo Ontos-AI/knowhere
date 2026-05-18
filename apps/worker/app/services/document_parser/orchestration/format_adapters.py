@@ -14,7 +14,7 @@ class DocumentParseAdapter(Protocol):
 
     def parse(self, session: ParseSession) -> ParseOutput:
         """Parse a document session into a stable parser output object."""
-        ...
+        raise NotImplementedError
 
 
 @dataclass(frozen=True)

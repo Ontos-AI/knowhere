@@ -178,8 +178,8 @@ def _build_duplicate_image_asset(
     )
     try:
         source_path.unlink()
-    except OSError:
-        pass
+    except OSError as exc:
+        logger.debug(f"Failed to remove duplicate image source {source_path}: {exc}")
     logger.debug("Skipped duplicate image")
     return MarkdownImageAsset(
         content_item=cache_entry["img_content"],

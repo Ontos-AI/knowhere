@@ -106,6 +106,18 @@ def run_worker() -> None:
     node_name = f"celery@{hostname}-{pid}"
     log_level = os.getenv("LOG_LEVEL", "INFO").lower()
     concurrency = settings.WORKER_CONCURRENCY
+    worker_queues = ",".join(
+        [
+            "document_ingestion_high",
+            "document_ingestion_medium",
+            "document_ingestion_low",
+            "kb_high",
+            "kb_medium",
+            "kb_low",
+            "ai_high_priority",
+            "default",
+        ]
+    )
 
     celery_args = [
         "worker",
@@ -114,9 +126,7 @@ def run_worker() -> None:
         f"--loglevel={log_level}",
         f"--hostname={node_name}",
         "-Q",
-        "document_ingestion_high,document_ingestion_medium,"
-        "document_ingestion_low,kb_high,kb_medium,kb_low,"
-        "ai_high_priority,default",
+        worker_queues,
         "--without-gossip",
         "--without-mingle",
     ]

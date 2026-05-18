@@ -135,30 +135,21 @@ def parse_action_response(text: str) -> dict:
 
         return {"action": action, "tools": tools, "selections": selections}
 
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict):
-            return extract(data)
-    except (ValueError, json.JSONDecodeError):
-        pass
+    data = _parse_json_object(text)
+    if data is not None:
+        return extract(data)
 
     fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
     if fence_match:
-        try:
-            data = json.loads(fence_match.group(1).strip())
-            if isinstance(data, dict):
-                return extract(data)
-        except (ValueError, json.JSONDecodeError):
-            pass
+        data = _parse_json_object(fence_match.group(1).strip())
+        if data is not None:
+            return extract(data)
 
     brace_match = re.search(r"\{.*\}", text, re.DOTALL)
     if brace_match:
-        try:
-            data = json.loads(brace_match.group())
-            if isinstance(data, dict):
-                return extract(data)
-        except (ValueError, json.JSONDecodeError):
-            pass
+        data = _parse_json_object(brace_match.group())
+        if data is not None:
+            return extract(data)
 
     return default
 
@@ -192,21 +183,31 @@ def parse_json_array(text: str) -> list[str]:
 
 def extract_json_array_payload(text: str) -> list[Any]:
     text = text.strip()
-    try:
-        result = json.loads(text)
-        if isinstance(result, list):
-            return result
-    except (json.JSONDecodeError, ValueError):
-        pass
+    result = _parse_json_array(text)
+    if result is not None:
+        return result
     match = re.search(r"\[.*?\]", text, re.DOTALL)
     if match:
-        try:
-            result = json.loads(match.group())
-            if isinstance(result, list):
-                return result
-        except (json.JSONDecodeError, ValueError):
-            pass
+        result = _parse_json_array(match.group())
+        if result is not None:
+            return result
     return []
+
+
+def _parse_json_object(raw_value: str) -> dict[str, Any] | None:
+    try:
+        result = json.loads(raw_value)
+    except (ValueError, json.JSONDecodeError):
+        return None
+    return result if isinstance(result, dict) else None
+
+
+def _parse_json_array(raw_value: str) -> list[Any] | None:
+    try:
+        result = json.loads(raw_value)
+    except (ValueError, json.JSONDecodeError):
+        return None
+    return result if isinstance(result, list) else None
 
 
 def normalize_confidence(value: Any) -> float | None:

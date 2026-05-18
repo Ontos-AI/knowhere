@@ -17,7 +17,7 @@ def _finalize_retrieval_hit_stats_task(task: asyncio.Task[None]) -> None:
     try:
         task.result()
     except asyncio.CancelledError:
-        pass
+        logger.debug('Retrieval hit stats task was cancelled')
     except Exception as exc:
         logger.warning(f'Failed to record retrieval hit stats (ignored): {exc}')
 

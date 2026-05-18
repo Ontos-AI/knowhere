@@ -31,3 +31,10 @@ class TextDeferredSummaryTask:
 MarkdownDeferredSummaryTask: TypeAlias = (
     ImageDeferredSummaryTask | TableDeferredSummaryTask | TextDeferredSummaryTask
 )
+
+__all__ = [
+    "ImageDeferredSummaryTask",
+    "MarkdownDeferredSummaryTask",
+    "TableDeferredSummaryTask",
+    "TextDeferredSummaryTask",
+]

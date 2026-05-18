@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from loguru import logger
 from PIL import Image
 
 from shared.core.exceptions.domain_exceptions import StorageServiceException
@@ -110,8 +111,10 @@ class ZipResourceCollector:
             try:
                 with Image.open(source_path) as img:
                     width, height = img.size
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    f"Failed to read image dimensions for ZIP resource {source_path}: {exc}"
+                )
 
             file_size = os.path.getsize(source_path)
             zip_path = _resolve_image_zip_path(

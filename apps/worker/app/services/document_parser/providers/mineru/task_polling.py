@@ -158,10 +158,17 @@ def poll_mineru_task(
                 if state == "running":
                     if "extract_progress" in status:
                         try:
-                            _progress = (
-                                status["extract_progress"]["extracted_pages"]
-                                / status["extract_progress"]["total_pages"]
-                            )
+                            extracted_pages = status["extract_progress"][
+                                "extracted_pages"
+                            ]
+                            total_pages = status["extract_progress"]["total_pages"]
+                            progress = extracted_pages / total_pages
+                            polling_logger.bind(
+                                token_id=lease.token_id,
+                                extracted_pages=extracted_pages,
+                                total_pages=total_pages,
+                                progress_pct=round(progress * 100, 1),
+                            ).debug("MinerU parsing in progress")
                         except (KeyError, ZeroDivisionError):
                             polling_logger.bind(token_id=lease.token_id).info(
                                 "MinerU parsing in progress"
