@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.services import qstash_callback_service
+from app.services.qstash_callback_service import QStashCallbackOutcome
 from fastapi import APIRouter, Request, Response
 
 router = APIRouter(tags=["QStash Callbacks"])
@@ -25,7 +26,9 @@ async def handle_qstash_callback(request: Request) -> Response:
     ):
         return Response(status_code=401, content="Invalid signature")
 
-    return qstash_callback_service.handle_qstash_success_callback(raw_body)
+    return _to_response(
+        qstash_callback_service.handle_qstash_success_callback(raw_body)
+    )
 
 
 @router.post("/qstash/failure")
@@ -45,4 +48,10 @@ async def handle_qstash_failure(request: Request) -> Response:
     ):
         return Response(status_code=401, content="Invalid signature")
 
-    return qstash_callback_service.handle_qstash_failure_callback(raw_body)
+    return _to_response(
+        qstash_callback_service.handle_qstash_failure_callback(raw_body)
+    )
+
+
+def _to_response(outcome: QStashCallbackOutcome) -> Response:
+    return Response(status_code=outcome.status_code, content=outcome.content)
