@@ -5,7 +5,7 @@ import asyncio
 import os
 from dataclasses import dataclass, field
 
-from shared.services.retrieval.agentic.budget import BudgetLedger
+from shared.services.retrieval.agentic.core.budget import BudgetLedger
 from shared.services.retrieval.workflow.types import PlannedStep, QueryPlan
 
 

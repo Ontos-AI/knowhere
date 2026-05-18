@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document
 from shared.services.retrieval.agentic import tools
-from shared.services.retrieval.agentic.budget import BudgetExceeded
-from shared.services.retrieval.agentic.trace import TraceRecorder
-from shared.services.retrieval.agentic.types import AgentState, CandidateDoc, ToolResult
+from shared.services.retrieval.agentic.core.budget import BudgetExceeded
+from shared.services.retrieval.agentic.core.trace import TraceRecorder
+from shared.services.retrieval.agentic.core.types import AgentState, CandidateDoc, ToolResult
 from shared.services.retrieval.llm_adapter import LLMFn
 
 

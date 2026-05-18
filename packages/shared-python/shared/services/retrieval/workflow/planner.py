@@ -8,7 +8,7 @@ from typing import Any
 
 from loguru import logger
 
-from shared.services.retrieval.agentic.budget import BudgetExceeded, BudgetLedger
+from shared.services.retrieval.agentic.core.budget import BudgetExceeded, BudgetLedger
 from shared.services.retrieval.llm_adapter import LLMFn, current_llm_usage
 from shared.services.retrieval.workflow.types import FinalStrategy, OutputRole, PlannedStep, QueryPlan, StepKind
 from shared.utils.token_estimate import estimate_tokens

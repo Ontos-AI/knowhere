@@ -10,7 +10,7 @@ from uuid import uuid4
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic.budget import BudgetLedger
+from shared.services.retrieval.agentic.core.budget import BudgetLedger
 from shared.services.retrieval.agentic.orchestrator import _load_budget_inventory
 from shared.services.retrieval.llm_adapter import (
     create_retrieval_llm_fn,

@@ -301,7 +301,10 @@ exceptions. Shared Job lifecycle finalization lives under
 - `packages/shared-python/shared/services/retrieval/graph/*`
 - `packages/shared-python/shared/services/retrieval/stats/*`
 - `packages/shared-python/shared/services/retrieval/workflow/*`
-- `packages/shared-python/shared/services/retrieval/agentic/*`
+- `packages/shared-python/shared/services/retrieval/agentic/core/*`
+- `packages/shared-python/shared/services/retrieval/agentic/discovery/*`
+- `packages/shared-python/shared/services/retrieval/agentic/navigation/*`
+- `packages/shared-python/shared/services/retrieval/agentic/evidence/*`
 
 ### Demo Source Materialization
 

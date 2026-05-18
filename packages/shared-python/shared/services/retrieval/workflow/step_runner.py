@@ -8,9 +8,9 @@ from contextlib import AbstractAsyncContextManager
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic.budget import BudgetLedger
+from shared.services.retrieval.agentic.core.budget import BudgetLedger
 from shared.services.retrieval.agentic.orchestrator import RetrievalAgent
-from shared.services.retrieval.agentic.types import AgenticResult
+from shared.services.retrieval.agentic.core.types import AgenticResult
 from shared.services.retrieval.llm_adapter import LLMFn
 from shared.services.retrieval.workflow.reference_projection import WorkflowReferenceProjection
 from shared.services.retrieval.workflow.run_request import WorkflowStepRequest

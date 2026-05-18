@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from shared.services.retrieval.agentic.budget import BudgetLedger
+from shared.services.retrieval.agentic.core.budget import BudgetLedger
 
 
 @dataclass

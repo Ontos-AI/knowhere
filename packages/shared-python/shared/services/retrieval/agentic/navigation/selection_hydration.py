@@ -4,8 +4,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic import asset_tools
-from shared.services.retrieval.agentic.types import DocTreeNode
+from shared.services.retrieval.agentic.core.types import DocTreeNode
+from shared.services.retrieval.agentic.navigation import assets as asset_tools
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.path import hydrate_paths_to_rows
 

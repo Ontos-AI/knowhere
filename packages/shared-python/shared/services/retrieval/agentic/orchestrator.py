@@ -23,27 +23,27 @@ from typing import Any, cast
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic.budget import BudgetExceeded, BudgetLedger
-from shared.services.retrieval.agentic.discovery_phase import (
+from shared.services.retrieval.agentic.core.budget import BudgetExceeded, BudgetLedger
+from shared.services.retrieval.agentic.discovery.phase import (
     register_discovery_documents,
     run_initial_discovery,
     select_revision_documents,
 )
-from shared.services.retrieval.agentic.document_navigation import DocumentNavigationRunner
-from shared.services.retrieval.agentic.evidence import (
+from shared.services.retrieval.agentic.navigation.document import DocumentNavigationRunner
+from shared.services.retrieval.agentic.evidence.builder import (
     build_asset_url_map as _build_asset_url_map,
     collect_media_chunks_all as _collect_media_chunks_all,
     render_evidence as _render_evidence,
     trim_evidence_to_budget as _trim_evidence_to_budget,
     with_context_prompt_projection as _with_context_prompt_projection,
 )
-from shared.services.retrieval.agentic.runtime import (
+from shared.services.retrieval.agentic.core.runtime import (
     AgentLlmBudget,
     build_config_from_env as _build_config_from_env,
     load_budget_inventory as _load_budget_inventory,
 )
-from shared.services.retrieval.agentic.trace import TraceRecorder
-from shared.services.retrieval.agentic.types import (
+from shared.services.retrieval.agentic.core.trace import TraceRecorder
+from shared.services.retrieval.agentic.core.types import (
     AgentRunConfig,
     AgentState,
     AgenticResult,

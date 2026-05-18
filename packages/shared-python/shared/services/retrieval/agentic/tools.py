@@ -9,13 +9,11 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic import (
-    asset_tools,
-    discovery_selection,
-    discovery_tools,
-    navigation_tools,
-)
-from shared.services.retrieval.agentic.types import DocTreeNode, ToolResult
+from shared.services.retrieval.agentic.core.types import DocTreeNode, ToolResult
+from shared.services.retrieval.agentic.discovery import selection as discovery_selection
+from shared.services.retrieval.agentic.discovery import tools as discovery_tools
+from shared.services.retrieval.agentic.navigation import assets as asset_tools
+from shared.services.retrieval.agentic.navigation import tools as navigation_tools
 from shared.services.retrieval.llm_adapter import LLMFn
 
 

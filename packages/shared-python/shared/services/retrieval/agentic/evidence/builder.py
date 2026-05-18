@@ -7,8 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import RetrievalHitStat
-from shared.services.retrieval.agentic.budget import BudgetLedger
-from shared.services.retrieval.agentic.types import DocTreeNode
+from shared.services.retrieval.agentic.core.budget import BudgetLedger
+from shared.services.retrieval.agentic.core.types import DocTreeNode
 from shared.services.retrieval.hydration.assets import build_retrieval_asset_url_map
 from shared.services.retrieval.stats.service import compute_importance_score
 from shared.utils.token_estimate import estimate_tokens
@@ -165,7 +165,7 @@ async def render_evidence(
 ) -> str:
     del db
 
-    from shared.services.retrieval.agentic.evidence_renderer import render_unified_doc_tree
+    from shared.services.retrieval.agentic.evidence.renderer import render_unified_doc_tree
 
     asset_url_map = await build_asset_url_map(collect_media_chunks_all(doc_trees))
 

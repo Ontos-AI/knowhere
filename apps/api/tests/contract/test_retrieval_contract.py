@@ -10,7 +10,7 @@ from pytest import MonkeyPatch
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.contract_database import ContractDatabase
-from shared.services.retrieval.agentic.types import AgenticResult
+from shared.services.retrieval.agentic.core.types import AgenticResult
 from shared.services.retrieval.workflow.run_request import WorkflowRunRequest
 from shared.services.retrieval.workflow.types import PlannedStep, QueryPlan, WorkflowResult
 

@@ -15,7 +15,7 @@ from uuid import uuid4
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic.types import AgentRunConfig, ToolResult
+from shared.services.retrieval.agentic.core.types import AgentRunConfig, ToolResult
 
 
 def _now_utc() -> datetime:

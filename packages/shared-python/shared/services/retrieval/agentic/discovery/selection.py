@@ -7,16 +7,16 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic.budget import BudgetExceeded
+from shared.services.retrieval.agentic.core.budget import BudgetExceeded
 from shared.services.retrieval.agentic.prompts import (
     DISCOVERY_SELECT_PROMPT,
     format_budget_block,
     parse_action_response,
 )
-from shared.services.retrieval.agentic.selection_hydration import (
+from shared.services.retrieval.agentic.navigation.selection_hydration import (
     hydrate_path_selections_into_node,
 )
-from shared.services.retrieval.agentic.types import DocTreeNode
+from shared.services.retrieval.agentic.core.types import DocTreeNode
 from shared.services.retrieval.search.lexical_text import normalize_section_path
 from shared.services.retrieval.llm_adapter import LLMFn
 

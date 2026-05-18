@@ -14,14 +14,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document
-from shared.services.retrieval.agentic.budget import BudgetExceeded
-from shared.services.retrieval.agentic.knowledge_map import build_knowledge_map_overview
+from shared.services.retrieval.agentic.core.budget import BudgetExceeded
+from shared.services.retrieval.agentic.navigation.knowledge_map import build_knowledge_map_overview
 from shared.services.retrieval.agentic.prompts import (
     FILE_SELECT_PROMPT,
     format_budget_block,
     parse_json_array,
 )
-from shared.services.retrieval.agentic.types import ToolResult
+from shared.services.retrieval.agentic.core.types import ToolResult
 from shared.services.retrieval.search.channels import content_channel, path_channel, term_channel
 from shared.services.retrieval.llm_adapter import LLMFn
 from shared.services.retrieval.search.scoring import (

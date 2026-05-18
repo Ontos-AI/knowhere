@@ -540,7 +540,11 @@ Core retrieval internals are grouped by ownership:
 - `hydration/`: row/path/reference hydration, inline assets, and result assembly.
 - `graph/`: document graph publication/query support.
 - `stats/`: retrieval hit recording.
-- `workflow/` and `agentic/`: agentic planning and navigation flows.
+- `workflow/`: query planning, step execution, synthesis, and wallet state.
+- `agentic/core/`: agentic run types, token budgets, runtime config, and traces.
+- `agentic/discovery/`: bottom discovery and document selection.
+- `agentic/navigation/`: section-tree navigation, selection hydration, and asset tools.
+- `agentic/evidence/`: evidence tree rendering and budget trimming.
 
 ### Two Retrieval Modes
 

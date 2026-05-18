@@ -11,22 +11,22 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic.asset_tools import (
+from shared.services.retrieval.agentic.navigation.assets import (
     build_asset_tools_block,
     count_assets_under_scope,
 )
-from shared.services.retrieval.agentic.budget import BudgetExceeded
+from shared.services.retrieval.agentic.core.budget import BudgetExceeded
 from shared.services.retrieval.agentic.prompts import (
     ACTION_PROMPT,
     format_budget_block,
     parse_action_response,
 )
-from shared.services.retrieval.agentic.section_prompt_projection import format_items_for_llm
-from shared.services.retrieval.agentic.section_tree import load_child_sections
-from shared.services.retrieval.agentic.selection_hydration import (
+from shared.services.retrieval.agentic.navigation.section_prompt_projection import format_items_for_llm
+from shared.services.retrieval.agentic.navigation.section_tree import load_child_sections
+from shared.services.retrieval.agentic.navigation.selection_hydration import (
     hydrate_path_selections_into_node,
 )
-from shared.services.retrieval.agentic.types import DocTreeNode
+from shared.services.retrieval.agentic.core.types import DocTreeNode
 from shared.services.retrieval.llm_adapter import LLMFn
 
 

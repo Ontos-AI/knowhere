@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from shared.services.retrieval.agentic.types import DocTreeNode
+from shared.services.retrieval.agentic.core.types import DocTreeNode
 
 
 def render_unified_doc_tree(

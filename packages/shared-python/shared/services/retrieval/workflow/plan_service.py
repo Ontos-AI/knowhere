@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from loguru import logger
 
-from shared.services.retrieval.agentic.budget import BudgetLedger
+from shared.services.retrieval.agentic.core.budget import BudgetLedger
 from shared.services.retrieval.cache_service import (
     get_cached_workflow_plan,
     set_cached_workflow_plan,
