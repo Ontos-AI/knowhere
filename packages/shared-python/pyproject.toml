@@ -6,13 +6,13 @@ build-backend = "setuptools.build_meta"
 name = "knowhere-shared"
 version = "0.1.0"
 description = "Knowhere Shared Python Package - Core Infrastructure: Models, Config, Database, Redis Services, Storage Adapters, and Utils"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11"
 dependencies = [
     # Database
     "sqlalchemy==2.0.42",
     "sqlalchemy[asyncio]",
-    "asyncpg==0.29.0",
-    "psycopg2-binary==2.9.9",
+    "asyncpg==0.31.0",
+    "psycopg2-binary==2.9.12",
     "alembic==1.13.1",
     "sqlalchemy-utils==0.41.1",
     "pgvector==0.2.4",
@@ -28,10 +28,10 @@ dependencies = [
     "celery-redbeat==2.2.0",
 
     # Data validation
-    "pydantic==2.11.7",
-    "pydantic-settings==2.10.1",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.14.1",
     "python-dotenv==1.2.2",
-    "pydantic[email]==2.11.7",
+    "pydantic[email]==2.13.4",
     
     # Auth and user model support
     "fastapi-users[sqlalchemy]==15.0.5",

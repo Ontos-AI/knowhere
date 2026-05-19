@@ -2,7 +2,7 @@
 name = "knowhere-worker-app"
 version = "0.1.0"
 description = "Knowhere Worker service"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11"
 dependencies = [
     "knowhere-shared",
     "numpy==2.2.6",
