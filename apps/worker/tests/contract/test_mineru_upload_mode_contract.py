@@ -1,212 +1,311 @@
 from __future__ import annotations
 
-import importlib
-import sys
+import io
+import json
+import zipfile
+from collections.abc import Iterator
 from pathlib import Path
-from types import ModuleType
-from typing import Any
+from typing import Protocol
 
+import requests
 from pytest import MonkeyPatch
 
+MINERU_RESULT_ZIP_URL = "https://mineru.example.test/results/contract.zip"
 
-def _load_mineru_pdf_service() -> ModuleType:
-    for module_name in list(sys.modules):
-        if module_name == "shared.core.config" or module_name.startswith(
-            "shared.core.config."
-        ):
-            sys.modules.pop(module_name, None)
-            continue
-        if module_name == "app.services.document_parser.providers.mineru" or (
-            module_name.startswith("app.services.document_parser.providers.mineru.")
-        ):
-            sys.modules.pop(module_name, None)
 
-    return importlib.import_module(
-        "app.services.document_parser.providers.mineru.pdf_service"
+class ParserContractResult(Protocol):
+    output_dir: str
+
+
+class FakeMinerUJsonResponse(requests.Response):
+    def __init__(self, *, status_code: int, payload: dict[str, object]) -> None:
+        super().__init__()
+        self.status_code = status_code
+        self._content = json.dumps(payload).encode("utf-8")
+        self.headers["Content-Type"] = "application/json"
+
+
+class FakeMinerUZipResponse(requests.Response):
+    def __init__(self, *, content: bytes) -> None:
+        super().__init__()
+        self.status_code = 200
+        self._content = content
+
+    def iter_content(
+        self,
+        chunk_size: int = 1,
+        decode_unicode: bool = False,
+    ) -> Iterator[bytes]:
+        del decode_unicode
+        for offset in range(0, len(self.content), chunk_size):
+            yield self.content[offset : offset + chunk_size]
+
+    def __enter__(self) -> "FakeMinerUZipResponse":
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object | None,
+    ) -> bool:
+        del exc_type, exc_value, traceback
+        self.close()
+        return False
+
+
+class FakeMinerUSession(requests.Session):
+    def __init__(self) -> None:
+        super().__init__()
+        self.submitted_url_payloads: list[dict[str, object]] = []
+        self.requested_upload_payloads: list[dict[str, object]] = []
+        self.uploaded_urls: list[str] = []
+        self.polled_urls: list[str] = []
+
+    def post(
+        self,
+        url: str,
+        data: object | None = None,
+        json: object | None = None,
+        **kwargs: object,
+    ) -> requests.Response:
+        del data, kwargs
+        assert isinstance(json, dict)
+        if url.endswith("/extract/task/batch"):
+            self.submitted_url_payloads.append(json)
+            return FakeMinerUJsonResponse(
+                status_code=200,
+                payload={"code": 0, "data": {"batch_id": "batch-url-mode"}},
+            )
+
+        if url.endswith("/file-urls/batch"):
+            self.requested_upload_payloads.append(json)
+            return FakeMinerUJsonResponse(
+                status_code=200,
+                payload={
+                    "code": 0,
+                    "data": {
+                        "batch_id": "batch-direct-upload",
+                        "file_urls": ["https://mineru-upload.example.test/file.pdf"],
+                    },
+                },
+            )
+
+        raise AssertionError(f"Unexpected MinerU POST URL: {url}")
+
+    def put(
+        self,
+        url: str,
+        data: object | None = None,
+        **kwargs: object,
+    ) -> requests.Response:
+        del data, kwargs
+        self.uploaded_urls.append(url)
+        return FakeMinerUJsonResponse(status_code=200, payload={})
+
+    def get(self, url: str, **kwargs: object) -> requests.Response:
+        del kwargs
+        self.polled_urls.append(url)
+        if "/extract-results/batch/" not in url:
+            raise AssertionError(f"Unexpected MinerU GET URL: {url}")
+
+        return FakeMinerUJsonResponse(
+            status_code=200,
+            payload={
+                "code": 0,
+                "data": {
+                    "extract_result": {
+                        "state": "done",
+                        "full_zip_url": MINERU_RESULT_ZIP_URL,
+                    }
+                },
+            },
+        )
+
+
+def _write_contract_pdf(pdf_path: Path) -> None:
+    import pymupdf
+
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "MinerU upload mode contract")
+    document.save(pdf_path)
+    document.close()
+
+
+def _build_mineru_result_zip() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zip_file:
+        zip_file.writestr(
+            "full.md",
+            "# Contract\nParsed by the MinerU contract boundary.\n",
+        )
+        zip_file.writestr("layout.json", json.dumps({"pdf_info": []}))
+    return buffer.getvalue()
+
+
+def _patch_mineru_http_boundary(
+    monkeypatch: MonkeyPatch,
+    fake_session: FakeMinerUSession,
+) -> None:
+    result_zip = _build_mineru_result_zip()
+
+    def build_fake_session() -> FakeMinerUSession:
+        return fake_session
+
+    def download_result_zip(url: str, **kwargs: object) -> FakeMinerUZipResponse:
+        del kwargs
+        assert url == MINERU_RESULT_ZIP_URL
+        return FakeMinerUZipResponse(content=result_zip)
+
+    monkeypatch.setattr(requests, "Session", build_fake_session)
+    monkeypatch.setattr(requests, "get", download_result_zip)
+
+
+def _patch_job_file_storage(
+    monkeypatch: MonkeyPatch,
+    *,
+    source_exists: bool,
+    storage_calls: list[tuple[str, str]],
+) -> None:
+    from shared.services.storage.job_file_storage import JobFileStorage
+
+    def verify_upload_exists(
+        self: JobFileStorage,
+        storage_key: str,
+    ) -> dict[str, object]:
+        del self
+        storage_calls.append(("verify", storage_key))
+        return {"exists": source_exists}
+
+    def generate_upload_download_url(
+        self: JobFileStorage,
+        storage_key: str,
+        *,
+        expires_in: int,
+    ) -> dict[str, object]:
+        del self
+        storage_calls.append(("presign", f"{storage_key}:{expires_in}"))
+        return {"download_url": f"https://files.example.test/{storage_key}"}
+
+    def fail_source_upload(
+        self: JobFileStorage,
+        local_file_path: str,
+        storage_key: str,
+    ) -> dict[str, object]:
+        del self, local_file_path
+        raise AssertionError(f"Unexpected source upload for {storage_key}")
+
+    monkeypatch.setattr(JobFileStorage, "verify_upload_exists", verify_upload_exists)
+    monkeypatch.setattr(
+        JobFileStorage,
+        "generate_upload_download_url",
+        generate_upload_download_url,
+    )
+    monkeypatch.setattr(JobFileStorage, "upload_source_file", fail_source_upload)
+
+
+def _run_parser_contract(tmp_path: Path) -> ParserContractResult:
+    from app.services.document_parser.parse_service import checkerboard_parse_output
+
+    pdf_path = tmp_path / "contract.pdf"
+    _write_contract_pdf(pdf_path)
+
+    return checkerboard_parse_output(
+        file_full_path=str(pdf_path),
+        filename="contract.pdf",
+        output_dir=str(tmp_path / "parser-output"),
+        internal_output_filename="contract.pdf",
+        summary_image=False,
+        summary_table=False,
+        summary_txt=False,
+        smart_title_parse=False,
+        stopwords=[],
+        s3_key="uploads/contract.pdf",
     )
 
 
-def _write_pdf(tmp_path: Path) -> Path:
-    pdf_path = tmp_path / "source.pdf"
-    pdf_path.write_bytes(b"%PDF-1.4\n")
-    return pdf_path
-
-
-def test_should_prefer_mineru_s3_url_mode_by_default_even_in_development(
+def test_pdf_parser_contract_prefers_mineru_s3_url_mode_by_default_even_in_development(
     worker_contract_environment: None,
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     del worker_contract_environment
     monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("LLM_MOCK_ENABLED", "true")
+    monkeypatch.setenv("MINERU_API_KEYS", "contract-token=contract-key")
     monkeypatch.delenv("MINERU_UPLOAD_MODE_ENABLED", raising=False)
-    pdf_service = _load_mineru_pdf_service()
-
+    fake_session = FakeMinerUSession()
     storage_calls: list[tuple[str, str]] = []
-    submit_calls: list[tuple[str, str]] = []
-    poll_calls: list[dict[str, Any]] = []
-
-    class FakeJobFileStorage:
-        def verify_upload_exists(self, storage_key: str) -> dict[str, object]:
-            storage_calls.append(("verify", storage_key))
-            return {"exists": True}
-
-        def generate_upload_download_url(
-            self,
-            storage_key: str,
-            *,
-            expires_in: int,
-        ) -> dict[str, str]:
-            storage_calls.append(("presign", f"{storage_key}:{expires_in}"))
-            return {"download_url": f"https://files.example.com/{storage_key}"}
-
-    def fake_submit_url_task(presigned_url: str, filename: str) -> tuple[str, str]:
-        submit_calls.append((presigned_url, filename))
-        return "batch_url_mode", "token_url_mode"
-
-    def fail_direct_upload(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("direct MinerU upload should not be used")
-
-    def fake_poll_mineru_task(**kwargs: Any) -> None:
-        poll_calls.append(kwargs)
-
-    monkeypatch.setattr(pdf_service, "JobFileStorage", FakeJobFileStorage)
-    monkeypatch.setattr(pdf_service, "_submit_url_task", fake_submit_url_task)
-    monkeypatch.setattr(pdf_service, "_request_upload_target", fail_direct_upload)
-    monkeypatch.setattr(pdf_service, "_upload_file_to_mineru", fail_direct_upload)
-    monkeypatch.setattr(pdf_service, "poll_mineru_task", fake_poll_mineru_task)
-
-    pdf_service.parse_via_full(
-        str(_write_pdf(tmp_path)),
-        "contract.pdf",
-        str(tmp_path / "output"),
-        s3_key="uploads/contract.pdf",
+    _patch_mineru_http_boundary(monkeypatch, fake_session)
+    _patch_job_file_storage(
+        monkeypatch,
+        source_exists=True,
+        storage_calls=storage_calls,
     )
 
+    parse_output = _run_parser_contract(tmp_path)
+
+    assert Path(parse_output.output_dir, "full.md").exists()
     assert storage_calls == [
         ("verify", "uploads/contract.pdf"),
         ("presign", "uploads/contract.pdf:3600"),
     ]
-    assert submit_calls == [
-        ("https://files.example.com/uploads/contract.pdf", "contract.pdf")
+    assert fake_session.submitted_url_payloads == [
+        {
+            "files": [{"url": "https://files.example.test/uploads/contract.pdf"}],
+            "is_ocr": True,
+            "enable_formula": True,
+            "enable_table": True,
+            "language": "auto",
+            "model_version": "vlm",
+        }
     ]
-    assert poll_calls[0]["task_id"] == "batch_url_mode"
-    assert poll_calls[0]["preferred_token_id"] == "token_url_mode"
+    assert fake_session.requested_upload_payloads == []
+    assert fake_session.uploaded_urls == []
+    assert fake_session.polled_urls == [
+        "https://mineru.net/api/v4/extract-results/batch/batch-url-mode"
+    ]
 
 
-def test_should_use_direct_upload_when_mineru_upload_mode_is_enabled(
+def test_pdf_parser_contract_uses_direct_upload_when_mineru_upload_mode_is_enabled(
     worker_contract_environment: None,
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     del worker_contract_environment
-    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("LLM_MOCK_ENABLED", "true")
+    monkeypatch.setenv("MINERU_API_KEYS", "contract-token=contract-key")
     monkeypatch.setenv("MINERU_UPLOAD_MODE_ENABLED", "true")
-    pdf_service = _load_mineru_pdf_service()
-
-    direct_calls: list[tuple[str, str, str, str]] = []
-    poll_calls: list[dict[str, Any]] = []
-
-    class FakeJobFileStorage:
-        def verify_upload_exists(self, storage_key: str) -> dict[str, object]:
-            raise AssertionError(f"S3 URL mode should not inspect {storage_key}")
-
-    def fake_request_upload_target(
-        pdf_url: str,
-        filename: str,
-    ) -> tuple[str, str, str]:
-        assert pdf_url.endswith("source.pdf")
-        assert filename == "contract.pdf"
-        return "batch_direct_upload", "https://mineru-upload.example.com/file", "token_direct"
-
-    def fake_upload_file_to_mineru(
-        pdf_url: str,
-        filename: str,
-        upload_url: str,
-        token_id: str,
-    ) -> None:
-        direct_calls.append((pdf_url, filename, upload_url, token_id))
-
-    def fake_poll_mineru_task(**kwargs: Any) -> None:
-        poll_calls.append(kwargs)
-
-    def fail_url_task(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("S3 URL task should not be submitted")
-
-    monkeypatch.setattr(pdf_service, "JobFileStorage", FakeJobFileStorage)
-    monkeypatch.setattr(pdf_service, "_request_upload_target", fake_request_upload_target)
-    monkeypatch.setattr(pdf_service, "_upload_file_to_mineru", fake_upload_file_to_mineru)
-    monkeypatch.setattr(pdf_service, "_submit_url_task", fail_url_task)
-    monkeypatch.setattr(pdf_service, "poll_mineru_task", fake_poll_mineru_task)
-
-    pdf_path = _write_pdf(tmp_path)
-    pdf_service.parse_via_full(
-        str(pdf_path),
-        "contract.pdf",
-        str(tmp_path / "output"),
-        s3_key="uploads/contract.pdf",
+    fake_session = FakeMinerUSession()
+    storage_calls: list[tuple[str, str]] = []
+    _patch_mineru_http_boundary(monkeypatch, fake_session)
+    _patch_job_file_storage(
+        monkeypatch,
+        source_exists=True,
+        storage_calls=storage_calls,
     )
 
-    assert direct_calls == [
-        (
-            str(pdf_path),
-            "contract.pdf",
-            "https://mineru-upload.example.com/file",
-            "token_direct",
-        )
+    parse_output = _run_parser_contract(tmp_path)
+
+    assert Path(parse_output.output_dir, "full.md").exists()
+    assert storage_calls == []
+    assert fake_session.submitted_url_payloads == []
+    assert fake_session.requested_upload_payloads == [
+        {
+            "files": [
+                {
+                    "name": "contract.pdf",
+                    "is_ocr": True,
+                }
+            ],
+            "enable_formula": True,
+            "enable_table": True,
+            "language": "auto",
+            "model_version": "vlm",
+        }
     ]
-    assert poll_calls[0]["task_id"] == "batch_direct_upload"
-    assert poll_calls[0]["preferred_token_id"] == "token_direct"
-
-
-def test_should_use_direct_upload_when_mineru_upload_mode_is_enabled_from_dotenv(
-    worker_contract_environment: None,
-    monkeypatch: MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    del worker_contract_environment
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.delenv("MINERU_UPLOAD_MODE_ENABLED", raising=False)
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / ".env").write_text("MINERU_UPLOAD_MODE_ENABLED=true\n")
-    pdf_service = _load_mineru_pdf_service()
-
-    direct_calls: list[str] = []
-
-    class FakeJobFileStorage:
-        def verify_upload_exists(self, storage_key: str) -> dict[str, object]:
-            raise AssertionError(f"S3 URL mode should not inspect {storage_key}")
-
-    def fake_request_upload_target(
-        pdf_url: str,
-        filename: str,
-    ) -> tuple[str, str, str]:
-        assert pdf_url.endswith("source.pdf")
-        assert filename == "contract.pdf"
-        return "batch_dotenv_direct", "https://mineru-upload.example.com/file", "token"
-
-    def fake_upload_file_to_mineru(
-        pdf_url: str,
-        filename: str,
-        upload_url: str,
-        token_id: str,
-    ) -> None:
-        del pdf_url, filename, upload_url, token_id
-        direct_calls.append("uploaded")
-
-    def fake_poll_mineru_task(**_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr(pdf_service, "JobFileStorage", FakeJobFileStorage)
-    monkeypatch.setattr(pdf_service, "_request_upload_target", fake_request_upload_target)
-    monkeypatch.setattr(pdf_service, "_upload_file_to_mineru", fake_upload_file_to_mineru)
-    monkeypatch.setattr(pdf_service, "poll_mineru_task", fake_poll_mineru_task)
-
-    pdf_service.parse_via_full(
-        str(_write_pdf(tmp_path)),
-        "contract.pdf",
-        str(tmp_path / "output"),
-        s3_key="uploads/contract.pdf",
-    )
-
-    assert direct_calls == ["uploaded"]
+    assert fake_session.uploaded_urls == ["https://mineru-upload.example.test/file.pdf"]
+    assert fake_session.polled_urls == [
+        "https://mineru.net/api/v4/extract-results/batch/batch-direct-upload"
+    ]
