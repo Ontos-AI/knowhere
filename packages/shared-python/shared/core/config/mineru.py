@@ -56,11 +56,19 @@ class MineruConfig(BaseModel):
         default=2,
         description="Backoff factor between upload retries.",
     )
+    MINERU_UPLOAD_MODE_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Use MinerU direct-upload ingestion instead of S3 URL mode. "
+            "Disabled by default so workers prefer S3 URL mode when a reusable "
+            "source object is available."
+        ),
+    )
     FORCE_MINERU_UPLOAD_ENABLED: bool = Field(
         default=False,
         description=(
-            "Force MinerU direct-upload ingestion and disable S3 URL mode even when "
-            "a reusable source object is available."
+            "Deprecated compatibility alias for MINERU_UPLOAD_MODE_ENABLED. "
+            "Used only when MINERU_UPLOAD_MODE_ENABLED is not configured."
         ),
     )
     MINERU_URL_MODE_PRESIGN_EXPIRY: int = Field(

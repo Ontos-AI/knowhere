@@ -29,13 +29,22 @@ MINERU_UPLOAD_TIMEOUT = (
     settings.MINERU_UPLOAD_CONNECT_TIMEOUT,
     settings.MINERU_UPLOAD_READ_TIMEOUT,
 )
+_MINERU_UPLOAD_MODE_FIELD = "MINERU_UPLOAD_MODE_ENABLED"
+_LEGACY_MINERU_UPLOAD_MODE_FIELD = "FORCE_MINERU_UPLOAD_ENABLED"
+
+
+def _is_mineru_upload_mode_enabled() -> bool:
+    if _MINERU_UPLOAD_MODE_FIELD in settings.model_fields_set:
+        return settings.MINERU_UPLOAD_MODE_ENABLED
+
+    if _LEGACY_MINERU_UPLOAD_MODE_FIELD in settings.model_fields_set:
+        return settings.FORCE_MINERU_UPLOAD_ENABLED
+
+    return False
 
 
 def _should_use_mineru_s3_url_mode(s3_key: Optional[str]) -> bool:
-    if settings.FORCE_MINERU_UPLOAD_ENABLED:
-        return False
-
-    return settings.ENVIRONMENT != "development" and s3_key is not None
+    return not _is_mineru_upload_mode_enabled() and s3_key is not None
 
 
 def _log_mineru_url_mode_storage_fallback(
