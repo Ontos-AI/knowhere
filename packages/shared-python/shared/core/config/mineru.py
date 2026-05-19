@@ -64,13 +64,6 @@ class MineruConfig(BaseModel):
             "source object is available."
         ),
     )
-    FORCE_MINERU_UPLOAD_ENABLED: bool = Field(
-        default=False,
-        description=(
-            "Deprecated compatibility alias for MINERU_UPLOAD_MODE_ENABLED. "
-            "Used only when MINERU_UPLOAD_MODE_ENABLED is not configured."
-        ),
-    )
     MINERU_URL_MODE_PRESIGN_EXPIRY: int = Field(
         default=3600,
         description="Presigned URL TTL in seconds for S3 URL mode ingestion.",
