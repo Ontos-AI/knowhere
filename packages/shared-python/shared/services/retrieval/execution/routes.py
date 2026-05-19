@@ -129,6 +129,24 @@ async def _run_agentic_route(
     response["referenced_chunks"] = resolved_references.refs
     response["results"] = [attach_citation(row) for row in assembled_workflow_rows]
 
+    evidence_parts = [
+        step.evidence_text
+        for step in workflow_result.steps
+        if step.evidence_text
+    ]
+    if evidence_parts:
+        response["evidence_text"] = "\n\n".join(evidence_parts)
+
+    last_retrieve = next(
+        (s for s in reversed(workflow_result.steps) if s.step_kind == "retrieve"),
+        None,
+    )
+    if last_retrieve:
+        if last_retrieve.stop_reason:
+            response["stop_reason"] = last_retrieve.stop_reason
+        if last_retrieve.failure_reason:
+            response["failure_reason"] = last_retrieve.failure_reason
+
     completion_detail = (
         f"chunks | answer={len(workflow_result.answer_text)} chars | "
         f"router={workflow_result.router_used}"

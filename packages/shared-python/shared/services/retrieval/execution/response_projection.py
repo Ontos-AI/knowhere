@@ -42,6 +42,12 @@ async def project_public_retrieval_response(response: dict[str, Any]) -> dict[st
         public_response['answer_text'] = response['answer_text']
     if response.get('referenced_chunks') is not None:
         public_response['referenced_chunks'] = response['referenced_chunks']
+    if response.get('evidence_text') is not None:
+        public_response['evidence_text'] = response['evidence_text']
+    if response.get('stop_reason') is not None:
+        public_response['stop_reason'] = response['stop_reason']
+    if response.get('failure_reason') is not None:
+        public_response['failure_reason'] = response['failure_reason']
 
     projected_rows = await enrich_rows_with_retrieval_asset_urls(
         response.get('results', []),

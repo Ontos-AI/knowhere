@@ -83,6 +83,9 @@ class RetrievalQueryResponse(BaseModel):
     answer_text: str | None = None
     referenced_chunks: list[dict] = Field(default_factory=list)
     results: list[dict] = Field(default_factory=list)
+    evidence_text: str | None = None
+    stop_reason: str | None = None
+    failure_reason: str | None = None
 
 
 @router.post("/query", response_model=RetrievalQueryResponse)
