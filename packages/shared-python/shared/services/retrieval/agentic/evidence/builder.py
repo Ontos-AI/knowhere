@@ -52,18 +52,29 @@ def with_context_prompt_projection(
     return projected
 
 
-def collect_media_chunks(node: DocTreeNode) -> list[dict[str, Any]]:
-    media: list[dict[str, Any]] = []
+def _collect_chunks_by_type(
+    node: DocTreeNode,
+    chunk_types: set[str],
+) -> list[dict[str, Any]]:
+    collected_chunks: list[dict[str, Any]] = []
     for chunks in node.leaf_content.values():
         for chunk in chunks:
             chunk_type = (
                 chunk.get("chunk_type") or chunk.get("type") or ""
             ).strip().lower()
-            if chunk_type in ("image", "table"):
-                media.append(chunk)
+            if chunk_type in chunk_types:
+                collected_chunks.append(chunk)
     for child in node.children.values():
-        media.extend(collect_media_chunks(child))
-    return media
+        collected_chunks.extend(_collect_chunks_by_type(child, chunk_types))
+    return collected_chunks
+
+
+def collect_media_chunks(node: DocTreeNode) -> list[dict[str, Any]]:
+    return _collect_chunks_by_type(node, {"image", "table"})
+
+
+def collect_image_chunks(node: DocTreeNode) -> list[dict[str, Any]]:
+    return _collect_chunks_by_type(node, {"image"})
 
 
 def collect_media_chunks_all(
@@ -75,6 +86,15 @@ def collect_media_chunks_all(
     return media
 
 
+def collect_image_chunks_all(
+    doc_trees: dict[str, DocTreeNode],
+) -> list[dict[str, Any]]:
+    image_chunks: list[dict[str, Any]] = []
+    for tree in doc_trees.values():
+        image_chunks.extend(collect_image_chunks(tree))
+    return image_chunks
+
+
 async def build_asset_url_map(
     media_chunks: list[dict[str, Any]],
 ) -> dict[str, str]:
@@ -82,6 +102,13 @@ async def build_asset_url_map(
         media_chunks,
         log_context="agentic evidence",
     )
+
+
+async def build_vlm_image_urls(
+    doc_trees: dict[str, DocTreeNode],
+) -> list[str]:
+    asset_url_map = await build_asset_url_map(collect_image_chunks_all(doc_trees))
+    return [url for url in asset_url_map.values() if url]
 
 
 def _collect_all_leaf_paths(node: DocTreeNode) -> set[str]:
