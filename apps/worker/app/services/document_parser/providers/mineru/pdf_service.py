@@ -32,10 +32,7 @@ MINERU_UPLOAD_TIMEOUT = (
 
 
 def _should_use_mineru_s3_url_mode(s3_key: Optional[str]) -> bool:
-    if settings.FORCE_MINERU_UPLOAD_ENABLED:
-        return False
-
-    return settings.ENVIRONMENT != "development" and s3_key is not None
+    return not settings.MINERU_UPLOAD_MODE_ENABLED and s3_key is not None
 
 
 def _log_mineru_url_mode_storage_fallback(

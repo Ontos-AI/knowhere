@@ -31,8 +31,7 @@ from shared.services.retrieval.agentic.discovery.phase import (
 )
 from shared.services.retrieval.agentic.navigation.document import DocumentNavigationRunner
 from shared.services.retrieval.agentic.evidence.builder import (
-    build_asset_url_map as _build_asset_url_map,
-    collect_media_chunks_all as _collect_media_chunks_all,
+    build_vlm_image_urls as _build_vlm_image_urls,
     render_evidence as _render_evidence,
     trim_evidence_to_budget as _trim_evidence_to_budget,
     with_context_prompt_projection as _with_context_prompt_projection,
@@ -321,12 +320,7 @@ class RetrievalAgent:
             # Collect image URLs from evidence for VLM switch
             evidence_image_urls: list[str] = []
             if vlm_fn:
-                asset_url_map = await _build_asset_url_map(
-                    _collect_media_chunks_all(state.doc_trees),
-                )
-                evidence_image_urls = [
-                    url for url in asset_url_map.values() if url
-                ]
+                evidence_image_urls = await _build_vlm_image_urls(state.doc_trees)
 
             async def vlm_context_call(prompt, _vlm_fn=vlm_fn):
                 return await llm_budget.call(cast(LLMFn, _vlm_fn), prompt, pool='context')

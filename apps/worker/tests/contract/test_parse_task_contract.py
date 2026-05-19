@@ -23,6 +23,17 @@ _FIXTURES_ROOT: Path = _REPO_ROOT / "apps" / "worker" / "tests" / "fixtures"
 _SAMPLE_PDF_PATH: Path = _FIXTURES_ROOT / "sample_3pages.pdf"
 
 
+def _write_blank_pdf(file_path: Path, page_count: int) -> None:
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    for _ in range(page_count):
+        writer.add_blank_page(width=72, height=72)
+
+    with file_path.open("wb") as pdf_file:
+        writer.write(pdf_file)
+
+
 def _build_pending_file_job_metadata(source_file_name: str) -> dict[str, Any]:
     job_metadata: dict[str, Any] = {
         "namespace": "worker-contract",
@@ -1480,3 +1491,139 @@ def test_should_mark_the_job_failed_and_cleanup_the_workspace_when_parse_executi
         ("start_processing", "running"),
         ("mark_failed", "failed"),
     ]
+
+
+def test_should_reject_pdf_when_page_count_exceeds_configured_limit(
+    worker_contract_environment: None,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("BILLING_ENABLED", "false")
+    (
+        document_ingestion_tasks,
+        _parse_service,
+        parse_job_service,
+        engine,
+        sync_job_info_service_cls,
+        sync_job_metadata_service_cls,
+        sync_redis_service_factory,
+    ) = _load_parse_task_modules()
+    settings = _load_worker_settings()
+
+    user_id: str = f"worker-user-{uuid4().hex[:12]}"
+    job_id: str = f"job_pdf_page_limit_{uuid4().hex[:12]}"
+    source_file_name: str = "oversized-contract.pdf"
+    s3_key: str = f"uploads/{job_id}.pdf"
+    max_pdf_page_limit: int = 1
+    actual_page_count: int = 2
+    pdf_path = tmp_path / source_file_name
+    _write_blank_pdf(pdf_path, actual_page_count)
+
+    with engine.begin() as connection:
+        insert_contract_user(connection, user_id=user_id)
+        job_metadata = _build_pending_file_job_metadata(source_file_name)
+        insert_contract_job(
+            connection,
+            job_id=job_id,
+            user_id=user_id,
+            status="pending",
+            source_type="file",
+            s3_key=s3_key,
+            webhook_enabled=False,
+            job_metadata=job_metadata,
+            billing_status="pending",
+        )
+
+    redis_service = _save_worker_task_cache(
+        job_id=job_id,
+        user_id=user_id,
+        s3_key=s3_key,
+        metadata=job_metadata,
+        sync_job_info_service_cls=sync_job_info_service_cls,
+        sync_job_metadata_service_cls=sync_job_metadata_service_cls,
+        sync_redis_service_factory=sync_redis_service_factory,
+    )
+
+    _bind_parse_task_to_current_module(
+        monkeypatch,
+        document_ingestion_tasks=document_ingestion_tasks,
+    )
+    monkeypatch.setattr(settings, "TMP_PATH", str(tmp_path))
+    monkeypatch.setattr(settings, "BILLING_ENABLED", False)
+    monkeypatch.setattr(settings, "MAX_PDF_PAGE_LIMIT", max_pdf_page_limit)
+
+    def fake_verify_s3_file_exists(storage_key: str) -> dict[str, Any]:
+        return {
+            "exists": storage_key == s3_key,
+            "size": pdf_path.stat().st_size,
+        }
+
+    _patch_verify_upload_exists(monkeypatch, fake_verify_s3_file_exists)
+
+    def fake_download_s3_file_to_temp(
+        storage_key: str,
+        file_ext: str,
+        temp_dir: str,
+    ) -> str:
+        assert storage_key == s3_key
+        assert file_ext == ".pdf"
+        downloaded_path = Path(temp_dir) / f"downloaded{file_ext}"
+        shutil.copy2(pdf_path, downloaded_path)
+        return str(downloaded_path)
+
+    monkeypatch.setattr(parse_job_service, "download_s3_file_to_temp", fake_download_s3_file_to_temp)
+    monkeypatch.setattr(
+        parse_job_service,
+        "get_result_storage",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("result storage should not run after page-limit rejection")
+        ),
+    )
+
+    result = document_ingestion_tasks.parse_task.apply(
+        args=[job_id, user_id, "document_ingestion"],
+        throw=False,
+    )
+
+    assert result.status == "FAILURE"
+    assert _find_task_workspaces(tmp_path, job_id) == []
+
+    metadata = sync_job_metadata_service_cls(redis_service).get_metadata(job_id)
+    assert metadata is not None
+    assert metadata["page_count"] == actual_page_count
+    assert metadata["billing_status"] == "skipped"
+
+    with engine.begin() as connection:
+        job_row = (
+            connection.execute(
+                text(
+                    """
+                    SELECT status, billing_status, page_count, credits_charged,
+                           error_code, error_message, job_metadata
+                    FROM jobs
+                    WHERE job_id = :job_id
+                    """
+                ),
+                {"job_id": job_id},
+            )
+            .mappings()
+            .one()
+        )
+
+    assert job_row["status"] == "failed"
+    assert job_row["billing_status"] == "skipped"
+    assert job_row["page_count"] == actual_page_count
+    assert job_row["credits_charged"] == 0
+    assert job_row["error_code"] == "INVALID_ARGUMENT"
+    assert (
+        job_row["error_message"]
+        == "Document too large: 2 pages exceeds the 1-page limit. Please split the document and upload in smaller batches."
+    )
+    assert job_row["job_metadata"]["error_details"] == {
+        "violations": [
+            {
+                "field": "page_count",
+                "description": "PDF has 2 pages, limit is 1",
+            }
+        ]
+    }

@@ -55,6 +55,11 @@ class StorageConfig(BaseModel):
     MAX_FILE_SIZE: int = Field(
         default=104857600, description="Maximum file size in bytes"
     )
+    MAX_PDF_PAGE_LIMIT: int = Field(
+        default=600,
+        ge=1,
+        description="Maximum allowed PDF page count before parsing is rejected",
+    )
     SUPPORTED_EXTENSIONS: str = Field(
         default=".doc,.docx,.pdf,.txt,.xls,.xlsx,.pptx,.jpg,.jpeg,.png,.md",
         description="Supported file extensions",

@@ -33,11 +33,9 @@ argon2-cffi-bindings==25.1.0
     # via argon2-cffi
 asgiref==3.11.1
     # via opentelemetry-instrumentation-asgi
-async-timeout==5.0.1 ; python_full_version < '3.12'
-    # via
-    #   asyncpg
-    #   redis
-asyncpg==0.29.0
+async-timeout==5.0.1 ; python_full_version < '3.11.3'
+    # via redis
+asyncpg==0.31.0
     # via knowhere-shared
 attrs==26.1.0
     # via aiohttp
@@ -333,7 +331,7 @@ psycogreen==1.0.2
     # via
     #   knowhere-shared
     #   knowhere-worker-app
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.12
     # via knowhere-shared
 pwdlib==0.3.0
     # via fastapi-users
@@ -341,16 +339,16 @@ pycparser==3.0 ; implementation_name != 'PyPy'
     # via cffi
 pycryptodome==3.23.0
     # via oss2
-pydantic==2.11.7
+pydantic==2.13.4
     # via
     #   fastapi
     #   knowhere-shared
     #   openai
     #   pptx2md
     #   pydantic-settings
-pydantic-core==2.33.2
+pydantic-core==2.46.4
     # via pydantic
-pydantic-settings==2.10.1
+pydantic-settings==2.14.1
     # via knowhere-shared
 pygments==2.20.0
     # via
