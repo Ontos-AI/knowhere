@@ -16,8 +16,6 @@ from loguru import logger
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import ValidationException
 
-PDF_PAGE_LIMIT = 600
-
 
 @dataclass(frozen=True)
 class ParseSession:
@@ -111,16 +109,17 @@ def build_parse_session(parse_input: ParseInput) -> ParseSession:
                 f"ℹ️ VLM rejected atlas for {parse_input.filename}, routing as generic"
             )
 
-    if profile.file_type == "pdf" and profile.page_count > PDF_PAGE_LIMIT:
+    pdf_page_limit = settings.MAX_PDF_PAGE_LIMIT
+    if profile.file_type == "pdf" and profile.page_count > pdf_page_limit:
         raise ValidationException(
             user_message=(
-                f"Document too large: {profile.page_count} pages exceeds the {PDF_PAGE_LIMIT}-page limit. "
+                f"Document too large: {profile.page_count} pages exceeds the {pdf_page_limit}-page limit. "
                 "Please split the document and upload in smaller batches."
             ),
             violations=[
                 {
                     "field": "page_count",
-                    "description": f"PDF has {profile.page_count} pages, limit is {PDF_PAGE_LIMIT}",
+                    "description": f"PDF has {profile.page_count} pages, limit is {pdf_page_limit}",
                 }
             ],
         )
