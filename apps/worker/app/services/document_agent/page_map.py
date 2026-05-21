@@ -1,7 +1,4 @@
 """PageMap — the output contract of the Document Anatomy Agent.
-
-Keeps anatomy-specific models separate from the shard-planning primitives in
-``manifest.py`` so they can evolve independently.
 """
 
 from __future__ import annotations

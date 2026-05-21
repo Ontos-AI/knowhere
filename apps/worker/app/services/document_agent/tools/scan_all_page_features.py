@@ -1,12 +1,8 @@
-"""scan_all_page_features — Tool #2 for DocumentAnatomyAgent.
+"""scan_all_page_features — full-page structural feature extraction.
 
 Performs a **full-page traversal** (not sampling) of a PDF, extracting
 structural features for every page.  Runs inside an isolated PyMuPDF child
 process to ensure memory is freed after extraction.
-
-Contrast with ``probe_sample_pages.py`` (which samples up to 25 pages for a
-quick diagnostic): this tool is used when the agent needs precise per-page
-labels to find semantic cut points.
 
 For a 200-page A4 PDF the child process typically completes in < 8 s.
 """
@@ -25,7 +21,7 @@ from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
 from loguru import logger
 
 
-# ── Low-level helpers (same logic as probe_sample_pages, kept local) ──────────
+# ── Low-level helpers ─────────────────────────────────────────────────────────
 
 
 def _rect_area(rect: Any) -> float:

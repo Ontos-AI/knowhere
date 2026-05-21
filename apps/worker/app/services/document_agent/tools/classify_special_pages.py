@@ -1,13 +1,23 @@
-"""Classify sampled pages into Phase 1 special page kinds."""
+"""Classify pages into special-page kinds (heuristic + optional LLM)."""
 
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
-from app.services.document_agent.manifest import SpecialKind
 from app.services.document_agent.tools.llm_json import extract_json_object
 from loguru import logger
+
+SpecialKind = Literal[
+    "toc",
+    "blank",
+    "sparse",
+    "table_heavy",
+    "image_heavy",
+    "landscape",
+    "single_image",
+    "normal",
+]
 
 ALLOWED_KINDS: set[str] = {
     "toc",
