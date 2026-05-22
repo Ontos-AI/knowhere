@@ -52,6 +52,7 @@ def validate_current_anatomy(ctx: ToolContext, _args: dict[str, Any]) -> ToolRes
         h1_result=ctx.blackboard.h1_result,
         hierarchy_assist=ctx.blackboard.hierarchy_assist,
         shard_plan=ctx.blackboard.shard_plan,
+        boundary_candidates=ctx.blackboard.boundary_candidates,
         global_signals=ctx.blackboard.global_signals,
         trace_summary={},
     )

@@ -25,6 +25,14 @@ PageKind = Literal[
     "sparse",
 ]
 
+BoundaryCandidateKind = Literal[
+    "h1",
+    "toc",
+    "blank",
+    "sparse",
+    "separator",
+]
+
 
 @dataclass
 class PageFeature:
@@ -118,6 +126,18 @@ class BoundaryHint:
 
 
 @dataclass
+class BoundaryCandidate:
+    page: int
+    kind: BoundaryCandidateKind
+    priority: int
+    confidence: float
+    evidence: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class HierarchyAssistPlan:
     exclude_pages_from_title_candidates: list[int] = field(default_factory=list)
     prefer_h1_start_pages: list[H1Candidate] = field(default_factory=list)
@@ -170,7 +190,13 @@ class Shard:
 @dataclass
 class ShardPlan:
     enabled: bool
-    reason: Literal["too_large", "not_needed", "parser_stability", "hierarchy_isolation"]
+    reason: Literal[
+        "too_large",
+        "not_needed",
+        "parser_stability",
+        "hierarchy_isolation",
+        "llm_boundary_decision",
+    ]
     shards: list[Shard] = field(default_factory=list)
     validation: ValidationReport = field(
         default_factory=lambda: ValidationReport(valid=True)
@@ -222,6 +248,7 @@ class PageAnatomyMap:
     h1_result: H1BoundaryResult
     hierarchy_assist: HierarchyAssistPlan
     shard_plan: ShardPlan
+    boundary_candidates: list[BoundaryCandidate] = field(default_factory=list)
     page_processing_plan: PageProcessingPlan | None = None
     global_signals: dict[str, Any] = field(default_factory=dict)
     trace_summary: dict[str, Any] = field(default_factory=dict)
@@ -240,6 +267,9 @@ class PageAnatomyMap:
             "h1_result": self.h1_result.to_dict(),
             "hierarchy_assist": self.hierarchy_assist.to_dict(),
             "shard_plan": self.shard_plan.to_dict(),
+            "boundary_candidates": [
+                candidate.to_dict() for candidate in self.boundary_candidates
+            ],
             "page_processing_plan": (
                 self.page_processing_plan.to_dict()
                 if self.page_processing_plan is not None
@@ -258,6 +288,10 @@ class ToolResult:
     latency_ms: int = 0
     error: str | None = None
     tokens_used: int = 0
+    input_summary: dict[str, Any] | None = None
+    output_summary: dict[str, Any] | None = None
+    warnings: list[str] = field(default_factory=list)
+    debug: dict[str, Any] | None = None
 
 
 @dataclass

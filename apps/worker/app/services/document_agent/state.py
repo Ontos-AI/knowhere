@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Any
 
 from app.services.document_agent.manifest import (
+    BoundaryCandidate,
     H1BoundaryResult,
     HierarchyAssistPlan,
     PageFeature,
@@ -36,6 +37,7 @@ class AgentBlackboard:
     page_labels: list[PageLabel] = field(default_factory=list)
     toc_result: TocResult | None = None
     h1_result: H1BoundaryResult | None = None
+    boundary_candidates: list[BoundaryCandidate] = field(default_factory=list)
     hierarchy_assist: HierarchyAssistPlan | None = None
     shard_plan: ShardPlan | None = None
     validation_report: dict[str, Any] | None = None

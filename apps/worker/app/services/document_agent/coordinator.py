@@ -19,8 +19,7 @@ from app.services.document_agent.trace import ParseRunRecorder
 TRANSITIONS: dict[str, DocumentAgentState] = {
     "probe.page_features": DocumentAgentState.PROBED,
     "classify.page_kinds": DocumentAgentState.PROBED,
-    "find.toc_pages": DocumentAgentState.PROBED,
-    "find.h1_boundaries": DocumentAgentState.H1_FOUND,
+    "collect.boundary_candidates": DocumentAgentState.H1_FOUND,
     "propose.hierarchy_assist": DocumentAgentState.H1_FOUND,
     "propose.shard_plan": DocumentAgentState.H1_FOUND,
     "validate.anatomy_map": DocumentAgentState.VALIDATED,
@@ -30,8 +29,7 @@ TRANSITIONS: dict[str, DocumentAgentState] = {
 REQUIRED_TOOLS = [
     "probe.page_features",
     "classify.page_kinds",
-    "find.toc_pages",
-    "find.h1_boundaries",
+    "collect.boundary_candidates",
     "propose.hierarchy_assist",
     "propose.shard_plan",
     "validate.anatomy_map",
@@ -143,7 +141,6 @@ class ProfileCoordinator:
         if (
             self.state == DocumentAgentState.PROBED
             and self.blackboard.page_labels
-            and self.blackboard.toc_result is not None
         ):
             self.state = DocumentAgentState.CLASSIFIED
             self.blackboard.mark(self.state)

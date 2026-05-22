@@ -110,6 +110,17 @@ def validate_anatomy_map(
             errors.append(f"h1 candidate points to toc page {candidate.page}")
         if candidate.page < 1 or candidate.page > page_count:
             errors.append(f"h1 candidate page {candidate.page} out of range")
+    candidate_count = len(anatomy.boundary_candidates)
+    if page_count > max_pages and candidate_count == 0:
+        warnings.append("long document has no boundary candidates")
+    h1_candidate_count = sum(1 for candidate in anatomy.boundary_candidates if candidate.kind == "h1")
+    sparse_candidate_count = sum(
+        1
+        for candidate in anatomy.boundary_candidates
+        if candidate.kind in {"blank", "sparse", "separator"}
+    )
+    if page_count > max_pages and h1_candidate_count == 0 and sparse_candidate_count == 0:
+        warnings.append("long document has neither H1 nor sparse/blank boundary candidates")
     shard_report = validate_shard_plan(
         anatomy.shard_plan,
         page_count=page_count,
@@ -118,4 +129,12 @@ def validate_anatomy_map(
     )
     errors.extend(shard_report.errors)
     warnings.extend(shard_report.warnings)
+    if anatomy.shard_plan.enabled:
+        forced_count = sum(
+            1
+            for shard in anatomy.shard_plan.shards
+            if shard.anchor_type == "forced_max_size"
+        )
+        if forced_count == len(anatomy.shard_plan.shards):
+            warnings.append("all shards are based on forced max-size boundaries")
     return ValidationReport(valid=not errors, errors=errors, warnings=warnings)

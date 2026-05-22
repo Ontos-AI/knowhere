@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -42,6 +43,11 @@ class ParseRunRecorder:
                 "observation": {
                     "status": result.status,
                     "payload_keys": sorted(result.payload.keys()),
+                    "payload": result.payload,
+                    "input_summary": result.input_summary,
+                    "output_summary": result.output_summary,
+                    "warnings": list(result.warnings),
+                    "debug": result.debug,
                     "error": result.error,
                 },
                 "tokens_used": result.tokens_used,
@@ -53,6 +59,35 @@ class ParseRunRecorder:
     def set_anatomy_map(self, anatomy: PageAnatomyMap, artifact_path: str) -> None:
         self._anatomy = anatomy
         self._artifact_path = artifact_path
+        self.write_trace_json(str(Path(artifact_path).with_name("trace.json")))
+
+    def write_trace_json(self, trace_path: str) -> None:
+        try:
+            import json
+
+            serializable_steps = []
+            for step in self._steps:
+                item = dict(step)
+                created_at = item.get("created_at")
+                if hasattr(created_at, "isoformat"):
+                    item["created_at"] = created_at.isoformat()
+                serializable_steps.append(item)
+            Path(trace_path).write_text(
+                json.dumps(
+                    {
+                        "run_id": self.run_id,
+                        "job_id": self.job_id,
+                        "artifact_path": self._artifact_path,
+                        "steps": serializable_steps,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                ),
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            logger.debug(f"parse agent trace json write failed: {exc}")
 
     def summary(self) -> dict[str, Any]:
         return {
