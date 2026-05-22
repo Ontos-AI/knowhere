@@ -176,14 +176,14 @@ class OpenAICompatibleClientSync:
             return False
         return _is_ali_model(self.default_model)
 
-    def _make_ali_pool_call(
+    def _make_ali_pool_raw_call(
         self,
         model: str,
         all_messages: List[ChatCompletionMessageParam],
         temperature: float,
         max_tokens: int,
         api_kwargs: Dict[str, Any],
-    ) -> tuple[str, LLMUsage]:
+    ) -> tuple[Any, LLMUsage]:
         """Acquire a token, make the call, and retry inline on 429."""
         from shared.services.ai.ali_quota_manager import get_ali_quota_manager
 
@@ -208,13 +208,12 @@ class OpenAICompatibleClientSync:
                     max_tokens=max_tokens,
                     **api_kwargs,
                 )
-                choices = response.choices
-                if not choices:
+                if not response.choices:
                     raise LLMServiceException(
                         internal_message="AI returned empty result",
                         provider=self.default_model,
                     )
-                return choices[0].message.content or "", _extract_usage(response)
+                return response, _extract_usage(response)
             except openai.RateLimitError as exc:
                 retry_after = _parse_retry_after(exc)
                 quota_manager.mark_rate_limited(lease.token_id, retry_after)
@@ -253,7 +252,113 @@ class OpenAICompatibleClientSync:
             provider=self.default_model,
         )
 
+    def _make_ali_pool_call(
+        self,
+        model: str,
+        all_messages: List[ChatCompletionMessageParam],
+        temperature: float,
+        max_tokens: int,
+        api_kwargs: Dict[str, Any],
+    ) -> tuple[str, LLMUsage]:
+        response, usage = self._make_ali_pool_raw_call(
+            model=model,
+            all_messages=all_messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            api_kwargs=api_kwargs,
+        )
+        return response.choices[0].message.content or "", usage
+
     # ------------------------------------------------------------------
+
+    def chat_completion_raw_with_usage(
+        self,
+        messages: Union[str, List[ChatCompletionMessageParam]],
+        model: Optional[str] = None,
+        temperature: float = 0.1,
+        max_tokens: int = 4096,
+        top_p: Optional[float] = None,
+        timeout: Optional[int] = None,
+        **kwargs,
+    ) -> tuple[Any, LLMUsage]:
+        all_messages: List[ChatCompletionMessageParam]
+        if isinstance(messages, list):
+            all_messages = messages  # type: ignore[assignment]
+        else:
+            all_messages = [{"role": "user", "content": str(messages)}]
+
+        api_kwargs: Dict[str, Any] = {}
+        if top_p is not None:
+            api_kwargs["top_p"] = top_p
+        if timeout is not None:
+            api_kwargs["timeout"] = timeout
+        allowed_api_params = {
+            "n", "stop", "presence_penalty", "frequency_penalty",
+            "logit_bias", "user", "seed", "tools", "tool_choice",
+            "response_format", "logprobs", "top_logprobs",
+        }
+        for key, value in kwargs.items():
+            if key in allowed_api_params:
+                api_kwargs[key] = value
+
+        extra_body = api_kwargs.get("extra_body", {})
+        if isinstance(extra_body, dict):
+            extra_body.setdefault("enable_thinking", False)
+        else:
+            extra_body = {"enable_thinking": False}
+        api_kwargs["extra_body"] = extra_body
+
+        effective_model = model or self.default_model
+        if _should_mock_llm_calls():
+            content = build_mock_chat_completion_response(
+                messages=all_messages,
+                model_name=effective_model,
+            )
+            return {"mock_content": content}, _empty_usage()
+
+        if self._should_use_ali_pool():
+            return self._make_ali_pool_raw_call(
+                model=effective_model,
+                all_messages=all_messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                api_kwargs=api_kwargs,
+            )
+
+        client = self._client
+        if client is None:
+            raise LLMServiceException(
+                internal_message="OpenAI client is not initialized for direct provider requests",
+                provider=self.default_model,
+            )
+        try:
+            response = client.chat.completions.create(
+                model=effective_model,
+                messages=all_messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **api_kwargs,
+            )
+            if not response.choices:
+                raise LLMServiceException(
+                    internal_message="AI returned empty result",
+                    provider=self.default_model,
+                )
+            return response, _extract_usage(response)
+        except LLMServiceException:
+            raise
+        except Exception as exc:
+            logger.error(
+                "LLM raw request failed: model={model}, base_url={base_url}, error_chain={error_chain}",
+                model=effective_model,
+                base_url=client.base_url,
+                error_chain=_summarize_exception_chain(exc),
+            )
+            raise LLMServiceException(
+                internal_message=f"API request failed: {_summarize_exception_chain(exc)}",
+                provider=self.default_model,
+                original_exception=exc,
+            ) from exc
 
     def chat_completion_with_usage(
         self,

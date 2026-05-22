@@ -20,10 +20,12 @@ from .document import (
     RetrievalRun,
     RetrievalStep,
 )
+from .document_page_plan import DocumentPagePlan
 from .demo_materialization import DemoMaterialization
 from .guest_device import GuestDevice
 from .job import Job
 from .job_result import JobChunk, JobResult
+from .parse_agent import ParseRun, ParseStep
 
 # 3. Job-related log models
 from .job_state_audit_log import JobStateAuditLog
@@ -54,12 +56,15 @@ __all__ = [
     "Document",
     "DocumentSection",
     "DocumentChunk",
+    "DocumentPagePlan",
     "DemoMaterialization",
     "GraphNode",
     "GraphEdge",
     "RetrievalHitStat",
     "RetrievalRun",
     "RetrievalStep",
+    "ParseRun",
+    "ParseStep",
     "StripePriceConfig",
     "PaymentRecord",
     "JobStateAuditLog",

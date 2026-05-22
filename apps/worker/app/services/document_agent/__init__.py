@@ -1,25 +1,19 @@
-"""Document Anatomy Agent package.
+"""Page anatomy agent for hierarchy-first PDF profiling."""
 
-``DocumentAnatomyAgent`` produces a ``PageMap`` before any PDF parsing begins,
-enabling semantically-correct shard decisions for large documents.
-"""
-
-from app.services.document_agent.agent import DocumentAnatomyAgent
-from app.services.document_agent.page_map import (
-    CutPoint,
-    H1BoundaryResult,
-    H1Match,
+from app.services.document_agent.manifest import (
+    HierarchyAssistPlan,
+    PageAnatomyMap,
     PageFeature,
-    PageMap,
-    Shard,
+    PageLabel,
+    ShardPlan,
 )
+from app.services.document_agent.profile_agent import ProfileAgent
 
 __all__ = [
-    "DocumentAnatomyAgent",
-    "CutPoint",
-    "H1BoundaryResult",
-    "H1Match",
+    "HierarchyAssistPlan",
+    "PageAnatomyMap",
     "PageFeature",
-    "PageMap",
-    "Shard",
+    "PageLabel",
+    "ProfileAgent",
+    "ShardPlan",
 ]
