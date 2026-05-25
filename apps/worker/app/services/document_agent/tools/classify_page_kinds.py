@@ -7,8 +7,6 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from app.services.document_agent.manifest import PageFeature, PageLabel, ToolContext, ToolResult
-from app.services.document_agent.registry import register_tool
-from app.services.document_agent.state import DocumentAgentState
 
 
 def _joined_preview(feature: PageFeature) -> str:
@@ -16,20 +14,16 @@ def _joined_preview(feature: PageFeature) -> str:
 
 
 def _label_feature(feature: PageFeature) -> PageLabel:
-    preview = _joined_preview(feature)
     page = feature.page
-    if any(marker in preview.replace(" ", "") for marker in ("目录", "目次", "contents")):
+    if (
+        feature.raw_text_length < 80
+        and feature.image_coverage < 0.02
+        and feature.drawings_count < 5
+    ):
         return PageLabel(
             page=page,
-            kind="toc",
-            confidence=0.86,
-            evidence={"signal": "toc_marker"},
-        )
-    if feature.is_blank_like:
-        return PageLabel(
-            page=page,
-            kind="blank",
-            confidence=0.92,
+            kind="low_content",
+            confidence=0.78,
             evidence={"signal": "low_text_image_drawings"},
         )
     if feature.orientation == "landscape":
@@ -42,7 +36,7 @@ def _label_feature(feature: PageFeature) -> PageLabel:
     if feature.image_coverage >= 0.35 and feature.raw_text_length < 250:
         return PageLabel(
             page=page,
-            kind="single_image",
+            kind="image_heavy",
             confidence=0.84,
             evidence={"image_coverage": feature.image_coverage},
         )
@@ -56,21 +50,9 @@ def _label_feature(feature: PageFeature) -> PageLabel:
                 "drawings_count": feature.drawings_count,
             },
         )
-    if feature.raw_text_length < 80:
-        return PageLabel(
-            page=page,
-            kind="sparse",
-            confidence=0.67,
-            evidence={"raw_text_length": feature.raw_text_length},
-        )
     return PageLabel(page=page, kind="normal", confidence=0.65, evidence={})
 
 
-@register_tool(
-    name="classify.page_kinds",
-    description="Classify every probed page into structural page kinds using deterministic signals.",
-    allowed_states={DocumentAgentState.PROBED},
-)
 def classify_page_kinds(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()
     labels = [_label_feature(feature) for feature in ctx.blackboard.page_features]

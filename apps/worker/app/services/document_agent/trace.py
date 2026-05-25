@@ -61,7 +61,28 @@ class ParseRunRecorder:
         self._artifact_path = artifact_path
         self.write_trace_json(str(Path(artifact_path).with_name("trace.json")))
 
-    def write_trace_json(self, trace_path: str) -> None:
+    def write_trace_artifact(
+        self,
+        output_dir: str | None,
+        *,
+        final_status: str,
+        summary: dict[str, Any] | None = None,
+    ) -> None:
+        if output_dir is None:
+            return
+        self.write_trace_json(
+            str(Path(output_dir) / "trace.json"),
+            final_status=final_status,
+            summary=summary,
+        )
+
+    def write_trace_json(
+        self,
+        trace_path: str,
+        *,
+        final_status: str | None = None,
+        summary: dict[str, Any] | None = None,
+    ) -> None:
         try:
             import json
 
@@ -69,7 +90,7 @@ class ParseRunRecorder:
             for step in self._steps:
                 item = dict(step)
                 created_at = item.get("created_at")
-                if hasattr(created_at, "isoformat"):
+                if created_at is not None and hasattr(created_at, "isoformat"):
                     item["created_at"] = created_at.isoformat()
                 serializable_steps.append(item)
             Path(trace_path).write_text(
@@ -77,6 +98,8 @@ class ParseRunRecorder:
                     {
                         "run_id": self.run_id,
                         "job_id": self.job_id,
+                        "final_status": final_status,
+                        "summary": summary,
                         "artifact_path": self._artifact_path,
                         "steps": serializable_steps,
                     },
@@ -137,9 +160,7 @@ class ParseRunRecorder:
                         page_plan_id=f"dpp_{uuid4().hex[:12]}",
                         job_id=self.job_id,
                         page_count=self._anatomy.page_count,
-                        hierarchy_assist=self._anatomy.hierarchy_assist.to_dict(),
                         shard_plan=self._anatomy.shard_plan.to_dict(),
-                        page_processing_plan=None,
                         global_signals=self._anatomy.global_signals,
                     )
                 )

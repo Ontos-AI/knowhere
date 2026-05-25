@@ -9,8 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from app.services.document_agent.manifest import PageAnatomyMap, ToolContext, ToolResult
-from app.services.document_agent.registry import register_tool
-from app.services.document_agent.state import DocumentAgentState
 
 
 def _artifact_dir(ctx: ToolContext) -> Path:
@@ -24,7 +22,6 @@ def build_anatomy_map(ctx: ToolContext) -> PageAnatomyMap:
     if not (
         ctx.blackboard.toc_result
         and ctx.blackboard.h1_result
-        and ctx.blackboard.hierarchy_assist
         and ctx.blackboard.shard_plan
     ):
         raise ValueError("cannot build anatomy map from incomplete blackboard")
@@ -36,25 +33,17 @@ def build_anatomy_map(ctx: ToolContext) -> PageAnatomyMap:
         page_labels=ctx.blackboard.page_labels,
         toc_result=ctx.blackboard.toc_result,
         h1_result=ctx.blackboard.h1_result,
-        hierarchy_assist=ctx.blackboard.hierarchy_assist,
         shard_plan=ctx.blackboard.shard_plan,
-        boundary_candidates=ctx.blackboard.boundary_candidates,
+        document_profile=ctx.blackboard.document_profile,
         toc_hierarchies=ctx.blackboard.toc_hierarchies,
-        page_processing_plan=None,
         global_signals=ctx.blackboard.global_signals,
         trace_summary={
             "budget": ctx.budget.snapshot(),
-            "state_trace": list(ctx.blackboard.state_trace),
             "validation": ctx.blackboard.validation_report,
         },
     )
 
 
-@register_tool(
-    name="persist.anatomy_map",
-    description="Persist anatomy_map.json and buffer SQL trace payloads.",
-    allowed_states={DocumentAgentState.VALIDATED},
-)
 def persist_anatomy_map(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()
     anatomy = build_anatomy_map(ctx)

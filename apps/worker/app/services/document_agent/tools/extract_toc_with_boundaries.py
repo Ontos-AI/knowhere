@@ -1,14 +1,13 @@
-"""VLM-driven progressive TOC boundary detection + mineru local MD + toc_parser reuse."""
+"""VLM-driven TOC anchor, boundary, and entry extraction."""
 
 from __future__ import annotations
 
 import gc
 import json
 import os
-import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from app.services.document_agent.manifest import (
     TocAnchorPage,
@@ -17,7 +16,10 @@ from app.services.document_agent.manifest import (
     ToolResult,
 )
 from app.services.document_agent.registry import register_tool
-from app.services.document_agent.state import DocumentAgentState
+from app.services.document_agent.tools.vlm_toc_extractor import (
+    vlm_entries_to_toc_hierarchies,
+    vlm_extract_toc_entries,
+)
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
     worker,
@@ -29,7 +31,6 @@ from loguru import logger
 BOUNDARY_STEP_PAGES = 5
 MAX_BOUNDARY_ROUNDS = 6
 MAX_TOC_PAGES = BOUNDARY_STEP_PAGES * MAX_BOUNDARY_ROUNDS  # 30
-MINERU_TIMEOUT_SECONDS = 180
 
 
 # -- PyMuPDF workers (must be top-level for multiprocessing pickle) ------------
@@ -64,12 +65,12 @@ def _render_single_page_worker(
 def _vlm_confirm_anchors(
     anchor_pages: list[TocAnchorPage],
     model: str,
-) -> list[TocAnchorPage]:
+) -> tuple[list[TocAnchorPage], bool]:
     """Phase 1: send all anchor PNGs to VLM, ask which are real TOC starts."""
     from shared.services.ai.openai_compatible_client_sync import get_openai_client
 
     if not anchor_pages:
-        return []
+        return [], False
 
     import base64
 
@@ -113,7 +114,7 @@ def _vlm_confirm_anchors(
             }
         )
 
-    messages = [{"role": "user", "content": content_parts}]
+    messages = cast(Any, [{"role": "user", "content": content_parts}])
 
     try:
         client = get_openai_client(model=model)
@@ -146,21 +147,21 @@ def _vlm_confirm_anchors(
             len(confirmed),
             rejected,
         )
-        return confirmed
+        return confirmed, False
     except Exception as exc:
         logger.warning(
             "[extract.toc] VLM anchor confirmation failed: {}, "
             "falling back to no confirmed anchors (safe degradation)",
             exc,
         )
-        return []
+        return [], True
 
 
 def _vlm_check_boundary_page(
     png_path: str,
     page_num: int,
     model: str,
-) -> bool:
+) -> tuple[bool, bool]:
     """Phase 2: check if a single page still contains TOC content."""
     from shared.services.ai.openai_compatible_client_sync import get_openai_client
 
@@ -200,20 +201,20 @@ def _vlm_check_boundary_page(
     try:
         client = get_openai_client(model=model)
         raw, _ = client.chat_completion_with_usage(
-            messages=[{"role": "user", "content": content_parts}],
+            messages=cast(Any, [{"role": "user", "content": content_parts}]),
             model=model,
             temperature=0.1,
             max_tokens=200,
             response_format={"type": "json_object"},
         )
         data = json.loads(raw)
-        return bool(data.get("still_toc"))
+        return bool(data.get("still_toc")), False
     except Exception as exc:
         logger.warning(
             "[extract.toc] boundary VLM check failed for page {}: {}", page_num, exc
         )
         # Conservative: stop expansion on failure
-        return False
+        return False, True
 
 
 # -- Progressive boundary detection --------------------------------------------
@@ -227,7 +228,7 @@ def _detect_toc_range_for_anchor(
     output_dir: str,
     dpi: int,
     model: str,
-) -> tuple[int, int, list[dict[str, Any]]]:
+) -> tuple[int, int, list[dict[str, Any]], list[str]]:
     """Progressively expand from anchor_page to find the TOC end boundary.
 
     Returns:
@@ -236,6 +237,7 @@ def _detect_toc_range_for_anchor(
     start_page = anchor_page
     current_end = min(anchor_page + BOUNDARY_STEP_PAGES - 1, page_count)
     trace_rounds: list[dict[str, Any]] = []
+    warnings: list[str] = []
 
     for round_idx in range(MAX_BOUNDARY_ROUNDS):
         check_page = current_end
@@ -249,7 +251,9 @@ def _detect_toc_range_for_anchor(
             timeout=60,
         )
 
-        still_toc = _vlm_check_boundary_page(png_path, check_page, model)
+        still_toc, failed = _vlm_check_boundary_page(png_path, check_page, model)
+        if failed:
+            warnings.append(f"vlm_boundary_check_failed:p{check_page}")
         trace_rounds.append(
             {
                 "round": round_idx,
@@ -266,7 +270,7 @@ def _detect_toc_range_for_anchor(
         )
 
         if not still_toc:
-            # Boundary page is NOT TOC; TOC ends at previous page
+            # Boundary page is NOT TOC; TOC ends at previous page.
             current_end = max(check_page - 1, start_page)
             break
 
@@ -275,70 +279,7 @@ def _detect_toc_range_for_anchor(
             break
         current_end = next_end
 
-    return start_page, current_end, trace_rounds
-
-
-# -- MinerU local extraction ---------------------------------------------------
-
-
-def _run_mineru_local(
-    pdf_path: str,
-    start_page_0based: int,
-    end_page_0based: int,
-    output_dir: str,
-) -> list[str]:
-    """Run mineru CLI on a page range and return the resulting markdown lines."""
-    os.makedirs(output_dir, exist_ok=True)
-    cmd = [
-        "mineru",
-        "-p",
-        pdf_path,
-        "-o",
-        output_dir,
-        "-s",
-        str(start_page_0based),
-        "-e",
-        str(end_page_0based),
-        "-t",
-        "false",  # skip table parsing for speed
-        "-b",
-        "pipeline",
-        "-m",
-        "txt",
-    ]
-    logger.info(
-        "[extract.toc] mineru local: pages {}-{}, cmd: {}",
-        start_page_0based,
-        end_page_0based,
-        " ".join(cmd),
-    )
-
-    try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=MINERU_TIMEOUT_SECONDS,
-        )
-        if proc.returncode != 0:
-            logger.error(
-                "[extract.toc] mineru failed (code={}): {}",
-                proc.returncode,
-                proc.stderr[-500:] if proc.stderr else "",
-            )
-            return []
-    except subprocess.TimeoutExpired:
-        logger.error("[extract.toc] mineru timed out after {}s", MINERU_TIMEOUT_SECONDS)
-        return []
-
-    md_lines: list[str] = []
-    output_path = Path(output_dir)
-    for md_file in sorted(output_path.rglob("*.md")):
-        content = md_file.read_text(encoding="utf-8", errors="replace")
-        md_lines.extend(content.splitlines())
-
-    logger.info("[extract.toc] mineru produced {} markdown lines", len(md_lines))
-    return md_lines
+    return start_page, current_end, trace_rounds, warnings
 
 
 # -- Main tool -----------------------------------------------------------------
@@ -348,9 +289,8 @@ def _run_mineru_local(
     name="extract.toc_with_boundaries",
     description=(
         "VLM-confirms TOC anchor pages, progressively detects TOC boundaries, "
-        "runs mineru local extraction, then reuses toc_parser for hierarchy."
+        "then extracts TOC entries directly from rendered pages with VLM."
     ),
-    allowed_states={DocumentAgentState.CLASSIFIED},
 )
 def extract_toc_with_boundaries(
     ctx: ToolContext, _args: dict[str, Any]
@@ -384,7 +324,9 @@ def extract_toc_with_boundaries(
     os.makedirs(output_dir, exist_ok=True)
 
     # -- Phase 1: VLM confirm anchors -----------------------------------------
-    confirmed = _vlm_confirm_anchors(anchors, model)
+    confirmed, confirm_failed = _vlm_confirm_anchors(anchors, model)
+    if confirm_failed:
+        warnings.append("vlm_anchor_confirmation_failed")
     debug_info["phase1_confirmed"] = [a.page for a in confirmed]
     debug_info["phase1_rejected"] = [
         a.page for a in anchors if a not in confirmed
@@ -408,7 +350,7 @@ def extract_toc_with_boundaries(
     all_trace_rounds: list[dict[str, Any]] = []
 
     for anchor in confirmed:
-        toc_start, toc_end, trace_rounds = _detect_toc_range_for_anchor(
+        toc_start, toc_end, trace_rounds, boundary_warnings = _detect_toc_range_for_anchor(
             anchor_page=anchor.page,
             pdf_path=ctx.pdf_path,
             page_count=page_count,
@@ -416,6 +358,7 @@ def extract_toc_with_boundaries(
             dpi=dpi,
             model=model,
         )
+        warnings.extend(boundary_warnings)
         toc_ranges.append((toc_start, toc_end))
         all_trace_rounds.extend(trace_rounds)
         logger.info(
@@ -425,66 +368,49 @@ def extract_toc_with_boundaries(
     debug_info["phase2_ranges"] = toc_ranges
     debug_info["phase2_trace_rounds"] = all_trace_rounds
 
-    # -- Phase 3: mineru local extraction --------------------------------------
-    all_md_lines: list[str] = []
-    for i, (toc_start, toc_end) in enumerate(toc_ranges):
-        region_dir = os.path.join(output_dir, f"mineru_region_{i}")
-        md_lines = _run_mineru_local(
-            pdf_path=ctx.pdf_path,
-            start_page_0based=toc_start - 1,  # mineru uses 0-based
-            end_page_0based=toc_end - 1,
-            output_dir=region_dir,
-        )
-        if md_lines:
-            all_md_lines.extend(md_lines)
-        else:
-            warnings.append(
-                f"mineru produced no output for region {i} (pages {toc_start}-{toc_end})"
-            )
-
-    debug_info["phase3_md_line_count"] = len(all_md_lines)
-
-    if not all_md_lines:
-        ctx.blackboard.toc_result = TocResult(
-            toc_pages=[p for s, e in toc_ranges for p in range(s, e + 1)],
-            method="vlm_progressive",
-            notes="VLM detected TOC ranges but mineru produced no markdown",
-        )
-        warnings.append("mineru produced no markdown for any TOC region")
-        return ToolResult(
-            status="ok",
-            payload={"toc_count": 0},
-            latency_ms=int((time.monotonic() - start) * 1000),
-            warnings=warnings,
-            debug=debug_info,
-        )
-
-    # -- Phase 4: toc_parser reuse ---------------------------------------------
-    try:
-        from app.services.document_parser.structure.toc_parser import (
-            detect_tocs_in_texts,
-        )
-
-        hierarchy_model = ctx.settings.get("model") or os.environ.get(
-            "HIERARCHY_LLM_MODEL"
-        ) or os.environ.get("NORMOL_MODEL")
-
-        toc_hierarchies, _filtered = detect_tocs_in_texts(
-            all_md_lines,
-            model_name=hierarchy_model,
-            hierarchy_model_name=hierarchy_model,
-            branch="normal",
-            limit_=150,
-        )
-    except Exception as exc:
-        logger.error("[extract.toc] toc_parser failed: {}", exc)
-        toc_hierarchies = None
-        warnings.append(f"toc_parser failed: {exc}")
-
-    # -- Write results to blackboard -------------------------------------------
+    # -- Phase 3: VLM entry extraction -----------------------------------------
     all_toc_pages = sorted(
         {p for s, e in toc_ranges for p in range(s, e + 1)}
     )
+    all_entries: list[dict[str, Any]] = []
+    per_page_meta: list[dict[str, Any]] = []
+    rendered_pages: list[dict[str, Any]] = []
+    for page_num in all_toc_pages:
+        png_path = os.path.join(output_dir, f"toc_page_{page_num}.png")
+        render_result = run_in_child_process(
+            _render_single_page_worker,
+            ctx.pdf_path,
+            page_num,
+            png_path,
+            dpi,
+            timeout=60,
+        )
+        rendered_pages.append(render_result)
+        entries, meta = vlm_extract_toc_entries(
+            png_path=str(render_result.get("png_path") or png_path),
+            page_num=page_num,
+            model=model,
+            previous_entries=all_entries,
+        )
+        all_entries.extend(entries)
+        per_page_meta.append(meta)
+
+    if not all_entries:
+        raise RuntimeError("VLM TOC extractor returned no entries for confirmed TOC pages")
+
+    scan_end_page = max(
+        (round_info.get("check_page", 0) for round_info in all_trace_rounds),
+        default=max(all_toc_pages),
+    )
+    toc_hierarchies = vlm_entries_to_toc_hierarchies(
+        all_entries,
+        toc_page_nums=all_toc_pages,
+        scan_end_page=int(scan_end_page),
+        page_count=page_count,
+    )
+    debug_info["phase3_vlm_entry_count"] = len(all_entries)
+    debug_info["phase3_vlm_per_page_meta"] = per_page_meta
+    debug_info["phase3_rendered_pages"] = rendered_pages
 
     ctx.blackboard.toc_result = TocResult(
         toc_pages=all_toc_pages,
@@ -495,6 +421,13 @@ def extract_toc_with_boundaries(
         ),
     )
     ctx.blackboard.toc_hierarchies = toc_hierarchies if toc_hierarchies else None
+    ctx.blackboard.global_signals["vlm_toc_entries"] = {
+        "model": model,
+        "toc_pages": all_toc_pages,
+        "total_entries": len(all_entries),
+        "entries": all_entries,
+        "per_page_meta": per_page_meta,
+    }
 
     # Persist toc_hierarchies to disk for inspection / downstream reuse
     if toc_hierarchies and ctx.output_dir:
@@ -509,6 +442,8 @@ def extract_toc_with_boundaries(
     toc_summary: dict[str, Any] = {
         "toc_ranges": toc_ranges,
         "toc_page_count": len(all_toc_pages),
+        "toc_entry_count": len(all_entries),
+        "toc_source": "vlm",
     }
     if toc_hierarchies:
         for i, hier in enumerate(toc_hierarchies):

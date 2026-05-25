@@ -2,15 +2,13 @@
 
 from app.services.document_agent.registry import REGISTRY
 
-from . import classify_page_kinds as classify_page_kinds  # noqa: F401
-from . import collect_boundary_candidates as collect_boundary_candidates  # noqa: F401
 from . import extract_toc_with_boundaries as extract_toc_with_boundaries  # noqa: F401
 from . import find_toc_anchor_pages as find_toc_anchor_pages  # noqa: F401
+from . import grep_text as grep_text  # noqa: F401
+from . import inspect_pages as inspect_pages  # noqa: F401
 from . import match_h1_pages as match_h1_pages  # noqa: F401
-from . import persist_anatomy_map as persist_anatomy_map  # noqa: F401
-from . import probe_page_features as probe_page_features  # noqa: F401
-from . import propose_hierarchy_assist as propose_hierarchy_assist  # noqa: F401
 from . import propose_shard_plan as propose_shard_plan  # noqa: F401
 from . import validate_anatomy_map as validate_anatomy_map  # noqa: F401
+from . import verdict as verdict  # noqa: F401
 
 __all__ = ["REGISTRY"]

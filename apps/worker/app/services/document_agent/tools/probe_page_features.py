@@ -8,8 +8,6 @@ from typing import Any
 
 from app.services.document_agent.manifest import PageFeature, ToolContext, ToolResult
 from app.services.document_agent.pdf_text import top_lines
-from app.services.document_agent.registry import register_tool
-from app.services.document_agent.state import DocumentAgentState
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
     worker,
@@ -104,11 +102,6 @@ def _probe_worker(queue, pdf_path: str) -> None:
     queue.put({"ok": True, "page_count": page_count, "features": features})
 
 
-@register_tool(
-    name="probe.page_features",
-    description="Probe every PDF page for structural signals without parsing content semantically.",
-    allowed_states={DocumentAgentState.INIT},
-)
 def probe_page_features(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()
     try:

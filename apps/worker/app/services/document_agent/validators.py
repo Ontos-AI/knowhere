@@ -3,38 +3,11 @@
 from __future__ import annotations
 
 from app.services.document_agent.manifest import (
-    HierarchyAssistPlan,
     PageAnatomyMap,
     Shard,
     ShardPlan,
     ValidationReport,
 )
-
-
-def valid_pages(pages: list[int], page_count: int) -> list[int]:
-    return sorted({page for page in pages if 1 <= int(page) <= page_count})
-
-
-def repair_hierarchy_assist(
-    plan: HierarchyAssistPlan,
-    *,
-    page_count: int,
-    toc_pages: set[int],
-) -> HierarchyAssistPlan:
-    plan.exclude_pages_from_title_candidates = valid_pages(
-        plan.exclude_pages_from_title_candidates,
-        page_count,
-    )
-    plan.suppress_title_pages = valid_pages(plan.suppress_title_pages, page_count)
-    plan.prefer_h1_start_pages = [
-        candidate
-        for candidate in plan.prefer_h1_start_pages
-        if 1 <= candidate.page <= page_count and candidate.page not in toc_pages
-    ]
-    plan.section_boundary_hints = [
-        hint for hint in plan.section_boundary_hints if 1 <= hint.page <= page_count
-    ]
-    return plan
 
 
 def validate_shard_plan(
@@ -62,8 +35,8 @@ def validate_shard_plan(
         length = shard.page_end - shard.page_start + 1
         if plan.enabled and length > max_pages:
             errors.append(f"shard {shard.shard_index} exceeds max_pages={max_pages}")
-        if plan.enabled and length < min_pages and shard.page_end != page_count:
-            warnings.append(f"shard {shard.shard_index} shorter than min_pages={min_pages}")
+        if plan.enabled and length < min_pages:
+            errors.append(f"shard {shard.shard_index} shorter than min_pages={min_pages}")
         expected_start = shard.page_end + 1
     if expected_start != page_count + 1:
         errors.append("shard_plan does not cover full document")
@@ -110,17 +83,6 @@ def validate_anatomy_map(
             errors.append(f"h1 candidate points to toc page {candidate.page}")
         if candidate.page < 1 or candidate.page > page_count:
             errors.append(f"h1 candidate page {candidate.page} out of range")
-    candidate_count = len(anatomy.boundary_candidates)
-    if page_count > max_pages and candidate_count == 0:
-        warnings.append("long document has no boundary candidates")
-    h1_candidate_count = sum(1 for candidate in anatomy.boundary_candidates if candidate.kind == "h1")
-    sparse_candidate_count = sum(
-        1
-        for candidate in anatomy.boundary_candidates
-        if candidate.kind in {"blank", "sparse", "separator"}
-    )
-    if page_count > max_pages and h1_candidate_count == 0 and sparse_candidate_count == 0:
-        warnings.append("long document has neither H1 nor sparse/blank boundary candidates")
     shard_report = validate_shard_plan(
         anatomy.shard_plan,
         page_count=page_count,

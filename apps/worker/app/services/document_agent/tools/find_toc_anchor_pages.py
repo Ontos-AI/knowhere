@@ -5,13 +5,11 @@ from __future__ import annotations
 import gc
 import os
 import time
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from app.services.document_agent.manifest import TocAnchorPage, ToolContext, ToolResult
-from app.services.document_agent.registry import register_tool
-from app.services.document_agent.state import DocumentAgentState
+from app.services.document_agent.registry import has_page_labels, register_tool
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
     worker,
@@ -123,7 +121,7 @@ def _filter_recurring_elements(
         "Scan page text previews for TOC keywords, filter recurring "
         "navigation elements, then render candidate PNGs for VLM confirmation."
     ),
-    allowed_states={DocumentAgentState.CLASSIFIED},
+    preconditions=(has_page_labels,),
 )
 def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()

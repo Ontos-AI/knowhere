@@ -14,8 +14,7 @@ from app.services.document_agent.manifest import (
     ToolResult,
 )
 from app.services.document_agent.pdf_text import read_page_texts
-from app.services.document_agent.registry import register_tool
-from app.services.document_agent.state import DocumentAgentState
+from app.services.document_agent.registry import has_toc_result, register_tool
 from loguru import logger
 
 
@@ -76,7 +75,7 @@ def _extract_level1_titles(toc_hierarchies: list[dict[str, Any]]) -> list[str]:
         "Match TOC level-1 headings to body pages using PyMuPDF substring search. "
         "Produces H1Candidate list for downstream shard planning."
     ),
-    allowed_states={DocumentAgentState.CLASSIFIED},
+    preconditions=(has_toc_result,),
 )
 def match_h1_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()

@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix typecheck check
+.PHONY: lint lint-fix typecheck check test-doc-agent
 
 UV := uv
 REPO_UV_CACHE_DIR := $(CURDIR)/.uv-cache
@@ -29,3 +29,6 @@ typecheck:
 	$(PYRIGHT) --project pyproject.toml $(PYRIGHT_PATHS)
 
 check: lint typecheck
+
+test-doc-agent:
+	cd apps/worker && $(UV_RUN_ENV) $(UV) run pytest tests/document_agent

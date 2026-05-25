@@ -7,9 +7,9 @@ from enum import Enum
 from typing import Any
 
 from app.services.document_agent.manifest import (
-    BoundaryCandidate,
+    AgentVerdict,
+    DocumentProfile,
     H1BoundaryResult,
-    HierarchyAssistPlan,
     PageFeature,
     PageLabel,
     ShardPlan,
@@ -20,34 +20,28 @@ from app.services.document_agent.manifest import (
 
 class DocumentAgentState(str, Enum):
     INIT = "init"
-    PROBED = "probed"
-    CLASSIFIED = "classified"
-    H1_FOUND = "h1_found"
-    PLANNED = "planned"
-    VALIDATED = "validated"
-    PERSISTED = "persisted"
+    RUNNING = "running"
     READY = "ready"
     FAILED = "failed"
-    PROCESSING_PLAN_PROPOSED = "processing_plan_proposed"
 
 
 @dataclass
 class AgentBlackboard:
     page_count: int = 0
+    document_profile: DocumentProfile | None = None
     page_features: list[PageFeature] = field(default_factory=list)
     page_labels: list[PageLabel] = field(default_factory=list)
+    doc_stats: dict[str, Any] = field(default_factory=dict)
+    extrema_pages: list[int] = field(default_factory=list)
     toc_anchor_pages: list[TocAnchorPage] = field(default_factory=list)
     toc_result: TocResult | None = None
     toc_hierarchies: list[dict[str, Any]] | None = None
     h1_result: H1BoundaryResult | None = None
-    boundary_candidates: list[BoundaryCandidate] = field(default_factory=list)
-    hierarchy_assist: HierarchyAssistPlan | None = None
     shard_plan: ShardPlan | None = None
     validation_report: dict[str, Any] | None = None
+    verdict: AgentVerdict | None = None
+    step_history: list[dict[str, Any]] = field(default_factory=list)
+    page_full_text_cache: dict[int, str] = field(default_factory=dict)
     global_signals: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
-    state_trace: list[str] = field(default_factory=list)
-
-    def mark(self, state: DocumentAgentState) -> None:
-        self.state_trace.append(state.value)
 

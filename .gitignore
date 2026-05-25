@@ -69,6 +69,7 @@ test_*.csv
 !requirements.csv
 
 # Local debugging scripts
+apps/worker/scripts/
 apps/worker/start_celery_worker.py
 apps/worker/start_celery_debug.sh
 apps/worker/clear_celery_queues.sh

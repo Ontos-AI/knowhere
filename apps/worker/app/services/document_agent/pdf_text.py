@@ -25,7 +25,7 @@ def _read_page_texts_worker(queue, pdf_path: str, pages: list[int]) -> None:
         for page in pages:
             idx = page - 1
             if 0 <= idx < doc.page_count:
-                texts[page] = doc[idx].get_text() or ""
+                texts[page] = str(doc[idx].get_text() or "")
     finally:
         try:
             doc.close()

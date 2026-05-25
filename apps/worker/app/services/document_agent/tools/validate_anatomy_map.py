@@ -7,8 +7,12 @@ import time
 from typing import Any
 
 from app.services.document_agent.manifest import PageAnatomyMap, ToolContext, ToolResult
-from app.services.document_agent.registry import register_tool
-from app.services.document_agent.state import DocumentAgentState
+from app.services.document_agent.registry import (
+    has_h1_result,
+    has_shard_plan,
+    has_toc_result,
+    register_tool,
+)
 from app.services.document_agent.validators import validate_anatomy_map
 
 
@@ -27,14 +31,13 @@ def _thresholds(ctx: ToolContext) -> tuple[int, int]:
 @register_tool(
     name="validate.anatomy_map",
     description="Validate page anatomy, hierarchy hints, and shard coverage.",
-    allowed_states={DocumentAgentState.PLANNED},
+    preconditions=(has_toc_result, has_h1_result, has_shard_plan),
 )
 def validate_current_anatomy(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()
     if not (
         ctx.blackboard.toc_result
         and ctx.blackboard.h1_result
-        and ctx.blackboard.hierarchy_assist
         and ctx.blackboard.shard_plan
     ):
         return ToolResult(
@@ -50,9 +53,8 @@ def validate_current_anatomy(ctx: ToolContext, _args: dict[str, Any]) -> ToolRes
         page_labels=ctx.blackboard.page_labels,
         toc_result=ctx.blackboard.toc_result,
         h1_result=ctx.blackboard.h1_result,
-        hierarchy_assist=ctx.blackboard.hierarchy_assist,
         shard_plan=ctx.blackboard.shard_plan,
-        boundary_candidates=ctx.blackboard.boundary_candidates,
+        document_profile=ctx.blackboard.document_profile,
         global_signals=ctx.blackboard.global_signals,
         trace_summary={},
     )
@@ -60,7 +62,7 @@ def validate_current_anatomy(ctx: ToolContext, _args: dict[str, Any]) -> ToolRes
     report = validate_anatomy_map(anatomy, min_pages=min_pages, max_pages=max_pages)
     ctx.blackboard.validation_report = report.to_dict()
     if ctx.blackboard.shard_plan:
-        ctx.blackboard.shard_plan.validation = report if not report.valid else ctx.blackboard.shard_plan.validation
+        ctx.blackboard.shard_plan.validation = report
     return ToolResult(
         status="ok" if report.valid else "invalid",
         payload=report.to_dict(),
