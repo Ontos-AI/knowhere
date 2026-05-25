@@ -39,6 +39,7 @@ def build_anatomy_map(ctx: ToolContext) -> PageAnatomyMap:
         hierarchy_assist=ctx.blackboard.hierarchy_assist,
         shard_plan=ctx.blackboard.shard_plan,
         boundary_candidates=ctx.blackboard.boundary_candidates,
+        toc_hierarchies=ctx.blackboard.toc_hierarchies,
         page_processing_plan=None,
         global_signals=ctx.blackboard.global_signals,
         trace_summary={

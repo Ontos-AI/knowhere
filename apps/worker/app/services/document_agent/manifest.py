@@ -15,12 +15,10 @@ PageKind = Literal[
     "chapter_start",
     "section_start",
     "table_heavy",
-    "image_heavy",
     "single_image",
     "blank",
     "separator",
     "appendix",
-    "scan_like",
     "landscape",
     "sparse",
 ]
@@ -77,10 +75,22 @@ class TocCandidate:
 
 
 @dataclass
+class TocAnchorPage:
+    """A candidate TOC start page identified by keyword scan, pending VLM confirmation."""
+
+    page: int  # 1-based page number
+    png_path: str  # local PNG path for VLM inspection
+    source: Literal["page_label", "text_scan"]  # how this anchor was discovered
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class TocResult:
     toc_pages: list[int] = field(default_factory=list)
     candidates: list[TocCandidate] = field(default_factory=list)
-    method: Literal["toc_marker", "none"] = "none"
+    method: Literal["toc_marker", "vlm_progressive", "none"] = "none"
     notes: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -249,6 +259,7 @@ class PageAnatomyMap:
     hierarchy_assist: HierarchyAssistPlan
     shard_plan: ShardPlan
     boundary_candidates: list[BoundaryCandidate] = field(default_factory=list)
+    toc_hierarchies: list[dict[str, Any]] | None = None
     page_processing_plan: PageProcessingPlan | None = None
     global_signals: dict[str, Any] = field(default_factory=dict)
     trace_summary: dict[str, Any] = field(default_factory=dict)
@@ -270,6 +281,7 @@ class PageAnatomyMap:
             "boundary_candidates": [
                 candidate.to_dict() for candidate in self.boundary_candidates
             ],
+            "toc_hierarchies": self.toc_hierarchies,
             "page_processing_plan": (
                 self.page_processing_plan.to_dict()
                 if self.page_processing_plan is not None

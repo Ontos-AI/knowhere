@@ -39,22 +39,12 @@ def _label_feature(feature: PageFeature) -> PageLabel:
             confidence=0.78,
             evidence={"width": feature.width, "height": feature.height},
         )
-    if feature.image_coverage >= 0.72 and feature.raw_text_length < 250:
+    if feature.image_coverage >= 0.35 and feature.raw_text_length < 250:
         return PageLabel(
             page=page,
             kind="single_image",
             confidence=0.84,
             evidence={"image_coverage": feature.image_coverage},
-        )
-    if feature.raw_text_length < 50 and feature.image_coverage >= 0.35:
-        return PageLabel(
-            page=page,
-            kind="scan_like",
-            confidence=0.76,
-            evidence={
-                "raw_text_length": feature.raw_text_length,
-                "image_coverage": feature.image_coverage,
-            },
         )
     if feature.table_count > 0 or feature.drawings_count >= 80:
         return PageLabel(
@@ -65,13 +55,6 @@ def _label_feature(feature: PageFeature) -> PageLabel:
                 "table_count": feature.table_count,
                 "drawings_count": feature.drawings_count,
             },
-        )
-    if feature.image_coverage >= 0.35:
-        return PageLabel(
-            page=page,
-            kind="image_heavy",
-            confidence=0.72,
-            evidence={"image_coverage": feature.image_coverage},
         )
     if feature.raw_text_length < 80:
         return PageLabel(

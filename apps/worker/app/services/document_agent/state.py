@@ -13,6 +13,7 @@ from app.services.document_agent.manifest import (
     PageFeature,
     PageLabel,
     ShardPlan,
+    TocAnchorPage,
     TocResult,
 )
 
@@ -35,7 +36,9 @@ class AgentBlackboard:
     page_count: int = 0
     page_features: list[PageFeature] = field(default_factory=list)
     page_labels: list[PageLabel] = field(default_factory=list)
+    toc_anchor_pages: list[TocAnchorPage] = field(default_factory=list)
     toc_result: TocResult | None = None
+    toc_hierarchies: list[dict[str, Any]] | None = None
     h1_result: H1BoundaryResult | None = None
     boundary_candidates: list[BoundaryCandidate] = field(default_factory=list)
     hierarchy_assist: HierarchyAssistPlan | None = None
@@ -47,3 +50,4 @@ class AgentBlackboard:
 
     def mark(self, state: DocumentAgentState) -> None:
         self.state_trace.append(state.value)
+

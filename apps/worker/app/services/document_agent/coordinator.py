@@ -19,6 +19,9 @@ from app.services.document_agent.trace import ParseRunRecorder
 TRANSITIONS: dict[str, DocumentAgentState] = {
     "probe.page_features": DocumentAgentState.PROBED,
     "classify.page_kinds": DocumentAgentState.PROBED,
+    "find.toc_anchor_pages": DocumentAgentState.CLASSIFIED,
+    "extract.toc_with_boundaries": DocumentAgentState.CLASSIFIED,
+    "match.h1_pages": DocumentAgentState.H1_FOUND,
     "collect.boundary_candidates": DocumentAgentState.H1_FOUND,
     "propose.hierarchy_assist": DocumentAgentState.H1_FOUND,
     "propose.shard_plan": DocumentAgentState.H1_FOUND,
@@ -29,6 +32,9 @@ TRANSITIONS: dict[str, DocumentAgentState] = {
 REQUIRED_TOOLS = [
     "probe.page_features",
     "classify.page_kinds",
+    "find.toc_anchor_pages",
+    "extract.toc_with_boundaries",
+    "match.h1_pages",
     "collect.boundary_candidates",
     "propose.hierarchy_assist",
     "propose.shard_plan",
@@ -77,7 +83,7 @@ class ProfileCoordinator:
         self.blackboard = AgentBlackboard()
         self.budget = BudgetTracker(
             plan_budget=int(os.environ.get("PARSE_AGENT_PLAN_BUDGET", "5000")),
-            max_tool_calls=int(os.environ.get("PARSE_AGENT_MAX_TOOL_CALLS", "12")),
+            max_tool_calls=int(os.environ.get("PARSE_AGENT_MAX_TOOL_CALLS", "15")),
         )
         effective_settings = settings or {}
         if model:

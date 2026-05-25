@@ -17,11 +17,10 @@ from app.services.document_agent.registry import register_tool
 from app.services.document_agent.state import DocumentAgentState
 
 
-BOUNDARY_PAGE_KINDS = {"blank", "sparse", "separator", "toc"}
+BOUNDARY_PAGE_KINDS = {"blank", "sparse", "toc"}
 PRIORITY_BY_KIND = {
     "h1": 100,
     "toc": 80,
-    "separator": 70,
     "blank": 45,
     "sparse": 40,
 }
@@ -50,23 +49,19 @@ def _candidate_evidence(ctx: ToolContext, page: int, kind: str) -> dict[str, Any
 @register_tool(
     name="collect.boundary_candidates",
     description="Collect sparse, blank, TOC, and H1 pages as split candidates without making split decisions.",
-    allowed_states={DocumentAgentState.CLASSIFIED},
+    allowed_states={DocumentAgentState.H1_FOUND},
 )
 def collect_boundary_candidates(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()
     candidates: list[BoundaryCandidate] = []
     seen: set[tuple[int, str]] = set()
 
-    # The robust TOC parser will populate these later. Until then, keep the
-    # anatomy contract explicit without inventing TOC/H1 results here.
-    ctx.blackboard.toc_result = ctx.blackboard.toc_result or TocResult(
-        method="none",
-        notes="TOC parser not run in boundary candidate collection",
-    )
-    ctx.blackboard.h1_result = ctx.blackboard.h1_result or H1BoundaryResult(
-        method="none",
-        notes="H1 parser not run in boundary candidate collection",
-    )
+    # Upstream tools (extract.toc_with_boundaries, match.h1_pages) populate
+    # these before collect runs. Provide safe defaults if they were skipped.
+    if ctx.blackboard.toc_result is None:
+        ctx.blackboard.toc_result = TocResult(method="none")
+    if ctx.blackboard.h1_result is None:
+        ctx.blackboard.h1_result = H1BoundaryResult(method="none")
 
     for label in ctx.blackboard.page_labels:
         if label.kind not in BOUNDARY_PAGE_KINDS:
@@ -85,8 +80,8 @@ def collect_boundary_candidates(ctx: ToolContext, _args: dict[str, Any]) -> Tool
             )
         )
 
-    # Preserve future H1 candidates as highest-priority hints when upstream TOC
-    # parsing is wired in, but do not derive them with the old fuzzy matcher.
+    # Add H1 candidates from upstream match.h1_pages as highest-priority
+    # boundary hints for shard planning.
     if ctx.blackboard.h1_result:
         for h1 in ctx.blackboard.h1_result.h1_candidates:
             key = (h1.page, "h1")
