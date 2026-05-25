@@ -89,7 +89,7 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         )
         ctx.budget.commit("visual", actual=usage.get("total_tokens", est), est=est)
         try:
-            payload = json.loads(raw)
+            payload: dict[str, Any] = json.loads(raw)
         except json.JSONDecodeError:
             payload = {"raw": raw}
         if isinstance(payload, dict):
