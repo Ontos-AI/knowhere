@@ -1,4 +1,4 @@
-"""Plan-then-act coordinator for the document profile agent."""
+"""ReAct-style coordinator for the document profile agent."""
 
 from __future__ import annotations
 

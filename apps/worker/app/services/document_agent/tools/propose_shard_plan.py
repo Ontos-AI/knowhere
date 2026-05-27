@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import time
 from typing import Any
 
@@ -124,11 +123,12 @@ def _build_prompt(
     )
 
 
-def _sanitize_rationale(text: str) -> str:
-    # Keep rationales structural. The model may quote page preview text; those
-    # literals are useful as input evidence but should not become baked-in rules.
-    sanitized = re.sub(r"'[^']{1,40}'", "sparse separator text", text or "")
-    sanitized = re.sub(r'"[^"]{1,40}"', "sparse separator text", sanitized)
+def _sanitize_rationale(text: str, max_length: int = 120) -> str:
+    # Truncate overlong rationales but preserve H1 title references
+    # which provide valuable semantic context for shard boundaries.
+    sanitized = (text or "").strip()
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length].rstrip() + "…"
     return sanitized
 
 
@@ -195,6 +195,7 @@ def _parse_llm_plan(
 def _deterministic_guardrail_plan(
     *,
     page_count: int,
+    min_pages: int,
     max_pages: int,
     h1_pages: list[int],
 ) -> tuple[list[tuple[int, str, str, float]], str]:
@@ -213,6 +214,9 @@ def _deterministic_guardrail_plan(
         else:
             cuts.append((target, "forced_max_size", "guardrail max shard size", 0.25))
             previous = target
+    # Merge final shard into previous if it's smaller than min_pages
+    if cuts and (page_count - cuts[-1][0]) < min_pages:
+        cuts.pop()
     return cuts, "too_large"
 
 
@@ -265,7 +269,7 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
 
             client = get_openai_client(model=model)
             raw_response, usage = client.chat_completion_with_usage(
-                messages=prompt,
+                messages=[{"role": "user", "content": prompt}],
                 model=model,
                 temperature=0.0,
                 max_tokens=1600,
@@ -284,6 +288,7 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
             )
             cuts, reason = _deterministic_guardrail_plan(
                 page_count=page_count,
+                min_pages=min_pages,
                 max_pages=max_pages,
                 h1_pages=[item["page"] for item in h1_pages],
             )
@@ -296,6 +301,7 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
             )
             cuts, reason = _deterministic_guardrail_plan(
                 page_count=page_count,
+                min_pages=min_pages,
                 max_pages=max_pages,
                 h1_pages=[item["page"] for item in h1_pages],
             )

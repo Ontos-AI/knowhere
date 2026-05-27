@@ -169,6 +169,26 @@ class ProfilePlanner:
             or os.environ.get("IMAGE_MODEL")
         )
         pages = _sample_pages(self.ctx.blackboard.page_count, self.ctx.blackboard.extrema_pages)
+        if not model:
+            profile = DocumentProfile(
+                is_scanned=False,
+                category="unknown document",
+                rationale="No planner model configured.",
+            )
+            decision = ReflexionDecision(
+                action="tool_call",
+                rationale=profile.rationale,
+                tool_name="propose.shard_plan",
+                tool_args={},
+            )
+            return profile, decision, ToolResult(
+                status="ok",
+                payload={"source": "deterministic", "sampled_pages": pages},
+                latency_ms=int((time.monotonic() - start) * 1000),
+                warnings=["No planner model configured; using conservative profile."],
+                input_summary={"page_count": self.ctx.blackboard.page_count},
+                output_summary={"profile": profile.to_dict(), "decision": decision.to_dict()},
+            )
         pngs = render_pages(
             self.ctx,
             pages,
@@ -214,28 +234,8 @@ class ProfilePlanner:
             ensure_ascii=False,
         )
         prompt_tokens_est = estimate_tokens(prompt_text) + len(pngs) * 800
-        if not model:
-            profile = DocumentProfile(
-                is_scanned=False,
-                category="unknown document",
-                rationale="No planner model configured.",
-            )
-            decision = ReflexionDecision(
-                action="tool_call",
-                rationale=profile.rationale,
-                tool_name="propose.shard_plan",
-                tool_args={},
-            )
-            return profile, decision, ToolResult(
-                status="ok",
-                payload={"source": "deterministic", "sampled_pages": pages},
-                latency_ms=int((time.monotonic() - start) * 1000),
-                warnings=["No planner model configured; using conservative profile."],
-                input_summary=payload,
-                output_summary={"profile": profile.to_dict(), "decision": decision.to_dict()},
-            )
-        if not self.ctx.budget.try_reserve("plan", prompt_tokens_est):
-            raise RuntimeError("Insufficient planner budget for profile planning.")
+        if not self.ctx.budget.try_reserve("visual", prompt_tokens_est):
+            raise RuntimeError("Insufficient visual budget for profile planning.")
 
         content_parts: list[dict[str, Any]] = [{"type": "text", "text": prompt_text}]
         for item in pngs:
@@ -266,7 +266,7 @@ class ProfilePlanner:
                 response_format={"type": "json_object"},
             )
             self.ctx.budget.commit(
-                "plan",
+                "visual",
                 actual=usage.get("total_tokens", prompt_tokens_est),
                 est=prompt_tokens_est,
             )
@@ -289,6 +289,7 @@ class ProfilePlanner:
                 },
             )
         except Exception:
-            self.ctx.budget.refund("plan", est=prompt_tokens_est)
+            self.ctx.budget.refund("visual", est=prompt_tokens_est)
             raise
+
 

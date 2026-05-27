@@ -9,10 +9,6 @@ from typing import Any
 from app.services.document_agent.manifest import PageFeature, PageLabel, ToolContext, ToolResult
 
 
-def _joined_preview(feature: PageFeature) -> str:
-    return "\n".join(feature.text_lines_preview).lower()
-
-
 def _label_feature(feature: PageFeature) -> PageLabel:
     page = feature.page
     if (

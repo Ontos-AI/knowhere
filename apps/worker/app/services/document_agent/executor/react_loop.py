@@ -288,9 +288,18 @@ class ReActExecutor:
                     "rationale": "Validation succeeded; finishing profile run.",
                 },
             )
+        # Validation failed: fallback to single shard instead of aborting.
+        # Clear the invalid plan and re-propose as a single shard.
+        from app.services.document_agent.tools.propose_shard_plan import single_shard_plan
+
+        self.ctx.blackboard.shard_plan = single_shard_plan(
+            self.ctx.blackboard.page_count
+        )
+        self.ctx.blackboard.validation_report = None
         return ReflexionDecision(
-            action="verdict_now",
-            rationale="Validation failed in deterministic mode.",
-            verdict=AgentVerdict(status="abort", rationale="Validation failed."),
+            action="tool_call",
+            rationale="Validation failed; falling back to single shard plan.",
+            tool_name="validate.anatomy_map",
+            tool_args={},
         )
 

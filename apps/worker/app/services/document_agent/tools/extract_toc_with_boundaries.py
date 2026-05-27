@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from typing import Any, cast
 
+from shared.utils.token_estimate import estimate_tokens
+
 from app.services.document_agent.manifest import (
     TocAnchorPage,
     TocResult,
@@ -65,6 +67,7 @@ def _render_single_page_worker(
 def _vlm_confirm_anchors(
     anchor_pages: list[TocAnchorPage],
     model: str,
+    budget: Any | None = None,
 ) -> tuple[list[TocAnchorPage], bool]:
     """Phase 1: send all anchor PNGs to VLM, ask which are real TOC starts."""
     from shared.services.ai.openai_compatible_client_sync import get_openai_client
@@ -115,6 +118,10 @@ def _vlm_confirm_anchors(
         )
 
     messages = cast(Any, [{"role": "user", "content": content_parts}])
+    est = estimate_tokens(str(content_parts[0]["text"])) + len(anchor_pages) * 800
+    if budget and not budget.try_reserve("visual", est):
+        logger.warning("[extract.toc] insufficient visual budget for anchor confirmation")
+        return [], True
 
     try:
         client = get_openai_client(model=model)
@@ -125,6 +132,8 @@ def _vlm_confirm_anchors(
             max_tokens=500,
             response_format={"type": "json_object"},
         )
+        if budget:
+            budget.commit("visual", actual=usage.get("total_tokens", est), est=est)
         data = json.loads(raw)
         if isinstance(data, dict):
             items = data.get("pages") or data.get("results") or data.get("data") or []
@@ -149,6 +158,8 @@ def _vlm_confirm_anchors(
         )
         return confirmed, False
     except Exception as exc:
+        if budget:
+            budget.refund("visual", est=est)
         logger.warning(
             "[extract.toc] VLM anchor confirmation failed: {}, "
             "falling back to no confirmed anchors (safe degradation)",
@@ -161,6 +172,7 @@ def _vlm_check_boundary_page(
     png_path: str,
     page_num: int,
     model: str,
+    budget: Any | None = None,
 ) -> tuple[bool, bool]:
     """Phase 2: check if a single page still contains TOC content."""
     from shared.services.ai.openai_compatible_client_sync import get_openai_client
@@ -198,18 +210,27 @@ def _vlm_check_boundary_page(
         },
     ]
 
+    est = estimate_tokens(str(content_parts[0]["text"])) + 800
+    if budget and not budget.try_reserve("visual", est):
+        logger.warning("[extract.toc] insufficient visual budget for boundary check p{}", page_num)
+        return False, True
+
     try:
         client = get_openai_client(model=model)
-        raw, _ = client.chat_completion_with_usage(
+        raw, usage = client.chat_completion_with_usage(
             messages=cast(Any, [{"role": "user", "content": content_parts}]),
             model=model,
             temperature=0.1,
             max_tokens=200,
             response_format={"type": "json_object"},
         )
+        if budget:
+            budget.commit("visual", actual=usage.get("total_tokens", est), est=est)
         data = json.loads(raw)
         return bool(data.get("still_toc")), False
     except Exception as exc:
+        if budget:
+            budget.refund("visual", est=est)
         logger.warning(
             "[extract.toc] boundary VLM check failed for page {}: {}", page_num, exc
         )
@@ -228,6 +249,7 @@ def _detect_toc_range_for_anchor(
     output_dir: str,
     dpi: int,
     model: str,
+    budget: Any | None = None,
 ) -> tuple[int, int, list[dict[str, Any]], list[str]]:
     """Progressively expand from anchor_page to find the TOC end boundary.
 
@@ -251,7 +273,7 @@ def _detect_toc_range_for_anchor(
             timeout=60,
         )
 
-        still_toc, failed = _vlm_check_boundary_page(png_path, check_page, model)
+        still_toc, failed = _vlm_check_boundary_page(png_path, check_page, model, budget=budget)
         if failed:
             warnings.append(f"vlm_boundary_check_failed:p{check_page}")
         trace_rounds.append(
@@ -312,9 +334,19 @@ def extract_toc_with_boundaries(
             latency_ms=int((time.monotonic() - start) * 1000),
         )
 
-    model = ctx.settings.get("vlm_model") or os.environ.get(
-        "IMAGE_MODEL", "qwen3.5-flash"
-    )
+    model = ctx.settings.get("vlm_model") or os.environ.get("IMAGE_MODEL")
+    if not model:
+        logger.warning("[extract.toc] no VLM model configured; skipping TOC extraction")
+        ctx.blackboard.toc_result = TocResult(
+            method="none",
+            notes="No VLM model configured for TOC extraction",
+        )
+        return ToolResult(
+            status="ok",
+            payload={"toc_count": 0},
+            latency_ms=int((time.monotonic() - start) * 1000),
+            warnings=["No VLM model configured; skipping TOC extraction."],
+        )
     dpi = int(ctx.settings.get("toc_png_dpi", "144"))
     page_count = ctx.blackboard.page_count
     output_dir = str(
@@ -324,7 +356,7 @@ def extract_toc_with_boundaries(
     os.makedirs(output_dir, exist_ok=True)
 
     # -- Phase 1: VLM confirm anchors -----------------------------------------
-    confirmed, confirm_failed = _vlm_confirm_anchors(anchors, model)
+    confirmed, confirm_failed = _vlm_confirm_anchors(anchors, model, budget=ctx.budget)
     if confirm_failed:
         warnings.append("vlm_anchor_confirmation_failed")
     debug_info["phase1_confirmed"] = [a.page for a in confirmed]
@@ -357,6 +389,7 @@ def extract_toc_with_boundaries(
             output_dir=output_dir,
             dpi=dpi,
             model=model,
+            budget=ctx.budget,
         )
         warnings.extend(boundary_warnings)
         toc_ranges.append((toc_start, toc_end))
