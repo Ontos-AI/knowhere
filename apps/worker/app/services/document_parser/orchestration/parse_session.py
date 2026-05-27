@@ -109,20 +109,37 @@ def build_parse_session(parse_input: ParseInput) -> ParseSession:
                 f"ℹ️ VLM rejected atlas for {parse_input.filename}, routing as generic"
             )
 
-    pdf_page_limit = settings.MAX_PDF_PAGE_LIMIT
-    if profile.file_type == "pdf" and profile.page_count > pdf_page_limit:
-        raise ValidationException(
-            user_message=(
-                f"Document too large: {profile.page_count} pages exceeds the {pdf_page_limit}-page limit. "
-                "Please split the document and upload in smaller batches."
-            ),
-            violations=[
-                {
+    if profile.file_type == "pdf" and profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
+        if profile.page_count > settings.OVERSIZED_PDF_SOFT_LIMIT:
+            raise ValidationException(
+                user_message=(
+                    f"This document has {profile.page_count} pages. Processing ultra-long "
+                    f"documents (over {settings.OVERSIZED_PDF_SOFT_LIMIT} pages) requires "
+                    "dedicated resources. Please contact our support team for assistance."
+                ),
+                violations=[{
                     "field": "page_count",
-                    "description": f"PDF has {profile.page_count} pages, limit is {pdf_page_limit}",
-                }
-            ],
-        )
+                    "description": (
+                        f"PDF has {profile.page_count} pages, "
+                        f"soft limit is {settings.OVERSIZED_PDF_SOFT_LIMIT}"
+                    ),
+                }],
+            )
+        if not settings.OVERSIZED_PDF_SHARD_ENABLED:
+            raise ValidationException(
+                user_message=(
+                    f"Document has {profile.page_count} pages, exceeding the "
+                    f"{settings.MAX_PDF_PAGE_LIMIT}-page limit. Please split the "
+                    "document into smaller parts and upload them separately."
+                ),
+                violations=[{
+                    "field": "page_count",
+                    "description": (
+                        f"PDF has {profile.page_count} pages, "
+                        f"limit is {settings.MAX_PDF_PAGE_LIMIT}"
+                    ),
+                }],
+            )
 
     if profile.doc_category == "atlas":
         filename, internal_output_filename, relative_root, full_output_dir = (

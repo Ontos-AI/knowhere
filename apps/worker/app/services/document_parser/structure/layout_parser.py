@@ -121,20 +121,16 @@ def format_toc_context_for_llm(toc_context) -> str:
                 formatted_blocks.append("- No TOC entries available")
             continue
 
-        for entry in toc_entries:
-            if not isinstance(entry, dict):
-                continue
+        # Dynamically generate MD table from JSON list (more token-efficient)
+        from app.services.document_agent.tools.vlm_toc_extractor import (
+            build_toc_with_level_md,
+        )
 
-            heading = str(entry.get("heading", "")).strip().replace("\n", " ")
-            if not heading:
-                continue
-
-            level = entry.get("level")
-            line_id = entry.get("id")
-            if isinstance(level, int):
-                formatted_blocks.append(f"- level {level} | id {line_id} | {heading}")
-            else:
-                formatted_blocks.append(f"- id {line_id} | {heading}")
+        md_table = build_toc_with_level_md(toc_entries)
+        if md_table:
+            formatted_blocks.append(md_table)
+        else:
+            formatted_blocks.append("- No TOC entries available")
 
     return "\n".join(formatted_blocks)
 

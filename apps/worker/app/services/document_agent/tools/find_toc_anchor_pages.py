@@ -136,13 +136,35 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
     raw_hit_pages: set[int] = set()
 
     for feature in ctx.blackboard.page_features:
+        page_matched = False
         for line_idx, raw_line in enumerate(feature.text_lines_preview):
             norm_line = _normalize_for_toc(raw_line)
             for keyword in TOC_KEYWORDS:
                 if keyword in norm_line:
                     keyword_matches.append((feature.page, raw_line.strip(), line_idx))
                     raw_hit_pages.add(feature.page)
+                    page_matched = True
                     break  # one match per line is enough
+
+        # Fallback: check if a TOC keyword spans across adjacent lines.
+        # PyMuPDF sometimes splits large headings across lines, e.g.
+        # "目" + "录" or "Table of" + "Contents".  Join the first few
+        # preview lines (where a page title would appear) and re-check
+        # with the same keywords and normalisation.
+        if not page_matched and feature.text_lines_preview:
+            head = feature.text_lines_preview[:10]
+            joined_head = _normalize_for_toc("".join(head))
+            for keyword in TOC_KEYWORDS:
+                if keyword in joined_head:
+                    keyword_matches.append((feature.page, keyword, 0))
+                    raw_hit_pages.add(feature.page)
+                    logger.debug(
+                        "[find.toc_anchor_pages] cross-line keyword '{}' "
+                        "detected on page {} (head lines joined)",
+                        keyword,
+                        feature.page,
+                    )
+                    break
 
     # Apply recurring element fingerprint filter
     if keyword_matches:

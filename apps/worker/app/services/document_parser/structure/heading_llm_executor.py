@@ -345,9 +345,16 @@ def handle_unseen_codes(
 
 
 def compact_for_llm(df: pd.DataFrame) -> pd.DataFrame:
-    """Collapse consecutive body rows into placeholder rows before LLM chunking."""
+    """Collapse consecutive body rows into placeholder rows before LLM chunking.
+
+    The output DataFrame has columns [id, heading, reason].  The ``level``
+    column is intentionally NOT forwarded to the LLM — preliminary estimates
+    were found to mislead the model more often than they helped.  The naive-
+    stage body-text detection (level == -1) is still used here to decide which
+    rows become placeholders vs candidates.
+    """
     if df is None or len(df) == 0:
-        return pd.DataFrame(columns=["id", "heading", "level", "reason"])
+        return pd.DataFrame(columns=["id", "heading", "reason"])
 
     rows: list[dict[str, Any]] = []
     index = 0
@@ -376,7 +383,6 @@ def compact_for_llm(df: pd.DataFrame) -> pd.DataFrame:
                 {
                     "id": f"{start_id}-{end_id}",
                     "heading": f"[{run_length} BODY LINES]",
-                    "level": "-",
                     "reason": PLACEHOLDER_REASON,
                 }
             )
@@ -387,17 +393,12 @@ def compact_for_llm(df: pd.DataFrame) -> pd.DataFrame:
                 {
                     "id": int(row["id"]),
                     "heading": str(row["heading"]),
-                    "level": (
-                        int(lvl_int)
-                        if lvl_int is not None and lvl_int != -2
-                        else "Not Sure"
-                    ),
                     "reason": str(row.get("reason", "") or ""),
                 }
             )
             index += 1
 
-    return pd.DataFrame(rows, columns=["id", "heading", "level", "reason"])
+    return pd.DataFrame(rows, columns=["id", "heading", "reason"])
 
 
 def split_heading_table(
@@ -413,7 +414,8 @@ def split_heading_table(
     current_rows: list[list[Any]] = []
     current_len = 0
     for _, row in working_df.iterrows():
-        row_filtered = row.drop(labels=["reason"], errors="ignore")
+        # Drop internal-only columns before measuring token length
+        row_filtered = row.drop(labels=["reason", "level"], errors="ignore")
         row_len = sum(count_cn_en(str(value)) for value in row_filtered.values)
 
         if current_len + row_len > threshold and current_rows:
@@ -501,7 +503,7 @@ def execute_llm_heading_hierarchy(
             model_name=model_name,
         ):
             logger.debug("smart parse => interpreting hierarchy patterns...")
-            df4llm = basic_df.drop(columns=["reason"]).copy()
+            df4llm = basic_df.drop(columns=["reason", "level"], errors="ignore").copy()
             df4llm["heading"] = df4llm["heading"].apply(clean_md_text_for_llm)
             logger.debug(f"DataFrame transformation completed, rows: {len(df4llm)}")
 
@@ -544,9 +546,15 @@ def execute_llm_heading_hierarchy(
                 figure_mask_base = base_preds["heading"].eq("Figure/Image")
                 exclude_mask_base = placeholder_mask_base | figure_mask_base
                 base_preds_for_mapping = base_preds[~exclude_mask_base].copy()
-                base_origin_for_mapping = basic_df.loc[
-                    ~exclude_mask_base.values, "level"
-                ].tolist()
+                # Read origin levels from raw_preds (naive-stage estimates),
+                # not from compact output which no longer carries level.
+                base_candidate_ids = base_preds_for_mapping["id"].tolist()
+                raw_level_lookup = dict(
+                    zip(raw_preds["id"].tolist(), raw_preds["level"].tolist())
+                )
+                base_origin_for_mapping = [
+                    raw_level_lookup.get(cid, -1) for cid in base_candidate_ids
+                ]
 
                 base_preds_for_mapping, lvl_mapping = build_level_mapping(
                     base_preds_for_mapping, base_origin_for_mapping, mode="freq"

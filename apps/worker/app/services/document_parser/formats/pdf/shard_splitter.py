@@ -1,0 +1,166 @@
+"""PDF shard splitting: doc_agent integration + bin-packing + physical split."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+import pymupdf
+from loguru import logger
+
+if TYPE_CHECKING:
+    from app.services.document_agent.manifest import PageAnatomyMap, Shard
+
+
+@dataclass
+class MergedShard:
+    """A contiguous page range within MinerU's per-request page limit."""
+
+    shard_index: int
+    page_start: int  # 1-based inclusive
+    page_end: int  # 1-based inclusive
+
+    @property
+    def page_count(self) -> int:
+        return self.page_end - self.page_start + 1
+
+    @property
+    def page_offset(self) -> int:
+        """Offset to add to MinerU's 0-based page_idx to get original page_idx."""
+        return self.page_start - 1
+
+
+def run_doc_agent(
+    pdf_path: str, job_id: str, output_dir: str
+) -> "PageAnatomyMap":
+    """Run doc_agent ProfileCoordinator and return the full anatomy map.
+
+    Returns the complete PageAnatomyMap so callers can access TOC info
+    (toc_result.toc_pages, toc_hierarchies) in addition to the shard plan.
+
+    Raises RuntimeError if the agent fails or produces no shards.
+    """
+    from app.services.document_agent.coordinator import ProfileCoordinator
+
+    agent_output_dir = os.path.join(output_dir, "_doc_agent")
+    os.makedirs(agent_output_dir, exist_ok=True)
+
+    coordinator = ProfileCoordinator(
+        pdf_path=pdf_path,
+        job_id=job_id,
+        output_dir=agent_output_dir,
+    )
+    anatomy = coordinator.run()
+
+    if not anatomy.shard_plan.enabled or not anatomy.shard_plan.shards:
+        raise RuntimeError(
+            f"Doc agent did not produce a valid shard plan for {job_id}"
+        )
+
+    shards = anatomy.shard_plan.shards
+    logger.info(
+        f"📋 Doc agent: {len(shards)} shards via {anatomy.shard_plan.reason}"
+    )
+    return anatomy
+
+
+def bin_pack_shards(
+    agent_shards: list["Shard"],
+    max_pages: int,
+) -> list[MergedShard]:
+    """Greedy left-to-right bin-packing: merge adjacent agent shards up to max_pages."""
+    if not agent_shards:
+        return []
+
+    merged: list[MergedShard] = []
+    cur_start = agent_shards[0].page_start
+    cur_end = agent_shards[0].page_end
+
+    for shard in agent_shards[1:]:
+        if shard.page_end - cur_start + 1 <= max_pages:
+            cur_end = shard.page_end
+        else:
+            merged.append(
+                MergedShard(len(merged), page_start=cur_start, page_end=cur_end)
+            )
+            cur_start = shard.page_start
+            cur_end = shard.page_end
+
+    merged.append(
+        MergedShard(len(merged), page_start=cur_start, page_end=cur_end)
+    )
+    return merged
+
+
+def split_pdf(
+    pdf_path: str,
+    shards: list[MergedShard],
+    work_dir: str,
+    exclude_pages: set[int] | None = None,
+) -> tuple[list[str], dict[int, int] | None]:
+    """Physically split PDF into sub-PDFs using PyMuPDF.
+
+    Args:
+        pdf_path: Path to the source PDF.
+        shards: Merged shard ranges to extract.
+        work_dir: Directory for temporary shard PDFs.
+        exclude_pages: Optional set of 1-based page numbers to strip
+            (e.g. TOC pages detected by DOC_AGENT).
+
+    Returns:
+        (shard_paths, page_remap)
+        - shard_paths: one temp PDF path per shard.
+        - page_remap: when pages are excluded, maps each shard's local
+          0-based page index to the original 1-based page number.
+          ``None`` when no pages are excluded.
+    """
+    doc = pymupdf.open(pdf_path)
+    paths: list[str] = []
+    page_remap: dict[int, int] | None = None
+
+    if exclude_pages:
+        page_remap = {}
+        logger.info(
+            f"📌 Excluding {len(exclude_pages)} pages from PDF: "
+            f"{sorted(exclude_pages)}"
+        )
+
+    try:
+        global_new_idx = 0  # running counter across all shards
+        for shard in shards:
+            sub_doc = pymupdf.open()
+            shard_included = 0
+            for page_num in range(shard.page_start, shard.page_end + 1):
+                if exclude_pages and page_num in exclude_pages:
+                    continue
+                sub_doc.insert_pdf(
+                    doc,
+                    from_page=page_num - 1,
+                    to_page=page_num - 1,
+                )
+                if page_remap is not None:
+                    page_remap[global_new_idx] = page_num
+                global_new_idx += 1
+                shard_included += 1
+
+            shard_path = os.path.join(work_dir, f"shard_{shard.shard_index}.pdf")
+            if shard_included > 0:
+                sub_doc.save(shard_path)
+                paths.append(shard_path)
+            else:
+                logger.warning(
+                    f"  ⚠️ shard_{shard.shard_index}: all pages excluded, skipping"
+                )
+            sub_doc.close()
+
+            excluded_in_shard = shard.page_count - shard_included
+            logger.info(
+                f"  ✂️ shard_{shard.shard_index}: "
+                f"pages {shard.page_start}-{shard.page_end} "
+                f"({shard_included} included"
+                f"{f', {excluded_in_shard} excluded' if excluded_in_shard else ''})"
+            )
+    finally:
+        doc.close()
+    return paths, page_remap

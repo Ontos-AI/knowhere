@@ -213,6 +213,7 @@ def parse_md(
     md_lines=None,
     base_llm_paras=None,
     relative_root=None,
+    toc_hierarchies=None,
 ):
     if md_lines is None and file_path is not None:
         from app.services.common.file_loading import is_remote, load_file_bytes
@@ -242,14 +243,32 @@ def parse_md(
         else (settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL)
     )
 
-    with stage_timer(
-        "md.detect_toc", line_count=len(md_lines), model_name=toc_model_name
-    ):
-        toc_hierarchies, md_lines = detect_tocs_in_texts(
-            md_lines,
-            model_name=toc_model_name,
-            hierarchy_model_name=hierarchy_model_name,
+    if toc_hierarchies is not None:
+        # Pre-detected TOC from upstream (e.g. DOC_AGENT VLM-based extraction).
+        # Skip row-based detection entirely — TOC pages have already been
+        # physically stripped from the PDF, so no TOC rows exist in md_lines.
+        logger.info(
+            f"📌 Using pre-detected TOC hierarchies "
+            f"({len(toc_hierarchies)} regions), "
+            f"skipping detect_tocs_in_texts"
         )
+    else:
+        # DEPRECATED: Row-based TOC detection via detect_tocs_in_texts.
+        # This path is being replaced by upstream DOC_AGENT VLM-based TOC
+        # detection (extract_toc_with_boundaries). It is kept as a fallback
+        # for:
+        #   1. Standard-path PDFs (≤MAX_PDF_PAGE_LIMIT pages, no DOC_AGENT)
+        #   2. Non-PDF sources (pure markdown files)
+        # Once DOC_AGENT TOC detection covers all paths, this block should
+        # be removed.
+        with stage_timer(
+            "md.detect_toc", line_count=len(md_lines), model_name=toc_model_name
+        ):
+            toc_hierarchies, md_lines = detect_tocs_in_texts(
+                md_lines,
+                model_name=toc_model_name,
+                hierarchy_model_name=hierarchy_model_name,
+            )
 
     # Save toc_hierarchies.json to output_dir (will be included in final zip package)
     if toc_hierarchies:

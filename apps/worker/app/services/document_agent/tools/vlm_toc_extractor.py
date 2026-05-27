@@ -5,57 +5,109 @@ from __future__ import annotations
 import base64
 import json
 import time
+from dataclasses import dataclass
 from typing import Any, cast
 
 
-VLM_TOC_EXTRACT_PROMPT = """\
-You are analyzing a Table of Contents (TOC) page from a document.
+# ---------------------------------------------------------------------------
+# Batch-mode prompt: send a window of candidate pages in one VLM call.
+# The VLM first classifies each page, then extracts entries only from TOC pages.
+# ---------------------------------------------------------------------------
 
-Your task is to extract every TOC entry visible on this page.
+VLM_TOC_BATCH_PROMPT = """\
+You will receive {page_count} consecutive page screenshots from a document.
+Some of these pages may be Table of Contents (TOC) pages, while others may be
+regular body text, section dividers, blank pages, or other non-TOC content.
 
-Each entry consists of three parts:
-1. title — the section or chapter name, copied verbatim from the page.
-   - EXCLUDE any trailing dots, dashes, or leader lines that connect the title to its page number.
-   - If one entry's title wraps across multiple printed lines, combine them into a single string.
-   - Include any numbering prefix that is part of the title text.
-2. page_number — the page reference at the right side of the entry.
-   - Use an integer when the reference is a plain number.
-   - Use a string when the reference is non-numeric, such as iv, F-1, or A-3.
-   - Use null when no page reference is visible for that entry.
-3. level — the hierarchy depth of the entry, determined by visual formatting cues:
-   - level 1: top-level entries with no indentation, or the largest / boldest text.
-   - level 2: sub-entries indented under a level-1 entry, or in a noticeably smaller font.
-   - level 3+: deeper indentation, if present.
-   - Category headers or group labels that are visually distinct and do NOT have a page number should be treated as level 1.
+**Your task has two parts:**
 
-Additional rules:
-- Extract ALL entries, even if the page only shows a partial continuation of the TOC.
-- Do NOT include the TOC page's own heading, such as TABLE OF CONTENTS, 目录, or 目 录.
-- Do NOT include column headers, such as a standalone Page or 页码 label.
-- Preserve the original language and wording of each title exactly.
-- If this screenshot is not actually a TOC page, return {"entries": []}.
+### Part 1: Classify each page
+For each page, decide whether it is a TOC page or not.
 
-Return strict JSON with no markdown fences:
-{"entries": [{"title": "...", "page_number": ..., "level": ...}, ...]}
+A page IS a TOC page when it shows a STRUCTURED LISTING of document sections,
+recognizable by MOST of these visual patterns:
+- Multiple entry lines, each pairing a section/chapter TITLE with a PAGE NUMBER
+- Leader characters (dots "......", dashes "------", or whitespace) connecting
+  titles on the left to page numbers aligned on the right
+- Systematic numbering in the titles (1. / 1.1 / Chapter 1 / 一、 / 第一章, etc.)
+- An explicit heading such as "Table of Contents", "Contents", "目录", or "目次"
+  (may appear only on the first page of a multi-page TOC)
+
+A page is NOT a TOC page when:
+- It contains narrative paragraphs or body text, even if the text has numbered
+  headings (e.g. "1.0.1  为建立并落实..." followed by explanatory sentences)
+- It is a section divider / title page with only a single heading and no listing
+- It is blank or nearly blank
+- It shows data tables, charts, or images rather than a contents listing
+- It has numbered definitions or terms with explanations (e.g. "2.0.3 风险 risk")
+  — these are glossary/body content, NOT a TOC
+
+The KEY distinction: TOC entries are SHORT titles pointing to page numbers.
+Body text has EXPLANATORY content after the heading. If a numbered item is
+followed by sentences of explanation, it is body text, not a TOC entry.
+
+### Part 2: Extract entries from TOC pages only
+For each page you classify as TOC, extract every entry with:
+- title: the section/chapter name, verbatim, without trailing dots or leaders.
+  Combine wrapped lines into one string. Include numbering prefixes.
+- page_number: integer for plain numbers, string for non-numeric (iv, F-1),
+  null when no page reference is visible.
+- level: hierarchy depth from visual cues (1=top-level, 2=indented sub-entry, 3+=deeper).
+  Category headers or group labels without page numbers → level 1.
+
+Do NOT include the TOC heading itself ("Table of Contents", "目录", etc.) or
+column labels ("Page", "页码").
+
+Return strict JSON (no markdown fences):
+{{
+  "pages": [
+    {{
+      "page": <page_number>,
+      "is_toc": true/false,
+      "entries": [{{"title": "...", "page_number": ..., "level": ...}}, ...]
+    }},
+    ...
+  ]
+}}
+
+For non-TOC pages, set "entries" to an empty array [].
 """
 
-VLM_TOC_CONTINUATION_CONTEXT = """\
+VLM_TOC_BATCH_CONTINUATION = """\
 
---- IMPORTANT: Continuation Context ---
-This is a CONTINUATION page of a multi-page Table of Contents.
-The previous page(s) already extracted the following entries:
+--- Continuation Context ---
+Previous batch(es) already confirmed TOC pages and extracted these entries:
 
 {previous_summary}
 
-The LAST active category/section before this page was:
-  Level {last_l1_level}: "{last_l1_title}"
+Last active section: Level {last_l1_level}: "{last_l1_title}"
 
-Entries on THIS page that visually continue as sub-items under that
-category must keep their correct subordinate level.
+Use this to maintain hierarchy consistency for any TOC pages in this batch.
 """
 
 
-def _build_continuation_context(previous_entries: list[dict[str, Any]]) -> str:
+@dataclass
+class BatchPageResult:
+    """Result for a single page within a batch VLM call."""
+
+    page: int
+    is_toc: bool
+    entries: list[dict[str, Any]]
+
+
+@dataclass
+class BatchTocResult:
+    """Result from a batch VLM TOC extraction call."""
+
+    page_results: list[BatchPageResult]
+    toc_pages: list[int]  # pages classified as TOC
+    non_toc_pages: list[int]  # pages classified as non-TOC
+    all_entries: list[dict[str, Any]]  # entries from TOC pages only
+    meta: dict[str, Any]
+
+
+def _build_batch_continuation(previous_entries: list[dict[str, Any]]) -> str:
+    """Build continuation context for batch mode."""
     if not previous_entries:
         return ""
 
@@ -69,7 +121,9 @@ def _build_continuation_context(previous_entries: list[dict[str, Any]]) -> str:
         summary_lines.append(f"  L{level}: {title}{suffix}")
 
     if len(previous_entries) > 8:
-        summary_lines.insert(0, f"  ... ({len(previous_entries) - 8} earlier entries omitted)")
+        summary_lines.insert(
+            0, f"  ... ({len(previous_entries) - 8} earlier entries omitted)"
+        )
 
     previous_summary = "\n".join(summary_lines)
     last_l1 = None
@@ -80,85 +134,148 @@ def _build_continuation_context(previous_entries: list[dict[str, Any]]) -> str:
 
     if last_l1 is None:
         return (
-            "\n\n--- IMPORTANT: Continuation Context ---\n"
-            f"This is a CONTINUATION page. Previous entries:\n{previous_summary}\n"
+            "\n\n--- Continuation Context ---\n"
+            f"Previous batch extracted entries:\n{previous_summary}\n"
         )
 
-    return VLM_TOC_CONTINUATION_CONTEXT.format(
+    return VLM_TOC_BATCH_CONTINUATION.format(
         previous_summary=previous_summary,
         last_l1_level=last_l1.get("level", 1),
         last_l1_title=last_l1.get("title", "?"),
     )
 
 
-def vlm_extract_toc_entries(
+def vlm_extract_toc_batch(
     *,
-    png_path: str,
-    page_num: int,
+    page_pngs: list[tuple[int, str]],
     model: str,
     previous_entries: list[dict[str, Any]] | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Extract visible TOC entries from one rendered page screenshot."""
+) -> BatchTocResult:
+    """Extract TOC entries from a batch of page images in a single VLM call.
+
+    Args:
+        page_pngs: list of (page_number, png_path) pairs, in page order.
+        model: VLM model name.
+        previous_entries: entries from prior batches, for continuation context.
+
+    Returns:
+        BatchTocResult with per-page classification and extracted entries.
+    """
+    from loguru import logger
     from shared.services.ai.openai_compatible_client_sync import get_openai_client
 
-    with open(png_path, "rb") as f:
-        img_b64 = base64.b64encode(f.read()).decode()
+    if not page_pngs:
+        return BatchTocResult(
+            page_results=[], toc_pages=[], non_toc_pages=[],
+            all_entries=[], meta={},
+        )
 
-    prompt_text = VLM_TOC_EXTRACT_PROMPT + _build_continuation_context(
-        previous_entries or []
-    )
+    prompt_text = VLM_TOC_BATCH_PROMPT.format(page_count=len(page_pngs))
+    prompt_text += _build_batch_continuation(previous_entries or [])
+
     content_parts: list[dict[str, Any]] = [
         {"type": "text", "text": prompt_text},
-        {
-            "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{img_b64}"},
-        },
     ]
+    for page_num, png_path in page_pngs:
+        with open(png_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode()
+        content_parts.append(
+            {"type": "text", "text": f"\n--- Page {page_num} ---"}
+        )
+        content_parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{img_b64}"},
+            }
+        )
+
     start = time.monotonic()
     client = get_openai_client(model=model)
     raw, usage = client.chat_completion_with_usage(
         messages=cast(Any, [{"role": "user", "content": content_parts}]),
         model=model,
         temperature=0.1,
-        max_tokens=4096,
+        max_tokens=8192,
         response_format={"type": "json_object"},
     )
     elapsed_ms = int((time.monotonic() - start) * 1000)
+
     data = json.loads(raw)
+    raw_pages: list[dict[str, Any]] = []
     if isinstance(data, dict):
-        raw_entries = data.get("entries", [])
+        raw_pages = data.get("pages", [])
     elif isinstance(data, list):
-        raw_entries = data
-    else:
-        raw_entries = []
+        raw_pages = data
 
-    entries: list[dict[str, Any]] = []
-    for item in raw_entries:
-        if not isinstance(item, dict):
-            continue
-        title = str(item.get("title") or "").strip()
-        if not title:
-            continue
-        try:
-            level = int(item.get("level") or 1)
-        except (TypeError, ValueError):
-            level = 1
-        entries.append(
-            {
-                "title": title,
-                "page_number": item.get("page_number"),
-                "level": level,
-            }
+    # Build lookup from VLM response
+    page_lookup: dict[int, dict[str, Any]] = {}
+    for item in raw_pages:
+        if isinstance(item, dict) and "page" in item:
+            page_lookup[int(item["page"])] = item
+
+    # Process results for each page in the original order
+    page_results: list[BatchPageResult] = []
+    toc_pages: list[int] = []
+    non_toc_pages: list[int] = []
+    all_entries: list[dict[str, Any]] = []
+
+    for page_num, _png_path in page_pngs:
+        vlm_page = page_lookup.get(page_num, {})
+        is_toc = bool(vlm_page.get("is_toc", False))
+        raw_entries = vlm_page.get("entries", [])
+
+        entries: list[dict[str, Any]] = []
+        if is_toc:
+            for entry_item in raw_entries:
+                if not isinstance(entry_item, dict):
+                    continue
+                title = str(entry_item.get("title") or "").strip()
+                if not title:
+                    continue
+                try:
+                    level = int(entry_item.get("level") or 1)
+                except (TypeError, ValueError):
+                    level = 1
+                entries.append(
+                    {
+                        "title": title,
+                        "page_number": entry_item.get("page_number"),
+                        "level": level,
+                    }
+                )
+            toc_pages.append(page_num)
+        else:
+            non_toc_pages.append(page_num)
+
+        page_results.append(
+            BatchPageResult(page=page_num, is_toc=is_toc, entries=entries)
         )
+        all_entries.extend(entries)
 
-    return entries, {
-        "page": page_num,
-        "model": model,
-        "elapsed_ms": elapsed_ms,
-        "usage": dict(usage),
-        "raw_response_length": len(raw),
-        "has_continuation_context": bool(previous_entries),
-    }
+    logger.info(
+        "[vlm_toc_batch] {} pages: toc={} non_toc={} entries={} elapsed={}ms",
+        len(page_pngs),
+        toc_pages,
+        non_toc_pages,
+        len(all_entries),
+        elapsed_ms,
+    )
+
+    return BatchTocResult(
+        page_results=page_results,
+        toc_pages=toc_pages,
+        non_toc_pages=non_toc_pages,
+        all_entries=all_entries,
+        meta={
+            "pages_sent": [p for p, _ in page_pngs],
+            "model": model,
+            "elapsed_ms": elapsed_ms,
+            "usage": dict(usage),
+            "raw_response_length": len(raw),
+            "has_continuation_context": bool(previous_entries),
+        },
+    )
+
 
 
 def build_toc_tree(entries: list[dict[str, Any]]) -> dict[str, Any]:
@@ -186,13 +303,21 @@ def build_toc_tree(entries: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def build_toc_with_level_md(entries: list[dict[str, Any]]) -> str:
+    """Build a compact Markdown table of TOC entries (heading + level only).
+
+    Accepts both raw VLM entries (key='title') and stored toc_with_level
+    dicts (key='heading'). Call this dynamically at consumption time rather
+    than persisting the MD string.
+    """
     if not entries:
         return ""
-    lines = ["| id | heading | level |", "|----|---------|-------|"]
-    for index, entry in enumerate(entries, 1):
-        heading = str(entry.get("title") or "").strip().replace("|", "\\|")
+    lines = ["| heading | level |", "|---------|-------|"]
+    for entry in entries:
+        heading = str(
+            entry.get("heading") or entry.get("title") or ""
+        ).strip().replace("|", "\\|")
         level = entry.get("level", 1)
-        lines.append(f"| {index:<2} | {heading:<60} | {level:<5} |")
+        lines.append(f"| {heading} | {level} |")
     return "\n".join(lines)
 
 
@@ -207,10 +332,9 @@ def vlm_entries_to_toc_hierarchies(
         return []
 
     toc_with_level = []
-    for index, entry in enumerate(entries, 1):
+    for entry in entries:
         toc_with_level.append(
             {
-                "id": index,
                 "heading": str(entry.get("title") or "").strip(),
                 "level": entry.get("level", 1),
                 "page_number": entry.get("page_number"),
@@ -231,7 +355,7 @@ def vlm_entries_to_toc_hierarchies(
             "scan_range": [start_page, scan_end_page],
             "source": "vlm",
             "toc_with_level": toc_with_level,
-            "toc_with_level_md": build_toc_with_level_md(entries),
             "toc_tree": build_toc_tree(entries),
         }
     ]
+

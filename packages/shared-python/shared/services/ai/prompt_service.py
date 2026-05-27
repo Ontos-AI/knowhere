@@ -339,13 +339,11 @@ def build_prompt(task, texts, query, **kwargs):
     #         """
 
     elif task == "eval-headings":
-        # COMPACT-input variant.  Input is pre-compressed by `_compact_for_llm`
+        # COMPACT-input variant.  Input is pre-compressed by `compact_for_llm`
         # so that consecutive body-text rows are folded into a single
-        # ``[N BODY LINES]`` placeholder row.  The LLM therefore sees only:
-        #   * heading CANDIDATES (integer id, real heading text), and
-        #   * PLACEHOLDER rows (id with "-" or a single collapsed id, heading
-        #     "[N BODY LINES]", level "-") that carry positional / section-bulk
-        #     signals.
+        # ``[N BODY LINES]`` placeholder row.  The LLM sees only two columns
+        # (``id`` and ``heading``) — no preliminary level estimate is provided,
+        # so the model assigns levels purely from structural/semantic analysis.
         temperature = 0
         top_p = 0.01
         max_depth = kwargs["paras"]["max_depth"]
@@ -354,38 +352,44 @@ def build_prompt(task, texts, query, **kwargs):
 
         if toc_context:
             toc_section = f"""
-        ***Important Reference: Table of Contents (TOC)***
-        The following is the document's table of contents with predefined levels.
-        Use it as a prior when assigning levels to CANDIDATE rows:
+        ***CONFIRMED Structure: Table of Contents (TOC)***
 
         '''
         {toc_context}
         '''
 
-        - If a candidate's heading matches a TOC entry, use the TOC's predefined level.
-        - If a candidate appears to be a sub-section of a TOC entry, assign a deeper level.
-        - If a candidate does NOT appear in the TOC, it can ONLY be either body text
-          (level = -1) or a sub-section deeper than the nearest TOC heading above it.
+        RULES for using the TOC:
+        1. MUST TRUST the TOC levels as ground truth. If a candidate heading matches or
+           closely corresponds to a TOC entry, you MUST assign it the same level as
+           the TOC entry. Do NOT override or re-interpret the TOC's level assignment.
+        2. Candidates that appear between two TOC entries should be assigned a level
+           DEEPER than the TOC entry they fall under (they are sub-sections not listed
+           in the TOC).
+        3. A candidate that does NOT correspond to any TOC entry can only be:
+           - Body text (level = -1), OR
+           - A sub-section with a level deeper than its nearest TOC heading above it.
+        4. The TOC provides the SKELETON of the document. Your job is to fill in the
+           gaps for candidates not covered by the TOC, while strictly preserving the
+           TOC's structure.
         """
         else:
             toc_section = ""
 
         prompt = f"""
         You are a document structure auditing expert. The input you receive is a
-        COMPACT skeleton of a document.  Body-text lines have already been collapsed for 
-        you so that every row is one of two kinds:
+        COMPACT skeleton of a document. Body-text lines have already been collapsed
+        for you so that every row is one of two kinds:
 
-        1) HEADING CANDIDATE — ``id`` is an integer. ``heading`` is the candidate text.
-           ``level`` is a preliminary estimate: a positive integer (1 = shallowest, deeper = larger)
-           or the string "Not Sure" (undetermined). These rows — and ONLY these — are the ones you must evaluate.
+        1) HEADING CANDIDATE — ``id`` is an integer, ``heading`` is the candidate
+           text. These — and ONLY these — are the rows you can evaluate.
 
-        2) PLACEHOLDER — ``id`` is ALWAYS a hyphenated range "start-end" (for a
-           single-line it is "N-N", e.g. "56-56"); ``heading`` is "[N BODY LINES]"
-           where N is the number of body lines folded here; ``level`` is the literal "-".
+        2) PLACEHOLDER — ``id`` is ALWAYS a range "start-end" (for a single-line 
+           it is "N-N", e.g. "56-56"); ``heading`` is "[N BODY LINES]"
+           where N is the number of body lines folded here.
            Placeholders are positional markers that tell you how many body lines sit
            between adjacent candidates. Use them as context ONLY.
 
-        Data to be adjusted:
+        Data to be evaluated:
         '''
         {texts}
         '''
@@ -394,10 +398,8 @@ def build_prompt(task, texts, query, **kwargs):
 
         ***Hard rules about placeholders***
         - Placeholders are NEVER candidates. Do not output them.
-        - Every ``id`` in your output MUST be a single integer; never emit an id
-          containing a hyphen ("-").  Never emit the level string "-".
-        - Use N in ``[N BODY LINES]`` as a "section bulk" signal when applying
-          the rules below (Rule 6 in particular).
+        - Every ``id`` in your output MUST be a single integer; never emit an id containing a hyphen.
+        - Use N in ``[N BODY LINES]`` as a "section bulk" signal when applying rules below (Rule 2 in particular).
 
         ***Process in TWO steps:***
 
@@ -407,15 +409,14 @@ def build_prompt(task, texts, query, **kwargs):
         - Decimal numbering: "1.", "1.1", "1.1.1" → depth increases with dot count
         - Enumeration styles: "一、" "（一）" "1、" "①" "1 " → shallower to deeper with increasing numbers
         - Chapter/section keywords: "Chapter X", "Part X", "第X章", "第X节"
-        - Upper case / lower case differences in candidate headings
         - Clear semantic granularities or groups of themes
+        - Upper case / lower case differences
         Rank these patterns from shallowest to deepest to form a pattern → level mapping.
         Placeholder rows MUST NOT influence this scan.
 
         **STEP 2 — Assign a level to every candidate (rules in priority order)**
-        A candidate whose preliminary ``level`` is "Not Sure" or any positive
-        integer is **always** open to revision. Pure body text has already been
-        folded into placeholders, but a candidate **can still be** demoted to level = -1.
+        Your task is to determine each candidate's heading level from scratch
+        based on its text, context, and the patterns discovered in STEP 1.
 
         Rule 0 — Global consistency:
             Candidates sharing the same structural pattern or semantic granularity SHOULD receive the
@@ -423,7 +424,7 @@ def build_prompt(task, texts, query, **kwargs):
             shares one level; every "X.Y.Z" shares a different, deeper level.)
 
         Rule 1 — Parent-child continuity and no level skipping:
-            A heading, compared to candidates before it, may stay at the same level, 
+            A heading, compared to candidates before it, may stay at the same level,
             or go ONE level deeper than its nearest valid ancestor heading.
             However, jumps such as level 1 → level 3 are **always invalid**.
 
@@ -431,19 +432,17 @@ def build_prompt(task, texts, query, **kwargs):
             A candidate WITHOUT any structural/numbering marker can still be a
             heading, but ONLY when ALL of the following hold:
             a) The text is short and title-like — no sentence-ending punctuation.
-            b) It is NOT a broken fragment that continues into the next row
+            b) It is NOT a broken fragment that continues into the next row.
             c) In the input sequence it is IMMEDIATELY followed by a
                 placeholder ``[N BODY LINES]``, or by another candidate with finer granularity.
                 This is the "section bulk" signal — the row introduces a body block or a subsection group.
-            When Rule-2 is satisfied, pick a level consistent with Rule 1
+            When Rule-2 is satisfied, pick a level consistent with Rule 1.
 
         Rule 3 — Body text demotion (candidate → -1):
-            Demote a candidate to level = -1 when it clearly does NOT serve as a section title. 
-            In compact input, the strongest demotion cues are:
-            - Two CANDIDATE rows appear adjacent with NO placeholder between them
-            - The text contains equations and math symbols such as + = - × ÷.
-            - The text is exactly "Figure/Image", demote it to level = -1.
-            - The text is an isolated broken phrase, fragment, data value, or caption-like snippet (e.g. "Table 3-2", "Figure 4"
+            Demote a candidate to level = -1 when it clearly does NOT serve as a
+            section title. Strongest demotion cues are:
+            - Two CANDIDATE rows appear adjacent with NO placeholder between them.
+            - The text is an isolated broken phrase, fragment, data value, or caption-like snippet (e.g. "Table 3-2", "Figure 4").
 
         Rule 4 — Normalise to start at level 1:
             The shallowest (the most coarse granularity) heading found MUST be assigned level 1.
