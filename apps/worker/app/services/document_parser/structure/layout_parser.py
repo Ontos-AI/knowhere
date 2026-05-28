@@ -318,6 +318,56 @@ def _compute_zone_boundaries(toc_hierarchies, coordinate_mode="post_removal"):
     return zones
 
 
+def _apply_merge_signals(df: pd.DataFrame) -> pd.DataFrame:
+    """Resolve LLM '<' merge signals in-place.
+
+    When the LLM assigns ``level == "<"`` to a row, it means the row's text
+    is a continuation of the *previous* heading and should be appended to it.
+
+    Post-processing:
+    1. Walk the DataFrame in order.
+    2. For each ``"<"`` row, append its heading text (space-joined) to the
+       last row whose level was a positive integer (the merge target).
+    3. Set the merged row's level to -1 so it becomes body text and does not
+       create a spurious heading entry in the tree.
+
+    Rows that carry ``"<"`` but have no preceding valid heading (e.g. the very
+    first row) are simply demoted to -1 without merging.
+    """
+    merge_count = 0
+    last_valid_idx: int | None = None  # positional index of last positive-level row
+
+    for pos in range(len(df)):
+        level_val = df.iloc[pos]["level"]
+        if level_val == "<":
+            if last_valid_idx is not None:
+                continuation = str(df.iloc[pos]["heading"]).strip()
+                current_heading = str(df.iloc[last_valid_idx]["heading"]).strip()
+                df.at[df.index[last_valid_idx], "heading"] = (
+                    f"{current_heading} {continuation}" if continuation else current_heading
+                )
+                logger.debug(
+                    f"🔀 Merge signal: row id={df.iloc[pos]['id']} "
+                    f"'{continuation[:40]}' → appended to id={df.iloc[last_valid_idx]['id']}"
+                )
+            else:
+                logger.debug(
+                    f"🔀 Merge signal at id={df.iloc[pos]['id']} has no preceding heading; demoting"
+                )
+            df.at[df.index[pos], "level"] = -1
+            merge_count += 1
+        else:
+            try:
+                if int(level_val) > 0:
+                    last_valid_idx = pos
+            except (TypeError, ValueError):
+                pass
+
+    if merge_count:
+        logger.info(f"🔀 Applied {merge_count} '<' merge signal(s)")
+    return df
+
+
 def _resolve_first_toc_boundary(toc_hierarchies=None, first_toc_ele_num=None):
     """Resolve the earliest available first-TOC boundary across coordinate sources.
 
@@ -557,6 +607,9 @@ def pred_titles(
         logger.warning("⚠️ No valid headings estimated")
         heading_preds = pd.DataFrame()
     else:
+        # ── Apply '<' merge signal before numeric conversion ──
+        heading_preds = _apply_merge_signals(heading_preds)
+
         heading_preds["level"] = (
             pd.to_numeric(heading_preds["level"], errors="coerce")
             .fillna(-1)

@@ -70,7 +70,13 @@ def find_surround_context(md_lines, lid):
 
 
 def heading_md_relocate(md_lines, heading_preds):
-    """Relocate markdown headings based on predicted levels (sxjg simplified logic)"""
+    """Relocate markdown headings based on predicted levels (sxjg simplified logic)
+
+    When ``_apply_merge_signals`` has merged continuation rows (level='<')
+    into a preceding heading, the DataFrame's ``heading`` column contains the
+    merged text while ``md_lines`` still has the original truncated text.
+    For positive-level headings, we use the DataFrame's ``heading`` to ensure the merged text is emitted.
+    """
 
     def remove_hash(txt):
         return re.sub(r"^\s*(#+)\s*", "", txt)
@@ -85,9 +91,13 @@ def heading_md_relocate(md_lines, heading_preds):
             if pred_level < 0:
                 line_txt = remove_hash(line_txt)
             else:
-                # sxjg simplified: remove all #, then add correct number of #
-                clean_text = line_txt.lstrip("#").lstrip()
-                line_txt = f"{'#' * int(pred_level)} {clean_text}"
+                # Use the DataFrame heading text which may have been updated
+                # by _apply_merge_signals (continuation rows appended).
+                heading_text = str(pred_level_df["heading"].iloc[0]).strip()
+                if not heading_text:
+                    # Fallback: strip original line's '#' prefix
+                    heading_text = line_txt.lstrip("#").lstrip()
+                line_txt = f"{'#' * int(pred_level)} {heading_text}"
         # update lines
         md_lines[lid] = line_txt.strip()
 

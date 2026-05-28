@@ -80,7 +80,7 @@ def _parse_oversized_pdf(
         eval_md_headings,
         merge_html_tables,
     )
-    from app.services.document_parser.formats.pdf.shard_merger import merge_images
+    from app.services.document_parser.formats.pdf.shard_merger import merge_images, merge_shard_lines
     from app.services.document_parser.formats.pdf.shard_splitter import (
         bin_pack_shards,
         run_doc_agent,
@@ -227,12 +227,16 @@ def _parse_oversized_pdf(
                 shard_heading_results[idx] = future.result()
 
     # 7. Merge: concatenate lines_with_heading (in shard order) + merge images
-    all_lines_with_heading: list[str] = []
-    total_headings = 0
-    for result in shard_heading_results:
-        if result is not None:
-            all_lines_with_heading.extend(result.lines_with_heading)
-            total_headings += result.heading_count
+    all_lines_with_heading: list[str] = merge_shard_lines(
+        [
+            result.lines_with_heading
+            for result in shard_heading_results
+            if result is not None
+        ]
+    )
+    total_headings = sum(
+        1 for line in all_lines_with_heading if line.startswith("#")
+    )
 
     logger.info(
         f"📎 Merged {len(shard_heading_results)} shards: "

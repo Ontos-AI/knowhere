@@ -21,18 +21,25 @@ SaveIntermediateCsv = Callable[[pd.DataFrame, str | None, str], None]
 def compact_for_llm(df: pd.DataFrame) -> pd.DataFrame:
     """Collapse consecutive body rows into placeholder rows before LLM chunking.
 
-    The output DataFrame has columns [id, heading, reason].  The ``level``
-    column is intentionally NOT forwarded to the LLM — preliminary estimates
-    were found to mislead the model more often than they helped.  The naive-
-    stage body-text detection (level == -1) is still used here to decide which
-    rows become placeholders vs candidates.
+    The output DataFrame has columns [id, heading, note, reason].
+
+    ``note`` is used internally by ``run_merge_pre_pass`` only — it is
+    NOT forwarded to the main hierarchy LLM:
+    - ``"?"`` marks a heading candidate that is **directly adjacent** to the
+      previous candidate with **no placeholder between them**.  This signals
+      to the pre-pass that the pair should be evaluated for possible merging.
+    - ``""`` (empty) for all other rows (normal candidates and placeholders).
+
+    The ``level`` column is intentionally NOT forwarded to the LLM.
     """
     if df is None or len(df) == 0:
-        return pd.DataFrame(columns=["id", "heading", "reason"])
+        return pd.DataFrame(columns=["id", "heading", "note", "reason"])
 
     rows: list[dict[str, Any]] = []
     index = 0
     row_count = len(df)
+    prev_was_candidate = False  # True when the immediately preceding output row is a candidate
+
     while index < row_count:
         lvl_raw = df.iloc[index]["level"]
         try:
@@ -57,22 +64,28 @@ def compact_for_llm(df: pd.DataFrame) -> pd.DataFrame:
                 {
                     "id": f"{start_id}-{end_id}",
                     "heading": f"[{run_length} BODY LINES]",
+                    "note": "",
                     "reason": PLACEHOLDER_REASON,
                 }
             )
+            prev_was_candidate = False
             index = end_index
         else:
             row = df.iloc[index]
+            # Mark with '?' when directly following another candidate (no placeholder gap)
+            note = "?" if prev_was_candidate else ""
             rows.append(
                 {
                     "id": int(row["id"]),
                     "heading": str(row["heading"]),
+                    "note": note,
                     "reason": str(row.get("reason", "") or ""),
                 }
             )
+            prev_was_candidate = True
             index += 1
 
-    return pd.DataFrame(rows, columns=["id", "heading", "reason"])
+    return pd.DataFrame(rows, columns=["id", "heading", "note", "reason"])
 
 
 def split_heading_table(
@@ -103,6 +116,120 @@ def split_heading_table(
     if current_rows:
         sub_dfs.append(pd.DataFrame(current_rows, columns=working_df.columns))
     return sub_dfs, raw_headings
+
+
+def run_merge_pre_pass(
+    compact_df: pd.DataFrame,
+    model_name: str | None = None,
+) -> dict[int, str]:
+    """Focused pre-pass: decide merge/keep for consecutive heading candidate groups.
+
+    Runs BEFORE the main hierarchy LLM call. Scans ``compact_df`` (output of
+    ``compact_for_llm``) for rows whose ``note == "?"``, groups them together
+    with their preceding candidate, and sends all groups in a single focused
+    ``eval-merge-groups`` LLM call.
+
+    Returns a dict ``{row_id: "<"}`` for every row the LLM decides to merge
+    into the previous heading.  The caller seeds ``llm_levels`` with these
+    decisions before running the main hierarchy LLM so that merge decisions
+    are final and the main LLM only handles level assignment.
+    """
+    # ── 1. Collect consecutive groups ──
+    groups: list[list[dict[str, Any]]] = []  # each element: list of {id, heading}
+    current_group: list[dict[str, Any]] = []
+
+    for _, row in compact_df.iterrows():
+        if row.get("reason") == PLACEHOLDER_REASON:
+            # Body-text placeholder breaks any running group
+            if len(current_group) >= 2:
+                groups.append(current_group)
+            current_group = []
+            continue
+
+        note = str(row.get("note", ""))
+        if note == "?":
+            # Continuation of a consecutive run
+            current_group.append({"id": int(row["id"]), "heading": str(row["heading"])})
+        else:
+            # Start of a new candidate — flush previous group if large enough
+            if len(current_group) >= 2:
+                groups.append(current_group)
+            current_group = [{"id": int(row["id"]), "heading": str(row["heading"])}]
+
+    if len(current_group) >= 2:
+        groups.append(current_group)
+
+    if not groups:
+        logger.info("merge pre-pass: no consecutive groups found, skipping")
+        return {}
+
+    logger.info(f"merge pre-pass: {len(groups)} consecutive group(s) to evaluate")
+
+    # ── 2. Format groups for the prompt ──
+    lines: list[str] = []
+    for g_idx, group in enumerate(groups, start=1):
+        headings_str = " | ".join(f'"{item["heading"]}"' for item in group)
+        lines.append(f"Group {g_idx}: [{headings_str}]")
+    texts = "\n".join(lines)
+
+    # ── 3. Call LLM directly (bypass df2md — texts is already formatted) ──
+    from shared.services.ai.prompt_service import build_prompt
+    from shared.services.ai.openai_compatible_client_sync import get_openai_client
+    from shared.services.ai.response_process_service import eval_response
+
+    try:
+        prompt, temperature, top_p, max_tokens = build_prompt(
+            task="eval-merge-groups",
+            texts=texts,
+            query="",
+            paras={"max_tokens": min(800, len(groups) * 50 + 200)},
+        )
+        messages = [
+            {"role": "system", "content": "you are a document structure expert"},
+            {"role": "user", "content": prompt},
+        ]
+        with stage_timer("heading.merge_pre_pass_llm", group_count=len(groups), model_name=model_name):
+            answer = get_openai_client(model=model_name).chat_completion(
+                messages=messages,
+                model=model_name,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        result = eval_response(answer)
+    except Exception as exc:
+        logger.warning(f"merge pre-pass LLM call failed: {exc}, skipping pre-pass")
+        return {}
+
+
+    # ── 4. Parse result → {id: "<"} ──
+    merge_ids: dict[int, str] = {}
+    if not isinstance(result, list):
+        logger.warning(f"merge pre-pass: unexpected result type {type(result)}, skipping")
+        return {}
+
+    for item in result:
+        if not isinstance(item, dict):
+            continue
+        g_idx = item.get("group")
+        should_merge = item.get("merge", False)
+        if not should_merge:
+            continue
+        try:
+            g_idx = int(g_idx)
+        except (TypeError, ValueError):
+            continue
+        if g_idx < 1 or g_idx > len(groups):
+            continue
+        group = groups[g_idx - 1]
+        # Mark all rows except the first as "<"
+        for member in group[1:]:
+            merge_ids[member["id"]] = "<"
+            logger.debug(
+                f"merge pre-pass: id={member['id']} '{member['heading'][:50]}' → '<'"
+            )
+
+    logger.info(f"merge pre-pass: {len(merge_ids)} row(s) flagged for merge")
+    return merge_ids
 
 
 def execute_llm_heading_hierarchy(
@@ -145,6 +272,15 @@ def execute_llm_heading_hierarchy(
         fallback["level"] = -1
         return fallback.sort_values("id").reset_index(drop=True)
 
+    # ── Merge pre-pass (always on when compact is enabled) ──
+    # Runs a focused LLM call BEFORE the main hierarchy call to resolve all
+    # consecutive-candidate groups. Main LLM receives clean [id, heading] only.
+    pre_pass_levels: dict[int, str] = {}
+    if compact_enabled:
+        pre_pass_levels = run_merge_pre_pass(
+            preds_for_llm, model_name=model_name
+        )
+
     level_dfs, _raw_headings = split_heading_table(
         preds_for_llm, threshold=prompt_limt, max_start=max_len, max_end=5
     )
@@ -164,7 +300,8 @@ def execute_llm_heading_hierarchy(
             model_name=model_name,
         ):
             # ── Per-chunk independent LLM calls ──
-            llm_levels: dict[int, Any] = {}
+            # Seed with pre-pass merge decisions; main LLM cannot override them
+            llm_levels: dict[int, Any] = dict(pre_pass_levels)
 
             for chunk_idx, chunk_df in enumerate(level_dfs):
                 # Skip chunks that contain only placeholders
@@ -175,7 +312,8 @@ def execute_llm_heading_hierarchy(
                     )
                     continue
 
-                df4llm = chunk_df.drop(columns=["reason", "level"], errors="ignore").copy()
+                # Send only [id, heading] to the main LLM — no note, no merge hints
+                df4llm = chunk_df.drop(columns=["reason", "level", "note"], errors="ignore").copy()
                 df4llm["heading"] = df4llm["heading"].apply(clean_md_text_for_llm)
 
                 logger.info(
@@ -190,7 +328,11 @@ def execute_llm_heading_hierarchy(
                     for item in chunk_result:
                         if isinstance(item, dict) and "id" in item and "level" in item:
                             try:
-                                llm_levels[int(item["id"])] = item["level"]
+                                row_id = int(item["id"])
+                                # Pre-pass merge decisions take priority — never override
+                                if row_id in pre_pass_levels:
+                                    continue
+                                llm_levels[row_id] = item["level"]
                             except (TypeError, ValueError):
                                 pass
 
@@ -218,18 +360,21 @@ def execute_llm_heading_hierarchy(
 
             full_preds = raw_preds.copy()[["id", "heading", "level", "reason"]]
 
-            def resolve_level(row_id: Any) -> int:
+            def resolve_level(row_id: Any) -> Any:
                 try:
                     int_id = int(row_id)
                 except (TypeError, ValueError):
                     return -1
                 level = llm_levels.get(int_id, -1)
+                # Pre-pass merge decisions arrive as "<"; pass through for _apply_merge_signals
+                if level == "<":
+                    return "<"
                 try:
                     return int(level)
                 except (TypeError, ValueError):
                     return -1
-                    
-            full_preds["level"] = full_preds["id"].map(resolve_level).astype(int)
+
+            full_preds["level"] = full_preds["id"].map(resolve_level)
 
     except Exception as exc:
         logger.warning(
