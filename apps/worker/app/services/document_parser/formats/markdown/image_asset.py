@@ -39,7 +39,6 @@ class MarkdownImageAssetRequest:
     last_context: str
     image_summary: str | None
     timestamp: str
-    current_page_number: int
     seen_images: dict[str, dict[str, str]]
     summary_image: bool
     row_index: int
@@ -65,7 +64,6 @@ def build_markdown_image_asset(
             source_path=source_path,
             cache_entry=request.seen_images[image_binary_hash],
             timestamp=request.timestamp,
-            current_page_number=request.current_page_number,
         )
 
     relative_image_path = f"images/{request.image_name}{image_suffix}"
@@ -91,7 +89,6 @@ def build_markdown_image_asset(
         summary=image_summary_field,
         know_id=image_know_id,
         timestamp=request.timestamp,
-        current_page_number=request.current_page_number,
     )
     cache_entry = {
         "relative_img_path": relative_image_path,
@@ -166,7 +163,6 @@ def _build_duplicate_image_asset(
     source_path: Path,
     cache_entry: dict[str, str],
     timestamp: str,
-    current_page_number: int,
 ) -> MarkdownImageAsset:
     row_values = _build_image_row_values(
         content=cache_entry["img_content"],
@@ -174,7 +170,6 @@ def _build_duplicate_image_asset(
         summary=cache_entry["img_summary_field"],
         know_id=cache_entry["temp_uid"],
         timestamp=timestamp,
-        current_page_number=current_page_number,
     )
     try:
         source_path.unlink()
@@ -205,7 +200,6 @@ def _build_image_row_values(
     summary: str,
     know_id: str,
     timestamp: str,
-    current_page_number: int,
 ) -> ParserRowValues:
     image_row = build_image_asset_row(
         content=content,
@@ -213,7 +207,6 @@ def _build_image_row_values(
         summary=summary,
         know_id=know_id,
         addtime=timestamp,
-        page_nums=str(current_page_number) if current_page_number > 0 else "",
     )
     return cast(ParserRowValues, image_row.to_list())
 

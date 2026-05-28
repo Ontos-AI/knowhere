@@ -15,7 +15,6 @@ class TableAssetInput:
     keywords: str
     know_id: str
     addtime: str
-    page_nums: str = ""
     content: str | None = None
     tokens: str = ""
     length: int | None = None
@@ -39,7 +38,6 @@ def write_table_asset(table_input: TableAssetInput) -> ParsedRow:
         tokens=table_input.tokens,
         connectto="",
         addtime=table_input.addtime,
-        page_nums=table_input.page_nums,
         length=table_input.length,
     )
 

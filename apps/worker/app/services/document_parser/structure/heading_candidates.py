@@ -15,11 +15,13 @@ from app.services.document_parser.support.text_helpers import count_cn_en
 HEADING_COLUMNS = Index(["id", "heading", "level", "reason"])
 
 
-def get_max_lvl(code_str: str):
-    match = re.search(r"\[([^]]+)]", code_str)
-    if not match:
-        return "Sure"
+def get_max_lvl(code_str: str) -> int:
+    """Extract the maximum hierarchy depth from a POS trigger code string.
 
+    ``code_str`` is always ``str(pos_code)`` where *pos_code* is a list of
+    integers, so the ``[…]`` bracket match is guaranteed.
+    """
+    match = re.search(r"\[([^]]+)]", code_str)
     nums = [int(item.strip()) for item in match.group(1).split(",")]
     max_value = int(max(nums))
     return max_value if max_value > 1 else -2
@@ -86,7 +88,7 @@ def judge_by_conditions(
     return pos_triggered_code
 
 
-def remove_by_conditions(text, include_punc: bool = False):
+def remove_by_conditions(text):
     neg_conditions = [
         r"^\d{3,}",
         r"(?i)(^https?://\S+|^www\.\S+|^P\.S|^\b\d{0,2}\s*(?:a\.m|p\.m)\b)",
@@ -101,7 +103,7 @@ def remove_by_conditions(text, include_punc: bool = False):
             r"|left|right|begin|end|overline|underline|hat|vec|tilde)\b"
             r")"
         ),
-        r"^0\.\d+[\u4e00-\u9fa5A-Za-z\S]*",
+        r"^0\.\d+\S*",
         r"^\d*\.\d+$",
         r"[。！；].+",
         (
@@ -113,16 +115,15 @@ def remove_by_conditions(text, include_punc: bool = False):
             r"|Hz|kHz|MHz|GHz"
             r"|mol|mL|dL|dB|Nm|kN|MN|kW|MW|GW|hp|rpm|cc|cal|kcal)\b"
         ),
+        r"[.,;，。；]$",
     ]
 
     neg_triggered_code = []
     for regex in neg_conditions:
         neg_triggered_code.append(1 if re.search(regex, text) else 0)
-
-    if include_punc:
-        neg_triggered_code.append(1 if re.search(r"[.,;，。；]$", text) else 0)
-    else:
-        neg_triggered_code.append(0)
+    
+    MAX_HEADING_TOKENS = 10
+    neg_triggered_code.append(1 if count_cn_en(text) > MAX_HEADING_TOKENS else 0)
 
     return neg_triggered_code
 
@@ -136,10 +137,13 @@ def md_heading_match(line, as_is: bool = True):
     return (line, level) if as_is else (line.lstrip("#").strip(), level)
 
 
+# Pre-compute zero-filled code arrays so non-heading lines get correct-width reason strings.
+_ZERO_POS_CODE = judge_by_conditions("")
+_ZERO_NEG_CODE = remove_by_conditions("")
+
+
 def filter_markdown_headings(
     md_lines: list[str],
-    num_pos: int = 17,
-    num_neg: int = 7,
     layout_json_path: str | None = None,
 ) -> pd.DataFrame:
     meta_ctx = None
@@ -159,9 +163,7 @@ def filter_markdown_headings(
 
         if _is_non_heading_markdown_line(line):
             est_level = -1
-            zero_pos_code = [0] * num_pos
-            zero_neg_code = [0] * num_neg
-            reason = f"POS {zero_pos_code} NEG {zero_neg_code}"
+            reason = f"POS {_ZERO_POS_CODE} NEG {_ZERO_NEG_CODE}"
             if meta_ctx:
                 reason += " META [0, 0, 0]"
             line = "Figure/Image"
@@ -327,7 +329,7 @@ def _is_bold_docx_paragraph(paragraph: Any):
 
 def _judge_negative_headings(df: pd.DataFrame) -> pd.DataFrame:
     for index, row in df.iterrows():
-        neg_code = remove_by_conditions(row["heading"], include_punc=True)
+        neg_code = remove_by_conditions(row["heading"])
         if any(value > 0 for value in neg_code):
             current_code = str(df.loc[index, "reason"])
 

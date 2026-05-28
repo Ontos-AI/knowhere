@@ -1,7 +1,5 @@
 # pyright: reportArgumentType=false
-import json
 import os
-import re
 
 from app.services.document_parser.formats.markdown.parser import parse_md
 from app.services.document_parser.providers.mineru.pdf_service import parse_via_full
@@ -9,106 +7,6 @@ from app.services.document_parser.support.stage_profiler import stage_timer
 from loguru import logger
 
 from shared.core.config import settings
-
-
-def _inject_page_markers(output_dir: str) -> None:
-    """Inject <!-- page N --> markers into full.md using layout.json page info.
-
-    Reads layout.json to find the first text content of each page,
-    then searches for that text in full.md and inserts a page marker above it.
-
-    If layout.json is not available (e.g. fast path without MinerU),
-    this function does nothing gracefully.
-    """
-    layout_path = os.path.join(output_dir, "layout.json")
-    md_path = os.path.join(output_dir, "full.md")
-
-    if not os.path.exists(layout_path) or not os.path.exists(md_path):
-        logger.debug("layout.json or full.md not found, skipping page marker injection")
-        return
-
-    try:
-        with open(layout_path, "r", encoding="utf-8") as f:
-            layout_data = json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
-        logger.warning(f"Failed to read layout.json: {e}")
-        return
-
-    pdf_info = layout_data.get("pdf_info", [])
-    if not pdf_info:
-        return
-
-    with open(md_path, "r", encoding="utf-8") as f:
-        md_lines = f.readlines()
-
-    # Build anchor map: {normalized_text: page_number (1-based)}
-    # Use the first text span of each page's first para_block as anchor
-    anchors = []  # list of (anchor_text, page_num)
-    for page in pdf_info:
-        page_idx = page.get("page_idx", 0)
-        page_num = page_idx + 1  # 1-based page number
-
-        # Find the first non-empty text content in this page
-        anchor_text = None
-        for block in page.get("para_blocks", []):
-            for line in block.get("lines", []):
-                for span in line.get("spans", []):
-                    content = span.get("content", "").strip()
-                    if content and len(content) >= 3:  # skip very short anchors
-                        anchor_text = content
-                        break
-                if anchor_text:
-                    break
-            if anchor_text:
-                break
-
-        if anchor_text:
-            anchors.append((anchor_text, page_num))
-
-    if not anchors:
-        logger.debug(
-            "No anchor texts found in layout.json, skipping page marker injection"
-        )
-        return
-
-    # Match anchors against md_lines and insert markers
-    # Process from end to start so line indices don't shift
-    insertions = []  # list of (line_index, page_num)
-    used_lines = set()
-
-    for anchor_text, page_num in anchors:
-        # Normalize anchor for matching
-        anchor_norm = re.sub(r"\s+", " ", anchor_text).strip()
-        if len(anchor_norm) < 3:
-            continue
-
-        # Search for anchor in md_lines (use first 50 chars for substring match)
-        search_key = anchor_norm[:50]
-        for i, line in enumerate(md_lines):
-            if i in used_lines:
-                continue
-            line_norm = re.sub(r"^#+\s*", "", line.strip())
-            line_norm = re.sub(r"\s+", " ", line_norm).strip()
-            if search_key in line_norm:
-                insertions.append((i, page_num))
-                used_lines.add(i)
-                break
-
-    if not insertions:
-        logger.debug("No page marker matches found, skipping injection")
-        return
-
-    # Sort by line index descending to insert from bottom to top
-    insertions.sort(key=lambda x: x[0], reverse=True)
-    for line_idx, page_num in insertions:
-        md_lines.insert(line_idx, f"<!-- page {page_num} -->\n")
-
-    # Write back
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.writelines(md_lines)
-
-    logger.info(f"Injected {len(insertions)} page markers into full.md")
-
 
 
 def parse_pdfs(
@@ -147,7 +45,6 @@ def parse_pdfs(
     logger.info(f"📄 Standard MinerU parse for {filename} [route={route}]")
     with stage_timer("pdf.extract.standard", filename=filename):
         parse_via_full(pdf_path, filename, output_dir, s3_key=s3_key)
-        _inject_page_markers(output_dir)
 
     logger.info("✅ PDF parsing step 1 complete: text extracted")
 
@@ -165,12 +62,25 @@ def _parse_oversized_pdf(
     pdf_path, filename, output_dir, base_llm_paras,
     profile=None, relative_root=None, s3_key=None,
 ):
-    """Handle PDFs exceeding MinerU's page limit via doc_agent shard-and-stitch."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    """Handle PDFs exceeding MinerU's page limit via shard-first hierarchy.
 
-    from app.services.document_parser.formats.pdf.shard_merger import (
-        merge_shard_outputs,
+    Pipeline:
+    1. DOC_AGENT → shard plan + TOC
+    2. bin_pack → merged shards
+    3. split_pdf (exclude TOC pages)
+    4. MinerU per shard (parallel)
+    5. **Per-shard heading prediction** (parallel)  ← NEW
+    6. Merge lines_with_heading + images
+    7. parse_md Phase B (skip TOC detection + heading prediction)
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from dataclasses import dataclass
+
+    from app.services.document_parser.formats.markdown.parser import (
+        eval_md_headings,
+        merge_html_tables,
     )
+    from app.services.document_parser.formats.pdf.shard_merger import merge_images
     from app.services.document_parser.formats.pdf.shard_splitter import (
         bin_pack_shards,
         run_doc_agent,
@@ -246,26 +156,102 @@ def _parse_oversized_pdf(
                 idx = futures[future]
                 shard_output_dirs[idx] = future.result()
 
-    # 6. Merge all shard outputs into main output_dir
-    with stage_timer("pdf.merge_shards", filename=filename):
-        merge_shard_outputs(shard_output_dirs, merged_shards, output_dir)
+    # 6. Per-shard heading prediction (parallel)
+    @dataclass
+    class ShardHeadingResult:
+        shard_index: int
+        lines_with_heading: list[str]
+        heading_count: int
 
-    # 7. Inject page markers (uses merged layout.json with corrected page_idx)
-    # Note: page markers may be inaccurate when TOC pages are excluded, but
-    # this only affects chunk metadata (page_nums), not heading hierarchy.
-    _inject_page_markers(output_dir)
+    smart_parse = base_llm_paras.get("smart_title_parse", True)
+    hierarchy_model_name = (
+        base_llm_paras.get("hierarchy_model_name")
+        or base_llm_paras.get("model_name", settings.NORMOL_MODEL)
+    )
 
-    logger.info("✅ Oversized PDF shard-and-stitch complete, entering parse_md")
+    def _predict_shard_headings(shard_idx: int, shard_out_dir: str) -> ShardHeadingResult:
+        """Run full heading prediction pipeline on a single shard's full.md."""
+        md_path = os.path.join(shard_out_dir, "full.md")
+        if not os.path.exists(md_path):
+            logger.warning(f"shard_{shard_idx}: full.md not found, returning empty")
+            return ShardHeadingResult(shard_index=shard_idx, lines_with_heading=[], heading_count=0)
 
-    # 8. Standard parse_md — pass DOC_AGENT TOC hierarchies to skip
-    #    row-based TOC detection and enable hard-constraint heading assignment
+        with open(md_path, "r", encoding="utf-8") as f:
+            md_lines = f.readlines()
+        md_lines = [line.strip() for line in md_lines if line.strip() != ""]
+        md_lines = merge_html_tables(md_lines)
+
+        # TOC context: first TOC shared by all shards; subsequent TOCs assigned
+        # by page boundary. For simplicity, all TOCs are passed since pred_titles
+        # only matches headings actually present in this shard's content.
+        shard_toc = toc_hierarchies
+
+        lines_with_heading = eval_md_headings(
+            md_lines,
+            source_type="md",
+            toc_hierarchies=shard_toc,
+            smart_parse=smart_parse,
+            model_name=hierarchy_model_name,
+            output_dir=shard_out_dir,
+            layout_json_path=(
+                os.path.join(shard_out_dir, "layout.json")
+                if os.path.exists(os.path.join(shard_out_dir, "layout.json"))
+                else None
+            ),
+        )
+
+        heading_count = sum(1 for line in lines_with_heading if line.startswith("#"))
+        logger.info(
+            f"  ✅ shard_{shard_idx}: {heading_count} headings identified "
+            f"from {len(lines_with_heading)} lines"
+        )
+        return ShardHeadingResult(
+            shard_index=shard_idx,
+            lines_with_heading=lines_with_heading,
+            heading_count=heading_count,
+        )
+
+    shard_heading_results: list[ShardHeadingResult | None] = [None] * len(shard_output_dirs)
+
+    with stage_timer(
+        "pdf.shard_headings", filename=filename, shard_count=len(shard_output_dirs)
+    ):
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = {
+                executor.submit(_predict_shard_headings, i, shard_dir): i
+                for i, shard_dir in enumerate(shard_output_dirs)
+                if shard_dir is not None
+            }
+            for future in as_completed(futures):
+                idx = futures[future]
+                shard_heading_results[idx] = future.result()
+
+    # 7. Merge: concatenate lines_with_heading (in shard order) + merge images
+    all_lines_with_heading: list[str] = []
+    total_headings = 0
+    for result in shard_heading_results:
+        if result is not None:
+            all_lines_with_heading.extend(result.lines_with_heading)
+            total_headings += result.heading_count
+
+    logger.info(
+        f"📎 Merged {len(shard_heading_results)} shards: "
+        f"{len(all_lines_with_heading)} lines, {total_headings} headings"
+    )
+
+    with stage_timer("pdf.merge_images", filename=filename):
+        merge_images(shard_output_dirs, output_dir)
+
+    logger.info("✅ Shard-first hierarchy complete, entering parse_md Phase B")
+
+    # 8. parse_md Phase B only (skip TOC detection + heading prediction)
     with stage_timer("pdf.parse_md", filename=filename):
         return parse_md(
             output_dir,
             source_type="md",
-            file_path=os.path.join(output_dir, "full.md"),
             base_llm_paras=base_llm_paras,
             relative_root=relative_root,
-            toc_hierarchies=toc_hierarchies,
+            lines_with_heading=all_lines_with_heading,
         )
+
 

@@ -10,7 +10,6 @@ def build_image_asset_row(
     summary: str,
     know_id: str,
     addtime: str,
-    page_nums: str = "",
 ) -> ParsedRow:
     return ParsedRow(
         content=content,
@@ -22,7 +21,6 @@ def build_image_asset_row(
         tokens="",
         connectto="",
         addtime=addtime,
-        page_nums=page_nums,
     )
 
 
@@ -34,7 +32,6 @@ def build_table_asset_row(
     keywords: str,
     know_id: str,
     addtime: str,
-    page_nums: str = "",
 ) -> ParsedRow:
     return ParsedRow(
         content=content,
@@ -46,5 +43,5 @@ def build_table_asset_row(
         tokens="",
         connectto="",
         addtime=addtime,
-        page_nums=page_nums,
     )
+

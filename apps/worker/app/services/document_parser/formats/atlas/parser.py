@@ -444,7 +444,6 @@ def parse_atlas(
                 know_id=know_id,
                 addtime=time_stamp,
                 tokens=tokens,
-                page_nums=str(page_num),
             )
         )
 

@@ -32,7 +32,6 @@ class MarkdownTableAssetRequest:
     table_dir: str
     table_count: int
     timestamp: str
-    current_page_number: int
     summary_table: bool
     row_index: int
 
@@ -62,9 +61,6 @@ def build_markdown_table_asset(
         keywords="",
         know_id=gen_str_codes((request.table_html + str(request.table_count))),
         addtime=request.timestamp,
-        page_nums=str(request.current_page_number)
-        if request.current_page_number > 0
-        else "",
     )
 
     deferred_task = None

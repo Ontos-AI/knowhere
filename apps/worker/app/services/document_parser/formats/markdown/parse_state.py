@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import re
+
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -35,8 +35,7 @@ class MarkdownParseState:
     inner_paths: list[str] = field(default_factory=list)
     error_line_numbers: list[int] = field(default_factory=list)
     table_lines: list[str] = field(default_factory=list)
-    current_page_number: int = 0
-    chunk_pages: set[int] = field(default_factory=set)
+
     base_level: int | None = None
     path: str = ""
     path_counter: dict[str, int] = field(default_factory=dict)
@@ -50,45 +49,38 @@ class MarkdownParseState:
             self.path = self.relative_root
 
     def record_page_marker(self, line: str) -> bool:
+        """Detect and skip HTML comment lines (page markers, slide markers).
+
+        Page number tracking has been removed; PAGE MEMORY will provide
+        accurate page numbers in a future release.
+        """
         if "<!--" not in line or "-->" not in line:
             return False
         if "page" not in line and "Slide number" not in line:
             return False
-
-        page_match = re.search(r"page\s+(\d+)", line)
-        if page_match:
-            self.current_page_number = int(page_match.group(1))
-        else:
-            self.current_page_number += 1
-        self.chunk_pages.add(self.current_page_number)
         return True
 
     def flush_current_content(self) -> None:
-        page_numbers = self._format_chunk_pages()
         self.rows = self.row_updater(
             self.rows,
             self.content_items,
             self.path,
             self.llm_parameters,
             self.timestamp,
-            page_numbers,
+            "",
             1500,
             True,
         )
         self.content_items = []
-        self.chunk_pages = set()
-        if self.current_page_number > 0:
-            self.chunk_pages.add(self.current_page_number)
 
     def flush_placeholder_chunk(self) -> None:
-        page_numbers = self._format_chunk_pages()
         self.rows = self.row_updater(
             self.rows,
             [],
             self.path,
             self.llm_parameters,
             self.timestamp,
-            page_numbers,
+            "",
             1500,
             True,
         )
@@ -135,8 +127,6 @@ class MarkdownParseState:
 
     def append_plain_text(self, text: str) -> None:
         self.content_items.append(text.strip())
-        if self.current_page_number > 0:
-            self.chunk_pages.add(self.current_page_number)
 
     def append_row(self, row: ParserRowValues) -> None:
         self.rows.append(row)
@@ -181,5 +171,4 @@ class MarkdownParseState:
             )
         return process_dup_paths_df(rows_builder.to_dataframe())
 
-    def _format_chunk_pages(self) -> str:
-        return ",".join(str(page) for page in sorted(self.chunk_pages))
+

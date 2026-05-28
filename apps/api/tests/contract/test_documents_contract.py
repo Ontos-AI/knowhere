@@ -622,7 +622,7 @@ async def test_should_list_current_document_chunks_by_document_id(
                     "chunk_type": "text",
                     "content": "First chunk content",
                     "source_chunk_path": "Chapter 1/Intro",
-                    "metadata": {"summary": "Intro", "page_nums": [1]},
+                    "metadata": {"summary": "Intro", "page_nums": []},
                 },
                 {
                     "id": second_chunk_id,
@@ -631,7 +631,7 @@ async def test_should_list_current_document_chunks_by_document_id(
                     "content": "| A | B |",
                     "source_chunk_path": "Chapter 1/Table",
                     "file_path": "tables/table-1.html",
-                    "metadata": {"summary": "Table", "page_nums": [2]},
+                    "metadata": {"summary": "Table", "page_nums": []},
                 },
             ],
         )
@@ -666,7 +666,7 @@ async def test_should_list_current_document_chunks_by_document_id(
             "source_chunk_path": "Chapter 1/Intro",
             "file_path": None,
             "sort_order": 0,
-            "metadata": {"summary": "Intro", "page_nums": [1]},
+            "metadata": {"summary": "Intro", "page_nums": []},
             "created_at": chunks[0]["created_at"],
         }
     ]
@@ -720,7 +720,7 @@ async def test_should_return_one_document_chunk_by_document_chunk_id(
                     "content": "Figure summary",
                     "source_chunk_path": "Chapter 1/Figure",
                     "file_path": "images/figure-1.png",
-                    "metadata": {"summary": "Figure", "page_nums": [3]},
+                    "metadata": {"summary": "Figure", "page_nums": []},
                 }
             ],
         )
@@ -745,7 +745,7 @@ async def test_should_return_one_document_chunk_by_document_chunk_id(
     assert chunk["section_path"] == "Chapter 1"
     assert chunk["source_chunk_path"] == "Chapter 1/Figure"
     assert chunk["file_path"] == "images/figure-1.png"
-    assert chunk["metadata"] == {"summary": "Figure", "page_nums": [3]}
+    assert chunk["metadata"] == {"summary": "Figure", "page_nums": []}
     assert chunk["created_at"]
 
 
@@ -768,7 +768,7 @@ async def test_should_return_not_found_when_requesting_a_missing_document_chunk(
                     "chunk_type": "text",
                     "content": "First chunk content",
                     "source_chunk_path": "Chapter 1/Intro",
-                    "metadata": {"summary": "Intro", "page_nums": [1]},
+                    "metadata": {"summary": "Intro", "page_nums": []},
                 }
             ],
         )
