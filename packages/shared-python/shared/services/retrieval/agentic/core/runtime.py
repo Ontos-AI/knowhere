@@ -17,7 +17,6 @@ from shared.utils.token_estimate import estimate_tokens
 
 def build_config_from_env() -> AgentRunConfig:
     return AgentRunConfig(
-        max_revisions=int(os.environ.get("RETRIEVAL_AGENTIC_MAX_REVISIONS", "2")),
         max_nav_depth=int(os.environ.get("RETRIEVAL_AGENTIC_MAX_NAV_DEPTH", "3")),
         latency_budget_ms=int(os.environ.get("RETRIEVAL_AGENTIC_LATENCY_BUDGET_MS", "12000")),
         token_budget_total=int(os.environ.get("RETRIEVAL_AGENTIC_TOKEN_BUDGET_TOTAL", "40000")),

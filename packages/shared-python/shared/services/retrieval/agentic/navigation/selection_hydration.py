@@ -8,6 +8,7 @@ from shared.services.retrieval.agentic.core.types import DocTreeNode
 from shared.services.retrieval.agentic.navigation import assets as asset_tools
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.path import hydrate_paths_to_rows
+from shared.services.retrieval.hydration.reference import hydrate_referenced_chunk_rows
 
 
 async def hydrate_path_selections_into_node(
@@ -26,6 +27,38 @@ async def hydrate_path_selections_into_node(
         user_id=user_id,
         namespace=namespace,
         document_id=document_id,
+    )
+    if not chunks:
+        return
+
+    chunks = await _append_connected_asset_targets(db, chunks)
+    resolved_job_result_id = job_result_id or _find_job_result_id(chunks)
+    if resolved_job_result_id:
+        await _attach_root_asset_owners(
+            db,
+            document_id=document_id,
+            job_result_id=resolved_job_result_id,
+            chunks=chunks,
+        )
+
+    add_chunks_to_node(node, chunks)
+
+
+async def hydrate_chunk_refs_into_node(
+    db: AsyncSession,
+    *,
+    node: DocTreeNode,
+    refs: list[dict[str, Any]],
+    user_id: str,
+    namespace: str,
+    document_id: str,
+    job_result_id: str | None = None,
+) -> None:
+    chunks = await hydrate_referenced_chunk_rows(
+        db=db,
+        user_id=user_id,
+        namespace=namespace,
+        refs=refs,
     )
     if not chunks:
         return

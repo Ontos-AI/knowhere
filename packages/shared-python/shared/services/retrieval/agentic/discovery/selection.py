@@ -14,6 +14,7 @@ from shared.services.retrieval.agentic.prompts import (
     parse_action_response,
 )
 from shared.services.retrieval.agentic.navigation.selection_hydration import (
+    hydrate_chunk_refs_into_node,
     hydrate_path_selections_into_node,
 )
 from shared.services.retrieval.agentic.core.types import DocTreeNode
@@ -35,7 +36,6 @@ async def discovery_select_step(
     doc_name: str = "",
     discovery_hints: list[dict[str, Any]],
     exclude_paths: set[str] | None = None,
-    revision_hint: str | None = None,
     budget_snapshot: dict | None = None,
 ) -> DocTreeNode:
     """Select and hydrate discovery-found sections after BFS navigation."""
@@ -47,11 +47,11 @@ async def discovery_select_step(
 
     t0 = time.monotonic()
     try:
-        hint_lines, hint_by_path, root_path_selections = _project_discovery_hints(
+        hint_lines, hint_by_path = _project_discovery_hints(
             hints,
             exclude_paths=exclude_paths,
         )
-        if not hint_lines and not root_path_selections:
+        if not hint_lines:
             return node
 
         selections: list[dict[str, Any]] = []
@@ -61,7 +61,6 @@ async def discovery_select_step(
                 doc_name=doc_name,
                 query=query,
                 hint_lines=hint_lines,
-                revision_hint=revision_hint,
                 budget_snapshot=budget_snapshot,
             )
             response = await llm_fn(prompt)
@@ -70,15 +69,22 @@ async def discovery_select_step(
 
         logger.info(
             f'  discovery_select_step doc="{doc_name}": '
-            f"hints={len(hints)} selections={len(selections)} "
-            f"root_selections={len(root_path_selections)}"
+            f"hints={len(hints)} selections={len(selections)}"
         )
 
-        path_selections = _build_discovery_path_selections(
+        path_selections, chunk_refs = _build_discovery_path_selections(
             selections=selections,
             hint_by_path=hint_by_path,
-            root_path_selections=root_path_selections,
+            document_id=document_id,
             node=node,
+        )
+        await hydrate_chunk_refs_into_node(
+            db,
+            node=node,
+            refs=chunk_refs,
+            user_id=user_id,
+            namespace=namespace,
+            document_id=document_id,
         )
         await hydrate_path_selections_into_node(
             db,
@@ -107,7 +113,7 @@ def _project_discovery_hints(
     hints: list[dict[str, Any]],
     *,
     exclude_paths: set[str] | None,
-) -> tuple[list[str], dict[str, dict], list[dict[str, Any]]]:
+) -> tuple[list[str], dict[str, dict]]:
     exclude_set = {
         normalize_section_path(path)
         for path in (exclude_paths or set())
@@ -115,7 +121,6 @@ def _project_discovery_hints(
     }
     hint_lines: list[str] = []
     hint_by_path: dict[str, dict] = {}
-    root_path_selections: list[dict[str, Any]] = []
     for hint in hints:
         section_path = normalize_section_path(hint.get("section_path", ""))
         if not section_path:
@@ -126,22 +131,12 @@ def _project_discovery_hints(
             continue
 
         hint_by_path[section_path] = hint
-        if section_path == "Root":
-            root_path_selections.append({
-                "path": section_path,
-                "confidence": float(
-                    hint.get("discovery_score") or hint.get("score") or 0.7
-                ),
-                "hydrate_mode": "self_only",
-            })
-            continue
-
         summary = hint.get("summary", "") or ""
         hint_lines.append(f'▸ path="{section_path}"')
         if summary:
             hint_lines.append(f"    {summary[:300]}")
 
-    return hint_lines, hint_by_path, root_path_selections
+    return hint_lines, hint_by_path
 
 
 def _build_discovery_selection_prompt(
@@ -150,25 +145,13 @@ def _build_discovery_selection_prompt(
     doc_name: str,
     query: str,
     hint_lines: list[str],
-    revision_hint: str | None,
     budget_snapshot: dict | None,
 ) -> str:
-    revision_context = ""
-    if revision_hint:
-        revision_context = (
-            "\nIMPORTANT: This is a REVISION round. "
-            "The previous search attempt failed because:\n"
-            f'"{revision_hint}"\n'
-            "Adjust your selection accordingly. "
-            "If no candidate is relevant, return an EMPTY list [].\n"
-        )
-
     return DISCOVERY_SELECT_PROMPT.format(
         doc_name=doc_name or document_id,
         budget_block=format_budget_block(budget_snapshot),
         items="\n".join(hint_lines),
         query=query,
-        revision_context=revision_context,
     )
 
 
@@ -176,31 +159,34 @@ def _build_discovery_path_selections(
     *,
     selections: list[dict[str, Any]],
     hint_by_path: dict[str, dict],
-    root_path_selections: list[dict[str, Any]],
+    document_id: str,
     node: DocTreeNode,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     valid_selections = [
         selection for selection in selections if selection["path"] in hint_by_path
     ]
-    path_selections = list(root_path_selections)
+    path_selections: list[dict[str, Any]] = []
+    chunk_refs: list[dict[str, Any]] = []
     for selection in valid_selections:
         path = selection["path"]
         confidence = selection.get("confidence", 0.7)
         node.confidence[path] = confidence
+        hint = hint_by_path[path]
+        if path == "Root":
+            chunk_id = str(hint.get("chunk_id") or "").strip()
+            if chunk_id:
+                chunk_refs.append({
+                    "document_id": document_id,
+                    "chunk_id": chunk_id,
+                    "section_path": path,
+                })
+                continue
+            path_selections.append({
+                "path": path,
+                "confidence": confidence,
+                "hydrate_mode": "self_only",
+            })
+            continue
         path_selections.append({"path": path, "confidence": confidence})
 
-    if not path_selections and hint_by_path:
-        fallback_path, fallback_hint = next(iter(hint_by_path.items()))
-        fallback_confidence = float(
-            fallback_hint.get("discovery_score")
-            or fallback_hint.get("score")
-            or 0.5
-        )
-        node.confidence[fallback_path] = fallback_confidence
-        path_selections.append({
-            "path": fallback_path,
-            "confidence": fallback_confidence,
-            "hydrate_mode": "self_only",
-        })
-
-    return path_selections
+    return path_selections, chunk_refs

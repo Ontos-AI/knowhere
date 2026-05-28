@@ -17,7 +17,7 @@ def render_unified_doc_tree(
     indent = "    " * depth
 
     if depth == 0:
-        parts.append(f"【文档】{doc_name}\n")
+        parts.append(f"[Document] {doc_name}\n")
 
     child_prefixes = set(node.children.keys())
 
@@ -137,7 +137,7 @@ def render_leaf_chunks(
 
             if target_type == "table":
                 table_html = str(target.get("content", "")).strip()
-                content = content.replace(ref_str, f"\n[表格内容]\n{table_html}\n")
+                content = content.replace(ref_str, f"\n[Table]\n{table_html}\n")
             elif target_type == "image":
                 file_path = target.get("file_path") or ""
                 image_description = str(target.get("content", "")).strip()
@@ -146,9 +146,9 @@ def render_leaf_chunks(
                 asset_url = (asset_lookup or {}).get(target_id, "") if target_id else ""
                 display_ref = asset_url or file_path
                 if display_ref:
-                    content = content.replace(ref_str, f"\n[图片: {display_ref}]\n{image_description}\n")
+                    content = content.replace(ref_str, f"\n[Image: {display_ref}]\n{image_description}\n")
                 elif image_description:
-                    content = content.replace(ref_str, f"\n[图片描述]\n{image_description}\n")
+                    content = content.replace(ref_str, f"\n[Image description]\n{image_description}\n")
 
         for line in content.split("\n"):
             if line.strip():
@@ -168,14 +168,14 @@ def render_leaf_chunks(
             asset_url = (asset_lookup or {}).get(chunk_id, "") if chunk_id else ""
             display_ref = asset_url or file_path
             if display_ref:
-                parts.append(f"{indent}┈ [图片: {display_ref}]")
+                parts.append(f"{indent}┈ [Image: {display_ref}]")
             if image_description:
                 for line in image_description.split("\n"):
                     if line.strip():
                         parts.append(f"{indent}┈ {line}")
         elif chunk_type == "table":
             table_html = str(chunk.get("content", "")).strip()
-            parts.append(f"{indent}┈ [表格内容]")
+            parts.append(f"{indent}┈ [Table]")
             if table_html:
                 for line in table_html.split("\n"):
                     if line.strip():

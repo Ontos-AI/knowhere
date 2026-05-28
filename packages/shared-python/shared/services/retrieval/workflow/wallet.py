@@ -10,7 +10,6 @@ from shared.services.retrieval.workflow.types import PlannedStep, QueryPlan
 
 
 _RETRIEVE_FLOOR = 4000
-_SYNTHESIZE_FLOOR = 1500
 
 
 def _env_float(name: str, default: float) -> float:
@@ -33,7 +32,6 @@ class BudgetWallet:
 
     total: int
     per_retrieve_step_default: int
-    per_synthesize_step_default: int
     # Read from env for consistency with _build_config_from_env()
     planning_ratio: float = field(
         default_factory=lambda: _env_float('RETRIEVAL_AGENTIC_PLANNING_RATIO', 0.5)
@@ -66,8 +64,7 @@ class BudgetWallet:
                 scale = max(self.total, 1) / requested_total
                 allocations = {}
                 for step in plan.steps:
-                    floor = _RETRIEVE_FLOOR if step.step_kind == "retrieve" else _SYNTHESIZE_FLOOR
-                    allocations[step.id] = max(floor, int(requested[step.id] * scale))
+                    allocations[step.id] = max(_RETRIEVE_FLOOR, int(requested[step.id] * scale))
 
                 scaled_total = sum(allocations.values())
                 if scaled_total > self.total:
@@ -79,9 +76,7 @@ class BudgetWallet:
                     ):
                         if excess <= 0:
                             break
-                        step = next(s for s in plan.steps if s.id == step_id)
-                        floor = _RETRIEVE_FLOOR if step.step_kind == "retrieve" else _SYNTHESIZE_FLOOR
-                        reducible = max(amount - floor, 0)
+                        reducible = max(amount - _RETRIEVE_FLOOR, 0)
                         delta = min(reducible, excess)
                         allocations[step_id] = amount - delta
                         excess -= delta
@@ -118,19 +113,11 @@ class BudgetWallet:
         }
 
     def _requested_for_step(self, step: PlannedStep) -> int:
-        if step.step_kind == "synthesize":
-            return max(self.per_synthesize_step_default, _SYNTHESIZE_FLOOR)
+        del step
         return max(self.per_retrieve_step_default, _RETRIEVE_FLOOR)
 
     def _new_ledger(self, step: PlannedStep, total: int) -> BudgetLedger:
-        if step.step_kind == "synthesize":
-            # Put almost all tokens into context for pure synthesis calls.
-            return BudgetLedger(
-                total=max(total, 1),
-                planning_ratio=0.0,
-                bootstrap=0,
-                per_doc_min_share=0,
-            )
+        del step
         return BudgetLedger(
             total=max(total, 1),
             planning_ratio=self.planning_ratio,

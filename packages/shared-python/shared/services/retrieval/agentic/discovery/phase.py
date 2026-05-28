@@ -125,40 +125,6 @@ async def register_discovery_documents(
             state.doc_job_map[did] = job_result_id
 
 
-async def select_revision_documents(
-    db: AsyncSession,
-    *,
-    state: AgentState,
-    trace: TraceRecorder,
-    trace_enabled: bool,
-    user_id: str,
-    namespace: str,
-    query: str,
-    exclude_document_ids: list[str],
-    bootstrap_llm_fn: LLMFn,
-    revision_hint: str,
-) -> str | None:
-    try:
-        kg_result = await tools.kg_document_select(
-            db,
-            user_id=user_id,
-            namespace=namespace,
-            query=query,
-            llm_fn=bootstrap_llm_fn,
-            exclude_document_ids=list(set(exclude_document_ids)),
-            revision_hint=revision_hint,
-            budget_snapshot=state.ledger.snapshot() if state.ledger else None,
-        )
-    except BudgetExceeded:
-        logger.info("  agentic: bootstrap budget exhausted during revision doc selection")
-        if trace_enabled:
-            trace.record_budget_stop("bootstrap_exhausted")
-        return "bootstrap_budget"
-    state.step_count += 1
-    _append_selected_docs(state, kg_result)
-    return None
-
-
 async def _select_documents(
     db: AsyncSession,
     *,

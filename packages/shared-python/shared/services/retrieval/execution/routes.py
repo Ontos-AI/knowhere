@@ -10,6 +10,7 @@ from shared.services.retrieval.hydration.result_assembly import assemble_retriev
 from shared.services.retrieval.execution.response_projection import (
     attach_citation,
 )
+from shared.services.retrieval.hydration.legacy_evidence import render_legacy_evidence_text
 from shared.services.retrieval.execution.route_types import (
     RetrievalRouteContext,
     RetrievalRouteOutcome,
@@ -83,6 +84,8 @@ async def _try_run_small_corpus_route(
         "namespace": context.namespace,
         "query": context.query,
         "router_used": "small_corpus_all",
+        "evidence_text": render_legacy_evidence_text(results),
+        "answer_text": "",
         "results": results,
     }
     return RetrievalRouteOutcome(
@@ -126,6 +129,7 @@ async def _run_agentic_route(
         allowed_chunk_types=context.allowed_chunk_types,
     )
     response = workflow_result.to_api_response()
+    response["answer_text"] = ""
     response["referenced_chunks"] = resolved_references.refs
     response["results"] = [attach_citation(row) for row in assembled_workflow_rows]
 
@@ -148,7 +152,7 @@ async def _run_agentic_route(
             response["failure_reason"] = last_retrieve.failure_reason
 
     completion_detail = (
-        f"chunks | answer={len(workflow_result.answer_text)} chars | "
+        f"chunks | evidence={len(response.get('evidence_text') or '')} chars | "
         f"router={workflow_result.router_used}"
     )
     return RetrievalRouteOutcome(

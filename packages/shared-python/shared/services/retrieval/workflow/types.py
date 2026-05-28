@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 
-StepKind = Literal["retrieve", "synthesize"]
-OutputRole = Literal["final_part", "intermediate", "consumed_by_synthesis"]
-FinalStrategy = Literal["concat_final_parts", "last_synthesize", "template"]
+StepKind = Literal["retrieve"]
+OutputRole = Literal["final_part", "intermediate"]
+FinalStrategy = Literal["concat_final_parts"]
 StepStatus = Literal["done", "skipped", "error", "budget_stop", "not_found"]
 
 
@@ -49,7 +49,6 @@ class QueryPlan:
     steps: list[PlannedStep]
     final_strategy: FinalStrategy = "concat_final_parts"
     reasoning_summary: str = ""
-    final_template: str | None = None
     planner_status: str = "planned"
     planner_error: str | None = None
 
@@ -89,9 +88,8 @@ class QueryPlan:
         plan = QueryPlan(
             original_query=str(data.get("original_query") or original_query or ""),
             steps=steps,
-            final_strategy=data.get("final_strategy", "concat_final_parts"),
+            final_strategy="concat_final_parts",
             reasoning_summary=str(data.get("reasoning_summary") or ""),
-            final_template=data.get("final_template"),
             planner_status=str(data.get("planner_status") or "cached"),
             planner_error=data.get("planner_error"),
         )
@@ -106,8 +104,6 @@ class QueryPlan:
             "final_strategy": self.final_strategy,
             "planner_status": self.planner_status,
         }
-        if self.final_template:
-            data["final_template"] = self.final_template
         if self.planner_error:
             data["planner_error"] = self.planner_error
         return data
@@ -127,15 +123,13 @@ class QueryPlan:
                 raise ValueError("query plan step id cannot be empty")
             if not step.sub_query.strip():
                 raise ValueError(f"query plan step {step.id} sub_query cannot be empty")
-            if step.step_kind not in ("retrieve", "synthesize"):
+            if step.step_kind != "retrieve":
                 raise ValueError(f"unsupported step_kind: {step.step_kind}")
-            if step.output_role not in ("final_part", "intermediate", "consumed_by_synthesis"):
+            if step.output_role not in ("final_part", "intermediate"):
                 raise ValueError(f"unsupported output_role: {step.output_role}")
             missing = [dep for dep in step.depends_on if dep not in id_set]
             if missing:
                 raise ValueError(f"step {step.id} depends on unknown steps: {missing}")
-            if step.step_kind == "synthesize" and not step.depends_on:
-                raise ValueError(f"synthesize step {step.id} must depend on prior steps")
         self.topological_batches()
 
     def topological_batches(self) -> list[list[PlannedStep]]:

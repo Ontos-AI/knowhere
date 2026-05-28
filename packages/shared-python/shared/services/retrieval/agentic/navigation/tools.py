@@ -42,7 +42,6 @@ async def navigate_step(
     doc_name: str = "",
     scope_path: str | list[str] | None = None,
     exclude_paths: set[str] | None = None,
-    revision_hint: str | None = None,
     budget_snapshot: dict | None = None,
 ) -> tuple[str, list[str], DocTreeNode, list[dict]]:
     """Navigate one document scope and hydrate selected sections."""
@@ -69,6 +68,9 @@ async def navigate_step(
         selectable = {
             item["path"]: item for item in items if item.get("selectable", False)
         }
+        visible_items = {
+            item["path"]: item for item in items if item.get("show_summary", True)
+        }
         total_images, total_tables = await count_assets_under_scope(
             db,
             document_id=document_id,
@@ -86,7 +88,6 @@ async def navigate_step(
             budget_snapshot=budget_snapshot,
             items_text=items_text,
             tools_block=tools_block,
-            revision_hint=revision_hint,
         )
 
         response = await llm_fn(prompt)
@@ -106,18 +107,19 @@ async def navigate_step(
         node = DocTreeNode(scope_path=scope_paths[0] if scope_paths else None)
         node.outline_items = [item for item in items if item.get("show_summary", True)]
 
-        valid_selections = [
+        raw_valid_selections = [
             selection
             for selection in selections
-            if selection["path"] in selectable and selection["path"] not in scope_path_set
+            if selection["path"] in visible_items and selection["path"] not in scope_path_set
         ]
+        valid_selections = _dedupe_selected_ancestors(raw_valid_selections)
 
         pending: list[dict] = []
         path_selections: list[dict[str, Any]] = []
         for selection in valid_selections:
             path = selection["path"]
             confidence = selection.get("confidence", 0.7)
-            item = selectable[path]
+            item = visible_items[path]
             node.confidence[path] = confidence
 
             if item.get("is_leaf"):
@@ -160,7 +162,6 @@ def _build_navigation_prompt(
     budget_snapshot: dict | None,
     items_text: str,
     tools_block: str,
-    revision_hint: str | None,
 ) -> str:
     if not scope_paths:
         scope_header = "Current scope: root (document top level)"
@@ -169,7 +170,7 @@ def _build_navigation_prompt(
     else:
         scope_header = f"Current scope: navigating into {len(scope_paths)} sections"
 
-    prompt = ACTION_PROMPT.format(
+    return ACTION_PROMPT.format(
         doc_name=doc_name or document_id,
         doc_id=document_id,
         scope_header=scope_header,
@@ -178,9 +179,20 @@ def _build_navigation_prompt(
         query=query,
         tools_block=tools_block,
     )
-    if revision_hint:
-        prompt += (
-            "\n\nIMPORTANT: Previous round feedback: "
-            f'"{revision_hint}". Adjust your selections accordingly.'
-        )
-    return prompt
+
+
+def _dedupe_selected_ancestors(selections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep coarser selected ancestors when both parent and child paths are selected."""
+    selected_paths = [str(selection.get("path") or "") for selection in selections]
+    kept: list[dict[str, Any]] = []
+    for selection in selections:
+        path = str(selection.get("path") or "")
+        if not path:
+            continue
+        if any(
+            other != path and path.startswith(other + " / ")
+            for other in selected_paths
+        ):
+            continue
+        kept.append(selection)
+    return kept

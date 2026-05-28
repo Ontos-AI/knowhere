@@ -537,7 +537,7 @@ Core retrieval internals are grouped by ownership:
 - `hydration/`: row/path/reference hydration, inline assets, and result assembly.
 - `graph/`: document graph publication/query support.
 - `stats/`: retrieval hit recording.
-- `workflow/`: query planning, step execution, synthesis, and wallet state.
+- `workflow/`: query planning, retrieve step execution, and wallet state.
 - `agentic/core/`: agentic run types, token budgets, runtime config, and traces.
 - `agentic/discovery/`: bottom discovery and document selection.
 - `agentic/navigation/`: section-tree navigation, selection hydration, and asset tools.
@@ -569,15 +569,15 @@ flowchart LR
 
 The agentic pipeline uses `WorkflowOrchestrator` to handle complex queries via a DAG-based planning and budget-constrained execution engine:
 
-1. **Planning (`PlannerAgent`)**: The query is analyzed and decomposed into a DAG of steps.
+1. **Planning (`PlannerAgent`)**: The query is analyzed and decomposed into a DAG of retrieval steps.
    - Simple queries generate a single `retrieve` step.
-   - Complex queries are broken into multiple `retrieve` steps followed by a final `synthesize` step.
-2. **Budget Ledger (`BudgetLedger`)**: A strict token budget mechanism is enforced across the entire DAG execution (e.g., `AGENTIC_MAX_BUDGET=30000`). If the budget is exhausted, the pipeline halts safely and returns the best-effort evidence collected so far.
+   - Complex queries are broken into multiple `retrieve` steps. KNOWHERE does not plan answer synthesis steps.
+2. **Budget Ledger (`BudgetLedger`)**: A strict token budget mechanism is enforced across the entire DAG execution. If the budget is exhausted, the pipeline halts safely and returns the best-effort evidence collected so far.
 3. **Execution (`RetrievalAgent`)**: For each `retrieve` step, a multi-phase navigation engine runs:
    - **Phase 1 (Discovery)**: 3-channel RRF keyword search and KG document selection.
    - **Phase 2 (Navigation)**: Constrained Breadth-First Search (BFS) over the document's section tree. Discovered orphan leaves are merged into the tree to prevent data loss.
-   - **Phase 3 (Verdict)**: The LLM evaluates the collected structural outlines + hydrated chunks. Triggers a revision round (max 2) if `NOT_FOUND`.
-4. **Synthesis**: The LLM synthesizes a final `answer_text` and precise citations (`referenced_chunks`) using the unified evidence tree.
+   - **Phase 3 (Evidence Rendering)**: The hydrated document tree is rendered as `evidence_text`.
+4. **Evidence-Only Contract**: Retrieval responses always expose `evidence_text` as the primary output. `answer_text` is retained only as a deprecated empty string. Downstream agents decide whether the evidence is sufficient and synthesize answers outside KNOWHERE.
 
 ### Tree Rendering & Hydration
 

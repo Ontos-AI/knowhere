@@ -49,7 +49,7 @@ class DocumentNavigationRunner:
         self._llm_fn = llm_fn
         self._llm_budget = llm_budget
 
-    async def navigate_selected_documents(self, *, revision_hint: str | None) -> None:
+    async def navigate_selected_documents(self) -> None:
         logger.info(
             f"  agentic: Phase 2 — navigating {len(self._state.selected_docs)} documents"
         )
@@ -57,13 +57,11 @@ class DocumentNavigationRunner:
             if self._state.elapsed_ms >= self._config.latency_budget_ms:
                 logger.info("  agentic: latency budget hit during Phase 2, stopping")
                 break
-            await self._navigate_document(doc, revision_hint=revision_hint)
+            await self._navigate_document(doc)
 
     async def _navigate_document(
         self,
         doc: CandidateDoc,
-        *,
-        revision_hint: str | None,
     ) -> None:
         job_result_id = self._state.doc_job_map.get(doc.document_id, "")
         if not job_result_id:
@@ -82,14 +80,12 @@ class DocumentNavigationRunner:
                 root=root,
                 doc_name=doc_name,
                 job_result_id=job_result_id,
-                revision_hint=revision_hint,
             )
 
         await self._hydrate_discovery_hints(
             doc=doc,
             root=root,
             doc_name=doc_name,
-            revision_hint=revision_hint,
         )
 
         if not is_discovery_only_doc and doc_pending_assets:
@@ -115,13 +111,8 @@ class DocumentNavigationRunner:
         root: DocTreeNode,
         doc_name: str,
         job_result_id: str,
-        revision_hint: str | None,
     ) -> list[dict[str, Any]]:
-        doc_exclude: set[str] = {
-            key.split("::", 1)[1]
-            for key in self._state.seen_section_keys
-            if key.startswith(f"{doc.document_id}::")
-        } if self._state.seen_section_keys else set()
+        doc_exclude: set[str] = set()
         pending: list[tuple[str | list[str] | None, DocTreeNode, int]] = [(None, root, 0)]
         doc_pending_assets: list[dict[str, Any]] = []
 
@@ -155,7 +146,6 @@ class DocumentNavigationRunner:
                     doc_name=doc_name,
                     scope_path=scope,
                     exclude_paths=doc_exclude,
-                    revision_hint=revision_hint if depth == 0 else None,
                     budget_snapshot=self._state.ledger.snapshot() if self._state.ledger else None,
                 )
             except BudgetExceeded:
@@ -251,7 +241,6 @@ class DocumentNavigationRunner:
         doc: CandidateDoc,
         root: DocTreeNode,
         doc_name: str,
-        revision_hint: str | None,
     ) -> None:
         doc_hints = self._discovery_by_doc.get(doc.document_id, [])
         if not doc_hints or self._llm_fn is None:
@@ -259,10 +248,7 @@ class DocumentNavigationRunner:
         if self._state.elapsed_ms >= self._config.latency_budget_ms:
             return
 
-        discovery_exclude_paths = {
-            key.split("::", 1)[1]
-            for key in root.collect_all_paths(doc.document_id)
-        }
+        discovery_exclude_paths = _collect_leaf_paths(root)
         doc_discovery_llm_fn = self._llm_budget.for_discovery(
             cast(LLMFn, self._llm_fn),
             doc_id=doc.document_id,
@@ -279,7 +265,6 @@ class DocumentNavigationRunner:
                 doc_name=doc_name,
                 discovery_hints=doc_hints,
                 exclude_paths=discovery_exclude_paths,
-                revision_hint=revision_hint,
                 budget_snapshot=self._state.ledger.snapshot() if self._state.ledger else None,
             )
         except BudgetExceeded:
@@ -386,6 +371,13 @@ def _merge_step_node(parent_node: DocTreeNode, step_node: DocTreeNode) -> None:
     for leaf_path, chunks in step_node.leaf_content.items():
         parent_node.add_leaf_chunks(leaf_path, chunks)
     parent_node.confidence = step_node.confidence
+
+
+def _collect_leaf_paths(node: DocTreeNode) -> set[str]:
+    paths = set(node.leaf_content.keys())
+    for child in node.children.values():
+        paths.update(_collect_leaf_paths(child))
+    return paths
 
 
 def _update_excluded_leaf_paths(

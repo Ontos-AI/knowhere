@@ -10,7 +10,7 @@ from loguru import logger
 
 from shared.services.retrieval.agentic.core.budget import BudgetExceeded, BudgetLedger
 from shared.services.retrieval.llm_adapter import LLMFn, current_llm_usage
-from shared.services.retrieval.workflow.types import FinalStrategy, OutputRole, PlannedStep, QueryPlan, StepKind
+from shared.services.retrieval.workflow.types import OutputRole, PlannedStep, QueryPlan, StepKind
 from shared.utils.token_estimate import estimate_tokens
 
 
@@ -27,7 +27,6 @@ _PLAN_SCHEMA = {
         }
     ],
     "final_strategy": "concat_final_parts",
-    "final_template": "<optional when final_strategy=template>",
 }
 
 _PLANNER_PROMPT = """\
@@ -48,10 +47,10 @@ Hard constraints:
   - max_steps = {max_steps}
   - Each retrieve step costs ~{per_step_budget} tokens; do NOT plan more
     retrieve steps than the wallet can afford.
-  - synthesize steps must have non-empty depends_on.
-  - final_strategy must be one of: concat_final_parts, last_synthesize, template.
-  - step_kind must be retrieve or synthesize.
-  - output_role must be final_part, intermediate, or consumed_by_synthesis.
+  - final_strategy must be concat_final_parts.
+  - step_kind must be retrieve.
+  - output_role must be final_part or intermediate.
+  - KNOWHERE returns evidence only; do not plan answer synthesis steps.
 
 Return ONLY a JSON object matching this schema (think first, then answer):
 {schema}
@@ -191,13 +190,11 @@ def _parse_plan_response(text: str, *, original_query: str, max_steps: int) -> Q
             )
         )
 
-    final_strategy = _coerce_final_strategy(data.get("final_strategy"))
     return QueryPlan(
         original_query=original_query,
         steps=steps,
-        final_strategy=final_strategy,
+        final_strategy="concat_final_parts",
         reasoning_summary=str(data.get("reasoning_summary") or "").strip(),
-        final_template=str(data.get("final_template") or "").strip() or None,
     )
 
 
@@ -220,20 +217,13 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 
 def _coerce_step_kind(value: Any) -> StepKind:
     raw = str(value or "retrieve").strip().lower()
-    if raw not in {"retrieve", "synthesize"}:
+    if raw != "retrieve":
         raise ValueError(f"unsupported step_kind: {value}")
     return raw  # type: ignore[return-value]
 
 
 def _coerce_output_role(value: Any) -> OutputRole:
     raw = str(value or "final_part").strip().lower()
-    if raw not in {"final_part", "intermediate", "consumed_by_synthesis"}:
+    if raw not in {"final_part", "intermediate"}:
         raise ValueError(f"unsupported output_role: {value}")
-    return raw  # type: ignore[return-value]
-
-
-def _coerce_final_strategy(value: Any) -> FinalStrategy:
-    raw = str(value or "concat_final_parts").strip().lower()
-    if raw not in {"concat_final_parts", "last_synthesize", "template"}:
-        raise ValueError(f"unsupported final_strategy: {value}")
     return raw  # type: ignore[return-value]

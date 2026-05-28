@@ -183,7 +183,7 @@ async def test_agentic_workflow_should_pass_full_request_policy_to_step_adapter(
         captured_requests.append(kwargs)
         return AgenticResult(
             evidence_text="policy evidence",
-            answer_text="policy answer",
+            answer_text="",
             referenced_chunks=[
                 {
                     "chunk_id": policy_document["chunk_id"],
@@ -350,8 +350,9 @@ async def test_should_return_empty_results_for_an_empty_query(
         "namespace": "default",
         "query": "",
         "router_used": "empty_query_filtered",
+        "evidence_text": "",
+        "answer_text": "",
         "results": [],
-        "answer_text": None,
         "referenced_chunks": [],
     }
 
@@ -741,7 +742,7 @@ async def test_agentic_retrieval_should_not_hydrate_references_outside_request_s
                 namespace=request.namespace,
                 query=request.query,
                 router_used="workflow_single_step",
-                answer_text="foreign reference answer",
+                answer_text="",
                 referenced_chunks=[
                     {
                         "chunk_id": foreign_document["chunk_id"],
@@ -820,7 +821,7 @@ async def test_agentic_retrieval_should_drop_references_that_do_not_match_the_hy
                 namespace=request.namespace,
                 query=request.query,
                 router_used="workflow_single_step",
-                answer_text="mismatched section answer",
+                answer_text="",
                 referenced_chunks=[
                     {
                         "chunk_id": visible_chunk["chunk_id"],
@@ -911,7 +912,7 @@ async def test_agentic_workflow_should_preserve_references_with_the_same_chunk_i
         document = first_document if query == "first shared reference" else second_document
         return AgenticResult(
             evidence_text=f"evidence for {document['document_id']}",
-            answer_text=f"answer for {document['document_id']}",
+            answer_text="",
             referenced_chunks=[
                 {
                     "chunk_id": shared_chunk_id,
@@ -1022,7 +1023,7 @@ async def test_agentic_workflow_should_preserve_references_with_the_same_chunk_i
         chunk = first_chunk if query == "first shared section" else second_chunk
         return AgenticResult(
             evidence_text=f"evidence for {chunk['section_path']}",
-            answer_text=f"answer for {chunk['section_path']}",
+            answer_text="",
             referenced_chunks=[
                 {
                     "chunk_id": shared_chunk_id,

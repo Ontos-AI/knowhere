@@ -189,7 +189,6 @@ async def kg_document_select(
     query: str,
     llm_fn: LLMFn | None,
     exclude_document_ids: list[str],
-    revision_hint: str | None = None,
     **_kwargs: Any,
 ) -> ToolResult:
     """Select candidate documents from document-level KG."""
@@ -216,20 +215,9 @@ async def kg_document_select(
                 latency_ms=latency,
             )
 
-        revision_context = ""
-        if revision_hint:
-            revision_context = (
-                "\nIMPORTANT: This is a REVISION round. "
-                "The previous search attempt failed because:\n"
-                f'"{revision_hint}"\n'
-                "Adjust your document selection accordingly. "
-                "If no document can address this, return an EMPTY array [].\n"
-            )
-
         file_prompt = FILE_SELECT_PROMPT.format(
             overview=overview_text,
             query=query,
-            revision_context=revision_context,
             budget_block=format_budget_block(_kwargs.get("budget_snapshot")),
         )
         file_response = await llm_fn(file_prompt)

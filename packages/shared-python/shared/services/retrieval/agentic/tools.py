@@ -60,7 +60,6 @@ async def kg_document_select(
     query: str,
     llm_fn: LLMFn | None,
     exclude_document_ids: list[str],
-    revision_hint: str | None = None,
     **kwargs: Any,
 ) -> ToolResult:
     return await discovery_tools.kg_document_select(
@@ -70,7 +69,6 @@ async def kg_document_select(
         query=query,
         llm_fn=llm_fn,
         exclude_document_ids=exclude_document_ids,
-        revision_hint=revision_hint,
         **kwargs,
     )
 
@@ -104,7 +102,6 @@ async def navigate_step(
     doc_name: str = "",
     scope_path: str | list[str] | None = None,
     exclude_paths: set[str] | None = None,
-    revision_hint: str | None = None,
     budget_snapshot: dict | None = None,
 ) -> tuple[str, list[str], DocTreeNode, list[dict]]:
     return await navigation_tools.navigate_step(
@@ -118,7 +115,6 @@ async def navigate_step(
         doc_name=doc_name,
         scope_path=scope_path,
         exclude_paths=exclude_paths,
-        revision_hint=revision_hint,
         budget_snapshot=budget_snapshot,
     )
 
@@ -134,7 +130,6 @@ async def discovery_select_step(
     doc_name: str = "",
     discovery_hints: list[dict[str, Any]],
     exclude_paths: set[str] | None = None,
-    revision_hint: str | None = None,
     budget_snapshot: dict | None = None,
 ) -> DocTreeNode:
     return await discovery_selection.discovery_select_step(
@@ -147,6 +142,5 @@ async def discovery_select_step(
         doc_name=doc_name,
         discovery_hints=discovery_hints,
         exclude_paths=exclude_paths,
-        revision_hint=revision_hint,
         budget_snapshot=budget_snapshot,
     )

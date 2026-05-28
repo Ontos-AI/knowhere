@@ -35,15 +35,12 @@ async def project_public_retrieval_response(response: dict[str, Any]) -> dict[st
         'namespace': response.get('namespace'),
         'query': response.get('query'),
         'router_used': response.get('router_used'),
+        'evidence_text': response.get('evidence_text') or '',
+        'answer_text': '',
+        'referenced_chunks': response.get('referenced_chunks') or [],
         'results': [],
     }
 
-    if response.get('answer_text') is not None:
-        public_response['answer_text'] = response['answer_text']
-    if response.get('referenced_chunks') is not None:
-        public_response['referenced_chunks'] = response['referenced_chunks']
-    if response.get('evidence_text') is not None:
-        public_response['evidence_text'] = response['evidence_text']
     if response.get('stop_reason') is not None:
         public_response['stop_reason'] = response['stop_reason']
     if response.get('failure_reason') is not None:

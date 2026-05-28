@@ -61,10 +61,6 @@ class AIConfig(BaseModel):
         default=40000,
         description="Default token budget issued to each retrieve step.",
     )
-    RETRIEVAL_WALLET_PER_SYNTHESIZE_STEP_BUDGET: int = Field(
-        default=6000,
-        description="Default token budget issued to each synthesize step.",
-    )
     RETRIEVAL_WORKFLOW_PARALLEL_MAX: int = Field(
         default=3,
         description="Maximum concurrent workflow steps in the same DAG batch.",

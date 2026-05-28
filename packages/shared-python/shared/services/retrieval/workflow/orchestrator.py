@@ -21,7 +21,6 @@ from shared.services.retrieval.workflow.reference_projection import WorkflowRefe
 from shared.services.retrieval.workflow.run_request import WorkflowRunRequest
 from shared.services.retrieval.workflow.runtime_config import WorkflowRuntimeConfig
 from shared.services.retrieval.workflow.step_runner import WorkflowStepRunner
-from shared.services.retrieval.workflow.synthesizer import compose_final_answer
 from shared.services.retrieval.workflow.types import StepResult, WorkflowResult
 from shared.services.retrieval.workflow.wallet import BudgetWallet
 
@@ -140,7 +139,6 @@ class WorkflowOrchestrator:
         wallet = BudgetWallet(
             total=config.wallet_total_budget,
             per_retrieve_step_default=config.per_retrieve_step_budget,
-            per_synthesize_step_default=config.per_synthesize_step_budget,
         )
         ledgers = await wallet.allocate(plan)
         results_by_id: dict[str, StepResult] = {}
@@ -167,8 +165,8 @@ class WorkflowOrchestrator:
             for step in batch:
                 await wallet.reclaim(step.id, ledgers[step.id])
 
-        answer_text = compose_final_answer(plan, results_by_id)
         ordered_results = [results_by_id[step.id] for step in plan.steps if step.id in results_by_id]
+        evidence_chars = sum(len(step_result.evidence_text or "") for step_result in ordered_results)
         reference_projection = WorkflowReferenceProjection()
         referenced_chunks = reference_projection.dedupe(
             ref for step_result in ordered_results for ref in step_result.referenced_chunks
@@ -176,17 +174,17 @@ class WorkflowOrchestrator:
         api_results = reference_projection.to_api_results(referenced_chunks)
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         logger.info(
-            'workflow retrieval DONE: steps={} refs={} answer_chars={} elapsed={}ms',
+            'workflow retrieval DONE: steps={} refs={} evidence_chars={} elapsed={}ms',
             len(ordered_results),
             len(referenced_chunks),
-            len(answer_text),
+            evidence_chars,
             elapsed_ms,
         )
         return WorkflowResult(
             namespace=request.namespace,
             query=request.query,
             router_used='workflow_decomposed' if len(plan.steps) > 1 else 'workflow_single_step',
-            answer_text=answer_text,
+            answer_text="",
             plan=plan,
             steps=ordered_results,
             referenced_chunks=referenced_chunks,

@@ -10,6 +10,7 @@ from shared.services.retrieval.search.channels import content_channel, path_chan
 from shared.services.retrieval.graph.query_service import GraphQueryService
 from shared.services.retrieval.search.ranking import rank_retrieval_candidates
 from shared.services.retrieval.execution.response_projection import attach_citation
+from shared.services.retrieval.hydration.legacy_evidence import render_legacy_evidence_text
 from shared.services.retrieval.hydration.result_assembly import assemble_retrieval_results
 from shared.services.retrieval.execution.route_types import (
     RetrievalRouteContext,
@@ -77,6 +78,8 @@ async def run_legacy_retrieval_route(
         "namespace": context.namespace,
         "query": context.query,
         "router_used": router_used,
+        "evidence_text": render_legacy_evidence_text(results),
+        "answer_text": "",
         "results": results,
     }
     return RetrievalRouteOutcome(
