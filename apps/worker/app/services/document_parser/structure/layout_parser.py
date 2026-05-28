@@ -595,17 +595,27 @@ def pred_titles(
 
 
 def est_hierarchies_naive(raw_preds, proceed_smart=True, output_dir=None):
-    """Pre-LLM heading filtering via regex and negative pattern checks.
+    """Regex-only heading hierarchy estimation (LLM fallback).
 
-    This stage determines the initial candidate/body split that
-    ``compact_for_llm`` relies on (level > -1 → candidate, -1 → body text).
-    The estimated level itself is NOT forwarded to the LLM.
+    When used as the primary pipeline step (before LLM), this function
+    determines the initial candidate/body split that ``compact_for_llm``
+    relies on (level > -1 → candidate, -1 → body text).
+
+    When used as a **fallback** after LLM failure, the returned levels
+    must be usable for tree construction.  Single-level POS matches
+    (``get_max_lvl`` returns -2 for patterns like)
+    are normalized to level 1 so the output forms a valid hierarchy.
 
     The ``proceed_smart`` and ``output_dir`` parameters are retained for API
     compatibility but have no effect.
     """
     logger.debug("🚀 non-llm parsing => judge_negs filtering")
     heading_preds = postprocess_headings(raw_preds, task="judge_negs")
+
+    # legitimate heading candidates; default them to top-level.
+    heading_preds["level"] = heading_preds["level"].map(
+        lambda x: 1 if x == -2 else x
+    )
     return heading_preds
 
 
