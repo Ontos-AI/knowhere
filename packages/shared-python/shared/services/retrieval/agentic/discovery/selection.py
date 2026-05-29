@@ -125,7 +125,7 @@ def _project_discovery_hints(
         section_path = normalize_section_path(hint.get("section_path", ""))
         if not section_path:
             continue
-        if section_path in exclude_set:
+        if _is_covered_by_exclude(section_path, exclude_set):
             continue
         if section_path in hint_by_path:
             continue
@@ -137,6 +137,21 @@ def _project_discovery_hints(
             hint_lines.append(f"    {summary[:300]}")
 
     return hint_lines, hint_by_path
+
+
+def _is_covered_by_exclude(path: str, exclude_set: set[str]) -> bool:
+    """Check if *path* is covered by any entry in *exclude_set*.
+
+    A path is covered if it exactly matches an exclude entry, OR if any
+    exclude entry is a prefix of this path (i.e. the parent path was
+    already collected by navigation).
+    """
+    if path in exclude_set:
+        return True
+    for excluded in exclude_set:
+        if path.startswith(excluded + " / "):
+            return True
+    return False
 
 
 def _build_discovery_selection_prompt(
@@ -187,6 +202,10 @@ def _build_discovery_path_selections(
                 "hydrate_mode": "self_only",
             })
             continue
-        path_selections.append({"path": path, "confidence": confidence})
+        path_selections.append({
+            "path": path,
+            "confidence": confidence,
+            "hydrate_mode": "self_only",
+        })
 
     return path_selections, chunk_refs

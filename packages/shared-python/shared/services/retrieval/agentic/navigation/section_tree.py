@@ -16,6 +16,7 @@ async def load_child_sections(
     job_result_id: str,
     scope_path: str | list[str] | None = None,
     exclude_paths: set[str] | None = None,
+    limit_depth: bool = True,
 ) -> list[dict]:
     """Load the continuous context tree for a navigation scope."""
     stmt = (
@@ -84,15 +85,16 @@ async def load_child_sections(
     if not items_by_path:
         return []
 
-    allowed_set = _resolve_allowed_depths(items_by_path, scope_list)
-    if allowed_set:
-        to_remove = [
-            path
-            for path, item in items_by_path.items()
-            if item["show_summary"] and item["level"] not in allowed_set
-        ]
-        for path in to_remove:
-            del items_by_path[path]
+    if limit_depth:
+        allowed_set = _resolve_allowed_depths(items_by_path, scope_list)
+        if allowed_set:
+            to_remove = [
+                path
+                for path, item in items_by_path.items()
+                if item["show_summary"] and item["level"] not in allowed_set
+            ]
+            for path in to_remove:
+                del items_by_path[path]
 
     if not items_by_path:
         return []

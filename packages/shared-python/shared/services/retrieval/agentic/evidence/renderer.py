@@ -48,8 +48,9 @@ def render_unified_doc_tree(
             render_queue.append((min_sort(path), "orphan_leaf", path))
 
     for path in node.children:
-        if path not in outline_paths:
-            render_queue.append((float("inf"), "orphan_child", path))
+        if path not in outline_paths and path not in node.leaf_content:
+            child_sort = _infer_child_sort_order(node.children[path])
+            render_queue.append((child_sort, "orphan_child", path))
 
     render_queue.sort(key=lambda item: item[0])
 
@@ -82,17 +83,27 @@ def render_unified_doc_tree(
         elif render_type == "orphan_leaf":
             path = cast(str, data)
             title = path.rsplit(" / ", 1)[-1] if " / " in path else path
-            parts.append(f"{indent}▸ [Leaf] {title}")
-            render_leaf_chunks(parts, node.leaf_content[path], indent + "    ", asset_lookup=asset_lookup)
+            sub_indent = indent + "    "
+            if path in node.children:
+                # Non-leaf node with own content: render heading, then
+                # self chunks, then child subtree (merged rendering).
+                parts.append(f"{indent}▸ {title}")
+                render_leaf_chunks(parts, node.leaf_content[path], sub_indent, asset_lookup=asset_lookup)
+                child_text = render_unified_doc_tree(node.children[path], doc_name, depth + 1, asset_lookup=asset_lookup)
+                if child_text.strip():
+                    parts.append(child_text)
+            else:
+                parts.append(f"{indent}▸ [Leaf] {title}")
+                render_leaf_chunks(parts, node.leaf_content[path], sub_indent, asset_lookup=asset_lookup)
 
         elif render_type == "orphan_child":
             path = cast(str, data)
             title = path.rsplit(" / ", 1)[-1] if " / " in path else path
             child_text = render_unified_doc_tree(node.children[path], doc_name, depth + 1, asset_lookup=asset_lookup)
-            # Only render the [DrillDown] heading if the child has content.
+            # Only render the orphan heading if the child has content.
             # Prevents empty orphan nodes from polluting evidence_text.
             if child_text.strip():
-                parts.append(f"{indent}▸ {title} [DrillDown]")
+                parts.append(f"{indent}▸ {title}")
                 parts.append(child_text)
 
     return "\n".join(parts)
@@ -182,3 +193,23 @@ def render_leaf_chunks(
                 for line in table_html.split("\n"):
                     if line.strip():
                         parts.append(f"{indent}┈ {line}")
+
+
+def _infer_child_sort_order(child: DocTreeNode) -> float:
+    """Infer sort position from the child's earliest chunk sort_order.
+
+    When an orphan child node has no outline entry, we fall back to the
+    minimum ``sort_order`` across all its hydrated chunks so that orphans
+    render in document order instead of being appended at the end.
+    """
+    min_order = float("inf")
+    for chunks in child.leaf_content.values():
+        for chunk in chunks:
+            order = chunk.get("sort_order")
+            if order is not None and order < min_order:
+                min_order = float(order)
+    for grandchild in child.children.values():
+        grandchild_order = _infer_child_sort_order(grandchild)
+        min_order = min(min_order, grandchild_order)
+    return min_order
+

@@ -22,6 +22,8 @@ def get_max_lvl(code_str: str) -> int:
     integers, so the ``[…]`` bracket match is guaranteed.
     """
     match = re.search(r"\[([^]]+)]", code_str)
+    if match is None:
+        return -2
     nums = [int(item.strip()) for item in match.group(1).split(",")]
     max_value = int(max(nums))
     return max_value if max_value > 1 else -2

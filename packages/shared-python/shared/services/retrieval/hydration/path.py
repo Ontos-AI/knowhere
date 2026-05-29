@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
@@ -148,9 +148,20 @@ async def _hydrate_chunk_paths(
 ) -> list[dict[str, Any]]:
     section_path_filters = []
     self_only_paths = {path for path in chunk_paths if mode_by_path.get(path) == 'self_only'}
+    shallow_paths = {path for path in chunk_paths if mode_by_path.get(path) == 'shallow'}
     for path in chunk_paths:
         section_path_filters.append(DocumentSection.section_path == path)
-        if path not in self_only_paths:
+        if path in self_only_paths:
+            pass  # exact match only — no descendants
+        elif path in shallow_paths:
+            # Direct children only: match "path / X" but not "path / X / Y"
+            section_path_filters.append(
+                and_(
+                    DocumentSection.section_path.like(f'{path} / %'),
+                    ~DocumentSection.section_path.like(f'{path} / % / %'),
+                )
+            )
+        else:
             section_path_filters.append(DocumentSection.section_path.like(f'{path} / %'))
 
     stmt = (
@@ -228,6 +239,7 @@ def _get_allowed_types_for_mode(path_mode: str) -> set[str] | None:
     mode_allowed_types: dict[str, set[str] | None] = {
         'chunks': None,
         'self_only': None,
+        'shallow': None,
         'assets_only': {'image', 'table'},
         'image_only': {'image'},
         'table_only': {'table'},

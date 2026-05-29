@@ -28,7 +28,6 @@ from shared.services.retrieval.agentic.discovery.phase import (
 )
 from shared.services.retrieval.agentic.navigation.document import DocumentNavigationRunner
 from shared.services.retrieval.agentic.evidence.builder import (
-    render_evidence as _render_evidence,
     trim_evidence_to_budget as _trim_evidence_to_budget,
 )
 from shared.services.retrieval.agentic.core.runtime import (

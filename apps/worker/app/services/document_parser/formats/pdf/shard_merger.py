@@ -61,6 +61,7 @@ def merge_shard_lines(shard_lines_list: list[list[str]]) -> list[str]:
 
             if (
                 last_heading_pos is not None
+                and last_heading_key is not None
                 and last_heading_key == next_first_heading
             ):
                 # Truncate from the last (duplicate) heading onward

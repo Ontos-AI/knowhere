@@ -114,6 +114,7 @@ class DocumentNavigationRunner:
             doc=doc,
             root=root,
             doc_name=doc_name,
+            collected_paths=collected_paths,
         )
 
         # Phase 2C: Batch hydrate all collected paths
@@ -288,6 +289,12 @@ class DocumentNavigationRunner:
                 deduped[path] = item
         unique_selections = list(deduped.values())
 
+        # Ensure child nodes exist for each collected path so reparent can
+        # correctly route descendant chunks into the right subtree.
+        for item in unique_selections:
+            path = item["path"]
+            _ensure_child_node(root, path)
+
         await hydrate_path_selections_into_node(
             self._db,
             node=root,
@@ -300,6 +307,37 @@ class DocumentNavigationRunner:
 
         # Single reparent pass — tree structure is final.
         root.reparent_leaf_content()
+
+        # Load section tree outline for each collected child node, then
+        # build a proper sub-tree so the renderer can nest L3 under L2 etc.
+        from shared.services.retrieval.agentic.navigation.section_tree import load_child_sections
+        for item in unique_selections:
+            path = item["path"]
+            child_node = root.children.get(path)
+            if child_node is None or child_node.outline_items:
+                continue  # Skip if no child or already has outline
+            try:
+                section_items = await load_child_sections(
+                    self._db, doc.document_id, job_result_id, path,
+                    limit_depth=False,
+                )
+                if section_items:
+                    # Filter out the scope node itself to avoid duplicate
+                    # title rendering (parent outline already shows it).
+                    child_node.outline_items = [
+                        si for si in section_items
+                        if si.get("path") != path
+                    ]
+                    # Build sub-tree from outline hierarchy and re-reparent
+                    # so chunks are correctly nested (e.g. L3 under L2).
+                    _build_outline_subtree(child_node)
+            except Exception as exc:
+                logger.warning(f"  hydrate_collected: failed to load outline for '{path}': {exc}")
+
+        # Also organize any discovery chunks sitting in root.leaf_content.
+        # Same path-based tree building; pre-existing children are protected.
+        if root.leaf_content:
+            _build_outline_subtree(root)
 
         # Accurate budget accounting — count only actually-hydrated chunks.
         if self._state.ledger is not None:
@@ -368,6 +406,7 @@ class DocumentNavigationRunner:
         doc: CandidateDoc,
         root: DocTreeNode,
         doc_name: str,
+        collected_paths: list[dict[str, Any]] | None = None,
     ) -> None:
         doc_hints = self._discovery_by_doc.get(doc.document_id, [])
         if not doc_hints or self._llm_fn is None:
@@ -375,7 +414,9 @@ class DocumentNavigationRunner:
         if self._state.elapsed_ms >= self._config.latency_budget_ms:
             return
 
-        discovery_exclude_paths = _collect_leaf_paths(root)
+        discovery_exclude_paths = _build_discovery_exclude_set(
+            root, collected_paths or []
+        )
         doc_discovery_llm_fn = self._llm_budget.for_discovery(
             cast(LLMFn, self._llm_fn),
             doc_id=doc.document_id,
@@ -556,3 +597,124 @@ def _collect_leaf_paths(node: DocTreeNode) -> set[str]:
     for child in node.children.values():
         paths.update(_collect_leaf_paths(child))
     return paths
+
+
+def _build_discovery_exclude_set(
+    root: DocTreeNode,
+    collected_paths: list[dict[str, Any]],
+) -> set[str]:
+    """Build exclude set for discovery using collected navigation paths.
+
+    If navigation COLLECT'd a parent path like "五、施工安全保证措施",
+    all discovery hints under that path should be excluded because
+    COLLECT already loads all descendants via prefix matching.
+    """
+    # 1. Already-hydrated leaf paths
+    exclude = _collect_leaf_paths(root)
+
+    # 2. Collected parent paths from navigation COLLECT decisions.
+    #    These haven't been hydrated yet (hydrate runs after discovery),
+    #    but we know COLLECT will load all their descendants.
+    for item in collected_paths:
+        path = item.get("path", "")
+        if path:
+            exclude.add(path)
+
+    return exclude
+
+
+def _ensure_child_node(root: DocTreeNode, path: str) -> None:
+    """Create an intermediate child node for *path* if it doesn't exist.
+
+    When a non-leaf section is COLLECTed (e.g. "五、施工安全保证措施"),
+    hydration loads all descendant chunks (e.g. "五、... / 3.监控量测措施 / 3.1...").
+    These chunks are initially placed in root.leaf_content.
+    ``reparent_leaf_content`` then moves them into the correct child subtree —
+    but only if a child node exists for the collected path.
+
+    This function creates that child node so reparent can work correctly.
+    """
+    # Don't create a child for root-level or if already exists
+    if not path:
+        return
+
+    # Walk to find the deepest existing ancestor node
+    target = root
+    for child_path, child in root.children.items():
+        if path.startswith(child_path + " / "):
+            target = child
+            break
+        if path == child_path:
+            return  # Already exists
+
+    # Create the child node on the target
+    if path not in target.children:
+        target.children[path] = DocTreeNode(scope_path=path)
+
+
+def _build_outline_subtree(node: DocTreeNode) -> None:
+    """Recursively build child nodes from outline_items + leaf_content paths.
+
+    Every section_path is ``" / "``-separated; parent-child is prefix match.
+    This function creates children one level at a time, reparents chunks
+    into them, then recurses so the next level is handled correctly.
+    """
+    if not node.outline_items and not node.leaf_content:
+        return
+
+    # All known paths: outline metadata + actual chunk paths.
+    all_paths = (
+        {item["path"] for item in node.outline_items}
+        | set(node.leaf_content.keys())
+    )
+
+    # Find paths that have at least one descendant.
+    parent_paths: set[str] = set()
+    for path in all_paths:
+        for other in all_paths:
+            if other != path and other.startswith(path + " / "):
+                parent_paths.add(path)
+                break
+
+    if not parent_paths:
+        return  # All items are leaves — nothing to nest.
+
+    # KEY FIX: only keep top-level parents.  If "A / B" and "A / B / C"
+    # are both parents, only create "A / B" as a child NOW.  "A / B / C"
+    # will be created when the function recurses into "A / B".
+    parent_paths = {
+        pp for pp in parent_paths
+        if not any(pp != other and pp.startswith(other + " / ") for other in parent_paths)
+    }
+
+    # Track children that already exist (e.g. from collected hydration).
+    # Their outline_items are already populated — don't push duplicates.
+    pre_existing = set(node.children.keys())
+
+    # Create child nodes for top-level parent paths only.
+    for path in parent_paths:
+        if path not in node.children:
+            node.children[path] = DocTreeNode(scope_path=path)
+
+    # Split outline_items: keep items at this level, move descendants
+    # into newly-created children only (skip pre-existing ones).
+    kept: list[dict] = []
+    for item in node.outline_items:
+        item_path = item["path"]
+        best_parent: str | None = None
+        for pp in parent_paths:
+            if item_path.startswith(pp + " / "):
+                if best_parent is None or len(pp) > len(best_parent):
+                    best_parent = pp
+        if best_parent and best_parent not in pre_existing:
+            node.children[best_parent].outline_items.append(item)
+        else:
+            kept.append(item)
+    node.outline_items = kept
+
+    # Reparent FIRST so children receive their leaf_content,
+    # THEN recurse so deeper levels can be built from that content.
+    node.reparent_leaf_content()
+    for child in node.children.values():
+        _build_outline_subtree(child)
+

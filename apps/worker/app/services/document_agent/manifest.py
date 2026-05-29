@@ -110,7 +110,7 @@ class TocAnchorPage:
 class TocResult:
     toc_pages: list[int] = field(default_factory=list)
     candidates: list[TocCandidate] = field(default_factory=list)
-    method: Literal["toc_marker", "vlm_progressive", "visual_scan", "none"] = "none"
+    method: Literal["toc_marker", "vlm_progressive", "vlm_batch", "visual_scan", "none"] = "none"
     notes: str = ""
 
     def to_dict(self) -> dict[str, Any]:
