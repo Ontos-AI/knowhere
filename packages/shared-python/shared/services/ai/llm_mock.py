@@ -20,7 +20,9 @@ def build_mock_chat_completion_response(
         model_name,
         task_name,
     )
-    # For agentic tasks that need dynamic path extraction, build the response here.
+    # For agentic tasks that need dynamic content extraction, build the response here.
+    if task_name == "agentic-planner":
+        return _build_planner_mock_response(prompt_text)
     if task_name == "agentic-navigate":
         return _build_navigate_mock_response(prompt_text)
     if task_name == "agentic-discovery-select":
@@ -187,6 +189,38 @@ def _extract_first_section_path(prompt_text: str) -> str | None:
         if cleaned:
             return cleaned
     return None
+
+
+def _extract_user_query(prompt_text: str) -> str:
+    """Extract the user query line from a planner/navigation prompt.
+
+    The PLANNER_PROMPT and COLLECTOR_PROMPT both contain::
+        User query: {query}
+    """
+    match = re.search(r"User query:\s*(.+)", prompt_text)
+    if match:
+        return match.group(1).strip()
+    return "mock query"
+
+
+def _build_planner_mock_response(prompt_text: str) -> str:
+    """Return a valid single-step QueryPlan JSON using the real query from the prompt."""
+    query = _extract_user_query(prompt_text)
+    response = {
+        "reasoning_summary": "mock single-step plan",
+        "steps": [
+            {
+                "id": "s1",
+                "sub_query": query,
+                "step_kind": "retrieve",
+                "depends_on": [],
+                "output_role": "final_part",
+                "top_k": 10,
+            }
+        ],
+        "final_strategy": "concat_final_parts",
+    }
+    return json.dumps(response)
 
 
 def _build_navigate_mock_response(prompt_text: str) -> str:
