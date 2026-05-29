@@ -52,7 +52,6 @@ async def navigate_step(
     )
     scope_path_set = set(scope_paths)
 
-    empty = DocTreeNode.empty(scope_paths[0] if scope_paths else None)
 
     try:
         items = await load_child_sections(
