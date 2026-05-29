@@ -162,13 +162,16 @@ def _detect_mock_task(prompt_text: str) -> str:
 
 
 def _extract_first_section_path(prompt_text: str) -> str | None:
-    """Pull the first path-like token from a COLLECTOR_PROMPT section tree block.
+    """Pull the first path value from a COLLECTOR_PROMPT section tree block.
 
-    The section tree overview contains lines like:
-        - Section Name [Leaf] (~500 tokens)
-        - path/to/section [Leaf]
-    We look for the first path segment between '=== Section Tree ===' and
-    '=== End Section Tree ===' and return it verbatim.
+    The section tree is rendered by section_prompt_projection.format_items_for_llm()
+    and each item line looks like::
+
+        ▸ [L1] path="Root" [text=1] ~100 tokens [Leaf]
+        └ [L2] path="Root / Sub" [text=2] ~200 tokens
+
+    We extract the value inside path="..." from the first matching line
+    within the === Section Tree === block.
     """
     tree_match = re.search(
         r"=== Section Tree ===(.*?)=== End Section Tree ===",
@@ -178,17 +181,12 @@ def _extract_first_section_path(prompt_text: str) -> str | None:
     if not tree_match:
         return None
     tree_block = tree_match.group(1)
-    # Lines look like: "  - Some Section Title [Leaf] (~500 tokens)"
-    # or indented with bullets. Grab the first one.
-    for line in tree_block.splitlines():
-        stripped = line.strip().lstrip("-•* ").strip()
-        if not stripped:
-            continue
-        # Strip trailing annotations like [Leaf], [✓], (~500 tokens)
-        cleaned = re.sub(r"\s*\[.*?\]|\s*\(~[\d.]+k? tokens\)", "", stripped).strip()
-        if cleaned:
-            return cleaned
+    # Match path="..." in the section tree — this is the canonical format
+    path_match = re.search(r'path="([^"]+)"', tree_block)
+    if path_match:
+        return path_match.group(1)
     return None
+
 
 
 def _extract_user_query(prompt_text: str) -> str:
@@ -247,7 +245,15 @@ def _build_navigate_mock_response(prompt_text: str) -> str:
 
 
 def _extract_first_discovery_path(prompt_text: str) -> str | None:
-    """Pull the first path from a DISCOVERY_SELECT_PROMPT candidates block."""
+    """Pull the first path value from a DISCOVERY_SELECT_PROMPT candidates block.
+
+    Discovery hints are rendered by selection._project_discovery_hints() as::
+
+        ▸ path="Findings"
+            <summary text>
+
+    We extract the value inside path="..." from the candidates block.
+    """
     candidates_match = re.search(
         r"=== Discovery Candidates ===(.*?)=== End Discovery Candidates ===",
         prompt_text,
@@ -256,13 +262,10 @@ def _extract_first_discovery_path(prompt_text: str) -> str | None:
     if not candidates_match:
         return None
     block = candidates_match.group(1)
-    for line in block.splitlines():
-        stripped = line.strip().lstrip("-•* ").strip()
-        if stripped:
-            # Lines may be "path - summary" or just "path"
-            path_part = stripped.split(" - ")[0].strip()
-            if path_part:
-                return path_part
+    # Match path="..." — same canonical format as section tree
+    path_match = re.search(r'path="([^"]+)"', block)
+    if path_match:
+        return path_match.group(1)
     return None
 
 
