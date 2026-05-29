@@ -682,8 +682,7 @@ cd apps/worker && uv run worker.py     # Celery worker
 
 | Script | Purpose |
 |:---|:---|
-| `debug_parse.py` | End-to-end parsing with `MockRedis`, `LOCAL_DEBUG=1` |
-| `debug_hierarchy_llm.py` | Test heading recognition LLM calls |
+| `debug_parse.py` | Unified parsing debug: all formats, `--stop-at profile/hierarchy/full`, `--run-db` |
 | `debug_agentic_e2e.py` | End-to-end agentic retrieval test |
 | `debug_profiler.py` | Document profiler testing |
 | `debug_toc_detection.py` | TOC detection and hierarchy building |

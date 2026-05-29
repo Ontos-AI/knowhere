@@ -196,8 +196,13 @@ class RetrievalAgent:
         discovery_by_doc: dict[str, list[dict[str, Any]]] = {}
         for row in discovery_rows:
             doc_id = row.get('document_id', '')
-            if doc_id:
-                discovery_by_doc.setdefault(doc_id, []).append(row)
+            # Root chunks are navigable via the section tree; exclude them
+            # from discovery hints where the bare "Root" label gives the LLM
+            # no actionable information.
+            section_path = str(row.get('section_path', '') or '').strip()
+            if not doc_id or section_path == 'Root':
+                continue
+            discovery_by_doc.setdefault(doc_id, []).append(row)
 
         await register_discovery_documents(
             db,
@@ -215,6 +220,25 @@ class RetrievalAgent:
         evidence_text = ''
         stop_reason = 'evidence_only'
         failure_reason = ''
+        decision_trace: list[dict[str, Any]] = []
+
+        # Record KG document selection as the first decision trace entry
+        if state.selected_docs:
+            decision_trace.append({
+                'phase': 'kg_select',
+                'action': 'select',
+                'reason': f'{len(state.selected_docs)} document(s) selected for navigation',
+                'documents': [
+                    {
+                        'document': doc.source_file_name,
+                        'document_id': doc.document_id,
+                        'confidence': doc.confidence,
+                        'reason': doc.reason,
+                        'source': doc.source,
+                    }
+                    for doc in state.selected_docs
+                ],
+            })
 
         if state.elapsed_ms >= config.latency_budget_ms:
             stop_reason = 'latency_budget'
@@ -233,6 +257,7 @@ class RetrievalAgent:
                 llm_budget=llm_budget,
             )
             await navigation_runner.navigate_selected_documents()
+            decision_trace.extend(navigation_runner.decision_steps)
             context_remaining = state.ledger.remaining('context') if state.ledger else config.token_budget_total
             evidence_text = await _trim_evidence_to_budget(
                 db,
@@ -278,6 +303,7 @@ class RetrievalAgent:
             budget_snapshot=state.ledger.snapshot() if state.ledger else None,
             stop_reason=stop_reason,
             failure_reason=failure_reason,
+            decision_trace=decision_trace,
         )
 
         logger.info(

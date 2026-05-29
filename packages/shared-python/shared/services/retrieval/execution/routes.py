@@ -151,6 +151,14 @@ async def _run_agentic_route(
         if last_retrieve.failure_reason:
             response["failure_reason"] = last_retrieve.failure_reason
 
+    # Merge decision traces from all retrieve steps
+    all_decision_trace: list[dict] = []
+    for step in workflow_result.steps:
+        if step.decision_trace:
+            all_decision_trace.extend(step.decision_trace)
+    if all_decision_trace:
+        response["decision_trace"] = all_decision_trace
+
     completion_detail = (
         f"chunks | evidence={len(response.get('evidence_text') or '')} chars | "
         f"router={workflow_result.router_used}"

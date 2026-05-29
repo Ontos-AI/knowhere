@@ -95,6 +95,15 @@ class RetrievalQueryResponse(BaseModel):
     results: list[dict] = Field(default_factory=list)
     stop_reason: str | None = None
     failure_reason: str | None = None
+    decision_trace: list[dict] | None = Field(
+        default=None,
+        description=(
+            "Per-step navigation decisions from agentic retrieval. "
+            "Each entry has phase, document, action, reason, stop_type, "
+            "selected_paths, and hydrated_count. Use this to understand "
+            "why KNOWHERE stopped or made specific navigation choices."
+        ),
+    )
 
 
 @router.post("/query", response_model=RetrievalQueryResponse)

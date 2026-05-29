@@ -88,10 +88,13 @@ When action is NAVIGATE, provide selections:
 
 When action is STOP, selections must be empty.
 
+Always include a "reason" field (1-2 sentences) explaining your choice.
+When action is STOP, also include "stop_type" from: sufficient_outline, no_relevant_child, evidence_sufficient, budget_conserve.
+
 Return ONLY a JSON object:
-{{"action": "NAVIGATE", "tools": [...], "selections": [{{"path": "...", "confidence": <float>}}, ...]}}
+{{"action": "NAVIGATE", "reason": "...", "tools": [...], "selections": [{{"path": "...", "confidence": <float>}}, ...]}}
 or
-{{"action": "STOP", "tools": [...], "selections": []}}
+{{"action": "STOP", "reason": "...", "stop_type": "...", "tools": [...], "selections": []}}
 Do not include any explanation.
 """
 
@@ -100,7 +103,7 @@ def parse_action_response(text: str) -> dict:
     """Parse the unified navigation response from an LLM."""
     text = text.strip()
     asset_tools = {"FIND_IMAGES", "FIND_TABLES"}
-    default = {"action": "NAVIGATE", "tools": [], "selections": []}
+    default = {"action": "NAVIGATE", "tools": [], "selections": [], "reason": "", "stop_type": ""}
 
     def extract(data: dict) -> dict:
         action = str(data.get("action", "NAVIGATE")).strip().upper()
@@ -117,8 +120,11 @@ def parse_action_response(text: str) -> dict:
         else:
             tools = []
 
+        reason = str(data.get("reason") or "").strip()[:500]
+        stop_type = str(data.get("stop_type") or "").strip()[:50] if action == "STOP" else ""
+
         if action == "STOP":
-            return {"action": action, "tools": tools, "selections": []}
+            return {"action": action, "tools": tools, "selections": [], "reason": reason, "stop_type": stop_type}
 
         selections_val = data.get("selections") or []
         selections = []
@@ -131,7 +137,7 @@ def parse_action_response(text: str) -> dict:
                         "confidence": confidence or 0.7,
                     })
 
-        return {"action": action, "tools": tools, "selections": selections}
+        return {"action": action, "tools": tools, "selections": selections, "reason": reason, "stop_type": ""}
 
     data = _parse_json_object(text)
     if data is not None:
@@ -156,13 +162,10 @@ def format_budget_block(snapshot: dict | None) -> str:
     if not snapshot:
         return ""
     planning = snapshot.get("planning") or {}
-    context = snapshot.get("context") or {}
     return (
         "=== Resource Status ===\n"
         f"Planning Budget: {planning.get('status', 'HEALTHY')} "
         f"({planning.get('used_pct', 0)}% used)\n"
-        f"Context Budget: {context.get('status', 'HEALTHY')} "
-        f"({context.get('used_pct', 0)}% used)\n"
         f"KG Coverage: {snapshot.get('explored_chunks', 0)}/"
         f"{snapshot.get('total_chunks', 0)} chunks explored\n"
         f"Docs Explored: {snapshot.get('explored_docs', 0)}/"

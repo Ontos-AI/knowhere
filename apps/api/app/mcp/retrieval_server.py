@@ -74,6 +74,11 @@ def to_mcp_query_response(response: dict[str, Any]) -> dict[str, Any]:
         "evidence_text": response.get("evidence_text") or "",
     }
 
+    if response.get("stop_reason") is not None:
+        mcp_response["stop_reason"] = response["stop_reason"]
+    if response.get("decision_trace") is not None:
+        mcp_response["decision_trace"] = response["decision_trace"]
+
     return mcp_response
 
 

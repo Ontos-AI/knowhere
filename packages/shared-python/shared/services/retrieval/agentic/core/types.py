@@ -164,6 +164,24 @@ class DocTreeNode:
 
 
 @dataclass
+class NavigateStepResult:
+    """Return type for navigate_step — typed replacement for raw tuple."""
+    action: str  # "NAVIGATE" or "STOP"
+    tools: list[str] = field(default_factory=list)
+    node: DocTreeNode = field(default_factory=DocTreeNode)
+    pending: list[dict[str, Any]] = field(default_factory=list)
+    reason: str = ""
+    stop_type: str = ""  # only for STOP: sufficient_outline | no_relevant_child | ...
+
+    @staticmethod
+    def stop(scope_path: str | None = None) -> 'NavigateStepResult':
+        return NavigateStepResult(
+            action="STOP",
+            node=DocTreeNode.empty(scope_path),
+        )
+
+
+@dataclass
 class CandidateDoc:
     """A document selected by kg_document_select."""
     document_id: str
@@ -188,6 +206,8 @@ class AgenticResult:
     - ``stop_reason``: why the run terminated (evidence_only /
       latency_budget / context_budget / no_llm / etc.)
     - ``failure_reason``: fatal retrieval failure reason, if any.
+    - ``decision_trace``: per-step navigation decisions with reasons,
+      exposed to downstream agents for stop/retry/modify-query decisions.
     """
     evidence_text: str
     answer_text: str = ''
@@ -196,6 +216,7 @@ class AgenticResult:
     budget_snapshot: dict[str, Any] | None = None
     stop_reason: str = ''
     failure_reason: str = ''
+    decision_trace: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

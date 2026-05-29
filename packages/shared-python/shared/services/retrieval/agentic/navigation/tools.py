@@ -26,7 +26,7 @@ from shared.services.retrieval.agentic.navigation.section_tree import load_child
 from shared.services.retrieval.agentic.navigation.selection_hydration import (
     hydrate_path_selections_into_node,
 )
-from shared.services.retrieval.agentic.core.types import DocTreeNode
+from shared.services.retrieval.agentic.core.types import DocTreeNode, NavigateStepResult
 from shared.services.retrieval.llm_adapter import LLMFn
 
 
@@ -43,7 +43,7 @@ async def navigate_step(
     scope_path: str | list[str] | None = None,
     exclude_paths: set[str] | None = None,
     budget_snapshot: dict | None = None,
-) -> tuple[str, list[str], DocTreeNode, list[dict]]:
+) -> NavigateStepResult:
     """Navigate one document scope and hydrate selected sections."""
     scope_paths = (
         scope_path if isinstance(scope_path, list)
@@ -63,7 +63,7 @@ async def navigate_step(
             exclude_paths=exclude_paths,
         )
         if not items:
-            return "STOP", [], empty, []
+            return NavigateStepResult.stop(scope_paths[0] if scope_paths else None)
 
         selectable = {
             item["path"]: item for item in items if item.get("selectable", False)
@@ -95,6 +95,8 @@ async def navigate_step(
         action = parsed["action"]
         selected_tools = parsed["tools"]
         selections = parsed["selections"]
+        reason = parsed.get("reason", "")
+        stop_type = parsed.get("stop_type", "")
 
         scope_label = ", ".join(scope_paths) if scope_paths else "root"
         logger.info(
@@ -146,13 +148,20 @@ async def navigate_step(
             job_result_id=job_result_id,
         )
 
-        return action, selected_tools, node, pending
+        return NavigateStepResult(
+            action=action,
+            tools=selected_tools,
+            node=node,
+            pending=pending,
+            reason=reason,
+            stop_type=stop_type,
+        )
 
     except BudgetExceeded:
         raise
     except Exception as exc:
         logger.error(f"  navigate_step failed for doc={document_id}: {exc}")
-        return "STOP", [], empty, []
+        return NavigateStepResult.stop(scope_paths[0] if scope_paths else None)
 def _build_navigation_prompt(
     *,
     document_id: str,

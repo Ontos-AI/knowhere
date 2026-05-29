@@ -45,6 +45,8 @@ async def project_public_retrieval_response(response: dict[str, Any]) -> dict[st
         public_response['stop_reason'] = response['stop_reason']
     if response.get('failure_reason') is not None:
         public_response['failure_reason'] = response['failure_reason']
+    if response.get('decision_trace') is not None:
+        public_response['decision_trace'] = response['decision_trace']
 
     projected_rows = await enrich_rows_with_retrieval_asset_urls(
         response.get('results', []),

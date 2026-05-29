@@ -170,6 +170,7 @@ class StepResult:
     router_used: str = ""
     stop_reason: str = ""
     failure_reason: str = ""
+    decision_trace: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
 
     def to_api_dict(self) -> dict[str, Any]:
@@ -188,6 +189,7 @@ class StepResult:
             "router_used": self.router_used,
             "stop_reason": self.stop_reason,
             "failure_reason": self.failure_reason,
+            "decision_trace": self.decision_trace if self.decision_trace else None,
             "error": self.error,
         }
 

@@ -117,4 +117,5 @@ def _step_result_from_agentic(step: PlannedStep, result: AgenticResult) -> StepR
         router_used=result.router_used,
         stop_reason=result.stop_reason,
         failure_reason=result.failure_reason,
+        decision_trace=result.decision_trace,
     )

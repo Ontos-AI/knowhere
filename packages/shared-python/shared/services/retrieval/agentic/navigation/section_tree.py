@@ -56,6 +56,10 @@ async def load_child_sections(
             continue
         normalized_path = normalize_section_path(path)
         parts = split_section_path(normalized_path)
+        # Treat Root as a virtual L1 node so it appears in the
+        # navigation tree and the LLM can decide whether to drill in.
+        if normalized_path == "Root" and not parts:
+            parts = ["Root"]
         all_sections[normalized_path] = {
             "title": title or parts[-1] if parts else normalized_path,
             "summary": summary or "",
