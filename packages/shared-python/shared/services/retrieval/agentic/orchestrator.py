@@ -288,12 +288,8 @@ class RetrievalAgent:
                     seen_ref_ids.add(cid)
                     all_refs.append(ref)
 
-        # Re-render when navigation only produced structural context.
-        if not evidence_text or evidence_text == '(no evidence collected)':
-            evidence_text = await _render_evidence(
-                db,
-                state.doc_trees, state.doc_id_to_name,
-            )
+
+
 
         result = AgenticResult(
             evidence_text=evidence_text,

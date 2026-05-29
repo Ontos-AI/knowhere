@@ -17,7 +17,7 @@ from shared.utils.token_estimate import estimate_tokens
 
 def build_config_from_env() -> AgentRunConfig:
     return AgentRunConfig(
-        max_nav_depth=int(os.environ.get("RETRIEVAL_AGENTIC_MAX_NAV_DEPTH", "3")),
+        max_nav_steps=int(os.environ.get("RETRIEVAL_AGENTIC_MAX_NAV_STEPS", "6")),
         latency_budget_ms=int(os.environ.get("RETRIEVAL_AGENTIC_LATENCY_BUDGET_MS", "12000")),
         token_budget_total=int(os.environ.get("RETRIEVAL_AGENTIC_TOKEN_BUDGET_TOTAL", "40000")),
         planning_ratio=float(os.environ.get("RETRIEVAL_AGENTIC_PLANNING_RATIO", "0.5")),
@@ -104,7 +104,7 @@ class AgentLlmBudget:
         llm_fn: LLMFn,
         *,
         doc_id: str,
-        depth: int,
+        step: int = 0,
     ) -> LLMFn:
         async def _call(prompt: Any) -> str:
             return await self.call(
@@ -112,7 +112,7 @@ class AgentLlmBudget:
                 prompt,
                 pool="planning",
                 doc_id=doc_id,
-                priority="low" if depth >= 2 else "normal",
+                priority="low" if step >= 4 else "normal",
             )
 
         return _call

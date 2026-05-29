@@ -99,8 +99,8 @@ class RetrievalQueryResponse(BaseModel):
         default=None,
         description=(
             "Per-step navigation decisions from agentic retrieval. "
-            "Each entry has phase, document, action, reason, stop_type, "
-            "selected_paths, and hydrated_count. Use this to understand "
+            "Each entry has phase, document, action, reason, collected_paths, "
+            "and drill_into. Use this to understand "
             "why KNOWHERE stopped or made specific navigation choices."
         ),
     )

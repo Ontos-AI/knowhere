@@ -88,9 +88,11 @@ def render_unified_doc_tree(
         elif render_type == "orphan_child":
             path = cast(str, data)
             title = path.rsplit(" / ", 1)[-1] if " / " in path else path
-            parts.append(f"{indent}▸ {title} [DrillDown]")
             child_text = render_unified_doc_tree(node.children[path], doc_name, depth + 1, asset_lookup=asset_lookup)
+            # Only render the [DrillDown] heading if the child has content.
+            # Prevents empty orphan nodes from polluting evidence_text.
             if child_text.strip():
+                parts.append(f"{indent}▸ {title} [DrillDown]")
                 parts.append(child_text)
 
     return "\n".join(parts)

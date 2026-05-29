@@ -140,7 +140,8 @@ async def render_evidence(
 
     evidence_parts: list[str] = []
     for doc_id, doc_tree in doc_trees.items():
-        if doc_tree.has_content():
+        # Only render if there is actual evidence (hydrated chunks or outline content).
+        if doc_tree.has_leaf_content() or doc_tree.has_content():
             doc_name = doc_id_to_name.get(doc_id, doc_id)
             rendered = render_unified_doc_tree(
                 doc_tree,
@@ -150,7 +151,7 @@ async def render_evidence(
             if rendered.strip():
                 evidence_parts.append(rendered)
 
-    return "\n\n".join(evidence_parts) if evidence_parts else "(no evidence collected)"
+    return "\n\n".join(evidence_parts) if evidence_parts else ""
 
 
 def _iter_leaf_content(node: DocTreeNode):

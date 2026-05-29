@@ -49,17 +49,17 @@ Do not include any explanation.
 """
 
 
-ACTION_PROMPT = """\
+COLLECTOR_PROMPT = """\
 You are a document navigation agent.
 
 Document: "{doc_name}" (id: {doc_id})
 
 {budget_block}
-{scope_header}
+{trace_block}
 Below is the document's section tree.
-Sections tagged [SELECT] are the recommended selection granularity for this scope.
-Other visible sections are structural context and may be selected when you need to drill into that broader scope.
 Nodes marked [Leaf] have no further sub-sections.
+Nodes marked [✓] are already in your collection — do not re-collect them.
+Token estimates (e.g. ~1.2k) show approximate content size.
 
 === Section Tree ===
 {items_overview}
@@ -67,67 +67,134 @@ Nodes marked [Leaf] have no further sub-sections.
 
 User query: {query}
 
-=== Available Actions ===
+=== Behavioral Rules ===
 
-Choose ONE action:
+Each step you make TWO independent decisions:
 
-NAVIGATE — Drill into selected sections for detailed content.
-  Consider this when the query targets specific topics and you need deeper text evidence.
-  Prefer one or more [SELECT] sections, or choose a broader visible section when needed.
+1. COLLECT — Add sections to your evidence collection (optional, can be empty).
+   - COLLECT includes the section AND ALL its descendant content.
+   - If a node is [Leaf] or has ≤500 tokens, prefer COLLECT over DRILL.
+   - Do NOT re-collect paths marked [✓].
 
-STOP — Current scope evidence is sufficient. No further drill-down.
-  Consider this when:
-  - The query asks for an outline, overview, or summary
-  - The query is broad/global, the tree section can fulfill it without drilling into individual sections.
-  - You have already collected enough evidence at this level.
+2. Navigate action — Where to go next (required, choose ONE):
+   - DRILL — Open one section to see its children in the next step.
+     Use when a section has >1000 tokens and you need to be selective.
+     You cannot DRILL into a path you just COLLECTed (already fully included).
+   - BACK — Return to parent scope to explore other branches.
+   - STOP — End navigation. Use when you have enough evidence or nothing relevant remains.
 
 {tools_block}
 
-When action is NAVIGATE, provide selections:
-- Select visible section paths from the tree above; prefer [SELECT] paths when they fit.
-
-When action is STOP, selections must be empty.
-
-Always include a "reason" field (1-2 sentences) explaining your choice.
-When action is STOP, also include "stop_type" from: sufficient_outline, no_relevant_child, evidence_sufficient, budget_conserve.
-
 Return ONLY a JSON object:
-{{"action": "NAVIGATE", "reason": "...", "tools": [...], "selections": [{{"path": "...", "confidence": <float>}}, ...]}}
+{{"collect": [{{"path": "...", "confidence": <float>, "outline": false}}, ...],
+ "action": "DRILL",
+ "drill_into": "section/path",
+ "tools": [...],
+ "reason": "..."}}
 or
-{{"action": "STOP", "reason": "...", "stop_type": "...", "tools": [...], "selections": []}}
-Do not include any explanation.
+{{"collect": [...], "action": "BACK", "tools": [...], "reason": "..."}}
+or
+{{"collect": [...], "action": "STOP", "tools": [...], "reason": "..."}}
+
+Set "outline": true on a collect entry to collect only the section structure
+(titles and summaries) without full chunk content. Use for overview/structure queries.
+Do not include any explanation outside the JSON.
 """
 
 
-def parse_action_response(text: str) -> dict:
-    """Parse the unified navigation response from an LLM."""
+def parse_collector_response(text: str) -> dict:
+    """Parse the Collector Agent navigation response.
+
+    Expected format:
+    {"collect": [...], "action": "DRILL|BACK|STOP",
+     "drill_into": "path", "tools": [...], "reason": "..."}
+    """
     text = text.strip()
     asset_tools = {"FIND_IMAGES", "FIND_TABLES"}
-    default = {"action": "NAVIGATE", "tools": [], "selections": [], "reason": "", "stop_type": ""}
+    valid_actions = {"DRILL", "BACK", "STOP"}
+    default: dict[str, Any] = {
+        "collect": [], "action": "STOP", "drill_into": None,
+        "tools": [], "reason": "",
+    }
 
     def extract(data: dict) -> dict:
-        action = str(data.get("action", "NAVIGATE")).strip().upper()
-        if action not in ("NAVIGATE", "STOP"):
-            action = "NAVIGATE"
+        action = str(data.get("action", "STOP")).strip().upper()
+        if action not in valid_actions:
+            action = "STOP"
 
+        # Parse collect list
+        collect_val = data.get("collect") or []
+        collect: list[dict[str, Any]] = []
+        if isinstance(collect_val, list):
+            for item in collect_val:
+                if isinstance(item, dict) and item.get("path"):
+                    confidence = normalize_confidence(item.get("confidence", 0.7))
+                    outline = bool(item.get("outline", False))
+                    collect.append({
+                        "path": str(item["path"]),
+                        "confidence": confidence or 0.7,
+                        "outline": outline,
+                    })
+
+        # Parse drill target
+        drill_into = None
+        if action == "DRILL":
+            drill_into = data.get("drill_into")
+            if isinstance(drill_into, str):
+                drill_into = drill_into.strip() or None
+            else:
+                drill_into = None
+            if drill_into is None:
+                # No valid drill target → treat as STOP
+                action = "STOP"
+
+        # Parse tools
         tools_val = data.get("tools") or []
+        tools: list[str] = []
         if isinstance(tools_val, list):
             tools = [
-                str(tool).strip().upper()
-                for tool in tools_val
-                if str(tool).strip().upper() in asset_tools
+                str(t).strip().upper()
+                for t in tools_val
+                if str(t).strip().upper() in asset_tools
             ]
-        else:
-            tools = []
 
         reason = str(data.get("reason") or "").strip()[:500]
-        stop_type = str(data.get("stop_type") or "").strip()[:50] if action == "STOP" else ""
 
-        if action == "STOP":
-            return {"action": action, "tools": tools, "selections": [], "reason": reason, "stop_type": stop_type}
+        return {
+            "collect": collect,
+            "action": action,
+            "drill_into": drill_into,
+            "tools": tools,
+            "reason": reason,
+        }
 
+    data = _parse_json_object(text)
+    if data is not None:
+        return extract(data)
+
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
+    if fence_match:
+        data = _parse_json_object(fence_match.group(1).strip())
+        if data is not None:
+            return extract(data)
+
+    brace_match = re.search(r"\{.*\}", text, re.DOTALL)
+    if brace_match:
+        data = _parse_json_object(brace_match.group())
+        if data is not None:
+            return extract(data)
+
+    return default
+
+
+def parse_action_response(text: str) -> dict:
+    """Parse discovery_select response (legacy format, kept for discovery)."""
+    text = text.strip()
+    default: dict[str, Any] = {"selections": []}
+
+    def extract(data: dict) -> dict:
         selections_val = data.get("selections") or []
-        selections = []
+        selections: list[dict[str, Any]] = []
         if isinstance(selections_val, list):
             for selection in selections_val:
                 if isinstance(selection, dict) and selection.get("path"):
@@ -136,8 +203,7 @@ def parse_action_response(text: str) -> dict:
                         "path": str(selection["path"]),
                         "confidence": confidence or 0.7,
                     })
-
-        return {"action": action, "tools": tools, "selections": selections, "reason": reason, "stop_type": ""}
+        return {"selections": selections}
 
     data = _parse_json_object(text)
     if data is not None:

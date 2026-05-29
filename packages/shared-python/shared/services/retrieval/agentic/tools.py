@@ -100,10 +100,12 @@ async def navigate_step(
     user_id: str,
     namespace: str,
     doc_name: str = "",
-    scope_path: str | list[str] | None = None,
+    scope_path: str | None = None,
     exclude_paths: set[str] | None = None,
     budget_snapshot: dict | None = None,
-) -> tuple[str, list[str], DocTreeNode, list[dict]]:
+    nav_trace: list[dict[str, Any]] | None = None,
+    collected_paths: list[dict[str, Any]] | None = None,
+) -> navigation_tools.NavigateStepResult:
     return await navigation_tools.navigate_step(
         db,
         document_id=document_id,
@@ -116,6 +118,8 @@ async def navigate_step(
         scope_path=scope_path,
         exclude_paths=exclude_paths,
         budget_snapshot=budget_snapshot,
+        nav_trace=nav_trace,
+        collected_paths=collected_paths,
     )
 
 

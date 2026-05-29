@@ -16,7 +16,7 @@ from shared.services.retrieval.agentic.core.budget import BudgetLedger
 @dataclass
 class AgentRunConfig:
     """Budget and limit configuration for a single agent run."""
-    max_nav_depth: int = 3  # max scope_navigate recursion depth
+    max_nav_steps: int = 6  # max navigation steps per document (no depth limit)
     latency_budget_ms: int = 12000
     token_budget_total: int = 40000
     planning_ratio: float = 0.5
@@ -79,6 +79,17 @@ class DocTreeNode:
             return any(c.has_content() for c in self.children.values())
         return False
 
+    def has_leaf_content(self) -> bool:
+        """Check if this tree has any actual hydrated chunk content (not just outline).
+
+        Unlike ``has_content()`` which returns True for outline-only trees,
+        this method only returns True when real text/table/image chunks have
+        been hydrated into leaf_content.
+        """
+        if self.leaf_content:
+            return True
+        return any(c.has_leaf_content() for c in self.children.values())
+
     def flatten_chunk_rows(self) -> list[dict[str, Any]]:
         """Recursively collect all hydrated chunk rows (document order)."""
         rows: list[dict[str, Any]] = []
@@ -108,10 +119,16 @@ class DocTreeNode:
             existing.append(chunk)
 
     def reparent_leaf_content(self) -> None:
-        """Move descendant leaf paths into matching child nodes."""
+        """Move descendant leaf paths into matching child nodes.
+
+        Only moves true descendants (prefix match).  Content whose path
+        exactly equals a child key stays here — the renderer handles the
+        case where a path is both a child and a leaf (section with own
+        content *and* sub-sections).
+        """
         for child_path, child in list(self.children.items()):
             for leaf_path in list(self.leaf_content.keys()):
-                if leaf_path == child_path or leaf_path.startswith(child_path + ' / '):
+                if leaf_path.startswith(child_path + ' / '):
                     child.add_leaf_chunks(leaf_path, self.leaf_content.pop(leaf_path))
             child.reparent_leaf_content()
 
@@ -165,13 +182,32 @@ class DocTreeNode:
 
 @dataclass
 class NavigateStepResult:
-    """Return type for navigate_step — typed replacement for raw tuple."""
-    action: str  # "NAVIGATE" or "STOP"
+    """Return type for navigate_step — Collector Agent model.
+
+    Each step returns:
+    - ``collect``: paths to add to the evidence collection (full hydration)
+    - ``drill``: paths to explore deeper in subsequent steps
+    - ``action``: navigation direction — DRILL/BACK/STOP
+    - ``tools``: optional asset tools (FIND_IMAGES/FIND_TABLES)
+    - ``node``: outline tree node for rendering context
+    - ``reason``: LLM reasoning for trace
+    """
+    action: str = "STOP"  # DRILL | BACK | STOP
+    collect: list[dict[str, Any]] = field(default_factory=list)
+    drill: list[dict[str, Any]] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
     node: DocTreeNode = field(default_factory=DocTreeNode)
-    pending: list[dict[str, Any]] = field(default_factory=list)
     reason: str = ""
-    stop_type: str = ""  # only for STOP: sufficient_outline | no_relevant_child | ...
+
+    @property
+    def drill_into(self) -> str | None:
+        """Single drill target path, or None."""
+        return self.drill[0]["path"] if self.drill else None
+
+    @property
+    def is_terminal(self) -> bool:
+        """True when navigation should stop (STOP or empty collect+drill)."""
+        return self.action == "STOP" or (not self.collect and not self.drill)
 
     @staticmethod
     def stop(scope_path: str | None = None) -> 'NavigateStepResult':

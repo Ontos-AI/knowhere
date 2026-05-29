@@ -33,7 +33,7 @@ async def attach_section_counts(
     )
 
     sid_to_path = {meta["section_id"]: path for path, meta in all_sections.items()}
-    for section_id, (text_count, image_count, table_count) in section_id_counts.items():
+    for section_id, (text_count, image_count, table_count, total_chars) in section_id_counts.items():
         chunk_path = sid_to_path.get(section_id, "")
         if not chunk_path:
             continue
@@ -45,6 +45,7 @@ async def attach_section_counts(
                 item["chunk_count"] += text_count
                 item["image_count"] += image_count
                 item["table_count"] += table_count
+                item["total_chars"] += total_chars
 
     await _attach_connected_asset_counts(
         db,
@@ -61,7 +62,7 @@ async def _load_direct_chunk_counts(
     document_id: str,
     job_result_id: str,
     all_section_ids: list[str],
-) -> dict[str, tuple[int, int, int]]:
+) -> dict[str, tuple[int, int, int, int]]:
     chunk_stmt = (
         select(
             DocumentChunk.section_id,
@@ -80,6 +81,9 @@ async def _load_direct_chunk_counts(
                     (DocumentChunk.chunk_type == "table", literal_column("1")),
                 )
             ).label("table_count"),
+            func.coalesce(
+                func.sum(func.length(DocumentChunk.content)), 0
+            ).label("total_chars"),
         )
         .where(DocumentChunk.document_id == document_id)
         .where(DocumentChunk.job_result_id == job_result_id)
@@ -88,8 +92,8 @@ async def _load_direct_chunk_counts(
     )
     chunk_rows = (await db.execute(chunk_stmt)).all()
     return {
-        section_id: (int(text_count), int(image_count), int(table_count))
-        for section_id, text_count, image_count, table_count in chunk_rows
+        section_id: (int(text_count), int(image_count), int(table_count), int(total_chars))
+        for section_id, text_count, image_count, table_count, total_chars in chunk_rows
     }
 
 

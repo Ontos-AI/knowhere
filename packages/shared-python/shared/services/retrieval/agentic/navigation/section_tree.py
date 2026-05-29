@@ -110,7 +110,14 @@ async def load_child_sections(
         item.pop("sort_order", None)
         item.pop("section_id", None)
 
-    _mark_leaf_and_selectable(sorted_items, all_section_paths=set(all_sections.keys()), allowed_set=allowed_set)
+    # Mark leaf status (no descendants in full section list)
+    all_section_paths = set(all_sections.keys())
+    for item in sorted_items:
+        item_path = item["path"]
+        item["is_leaf"] = not any(
+            path != item_path and path.startswith(item_path + " / ")
+            for path in all_section_paths
+        )
     return sorted_items
 
 
@@ -168,6 +175,7 @@ def _make_item(path: str, meta: dict, show_summary: bool) -> dict:
         "chunk_count": 0,
         "image_count": 0,
         "table_count": 0,
+        "total_chars": 0,
         "section_id": meta["section_id"],
         "show_summary": show_summary,
     }
@@ -207,29 +215,3 @@ def _resolve_allowed_depths(items_by_path: dict[str, dict], scope_list: list[str
     return allowed_set
 
 
-def _mark_leaf_and_selectable(
-    sorted_items: list[dict],
-    *,
-    all_section_paths: set[str],
-    allowed_set: set[int],
-) -> None:
-    for item in sorted_items:
-        item_path = item["path"]
-        has_descendants = any(
-            path != item_path and path.startswith(item_path + " / ")
-            for path in all_section_paths
-        )
-        item["is_leaf"] = not has_descendants
-
-    if allowed_set:
-        shallowest_band = min(allowed_set)
-        for item in sorted_items:
-            if not item.get("show_summary", True):
-                item["selectable"] = False
-            elif item["level"] == shallowest_band and not item.get("is_leaf", False):
-                item["selectable"] = False
-            else:
-                item["selectable"] = True
-    else:
-        for item in sorted_items:
-            item["selectable"] = item.get("show_summary", True)

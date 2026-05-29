@@ -1,8 +1,16 @@
-"""Agentic retrieval navigation tools.
+"""Agentic retrieval navigation tools — Collector Agent model.
 
-This Module owns document-scope navigation and post-navigation discovery
-selection. It keeps the LLM prompt, section traversal, hydration, and asset
-owner reconciliation local to the navigation seam.
+Collector Agent architecture
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Each ``navigate_step`` returns two independent decisions:
+
+- **collect**: paths the agent adds to its evidence collection.
+  Collected paths are hydrated with full content after navigation completes.
+- **action + drill_into**: navigation direction (DRILL into a section,
+  BACK to parent, or STOP).
+
+Asset collection (images/tables) still runs during navigation so LLM
+tool requests are honoured, but assets are reconciled after hydration.
 """
 from __future__ import annotations
 
@@ -17,15 +25,16 @@ from shared.services.retrieval.agentic.navigation.assets import (
 )
 from shared.services.retrieval.agentic.core.budget import BudgetExceeded
 from shared.services.retrieval.agentic.prompts import (
-    ACTION_PROMPT,
+    COLLECTOR_PROMPT,
+    DISCOVERY_SELECT_PROMPT,
     format_budget_block,
-    parse_action_response,
+    parse_collector_response,
 )
-from shared.services.retrieval.agentic.navigation.section_prompt_projection import format_items_for_llm
+from shared.services.retrieval.agentic.navigation.section_prompt_projection import (
+    format_items_for_llm,
+    format_nav_trace,
+)
 from shared.services.retrieval.agentic.navigation.section_tree import load_child_sections
-from shared.services.retrieval.agentic.navigation.selection_hydration import (
-    hydrate_path_selections_into_node,
-)
 from shared.services.retrieval.agentic.core.types import DocTreeNode, NavigateStepResult
 from shared.services.retrieval.llm_adapter import LLMFn
 
@@ -40,18 +49,22 @@ async def navigate_step(
     user_id: str,
     namespace: str,
     doc_name: str = "",
-    scope_path: str | list[str] | None = None,
+    scope_path: str | None = None,
     exclude_paths: set[str] | None = None,
     budget_snapshot: dict | None = None,
+    nav_trace: list[dict[str, Any]] | None = None,
+    collected_paths: list[dict[str, Any]] | None = None,
 ) -> NavigateStepResult:
-    """Navigate one document scope and hydrate selected sections."""
-    scope_paths = (
-        scope_path if isinstance(scope_path, list)
-        else [scope_path] if scope_path
-        else []
-    )
-    scope_path_set = set(scope_paths)
+    """Navigate one document scope using the Collector Agent model.
 
+    Returns a ``NavigateStepResult`` with:
+    - ``collect``: paths to add to the evidence collection
+    - ``action``: DRILL/BACK/STOP
+    - ``drill``: the single drill target (if action == DRILL)
+    - ``tools``: asset tool invocations
+    - ``node``: outline tree node for rendering context
+    """
+    scope_paths = [scope_path] if scope_path else []
 
     try:
         items = await load_child_sections(
@@ -64,9 +77,6 @@ async def navigate_step(
         if not items:
             return NavigateStepResult.stop(scope_paths[0] if scope_paths else None)
 
-        selectable = {
-            item["path"]: item for item in items if item.get("selectable", False)
-        }
         visible_items = {
             item["path"]: item for item in items if item.get("show_summary", True)
         }
@@ -78,82 +88,102 @@ async def navigate_step(
         )
         tools_block = build_asset_tools_block(total_images, total_tables)
 
-        items_text, overflowed = format_items_for_llm(items)
-        prompt = _build_navigation_prompt(
-            document_id=document_id,
-            doc_name=doc_name,
+        # Build collected path set for [✓] marking on tree
+        collected_path_set = {
+            item.get("path", "") for item in (collected_paths or [])
+        }
+        items_text, overflowed = format_items_for_llm(
+            items,
+            collected_paths=collected_path_set,
+        )
+
+        # Build trace block (unified: scope + actions + collection)
+        trace_block = format_nav_trace(
+            nav_trace or [],
+            collected_paths or [],
+        )
+
+        prompt = COLLECTOR_PROMPT.format(
+            doc_name=doc_name or document_id,
+            doc_id=document_id,
+            budget_block=format_budget_block(budget_snapshot),
+            trace_block=trace_block,
+            items_overview=items_text,
             query=query,
-            scope_paths=scope_paths,
-            budget_snapshot=budget_snapshot,
-            items_text=items_text,
             tools_block=tools_block,
         )
 
         response = await llm_fn(prompt)
-        parsed = parse_action_response(response)
+        parsed = parse_collector_response(response)
         action = parsed["action"]
         selected_tools = parsed["tools"]
-        selections = parsed["selections"]
         reason = parsed.get("reason", "")
-        stop_type = parsed.get("stop_type", "")
+        raw_collect = parsed.get("collect", [])
+        drill_into = parsed.get("drill_into")
 
-        scope_label = ", ".join(scope_paths) if scope_paths else "root"
+        scope_label = scope_path or "root"
         logger.info(
             f"  navigate_step scope={scope_label}: "
-            f"action={action} tools={selected_tools} "
-            f"selections={len(selections)} selectable={len(selectable)} "
+            f"action={action} collect={len(raw_collect)} "
+            f"drill_into={drill_into} tools={selected_tools} "
             f"overflowed={overflowed}"
         )
 
         node = DocTreeNode(scope_path=scope_paths[0] if scope_paths else None)
         node.outline_items = [item for item in items if item.get("show_summary", True)]
 
-        raw_valid_selections = [
-            selection
-            for selection in selections
-            if selection["path"] in visible_items and selection["path"] not in scope_path_set
-        ]
-        valid_selections = _dedupe_selected_ancestors(raw_valid_selections)
-
-        pending: list[dict] = []
-        path_selections: list[dict[str, Any]] = []
-        for selection in valid_selections:
-            path = selection["path"]
-            confidence = selection.get("confidence", 0.7)
-            item = visible_items[path]
-            node.confidence[path] = confidence
-
-            if item.get("is_leaf"):
-                path_selections.append({
+        # Validate collect paths: must be visible and not already collected
+        valid_collect: list[dict[str, Any]] = []
+        for item in raw_collect:
+            path = item.get("path", "")
+            if path in visible_items and path not in collected_path_set:
+                confidence = item.get("confidence", 0.7)
+                outline = item.get("outline", False)
+                node.confidence[path] = confidence
+                valid_collect.append({
                     "path": path,
                     "confidence": confidence,
-                    "hydrate_mode": "chunks",
+                    "hydrate_mode": "outline" if outline else "chunks",
                 })
+
+        # Validate drill target: must be visible, not collected, not a leaf
+        valid_drill: list[dict[str, Any]] = []
+        if action == "DRILL" and drill_into:
+            if drill_into in visible_items and drill_into not in collected_path_set:
+                drill_item = visible_items[drill_into]
+                if drill_item.get("is_leaf"):
+                    # Leaf nodes can't be drilled — auto-collect instead
+                    logger.info(
+                        f"  navigate_step: drill target '{drill_into}' is a leaf, "
+                        f"auto-collecting instead"
+                    )
+                    if not any(c["path"] == drill_into for c in valid_collect):
+                        node.confidence[drill_into] = 0.7
+                        valid_collect.append({
+                            "path": drill_into,
+                            "confidence": 0.7,
+                            "hydrate_mode": "chunks",
+                        })
+                    action = "STOP"  # no valid drill target
+                else:
+                    valid_drill.append({
+                        "path": drill_into,
+                        "confidence": 0.8,
+                    })
             else:
-                pending.append({"path": path, "confidence": confidence})
-                path_selections.append({
-                    "path": path,
-                    "confidence": confidence,
-                    "hydrate_mode": "self_only",
-                })
-
-        await hydrate_path_selections_into_node(
-            db,
-            node=node,
-            path_selections=path_selections,
-            user_id=user_id,
-            namespace=namespace,
-            document_id=document_id,
-            job_result_id=job_result_id,
-        )
+                logger.warning(
+                    f"  navigate_step: drill target '{drill_into}' invalid "
+                    f"(not visible or already collected), falling back to STOP"
+                )
+                action = "STOP"
 
         return NavigateStepResult(
             action=action,
+            collect=valid_collect,
+            drill=valid_drill,
             tools=selected_tools,
             node=node,
-            pending=pending,
             reason=reason,
-            stop_type=stop_type,
         )
 
     except BudgetExceeded:
@@ -161,46 +191,63 @@ async def navigate_step(
     except Exception as exc:
         logger.error(f"  navigate_step failed for doc={document_id}: {exc}")
         return NavigateStepResult.stop(scope_paths[0] if scope_paths else None)
-def _build_navigation_prompt(
+
+
+async def discovery_select_step(
+    db: AsyncSession,
     *,
     document_id: str,
-    doc_name: str,
     query: str,
-    scope_paths: list[str],
-    budget_snapshot: dict | None,
-    items_text: str,
-    tools_block: str,
-) -> str:
-    if not scope_paths:
-        scope_header = "Current scope: root (document top level)"
-    elif len(scope_paths) == 1:
-        scope_header = f'Current scope: navigating into "{scope_paths[0]}"'
-    else:
-        scope_header = f"Current scope: navigating into {len(scope_paths)} sections"
-
-    return ACTION_PROMPT.format(
-        doc_name=doc_name or document_id,
-        doc_id=document_id,
-        scope_header=scope_header,
-        budget_block=format_budget_block(budget_snapshot),
-        items_overview=items_text,
-        query=query,
-        tools_block=tools_block,
+    llm_fn: LLMFn,
+    user_id: str,
+    namespace: str,
+    doc_name: str = "",
+    discovery_hints: list[dict[str, Any]],
+    exclude_paths: set[str] | None = None,
+    budget_snapshot: dict | None = None,
+) -> DocTreeNode:
+    """Select discovery hint paths via LLM and hydrate them."""
+    from shared.services.retrieval.agentic.prompts import parse_action_response
+    from shared.services.retrieval.agentic.navigation.selection_hydration import (
+        hydrate_path_selections_into_node,
     )
 
+    excluded = exclude_paths or set()
+    filtered_hints = [
+        hint for hint in discovery_hints
+        if hint.get("path", "") not in excluded
+    ]
+    if not filtered_hints:
+        return DocTreeNode(scope_path=None)
 
-def _dedupe_selected_ancestors(selections: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Keep coarser selected ancestors when both parent and child paths are selected."""
-    selected_paths = [str(selection.get("path") or "") for selection in selections]
-    kept: list[dict[str, Any]] = []
-    for selection in selections:
-        path = str(selection.get("path") or "")
-        if not path:
-            continue
-        if any(
-            other != path and path.startswith(other + " / ")
-            for other in selected_paths
-        ):
-            continue
-        kept.append(selection)
-    return kept
+    items_text = "\n".join(
+        f'- path="{hint.get("path", "")}" score={hint.get("score", 0):.2f}'
+        for hint in filtered_hints
+    )
+    prompt = DISCOVERY_SELECT_PROMPT.format(
+        doc_name=doc_name or document_id,
+        budget_block=format_budget_block(budget_snapshot),
+        items=items_text,
+        query=query,
+    )
+
+    response = await llm_fn(prompt)
+    parsed = parse_action_response(response)
+    selections = parsed.get("selections", [])
+
+    node = DocTreeNode(scope_path=None)
+    if selections:
+        path_selections = [
+            {"path": sel["path"], "confidence": sel.get("confidence", 0.7), "hydrate_mode": "chunks"}
+            for sel in selections
+        ]
+        await hydrate_path_selections_into_node(
+            db,
+            node=node,
+            path_selections=path_selections,
+            user_id=user_id,
+            namespace=namespace,
+            document_id=document_id,
+        )
+
+    return node
