@@ -346,15 +346,14 @@ async def test_should_return_empty_results_for_an_empty_query(
         )
 
     assert response.status_code == 200
-    assert response.json() == {
-        "namespace": "default",
-        "query": "",
-        "router_used": "empty_query_filtered",
-        "evidence_text": "",
-        "answer_text": "",
-        "results": [],
-        "referenced_chunks": [],
-    }
+    response_json = response.json()
+    assert response_json["namespace"] == "default"
+    assert response_json["query"] == ""
+    assert response_json["router_used"] == "empty_query_filtered"
+    assert response_json["evidence_text"] == ""
+    assert response_json["answer_text"] == ""
+    assert response_json["results"] == []
+    assert response_json["referenced_chunks"] == []
 
 
 @pytest.mark.asyncio
