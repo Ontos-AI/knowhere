@@ -26,7 +26,6 @@ from shared.services.retrieval.agentic.navigation.assets import (
 from shared.services.retrieval.agentic.core.budget import BudgetExceeded
 from shared.services.retrieval.agentic.prompts import (
     COLLECTOR_PROMPT,
-    DISCOVERY_SELECT_PROMPT,
     format_budget_block,
     parse_collector_response,
 )
@@ -192,62 +191,3 @@ async def navigate_step(
         logger.error(f"  navigate_step failed for doc={document_id}: {exc}")
         return NavigateStepResult.stop(scope_paths[0] if scope_paths else None)
 
-
-async def discovery_select_step(
-    db: AsyncSession,
-    *,
-    document_id: str,
-    query: str,
-    llm_fn: LLMFn,
-    user_id: str,
-    namespace: str,
-    doc_name: str = "",
-    discovery_hints: list[dict[str, Any]],
-    exclude_paths: set[str] | None = None,
-    budget_snapshot: dict | None = None,
-) -> DocTreeNode:
-    """Select discovery hint paths via LLM and hydrate them."""
-    from shared.services.retrieval.agentic.prompts import parse_action_response
-    from shared.services.retrieval.agentic.navigation.selection_hydration import (
-        hydrate_path_selections_into_node,
-    )
-
-    excluded = exclude_paths or set()
-    filtered_hints = [
-        hint for hint in discovery_hints
-        if hint.get("path", "") not in excluded
-    ]
-    if not filtered_hints:
-        return DocTreeNode(scope_path=None)
-
-    items_text = "\n".join(
-        f'- path="{hint.get("path", "")}" score={hint.get("score", 0):.2f}'
-        for hint in filtered_hints
-    )
-    prompt = DISCOVERY_SELECT_PROMPT.format(
-        doc_name=doc_name or document_id,
-        budget_block=format_budget_block(budget_snapshot),
-        items=items_text,
-        query=query,
-    )
-
-    response = await llm_fn(prompt)
-    parsed = parse_action_response(response)
-    selections = parsed.get("selections", [])
-
-    node = DocTreeNode(scope_path=None)
-    if selections:
-        path_selections = [
-            {"path": sel["path"], "confidence": sel.get("confidence", 0.7), "hydrate_mode": "chunks"}
-            for sel in selections
-        ]
-        await hydrate_path_selections_into_node(
-            db,
-            node=node,
-            path_selections=path_selections,
-            user_id=user_id,
-            namespace=namespace,
-            document_id=document_id,
-        )
-
-    return node

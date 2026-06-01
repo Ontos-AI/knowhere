@@ -189,6 +189,7 @@ async def kg_document_select(
     query: str,
     llm_fn: LLMFn | None,
     exclude_document_ids: list[str],
+    discovery_signals: dict[str, list[str]] | None = None,
     **_kwargs: Any,
 ) -> ToolResult:
     """Select candidate documents from document-level KG."""
@@ -213,6 +214,12 @@ async def kg_document_select(
                 status="no_confident_doc",
                 payload={"reason": "LLM not available"},
                 latency_ms=latency,
+            )
+
+        # Inject discovery signals as soft hints into the overview
+        if discovery_signals:
+            overview_text = _inject_discovery_signals(
+                overview_text, discovery_signals,
             )
 
         file_prompt = FILE_SELECT_PROMPT.format(
@@ -284,3 +291,40 @@ async def kg_document_select(
         latency = int((time.monotonic() - t0) * 1000)
         logger.error(f"  agentic.kg_document_select failed: {exc}")
         return ToolResult(status="error", error=str(exc), latency_ms=latency)
+
+
+def _inject_discovery_signals(
+    overview_text: str,
+    signals: dict[str, list[str]],
+    *,
+    max_paths_per_doc: int = 5,
+) -> str:
+    """Inject discovery hint lines into the document overview text.
+
+    For each document that has discovery signals, append hint lines
+    directly after the document's overview entry.  The LLM sees these
+    as advisory information — it is free to select or ignore the document.
+    """
+    if not signals:
+        return overview_text
+
+    lines = overview_text.split("\n")
+    result: list[str] = []
+    for line in lines:
+        result.append(line)
+        # Match overview lines: "- [doc_xxx] filename  chunks=..."
+        if not line.startswith("- ["):
+            continue
+        bracket_end = line.find("]")
+        if bracket_end < 0:
+            continue
+        doc_id = line[3:bracket_end]
+        paths = signals.get(doc_id)
+        if not paths:
+            continue
+        display_paths = paths[:max_paths_per_doc]
+        hints_line = ", ".join(f'"{p}"' for p in display_paths)
+        if len(paths) > max_paths_per_doc:
+            hints_line += f" (+{len(paths) - max_paths_per_doc} more)"
+        result.append(f"  🔍 Discovery hints: {hints_line}")
+    return "\n".join(result)

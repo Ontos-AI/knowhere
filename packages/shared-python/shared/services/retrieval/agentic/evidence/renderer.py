@@ -87,13 +87,13 @@ def render_unified_doc_tree(
             if path in node.children:
                 # Non-leaf node with own content: render heading, then
                 # self chunks, then child subtree (merged rendering).
-                parts.append(f"{indent}▸ {title}")
+                parts.append(f"{indent}▸ [L{depth + 1}] {title}")
                 render_leaf_chunks(parts, node.leaf_content[path], sub_indent, asset_lookup=asset_lookup)
                 child_text = render_unified_doc_tree(node.children[path], doc_name, depth + 1, asset_lookup=asset_lookup)
                 if child_text.strip():
                     parts.append(child_text)
             else:
-                parts.append(f"{indent}▸ [Leaf] {title}")
+                parts.append(f"{indent}▸ [L{depth + 1}] {title} [Leaf]")
                 render_leaf_chunks(parts, node.leaf_content[path], sub_indent, asset_lookup=asset_lookup)
 
         elif render_type == "orphan_child":
@@ -103,7 +103,7 @@ def render_unified_doc_tree(
             # Only render the orphan heading if the child has content.
             # Prevents empty orphan nodes from polluting evidence_text.
             if child_text.strip():
-                parts.append(f"{indent}▸ {title}")
+                parts.append(f"{indent}▸ [L{depth + 1}] {title}")
                 parts.append(child_text)
 
     return "\n".join(parts)

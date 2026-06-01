@@ -12,6 +12,9 @@ You are a document routing assistant.
 {budget_block}
 Below is a document corpus overview showing all available documents,
 their navigation summaries, chunk counts, and media counts.
+Some documents may show "🔍 Discovery hints" — these are preliminary keyword
+matches from bottom-up search. Consider them as additional signals but make
+your own judgment on document relevance.
 
 === Document Corpus Overview ===
 {overview}
@@ -99,6 +102,10 @@ or
 Set "outline": true on a collect entry to collect only the section structure
 (titles and summaries) without full chunk content. Use for overview/structure queries.
 Do not include any explanation outside the JSON.
+
+IMPORTANT: 
+1. All agent-generated text (e.g., "reason" and other free-text fields) MUST be written in English.
+2. Document content and section paths MUST remain in their original language.
 """
 
 

@@ -73,10 +73,28 @@ def _render_item(item: dict, include_summary: bool, collected: set[str]) -> str:
 
     if include_summary and show_summary and summary:
         sub_indent = "    " * level
-        clipped = truncate_content_preview(summary, head=80, tail=0)
+        display_summary = _enrich_section_covers_summary(summary)
+        clipped = truncate_content_preview(display_summary, head=80, tail=0)
         lines.append(f"{sub_indent}{clipped}")
 
     return "\n".join(lines)
+
+
+def _enrich_section_covers_summary(summary: str) -> str:
+    """Inject sub-section count into 'This section covers:' summaries.
+
+    Transforms:
+        'This section covers: A, B, C'
+    into:
+        'This section covers 3 sub-sections: A, B, C'
+    """
+    prefix = "This section covers: "
+    if not summary.startswith(prefix):
+        return summary
+    body = summary[len(prefix):]
+    sub_sections = [s.strip() for s in body.split(", ") if s.strip()]
+    count = len(sub_sections)
+    return f"This section covers {count} sub-sections: {body}"
 
 
 def _is_path_collected(path: str, collected: set[str]) -> bool:

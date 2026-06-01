@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.services.retrieval.agentic.core.types import DocTreeNode, ToolResult
 from shared.services.retrieval.agentic.discovery import selection as discovery_selection
+from shared.services.retrieval.agentic.discovery.selection import DiscoverySelectResult
 from shared.services.retrieval.agentic.discovery import tools as discovery_tools
 from shared.services.retrieval.agentic.navigation import assets as asset_tools
 from shared.services.retrieval.agentic.navigation import tools as navigation_tools
@@ -60,6 +61,7 @@ async def kg_document_select(
     query: str,
     llm_fn: LLMFn | None,
     exclude_document_ids: list[str],
+    discovery_signals: dict[str, list[str]] | None = None,
     **kwargs: Any,
 ) -> ToolResult:
     return await discovery_tools.kg_document_select(
@@ -69,6 +71,7 @@ async def kg_document_select(
         query=query,
         llm_fn=llm_fn,
         exclude_document_ids=exclude_document_ids,
+        discovery_signals=discovery_signals,
         **kwargs,
     )
 
@@ -135,7 +138,7 @@ async def discovery_select_step(
     discovery_hints: list[dict[str, Any]],
     exclude_paths: set[str] | None = None,
     budget_snapshot: dict | None = None,
-) -> DocTreeNode:
+) -> DiscoverySelectResult:
     return await discovery_selection.discovery_select_step(
         db,
         document_id=document_id,

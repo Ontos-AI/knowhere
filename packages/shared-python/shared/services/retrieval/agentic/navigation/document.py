@@ -38,6 +38,11 @@ from shared.services.retrieval.agentic.core.types import (
 from shared.services.retrieval.agentic.navigation.selection_hydration import (
     hydrate_path_selections_into_node,
 )
+from shared.services.retrieval.agentic.discovery.selection import (
+    _find_covering_path,
+    DiscoverySelectResult,
+)
+from shared.services.retrieval.search.lexical_text import normalize_section_path
 from shared.services.retrieval.llm_adapter import LLMFn
 
 
@@ -95,19 +100,16 @@ class DocumentNavigationRunner:
             return
 
         doc_name = doc.source_file_name or self._state.doc_id_to_name.get(doc.document_id, "")
-        is_discovery_only_doc = doc.source == "discovery_auto"
         root = DocTreeNode(scope_path=None)
         doc_pending_assets: list[dict[str, Any]] = []
 
         # Phase 2A: Collector Agent navigation (summary-only, no content hydration)
-        collected_paths: list[dict[str, Any]] = []
-        if not is_discovery_only_doc:
-            doc_pending_assets, collected_paths = await self._navigate_collector(
-                doc=doc,
-                root=root,
-                doc_name=doc_name,
-                job_result_id=job_result_id,
-            )
+        doc_pending_assets, collected_paths = await self._navigate_collector(
+            doc=doc,
+            root=root,
+            doc_name=doc_name,
+            job_result_id=job_result_id,
+        )
 
         # Phase 2B: Discovery hints (independent hydration path)
         await self._hydrate_discovery_hints(
@@ -118,7 +120,7 @@ class DocumentNavigationRunner:
         )
 
         # Phase 2C: Batch hydrate all collected paths
-        if not is_discovery_only_doc and collected_paths:
+        if collected_paths:
             await self._hydrate_collected(
                 doc=doc,
                 root=root,
@@ -127,7 +129,7 @@ class DocumentNavigationRunner:
             )
 
         # Phase 2D: Reconcile assets into hydrated tree
-        if not is_discovery_only_doc and doc_pending_assets:
+        if doc_pending_assets:
             self._reconcile_pending_assets(
                 doc=doc,
                 root=root,
@@ -322,11 +324,14 @@ class DocumentNavigationRunner:
                     limit_depth=False,
                 )
                 if section_items:
-                    # Filter out the scope node itself to avoid duplicate
-                    # title rendering (parent outline already shows it).
+                    # Filter out the scope node itself AND ancestor/sibling
+                    # items. load_child_sections returns ancestor context
+                    # for navigation prompts, but for evidence rendering the
+                    # child node only needs its own descendants.
                     child_node.outline_items = [
                         si for si in section_items
                         if si.get("path") != path
+                        and si.get("path", "").startswith(path + " / ")
                     ]
                     # Build sub-tree from outline hierarchy and re-reparent
                     # so chunks are correctly nested (e.g. L3 under L2).
@@ -417,13 +422,14 @@ class DocumentNavigationRunner:
         discovery_exclude_paths = _build_discovery_exclude_set(
             root, collected_paths or []
         )
+
         doc_discovery_llm_fn = self._llm_budget.for_discovery(
             cast(LLMFn, self._llm_fn),
             doc_id=doc.document_id,
             low_priority=root.has_content(),
         )
         try:
-            discovery_node = await tools.discovery_select_step(
+            result = await tools.discovery_select_step(
                 self._db,
                 document_id=doc.document_id,
                 query=self._query,
@@ -439,8 +445,11 @@ class DocumentNavigationRunner:
             logger.info("  agentic: planning budget exhausted during discovery selection")
             if self._trace_enabled:
                 self._trace.record_budget_stop("planning_exhausted")
-            discovery_node = DocTreeNode(scope_path=None)
+            result = DiscoverySelectResult(node=DocTreeNode(scope_path=None))
         self._state.step_count += 1
+
+        discovery_node = result.node
+        excluded_hints = result.excluded_hints
 
         if self._trace_enabled:
             self._trace.record_step(
@@ -451,6 +460,7 @@ class DocumentNavigationRunner:
                         "document_id": doc.document_id,
                         "hints_count": len(doc_hints),
                         "hydrated_count": len(discovery_node.leaf_content),
+                        "excluded_count": len(excluded_hints),
                     },
                 ),
                 decision_reason=f"discovery_{doc.source_file_name}",
@@ -461,9 +471,11 @@ class DocumentNavigationRunner:
             "document_id": doc.document_id,
             "action": "select" if discovery_node.has_content() else "skip",
             "reason": "",
-            "candidate_count": len(doc_hints),
+            "candidate_count": result.candidate_count,
             "hydrated_count": len(discovery_node.leaf_content),
             "selected_paths": list(discovery_node.leaf_content.keys()),
+            "excluded_hints": excluded_hints,
+            "exclude_set": sorted(discovery_exclude_paths),
         })
         root.merge(discovery_node)
         if self._state.ledger is not None:
@@ -623,6 +635,7 @@ def _build_discovery_exclude_set(
     return exclude
 
 
+
 def _ensure_child_node(root: DocTreeNode, path: str) -> None:
     """Create an intermediate child node for *path* if it doesn't exist.
 
@@ -695,6 +708,22 @@ def _build_outline_subtree(node: DocTreeNode) -> None:
     for path in parent_paths:
         if path not in node.children:
             node.children[path] = DocTreeNode(scope_path=path)
+
+    # Reparent existing children that are descendants of newly-created
+    # parents.  E.g. if node.children already has "A / B" and we just
+    # created "A", move "A / B" under "A".  This prevents "A / B" from
+    # appearing as an orphan_child at the wrong tree depth.
+    for parent_path in parent_paths:
+        if parent_path in pre_existing:
+            continue  # Don't reparent into pre-existing nodes
+        parent_node = node.children[parent_path]
+        to_move = [
+            cp for cp in list(node.children.keys())
+            if cp != parent_path
+            and cp.startswith(parent_path + " / ")
+        ]
+        for cp in to_move:
+            parent_node.children[cp] = node.children.pop(cp)
 
     # Split outline_items: keep items at this level, move descendants
     # into newly-created children only (skip pre-existing ones).

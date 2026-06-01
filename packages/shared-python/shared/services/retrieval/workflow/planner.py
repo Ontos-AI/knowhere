@@ -54,6 +54,10 @@ Hard constraints:
 
 Return ONLY a JSON object matching this schema (think first, then answer):
 {schema}
+
+IMPORTANT: 
+1. "reasoning_summary" MUST be written in English; 
+2. user query and sub-queries (if any) MUST remain in the user's original language.
 """
 
 
