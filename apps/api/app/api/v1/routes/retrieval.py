@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.core.database import get_db
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.app_service import run_retrieval_query
+from shared.services.retrieval.settings import DEFAULT_TOP_K
 
 router = APIRouter(tags=["Retrieval"])
 
@@ -29,7 +30,7 @@ class RetrievalQueryRequest(BaseModel):
         description="Effective namespace; defaults to default",
     )
     query: str
-    top_k: int = 10
+    top_k: int = DEFAULT_TOP_K
     exclude_document_ids: list[str] = Field(default_factory=list)
     exclude_sections: list[ExcludeSection] = Field(default_factory=list)
     data_type: int = Field(

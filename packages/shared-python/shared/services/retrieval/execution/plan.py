@@ -69,6 +69,18 @@ class RetrievalExecutionPlan:
     async def execute(self) -> dict[str, Any]:
         request = self.request
 
+        # TODO(intent-step): Insert Intent Understanding step here.
+        # Before any retrieval runs, parse `request.query` with LLM +
+        # KG overview + section tree to extract structured navigation
+        # hints (document_hint, scope_hint, content_type_hint).
+        # Use extracted hints to override request.data_type,
+        # request.signal_paths, request.filter_mode, and narrow
+        # request.exclude_document_ids. This pre-trims the search
+        # space so Discovery/DocSelect/Navigation operate on a
+        # focused subgraph. Only activate when hints are detected;
+        # pure semantic queries skip this step.
+        # See: shared/services/retrieval/intent/ (to be created)
+
         start_time = time.monotonic()
         _log_retrieval_start(
             query=request.query,

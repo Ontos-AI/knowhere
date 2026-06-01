@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.core.database import get_db_context
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.app_service import run_retrieval_query
+from shared.services.retrieval.settings import DEFAULT_TOP_K
 
 DbFactory = Callable[[], AsyncContextManager[AsyncSession]]
 KNOWHERE_NAMESPACE_HEADER = "x-knowhere-namespace"
@@ -51,35 +52,19 @@ def resolve_mcp_namespace(*, ctx: Context | None) -> str:
 
 
 def to_mcp_query_response(response: dict[str, Any]) -> dict[str, Any]:
-    results: list[dict[str, Any]] = []
-    for row in response.get("results", []):
-        if not isinstance(row, dict):
-            continue
+    """Project the internal retrieval response to the MCP agent contract.
 
-        source_value = row.get("source")
-        source = source_value if isinstance(source_value, dict) else row
-        result: dict[str, Any] = {
-            "content": row.get("content"),
-            "source_file_name": source.get("source_file_name"),
-            "section_path": source.get("section_path"),
-            "chunk_type": row.get("chunk_type"),
-        }
-        if row.get("asset_url"):
-            result["asset_url"] = row["asset_url"]
-        results.append(result)
-
-    mcp_response: dict[str, Any] = {
+    MCP returns exactly 3 PRIMARY fields:
+    - evidence_text: hierarchical evidence tree for LLM consumption
+    - referenced_chunks: structured chunk references for citation / follow-up
+    - decision_trace: navigation decisions including terminal stop/failure
+    """
+    return {
         "query": response.get("query"),
-        "results": results,
         "evidence_text": response.get("evidence_text") or "",
+        "referenced_chunks": response.get("referenced_chunks") or [],
+        "decision_trace": response.get("decision_trace") or [],
     }
-
-    if response.get("stop_reason") is not None:
-        mcp_response["stop_reason"] = response["stop_reason"]
-    if response.get("decision_trace") is not None:
-        mcp_response["decision_trace"] = response["decision_trace"]
-
-    return mcp_response
 
 
 async def resolve_mcp_user_id(*, ctx: Context | None, db: AsyncSession) -> str:
@@ -101,8 +86,10 @@ def create_retrieval_mcp_server(
         "knowhere-retrieval",
         instructions=(
             "Use this server to search published documents. "
-            "It returns evidence_text and ranked snippets, but never final answers. "
-            "Downstream agents should synthesize from the returned evidence."
+            "It returns evidence_text (hierarchical evidence tree), "
+            "referenced_chunks (structured chunk citations), and "
+            "decision_trace (navigation decisions). "
+            "Downstream agents should synthesize answers from evidence_text."
         ),
         streamable_http_path=streamable_http_path,
         stateless_http=True,
@@ -112,17 +99,53 @@ def create_retrieval_mcp_server(
     @server.tool(
         name="retrieval.query",
         description=(
-            "Search published documents and return relevant snippets plus unified "
-            "evidence_text for downstream answer synthesis."
+            "Search published documents. Returns evidence_text (hierarchical "
+            "evidence for LLM consumption), referenced_chunks (cited chunk "
+            "metadata for follow-up queries), and decision_trace (navigation "
+            "decisions including stop/failure reasons). "
+            "Include navigation intent directly in your query text — the "
+            "engine will automatically locate the right documents and sections."
         ),
     )
     async def query_documents(
-        query: Annotated[str, Field(description="What you want to search for.")],
+        query: Annotated[
+            str,
+            Field(description=(
+                "What you want to search for. You may include navigation "
+                "hints naturally, e.g. 'find tables in chapter 3 of the "
+                "safety report'. The engine understands document structure."
+            )),
+        ],
         top_k: Annotated[
-            int, Field(description="Maximum number of results to return.")
-        ] = 5,
+            int,
+            Field(description=(
+                "Number of candidate chunks for initial discovery. "
+                "The final output is budget-controlled; this only affects "
+                "the discovery recall pool. Usually no need to adjust."
+            )),
+        ] = DEFAULT_TOP_K,
+        exclude_document_ids: Annotated[
+            list[str],
+            Field(description=(
+                "Document IDs to exclude from this query. "
+                "Use document_id values from prior referenced_chunks."
+            )),
+        ] = [],
+        exclude_sections: Annotated[
+            list[dict[str, str]],
+            Field(description=(
+                "Sections to exclude. Each item: "
+                '{"document_id": "...", "section_path": "..."}.'
+            )),
+        ] = [],
         ctx: Context | None = None,
     ) -> dict:
+        # TODO(intent-step): When the Intent Understanding step is
+        # implemented, it will parse `query` here to extract structured
+        # hints (document_hint, scope_hint, content_type_hint) and set
+        # data_type / signal_paths / filter_mode / exclude_document_ids
+        # automatically before calling run_retrieval_query.
+        # See: shared/services/retrieval/intent/ (to be created)
         namespace = resolve_mcp_namespace(ctx=ctx)
         async with db_factory() as db:
             user_id = await resolve_mcp_user_id(ctx=ctx, db=db)
@@ -132,8 +155,9 @@ def create_retrieval_mcp_server(
                 namespace=namespace,
                 query=query,
                 top_k=top_k,
-                exclude_document_ids=[],
-                exclude_sections=[],
+                exclude_document_ids=exclude_document_ids,
+                exclude_sections=[item for item in exclude_sections],
+                use_agentic=True,
             )
             return to_mcp_query_response(response)
 

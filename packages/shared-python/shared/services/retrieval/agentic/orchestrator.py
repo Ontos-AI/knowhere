@@ -41,6 +41,7 @@ from shared.services.retrieval.agentic.core.types import (
     AgenticResult,
 )
 from shared.services.retrieval.llm_adapter import LLMFn
+from shared.services.retrieval.settings import DEFAULT_TOP_K
 
 
 class RetrievalAgent:
@@ -67,7 +68,7 @@ class RetrievalAgent:
         user_id: str,
         namespace: str,
         query: str,
-        top_k: int = 10,
+        top_k: int = DEFAULT_TOP_K,
         llm_fn: LLMFn | None = None,
         exclude_document_ids: list[str] | None = None,
         exclude_sections: list[dict[str, str]] | None = None,

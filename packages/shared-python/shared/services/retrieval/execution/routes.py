@@ -156,6 +156,18 @@ async def _run_agentic_route(
     for step in workflow_result.steps:
         if step.decision_trace:
             all_decision_trace.extend(step.decision_trace)
+
+    # Embed stop/failure into decision_trace as terminal entry
+    stop_reason = response.get("stop_reason") or ""
+    failure_reason = response.get("failure_reason") or ""
+    if stop_reason or failure_reason:
+        all_decision_trace.append({
+            "phase": "terminal",
+            "action": "complete",
+            "stop_reason": stop_reason,
+            "failure_reason": failure_reason,
+        })
+
     if all_decision_trace:
         response["decision_trace"] = all_decision_trace
 

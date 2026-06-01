@@ -99,6 +99,12 @@ def _build_extra_filters(
             params[f'_act_{i}'] = ct
 
     if signal_paths:
+        # TODO(intent-step): Current implementation uses OR across
+        # signal_paths keywords. The Intent Step will need hierarchical
+        # AND (prefix) matching, e.g. signal_paths=["第一章/1.1/（2）"]
+        # should match only paths containing ALL segments in order.
+        # Consider adding a `filter_strategy` param: "keyword_or" (current)
+        # vs "path_prefix" (for Intent Step resolved paths).
         ilike_parts = []
         for i, kw in enumerate(signal_paths):
             key = f'_sig_{i}'

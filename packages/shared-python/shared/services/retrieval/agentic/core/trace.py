@@ -16,6 +16,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.services.retrieval.agentic.core.types import AgentRunConfig, ToolResult
+from shared.services.retrieval.settings import DEFAULT_TOP_K
 
 
 def _now_utc() -> datetime:
@@ -47,7 +48,7 @@ class TraceRecorder:
         namespace: str,
         query: str,
         config: AgentRunConfig,
-        top_k: int = 10,
+        top_k: int = DEFAULT_TOP_K,
         data_type: int = 1,
         filters: dict[str, Any] | None = None,
         parent_run_id: str | None = None,
