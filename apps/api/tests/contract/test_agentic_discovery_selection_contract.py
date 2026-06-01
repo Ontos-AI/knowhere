@@ -6,7 +6,7 @@ from shared.services.retrieval.agentic.discovery.selection import (
 
 
 def test_root_discovery_hint_is_projected_for_llm_selection() -> None:
-    hint_lines, hint_by_path = _project_discovery_hints(
+    hint_lines, hint_by_path, excluded_hints = _project_discovery_hints(
         [
             {
                 "section_path": "Root",
