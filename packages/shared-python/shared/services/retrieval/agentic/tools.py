@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic.core.types import DocTreeNode, ToolResult
+from shared.services.retrieval.agentic.core.types import ToolResult
 from shared.services.retrieval.agentic.discovery import selection as discovery_selection
 from shared.services.retrieval.agentic.discovery.selection import DiscoverySelectResult
 from shared.services.retrieval.agentic.discovery import tools as discovery_tools

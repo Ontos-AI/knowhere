@@ -140,16 +140,19 @@ async def render_evidence(
 
     evidence_parts: list[str] = []
     for doc_id, doc_tree in doc_trees.items():
-        # Only render if there is actual evidence (hydrated chunks or outline content).
-        if doc_tree.has_leaf_content() or doc_tree.has_content():
-            doc_name = doc_id_to_name.get(doc_id, doc_id)
-            rendered = render_unified_doc_tree(
-                doc_tree,
-                doc_name,
-                asset_lookup=asset_url_map,
-            )
-            if rendered.strip():
-                evidence_parts.append(rendered)
+        # Only render if there is actual hydrated evidence (chunks collected
+        # via COLLECT or discovery).  Outline-only trees (e.g. navigation
+        # STOP with empty collect) must not leak into evidence_text.
+        if not doc_tree.has_leaf_content():
+            continue
+        doc_name = doc_id_to_name.get(doc_id, doc_id)
+        rendered = render_unified_doc_tree(
+            doc_tree,
+            doc_name,
+            asset_lookup=asset_url_map,
+        )
+        if rendered.strip():
+            evidence_parts.append(rendered)
 
     return "\n\n".join(evidence_parts) if evidence_parts else ""
 
