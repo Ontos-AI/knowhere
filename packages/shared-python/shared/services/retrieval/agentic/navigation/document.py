@@ -39,10 +39,8 @@ from shared.services.retrieval.agentic.navigation.selection_hydration import (
     hydrate_path_selections_into_node,
 )
 from shared.services.retrieval.agentic.discovery.selection import (
-    _find_covering_path,
     DiscoverySelectResult,
 )
-from shared.services.retrieval.search.lexical_text import normalize_section_path
 from shared.services.retrieval.llm_adapter import LLMFn
 
 
