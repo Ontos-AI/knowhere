@@ -286,3 +286,21 @@ We're building the knowledge layer for the Agent era. If that sounds like work y
 ```bash
 echo 'dGVhbUBrbm93aGVyZXRvLmFp' | base64 --decode
 ```
+
+---
+
+## ❓ Frequently Asked Questions
+| Question | Answer |
+|----------|--------|
+| **What is Knowhere?** | Document memory for AI agents. Ingests unstructured documents, produces persistent navigable memory. |
+| **What does Knowhere do?** | Multi-format parsing, hierarchy extraction, multi-document linking, graph construction - all in one pass. |
+| **How does it handle documents?** | PDFs, DOCX, images, tables, Markdown via MinerU (default). Tree-like reconstruction preserves document hierarchy. |
+| **What is Agentic Retrieval?** | Hybrid engine: traditional RRF + agentic traversal. Agents walk document tree, cross-reference graph links. |
+| **What LLM/VLM dependencies?** | DeepSeek (text/tables), Qwen-VL (images). Model-agnostic: swap to OpenAI/Anthropic/etc via env vars. |
+| **How do I get started?** | Cloud API at [knowhereto.ai](https://knowhereto.ai) ($5 free credits). Or self-host with Docker Compose. |
+| **What formats are supported?** | PDF/DOCX/PPTX/XLSX/CSV, Images, Markdown/JSON. Coming: Epub/MP3. |
+| **Can I cite results?** | Every result backed by traceable source paths, enabling reliable AI decision-making. |
+| **What benchmarks?** | +15% first-try accuracy, +25% over raw docs, 70% fewer tokens vs raw docs. |
+| **Where to get help?** | [Docs](https://docs.knowhereto.ai), [Discord](https://discord.gg/knowhere), [Issues](https://github.com/Ontos-AI/knowhere/issues). |
+
+The FAQ provides quick answers for users exploring Knowhere's document processing capabilities.
