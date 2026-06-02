@@ -541,7 +541,10 @@ async def test_agentic_retrieval_should_reference_root_only_document_content(
         "section_path": "root-only.pdf",
         "file_path": None,
         "job_id": rooted_document["job_id"],
-    } in referenced_chunks
+    } in [
+        {k: v for k, v in ref.items() if k != "score"}
+        for ref in referenced_chunks
+    ]
     assert results[0]["content"] == "root only diluted earnings marker content"
     assert results[0]["source"] == {
         "document_id": rooted_document["document_id"],
@@ -599,7 +602,10 @@ async def test_agentic_retrieval_should_reference_discovery_content_when_navigat
         "section_path": discovered_document["section_path"],
         "file_path": None,
         "job_id": discovered_document["job_id"],
-    } in referenced_chunks
+    } in [
+        {k: v for k, v in ref.items() if k != "score"}
+        for ref in referenced_chunks
+    ]
     assert results[0]["content"] == "discovery fallback EBITDA margin marker content"
     assert results[0]["source"] == {
         "document_id": discovered_document["document_id"],

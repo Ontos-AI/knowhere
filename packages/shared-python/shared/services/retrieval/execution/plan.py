@@ -275,7 +275,7 @@ def _log_retrieval_complete(
             source = result.get("source", {})
             logger.info(
                 f"    [{index + 1}] type={result.get('chunk_type', '?')}  "
-                f"score={result.get('score', 0):.4f}"
+                f"score={result.get('score') or 0.0:.4f}"
                 f"  path={source.get('section_path', '')}"
                 f"  file={source.get('source_file_name', '')}"
             )
