@@ -132,13 +132,15 @@ class DocTreeNode:
                     child.add_leaf_chunks(leaf_path, self.leaf_content.pop(leaf_path))
             child.reparent_leaf_content()
 
-    def collect_referenced_ids(self, *, document_name: str = '') -> list[dict[str, str]]:
+    def collect_referenced_ids(self, *, document_name: str = '') -> list[dict[str, Any]]:
         """Extract minimal chunk references from all hydrated leaves.
 
         Returns deduplicated list of {chunk_id, document_id, chunk_type,
-        section_path, file_path, job_id} for hit stats and frontend display.
+        section_path, file_path, job_id, score} for hit stats and frontend
+        display. ``score`` carries the real retrieval score (discovery RRF or
+        navigation confidence) so callers can surface it in results.
         """
-        refs: list[dict[str, str]] = []
+        refs: list[dict[str, Any]] = []
         seen: set[str] = set()
         for row in self.flatten_chunk_rows():
             cid = row.get('chunk_id', '')
@@ -154,6 +156,7 @@ class DocTreeNode:
                     'section_path': section_path,
                     'file_path': row.get('file_path', ''),
                     'job_id': row.get('job_id', ''),
+                    'score': row.get('score'),  # None if no real score available
                 })
         return refs
 

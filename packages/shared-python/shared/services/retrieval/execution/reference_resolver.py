@@ -24,6 +24,7 @@ async def resolve_workflow_references(
     user_id: str,
     namespace: str,
     refs: list[dict[str, Any]],
+    score_by_chunk_id: dict[str, float] | None = None,
 ) -> ResolvedWorkflowReferences:
     enriched_refs = await enrich_referenced_chunks_with_asset_urls(refs)
     hydrated_rows = await hydrate_referenced_chunk_rows(
@@ -31,6 +32,7 @@ async def resolve_workflow_references(
         user_id=user_id,
         namespace=namespace,
         refs=enriched_refs,
+        score_by_chunk_id=score_by_chunk_id,
     )
     return _select_matching_references(enriched_refs, hydrated_rows)
 

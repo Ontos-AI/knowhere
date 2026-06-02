@@ -19,6 +19,7 @@ async def hydrate_referenced_chunk_rows(
     user_id: str,
     namespace: str,
     refs: list[dict[str, Any]],
+    score_by_chunk_id: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     if db is None or not refs:
         return []
@@ -67,7 +68,14 @@ async def hydrate_referenced_chunk_rows(
             'source_file_name': document.source_file_name,
             'chunk_type': chunk.chunk_type,
             'content': chunk.content,
-            'score': 1.0,
+            # Use the caller-supplied score when available (e.g. discovery RRF or
+            # KG confidence). None signals "no score known" so consumers can
+            # distinguish unscored chunks from genuinely high-scoring ones.
+            'score': (
+                score_by_chunk_id.get(chunk.chunk_id)
+                if score_by_chunk_id is not None
+                else None
+            ),
             'file_path': chunk.file_path,
             'chunk_metadata': chunk.chunk_metadata or {},
             'job_result_id': chunk.job_result_id,

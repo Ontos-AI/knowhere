@@ -115,12 +115,57 @@ async def _run_agentic_route(
         request=WorkflowRunRequest.from_route_context(context),
     )
 
+    # Build a real score index for hydration:
+    # 1. Discovery RRF score — available for chunks that surfaced in the
+    #    3-channel BM25 pass (stored in each referenced_chunk as 'score').
+    # 2. KG document confidence — LLM-assigned confidence per selected document
+    #    (stored in decision_trace kg_select entry), used as a fallback for
+    #    chunks that were only found through navigation (no discovery score).
+    score_by_chunk_id: dict[str, float] = {}
+
+    # Layer 1: referenced_chunk-level score (propagated from discovery rows)
+    for ref in workflow_result.referenced_chunks:
+        cid = ref.get('chunk_id', '')
+        raw_score = ref.get('score')
+        if cid and raw_score is not None:
+            try:
+                score_by_chunk_id[cid] = float(raw_score)
+            except (TypeError, ValueError):
+                pass
+
+    # Layer 2: per-document KG confidence as default for navigation-only chunks.
+    # Each step's decision_trace contains a 'kg_select' phase entry that holds
+    # the LLM-assigned confidence score per selected document.
+    doc_confidence: dict[str, float] = {}
+    for step in workflow_result.steps:
+        for entry in step.decision_trace or []:
+            if entry.get('phase') == 'kg_select':
+                for doc_info in entry.get('documents', []):
+                    doc_id = doc_info.get('document_id', '')
+                    conf = doc_info.get('confidence')
+                    if doc_id and conf is not None:
+                        try:
+                            doc_confidence[doc_id] = float(conf)
+                        except (TypeError, ValueError):
+                            pass
+
     resolved_references = await resolve_workflow_references(
         db=context.db,
         user_id=context.user_id,
         namespace=context.namespace,
         refs=workflow_result.referenced_chunks,
+        score_by_chunk_id=score_by_chunk_id if score_by_chunk_id else None,
     )
+
+    # Backfill doc-level confidence for chunks that have no discovery score
+    if doc_confidence:
+        for row in resolved_references.rows:
+            cid = row.get('chunk_id', '')
+            if cid and row.get('score') is None:
+                doc_id = row.get('document_id', '')
+                if doc_id in doc_confidence:
+                    row['score'] = doc_confidence[doc_id]
+
     assembled_workflow_rows = await assemble_retrieval_results(
         db=context.db,
         rows=resolved_references.rows,
