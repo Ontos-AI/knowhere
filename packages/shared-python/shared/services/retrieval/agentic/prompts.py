@@ -82,15 +82,17 @@ Each step you make TWO independent decisions:
    - Do NOT re-collect paths marked [✓].
 
 2. Navigate action — Where to go next (required, choose ONE):
-   - DRILL — Open one section to see its children in the next step.
-     Use when a section has >1000 tokens and you need to be selective.
-     You cannot DRILL into a path you just COLLECTed (already fully included).
-   - BACK — Return to parent scope to explore other branches.
-   - STOP — End navigation. Use when you have enough evidence or nothing relevant remains.
+    - DRILL — Open one section to see its children in the next step.
+      Use when a section has >1000 tokens and you need to be selective.
+      You cannot DRILL into a path you just COLLECTed (already fully included).
+    - BACK — Return to an ancestor scope to explore other branches.
+      Specify "back_to" with a valid ancestor path, or null to return to root.
+      Valid ancestors are determined by "/" segments of the current scope path.
+    - STOP — End navigation. Use when you have enough evidence or nothing relevant remains.
 
 === STRICT Rules (violations cause system failure) ===
-1. DRILL target must be a CHILD path visible in the Section Tree above.
-   NEVER drill into the current scope path itself or any ancestor path.
+1. NEVER drill into "{current_scope}" (your current scope) or any of its ancestor paths.
+   You may drill into any other path visible in the Section Tree above.
 2. DRILL target must NOT repeat any path already visited in the Navigation Trace.
    If you want to revisit a branch, use BACK first, then choose a DIFFERENT child.
 3. Each DRILL target must be a path that appears exactly in the Section Tree.
@@ -107,7 +109,7 @@ Return ONLY a JSON object:
  "tool_params": {{"search_query": "..."}},
  "reason": "..."}}
 or
-{{"collect": [...], "action": "BACK", "tools": [], "reason": "..."}}
+{{"collect": [...], "action": "BACK", "back_to": "ancestor/path or null", "tools": [], "reason": "..."}}
 or
 {{"collect": [...], "action": "STOP", "tools": ["INSPECT_ASSET"], "tool_params": {{"chunk_id": "..."}}, "reason": "..."}}
 
@@ -185,10 +187,19 @@ def parse_collector_response(text: str) -> dict:
 
         reason = str(data.get("reason") or "").strip()[:500]
 
+        # Parse back_to target for BACK action
+        back_to = None
+        if action == "BACK":
+            raw_back = data.get("back_to")
+            if isinstance(raw_back, str) and raw_back.strip():
+                back_to = raw_back.strip()
+            # else: back_to remains None (= root)
+
         return {
             "collect": collect,
             "action": action,
             "drill_into": drill_into,
+            "back_to": back_to,
             "tools": tools,
             "tool_params": tool_params,
             "reason": reason,

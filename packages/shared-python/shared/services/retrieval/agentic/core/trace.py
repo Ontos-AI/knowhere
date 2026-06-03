@@ -146,6 +146,20 @@ class TraceRecorder:
             'created_at': _now_utc(),
         })
 
+    def record_fallback(self, fallback_type: str, detail: str) -> None:
+        """Record that a fallback mechanism was triggered."""
+        self._steps.append({
+            'step_index': len(self._steps),
+            'action_type': f'fallback_{fallback_type}',
+            'action_input': {'detail': detail},
+            'observation_status': 'fallback',
+            'observation_payload_keys': [],
+            'latency_ms': 0,
+            'error': None,
+            'tokens_used': 0,
+            'created_at': _now_utc(),
+        })
+
     async def complete(
         self,
         ranked_rows: list[dict[str, Any]],

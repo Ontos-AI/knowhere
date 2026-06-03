@@ -131,9 +131,9 @@ def build_asset_tools_block(
         )
     if total_images > 0 or total_tables > 0:
         tools_lines.append(
-            f"  INSPECT_ASSET — View detailed description of a specific asset by chunk_id.\n"
-            f"    Requires: tool_params.chunk_id (string)\n"
-            f"    Use after SEARCH to verify relevance before collecting.\n"
+            "  INSPECT_ASSET — View detailed description of a specific asset by chunk_id.\n"
+            "    Requires: tool_params.chunk_id (string)\n"
+            "    Use after SEARCH to verify relevance before collecting.\n"
         )
     return "".join(tools_lines)
 

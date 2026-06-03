@@ -160,24 +160,25 @@ class DocumentNavigationRunner:
         collected_paths: list[dict[str, Any]] = []
         doc_pending_assets: list[dict[str, Any]] = []
 
-        # Scope stack for BACK support: each entry is a scope path (None = root)
-        scope_stack: list[str | None] = [None]
+        # Current navigation scope (None = root)
+        current_scope: str | None = None
         step_count = 0
 
         # Context from SEARCH/INSPECT tools — injected into next navigate prompt
         search_context: str = ""
         inspect_context: str = ""
 
+        exit_reason = "unknown"
+
         while step_count < self._config.max_nav_steps:
             if self._state.elapsed_ms >= self._config.latency_budget_ms:
-                break
-            if self._llm_fn is None:
+                exit_reason = "latency"
                 break
             if self._state.ledger and self._state.ledger.status("planning") in ("CRITICAL", "EXHAUSTED"):
                 logger.info("  agentic: planning budget critical, ending navigation for current doc")
+                exit_reason = "budget"
                 break
 
-            current_scope = scope_stack[-1]
             step_count += 1
 
             doc_llm_fn = self._llm_budget.for_document(
@@ -207,6 +208,7 @@ class DocumentNavigationRunner:
                 logger.info("  agentic: planning budget exhausted during navigation")
                 if self._trace_enabled:
                     self._trace.record_budget_stop("planning_exhausted")
+                exit_reason = "budget"
                 break
             self._state.step_count += 1
 
@@ -234,8 +236,10 @@ class DocumentNavigationRunner:
                 coll_item["scope_context"] = current_scope or "root"
                 collected_paths.append(coll_item)
                 collected_in_step.append(path)
-                # Collected paths should be excluded from future navigation
-                doc_exclude.add(path)
+                # Outline collections should NOT exclude children — the intent
+                # is "see structure, then drill deeper for full content".
+                if coll_item.get("hydrate_mode") != "outline":
+                    doc_exclude.add(path)
 
             # ── Build trace entry ────────────────────────────────────────
             trace_entry: dict[str, Any] = {
@@ -266,25 +270,92 @@ class DocumentNavigationRunner:
                 # Create child node in tree for the drill target
                 target_parent = _find_target_node(root, drill_path)
                 target_parent.children.setdefault(drill_path, DocTreeNode(scope_path=drill_path))
-                scope_stack.append(drill_path)
+                current_scope = drill_path
 
             elif nav_result.action == "BACK":
-                if len(scope_stack) > 1:
-                    scope_stack.pop()
-                else:
-                    # Already at root, treat as STOP
+                if current_scope is None:
+                    # Already at root — nowhere to go back
                     logger.info("  agentic: BACK at root scope, treating as STOP")
+                    exit_reason = "llm_stop"
                     break
+
+                back_target = nav_result.back_to  # None = root
+                if _is_valid_ancestor(current_scope, back_target):
+                    current_scope = back_target
+                else:
+                    # Invalid back_to — fallback: go to path parent
+                    path_parent = (
+                        current_scope.rsplit(" / ", 1)[0]
+                        if " / " in current_scope
+                        else None
+                    )
+                    logger.warning(
+                        f"  agentic: invalid back_to='{back_target}' "
+                        f"from scope='{current_scope}', "
+                        f"falling back to path parent='{path_parent or 'root'}'"
+                    )
+                    current_scope = path_parent
 
             elif nav_result.action == "ERROR":
                 logger.warning(
                     f"  agentic: navigation ERROR for doc={doc.document_id}: "
                     f"{nav_result.error_reason or nav_result.reason}"
                 )
+                exit_reason = "error"
                 break
 
             elif nav_result.action == "STOP" or nav_result.is_terminal:
+                exit_reason = "llm_stop"
                 break
+        else:
+            # while loop exhausted — max_nav_steps reached
+            exit_reason = "max_steps"
+
+        # Fallback: if navigation was forcefully interrupted and collected
+        # nothing, auto-collect visible leaf children under the last explored
+        # scope.  When LLM voluntarily STOPs or BACKs to root with empty
+        # collection, respect its judgment — it determined there is no
+        # relevant evidence.
+        #   budget    – planning pool CRITICAL/EXHAUSTED (pre-check or exception)
+        #   latency   – elapsed time exceeded latency budget
+        #   max_steps – navigation step count limit reached
+        #   error     – unexpected exception during navigate_step
+        forced_exits = ("budget", "latency", "max_steps", "error")
+        if not collected_paths and step_count > 0 and exit_reason in forced_exits:
+            fallback_scope = current_scope
+            logger.info(
+                f"  agentic: forced exit ({exit_reason}) with 0 collected paths, "
+                f"auto-collecting leaves under scope={fallback_scope or 'root'}"
+            )
+            from shared.services.retrieval.agentic.navigation.section_tree import (
+                load_child_sections,
+            )
+            fallback_items = await load_child_sections(
+                self._db,
+                doc.document_id,
+                job_result_id,
+                fallback_scope,
+            )
+            for item in fallback_items:
+                if not item.get("show_summary", True):
+                    continue
+                if item.get("is_leaf"):
+                    path = item["path"]
+                    collected_paths.append({
+                        "path": path,
+                        "confidence": 0.4,
+                        "hydrate_mode": "chunks",
+                        "collected_at_step": step_count,
+                        "scope_context": fallback_scope or "root",
+                        "fallback_reason": f"forced_exit_{exit_reason}",
+                    })
+
+            if collected_paths and self._trace_enabled:
+                self._trace.record_fallback(
+                    "forced_exit_auto_collect",
+                    f"exit_reason={exit_reason}, collected {len(collected_paths)} "
+                    f"leaf paths under scope={fallback_scope or 'root'}",
+                )
 
         return doc_pending_assets, collected_paths
 
@@ -702,6 +773,23 @@ class DocumentNavigationRunner:
             f"outline={len(nav_result.node.outline_items)}"
             f"{fallback_tag}"
         )
+
+
+def _is_valid_ancestor(current_scope: str, target: str | None) -> bool:
+    """Check if *target* is a valid ancestor of *current_scope*.
+
+    Valid ancestors are:
+    - ``None`` (root): always valid when current_scope is not None
+    - Any proper prefix by ``" / "`` splitting
+
+    E.g. for ``"A / B / C"``: valid = {None, "A", "A / B"}
+    """
+    if target is None:
+        return True  # root is always a valid ancestor
+    if not current_scope:
+        return False  # can't go back from root
+    # target must be a proper prefix of current_scope
+    return current_scope.startswith(target + " / ")
 
 
 def _find_target_node(node: DocTreeNode, path: str) -> DocTreeNode:

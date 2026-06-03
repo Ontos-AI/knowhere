@@ -205,6 +205,7 @@ class NavigateStepResult:
     action: str = "STOP"  # DRILL | BACK | STOP | ERROR
     collect: list[dict[str, Any]] = field(default_factory=list)
     drill: list[dict[str, Any]] = field(default_factory=list)
+    back_to: str | None = None  # BACK target ancestor path (None = root)
     tools: list[str] = field(default_factory=list)
     node: DocTreeNode = field(default_factory=DocTreeNode)
     reason: str = ""
@@ -264,7 +265,7 @@ class AgenticResult:
     - ``router_used``: routing path identifier
     - ``budget_snapshot``: final budget ledger state at run completion
     - ``stop_reason``: why the run terminated (evidence_only /
-      latency_budget / context_budget / no_llm / etc.)
+      budget / latency / max_steps / error / llm_stop)
     - ``failure_reason``: fatal retrieval failure reason, if any.
     - ``decision_trace``: per-step navigation decisions with reasons,
       exposed to downstream agents for stop/retry/modify-query decisions.
