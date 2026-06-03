@@ -9,8 +9,9 @@ Each ``navigate_step`` returns two independent decisions:
 - **action + drill_into**: navigation direction (DRILL into a section,
   BACK to parent, or STOP).
 
-Asset collection (images/tables) still runs during navigation so LLM
-tool requests are honoured, but assets are reconciled after hydration.
+Asset tools (SEARCH_IMAGES/SEARCH_TABLES/INSPECT_ASSET) allow the agent
+to search and inspect media assets. Results are injected into the next
+step's prompt context for the agent to act on.
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.services.retrieval.agentic.navigation.assets import (
     build_asset_tools_block,
     count_assets_under_scope,
+    load_asset_topic_hints,
 )
 from shared.services.retrieval.agentic.core.budget import BudgetExceeded
 from shared.services.retrieval.agentic.prompts import (
@@ -53,6 +55,8 @@ async def navigate_step(
     budget_snapshot: dict | None = None,
     nav_trace: list[dict[str, Any]] | None = None,
     collected_paths: list[dict[str, Any]] | None = None,
+    search_context: str = "",
+    inspect_context: str = "",
 ) -> NavigateStepResult:
     """Navigate one document scope using the Collector Agent model.
 
@@ -60,7 +64,9 @@ async def navigate_step(
     - ``collect``: paths to add to the evidence collection
     - ``action``: DRILL/BACK/STOP
     - ``drill``: the single drill target (if action == DRILL)
-    - ``tools``: asset tool invocations
+    - ``tools``: asset tools requested (SEARCH_IMAGES/SEARCH_TABLES/INSPECT_ASSET)
+    - ``search_assets_params``: parsed params for SEARCH_IMAGES/SEARCH_TABLES
+    - ``inspect_asset_params``: parsed params for INSPECT_ASSET
     - ``node``: outline tree node for rendering context
     """
     scope_paths = [scope_path] if scope_path else []
@@ -85,7 +91,38 @@ async def navigate_step(
             job_result_id=job_result_id,
             scope_paths=scope_paths,
         )
-        tools_block = build_asset_tools_block(total_images, total_tables)
+
+        # Load topic hints for asset tool descriptions
+        image_hints: list[str] = []
+        table_hints: list[str] = []
+        if total_images > 0:
+            image_hints = await load_asset_topic_hints(
+                db,
+                document_id=document_id,
+                job_result_id=job_result_id,
+                scope_paths=scope_paths,
+                asset_type="image",
+            )
+        if total_tables > 0:
+            table_hints = await load_asset_topic_hints(
+                db,
+                document_id=document_id,
+                job_result_id=job_result_id,
+                scope_paths=scope_paths,
+                asset_type="table",
+            )
+
+        tools_block = build_asset_tools_block(
+            total_images, total_tables,
+            image_topic_hints=image_hints,
+            table_topic_hints=table_hints,
+        )
+
+        # Inject search/inspect results from previous step
+        if search_context:
+            tools_block += f"\n{search_context}\n"
+        if inspect_context:
+            tools_block += f"\n{inspect_context}\n"
 
         # Build collected path set for [✓] marking on tree
         collected_path_set = {
@@ -116,6 +153,7 @@ async def navigate_step(
         parsed = parse_collector_response(response)
         action = parsed["action"]
         selected_tools = parsed["tools"]
+        tool_params = parsed.get("tool_params", {})
         reason = parsed.get("reason", "")
         raw_collect = parsed.get("collect", [])
         drill_into = parsed.get("drill_into")
@@ -125,6 +163,7 @@ async def navigate_step(
             f"  navigate_step scope={scope_label}: "
             f"action={action} collect={len(raw_collect)} "
             f"drill_into={drill_into} tools={selected_tools} "
+            f"tool_params={tool_params} "
             f"overflowed={overflowed}"
         )
 
@@ -147,6 +186,7 @@ async def navigate_step(
 
         # Validate drill target: must be visible, not collected, not a leaf
         valid_drill: list[dict[str, Any]] = []
+        fallback_reason: str | None = None
         if action == "DRILL" and drill_into:
             if drill_into in visible_items and drill_into not in collected_path_set:
                 drill_item = visible_items[drill_into]
@@ -163,18 +203,54 @@ async def navigate_step(
                             "confidence": 0.7,
                             "hydrate_mode": "chunks",
                         })
-                    action = "STOP"  # no valid drill target
+                    action = "STOP"
+                    fallback_reason = f"drill_target_is_leaf: {drill_into}"
                 else:
                     valid_drill.append({
                         "path": drill_into,
                         "confidence": 0.8,
                     })
             else:
+                # Invalid drill target — auto-collect all visible leaf children
+                # to preserve LLM intent (it clearly found this scope relevant)
                 logger.warning(
                     f"  navigate_step: drill target '{drill_into}' invalid "
-                    f"(not visible or already collected), falling back to STOP"
+                    f"(not visible or already collected), "
+                    f"auto-collecting visible leaves and stopping"
                 )
+                for vis_path, vis_item in visible_items.items():
+                    if vis_path in collected_path_set:
+                        continue
+                    if any(c["path"] == vis_path for c in valid_collect):
+                        continue
+                    if vis_item.get("is_leaf"):
+                        node.confidence[vis_path] = 0.5
+                        valid_collect.append({
+                            "path": vis_path,
+                            "confidence": 0.5,
+                            "hydrate_mode": "chunks",
+                        })
                 action = "STOP"
+                fallback_reason = f"drill_target_invalid: {drill_into}"
+
+        # Parse tool parameters for SEARCH and INSPECT
+        search_assets_params: dict[str, Any] | None = None
+        inspect_asset_params: dict[str, Any] | None = None
+
+        if "SEARCH_IMAGES" in selected_tools or "SEARCH_TABLES" in selected_tools:
+            search_query = str(tool_params.get("search_query", query)).strip()
+            if not search_query:
+                search_query = query  # Fallback to original query
+            asset_type = "image" if "SEARCH_IMAGES" in selected_tools else "table"
+            search_assets_params = {
+                "query": search_query,
+                "asset_type": asset_type,
+            }
+
+        if "INSPECT_ASSET" in selected_tools:
+            inspect_chunk_id = str(tool_params.get("chunk_id", "")).strip()
+            if inspect_chunk_id:
+                inspect_asset_params = {"chunk_id": inspect_chunk_id}
 
         return NavigateStepResult(
             action=action,
@@ -183,11 +259,16 @@ async def navigate_step(
             tools=selected_tools,
             node=node,
             reason=reason,
+            fallback_reason=fallback_reason,
+            search_assets_params=search_assets_params,
+            inspect_asset_params=inspect_asset_params,
         )
 
     except BudgetExceeded:
         raise
     except Exception as exc:
         logger.error(f"  navigate_step failed for doc={document_id}: {exc}")
-        return NavigateStepResult.stop(scope_paths[0] if scope_paths else None)
-
+        return NavigateStepResult.error(
+            scope_paths[0] if scope_paths else None,
+            reason=str(exc),
+        )

@@ -39,15 +39,17 @@ were additionally discovered via keyword and semantic search.
 They may contain relevant evidence not found through hierarchical navigation.
 
 === Discovery Candidates ===
+| ID | Path |
+|:---|:-----|
 {items}
 === End Discovery Candidates ===
 
 User query: {query}
-Select section paths whose content is needed to answer the query.
+Select candidate IDs whose content is needed to answer the query.
 If none are relevant, return an EMPTY list [].
 
 Return ONLY a JSON object:
-{{"selections": [{{"path": "...", "confidence": <float>}}, ...]}}
+{{"selections": [{{"id": "D1", "confidence": <float>}}, ...]}}
 Do not include any explanation.
 """
 
@@ -86,18 +88,28 @@ Each step you make TWO independent decisions:
    - BACK — Return to parent scope to explore other branches.
    - STOP — End navigation. Use when you have enough evidence or nothing relevant remains.
 
+=== STRICT Rules (violations cause system failure) ===
+1. DRILL target must be a CHILD path visible in the Section Tree above.
+   NEVER drill into the current scope path itself or any ancestor path.
+2. DRILL target must NOT repeat any path already visited in the Navigation Trace.
+   If you want to revisit a branch, use BACK first, then choose a DIFFERENT child.
+3. Each DRILL target must be a path that appears exactly in the Section Tree.
+   Do NOT fabricate, shorten, or generalize paths.
+=== End STRICT Rules ===
+
 {tools_block}
 
 Return ONLY a JSON object:
 {{"collect": [{{"path": "...", "confidence": <float>, "outline": false}}, ...],
  "action": "DRILL",
  "drill_into": "section/path",
- "tools": [...],
+ "tools": ["SEARCH_IMAGES"],
+ "tool_params": {{"search_query": "..."}},
  "reason": "..."}}
 or
-{{"collect": [...], "action": "BACK", "tools": [...], "reason": "..."}}
+{{"collect": [...], "action": "BACK", "tools": [], "reason": "..."}}
 or
-{{"collect": [...], "action": "STOP", "tools": [...], "reason": "..."}}
+{{"collect": [...], "action": "STOP", "tools": ["INSPECT_ASSET"], "tool_params": {{"chunk_id": "..."}}, "reason": "..."}}
 
 Set "outline": true on a collect entry to collect only the section structure
 (titles and summaries) without full chunk content. Use for overview/structure queries.
@@ -117,7 +129,7 @@ def parse_collector_response(text: str) -> dict:
      "drill_into": "path", "tools": [...], "reason": "..."}
     """
     text = text.strip()
-    asset_tools = {"FIND_IMAGES", "FIND_TABLES"}
+    asset_tools = {"SEARCH_IMAGES", "SEARCH_TABLES", "INSPECT_ASSET"}
     valid_actions = {"DRILL", "BACK", "STOP"}
     default: dict[str, Any] = {
         "collect": [], "action": "STOP", "drill_into": None,
@@ -165,6 +177,12 @@ def parse_collector_response(text: str) -> dict:
                 if str(t).strip().upper() in asset_tools
             ]
 
+        # Parse tool parameters (search_query, chunk_id, etc.)
+        tool_params: dict[str, Any] = {}
+        raw_params = data.get("tool_params")
+        if isinstance(raw_params, dict):
+            tool_params = raw_params
+
         reason = str(data.get("reason") or "").strip()[:500]
 
         return {
@@ -172,6 +190,7 @@ def parse_collector_response(text: str) -> dict:
             "action": action,
             "drill_into": drill_into,
             "tools": tools,
+            "tool_params": tool_params,
             "reason": reason,
         }
 
@@ -195,7 +214,7 @@ def parse_collector_response(text: str) -> dict:
 
 
 def parse_action_response(text: str) -> dict:
-    """Parse discovery_select response (legacy format, kept for discovery)."""
+    """Parse discovery_select response (ID-based selections format)."""
     text = text.strip()
     default: dict[str, Any] = {"selections": []}
 
@@ -204,10 +223,10 @@ def parse_action_response(text: str) -> dict:
         selections: list[dict[str, Any]] = []
         if isinstance(selections_val, list):
             for selection in selections_val:
-                if isinstance(selection, dict) and selection.get("path"):
+                if isinstance(selection, dict) and selection.get("id"):
                     confidence = normalize_confidence(selection.get("confidence", 0.7))
                     selections.append({
-                        "path": str(selection["path"]),
+                        "id": str(selection["id"]).strip(),
                         "confidence": confidence or 0.7,
                     })
         return {"selections": selections}

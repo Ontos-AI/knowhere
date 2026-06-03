@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic.core.types import ToolResult
+from shared.services.retrieval.agentic.core.types import NavigateStepResult, ToolResult
 from shared.services.retrieval.agentic.discovery import selection as discovery_selection
 from shared.services.retrieval.agentic.discovery.selection import DiscoverySelectResult
 from shared.services.retrieval.agentic.discovery import tools as discovery_tools
@@ -76,23 +76,6 @@ async def kg_document_select(
     )
 
 
-async def asset_filter_step(
-    db: AsyncSession,
-    *,
-    document_id: str,
-    job_result_id: str,
-    scope_path: str | list[str] | None,
-    asset_type: str,
-) -> list[dict[str, Any]]:
-    return await asset_tools.asset_filter_step(
-        db,
-        document_id=document_id,
-        job_result_id=job_result_id,
-        scope_path=scope_path,
-        asset_type=asset_type,
-    )
-
-
 async def navigate_step(
     db: AsyncSession,
     *,
@@ -108,7 +91,9 @@ async def navigate_step(
     budget_snapshot: dict | None = None,
     nav_trace: list[dict[str, Any]] | None = None,
     collected_paths: list[dict[str, Any]] | None = None,
-) -> navigation_tools.NavigateStepResult:
+    search_context: str = "",
+    inspect_context: str = "",
+) -> NavigateStepResult:
     return await navigation_tools.navigate_step(
         db,
         document_id=document_id,
@@ -123,6 +108,44 @@ async def navigate_step(
         budget_snapshot=budget_snapshot,
         nav_trace=nav_trace,
         collected_paths=collected_paths,
+        search_context=search_context,
+        inspect_context=inspect_context,
+    )
+
+
+async def search_assets_step(
+    db: AsyncSession,
+    *,
+    document_id: str,
+    job_result_id: str,
+    scope_path: str | list[str] | None,
+    asset_type: str,
+    query: str,
+    llm_fn: LLMFn,
+) -> list[dict[str, Any]]:
+    return await asset_tools.search_assets_step(
+        db,
+        document_id=document_id,
+        job_result_id=job_result_id,
+        scope_path=scope_path,
+        asset_type=asset_type,
+        query=query,
+        llm_fn=llm_fn,
+    )
+
+
+async def inspect_asset_step(
+    db: AsyncSession,
+    *,
+    document_id: str,
+    job_result_id: str,
+    chunk_id: str,
+) -> dict[str, Any] | None:
+    return await asset_tools.inspect_asset_step(
+        db,
+        document_id=document_id,
+        job_result_id=job_result_id,
+        chunk_id=chunk_id,
     )
 
 

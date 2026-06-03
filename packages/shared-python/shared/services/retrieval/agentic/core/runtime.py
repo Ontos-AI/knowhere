@@ -1,6 +1,7 @@
 """Runtime setup helpers for agentic retrieval."""
 from __future__ import annotations
 
+
 import json
 import os
 from typing import Any
@@ -89,7 +90,7 @@ class AgentLlmBudget:
             raise
 
         usage = current_llm_usage.get() or {}
-        actual = int(usage.get("prompt_tokens") or est)
+        actual = _extract_actual_tokens(usage, est)
         await ledger.commit(pool, actual=actual, est=est, doc_id=doc_id)
         return response
 
@@ -134,6 +135,20 @@ class AgentLlmBudget:
             )
 
         return _call
+
+
+def _extract_actual_tokens(usage: dict, est: int) -> int:
+    """Derive actual token consumption from LLM usage dict.
+
+    Checks ``total_tokens`` first, then sums ``prompt_tokens`` and
+    ``completion_tokens``. Falls back to the pre-call estimate.
+    """
+    total = usage.get("total_tokens")
+    if total:
+        return int(total)
+    prompt = int(usage.get("prompt_tokens") or 0)
+    completion = int(usage.get("completion_tokens") or 0)
+    return (prompt + completion) or est
 
 
 def _stringify_llm_input(prompt: Any) -> str:

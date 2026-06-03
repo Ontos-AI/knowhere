@@ -164,6 +164,10 @@ class DocumentNavigationRunner:
         scope_stack: list[str | None] = [None]
         step_count = 0
 
+        # Context from SEARCH/INSPECT tools — injected into next navigate prompt
+        search_context: str = ""
+        inspect_context: str = ""
+
         while step_count < self._config.max_nav_steps:
             if self._state.elapsed_ms >= self._config.latency_budget_ms:
                 break
@@ -196,6 +200,8 @@ class DocumentNavigationRunner:
                     budget_snapshot=self._state.ledger.snapshot() if self._state.ledger else None,
                     nav_trace=nav_trace if nav_trace else None,
                     collected_paths=collected_paths,
+                    search_context=search_context,
+                    inspect_context=inspect_context,
                 )
             except BudgetExceeded:
                 logger.info("  agentic: planning budget exhausted during navigation")
@@ -204,14 +210,17 @@ class DocumentNavigationRunner:
                 break
             self._state.step_count += 1
 
-            # Asset collection runs during navigation (images/tables).
-            await self._collect_assets(
+            # Clear previous tool context (consumed by this step's prompt)
+            search_context = ""
+            inspect_context = ""
+
+            # ── Execute asset tools (SEARCH/INSPECT) ─────────────────────
+            search_context, inspect_context = await self._execute_asset_tools(
                 doc=doc,
+                job_result_id=job_result_id,
                 scope=current_scope,
-                step_node=nav_result.node,
-                asset_tools=nav_result.tools,
+                nav_result=nav_result,
                 pending_assets=doc_pending_assets,
-                round_scope="nav",
             )
 
             # Merge outline + confidence into root tree
@@ -235,8 +244,11 @@ class DocumentNavigationRunner:
                 "action": nav_result.action,
                 "drill_into": nav_result.drill_into,
                 "collected": collected_in_step,
+                "tools_used": nav_result.tools,
                 "reason": nav_result.reason,
             }
+            if nav_result.fallback_reason:
+                trace_entry["fallback_reason"] = nav_result.fallback_reason
             nav_trace.append(trace_entry)
 
             # ── Record decision step ─────────────────────────────────────
@@ -263,6 +275,13 @@ class DocumentNavigationRunner:
                     # Already at root, treat as STOP
                     logger.info("  agentic: BACK at root scope, treating as STOP")
                     break
+
+            elif nav_result.action == "ERROR":
+                logger.warning(
+                    f"  agentic: navigation ERROR for doc={doc.document_id}: "
+                    f"{nav_result.error_reason or nav_result.reason}"
+                )
+                break
 
             elif nav_result.action == "STOP" or nav_result.is_terminal:
                 break
@@ -351,57 +370,156 @@ class DocumentNavigationRunner:
                 f"collected={len(unique_selections)} hydrated_chunks={total_chunks}"
             )
 
-    async def _collect_assets(
+    async def _execute_asset_tools(
         self,
         *,
         doc: CandidateDoc,
+        job_result_id: str,
         scope: str | None,
-        step_node: DocTreeNode,
-        asset_tools: list[str],
+        nav_result: NavigateStepResult,
         pending_assets: list[dict[str, Any]],
-        round_scope: str,
-    ) -> None:
-        selected_asset_scopes = list(step_node.confidence.keys())
-        asset_scope: str | list[str] | None = selected_asset_scopes or scope
-        for asset_tool in asset_tools:
-            if asset_tool not in ("FIND_IMAGES", "FIND_TABLES"):
-                continue
-            asset_type = "image" if asset_tool == "FIND_IMAGES" else "table"
-            asset_chunks = await tools.asset_filter_step(
+    ) -> tuple[str, str]:
+        """Execute asset tools requested by the Navigator.
+
+        Handles SEARCH_IMAGES, SEARCH_TABLES, and INSPECT_ASSET.
+        Returns (search_context, inspect_context) for injection into
+        the next navigate prompt.
+        """
+        search_context = ""
+        inspect_context = ""
+
+        if not nav_result.tools:
+            return search_context, inspect_context
+
+        # ── SEARCH_IMAGES / SEARCH_TABLES ────────────────────────────
+        if nav_result.search_assets_params:
+            params = nav_result.search_assets_params
+            search_query = params["query"]
+            asset_type = params["asset_type"]
+            tool_name = "SEARCH_IMAGES" if asset_type == "image" else "SEARCH_TABLES"
+
+            search_llm_fn = self._llm_budget.for_document(
+                cast(LLMFn, self._llm_fn),
+                doc_id=doc.document_id,
+                step=self._state.step_count,
+            ) if self._llm_fn else None
+
+            if search_llm_fn:
+                matched_assets = await tools.search_assets_step(
+                    self._db,
+                    document_id=doc.document_id,
+                    job_result_id=job_result_id,
+                    scope_path=scope,
+                    asset_type=asset_type,
+                    query=search_query,
+                    llm_fn=search_llm_fn,
+                )
+
+                if matched_assets:
+                    # Add matched assets to pending_assets for reconciliation
+                    pending_assets.extend(matched_assets)
+
+                    # Build context for next navigate prompt
+                    lines = [
+                        f"=== {tool_name} Results ===",
+                        f'Found {len(matched_assets)} matching {asset_type}s for "{search_query}":',
+                    ]
+                    for i, asset in enumerate(matched_assets[:10]):
+                        chunk_id = asset.get("chunk_id", "")
+                        file_path = asset.get("file_path", "")
+                        owner = asset.get("owner_section_path", "")
+                        metadata = asset.get("chunk_metadata") or {}
+                        desc = (metadata.get("summary") or asset.get("content", ""))[:80]
+                        lines.append(
+                            f"  {i+1}. chunk_id=\"{chunk_id}\" file=\"{file_path}\""
+                        )
+                        lines.append(f"     section: {owner}")
+                        lines.append(f"     {desc}")
+                    lines.append(
+                        "You can COLLECT the sections containing these assets, "
+                        "or use INSPECT_ASSET to see more details."
+                    )
+                    lines.append(f"=== End {tool_name} Results ===")
+                    search_context = "\n".join(lines)
+                else:
+                    search_context = (
+                        f"=== {tool_name} Results ===\n"
+                        f"No matching {asset_type}s found for \"{search_query}\".\n"
+                        f"=== End {tool_name} Results ==="
+                    )
+
+                if self._trace_enabled:
+                    self._trace.record_step(
+                        "search_assets_step",
+                        ToolResult(
+                            status="matched" if matched_assets else "empty",
+                            payload={
+                                "document_id": doc.document_id,
+                                "scope": scope or "root",
+                                "asset_type": asset_type,
+                                "query": search_query,
+                                "total_matched": len(matched_assets) if matched_assets else 0,
+                            },
+                        ),
+                        decision_reason=f"search_{asset_type}_{doc.source_file_name}",
+                    )
+
+                logger.info(
+                    f"  agentic step {self._state.step_count}: {tool_name} "
+                    f'doc="{doc.source_file_name}" scope={scope or "root"} '
+                    f'query="{search_query[:50]}" '
+                    f"matched={len(matched_assets) if matched_assets else 0}"
+                )
+
+        # ── INSPECT_ASSET ────────────────────────────────────────────
+        if nav_result.inspect_asset_params:
+            chunk_id = nav_result.inspect_asset_params["chunk_id"]
+            detail = await tools.inspect_asset_step(
                 self._db,
                 document_id=doc.document_id,
-                job_result_id=self._state.doc_job_map.get(doc.document_id, ""),
-                scope_path=asset_scope,
-                asset_type=asset_type,
+                job_result_id=job_result_id,
+                chunk_id=chunk_id,
             )
-            if asset_chunks:
-                pending_assets.extend(asset_chunks)
 
-            scope_display = (
-                asset_scope
-                if isinstance(asset_scope, list)
-                else (asset_scope or "root")
-            )
+            if detail:
+                inspect_context = (
+                    f"=== INSPECT_ASSET Result ===\n"
+                    f"chunk_id: {detail['chunk_id']}\n"
+                    f"type: {detail['chunk_type']}\n"
+                    f"file: {detail['file_path']}\n"
+                    f"section: {detail['section_path']}\n"
+                    f"summary: {detail['summary']}\n"
+                    f"content: {detail['content']}\n"
+                    f"=== End INSPECT_ASSET ==="
+                )
+            else:
+                inspect_context = (
+                    f"=== INSPECT_ASSET Result ===\n"
+                    f"Asset chunk_id=\"{chunk_id}\" not found.\n"
+                    f"=== End INSPECT_ASSET ==="
+                )
+
             if self._trace_enabled:
                 self._trace.record_step(
-                    "asset_filter_step",
+                    "inspect_asset_step",
                     ToolResult(
-                        status="filtered" if asset_chunks else "empty",
+                        status="found" if detail else "not_found",
                         payload={
                             "document_id": doc.document_id,
-                            "scope": scope_display,
-                            "navigation_scope": scope or "root",
-                            "asset_type": asset_type,
-                            "chunks_found": len(asset_chunks) if asset_chunks else 0,
+                            "chunk_id": chunk_id,
+                            "file_path": detail.get("file_path", "") if detail else "",
                         },
                     ),
-                    decision_reason=f"asset_{round_scope}_{doc.source_file_name}",
+                    decision_reason=f"inspect_{doc.source_file_name}",
                 )
+
             logger.info(
-                f"  agentic step {self._state.step_count}: asset_filter_step "
-                f'doc="{doc.source_file_name}" scope={scope_display} '
-                f"type={asset_type} chunks={len(asset_chunks) if asset_chunks else 0}"
+                f"  agentic step {self._state.step_count}: INSPECT_ASSET "
+                f'doc="{doc.source_file_name}" chunk_id={chunk_id} '
+                f"found={detail is not None}"
             )
+
+        return search_context, inspect_context
 
     async def _hydrate_discovery_hints(
         self,
@@ -528,28 +646,34 @@ class DocumentNavigationRunner:
         drill_into = nav_result.drill_into
 
         if self._trace_enabled:
+            payload: dict[str, Any] = {
+                "document_id": doc.document_id,
+                "scope": scope or "root",
+                "step": step_num,
+                "action": action,
+                "reason": reason,
+                "drill_into": drill_into,
+                "collected_count": len(collected_in_step),
+                "collected_paths": collected_in_step,
+                "asset_tools": nav_result.tools,
+                "outline_count": len(nav_result.node.outline_items),
+            }
+            if nav_result.error_reason:
+                payload["error_reason"] = nav_result.error_reason
+            if nav_result.fallback_reason:
+                payload["fallback_reason"] = nav_result.fallback_reason
             self._trace.record_step(
                 "navigate_step",
                 ToolResult(
                     status=f"{action.lower()}",
-                    payload={
-                        "document_id": doc.document_id,
-                        "scope": scope or "root",
-                        "step": step_num,
-                        "action": action,
-                        "reason": reason,
-                        "drill_into": drill_into,
-                        "collected_count": len(collected_in_step),
-                        "collected_paths": collected_in_step,
-                        "asset_tools": nav_result.tools,
-                        "outline_count": len(nav_result.node.outline_items),
-                    },
+                    payload=payload,
+                    error=nav_result.error_reason,
                 ),
                 decision_reason=f"nav_s{step_num}_{doc.source_file_name}",
             )
 
         doc_name = doc.source_file_name or self._state.doc_id_to_name.get(doc.document_id, "")
-        self._decision_steps.append({
+        step_entry: dict[str, Any] = {
             "phase": "navigate",
             "document": doc_name,
             "document_id": doc.document_id,
@@ -559,8 +683,14 @@ class DocumentNavigationRunner:
             "drill_into": drill_into,
             "collected_paths": collected_in_step,
             "collected_count": len(collected_in_step),
-        })
+        }
+        if nav_result.error_reason:
+            step_entry["error_reason"] = nav_result.error_reason
+        if nav_result.fallback_reason:
+            step_entry["fallback_reason"] = nav_result.fallback_reason
+        self._decision_steps.append(step_entry)
 
+        fallback_tag = f" FALLBACK={nav_result.fallback_reason}" if nav_result.fallback_reason else ""
         scope_log = scope or "root"
         logger.info(
             f"  agentic step {self._state.step_count}: navigate_step "
@@ -570,6 +700,7 @@ class DocumentNavigationRunner:
             f"collected={len(collected_in_step)} "
             f"drill_into={drill_into} "
             f"outline={len(nav_result.node.outline_items)}"
+            f"{fallback_tag}"
         )
 
 

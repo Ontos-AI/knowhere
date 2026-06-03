@@ -20,6 +20,9 @@ class WorkflowPlanService:
         user_id: str,
         namespace: str,
         query: str,
+        top_k: int,
+        data_type: int = 1,
+        exclude_document_ids: list[str] | None = None,
         planner_llm: LLMFn | None,
         planner_ledger: BudgetLedger,
         max_steps: int,
@@ -28,8 +31,16 @@ class WorkflowPlanService:
         corpus_total_docs: int,
         corpus_total_chunks: int,
     ) -> QueryPlan:
+        cache_kwargs = dict(
+            user_id=user_id,
+            namespace=namespace,
+            query=query,
+            top_k=top_k,
+            data_type=data_type,
+            exclude_document_ids=exclude_document_ids,
+        )
         try:
-            cached = await get_cached_workflow_plan(user_id=user_id, namespace=namespace, query=query)
+            cached = await get_cached_workflow_plan(**cache_kwargs)
             if cached:
                 return QueryPlan.from_dict(cached, original_query=query)
         except Exception as exc:
@@ -48,12 +59,7 @@ class WorkflowPlanService:
             corpus_total_chunks=corpus_total_chunks,
         )
         try:
-            await set_cached_workflow_plan(
-                user_id=user_id,
-                namespace=namespace,
-                query=query,
-                plan=plan.to_dict(),
-            )
+            await set_cached_workflow_plan(**cache_kwargs, plan=plan.to_dict())
         except Exception as exc:
             logger.warning(f"workflow plan cache write failed (ignored): {exc}")
         return plan

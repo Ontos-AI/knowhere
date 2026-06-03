@@ -9,6 +9,7 @@ from typing import Any
 from loguru import logger
 
 from shared.services.retrieval.agentic.core.budget import BudgetExceeded, BudgetLedger
+from shared.services.retrieval.agentic.core.runtime import _extract_actual_tokens
 from shared.services.retrieval.llm_adapter import LLMFn, current_llm_usage
 from shared.services.retrieval.workflow.types import OutputRole, PlannedStep, QueryPlan, StepKind
 from shared.utils.token_estimate import estimate_tokens
@@ -143,7 +144,7 @@ class QueryPlanner:
             await self._ledger.refund("bootstrap", est=est)
             raise
         usage = current_llm_usage.get() or {}
-        actual = int(usage.get("prompt_tokens") or est)
+        actual = _extract_actual_tokens(usage, est)
         await self._ledger.commit("bootstrap", actual=actual, est=est)
         logger.info(
             "workflow planner llm call: est_tokens={} actual_tokens={} latency={}ms",

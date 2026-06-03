@@ -7,7 +7,7 @@ Flow:
 
 The orchestrator drives navigation via an iterative BFS queue per document,
 calling navigate_step at each level. Each navigate_step is a single LLM call
-that decides action (NAVIGATE/STOP), asset tools (FIND_IMAGES/FIND_TABLES),
+that decides action (NAVIGATE/STOP), asset tools (SEARCH_IMAGES/SEARCH_TABLES/INSPECT_ASSET),
 and section selections. STOP terminates the drill-down for that scope.
 
 KNOWHERE does not generate final answers. Downstream agents decide whether the

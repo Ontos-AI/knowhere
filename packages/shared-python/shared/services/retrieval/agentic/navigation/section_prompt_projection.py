@@ -140,6 +140,7 @@ def format_nav_trace(
         scope = entry.get("scope", "root")
         action = entry.get("action", "?")
         reason = entry.get("reason", "")
+        fallback = entry.get("fallback_reason")
 
         action_display = action
         drill_into = entry.get("drill_into")
@@ -153,6 +154,9 @@ def format_nav_trace(
         if step_collected:
             paths_display = ", ".join(f'"{c}"' for c in step_collected)
             lines.append(f"  collected: {paths_display}")
+
+        if fallback:
+            lines.append(f"  ⚠ FALLBACK: {fallback}")
 
         if reason:
             lines.append(f"  reason: {reason}")
