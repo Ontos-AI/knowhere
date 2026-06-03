@@ -95,23 +95,46 @@ async def count_assets_under_scope(
     return total_images, total_tables
 
 
-def build_asset_tools_block(total_images: int, total_tables: int) -> str:
+def build_asset_tools_block(
+    total_images: int,
+    total_tables: int,
+    image_topic_hints: list[str] | None = None,
+    table_topic_hints: list[str] | None = None,
+) -> str:
+    """Build the asset tool description block for the navigation prompt.
+
+    Describes SEARCH_IMAGES, SEARCH_TABLES, and INSPECT_ASSET tools.
+    Includes topic hints so the Navigator knows what assets are available
+    without seeing the full list.
+    """
     if total_images <= 0 and total_tables <= 0:
         return ""
 
-    tools_lines = ["\nOptional asset tools (usable with NAVIGATE or STOP):\n"]
+    tools_lines = ["\nAsset tools (usable alongside any action):\n"]
     if total_images > 0:
+        hint_text = ""
+        if image_topic_hints:
+            hint_text = f" Topics include: {', '.join(image_topic_hints[:8])}"
         tools_lines.append(
-            f"  FIND_IMAGES — Extract image/chart assets under the current scope ({total_images} available).\n"
+            f"  SEARCH_IMAGES — Search for images matching a query ({total_images} available).{hint_text}\n"
+            f"    Requires: tool_params.search_query (string)\n"
+            f"    Returns filtered candidates in next step. Use for targeted image retrieval.\n"
         )
     if total_tables > 0:
+        hint_text = ""
+        if table_topic_hints:
+            hint_text = f" Topics include: {', '.join(table_topic_hints[:8])}"
         tools_lines.append(
-            f"  FIND_TABLES — Extract table/data assets under the current scope ({total_tables} available).\n"
+            f"  SEARCH_TABLES — Search for tables matching a query ({total_tables} available).{hint_text}\n"
+            f"    Requires: tool_params.search_query (string)\n"
+            f"    Returns filtered candidates in next step.\n"
         )
-    tools_lines.append(
-        "  Note: with NAVIGATE selections, asset tools are limited to the selected sections; "
-        "with STOP or no selections, they use the current scope.\n"
-    )
+    if total_images > 0 or total_tables > 0:
+        tools_lines.append(
+            "  INSPECT_ASSET — View detailed description of a specific asset by chunk_id.\n"
+            "    Requires: tool_params.chunk_id (string)\n"
+            "    Use after SEARCH to verify relevance before collecting.\n"
+        )
     return "".join(tools_lines)
 
 
@@ -340,3 +363,259 @@ async def asset_filter_step(
     except Exception as exc:
         logger.error(f"  asset_filter_step failed: {exc}")
         return []
+
+
+async def search_assets_step(
+    db: AsyncSession,
+    *,
+    document_id: str,
+    job_result_id: str,
+    scope_path: str | list[str] | None,
+    asset_type: str,
+    query: str,
+    llm_fn: Any,
+) -> list[dict[str, Any]]:
+    """LLM-filtered asset search.
+
+    1. Loads all assets of ``asset_type`` under scope via ``asset_filter_step``
+    2. Builds a compact candidate list (file_name + description)
+    3. Sends to LLM: "which of these match the query?"
+    4. Returns only the matching candidates
+
+    This is the only reliable approach without vector/semantic search —
+    the LLM understands that "折线图 ≈ 走势图" and "上证指数 ∈ 金融股票".
+    """
+    t0 = time.monotonic()
+
+    all_assets = await asset_filter_step(
+        db,
+        document_id=document_id,
+        job_result_id=job_result_id,
+        scope_path=scope_path,
+        asset_type=asset_type,
+    )
+    if not all_assets:
+        logger.info(f"  search_assets_step: no {asset_type} assets under scope={scope_path}")
+        return []
+
+    # Build compact candidate list for LLM
+    candidates_for_llm: list[dict[str, str]] = []
+    asset_by_id: dict[str, dict[str, Any]] = {}
+    for asset in all_assets:
+        chunk_id = str(asset.get("chunk_id") or "")
+        if not chunk_id:
+            continue
+        metadata = asset.get("chunk_metadata") or {}
+        summary = metadata.get("summary", "")
+        file_path = asset.get("file_path") or ""
+        content = asset.get("content") or ""
+
+        # Use summary if available, otherwise first 200 chars of content
+        description = summary or content[:200]
+
+        candidates_for_llm.append({
+            "id": chunk_id,
+            "file": file_path,
+            "desc": description[:150],
+        })
+        asset_by_id[chunk_id] = asset
+
+    if not candidates_for_llm:
+        return []
+
+    # LLM filtering
+    prompt = _format_asset_filter_prompt(query, asset_type, candidates_for_llm)
+    try:
+        response = await llm_fn(prompt)
+        selected_ids = _parse_asset_filter_response(response, set(asset_by_id.keys()))
+    except Exception as exc:
+        logger.warning(f"  search_assets_step: LLM filter failed: {exc}, returning empty")
+        return []
+
+    # Build result — only matching assets, with relevance info
+    result: list[dict[str, Any]] = []
+    for chunk_id in selected_ids:
+        asset = asset_by_id.get(chunk_id)
+        if asset:
+            result.append(asset)
+
+    latency = int((time.monotonic() - t0) * 1000)
+    logger.info(
+        f"  search_assets_step query=\"{query[:50]}\" type={asset_type}: "
+        f"{len(result)}/{len(all_assets)} assets matched, {latency}ms"
+    )
+    return result
+
+
+def _format_asset_filter_prompt(
+    query: str,
+    asset_type: str,
+    candidates: list[dict[str, str]],
+) -> str:
+    """Build the LLM prompt for asset relevance filtering."""
+    type_label = "images" if asset_type == "image" else "tables"
+    items_text = "\n".join(
+        f'  {i+1}. id="{c["id"]}" file="{c["file"]}"\n     {c["desc"]}'
+        for i, c in enumerate(candidates)
+    )
+    return (
+        f"You are an asset relevance filter.\n\n"
+        f"User query: {query}\n\n"
+        f"Below are {len(candidates)} {type_label} from a document. "
+        f"Select ONLY those that are relevant to the user's query.\n\n"
+        f"=== {type_label.title()} ===\n{items_text}\n=== End ===\n\n"
+        f"Return ONLY a JSON array of matching asset IDs, e.g.: "
+        f'["{candidates[0]["id"]}"]\n'
+        f"If none are relevant, return an empty array: []\n"
+        f"Do not include any explanation."
+    )
+
+
+def _parse_asset_filter_response(
+    text: str,
+    valid_ids: set[str],
+) -> list[str]:
+    """Parse LLM response for asset filter — extract valid chunk IDs."""
+    import json
+    import re
+
+    text = text.strip()
+
+    # Try direct JSON parse
+    try:
+        result = json.loads(text)
+        if isinstance(result, list):
+            return [str(item) for item in result if str(item) in valid_ids]
+    except (ValueError, json.JSONDecodeError):
+        pass
+
+    # Try extracting from code fence
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
+    if fence_match:
+        try:
+            result = json.loads(fence_match.group(1).strip())
+            if isinstance(result, list):
+                return [str(item) for item in result if str(item) in valid_ids]
+        except (ValueError, json.JSONDecodeError):
+            pass
+
+    # Try finding any JSON array
+    bracket_match = re.search(r"\[.*?\]", text, re.DOTALL)
+    if bracket_match:
+        try:
+            result = json.loads(bracket_match.group())
+            if isinstance(result, list):
+                return [str(item) for item in result if str(item) in valid_ids]
+        except (ValueError, json.JSONDecodeError):
+            pass
+
+    return []
+
+
+async def inspect_asset_step(
+    db: AsyncSession,
+    *,
+    document_id: str,
+    job_result_id: str,
+    chunk_id: str,
+) -> dict[str, Any] | None:
+    """Load detailed info for a single asset chunk.
+
+    Returns the full description, file_path, section_path, and content
+    for the Navigator LLM to make a relevance judgment.
+    No extra LLM call — uses the existing parse-time description.
+    """
+    row = (await db.execute(
+        select(
+            DocumentChunk.chunk_id,
+            DocumentChunk.chunk_type,
+            DocumentChunk.content,
+            DocumentChunk.file_path,
+            DocumentChunk.chunk_metadata,
+            DocumentSection.section_path,
+        )
+        .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
+        .where(DocumentChunk.document_id == document_id)
+        .where(DocumentChunk.job_result_id == job_result_id)
+        .where(DocumentChunk.chunk_id == chunk_id)
+    )).first()
+
+    if not row:
+        logger.warning(f"  inspect_asset_step: chunk_id={chunk_id} not found")
+        return None
+
+    metadata = row[4] or {}
+    return {
+        "chunk_id": row[0],
+        "chunk_type": row[1],
+        "content": (row[2] or "")[:500],
+        "file_path": row[3] or "",
+        "summary": metadata.get("summary", ""),
+        "section_path": row[5] or "",
+    }
+
+
+async def load_asset_topic_hints(
+    db: AsyncSession,
+    *,
+    document_id: str,
+    job_result_id: str,
+    scope_paths: list[str],
+    asset_type: str,
+    max_hints: int = 8,
+) -> list[str]:
+    """Extract brief topic hints from asset file_paths/summaries.
+
+    These are injected into the tool description so the Navigator
+    knows what topics are covered without seeing the full list.
+    """
+    section_rows = await _load_scope_sections(
+        db,
+        document_id=document_id,
+        job_result_id=job_result_id,
+        scope_paths=scope_paths,
+    )
+    section_ids = [row[0] for row in section_rows]
+    if not section_ids:
+        return []
+
+    rows = (await db.execute(
+        select(
+            DocumentChunk.file_path,
+            DocumentChunk.chunk_metadata,
+        )
+        .where(DocumentChunk.document_id == document_id)
+        .where(DocumentChunk.job_result_id == job_result_id)
+        .where(DocumentChunk.section_id.in_(section_ids))
+        .where(DocumentChunk.chunk_type == asset_type)
+        .order_by(DocumentChunk.sort_order)
+    )).all()
+
+    hints: list[str] = []
+    for file_path, metadata in rows:
+        # Extract a brief topic from file name or summary
+        hint = ""
+        if file_path:
+            # Strip path prefix and extension: "images/image-9 上证指数走势.jpg" → "上证指数走势"
+            name = file_path.rsplit("/", 1)[-1] if "/" in file_path else file_path
+            # Remove extension
+            name = name.rsplit(".", 1)[0] if "." in name else name
+            # Remove common prefixes like "image-9 " or "table-3 "
+            import re
+            name = re.sub(r"^(?:image|table|img|tbl)-?\d+\s*", "", name, flags=re.IGNORECASE).strip()
+            if name:
+                hint = name[:30]
+        if not hint and isinstance(metadata, dict):
+            summary = metadata.get("summary", "")
+            if summary:
+                # Take first line, skip "image-N" prefix
+                first_line = summary.split("\n")[0].strip()
+                first_line = re.sub(r"^(?:image|table)-?\d+\s*", "", first_line, flags=re.IGNORECASE).strip()
+                hint = first_line[:30]
+        if hint and hint not in hints:
+            hints.append(hint)
+        if len(hints) >= max_hints:
+            break
+
+    return hints
+

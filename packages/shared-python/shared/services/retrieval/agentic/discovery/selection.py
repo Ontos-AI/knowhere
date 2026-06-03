@@ -57,7 +57,7 @@ async def discovery_select_step(
 
     t0 = time.monotonic()
     try:
-        hint_lines, hint_by_path, excluded_hints = _project_discovery_hints(
+        hint_lines, hint_by_path, excluded_hints, id_to_path = _project_discovery_hints(
             hints,
             exclude_paths=exclude_paths,
         )
@@ -98,6 +98,7 @@ async def discovery_select_step(
 
         path_selections, chunk_refs = _build_discovery_path_selections(
             selections=selections,
+            id_to_path=id_to_path,
             hint_by_path=hint_by_path,
             document_id=document_id,
             node=node,
@@ -141,10 +142,12 @@ def _project_discovery_hints(
     hints: list[dict[str, Any]],
     *,
     exclude_paths: set[str] | None,
-) -> tuple[list[str], dict[str, dict], list[dict[str, str]]]:
-    """Project discovery hints into prompt lines, filtering excluded paths.
+) -> tuple[list[str], dict[str, dict], list[dict[str, str]], dict[str, str]]:
+    """Project discovery hints into prompt lines with sequential IDs.
 
-    Returns ``(hint_lines, hint_by_path, excluded_hints)`` where
+    Returns ``(hint_lines, hint_by_path, excluded_hints, id_to_path)``
+    where *hint_lines* are markdown table rows (``| D1 | path |``),
+    *id_to_path* maps each ID to its canonical path, and
     *excluded_hints* records each path that was dropped and which
     navigation-collected path covered it.
     """
@@ -156,6 +159,8 @@ def _project_discovery_hints(
     hint_lines: list[str] = []
     hint_by_path: dict[str, dict] = {}
     excluded_hints: list[dict[str, str]] = []
+    id_to_path: dict[str, str] = {}
+    counter = 0
     for hint in hints:
         section_path = normalize_section_path(hint.get("section_path", ""))
         if not section_path:
@@ -167,13 +172,17 @@ def _project_discovery_hints(
         if section_path in hint_by_path:
             continue
 
+        counter += 1
+        hint_id = f"D{counter}"
+        id_to_path[hint_id] = section_path
         hint_by_path[section_path] = hint
         summary = hint.get("summary", "") or ""
-        hint_lines.append(f'▸ path="{section_path}"')
+        path_display = section_path
         if summary:
-            hint_lines.append(f"    {summary[:300]}")
+            path_display = f"{section_path} — {summary[:200]}"
+        hint_lines.append(f"| {hint_id} | {path_display} |")
 
-    return hint_lines, hint_by_path, excluded_hints
+    return hint_lines, hint_by_path, excluded_hints, id_to_path
 
 
 def _find_covering_path(path: str, exclude_set: set[str]) -> str | None:
@@ -210,17 +219,22 @@ def _build_discovery_selection_prompt(
 def _build_discovery_path_selections(
     *,
     selections: list[dict[str, Any]],
+    id_to_path: dict[str, str],
     hint_by_path: dict[str, dict],
     document_id: str,
     node: DocTreeNode,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    valid_selections = [
-        selection for selection in selections if selection["path"] in hint_by_path
-    ]
+    """Resolve ID-based selections to path selections for hydration."""
     path_selections: list[dict[str, Any]] = []
     chunk_refs: list[dict[str, Any]] = []
-    for selection in valid_selections:
-        path = selection["path"]
+    for selection in selections:
+        hint_id = selection.get("id", "")
+        path = id_to_path.get(hint_id)
+        if not path or path not in hint_by_path:
+            logger.info(
+                f"  discovery: selection id={hint_id} not found in id_to_path, skipping"
+            )
+            continue
         confidence = selection.get("confidence", 0.7)
         node.confidence[path] = confidence
         hint = hint_by_path[path]

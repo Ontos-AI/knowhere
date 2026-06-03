@@ -118,6 +118,16 @@ class BudgetLedger:
             if pool_state.remaining < est:
                 return False
 
+            # Per-doc cap enforcement: prevent one document from consuming
+            # the entire planning pool.
+            if pool == "planning" and doc_id and doc_id in self._doc_caps:
+                doc_remaining = self._doc_caps[doc_id] - (
+                    self._doc_used.get(doc_id, 0)
+                    + self._doc_reserved.get(doc_id, 0)
+                )
+                if doc_remaining < est:
+                    return False
+
             pool_state.reserved += est
             if pool == "planning" and doc_id:
                 self._doc_reserved[doc_id] = self._doc_reserved.get(doc_id, 0) + est

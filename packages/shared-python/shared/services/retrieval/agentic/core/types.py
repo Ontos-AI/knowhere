@@ -190,17 +190,29 @@ class NavigateStepResult:
     Each step returns:
     - ``collect``: paths to add to the evidence collection (full hydration)
     - ``drill``: paths to explore deeper in subsequent steps
-    - ``action``: navigation direction — DRILL/BACK/STOP
-    - ``tools``: optional asset tools (FIND_IMAGES/FIND_TABLES)
+    - ``action``: navigation direction — DRILL/BACK/STOP/ERROR
+    - ``tools``: asset tools requested (SEARCH_IMAGES/SEARCH_TABLES/INSPECT_ASSET)
     - ``node``: outline tree node for rendering context
     - ``reason``: LLM reasoning for trace
+    - ``error_reason``: set when action is ERROR — distinguishes system
+      errors from intentional STOP so callers can decide retry vs skip.
+    - ``fallback_reason``: set when DRILL was forced to STOP due to an
+      invalid target (e.g. re-drill into current scope).  The system
+      auto-collects visible leaf children to preserve LLM intent.
+    - ``search_assets_params``: parameters for SEARCH_IMAGES/SEARCH_TABLES
+    - ``inspect_asset_params``: parameters for INSPECT_ASSET
     """
-    action: str = "STOP"  # DRILL | BACK | STOP
+    action: str = "STOP"  # DRILL | BACK | STOP | ERROR
     collect: list[dict[str, Any]] = field(default_factory=list)
     drill: list[dict[str, Any]] = field(default_factory=list)
+    back_to: str | None = None  # BACK target ancestor path (None = root)
     tools: list[str] = field(default_factory=list)
     node: DocTreeNode = field(default_factory=DocTreeNode)
     reason: str = ""
+    error_reason: str | None = None
+    fallback_reason: str | None = None
+    search_assets_params: dict[str, Any] | None = None
+    inspect_asset_params: dict[str, Any] | None = None
 
     @property
     def drill_into(self) -> str | None:
@@ -209,14 +221,24 @@ class NavigateStepResult:
 
     @property
     def is_terminal(self) -> bool:
-        """True when navigation should stop (STOP or empty collect+drill)."""
-        return self.action == "STOP" or (not self.collect and not self.drill)
+        """True when navigation should stop (STOP/ERROR or empty collect+drill)."""
+        return self.action in ("STOP", "ERROR") or (not self.collect and not self.drill)
 
     @staticmethod
     def stop(scope_path: str | None = None) -> 'NavigateStepResult':
         return NavigateStepResult(
             action="STOP",
             node=DocTreeNode.empty(scope_path),
+        )
+
+    @staticmethod
+    def error(scope_path: str | None = None, *, reason: str = "") -> 'NavigateStepResult':
+        """Return an ERROR result that is distinguishable from intentional STOP."""
+        return NavigateStepResult(
+            action="ERROR",
+            node=DocTreeNode.empty(scope_path),
+            reason=f"navigation_error: {reason[:200]}" if reason else "navigation_error",
+            error_reason=reason[:500] if reason else "unknown_error",
         )
 
 
@@ -243,7 +265,7 @@ class AgenticResult:
     - ``router_used``: routing path identifier
     - ``budget_snapshot``: final budget ledger state at run completion
     - ``stop_reason``: why the run terminated (evidence_only /
-      latency_budget / context_budget / no_llm / etc.)
+      budget / latency / max_steps / error / llm_stop)
     - ``failure_reason``: fatal retrieval failure reason, if any.
     - ``decision_trace``: per-step navigation decisions with reasons,
       exposed to downstream agents for stop/retry/modify-query decisions.

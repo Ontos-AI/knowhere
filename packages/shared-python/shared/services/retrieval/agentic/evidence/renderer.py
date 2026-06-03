@@ -64,12 +64,15 @@ def render_unified_doc_tree(
             leaf_tag = " [Leaf]" if is_leaf else ""
 
             level_tag = f"[L{level}] " if level else ""
+            # Indent based on the section's own level relative to the tree depth,
+            # so L2 items are indented even when they sit in the root node.
+            item_indent = indent + "    " * max(level - 1, 0)
             if level <= 1:
-                parts.append(f"{indent}▸ {level_tag}{title}{leaf_tag}")
+                parts.append(f"{item_indent}▸ {level_tag}{title}{leaf_tag}")
             else:
-                parts.append(f"{indent}└ {level_tag}{title}{leaf_tag}")
+                parts.append(f"{item_indent}└ {level_tag}{title}{leaf_tag}")
 
-            sub_indent = indent + "    "
+            sub_indent = item_indent + "    "
             if path in node.children:
                 child = node.children[path]
                 if path in node.leaf_content:
