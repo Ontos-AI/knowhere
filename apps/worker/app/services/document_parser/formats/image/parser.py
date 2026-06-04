@@ -142,7 +142,7 @@ def ask_image(
 
     if task in ("summary-images", "atlas-page-info"):
         image_model = settings.IMAGE_MODEL or "gpt-4-vision-preview"
-    else:  # Image Q&A and OCR use better models
+    else:  # OCR and image type classification use higher-capability models
         image_model = settings.IMAGE_MODEL_MAX or "gpt-4-vision-preview"
 
     if len(urls_) > 0:

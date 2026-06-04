@@ -27,6 +27,7 @@ from shared.services.retrieval.agentic.navigation.assets import (
 from shared.services.retrieval.agentic.core.budget import BudgetExceeded
 from shared.services.retrieval.agentic.prompts import (
     COLLECTOR_PROMPT,
+    adjust_budget_snapshot,
     format_budget_block,
     parse_collector_response,
 )
@@ -41,38 +42,6 @@ from shared.services.retrieval.agentic.navigation.section_tree import load_child
 from shared.services.retrieval.agentic.core.types import DocTreeNode, NavigateStepResult
 from shared.services.retrieval.llm_adapter import LLMFn
 
-
-def _adjust_budget_snapshot(
-    snapshot: dict | None,
-    additional_tokens: int,
-) -> dict | None:
-    """Adjust a budget snapshot by adding estimated tokens for the current call.
-
-    This ensures the LLM sees the budget state *after* this call's cost,
-    not before, preventing misleadingly low percentages.
-    """
-    if not snapshot:
-        return snapshot
-    import copy
-    adjusted = copy.deepcopy(snapshot)
-    planning = adjusted.get("planning")
-    if not planning:
-        return adjusted
-    capacity = planning.get("capacity", 1)
-    used = planning.get("used", 0) + additional_tokens
-    used_pct = min(int(used * 100 / capacity), 100) if capacity > 0 else 100
-    planning["used"] = used
-    planning["used_pct"] = used_pct
-    planning["remaining"] = max(0, capacity - used)
-    if used_pct >= 90:
-        planning["status"] = "EXHAUSTED"
-    elif used_pct >= 75:
-        planning["status"] = "CRITICAL"
-    elif used_pct >= 50:
-        planning["status"] = "TIGHT"
-    else:
-        planning["status"] = "HEALTHY"
-    return adjusted
 
 
 async def navigate_step(
@@ -162,7 +131,7 @@ async def navigate_step(
         prompt_tokens_est = (
             len(items_text) + len(trace_block) + len(tools_block) + 800
         ) // 2  # rough chars-to-tokens ratio
-        adjusted_snapshot = _adjust_budget_snapshot(
+        adjusted_snapshot = adjust_budget_snapshot(
             budget_snapshot, prompt_tokens_est,
         )
 

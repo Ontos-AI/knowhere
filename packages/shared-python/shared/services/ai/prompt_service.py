@@ -566,16 +566,65 @@ def build_prompt(task, texts, query, **kwargs):
         temperature = 0.1
         max_tokens = int(kwargs["paras"]["max_tokens"] * 1.2)
         if texts.strip():
-            img_context = f"- Image context is [{texts}], you may reference the title for summarization"
+            img_context = f"- Image context is [{texts}], you may reference the context for summarization"
         else:
             img_context = ""
 
         prompt = f"""
-        You will receive an image, which may be a photo, chart, or an image requiring OCR.
-        Your task is to extract the main content described in the image. Note:
-        - Line 1: Output a short title (no more than 15 characters) summarizing the image's core topic
-        - Line 2 onward: Provide a precise and concise summary, using text descriptions only, avoid extracting specific data from the image
-        - Your response **MUST BE in the SAME LANGUAGE** as any text visible in the image (if there is no text, English is preferred)
+        You will receive an image from a document. Your task is to extract the most
+        USEFUL information from this image based on its type.
+
+        **STEP 1: Identify the image type** (do NOT output this step, use it internally):
+        - Credential/ID: identity cards, passports, driver licenses, business licenses, certificates, permits
+        - Data Chart: bar charts, line charts, pie charts, scatter plots, heatmaps, gauge charts
+        - Table Screenshot: tabular data rendered as an image
+        - Diagram: flowcharts, org charts, architecture diagrams, mind maps, UML diagrams
+        - Engineering Drawing: architectural plans, circuit diagrams, CAD drawings, mechanical drawings
+        - Photo: real-world photographs of people, objects, scenes, products
+        - Other: anything not fitting the above categories
+
+        **STEP 2: Extract information according to image type**:
+
+        For Credential/ID images:
+        - Extract ALL visible fields: name, ID number, date of birth, expiry date,
+          issuing authority, company name, registration number, legal representative,
+          business scope, qualification level, etc.
+        - Preserve exact values as shown (numbers, dates, codes)
+
+        For Data Charts:
+        - Chart title, axis labels and units
+        - Key data points, trends, and notable patterns
+        - Time range or categories covered
+        - Data source if visible
+
+        For Table Screenshots:
+        - Table title and column headers
+        - Key data entries and notable values
+        - Number of rows/columns and what the table represents
+
+        For Diagrams (flow/architecture/org):
+        - All node names and their relationships
+        - Flow direction and process steps
+        - Hierarchy levels and key connections
+
+        For Engineering/Technical Drawings:
+        - Drawing title, drawing number, scale
+        - Key dimensions and annotations
+        - Component/part names, material specifications
+
+        For Photos:
+        - Primary subject and scene description
+        - Notable features, text, or signage visible
+        - Context clues about location or purpose
+
+        For Other:
+        - Describe the most important visual information
+
+        **Output format**:
+        - Line 1: A concise title (no more than 20 characters) capturing the core topic
+        - Line 2 onward: The extracted information following the type-specific guidelines above
+        - Your response **MUST BE in the SAME LANGUAGE** as any text visible in the image
+          (if no text, use English)
         - If the image is blank, unreadable, or contains no meaningful content, return exactly: null
 
         {img_context}
@@ -593,23 +642,6 @@ def build_prompt(task, texts, query, **kwargs):
         - If the image contains no readable text, return exactly: null
         - Output the text content DIRECTLY, do not start with phrases like "The text reads"
         - Do not add any format wrappers, prefixes, or explanations beyond the text content
-        """
-
-    elif task == "ask-image":
-        temperature = 0.1
-        max_tokens = int(kwargs["paras"]["max_tokens"] * 1.2)
-
-        prompt = f"""
-        You will receive one or more images and the user's current question: [{query}]
-        You may also receive context related to the image(s).
-        
-        {texts}
-        
-        Your task is to answer the user's question based on the image(s) and context (if any). Note:
-        - Your answer must be in the SAME LANGUAGE as the user's question
-        - Provide a complete and accurate answer with some explanation, but not exceeding {max_tokens} characters
-        - If the image content is unrelated to the user's question, return exactly: null
-        - Do not return any additional explanations or descriptions beyond the answer
         """
 
     elif task == "judge-image-type":
