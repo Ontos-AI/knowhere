@@ -23,7 +23,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.services.retrieval.agentic.navigation.assets import (
     build_asset_tools_block,
     count_assets_under_scope,
-    load_asset_topic_hints,
 )
 from shared.services.retrieval.agentic.core.budget import BudgetExceeded
 from shared.services.retrieval.agentic.prompts import (
@@ -129,30 +128,8 @@ async def navigate_step(
             scope_paths=scope_paths,
         )
 
-        # Load topic hints for asset tool descriptions
-        image_hints: list[str] = []
-        table_hints: list[str] = []
-        if total_images > 0:
-            image_hints = await load_asset_topic_hints(
-                db,
-                document_id=document_id,
-                job_result_id=job_result_id,
-                scope_paths=scope_paths,
-                asset_type="image",
-            )
-        if total_tables > 0:
-            table_hints = await load_asset_topic_hints(
-                db,
-                document_id=document_id,
-                job_result_id=job_result_id,
-                scope_paths=scope_paths,
-                asset_type="table",
-            )
-
         tools_block = build_asset_tools_block(
             total_images, total_tables,
-            image_topic_hints=image_hints,
-            table_topic_hints=table_hints,
         )
 
         # Inject search results from previous step
