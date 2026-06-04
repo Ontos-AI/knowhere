@@ -558,6 +558,13 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
         page_count = 3
 
     calls: dict[str, object] = {}
+    parse_s3_keys: list[str | None] = []
+    deleted_s3_keys: list[str] = []
+
+    class _FakeJobFileStorage:
+        def delete_upload_file(self, storage_key: str) -> bool:
+            deleted_s3_keys.append(storage_key)
+            return True
 
     def _fake_run_doc_agent(pdf_path_arg: str, job_id: str, output_dir: str):
         calls["doc_agent"] = {
@@ -610,6 +617,7 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
         return paths, None
 
     def _fake_parse_via_full(shard_pdf, shard_filename, shard_out, s3_key=None):
+        parse_s3_keys.append(s3_key)
         shard_index = 0 if "shard0" in shard_filename else 1
         lines_by_shard = {
             0: ["# Chapter 1", "Shard one body."],
@@ -648,6 +656,7 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
         "app.services.document_parser.formats.markdown.parser.eval_md_headings",
         _identity_eval_md_headings,
     )
+    monkeypatch.setattr(pdf_parser, "JobFileStorage", _FakeJobFileStorage)
 
     df = pdf_parser.parse_pdfs(
         str(pdf_path),
@@ -664,10 +673,20 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
         },
         profile=_Profile(),
         relative_root="oversized.pdf",
+        s3_key="uploads/job-oversized.pdf",
+        job_id="job-oversized",
     )
 
     assert calls["exclude_pages"] == {1}
+    assert calls["doc_agent"]["job_id"] == "job-oversized"
     assert len(calls["heading_dirs"]) == 2
+    expected_s3_keys = [
+        "tmp/mineru-shards/job-oversized/shard_0.pdf",
+        "tmp/mineru-shards/job-oversized/shard_1.pdf",
+    ]
+    assert parse_s3_keys == expected_s3_keys
+    assert deleted_s3_keys == expected_s3_keys
+    assert not (output_dir / "_shards").exists()
     assert list(df["type"]) == ["PTXT", "PTXT"]
     assert list(df["content"]) == ["Shard one body.", "Shard two body."]
     assert list(df["path"]) == [
