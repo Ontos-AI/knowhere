@@ -60,7 +60,9 @@ You are a document navigation agent.
 Document: "{doc_name}" (id: {doc_id})
 
 {budget_block}
+
 {trace_block}
+
 Below is the document's section tree.
 Nodes marked [Leaf] have no further sub-sections.
 Nodes marked [✓] are already in your collection — do not re-collect them.
@@ -72,49 +74,38 @@ Token estimates (e.g. ~1.2k) show approximate content size.
 
 User query: {query}
 
-=== Behavioral Rules ===
+=== Rules ===
 
-Each step you make TWO independent decisions:
-
-1. COLLECT — Add sections to your evidence collection (optional, can be empty).
-   - COLLECT includes the section AND ALL its descendant content.
-   - If a node is [Leaf] or has ≤500 tokens, prefer COLLECT over DRILL.
-   - Do NOT re-collect paths marked [✓].
-
-2. Navigate action — Where to go next (required, choose ONE):
-    - DRILL — Open one section to see its children in the next step.
-      Use when a section has >1000 tokens and you need to be selective.
-      You cannot DRILL into a path you just COLLECTed (already fully included).
-    - BACK — Return to an ancestor scope to explore other branches.
-      Specify "back_to" with a valid ancestor path, or null to return to root.
-      Valid ancestors are determined by "/" segments of the current scope path.
-    - STOP — End navigation. Use when you have enough evidence or nothing relevant remains.
-
-=== STRICT Rules (violations cause system failure) ===
-1. NEVER drill into "{current_scope}" (your current scope) or any of its ancestor paths.
-   You may drill into any other path visible in the Section Tree above.
-2. DRILL target must NOT repeat any path already visited in the Navigation Trace.
-   If you want to revisit a branch, use BACK first, then choose a DIFFERENT child.
-3. Each DRILL target must be a path that appears exactly in the Section Tree.
-   Do NOT fabricate, shorten, or generalize paths.
-=== End STRICT Rules ===
+Each step you make THREE independent decisions:
 
 {tools_block}
 
+2. COLLECT — Add sections to your evidence collection (optional, can be empty).
+   - COLLECT includes the section AND ALL its descendant content.
+   - Set "outline": true to collect only structure (titles + summaries),
+     keeping children available for further DRILL or COLLECT.
+   - For [Leaf] nodes or small sections, prefer COLLECT over DRILL.
+   - Do NOT re-collect paths already in your collection or marked [✓].
+
+3. Navigate action — Where to go next (required, choose ONE):
+    - DRILL — Expand a section to see its children in the next step.
+      Use for larger sections when you want to be selective about sub-sections.
+      You cannot DRILL into a path you just COLLECTed (already fully included).
+      Target must be a path exactly as shown in the Section Tree — do NOT fabricate or shorten.
+      NEVER drill into "{current_scope}" (current scope) or its ancestors.
+      Target must NOT repeat any path in the Navigation Trace.
+{back_rule}    - STOP — End navigation when you have enough evidence or nothing relevant remains.
+
+=== End Rules ===
+
 Return ONLY a JSON object:
-{{"collect": [{{"path": "...", "confidence": <float>, "outline": false}}, ...],
+{{"collect": [{{"path": "...", "confidence": <float>, "outline": false}}],
+ "tools": ["SEARCH_IMAGES"], "tool_params": {{"search_query": "..."}},
  "action": "DRILL",
  "drill_into": "section/path",
- "tools": ["SEARCH_IMAGES"],
- "tool_params": {{"search_query": "..."}},
  "reason": "..."}}
 or
-{{"collect": [...], "action": "BACK", "back_to": "ancestor/path or null", "tools": [], "reason": "..."}}
-or
-{{"collect": [...], "action": "STOP", "tools": ["INSPECT_ASSET"], "tool_params": {{"chunk_id": "..."}}, "reason": "..."}}
-
-Set "outline": true on a collect entry to collect only the section structure
-(titles and summaries) without full chunk content. Use for overview/structure queries.
+{{"collect": [...], "tools": [], "action": "STOP", "reason": "..."}}
 Do not include any explanation outside the JSON.
 
 IMPORTANT: 
@@ -131,7 +122,7 @@ def parse_collector_response(text: str) -> dict:
      "drill_into": "path", "tools": [...], "reason": "..."}
     """
     text = text.strip()
-    asset_tools = {"SEARCH_IMAGES", "SEARCH_TABLES", "INSPECT_ASSET"}
+    asset_tools = {"SEARCH_IMAGES", "SEARCH_TABLES"}
     valid_actions = {"DRILL", "BACK", "STOP"}
     default: dict[str, Any] = {
         "collect": [], "action": "STOP", "drill_into": None,
@@ -298,11 +289,26 @@ def extract_json_array_payload(text: str) -> list[Any]:
     return []
 
 
+def _fix_invalid_json_escapes(raw: str) -> str:
+    """Fix invalid backslash escapes that LLMs produce from LaTeX paths.
+
+    JSON only allows: \\", \\\\, \\/, \\b, \\f, \\n, \\r, \\t, \\uXXXX.
+    LLMs often copy LaTeX like ``$3.0\\%$`` into JSON strings, producing
+    invalid ``\\%``.  This replaces any ``\\X`` where X is NOT a valid
+    JSON escape char with ``\\\\X`` so ``json.loads`` can succeed.
+    """
+    return re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', raw)
+
+
 def _parse_json_object(raw_value: str) -> dict[str, Any] | None:
     try:
         result = json.loads(raw_value)
     except (ValueError, json.JSONDecodeError):
-        return None
+        # Retry with invalid-escape repair (common with LaTeX in PDF paths)
+        try:
+            result = json.loads(_fix_invalid_json_escapes(raw_value))
+        except (ValueError, json.JSONDecodeError):
+            return None
     return result if isinstance(result, dict) else None
 
 

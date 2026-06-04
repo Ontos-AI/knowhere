@@ -107,30 +107,14 @@ def _is_path_collected(path: str, collected: set[str]) -> bool:
     return False
 
 
-def format_collection_status(
-    collected_paths: list[dict[str, Any]],
-) -> str:
-    """Render the collection status block for the navigation prompt."""
-    if not collected_paths:
-        return ""
-
-    lines = [f"=== Collection Status ({len(collected_paths)} items) ==="]
-    for item in collected_paths:
-        path = item.get("path", "")
-        conf = item.get("confidence", 0)
-        step = item.get("collected_at_step", "?")
-        outline = item.get("outline", False)
-        mode_tag = " [outline]" if outline else ""
-        lines.append(f'✓ "{path}" (step {step}, conf={conf:.1f}{mode_tag})')
-    lines.append("=== End Collection ===")
-    return "\n".join(lines)
-
-
 def format_nav_trace(
     nav_trace: list[dict[str, Any]],
     collected_paths: list[dict[str, Any]],
 ) -> str:
-    """Render the unified navigation trace block (includes scope, actions, and collection)."""
+    """Render the unified navigation trace block.
+
+    Includes navigation history and collected paths with modes.
+    """
     if not nav_trace and not collected_paths:
         return ""
 
@@ -162,11 +146,49 @@ def format_nav_trace(
             lines.append(f"  reason: {reason}")
         lines.append("")
 
-    # Append current collection summary
+    # Collection summary with per-item details
     if collected_paths:
-        total = len(collected_paths)
-        lines.append(f"[Current] collection: {total} items")
-        lines.append("Do NOT re-collect paths marked [✓] below.")
+        lines.append(f"[Current] collection: {len(collected_paths)} items")
+        for item in collected_paths:
+            path = item.get("path", "")
+            is_outline = (
+                item.get("hydrate_mode") == "outline"
+                or item.get("outline", False)
+            )
+            mode_tag = " [outline]" if is_outline else ""
+            step_num = item.get("collected_at_step", "?")
+            lines.append(f'  ✓ "{path}"{mode_tag} (step {step_num})')
+        lines.append("Do NOT re-collect these paths or paths marked [✓] in the tree.")
 
     lines.append("=== End Trace ===")
     return "\n".join(lines)
+
+
+def format_back_rule(current_scope: str | None) -> str:
+    """Render the BACK rule block for the collector prompt.
+
+    At root scope (current_scope is None), BACK is not available — the LLM
+    has not drilled into any section yet, so there is no ancestor to return to.
+    Returns an empty string in this case so the rule is omitted entirely.
+
+    When inside a sub-scope, renders the full BACK rule with valid targets.
+
+    Examples:
+      scope=None        → '' (BACK hidden)
+      scope="A"         → '    - BACK … "back_to" must be one of: null (root)'
+      scope="A / B"     → '    - BACK … "back_to" must be one of: "A", null (root)'
+      scope="A / B / C" → '    - BACK … "back_to" must be one of: "A / B", "A", null (root)'
+    """
+    if not current_scope:
+        return ""
+    parts = current_scope.split(" / ")
+    targets: list[str] = []
+    for i in range(len(parts) - 1, 0, -1):
+        targets.append(f'"{" / ".join(parts[:i])}"')
+    targets.append("null (root)")
+    targets_str = ", ".join(targets)
+    return (
+        "    - BACK — Return to an ancestor scope to explore other branches.\n"
+        f'      "back_to" must be one of: {targets_str}\n'
+        "      Prefer the nearest relevant ancestor — do NOT default to null when closer targets exist.\n"
+    )

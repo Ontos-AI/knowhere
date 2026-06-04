@@ -191,7 +191,7 @@ class NavigateStepResult:
     - ``collect``: paths to add to the evidence collection (full hydration)
     - ``drill``: paths to explore deeper in subsequent steps
     - ``action``: navigation direction — DRILL/BACK/STOP/ERROR
-    - ``tools``: asset tools requested (SEARCH_IMAGES/SEARCH_TABLES/INSPECT_ASSET)
+    - ``tools``: asset tools requested (SEARCH_IMAGES/SEARCH_TABLES)
     - ``node``: outline tree node for rendering context
     - ``reason``: LLM reasoning for trace
     - ``error_reason``: set when action is ERROR — distinguishes system
@@ -200,7 +200,6 @@ class NavigateStepResult:
       invalid target (e.g. re-drill into current scope).  The system
       auto-collects visible leaf children to preserve LLM intent.
     - ``search_assets_params``: parameters for SEARCH_IMAGES/SEARCH_TABLES
-    - ``inspect_asset_params``: parameters for INSPECT_ASSET
     """
     action: str = "STOP"  # DRILL | BACK | STOP | ERROR
     collect: list[dict[str, Any]] = field(default_factory=list)
@@ -212,7 +211,6 @@ class NavigateStepResult:
     error_reason: str | None = None
     fallback_reason: str | None = None
     search_assets_params: dict[str, Any] | None = None
-    inspect_asset_params: dict[str, Any] | None = None
 
     @property
     def drill_into(self) -> str | None:
