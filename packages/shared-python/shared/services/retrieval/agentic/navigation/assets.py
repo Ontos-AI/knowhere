@@ -101,8 +101,6 @@ async def count_assets_under_scope(
 def build_asset_tools_block(
     total_images: int,
     total_tables: int,
-    image_topic_hints: list[str] | None = None,
-    table_topic_hints: list[str] | None = None,
 ) -> str:
     """Build the asset tool description block for the navigation prompt.
 
@@ -629,69 +627,3 @@ def _parse_asset_filter_response(
             pass
 
     return []
-
-    
-async def load_asset_topic_hints(
-    db: AsyncSession,
-    *,
-    document_id: str,
-    job_result_id: str,
-    scope_paths: list[str],
-    asset_type: str,
-    max_hints: int = 8,
-) -> list[str]:
-    """Extract brief topic hints from asset file_paths/summaries.
-
-    These are injected into the tool description so the Navigator
-    knows what topics are covered without seeing the full list.
-    """
-    section_rows = await _load_scope_sections(
-        db,
-        document_id=document_id,
-        job_result_id=job_result_id,
-        scope_paths=scope_paths,
-    )
-    section_ids = [row[0] for row in section_rows]
-    if not section_ids:
-        return []
-
-    rows = (await db.execute(
-        select(
-            DocumentChunk.file_path,
-            DocumentChunk.chunk_metadata,
-        )
-        .where(DocumentChunk.document_id == document_id)
-        .where(DocumentChunk.job_result_id == job_result_id)
-        .where(DocumentChunk.section_id.in_(section_ids))
-        .where(DocumentChunk.chunk_type == asset_type)
-        .order_by(DocumentChunk.sort_order)
-    )).all()
-
-    hints: list[str] = []
-    for file_path, metadata in rows:
-        # Extract a brief topic from file name or summary
-        hint = ""
-        if file_path:
-            # Strip path prefix and extension: "images/image-9 上证指数走势.jpg" → "上证指数走势"
-            name = file_path.rsplit("/", 1)[-1] if "/" in file_path else file_path
-            # Remove extension
-            name = name.rsplit(".", 1)[0] if "." in name else name
-            # Remove common prefixes like "image-9 " or "table-3 "
-            import re
-            name = re.sub(r"^(?:image|table|img|tbl)-?\d+\s*", "", name, flags=re.IGNORECASE).strip()
-            if name:
-                hint = name[:30]
-        if not hint and isinstance(metadata, dict):
-            summary = metadata.get("summary", "")
-            if summary:
-                # Take first line, skip "image-N" prefix
-                first_line = summary.split("\n")[0].strip()
-                first_line = re.sub(r"^(?:image|table)-?\d+\s*", "", first_line, flags=re.IGNORECASE).strip()
-                hint = first_line[:30]
-        if hint and hint not in hints:
-            hints.append(hint)
-        if len(hints) >= max_hints:
-            break
-
-    return hints
-
