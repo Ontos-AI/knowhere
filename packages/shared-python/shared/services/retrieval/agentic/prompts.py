@@ -94,7 +94,8 @@ Each step you make THREE independent decisions:
       Target must be a path exactly as shown in the Section Tree — do NOT fabricate or shorten.
       NEVER drill into "{current_scope}" (current scope) or its ancestors.
       Target must NOT repeat any path in the Navigation Trace.
-{back_rule}    - STOP — End navigation when you have enough evidence or nothing relevant remains.
+      {back_rule}    
+    - STOP — End navigation when you have enough evidence or nothing relevant remains.
 
 === End Rules ===
 
@@ -111,6 +112,9 @@ Do not include any explanation outside the JSON.
 IMPORTANT: 
 1. All agent-generated text (e.g., "reason" and other free-text fields) MUST be written in English.
 2. Document content and section paths MUST remain in their original language.
+{drill_constraint}
+
+{back_constraint}
 """
 
 

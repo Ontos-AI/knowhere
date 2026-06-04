@@ -125,7 +125,7 @@ class H1Candidate:
     page: int
     confidence: float
     matched_line: str
-    source: Literal["toc_exact_top", "toc_fuzzy_top", "heading_grep", "none"]
+    source: Literal["toc_exact_top", "toc_fuzzy_top", "heading_grep", "toc_grep", "h2_refine", "none"]
     evidence: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -163,6 +163,8 @@ class Shard:
     anchor_type: Literal["h1_boundary", "blank_separator", "forced_max_size"]
     anchor_evidence: str
     confidence: float
+    split_depth: int = 1        # 1=H1 cut, 2=H2 cut, etc.
+    is_continuation: bool = False  # True for continuation shards that don't contain parent heading
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

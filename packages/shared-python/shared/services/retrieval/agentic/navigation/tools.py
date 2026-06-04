@@ -32,7 +32,9 @@ from shared.services.retrieval.agentic.prompts import (
     parse_collector_response,
 )
 from shared.services.retrieval.agentic.navigation.section_prompt_projection import (
+    format_back_constraint,
     format_back_rule,
+    format_drill_constraint,
     format_items_for_llm,
     format_nav_trace,
 )
@@ -197,6 +199,8 @@ async def navigate_step(
             tools_block=tools_block,
             current_scope=scope_path or "root",
             back_rule=format_back_rule(scope_path),
+            drill_constraint=format_drill_constraint(scope_path),
+            back_constraint=format_back_constraint(scope_path),
         )
 
         response = await llm_fn(prompt)

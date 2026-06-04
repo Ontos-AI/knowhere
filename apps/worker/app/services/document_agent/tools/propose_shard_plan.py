@@ -8,13 +8,21 @@ import time
 from typing import Any
 
 from app.services.document_agent.manifest import (
+    H1Candidate,
     Shard,
     ShardPlan,
     ToolContext,
     ToolResult,
 )
+from app.services.document_agent.pdf_text import read_page_texts
 from app.services.document_agent.registry import has_doc_stats, has_h1_result, has_toc_result, register_tool
+from app.services.document_agent.tools.match_h1_pages import (
+    extract_children_titles,
+    grep_titles_in_pages,
+    verify_section_start,
+)
 from app.services.document_agent.validators import single_shard_plan, validate_shard_plan
+from loguru import logger
 from shared.utils.token_estimate import estimate_tokens
 
 
@@ -37,9 +45,18 @@ def _thresholds(ctx: ToolContext) -> tuple[int, int, int]:
 def _cuts_to_shards(cuts: list[tuple[int, str, str, float]], page_count: int) -> list[Shard]:
     shards: list[Shard] = []
     previous = 0
+    # Track which cuts came from H2 refinement to mark continuation shards
+    h2_cut_pages: set[int] = set()
+    for cut_page, _anchor_type, evidence, _confidence in cuts:
+        if evidence.startswith("H2 refine:"):
+            h2_cut_pages.add(cut_page)
+
     for cut_page, anchor_type, evidence, confidence in cuts:
         if cut_page <= previous:
             continue
+        # A shard is continuation if it starts AFTER an H2 cut (previous cut was H2)
+        _is_continuation = previous in h2_cut_pages
+        _split_depth = 2 if (evidence.startswith("H2 refine:") or _is_continuation) else 1
         shards.append(
             Shard(
                 shard_index=len(shards),
@@ -49,10 +66,13 @@ def _cuts_to_shards(cuts: list[tuple[int, str, str, float]], page_count: int) ->
                 anchor_type=anchor_type,  # type: ignore[arg-type]
                 anchor_evidence=evidence,
                 confidence=confidence,
+                split_depth=_split_depth,
+                is_continuation=_is_continuation,
             )
         )
         previous = cut_page
     if previous < page_count:
+        _is_continuation = previous in h2_cut_pages
         shards.append(
             Shard(
                 shard_index=len(shards),
@@ -62,6 +82,8 @@ def _cuts_to_shards(cuts: list[tuple[int, str, str, float]], page_count: int) ->
                 anchor_type="forced_max_size",
                 anchor_evidence="final shard",
                 confidence=1.0,
+                split_depth=2 if _is_continuation else 1,
+                is_continuation=_is_continuation,
             )
         )
     return shards
@@ -212,12 +234,167 @@ def _deterministic_guardrail_plan(
             cuts.append((cut_page, "h1_boundary", f"guardrail H1 start page {chosen}", 0.35))
             previous = cut_page
         else:
-            cuts.append((target, "forced_max_size", "guardrail max shard size", 0.25))
-            previous = target
-    # Merge final shard into previous if it's smaller than min_pages
-    if cuts and (page_count - cuts[-1][0]) < min_pages:
-        cuts.pop()
+            break  # No more H1 in range → leave oversized shard for H2 refinement
     return cuts, "too_large"
+
+
+# ── C3: H2-aware shard refinement ────────────────────────────────────────
+
+
+def _find_h1_for_range(
+    h1_candidates: list[H1Candidate],
+    range_start: int,
+    range_end: int,
+) -> str | None:
+    """Find the H1 title whose start page falls in [range_start+1, range_end]."""
+    for c in h1_candidates:
+        if range_start < c.page <= range_end:
+            return c.title
+    # Fallback: the H1 whose page is closest to and <= range_start+1
+    best: H1Candidate | None = None
+    for c in h1_candidates:
+        if c.page <= range_start + 1:
+            if best is None or c.page > best.page:
+                best = c
+    return best.title if best else None
+
+
+def _pick_and_verify_best_cut(
+    h2_candidates: list[H1Candidate],
+    shard_start: int,
+    shard_end: int,
+    min_pages: int,
+    max_pages: int,
+    ctx: ToolContext,
+) -> tuple[int, str, str, float] | None:
+    """Pick the H2 candidate that produces the most balanced sub-shards.
+
+    Candidates are ranked by how close they split the shard to the midpoint.
+    Each candidate is VLM-verified before acceptance.
+    """
+    if not h2_candidates:
+        return None
+
+    shard_length = shard_end - shard_start
+    midpoint = shard_start + shard_length // 2
+
+    # Sort by distance to midpoint (most balanced first)
+    ranked = sorted(h2_candidates, key=lambda c: abs(c.page - midpoint))
+
+    for candidate in ranked:
+        cut_page = candidate.page - 1  # Cut *before* the H2 start page
+        left_len = cut_page - shard_start
+        right_len = shard_end - cut_page
+        if left_len < min_pages or right_len < min_pages:
+            continue
+        if left_len > max_pages or right_len > max_pages:
+            continue
+        # VLM verification
+        if not verify_section_start(page=candidate.page, title=candidate.title, ctx=ctx):
+            logger.info(
+                "[h2_refine] VLM rejected H2 cut at page {} ('{}')",
+                candidate.page, candidate.title[:30],
+            )
+            continue
+        logger.info(
+            "[h2_refine] accepted H2 cut at page {} ('{}'), left={} right={}",
+            candidate.page, candidate.title[:30], left_len, right_len,
+        )
+        return (
+            cut_page,
+            "h1_boundary",
+            f"H2 refine: '{candidate.title[:60]}' at page {candidate.page}",
+            candidate.confidence * 0.9,  # Slightly lower confidence than H1
+        )
+
+    return None
+
+
+def _refine_with_h2(
+    cuts: list[tuple[int, str, str, float]],
+    page_count: int,
+    min_pages: int,
+    max_pages: int,
+    ctx: ToolContext,
+    h1_candidates: list[H1Candidate],
+) -> list[tuple[int, str, str, float]]:
+    """Post-process cuts: split any shard that exceeds max_pages using H2 boundaries."""
+    if not ctx.blackboard.toc_hierarchies:
+        return cuts
+
+    refined: list[tuple[int, str, str, float]] = []
+    previous = 0
+
+    # Build endpoints: each cut + the implicit final boundary
+    endpoints = [(cp, at, ev, cf) for cp, at, ev, cf in cuts] + [
+        (page_count, "final", "", 1.0)
+    ]
+
+    for cut_page, anchor_type, evidence, confidence in endpoints:
+        shard_length = cut_page - previous
+        if shard_length > max_pages:
+            # Try H2 refinement for this oversized shard
+            h1_title = _find_h1_for_range(h1_candidates, previous, cut_page)
+            h2_cut_found = False
+            if h1_title:
+                h2_titles = extract_children_titles(
+                    ctx.blackboard.toc_hierarchies, h1_title,
+                )
+                if h2_titles:
+                    search_pages = list(range(previous + 1, cut_page + 1))
+                    page_texts = read_page_texts(
+                        ctx.pdf_path, search_pages, timeout=120,
+                    )
+                    h2_candidates, _ = grep_titles_in_pages(
+                        h2_titles, search_pages, page_texts,
+                        source="h2_refine",
+                    )
+                    best = _pick_and_verify_best_cut(
+                        h2_candidates, previous, cut_page,
+                        min_pages, max_pages, ctx,
+                    )
+                    if best:
+                        refined.append(best)
+                        h2_cut_found = True
+                        logger.info(
+                            "[h2_refine] split oversized shard [{}-{}] at page {}",
+                            previous + 1, cut_page, best[0],
+                        )
+                    else:
+                        logger.warning(
+                            "[h2_refine] no valid H2 cut for shard [{}-{}]",
+                            previous + 1, cut_page,
+                        )
+                else:
+                    logger.info(
+                        "[h2_refine] no H2 titles found under H1 '{}' for shard [{}-{}]",
+                        h1_title[:30], previous + 1, cut_page,
+                    )
+            else:
+                logger.info(
+                    "[h2_refine] no H1 found for oversized shard [{}-{}]",
+                    previous + 1, cut_page,
+                )
+
+            # Ultimate fallback: forced_max_size
+            if not h2_cut_found:
+                fallback_page = previous + max_pages
+                if fallback_page < cut_page:
+                    refined.append((
+                        fallback_page, "forced_max_size",
+                        "H2 refine fallback: forced max size", 0.2,
+                    ))
+                    logger.warning(
+                        "[h2_refine] forced_max_size fallback at page {} for shard [{}-{}]",
+                        fallback_page, previous + 1, cut_page,
+                    )
+
+        # Append the original cut (skip the synthetic "final" endpoint)
+        if anchor_type != "final":
+            refined.append((cut_page, anchor_type, evidence, confidence))
+        previous = cut_page
+
+    return refined
 
 
 @register_tool(
@@ -318,6 +495,12 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
                     "llm_attempted": llm_attempted,
                 },
             )
+
+    # C3: H2 refinement – split any shard that still exceeds max_pages
+    if cuts:
+        cuts = _refine_with_h2(
+            cuts, page_count, min_pages, max_pages, ctx, h1_candidates,
+        )
 
     shards = _cuts_to_shards(cuts, page_count)
     enabled = len(shards) > 1

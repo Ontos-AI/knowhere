@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
+from shared.services.retrieval.agentic.core.budget import BudgetExceeded
 from shared.services.retrieval.hydration.assets import build_retrieval_asset_url_map
 from shared.services.retrieval.llm_adapter import LLMFn
 
@@ -470,6 +471,8 @@ async def _search_assets_via_text_llm(
     try:
         response = await llm_fn(prompt)
         return _parse_asset_filter_response(response, valid_ids)
+    except BudgetExceeded:
+        raise
     except Exception as exc:
         logger.warning(f"  _search_assets_via_text_llm failed: {exc}")
         return []
@@ -511,6 +514,8 @@ async def _search_images_via_vlm(
     try:
         response = await vlm_fn(messages)
         return _parse_asset_filter_response(response, valid_ids)
+    except BudgetExceeded:
+        raise
     except Exception as exc:
         logger.warning(f"  _search_images_via_vlm failed: {exc}")
         return []

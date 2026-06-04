@@ -246,8 +246,19 @@ def _parse_oversized_pdf(
             raise RuntimeError(f"Missing heading result for shard_{index}")
         complete_heading_results.append(result)
 
+    # Compute level offsets: continuation shards get shifted deeper
+    shard_offsets: list[int] = []
+    for shard in agent_shards:
+        if shard.is_continuation:
+            shard_offsets.append(max(shard.split_depth - 1, 0))
+        else:
+            shard_offsets.append(0)
+    if any(o > 0 for o in shard_offsets):
+        logger.info(f"📐 Shard level offsets: {shard_offsets}")
+
     all_lines_with_heading: list[str] = merge_shard_lines(
-        [result.lines_with_heading for result in complete_heading_results]
+        [result.lines_with_heading for result in complete_heading_results],
+        shard_offsets=shard_offsets,
     )
     total_headings = sum(
         1 for line in all_lines_with_heading if line.startswith("#")

@@ -133,6 +133,15 @@ def format_nav_trace(
 
         lines.append(f"Step {step}: scope={scope} → {action_display}")
 
+        # Show tool usage and results so LLM can avoid repeating searches
+        tool_results = entry.get("tool_results", {})
+        if tool_results:
+            tool_name = tool_results.get("tool", "")
+            tool_query = tool_results.get("query", "")
+            matched = tool_results.get("matched", False)
+            status = "found matches" if matched else "no matches"
+            lines.append(f'  🔧 {tool_name}("{tool_query}") → {status}')
+
         # Show what was collected in this step
         step_collected = entry.get("collected", [])
         if step_collected:
@@ -192,3 +201,32 @@ def format_back_rule(current_scope: str | None) -> str:
         f'      "back_to" must be one of: {targets_str}\n'
         "      Prefer the nearest relevant ancestor — do NOT default to null when closer targets exist.\n"
     )
+
+
+def format_drill_constraint(current_scope: str | None) -> str:
+    """Render a tail-of-prompt constraint reminding the LLM not to drill into current scope.
+
+    Placed at the end of IMPORTANT section so it won't be buried in middle rules.
+    Returns empty string at root scope (no constraint needed there).
+    """
+    if not current_scope:
+        return ""
+    return (
+        f'3. NEVER drill into "{current_scope}" — it is your current scope.\n'
+    )
+
+
+def format_back_constraint(current_scope: str | None) -> str:
+    """Render a tail-of-prompt constraint listing valid BACK targets.
+
+    Reinforces the BACK rule at the end of IMPORTANT section.
+    Returns empty string at root scope (BACK is not available).
+    """
+    if not current_scope:
+        return ""
+    parts = current_scope.split(" / ")
+    targets: list[str] = []
+    for i in range(len(parts) - 1, 0, -1):
+        targets.append(f'"{" / ".join(parts[:i])}"')
+    targets.append("null (root)")
+    return f'4. For BACK, valid targets are: {", ".join(targets)}\n'

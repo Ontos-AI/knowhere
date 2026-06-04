@@ -38,9 +38,6 @@ from shared.services.retrieval.agentic.core.types import (
 from shared.services.retrieval.agentic.navigation.selection_hydration import (
     hydrate_path_selections_into_node,
 )
-from shared.services.retrieval.agentic.discovery.selection import (
-    DiscoverySelectResult,
-)
 from shared.services.retrieval.llm_adapter import LLMFn
 
 
@@ -212,9 +209,10 @@ class DocumentNavigationRunner:
 
             # Clear previous tool context (consumed by this step's prompt)
             search_context = ""
+            has_matched_assets = False
 
             # ── Execute asset tools (SEARCH) ─────────────────────────────
-            search_context = await self._execute_asset_tools(
+            search_context, has_matched_assets = await self._execute_asset_tools(
                 doc=doc,
                 job_result_id=job_result_id,
                 scope=current_scope,
@@ -250,6 +248,13 @@ class DocumentNavigationRunner:
             }
             if nav_result.fallback_reason:
                 trace_entry["fallback_reason"] = nav_result.fallback_reason
+            # Record tool usage & results so future steps can see search history
+            if nav_result.tools and nav_result.search_assets_params:
+                trace_entry["tool_results"] = {
+                    "tool": nav_result.tools[0],
+                    "query": nav_result.search_assets_params.get("query", ""),
+                    "matched": has_matched_assets,
+                }
             nav_trace.append(trace_entry)
 
             # ── Record decision step ─────────────────────────────────────
@@ -302,11 +307,12 @@ class DocumentNavigationRunner:
                 break
 
             elif nav_result.action == "STOP" or nav_result.is_terminal:
-                # If asset tools produced results, override STOP and continue
-                # one more round so the LLM can see the search output first.
-                if search_context:
+                # If asset tools found actual matches, override STOP and
+                # continue one more round so the LLM can see the results.
+                # "No matching" context alone does NOT override STOP.
+                if search_context and has_matched_assets:
                     logger.info(
-                        "  agentic: STOP overridden — asset tool returned results, "
+                        "  agentic: STOP overridden — asset tool found matches, "
                         "continuing navigation to present tool output"
                     )
                 else:
@@ -492,16 +498,19 @@ class DocumentNavigationRunner:
         scope: str | None,
         nav_result: NavigateStepResult,
         pending_assets: list[dict[str, Any]],
-    ) -> str:
+    ) -> tuple[str, bool]:
         """Execute asset tools requested by the Navigator.
 
         Handles SEARCH_IMAGES and SEARCH_TABLES.
-        Returns search_context for injection into the next navigate prompt.
+        Returns (search_context, has_matched_assets) where:
+        - search_context is injected into the next navigate prompt
+        - has_matched_assets indicates whether actual matches were found
         """
         search_context = ""
+        has_matched = False
 
         if not nav_result.tools:
-            return search_context
+            return search_context, has_matched
 
         # ── SEARCH_IMAGES / SEARCH_TABLES ────────────────────────────
         if nav_result.search_assets_params:
@@ -523,18 +532,44 @@ class DocumentNavigationRunner:
                 vlm_fn = create_retrieval_vlm_fn()
 
             if search_llm_fn:
-                matched_assets = await tools.search_assets_step(
-                    self._db,
-                    document_id=doc.document_id,
-                    job_result_id=job_result_id,
-                    scope_path=scope,
-                    asset_type=asset_type,
-                    query=search_query,
-                    llm_fn=search_llm_fn,
-                    vlm_fn=vlm_fn,
-                )
+                try:
+                    matched_assets = await tools.search_assets_step(
+                        self._db,
+                        document_id=doc.document_id,
+                        job_result_id=job_result_id,
+                        scope_path=scope,
+                        asset_type=asset_type,
+                        query=search_query,
+                        llm_fn=search_llm_fn,
+                        vlm_fn=vlm_fn,
+                    )
+                except BudgetExceeded:
+                    logger.info(
+                        f"  agentic: {tool_name} skipped — planning budget exhausted"
+                    )
+                    search_context = (
+                        f"=== {tool_name} Results ===\n"
+                        f"{tool_name} skipped: planning budget exhausted.\n"
+                        f"=== End {tool_name} Results ==="
+                    )
+                    if self._trace_enabled:
+                        self._trace.record_step(
+                            "search_assets_step",
+                            ToolResult(
+                                status="budget_exceeded",
+                                payload={
+                                    "document_id": doc.document_id,
+                                    "scope": scope or "root",
+                                    "asset_type": asset_type,
+                                    "query": search_query,
+                                },
+                            ),
+                            decision_reason=f"search_{asset_type}_{doc.source_file_name}",
+                        )
+                    return search_context, has_matched
 
                 if matched_assets:
+                    has_matched = True
                     # Add matched assets to pending_assets for reconciliation
                     pending_assets.extend(matched_assets)
 
@@ -589,7 +624,7 @@ class DocumentNavigationRunner:
                     f"matched={len(matched_assets) if matched_assets else 0}"
                 )
 
-        return search_context
+        return search_context, has_matched
 
     async def _hydrate_discovery_hints(
         self,
@@ -631,7 +666,20 @@ class DocumentNavigationRunner:
             logger.info("  agentic: planning budget exhausted during discovery selection")
             if self._trace_enabled:
                 self._trace.record_budget_stop("planning_exhausted")
-            result = DiscoverySelectResult(node=DocTreeNode(scope_path=None))
+            self._decision_steps.append({
+                "phase": "discovery_select",
+                "document": doc_name,
+                "document_id": doc.document_id,
+                "action": "budget_exceeded",
+                "reason": "planning budget exhausted before LLM call",
+                "candidate_count": len(doc_hints),
+                "hydrated_count": 0,
+                "selected_paths": [],
+                "excluded_hints": [],
+                "exclude_set": sorted(discovery_exclude_paths),
+            })
+            self._state.step_count += 1
+            return
         self._state.step_count += 1
 
         discovery_node = result.node

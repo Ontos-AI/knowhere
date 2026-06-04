@@ -10,7 +10,7 @@ from docx.oxml.ns import qn
 from loguru import logger
 from pandas import Index
 
-from app.services.document_parser.support.text_helpers import count_cn_en
+from app.services.document_parser.support.text_helpers import count_cn_en, detect_primary_lang
 
 HEADING_COLUMNS = Index(["id", "heading", "level", "reason"])
 
@@ -136,8 +136,10 @@ def remove_by_conditions(text, *, include_punc: bool = False):
     else:
         neg_triggered_code.append(0)
 
-    MAX_HEADING_TOKENS = 10
-    neg_triggered_code.append(1 if count_cn_en(text) > MAX_HEADING_TOKENS else 0)
+    MAX_HEADING_TOKENS_ZH = 30
+    MAX_HEADING_TOKENS_EN = 10
+    _limit = MAX_HEADING_TOKENS_ZH if detect_primary_lang(text) == "zh" else MAX_HEADING_TOKENS_EN
+    neg_triggered_code.append(1 if count_cn_en(text) > _limit else 0)
 
     return neg_triggered_code
 
