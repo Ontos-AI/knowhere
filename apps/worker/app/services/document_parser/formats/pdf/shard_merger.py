@@ -17,8 +17,32 @@ def _extract_heading_key(line: str) -> tuple[int, str] | None:
     return len(m.group(1)), m.group(2).strip()
 
 
-def merge_shard_lines(shard_lines_list: list[list[str]]) -> list[str]:
+def _apply_level_offset(lines: list[str], offset: int) -> list[str]:
+    """Shift all markdown heading levels by *offset* (e.g. ## → ### when offset=1)."""
+    if offset <= 0:
+        return lines
+    result: list[str] = []
+    for line in lines:
+        key = _extract_heading_key(line)
+        if key is not None:
+            level, text = key
+            new_level = level + offset
+            result.append(f"{'#' * new_level} {text}")
+        else:
+            result.append(line)
+    return result
+
+
+def merge_shard_lines(
+    shard_lines_list: list[list[str]],
+    shard_offsets: list[int] | None = None,
+) -> list[str]:
     """Concatenate per-shard lines_with_heading in order, removing boundary duplicates.
+
+    When ``shard_offsets`` is provided, each shard's heading levels are shifted
+    by the corresponding offset.  This is used for continuation shards (from
+    H2+ splitting) whose heading predictor starts from L1 but should be deeper
+    in the global hierarchy.
 
     When a PDF section-divider page falls at the end of shard N and the same
     heading opens shard N+1, each shard independently identifies it as a heading,
@@ -37,13 +61,20 @@ def merge_shard_lines(shard_lines_list: list[list[str]]) -> list[str]:
         if not lines:
             continue
 
+        # Apply level offset for continuation shards
+        offset = shard_offsets[shard_idx] if shard_offsets else 0
+        lines = _apply_level_offset(lines, offset)
+
         # Determine next shard's first heading (if any)
         next_first_heading: tuple[int, str] | None = None
         for future_idx in range(shard_idx + 1, len(shard_lines_list)):
-            for next_line in shard_lines_list[future_idx]:
+            future_lines = shard_lines_list[future_idx]
+            future_offset = shard_offsets[future_idx] if shard_offsets else 0
+            for next_line in future_lines:
                 key = _extract_heading_key(next_line)
                 if key is not None:
-                    next_first_heading = key
+                    # Compare with the offset-adjusted level
+                    next_first_heading = (key[0] + future_offset, key[1])
                     break
             if next_first_heading is not None:
                 break

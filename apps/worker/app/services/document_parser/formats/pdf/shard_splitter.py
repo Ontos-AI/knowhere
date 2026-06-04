@@ -69,28 +69,16 @@ def bin_pack_shards(
     agent_shards: list["Shard"],
     max_pages: int,
 ) -> list[MergedShard]:
-    """Greedy left-to-right bin-packing: merge adjacent agent shards up to max_pages."""
-    if not agent_shards:
-        return []
+    """1:1 mapping: each agent shard becomes its own MinerU shard.
 
-    merged: list[MergedShard] = []
-    cur_start = agent_shards[0].page_start
-    cur_end = agent_shards[0].page_end
-
-    for shard in agent_shards[1:]:
-        if shard.page_end - cur_start + 1 <= max_pages:
-            cur_end = shard.page_end
-        else:
-            merged.append(
-                MergedShard(len(merged), page_start=cur_start, page_end=cur_end)
-            )
-            cur_start = shard.page_start
-            cur_end = shard.page_end
-
-    merged.append(
-        MergedShard(len(merged), page_start=cur_start, page_end=cur_end)
-    )
-    return merged
+    Agent shards are cut at semantic boundaries (H1/H2) by the document
+    agent.  Merging them would cross those boundaries and degrade heading
+    prediction quality, so we preserve them as-is.
+    """
+    return [
+        MergedShard(idx, page_start=s.page_start, page_end=s.page_end)
+        for idx, s in enumerate(agent_shards)
+    ]
 
 
 def split_pdf(

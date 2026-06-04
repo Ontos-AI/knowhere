@@ -6,6 +6,7 @@ to provide an async callable suitable for the agent navigation pipeline.
 from __future__ import annotations
 
 import asyncio
+import os
 from contextvars import ContextVar
 from typing import Any, Callable, Coroutine, Union, Sequence, cast
 
@@ -74,29 +75,59 @@ def create_retrieval_llm_fn(
     model: str | None = None,
     temperature: float = _RETRIEVAL_LLM_TEMPERATURE,
     max_tokens: int = _RETRIEVAL_LLM_MAX_TOKENS,
+    thinking: bool | None = None,
+    reasoning_effort: str = 'low',
 ) -> LLMFn | None:
     """Create an async LLM callable for retrieval agent navigation.
 
     Returns None when no LLM provider is configured, signalling the caller
     to fall back to lexical graph routing.
+
+    When *thinking* is True, DeepSeek V4 Flash reasoning mode is enabled.
+    The model thinks internally but we only return ``message.content``
+    (the final answer), not ``reasoning_content``.
     """
     if not _has_llm_credentials():
         logger.debug('retrieval: no LLM credentials configured, agent navigation disabled')
         return None
 
+    # Allow env-var override for easy experimentation
+    if thinking is None:
+        thinking = os.environ.get('RETRIEVAL_LLM_THINKING', '').lower() in ('1', 'true', 'yes')
+
     effective_model = model or _resolve_default_model()
+    # DeepSeek thinking mode requires temperature=0
+    effective_temperature = 0.0 if thinking else temperature
+    effective_max_tokens = max(max_tokens, 8192) if thinking else max_tokens
+
+    if thinking:
+        logger.info(
+            'retrieval: LLM thinking mode ENABLED, model={}, reasoning_effort={}',
+            effective_model,
+            reasoning_effort,
+        )
 
     async def llm_fn(prompt: LLMFnInput) -> str:
         from shared.services.ai.openai_compatible_client_sync import get_openai_client
 
         client = get_openai_client(model=effective_model)
         current_llm_usage.set(None)
+
+        kwargs: dict[str, Any] = {}
+        if thinking:
+            # DeepSeek V4 Flash thinking mode
+            kwargs['extra_body'] = {
+                'thinking': {'type': 'enabled'},
+                'reasoning_effort': reasoning_effort,
+            }
+
         result, usage = await asyncio.to_thread(
             client.chat_completion_with_usage,
             cast(Any, prompt),
             model=effective_model,
-            temperature=temperature,
-            max_tokens=max_tokens,
+            temperature=effective_temperature,
+            max_tokens=effective_max_tokens,
+            **kwargs,
         )
         current_llm_usage.set(usage)
         return result

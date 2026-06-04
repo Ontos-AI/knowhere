@@ -9,8 +9,8 @@ Each ``navigate_step`` returns two independent decisions:
 - **action + drill_into**: navigation direction (DRILL into a section,
   BACK to parent, or STOP).
 
-Asset tools (SEARCH_IMAGES/SEARCH_TABLES/INSPECT_ASSET) allow the agent
-to search and inspect media assets. Results are injected into the next
+Asset tools (SEARCH_IMAGES/SEARCH_TABLES) allow the agent
+to search media assets. Results are injected into the next
 step's prompt context for the agent to act on.
 """
 from __future__ import annotations
@@ -32,6 +32,9 @@ from shared.services.retrieval.agentic.prompts import (
     parse_collector_response,
 )
 from shared.services.retrieval.agentic.navigation.section_prompt_projection import (
+    format_back_constraint,
+    format_back_rule,
+    format_drill_constraint,
     format_items_for_llm,
     format_nav_trace,
 )
@@ -89,7 +92,6 @@ async def navigate_step(
     nav_trace: list[dict[str, Any]] | None = None,
     collected_paths: list[dict[str, Any]] | None = None,
     search_context: str = "",
-    inspect_context: str = "",
 ) -> NavigateStepResult:
     """Navigate one document scope using the Collector Agent model.
 
@@ -97,9 +99,8 @@ async def navigate_step(
     - ``collect``: paths to add to the evidence collection
     - ``action``: DRILL/BACK/STOP
     - ``drill``: the single drill target (if action == DRILL)
-    - ``tools``: asset tools requested (SEARCH_IMAGES/SEARCH_TABLES/INSPECT_ASSET)
+    - ``tools``: asset tools requested (SEARCH_IMAGES/SEARCH_TABLES)
     - ``search_assets_params``: parsed params for SEARCH_IMAGES/SEARCH_TABLES
-    - ``inspect_asset_params``: parsed params for INSPECT_ASSET
     - ``node``: outline tree node for rendering context
     """
     scope_paths = [scope_path] if scope_path else []
@@ -154,11 +155,9 @@ async def navigate_step(
             table_topic_hints=table_hints,
         )
 
-        # Inject search/inspect results from previous step
+        # Inject search results from previous step
         if search_context:
             tools_block += f"\n{search_context}\n"
-        if inspect_context:
-            tools_block += f"\n{inspect_context}\n"
 
         # Build collected path set for [✓] marking on tree.
         # Exclude outline-mode collections: their children should remain
@@ -199,6 +198,9 @@ async def navigate_step(
             query=query,
             tools_block=tools_block,
             current_scope=scope_path or "root",
+            back_rule=format_back_rule(scope_path),
+            drill_constraint=format_drill_constraint(scope_path),
+            back_constraint=format_back_constraint(scope_path),
         )
 
         response = await llm_fn(prompt)
@@ -242,7 +244,11 @@ async def navigate_step(
         if action == "DRILL" and drill_into:
             if drill_into in drillable_items and drill_into not in collected_path_set:
                 # Guard: prevent drilling into current scope (would loop)
-                if drill_into == scope_path:
+                is_current_scope = (
+                    drill_into == scope_path
+                    or (scope_path is None and drill_into == "Root")
+                )
+                if is_current_scope:
                     logger.warning(
                         f"  navigate_step: drill target '{drill_into}' is current scope, "
                         f"auto-collecting visible leaves and stopping"
@@ -262,10 +268,12 @@ async def navigate_step(
                     action = "STOP"
                     fallback_reason = f"drill_target_is_current_scope: {drill_into}"
                 elif drillable_items[drill_into].get("is_leaf"):
-                    # Leaf nodes can't be drilled — auto-collect instead
+                    # Leaf nodes can't be drilled — auto-collect and continue
+                    # navigating so the LLM can explore other branches or use
+                    # asset tools (SEARCH_IMAGES/SEARCH_TABLES).
                     logger.info(
                         f"  navigate_step: drill target '{drill_into}' is a leaf, "
-                        f"auto-collecting instead"
+                        f"auto-collecting and continuing navigation"
                     )
                     if not any(c["path"] == drill_into for c in valid_collect):
                         node.confidence[drill_into] = 0.7
@@ -274,8 +282,12 @@ async def navigate_step(
                             "confidence": 0.7,
                             "hydrate_mode": "chunks",
                         })
-                    action = "STOP"
-                    fallback_reason = f"drill_target_is_leaf: {drill_into}"
+                    # Keep action as DRILL but clear drill_into so the loop
+                    # stays at the current scope and gives the LLM another
+                    # chance to navigate.  Previously this was set to BACK
+                    # which caused premature exit when already at root scope.
+                    action = "DRILL"
+                    drill_into = None
                 else:
                     valid_drill.append({
                         "path": drill_into,
@@ -304,9 +316,8 @@ async def navigate_step(
                 action = "STOP"
                 fallback_reason = f"drill_target_invalid: {drill_into}"
 
-        # Parse tool parameters for SEARCH and INSPECT
+        # Parse tool parameters for SEARCH
         search_assets_params: dict[str, Any] | None = None
-        inspect_asset_params: dict[str, Any] | None = None
 
         if "SEARCH_IMAGES" in selected_tools or "SEARCH_TABLES" in selected_tools:
             search_query = str(tool_params.get("search_query", query)).strip()
@@ -317,11 +328,6 @@ async def navigate_step(
                 "query": search_query,
                 "asset_type": asset_type,
             }
-
-        if "INSPECT_ASSET" in selected_tools:
-            inspect_chunk_id = str(tool_params.get("chunk_id", "")).strip()
-            if inspect_chunk_id:
-                inspect_asset_params = {"chunk_id": inspect_chunk_id}
 
         # Parse back_to for BACK action
         back_to = parsed.get("back_to")
@@ -336,7 +342,6 @@ async def navigate_step(
             reason=reason,
             fallback_reason=fallback_reason,
             search_assets_params=search_assets_params,
-            inspect_asset_params=inspect_asset_params,
         )
 
     except BudgetExceeded:

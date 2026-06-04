@@ -6,7 +6,7 @@ from shared.services.retrieval.agentic.discovery.selection import (
 
 
 def test_root_discovery_hint_is_projected_for_llm_selection() -> None:
-    hint_lines, hint_by_path, excluded_hints = _project_discovery_hints(
+    hint_lines, hint_by_path, excluded_hints, id_to_path = _project_discovery_hints(
         [
             {
                 "section_path": "Root",
@@ -18,10 +18,10 @@ def test_root_discovery_hint_is_projected_for_llm_selection() -> None:
     )
 
     assert hint_lines == [
-        '▸ path="Root"',
-        "    document-level market chart",
+        "| D1 | Root — document-level market chart |",
     ]
     assert hint_by_path["Root"]["chunk_id"] == "chunk_root_relevant"
+    assert id_to_path == {"D1": "Root"}
 
 
 def test_root_discovery_hint_without_llm_selection_does_not_hydrate() -> None:
@@ -29,6 +29,7 @@ def test_root_discovery_hint_without_llm_selection_does_not_hydrate() -> None:
 
     path_selections, chunk_refs = _build_discovery_path_selections(
         selections=[],
+        id_to_path={"D1": "Root"},
         hint_by_path={
             "Root": {
                 "section_path": "Root",
@@ -48,7 +49,8 @@ def test_explicit_root_discovery_selection_with_chunk_id_uses_exact_chunk_ref() 
     node = DocTreeNode()
 
     path_selections, chunk_refs = _build_discovery_path_selections(
-        selections=[{"path": "Root", "confidence": 0.91}],
+        selections=[{"id": "D1", "confidence": 0.91}],
+        id_to_path={"D1": "Root"},
         hint_by_path={
             "Root": {
                 "section_path": "Root",
@@ -74,7 +76,8 @@ def test_explicit_root_discovery_selection_without_chunk_id_keeps_path_fallback(
     node = DocTreeNode()
 
     path_selections, chunk_refs = _build_discovery_path_selections(
-        selections=[{"path": "Root", "confidence": 0.7}],
+        selections=[{"id": "D1", "confidence": 0.7}],
+        id_to_path={"D1": "Root"},
         hint_by_path={
             "Root": {
                 "section_path": "Root",

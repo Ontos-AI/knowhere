@@ -22,8 +22,10 @@ def validate_shard_plan(
     if not plan.shards:
         errors.append("shard_plan has no shards")
         return ValidationReport(valid=False, errors=errors, warnings=warnings)
+    sorted_shards = sorted(plan.shards, key=lambda item: item.shard_index)
     expected_start = 1
-    for shard in sorted(plan.shards, key=lambda item: item.shard_index):
+    for idx, shard in enumerate(sorted_shards):
+        is_last = idx == len(sorted_shards) - 1
         if shard.page_start != expected_start:
             errors.append(
                 f"shard {shard.shard_index} starts at {shard.page_start}, expected {expected_start}"
@@ -36,7 +38,13 @@ def validate_shard_plan(
         if plan.enabled and length > max_pages:
             errors.append(f"shard {shard.shard_index} exceeds max_pages={max_pages}")
         if plan.enabled and length < min_pages:
-            errors.append(f"shard {shard.shard_index} shorter than min_pages={min_pages}")
+            if is_last:
+                warnings.append(
+                    f"shard {shard.shard_index} (final) shorter than min_pages={min_pages} "
+                    f"({length} pages)"
+                )
+            else:
+                errors.append(f"shard {shard.shard_index} shorter than min_pages={min_pages}")
         expected_start = shard.page_end + 1
     if expected_start != page_count + 1:
         errors.append("shard_plan does not cover full document")

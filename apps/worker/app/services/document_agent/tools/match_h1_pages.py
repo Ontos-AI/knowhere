@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import base64
+import json
+import os
 import re
 import time
 import unicodedata
-from typing import Any
+from typing import Any, cast
 
 from app.services.document_agent.manifest import (
     H1BoundaryResult,
@@ -15,6 +18,7 @@ from app.services.document_agent.manifest import (
 )
 from app.services.document_agent.pdf_text import read_page_texts
 from app.services.document_agent.registry import has_toc_result, register_tool
+from app.services.document_agent.visual import render_pages
 from loguru import logger
 
 
@@ -53,6 +57,89 @@ def _clean_toc_title(title: str) -> str:
     return cleaned
 
 
+# ── C1: Unified grep matching ────────────────────────────────────────────
+
+
+def grep_titles_in_pages(
+    titles: list[str],
+    search_pages: list[int],
+    page_texts: dict[int, str],
+    *,
+    source: str = "toc_grep",
+    confidence: float = 0.88,
+) -> tuple[list[H1Candidate], list[str]]:
+    """Grep a list of titles across specified pages, returning match results.
+
+    H1/H2 share this function.  Callers control scope via *titles* and
+    *search_pages*.
+
+    Returns:
+        (matched_candidates, unmatched_titles)
+    """
+    candidates: list[H1Candidate] = []
+    unmatched: list[str] = []
+
+    for title in titles:
+        normalized_title = _normalize(title)
+        found = False
+        for page in search_pages:
+            text = page_texts.get(page, "")
+            if normalized_title in _normalize(text):
+                matched_line = ""
+                for line in text.splitlines():
+                    if normalized_title in _normalize(line):
+                        matched_line = line.strip()[:100]
+                        break
+                candidates.append(
+                    H1Candidate(
+                        title=title,
+                        page=page,
+                        confidence=confidence,
+                        matched_line=matched_line,
+                        source=source,  # type: ignore[arg-type]
+                        evidence={
+                            "normalized_needle": normalized_title,
+                            "page_text_length": len(text),
+                        },
+                    )
+                )
+                found = True
+                break  # First match per title
+        if not found:
+            unmatched.append(title)
+
+    # Deduplicate by page – keep first hit
+    seen: set[int] = set()
+    deduped: list[H1Candidate] = []
+    for c in candidates:
+        if c.page not in seen:
+            seen.add(c.page)
+            deduped.append(c)
+
+    return deduped, unmatched
+
+
+def extract_children_titles(
+    toc_hierarchies: list[dict[str, Any]],
+    parent_title: str,
+) -> list[str]:
+    """Extract level-2 titles under a given H1 parent from toc_with_level."""
+    titles: list[str] = []
+    for hier in toc_hierarchies or []:
+        entries = hier.get("toc_with_level", [])
+        in_scope = False
+        for entry in entries:
+            if entry.get("level") == 1:
+                cleaned = _clean_toc_title(entry.get("heading", ""))
+                in_scope = _normalize(cleaned) == _normalize(parent_title)
+                continue
+            if in_scope and entry.get("level") == 2:
+                cleaned = _clean_toc_title(entry.get("heading", ""))
+                if cleaned and len(cleaned) >= 2:
+                    titles.append(cleaned)
+    return titles
+
+
 def _extract_level1_titles(toc_hierarchies: list[dict[str, Any]]) -> list[str]:
     """Extract level-1 titles from toc_hierarchies.
 
@@ -67,6 +154,87 @@ def _extract_level1_titles(toc_hierarchies: list[dict[str, Any]]) -> list[str]:
             if cleaned and len(cleaned) >= 2:
                 titles.append(cleaned)
     return titles
+
+
+# ── C2: Lazy VLM verification ────────────────────────────────────────────
+
+
+def verify_section_start(
+    *,
+    page: int,
+    title: str,
+    ctx: ToolContext,
+) -> bool:
+    """VLM-confirm whether *page* is the start of a section titled *title*.
+
+    Used for lazy verification before committing a shard cut.
+    If VLM is unavailable (no model / budget exhausted / render fails),
+    returns ``True`` (trust GREP).
+    """
+    model = ctx.settings.get("vlm_model") or os.environ.get("IMAGE_MODEL")
+    if not model:
+        return True  # No VLM → trust GREP
+
+    # Render 1 page PNG
+    png_items = render_pages(
+        ctx, [page], folder_name="verify_pages", prefix="verify", timeout=60,
+    )
+    if not png_items:
+        return True  # Render failed → trust GREP
+
+    prompt = (
+        f"This is page {page} of a PDF document.\n"
+        f"Question: Is this page the START of a section titled '{title}'?\n"
+        "Criteria: The title appears as a prominent heading/title on this page, "
+        "not merely mentioned in body text.\n"
+        'Return JSON: {"is_section_start": true/false, "reason": "brief"}'
+    )
+    est = 800  # ~800 tokens for 1 image
+    if not ctx.budget.try_reserve("visual", est):
+        return True  # Budget exhausted → trust GREP
+
+    try:
+        png_path = str(png_items[0]["png_path"])
+        with open(png_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode()
+        content_parts: list[dict[str, Any]] = [
+            {"type": "text", "text": prompt},
+            {"type": "text", "text": f"\n--- Page {page} ---"},
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{img_b64}"},
+            },
+        ]
+
+        from shared.services.ai.openai_compatible_client_sync import (
+            get_openai_client,
+        )
+
+        client = get_openai_client(model=model)
+        raw, usage = client.chat_completion_with_usage(
+            messages=cast(Any, [{"role": "user", "content": content_parts}]),
+            model=model,
+            temperature=0.0,
+            max_tokens=256,
+            response_format={"type": "json_object"},
+        )
+        ctx.budget.commit(
+            "visual", actual=usage.get("total_tokens", est), est=est,
+        )
+        data = json.loads(raw)
+        result = bool(data.get("is_section_start", True))
+        logger.info(
+            "[verify_section_start] page={} title='{}' → {} reason={}",
+            page, title[:30], result, data.get("reason", ""),
+        )
+        return result
+    except Exception as exc:
+        ctx.budget.refund("visual", est=est)
+        logger.warning("[verify_section_start] VLM failed for page {}: {}", page, exc)
+        return True  # VLM failure → trust GREP
+
+
+# ── Tool registration ────────────────────────────────────────────────────
 
 
 @register_tool(
@@ -119,53 +287,12 @@ def match_h1_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     )
     page_texts = read_page_texts(ctx.pdf_path, search_pages, timeout=300)
 
-    # Strict substring matching: for each level-1 title, find the first body page
-    h1_candidates: list[H1Candidate] = []
-    matched_titles: list[str] = []
-    unmatched_titles: list[str] = []
+    # Delegate to unified grep function
+    h1_candidates, unmatched_titles = grep_titles_in_pages(
+        level1_titles, search_pages, page_texts, source="toc_exact_top",
+    )
 
-    for title in level1_titles:
-        normalized_title = _normalize(title)
-        found = False
-        for page in search_pages:
-            text = page_texts.get(page, "")
-            normalized_text = _normalize(text)
-            if normalized_title in normalized_text:
-                # Find the matched line for evidence
-                matched_line = ""
-                for line in text.splitlines():
-                    if normalized_title in _normalize(line):
-                        matched_line = line.strip()[:100]
-                        break
-
-                h1_candidates.append(
-                    H1Candidate(
-                        title=title,
-                        page=page,
-                        confidence=0.88,
-                        matched_line=matched_line,
-                        source="toc_exact_top",
-                        evidence={
-                            "normalized_needle": normalized_title,
-                            "page_text_length": len(text),
-                        },
-                    )
-                )
-                matched_titles.append(title)
-                found = True
-                break  # Only first match per title
-
-        if not found:
-            unmatched_titles.append(title)
-
-    # Deduplicate: if multiple titles map to the same page, keep the first
-    seen_pages: set[int] = set()
-    deduped: list[H1Candidate] = []
-    for candidate in h1_candidates:
-        if candidate.page not in seen_pages:
-            seen_pages.add(candidate.page)
-            deduped.append(candidate)
-    h1_candidates = deduped
+    matched_titles = [c.title for c in h1_candidates]
 
     ctx.blackboard.h1_result = H1BoundaryResult(
         h1_candidates=h1_candidates,

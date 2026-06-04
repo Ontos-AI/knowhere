@@ -295,18 +295,18 @@ class OpenAICompatibleClientSync:
         allowed_api_params = {
             "n", "stop", "presence_penalty", "frequency_penalty",
             "logit_bias", "user", "seed", "tools", "tool_choice",
-            "response_format", "logprobs", "top_logprobs",
+            "response_format", "logprobs", "top_logprobs", "extra_body",
         }
         for key, value in kwargs.items():
             if key in allowed_api_params:
                 api_kwargs[key] = value
 
-        extra_body = api_kwargs.get("extra_body", {})
-        if isinstance(extra_body, dict):
-            extra_body.setdefault("enable_thinking", False)
+        if "extra_body" not in api_kwargs:
+            api_kwargs["extra_body"] = {"enable_thinking": False}
         else:
-            extra_body = {"enable_thinking": False}
-        api_kwargs["extra_body"] = extra_body
+            extra_body = api_kwargs["extra_body"]
+            if isinstance(extra_body, dict):
+                extra_body.setdefault("enable_thinking", False)
 
         effective_model = model or self.default_model
         if _should_mock_llm_calls():
@@ -385,21 +385,22 @@ class OpenAICompatibleClientSync:
         allowed_api_params = {
             "n", "stop", "presence_penalty", "frequency_penalty",
             "logit_bias", "user", "seed", "tools", "tool_choice",
-            "response_format", "logprobs", "top_logprobs",
+            "response_format", "logprobs", "top_logprobs", "extra_body",
         }
         for key, value in kwargs.items():
             if key in allowed_api_params:
                 api_kwargs[key] = value
 
-        # ── disable thinking mode ──
+        # ── disable thinking mode (Qwen default) ──
         # Qwen3.5 by default enables thinking mode, which wastes tokens by outputting <think>...</think>
-        # Explicitly disable it in all API calls
-        extra_body = api_kwargs.get("extra_body", {})
-        if isinstance(extra_body, dict):
-            extra_body.setdefault("enable_thinking", False)
+        # Only inject the disable flag when the caller hasn't already set extra_body
+        # (e.g. DeepSeek thinking mode explicitly passes its own extra_body).
+        if "extra_body" not in api_kwargs:
+            api_kwargs["extra_body"] = {"enable_thinking": False}
         else:
-            extra_body = {"enable_thinking": False}
-        api_kwargs["extra_body"] = extra_body
+            extra_body = api_kwargs["extra_body"]
+            if isinstance(extra_body, dict):
+                extra_body.setdefault("enable_thinking", False)
 
         effective_model = model or self.default_model
         if _should_mock_llm_calls():
