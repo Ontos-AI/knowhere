@@ -157,6 +157,24 @@ class JobFileStorage:
             bucket=self.uploads_bucket,
         )
 
+    def delete_object(
+        self,
+        storage_key: str,
+        *,
+        bucket: str,
+    ) -> bool:
+        try:
+            return self.storage_adapter.delete_object(storage_key, bucket)
+        except Exception as exc:
+            raise StorageServiceException(
+                internal_message=f"Storage delete failed: {exc}",
+                operation="delete_object",
+                original_exception=exc,
+            ) from exc
+
+    def delete_upload_file(self, storage_key: str) -> bool:
+        return self.delete_object(storage_key, bucket=self.uploads_bucket)
+
     def upload_fileobj(
         self,
         file_obj: BinaryIO,

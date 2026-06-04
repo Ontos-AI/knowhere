@@ -85,6 +85,7 @@ class PdfParseAdapter:
             profile=session.profile,
             relative_root=session.relative_root,
             s3_key=session.s3_key,
+            job_id=session.job_id,
         )
         return ParseOutput(output_dir=session.full_output_dir, parsed_df=parsed_df)
 
