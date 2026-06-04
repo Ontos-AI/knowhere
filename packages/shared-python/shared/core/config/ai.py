@@ -35,7 +35,7 @@ class AIConfig(BaseModel):
 
     IMAGE_MODEL_MAX: str = Field(
         default="qwen3.5-flash",
-        description="Higher-capability image model for OCR and ask-image Q&A",
+        description="Higher-capability image model for OCR and image type classification",
     )
     RETRIEVAL_DECOMPOSITION_ENABLED: bool = Field(
         default=False,

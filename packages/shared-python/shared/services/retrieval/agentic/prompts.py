@@ -256,6 +256,39 @@ def parse_action_response(text: str) -> dict:
     return default
 
 
+def adjust_budget_snapshot(
+    snapshot: dict | None,
+    additional_tokens: int,
+) -> dict | None:
+    """Adjust a budget snapshot by adding estimated tokens for the current call.
+
+    This ensures the LLM sees the budget state *after* this call's cost,
+    not before, preventing misleadingly low percentages.
+    """
+    if not snapshot:
+        return snapshot
+    import copy
+    adjusted = copy.deepcopy(snapshot)
+    planning = adjusted.get("planning")
+    if not planning:
+        return adjusted
+    capacity = planning.get("capacity", 1)
+    used = planning.get("used", 0) + additional_tokens
+    used_pct = min(int(used * 100 / capacity), 100) if capacity > 0 else 100
+    planning["used"] = used
+    planning["used_pct"] = used_pct
+    planning["remaining"] = max(0, capacity - used)
+    if used_pct >= 90:
+        planning["status"] = "EXHAUSTED"
+    elif used_pct >= 75:
+        planning["status"] = "CRITICAL"
+    elif used_pct >= 50:
+        planning["status"] = "TIGHT"
+    else:
+        planning["status"] = "HEALTHY"
+    return adjusted
+
+
 def format_budget_block(snapshot: dict | None) -> str:
     if not snapshot:
         return ""

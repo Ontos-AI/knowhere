@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.services.retrieval.agentic.core.budget import BudgetExceeded
 from shared.services.retrieval.agentic.prompts import (
     DISCOVERY_SELECT_PROMPT,
+    adjust_budget_snapshot,
     format_budget_block,
     parse_action_response,
 )
@@ -208,10 +209,17 @@ def _build_discovery_selection_prompt(
     hint_lines: list[str],
     budget_snapshot: dict | None,
 ) -> str:
+    # Estimate this call's prompt token cost and adjust snapshot so
+    # the LLM sees post-call budget (consistent with navigate_step).
+    items_text = "\n".join(hint_lines)
+    prompt_tokens_est = (len(items_text) + 400) // 2  # rough chars-to-tokens
+    adjusted_snapshot = adjust_budget_snapshot(
+        budget_snapshot, prompt_tokens_est,
+    )
     return DISCOVERY_SELECT_PROMPT.format(
         doc_name=doc_name or document_id,
-        budget_block=format_budget_block(budget_snapshot),
-        items="\n".join(hint_lines),
+        budget_block=format_budget_block(adjusted_snapshot),
+        items=items_text,
         query=query,
     )
 
