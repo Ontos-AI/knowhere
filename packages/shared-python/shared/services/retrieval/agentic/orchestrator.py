@@ -5,10 +5,10 @@ Flow:
   Phase 2: Per-document navigation (iterative BFS via navigate_step)
   Phase 3: Render evidence text for downstream agents
 
-The orchestrator drives navigation via an iterative BFS queue per document,
-calling navigate_step at each level. Each navigate_step is a single LLM call
-that decides action (NAVIGATE/STOP), asset tools (SEARCH_IMAGES/SEARCH_TABLES),
-and section selections. STOP terminates the drill-down for that scope.
+The orchestrator drives navigation through a per-document observe-act loop.
+Each navigate_step is a single LLM call that chooses one main action
+(EXPAND/BACK/SEARCH_IMAGES/SEARCH_TABLES/FINISH) plus optional collection
+side effects. FINISH explicitly terminates navigation for that document.
 
 KNOWHERE does not generate final answers. Downstream agents decide whether the
 returned evidence is sufficient for their task and may call retrieval again.
@@ -21,10 +21,6 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sqlalchemy import select as sa_select
-
-from shared.models.database.document import Document
-from shared.services.retrieval.agentic import tools as agentic_tools
 from shared.services.retrieval.agentic.core.budget import BudgetLedger
 from shared.services.retrieval.agentic.discovery.phase import (
     run_initial_discovery,
@@ -43,7 +39,6 @@ from shared.services.retrieval.agentic.core.types import (
     AgentRunConfig,
     AgentState,
     AgenticResult,
-    ToolResult,
 )
 from shared.services.retrieval.llm_adapter import LLMFn
 from shared.services.retrieval.settings import DEFAULT_TOP_K
@@ -224,19 +219,37 @@ class RetrievalAgent:
         # Record KG document selection as the first decision trace entry
         if state.selected_docs:
             decision_trace.append({
+                'step_index': 0,
+                'agent': 'doc_selector',
+                'parent_step_index': None,
                 'phase': 'kg_select',
-                'action': 'select',
-                'reason': f'{len(state.selected_docs)} document(s) selected for navigation',
-                'documents': [
-                    {
-                        'document': doc.source_file_name,
-                        'document_id': doc.document_id,
-                        'confidence': doc.confidence,
-                        'reason': doc.reason,
-                        'source': doc.source,
-                    }
-                    for doc in state.selected_docs
-                ],
+                'document_id': None,
+                'document': None,
+                'scope': 'corpus',
+                'observation': {
+                    'query': query,
+                    'candidate_documents': len(state.doc_id_to_name),
+                },
+                'decision': {
+                    'action': 'select_documents',
+                    'args': {},
+                    'reason': f'{len(state.selected_docs)} document(s) selected for navigation',
+                },
+                'result': {
+                    'status': 'ok',
+                    'collected': [
+                        {
+                            'document': doc.source_file_name,
+                            'document_id': doc.document_id,
+                            'confidence': doc.confidence,
+                            'reason': doc.reason,
+                            'source': doc.source,
+                        }
+                        for doc in state.selected_docs
+                    ],
+                },
+                'budget': state.ledger.snapshot() if state.ledger else None,
+                'elapsed_ms': state.elapsed_ms,
             })
 
         if state.elapsed_ms >= config.latency_budget_ms:
@@ -256,29 +269,12 @@ class RetrievalAgent:
                 llm_budget=llm_budget,
             )
             await navigation_runner.navigate_selected_documents()
-            decision_trace.extend(navigation_runner.decision_steps)
-
-            # ── Phase 2.5: Discovery fallback for unnavigated documents ──
-            # If ALL navigated documents produced zero evidence, check
-            # whether bottom discovery found rows in documents that were
-            # never navigated (i.e. KG Select missed them).  Run a
-            # budget-exempt discovery merge on those docs as a last resort.
-            has_evidence = any(
-                t.has_content() for t in state.doc_trees.values()
-            )
-            if not has_evidence and llm_fn is not None:
-                fallback_results = await _run_discovery_fallback(
-                    db,
-                    state=state,
-                    trace=trace,
-                    trace_enabled=trace_enabled,
-                    user_id=user_id,
-                    namespace=namespace,
-                    query=query,
-                    discovery_by_doc=discovery_by_doc,
-                    llm_fn=llm_fn,
+            decision_trace.extend(
+                _offset_decision_trace(
+                    navigation_runner.decision_steps,
+                    offset=len(decision_trace),
                 )
-                decision_trace.extend(fallback_results)
+            )
 
             context_remaining = state.ledger.remaining('context') if state.ledger else config.token_budget_total
             evidence_text = await _trim_evidence_to_budget(
@@ -342,130 +338,18 @@ class RetrievalAgent:
         return result
 
 
-async def _run_discovery_fallback(
-    db: AsyncSession,
+def _offset_decision_trace(
+    steps: list[dict[str, Any]],
     *,
-    state: AgentState,
-    trace: TraceRecorder,
-    trace_enabled: bool,
-    user_id: str,
-    namespace: str,
-    query: str,
-    discovery_by_doc: dict[str, list[dict[str, Any]]],
-    llm_fn: LLMFn,
+    offset: int,
 ) -> list[dict[str, Any]]:
-    """Budget-exempt discovery merge for documents that KG Select missed.
-
-    Called only when navigation produced zero evidence.  For each document
-    that has bottom-discovery rows but was never navigated, run
-    ``discovery_select_step`` with the raw ``llm_fn`` (no budget gate) so
-    the LLM can select relevant paths from the keyword-discovered hints.
-    """
-    unnavigated_doc_ids = [
-        doc_id
-        for doc_id in discovery_by_doc
-        if doc_id not in state.ever_explored_doc_ids
-    ]
-    if not unnavigated_doc_ids:
-        return []
-
-    logger.info(
-        f'  agentic: Phase 2.5 — discovery fallback for '
-        f'{len(unnavigated_doc_ids)} unnavigated doc(s)'
-    )
-
-    # Look up source_file_name for unnavigated docs
-    doc_stmt = (
-        sa_select(Document.document_id, Document.source_file_name)
-        .where(Document.document_id.in_(unnavigated_doc_ids))
-    )
-    doc_result = await db.execute(doc_stmt)
-    doc_names: dict[str, str] = {
-        str(doc_id): str(name or doc_id)
-        for doc_id, name in doc_result.all()
-    }
-
-    decision_entries: list[dict[str, Any]] = []
-
-    for doc_id in unnavigated_doc_ids:
-        doc_hints = discovery_by_doc.get(doc_id, [])
-        if not doc_hints:
-            continue
-
-        doc_name = doc_names.get(doc_id, doc_id)
-        state.doc_id_to_name[doc_id] = doc_name
-
-        try:
-            result = await agentic_tools.discovery_select_step(
-                db,
-                document_id=doc_id,
-                query=query,
-                llm_fn=llm_fn,  # raw — no budget gate
-                user_id=user_id,
-                namespace=namespace,
-                doc_name=doc_name,
-                discovery_hints=doc_hints,
-                exclude_paths=None,  # no navigation happened, nothing to exclude
-                budget_snapshot=None,  # budget-exempt
-            )
-        except Exception as exc:
-            logger.warning(
-                f'  agentic: discovery fallback failed for '
-                f'doc={doc_id}: {exc}'
-            )
-            decision_entries.append({
-                'phase': 'discovery_fallback',
-                'document': doc_name,
-                'document_id': doc_id,
-                'action': 'error',
-                'reason': f'discovery_select_step failed: {exc}',
-                'candidate_count': len(doc_hints),
-                'hydrated_count': 0,
-            })
-            continue
-
-        state.step_count += 1
-        discovery_node = result.node
-
-        if trace_enabled:
-            trace.record_step(
-                'discovery_fallback',
-                ToolResult(
-                    status='selected' if discovery_node.has_content() else 'empty',
-                    payload={
-                        'document_id': doc_id,
-                        'hints_count': len(doc_hints),
-                        'hydrated_count': len(discovery_node.leaf_content),
-                    },
-                ),
-                decision_reason=f'fallback_discovery_{doc_name}',
-            )
-
-        action = 'select' if discovery_node.has_content() else 'skip'
-        decision_entries.append({
-            'phase': 'discovery_fallback',
-            'document': doc_name,
-            'document_id': doc_id,
-            'action': action,
-            'reason': (
-                f'Navigation produced 0 evidence. '
-                f'Discovery fallback on unnavigated doc: '
-                f'{len(doc_hints)} hints, '
-                f'{len(discovery_node.leaf_content)} selected.'
-            ),
-            'candidate_count': result.candidate_count,
-            'hydrated_count': len(discovery_node.leaf_content),
-            'selected_paths': list(discovery_node.leaf_content.keys()),
-        })
-
-        if discovery_node.has_content():
-            if doc_id in state.doc_trees:
-                state.doc_trees[doc_id].merge(discovery_node)
-            else:
-                state.doc_trees[doc_id] = discovery_node
-            logger.info(
-                f'  agentic: discovery fallback doc={doc_name} '
-                f'hydrated {len(discovery_node.leaf_content)} paths'
-            )
-
-    return decision_entries
+    adjusted: list[dict[str, Any]] = []
+    for step in steps:
+        copied = dict(step)
+        old_index = int(copied.get('step_index') or 0)
+        copied['step_index'] = old_index + offset
+        parent = copied.get('parent_step_index')
+        if parent is not None:
+            copied['parent_step_index'] = int(parent) + offset
+        adjusted.append(copied)
+    return adjusted

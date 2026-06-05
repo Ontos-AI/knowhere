@@ -55,7 +55,7 @@ Do not include any explanation.
 
 
 COLLECTOR_PROMPT = """\
-You are a document navigation agent.
+You are a document navigation agent running an observe-act loop.
 
 Document: "{doc_name}" (id: {doc_id})
 
@@ -63,7 +63,7 @@ Document: "{doc_name}" (id: {doc_id})
 
 {trace_block}
 
-Below is the document's section tree.
+Below is your current observation of the document section tree.
 Nodes marked [Leaf] have no further sub-sections.
 Nodes marked [✓] are already in your collection — do not re-collect them.
 Token estimates (e.g. ~1.2k) show approximate content size.
@@ -76,37 +76,47 @@ User query: {query}
 
 === Rules ===
 
-Each step you make THREE independent decisions:
+Each step chooses exactly ONE main action, plus optional COLLECT side effects.
 
 {tools_block}
 
-2. COLLECT — Add sections to your evidence collection (optional, can be empty).
+COLLECT side effect — Add sections to your evidence collection (optional, can be empty).
    - COLLECT includes the section AND ALL its descendant content.
    - Set "outline": true to collect only structure (titles + summaries),
-     keeping children available for further DRILL or COLLECT.
-   - For [Leaf] nodes or small sections, prefer COLLECT over DRILL.
+     keeping children available for further EXPAND or COLLECT.
+   - For [Leaf] nodes or small sections, prefer COLLECT over EXPAND.
    - Do NOT re-collect paths already in your collection or marked [✓].
 
-3. Navigate action — Where to go next (required, choose ONE):
-    - DRILL — Expand a section to see its children in the next step.
+Main action — choose ONE:
+    - EXPAND — Expand a section to see its children in the next observation.
       Use for larger sections when you want to be selective about sub-sections.
-      You cannot DRILL into a path you just COLLECTed (already fully included).
+      You cannot EXPAND into a path you just COLLECTed (already fully included).
       Target must be a path exactly as shown in the Section Tree — do NOT fabricate or shorten.
-      NEVER drill into "{current_scope}" (current scope) or its ancestors.
+      NEVER expand "{current_scope}" (current scope) or its ancestors.
       Target must NOT repeat any path in the Navigation Trace.
-      {back_rule}    
-    - STOP — End navigation when you have enough evidence or nothing relevant remains.
+      {back_rule}
+    - SEARCH_IMAGES — Ask the asset-inspector sub-agent to inspect images.
+      Requires action_args.query.
+    - SEARCH_TABLES — Ask the asset-inspector sub-agent to inspect tables.
+      Requires action_args.query.
+    - BACK — Move to an ancestor scope.
+    - FINISH — End navigation for this document only when you have enough evidence
+      or the observation shows nothing relevant remains.
 
 === End Rules ===
 
 Return ONLY a JSON object:
 {{"collect": [{{"path": "...", "confidence": <float>, "outline": false}}],
- "tools": ["SEARCH_IMAGES"], "tool_params": {{"search_query": "..."}},
- "action": "DRILL",
- "drill_into": "section/path",
+ "action": "EXPAND",
+ "action_args": {{"target": "section/path"}},
  "reason": "..."}}
 or
-{{"collect": [...], "tools": [], "action": "STOP", "reason": "..."}}
+{{"collect": [...],
+ "action": "SEARCH_TABLES",
+ "action_args": {{"query": "..."}},
+ "reason": "..."}}
+or
+{{"collect": [...], "action": "FINISH", "reason": "..."}}
 Do not include any explanation outside the JSON.
 
 IMPORTANT: 
@@ -122,21 +132,23 @@ def parse_collector_response(text: str) -> dict:
     """Parse the Collector Agent navigation response.
 
     Expected format:
-    {"collect": [...], "action": "DRILL|BACK|STOP",
-     "drill_into": "path", "tools": [...], "reason": "..."}
+    {"collect": [...], "action": "EXPAND|BACK|FINISH|SEARCH_IMAGES|SEARCH_TABLES",
+     "action_args": {"target": "...", "query": "..."}, "reason": "..."}
     """
     text = text.strip()
-    asset_tools = {"SEARCH_IMAGES", "SEARCH_TABLES"}
-    valid_actions = {"DRILL", "BACK", "STOP"}
+    valid_actions = {"EXPAND", "BACK", "FINISH", "SEARCH_IMAGES", "SEARCH_TABLES"}
     default: dict[str, Any] = {
-        "collect": [], "action": "STOP", "drill_into": None,
-        "tools": [], "reason": "",
+        "collect": [], "action": "FINISH", "drill_into": None,
+        "tools": [], "tool_params": {}, "reason": "",
     }
 
     def extract(data: dict) -> dict:
-        action = str(data.get("action", "STOP")).strip().upper()
+        action = str(data.get("action", "FINISH")).strip().upper()
         if action not in valid_actions:
-            action = "STOP"
+            action = "FINISH"
+        action_args = data.get("action_args")
+        if not isinstance(action_args, dict):
+            action_args = {}
 
         # Parse collect list
         collect_val = data.get("collect") or []
@@ -154,38 +166,31 @@ def parse_collector_response(text: str) -> dict:
 
         # Parse drill target
         drill_into = None
-        if action == "DRILL":
-            drill_into = data.get("drill_into")
+        if action == "EXPAND":
+            drill_into = action_args.get("target")
             if isinstance(drill_into, str):
                 drill_into = drill_into.strip() or None
             else:
                 drill_into = None
             if drill_into is None:
-                # No valid drill target → treat as STOP
-                action = "STOP"
+                action = "FINISH"
 
-        # Parse tools
-        tools_val = data.get("tools") or []
-        tools: list[str] = []
-        if isinstance(tools_val, list):
-            tools = [
-                str(t).strip().upper()
-                for t in tools_val
-                if str(t).strip().upper() in asset_tools
-            ]
-
-        # Parse tool parameters (search_query, chunk_id, etc.)
+        # Parse tool parameters.
         tool_params: dict[str, Any] = {}
-        raw_params = data.get("tool_params")
-        if isinstance(raw_params, dict):
-            tool_params = raw_params
+        if action in {"SEARCH_IMAGES", "SEARCH_TABLES"}:
+            query = action_args.get("query") or action_args.get("search_query")
+            if isinstance(query, str) and query.strip():
+                tool_params["search_query"] = query.strip()
+            tools = [action]
+        else:
+            tools = []
 
         reason = str(data.get("reason") or "").strip()[:500]
 
         # Parse back_to target for BACK action
         back_to = None
         if action == "BACK":
-            raw_back = data.get("back_to")
+            raw_back = action_args.get("target")
             if isinstance(raw_back, str) and raw_back.strip():
                 back_to = raw_back.strip()
             # else: back_to remains None (= root)

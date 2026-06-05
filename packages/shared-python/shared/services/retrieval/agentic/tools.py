@@ -92,6 +92,7 @@ async def navigate_step(
     nav_trace: list[dict[str, Any]] | None = None,
     collected_paths: list[dict[str, Any]] | None = None,
     search_context: str = "",
+    prior_tool_result: dict[str, Any] | None = None,
 ) -> NavigateStepResult:
     return await navigation_tools.navigate_step(
         db,
@@ -108,6 +109,7 @@ async def navigate_step(
         nav_trace=nav_trace,
         collected_paths=collected_paths,
         search_context=search_context,
+        prior_tool_result=prior_tool_result,
     )
 
 
@@ -121,7 +123,7 @@ async def search_assets_step(
     query: str,
     llm_fn: LLMFn,
     vlm_fn: LLMFn | None = None,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     return await asset_tools.search_assets_step(
         db,
         document_id=document_id,

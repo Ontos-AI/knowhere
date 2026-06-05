@@ -36,6 +36,7 @@ class ZipManifestBuilder:
                     "completed_at": job_metadata.get("processing_completed_at"),
                     "duration_ms": job_metadata.get("processing_duration_ms"),
                 },
+                "stages": job_metadata.get("stages", {}),
             },
             "statistics": statistics,
             "HIERARCHY": hierarchy or {},

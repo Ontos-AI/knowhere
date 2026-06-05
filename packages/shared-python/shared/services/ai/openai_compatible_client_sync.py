@@ -20,6 +20,7 @@ from shared.core.exceptions.domain_exceptions import LLMServiceException
 from shared.services.http.client_pool import get_sync_client
 from shared.services.ai.llm_mock import build_mock_chat_completion_response
 from shared.utils.security_utils import mask_api_key
+from shared.services.ai.token_tracking import record_tokens
 
 LOCAL_DEBUG = os.getenv("LOCAL_DEBUG", "0") == "1"
 LLMUsage = dict[str, int]
@@ -213,7 +214,9 @@ class OpenAICompatibleClientSync:
                         internal_message="AI returned empty result",
                         provider=self.default_model,
                     )
-                return response, _extract_usage(response)
+                usage = _extract_usage(response)
+                record_tokens(usage)
+                return response, usage
             except openai.RateLimitError as exc:
                 retry_after = _parse_retry_after(exc)
                 quota_manager.mark_rate_limited(lease.token_id, retry_after)
@@ -344,7 +347,9 @@ class OpenAICompatibleClientSync:
                     internal_message="AI returned empty result",
                     provider=self.default_model,
                 )
-            return response, _extract_usage(response)
+            usage = _extract_usage(response)
+            record_tokens(usage)
+            return response, usage
         except LLMServiceException:
             raise
         except Exception as exc:
@@ -454,7 +459,9 @@ class OpenAICompatibleClientSync:
                 )
 
             content = choices[0].message.content or ""
-            return content, _extract_usage(response)
+            usage = _extract_usage(response)
+            record_tokens(usage)
+            return content, usage
         except LLMServiceException:
             raise
         except Exception as exc:

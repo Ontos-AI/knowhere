@@ -124,12 +124,10 @@ def format_nav_trace(
         scope = entry.get("scope", "root")
         action = entry.get("action", "?")
         reason = entry.get("reason", "")
-        fallback = entry.get("fallback_reason")
-
         action_display = action
         drill_into = entry.get("drill_into")
-        if action == "DRILL" and drill_into:
-            action_display = f'DRILL "{drill_into}"'
+        if action == "EXPAND" and drill_into:
+            action_display = f'EXPAND "{drill_into}"'
 
         lines.append(f"Step {step}: scope={scope} → {action_display}")
 
@@ -148,8 +146,9 @@ def format_nav_trace(
             paths_display = ", ".join(f'"{c}"' for c in step_collected)
             lines.append(f"  collected: {paths_display}")
 
-        if fallback:
-            lines.append(f"  ⚠ FALLBACK: {fallback}")
+        result_status = entry.get("result_status")
+        if result_status and result_status != "ok":
+            lines.append(f"  result_status: {result_status}")
 
         if reason:
             lines.append(f"  reason: {reason}")
@@ -198,13 +197,13 @@ def format_back_rule(current_scope: str | None) -> str:
     targets_str = ", ".join(targets)
     return (
         "    - BACK — Return to an ancestor scope to explore other branches.\n"
-        f'      "back_to" must be one of: {targets_str}\n'
+        f'      action_args.target must be one of: {targets_str}\n'
         "      Prefer the nearest relevant ancestor — do NOT default to null when closer targets exist.\n"
     )
 
 
 def format_drill_constraint(current_scope: str | None) -> str:
-    """Render a tail-of-prompt constraint reminding the LLM not to drill into current scope.
+    """Render a tail-of-prompt constraint reminding the LLM not to expand into current scope.
 
     Placed at the end of IMPORTANT section so it won't be buried in middle rules.
     Returns empty string at root scope (no constraint needed there).
@@ -212,7 +211,7 @@ def format_drill_constraint(current_scope: str | None) -> str:
     if not current_scope:
         return ""
     return (
-        f'3. NEVER drill into "{current_scope}" — it is your current scope.\n'
+        f'3. NEVER expand "{current_scope}" — it is your current scope.\n'
     )
 
 

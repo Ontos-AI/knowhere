@@ -138,6 +138,11 @@ class WorkflowOrchestrator:
             corpus_total_docs=total_docs,
             corpus_total_chunks=total_chunks,
         )
+        # TODO(retrieval-agentic-nav): redesign this outer workflow as a real
+        # observe-act agent that can pass evidence between steps, decide whether
+        # to add sub-queries after seeing retrieval results, and own global
+        # document selection/stop decisions. The per-document navigator remains
+        # a sub-agent and should not take over cross-document orchestration.
 
         wallet = BudgetWallet(
             total=config.wallet_total_budget,
