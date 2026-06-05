@@ -191,7 +191,11 @@ async def _run_agentic_route(
     # Embed stop/failure into decision_trace as a homogeneous terminal entry.
     stop_reason = response.get("stop_reason") or ""
     failure_reason = response.get("failure_reason") or ""
-    if stop_reason or failure_reason:
+    has_terminal_trace = any(
+        entry.get("phase") == "terminal"
+        for entry in all_decision_trace
+    )
+    if (stop_reason or failure_reason) and not has_terminal_trace:
         terminal_index = len(all_decision_trace)
         all_decision_trace.append({
             "step_index": terminal_index,

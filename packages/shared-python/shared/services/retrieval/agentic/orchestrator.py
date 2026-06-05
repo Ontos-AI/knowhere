@@ -39,6 +39,7 @@ from shared.services.retrieval.agentic.core.types import (
     AgentRunConfig,
     AgentState,
     AgenticResult,
+    DecisionTraceStep,
 )
 from shared.services.retrieval.llm_adapter import LLMFn
 from shared.services.retrieval.settings import DEFAULT_TOP_K
@@ -164,6 +165,34 @@ class RetrievalAgent:
         # If no LLM or no docs selected, return discovery rows directly
         if not state.selected_docs:
             logger.info('agentic: no documents selected — returning discovery results')
+            no_docs_trace: list[dict[str, Any]] = []
+            kg_select_step = DecisionTraceStep(
+                step_index=0,
+                agent='doc_selector',
+                parent_step_index=None,
+                phase='kg_select',
+                document_id=None,
+                document=None,
+                scope='corpus',
+                observation={
+                    'query': query,
+                    'candidate_documents': len(state.doc_id_to_name),
+                },
+                decision={
+                    'action': 'select_documents',
+                    'args': {},
+                    'reason': 'No documents selected for navigation',
+                },
+                result={
+                    'status': 'empty',
+                    'collected': [],
+                },
+                budget=state.ledger.snapshot() if state.ledger else None,
+                elapsed_ms=state.elapsed_ms,
+            )
+            no_docs_trace.append(kg_select_step.to_dict())
+            if trace_enabled:
+                trace.record_decision_trace_step(kg_select_step)
             discovery_refs = [
                 {
                     'chunk_id': r.get('chunk_id', ''),
@@ -179,6 +208,35 @@ class RetrievalAgent:
                 for r in discovery_rows[:top_k]
                 if r.get('chunk_id')
             ]
+            terminal_step = DecisionTraceStep(
+                step_index=len(no_docs_trace),
+                agent='retrieval_agent',
+                parent_step_index=None,
+                phase='terminal',
+                document_id=None,
+                document=None,
+                scope='retrieve_step',
+                observation={
+                    'router_used': 'agentic_discovery_only',
+                    'referenced_chunks': len(discovery_refs),
+                    'evidence_chars': 0,
+                },
+                decision={
+                    'action': 'complete',
+                    'args': {},
+                    'reason': 'no_documents_selected',
+                },
+                result={
+                    'status': 'ok',
+                    'stop_reason': 'no_documents_selected',
+                    'failure_reason': '',
+                },
+                budget=state.ledger.snapshot() if state.ledger else None,
+                elapsed_ms=state.elapsed_ms,
+            )
+            no_docs_trace.append(terminal_step.to_dict())
+            if trace_enabled:
+                trace.record_decision_trace_step(terminal_step)
             if trace_enabled:
                 await trace.complete(
                     discovery_rows,
@@ -190,6 +248,9 @@ class RetrievalAgent:
                 answer_text='',
                 referenced_chunks=discovery_refs,
                 router_used='agentic_discovery_only',
+                budget_snapshot=state.ledger.snapshot() if state.ledger else None,
+                stop_reason='no_documents_selected',
+                decision_trace=no_docs_trace,
             )
 
         discovery_by_doc: dict[str, list[dict[str, Any]]] = {}
@@ -218,24 +279,24 @@ class RetrievalAgent:
 
         # Record KG document selection as the first decision trace entry
         if state.selected_docs:
-            decision_trace.append({
-                'step_index': 0,
-                'agent': 'doc_selector',
-                'parent_step_index': None,
-                'phase': 'kg_select',
-                'document_id': None,
-                'document': None,
-                'scope': 'corpus',
-                'observation': {
+            kg_select_step = DecisionTraceStep(
+                step_index=0,
+                agent='doc_selector',
+                parent_step_index=None,
+                phase='kg_select',
+                document_id=None,
+                document=None,
+                scope='corpus',
+                observation={
                     'query': query,
                     'candidate_documents': len(state.doc_id_to_name),
                 },
-                'decision': {
+                decision={
                     'action': 'select_documents',
                     'args': {},
                     'reason': f'{len(state.selected_docs)} document(s) selected for navigation',
                 },
-                'result': {
+                result={
                     'status': 'ok',
                     'collected': [
                         {
@@ -248,9 +309,12 @@ class RetrievalAgent:
                         for doc in state.selected_docs
                     ],
                 },
-                'budget': state.ledger.snapshot() if state.ledger else None,
-                'elapsed_ms': state.elapsed_ms,
-            })
+                budget=state.ledger.snapshot() if state.ledger else None,
+                elapsed_ms=state.elapsed_ms,
+            )
+            decision_trace.append(kg_select_step.to_dict())
+            if trace_enabled:
+                trace.record_decision_trace_step(kg_select_step)
 
         if state.elapsed_ms >= config.latency_budget_ms:
             stop_reason = 'latency_budget'
@@ -306,8 +370,35 @@ class RetrievalAgent:
                     seen_ref_ids.add(cid)
                     all_refs.append(ref)
 
-
-
+        terminal_step = DecisionTraceStep(
+            step_index=len(decision_trace),
+            agent='retrieval_agent',
+            parent_step_index=None,
+            phase='terminal',
+            document_id=None,
+            document=None,
+            scope='retrieve_step',
+            observation={
+                'router_used': router_used,
+                'referenced_chunks': len(all_refs),
+                'evidence_chars': len(evidence_text),
+            },
+            decision={
+                'action': 'complete',
+                'args': {},
+                'reason': stop_reason or failure_reason or 'retrieval_complete',
+            },
+            result={
+                'status': 'error' if failure_reason else 'ok',
+                'stop_reason': stop_reason,
+                'failure_reason': failure_reason,
+            },
+            budget=state.ledger.snapshot() if state.ledger else None,
+            elapsed_ms=state.elapsed_ms,
+        )
+        decision_trace.append(terminal_step.to_dict())
+        if trace_enabled:
+            trace.record_decision_trace_step(terminal_step)
 
         result = AgenticResult(
             evidence_text=evidence_text,

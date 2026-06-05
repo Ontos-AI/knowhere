@@ -113,7 +113,7 @@ class AgentLlmBudget:
                 prompt,
                 pool="planning",
                 doc_id=doc_id,
-                priority="low" if step >= 4 else "normal",
+                priority="normal",
             )
 
         return _call

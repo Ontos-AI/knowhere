@@ -18,10 +18,8 @@ from shared.services.retrieval.agentic.prompts import (
     parse_collector_response,
 )
 from shared.services.retrieval.agentic.navigation.section_prompt_projection import (
-    format_back_constraint,
-    format_back_rule,
-    format_drill_constraint,
     format_items_for_llm,
+    format_main_actions_block,
     format_nav_trace,
 )
 from shared.services.retrieval.agentic.navigation.section_tree import load_child_sections
@@ -102,9 +100,13 @@ async def navigate_step(
             for item in (collected_paths or [])
             if item.get("hydrate_mode") != "outline"
         }
+        expanded_path_set = _expanded_paths_from_trace(nav_trace or [])
+        if scope_path:
+            expanded_path_set.add(scope_path)
         items_text, overflowed = format_items_for_llm(
             items,
             collected_paths=collected_path_set,
+            expanded_paths=expanded_path_set,
         )
 
         # Build trace block (unified: scope + actions + collection)
@@ -133,9 +135,7 @@ async def navigate_step(
             query=query,
             tools_block=tools_block,
             current_scope=scope_path or "root",
-            back_rule=format_back_rule(scope_path),
-            drill_constraint=format_drill_constraint(scope_path),
-            back_constraint=format_back_constraint(scope_path),
+            main_actions_block=format_main_actions_block(scope_path),
         )
 
         response = await llm_fn(prompt)
@@ -235,10 +235,16 @@ async def navigate_step(
         if action in ("SEARCH_IMAGES", "SEARCH_TABLES"):
             search_query = str(tool_params.get("search_query", query)).strip()
             asset_type = "image" if action == "SEARCH_IMAGES" else "table"
-            search_assets_params = {
-                "query": search_query,
-                "asset_type": asset_type,
-            }
+            available_count = total_images if asset_type == "image" else total_tables
+            if available_count <= 0:
+                result_status = "unavailable_tool"
+                result_note = f"{action} unavailable in current scope"
+                selected_tools = []
+            else:
+                search_assets_params = {
+                    "query": search_query,
+                    "asset_type": asset_type,
+                }
 
         return NavigateStepResult(
             action=action,
@@ -262,3 +268,16 @@ async def navigate_step(
             scope_paths[0] if scope_paths else None,
             reason=str(exc),
         )
+
+
+def _expanded_paths_from_trace(nav_trace: list[dict[str, Any]]) -> set[str]:
+    expanded: set[str] = set()
+    for entry in nav_trace:
+        if entry.get("action") != "EXPAND":
+            continue
+        if entry.get("result_status", "ok") != "ok":
+            continue
+        drill_into = entry.get("drill_into")
+        if isinstance(drill_into, str) and drill_into:
+            expanded.add(drill_into)
+    return expanded

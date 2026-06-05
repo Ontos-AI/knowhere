@@ -10,21 +10,44 @@ def format_items_for_llm(
     items: list[dict],
     max_chars: int = 20000,
     collected_paths: set[str] | None = None,
+    expanded_paths: set[str] | None = None,
 ) -> tuple[str, bool]:
     """Format section items with hierarchy, token estimates, and collection marks."""
     if not items:
         return "(no items available)", False
 
     coll = collected_paths or set()
-    full_text = "\n".join(_render_item(item, include_summary=True, collected=coll) for item in items)
+    expanded = expanded_paths or set()
+    full_text = "\n".join(
+        _render_item(
+            item,
+            include_summary=True,
+            collected=coll,
+            expanded=expanded,
+        )
+        for item in items
+    )
     if len(full_text) <= max_chars:
         return full_text, False
 
-    slim_text = "\n".join(_render_item(item, include_summary=False, collected=coll) for item in items)
+    slim_text = "\n".join(
+        _render_item(
+            item,
+            include_summary=False,
+            collected=coll,
+            expanded=expanded,
+        )
+        for item in items
+    )
     return slim_text[:max_chars], True
 
 
-def _render_item(item: dict, include_summary: bool, collected: set[str]) -> str:
+def _render_item(
+    item: dict,
+    include_summary: bool,
+    collected: set[str],
+    expanded: set[str],
+) -> str:
     level = item.get("level", 1)
     show_summary = item.get("show_summary", True)
     is_leaf = item.get("is_leaf", False)
@@ -34,6 +57,7 @@ def _render_item(item: dict, include_summary: bool, collected: set[str]) -> str:
     # Check if this path (or an ancestor) is already collected
     is_collected = _is_path_collected(path, collected)
     collected_tag = "[✓] " if is_collected else ""
+    expanded_tag = "[seen] " if not is_collected and path in expanded else ""
 
     leaf_tag = " [Leaf]" if is_leaf else ""
 
@@ -68,7 +92,7 @@ def _render_item(item: dict, include_summary: bool, collected: set[str]) -> str:
     level_tag = f"[L{level}]"
 
     lines = [
-        f'{indent}{prefix} {collected_tag}{level_tag} path="{path}"{counts_str}{token_str}{leaf_tag}'
+        f'{indent}{prefix} {collected_tag}{expanded_tag}{level_tag} path="{path}"{counts_str}{token_str}{leaf_tag}'
     ]
 
     if include_summary and show_summary and summary:
@@ -128,6 +152,10 @@ def format_nav_trace(
         drill_into = entry.get("drill_into")
         if action == "EXPAND" and drill_into:
             action_display = f'EXPAND "{drill_into}"'
+        elif action == "BACK":
+            back_to = entry.get("back_to")
+            target = f'"{back_to}"' if back_to else "root"
+            action_display = f"BACK to {target}"
 
         lines.append(f"Step {step}: scope={scope} → {action_display}")
 
@@ -172,60 +200,38 @@ def format_nav_trace(
     return "\n".join(lines)
 
 
-def format_back_rule(current_scope: str | None) -> str:
-    """Render the BACK rule block for the collector prompt.
+def format_main_actions_block(current_scope: str | None) -> str:
+    """Render only actions valid for the current navigation scope."""
+    lines = [
+        "    - EXPAND — Observe a visible unprocessed section's children in the next step.",
+        "      Use for larger relevant sections when child-level selection is needed.",
+        "      action_args.target must be an exact visible path that is not [seen], [✓],",
+        "      the current scope, or an ancestor of the current scope.",
+        "    - SEARCH_IMAGES — Ask the asset-inspector sub-agent to inspect images.",
+        "      Choose only when the Asset actions block above lists SEARCH_IMAGES.",
+        "      Requires action_args.query.",
+        "    - SEARCH_TABLES — Ask the asset-inspector sub-agent to inspect tables.",
+        "      Choose only when the Asset actions block above lists SEARCH_TABLES.",
+        "      Requires action_args.query.",
+    ]
+    if current_scope:
+        targets = _format_back_targets(current_scope)
+        lines.extend([
+            "    - BACK — Move to an ancestor scope to explore other branches.",
+            f"      action_args.target must be one of: {targets}",
+            "      Prefer the nearest relevant ancestor; use null only to return to root.",
+        ])
+    lines.extend([
+        "    - FINISH — End navigation for this document when enough evidence is collected",
+        "      or no unprocessed relevant section remains.",
+    ])
+    return "\n".join(lines)
 
-    At root scope (current_scope is None), BACK is not available — the LLM
-    has not drilled into any section yet, so there is no ancestor to return to.
-    Returns an empty string in this case so the rule is omitted entirely.
 
-    When inside a sub-scope, renders the full BACK rule with valid targets.
-
-    Examples:
-      scope=None        → '' (BACK hidden)
-      scope="A"         → '    - BACK … "back_to" must be one of: null (root)'
-      scope="A / B"     → '    - BACK … "back_to" must be one of: "A", null (root)'
-      scope="A / B / C" → '    - BACK … "back_to" must be one of: "A / B", "A", null (root)'
-    """
-    if not current_scope:
-        return ""
+def _format_back_targets(current_scope: str) -> str:
     parts = current_scope.split(" / ")
     targets: list[str] = []
     for i in range(len(parts) - 1, 0, -1):
         targets.append(f'"{" / ".join(parts[:i])}"')
     targets.append("null (root)")
-    targets_str = ", ".join(targets)
-    return (
-        "    - BACK — Return to an ancestor scope to explore other branches.\n"
-        f'      action_args.target must be one of: {targets_str}\n'
-        "      Prefer the nearest relevant ancestor — do NOT default to null when closer targets exist.\n"
-    )
-
-
-def format_drill_constraint(current_scope: str | None) -> str:
-    """Render a tail-of-prompt constraint reminding the LLM not to expand into current scope.
-
-    Placed at the end of IMPORTANT section so it won't be buried in middle rules.
-    Returns empty string at root scope (no constraint needed there).
-    """
-    if not current_scope:
-        return ""
-    return (
-        f'3. NEVER expand "{current_scope}" — it is your current scope.\n'
-    )
-
-
-def format_back_constraint(current_scope: str | None) -> str:
-    """Render a tail-of-prompt constraint listing valid BACK targets.
-
-    Reinforces the BACK rule at the end of IMPORTANT section.
-    Returns empty string at root scope (BACK is not available).
-    """
-    if not current_scope:
-        return ""
-    parts = current_scope.split(" / ")
-    targets: list[str] = []
-    for i in range(len(parts) - 1, 0, -1):
-        targets.append(f'"{" / ".join(parts[:i])}"')
-    targets.append("null (root)")
-    return f'4. For BACK, valid targets are: {", ".join(targets)}\n'
+    return ", ".join(targets)

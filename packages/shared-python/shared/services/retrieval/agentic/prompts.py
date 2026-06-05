@@ -65,7 +65,8 @@ Document: "{doc_name}" (id: {doc_id})
 
 Below is your current observation of the document section tree.
 Nodes marked [Leaf] have no further sub-sections.
-Nodes marked [✓] are already in your collection — do not re-collect them.
+Nodes marked [✓] are already collected as evidence.
+Nodes marked [seen] were already expanded/observed.
 Token estimates (e.g. ~1.2k) show approximate content size.
 
 === Section Tree ===
@@ -80,28 +81,24 @@ Each step chooses exactly ONE main action, plus optional COLLECT side effects.
 
 {tools_block}
 
+Navigation state:
+   - Current scope: "{current_scope}"
+   - EXPAND means observing a scope's children. Do not EXPAND [seen], [✓],
+     the current scope, or any ancestor of the current scope.
+   - COLLECT means adding a section and all descendant content to evidence.
+     Do not COLLECT [✓] paths or descendants of [✓] paths.
+   - Treat already expanded scopes and fully collected paths as processed:
+     do not spend another action on processed content.
+   - BACK only changes the current scope; it does not collect evidence.
+
 COLLECT side effect — Add sections to your evidence collection (optional, can be empty).
    - COLLECT includes the section AND ALL its descendant content.
    - Set "outline": true to collect only structure (titles + summaries),
      keeping children available for further EXPAND or COLLECT.
    - For [Leaf] nodes or small sections, prefer COLLECT over EXPAND.
-   - Do NOT re-collect paths already in your collection or marked [✓].
 
-Main action — choose ONE:
-    - EXPAND — Expand a section to see its children in the next observation.
-      Use for larger sections when you want to be selective about sub-sections.
-      You cannot EXPAND into a path you just COLLECTed (already fully included).
-      Target must be a path exactly as shown in the Section Tree — do NOT fabricate or shorten.
-      NEVER expand "{current_scope}" (current scope) or its ancestors.
-      Target must NOT repeat any path in the Navigation Trace.
-      {back_rule}
-    - SEARCH_IMAGES — Ask the asset-inspector sub-agent to inspect images.
-      Requires action_args.query.
-    - SEARCH_TABLES — Ask the asset-inspector sub-agent to inspect tables.
-      Requires action_args.query.
-    - BACK — Move to an ancestor scope.
-    - FINISH — End navigation for this document only when you have enough evidence
-      or the observation shows nothing relevant remains.
+Available main actions — choose ONE:
+{main_actions_block}
 
 === End Rules ===
 
@@ -122,9 +119,6 @@ Do not include any explanation outside the JSON.
 IMPORTANT: 
 1. All agent-generated text (e.g., "reason" and other free-text fields) MUST be written in English.
 2. Document content and section paths MUST remain in their original language.
-{drill_constraint}
-
-{back_constraint}
 """
 
 

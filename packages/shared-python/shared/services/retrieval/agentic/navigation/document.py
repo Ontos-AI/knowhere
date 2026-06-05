@@ -172,8 +172,8 @@ class DocumentNavigationRunner:
             if self._state.elapsed_ms >= self._config.latency_budget_ms:
                 exit_reason = "latency"
                 break
-            if self._state.ledger and self._state.ledger.status("planning") in ("CRITICAL", "EXHAUSTED"):
-                logger.info("  agentic: planning budget critical, ending navigation for current doc")
+            if self._state.ledger and self._state.ledger.status("planning") == "EXHAUSTED":
+                logger.info("  agentic: planning budget exhausted, ending navigation for current doc")
                 exit_reason = "budget"
                 break
 
@@ -248,6 +248,7 @@ class DocumentNavigationRunner:
                 "scope": current_scope or "root",
                 "action": nav_result.action,
                 "drill_into": nav_result.drill_into,
+                "back_to": nav_result.back_to,
                 "collected": collected_in_step,
                 "tools_used": nav_result.tools,
                 "reason": nav_result.reason,
@@ -316,7 +317,7 @@ class DocumentNavigationRunner:
         # Hard guard: if navigation is forcefully interrupted and collected
         # nothing, collect visible leaf children under the last explored
         # scope. Voluntary FINISH/BACK with empty collection is respected.
-        #   budget    – planning pool CRITICAL/EXHAUSTED (pre-check or exception)
+        #   budget    – planning pool EXHAUSTED (pre-check or exception)
         #   latency   – elapsed time exceeded latency budget
         #   max_steps – navigation step count limit reached
         #   error     – unexpected exception during navigate_step
@@ -875,16 +876,21 @@ class DocumentNavigationRunner:
         decision_args: dict[str, Any] = {}
         if drill_into:
             decision_args["target"] = drill_into
-        if nav_result.back_to is not None:
+        if action == "BACK":
             decision_args["target"] = nav_result.back_to
         if nav_result.search_assets_params:
             decision_args["query"] = nav_result.search_assets_params.get("query", "")
             decision_args["asset_type"] = nav_result.search_assets_params.get("asset_type", "")
+        projected_scope = scope or "root"
+        if action == "EXPAND" and drill_into:
+            projected_scope = drill_into
+        elif action == "BACK" and nav_result.result_status == "ok":
+            projected_scope = nav_result.back_to or "root"
 
         result_payload: dict[str, Any] = {
             "status": nav_result.result_status,
             "collected": collected,
-            "new_scope": drill_into if action == "EXPAND" and drill_into else scope or "root",
+            "new_scope": projected_scope,
             "note": nav_result.result_note,
         }
         if nav_result.error_reason:
