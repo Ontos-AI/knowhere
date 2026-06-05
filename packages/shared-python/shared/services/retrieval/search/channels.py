@@ -249,6 +249,27 @@ async def _bm25_channel(
     return ranked_rows[:top_k]
 
 
+def _score_term_match(query_lower: str, query_tokens: list[str], haystack: str) -> float:
+    """Score one term-channel row.
+
+    Returns 0.0 when no token in `query_tokens` appears in `haystack`.
+    Otherwise returns a smooth log-scaled score in `[1.0, 1.0 + 0.5 * sqrt(N))]`
+    where N is the number of matching tokens.
+
+    A previous implementation gave 100.0 for the
+    `query_lower in haystack` branch, but that branch was unreachable for
+    CJK content: `term_search_text` is jieba-segmented, so the raw query
+    string is never a contiguous substring of the haystack. The smooth
+    scale keeps the ranking well-defined for every language.
+    """
+    if not query_tokens:
+        return 0.0
+    hit_count = sum(1 for u in query_tokens if u in haystack)
+    if hit_count == 0:
+        return 0.0
+    return 1.0 + 0.5 * (hit_count ** 0.5)
+
+
 async def term_channel(
     db: AsyncSession,
     *,
@@ -312,14 +333,10 @@ async def term_channel(
     scored: list[dict[str, Any]] = []
     for row in rows:
         haystack = (row.get("term_search_text") or "").lower()
-        if query_lower in haystack:
-            row["score"] = 100.0
+        score = _score_term_match(query_lower, query_tokens, haystack)
+        if score > 0.0:
+            row["score"] = score
             scored.append(row)
-        else:
-            hit_count = sum(1 for u in query_tokens if u in haystack)
-            if hit_count > 0:
-                row["score"] = float(hit_count)
-                scored.append(row)
 
     scored.sort(key=lambda r: r["score"], reverse=True)
     return scored[:top_k]
