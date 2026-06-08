@@ -204,6 +204,7 @@ class RetrievalAgent:
                         else r.get('section_path', '')
                     ),
                     'file_path': r.get('file_path', ''),
+                    'job_id': r.get('job_id', ''),
                 }
                 for r in discovery_rows[:top_k]
                 if r.get('chunk_id')

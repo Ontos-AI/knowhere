@@ -41,7 +41,7 @@ async def attach_section_counts(
         for item_path, item in items_by_path.items():
             if not item["show_summary"]:
                 continue
-            if chunk_path == item_path or chunk_path.startswith(item_path + " / "):
+            if _chunk_belongs_to_item(chunk_path, item_path):
                 item["chunk_count"] += text_count
                 item["image_count"] += image_count
                 item["table_count"] += table_count
@@ -54,6 +54,14 @@ async def attach_section_counts(
         items_by_path=items_by_path,
         sid_to_path=sid_to_path,
     )
+
+    # Root is a virtual navigation container. Media availability for the
+    # whole document is exposed through global SEARCH actions, not as Root
+    # node-local images/tables.
+    root_item = items_by_path.get("Root")
+    if root_item:
+        root_item["image_count"] = 0
+        root_item["table_count"] = 0
 
 
 async def _load_direct_chunk_counts(
@@ -173,6 +181,12 @@ async def _attach_connected_asset_counts(
         for item_path, item in items_by_path.items():
             if not item["show_summary"]:
                 continue
-            if ref_path == item_path or ref_path.startswith(item_path + " / "):
+            if _chunk_belongs_to_item(ref_path, item_path):
                 item["image_count"] += referenced_images
                 item["table_count"] += referenced_tables
+
+
+def _chunk_belongs_to_item(chunk_path: str, item_path: str) -> bool:
+    if item_path == "Root":
+        return chunk_path == item_path
+    return chunk_path == item_path or chunk_path.startswith(item_path + " / ")

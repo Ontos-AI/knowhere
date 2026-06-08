@@ -67,6 +67,8 @@ class AgentLlmBudget:
         pool: BudgetPoolName,
         doc_id: str | None = None,
         priority: str = "normal",
+        allow_overdraft: bool = False,
+        overdraft_reason: str = "",
     ) -> str:
         ledger = self._state.ledger
         if ledger is None:
@@ -74,14 +76,19 @@ class AgentLlmBudget:
 
         prompt_text = _stringify_llm_input(prompt)
         est = estimate_tokens(prompt_text)
-        reserved = await ledger.try_reserve(
+        reservation = await ledger.reserve(
             pool,
             est,
             doc_id=doc_id,
             priority="low" if priority == "low" else "normal",
+            allow_overdraft=allow_overdraft,
+            overdraft_reason=overdraft_reason,
         )
-        if not reserved:
-            raise BudgetExceeded(f"{pool} budget exhausted")
+        if not reservation.get("reserved"):
+            raise BudgetExceeded(
+                f"{pool} budget exhausted",
+                details=reservation.get("failure") or {},
+            )
 
         try:
             response = await llm_fn(prompt)
@@ -106,6 +113,8 @@ class AgentLlmBudget:
         *,
         doc_id: str,
         step: int = 0,
+        allow_overdraft: bool = False,
+        overdraft_reason: str = "",
     ) -> LLMFn:
         async def _call(prompt: Any) -> str:
             return await self.call(
@@ -114,6 +123,8 @@ class AgentLlmBudget:
                 pool="planning",
                 doc_id=doc_id,
                 priority="normal",
+                allow_overdraft=allow_overdraft,
+                overdraft_reason=overdraft_reason,
             )
 
         return _call

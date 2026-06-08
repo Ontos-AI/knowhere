@@ -39,6 +39,12 @@ from shared.services.retrieval.agentic.core.types import (
 from shared.services.retrieval.agentic.navigation.selection_hydration import (
     hydrate_path_selections_into_node,
 )
+from shared.services.retrieval.agentic.navigation.path_ledger import PathLedger
+from shared.services.retrieval.agentic.navigation.state import NavigationState
+from shared.services.retrieval.agentic.prompts import (
+    QUERY_INTENT_PROMPT,
+    parse_query_intent_response,
+)
 from shared.services.retrieval.llm_adapter import LLMFn
 
 
@@ -79,15 +85,18 @@ class DocumentNavigationRunner:
         logger.info(
             f"  agentic: Phase 2 — navigating {len(self._state.selected_docs)} documents"
         )
+        query_intent = await self._classify_query_intent()
         for doc in self._state.selected_docs:
             if self._state.elapsed_ms >= self._config.latency_budget_ms:
                 logger.info("  agentic: latency budget hit during Phase 2, stopping")
                 break
-            await self._navigate_document(doc)
+            await self._navigate_document(doc, query_intent=query_intent)
 
     async def _navigate_document(
         self,
         doc: CandidateDoc,
+        *,
+        query_intent: str,
     ) -> None:
         job_result_id = self._state.doc_job_map.get(doc.document_id, "")
         if not job_result_id:
@@ -98,6 +107,14 @@ class DocumentNavigationRunner:
         doc_name = doc.source_file_name or self._state.doc_id_to_name.get(doc.document_id, "")
         root = DocTreeNode(scope_path=None)
         doc_pending_assets: list[dict[str, Any]] = []
+        from shared.services.retrieval.agentic.navigation.section_tree import (
+            load_document_section_rows,
+        )
+        section_rows = await load_document_section_rows(
+            self._db,
+            document_id=doc.document_id,
+            job_result_id=job_result_id,
+        )
 
         # Phase 2A: Collector Agent navigation (summary-only, no content hydration)
         doc_pending_assets, collected_paths = await self._navigate_collector(
@@ -105,26 +122,21 @@ class DocumentNavigationRunner:
             root=root,
             doc_name=doc_name,
             job_result_id=job_result_id,
+            section_rows=section_rows,
+            query_intent=query_intent,
         )
 
-        # Phase 2B: Discovery hints (independent hydration path)
-        await self._hydrate_discovery_hints(
-            doc=doc,
-            root=root,
-            doc_name=doc_name,
-            collected_paths=collected_paths,
-        )
-
-        # Phase 2C: Batch hydrate all collected paths
+        # Phase 2B: Batch hydrate all collected paths
         if collected_paths:
             await self._hydrate_collected(
                 doc=doc,
                 root=root,
                 job_result_id=job_result_id,
                 collected_paths=collected_paths,
+                section_rows=section_rows,
             )
 
-        # Phase 2D: Reconcile assets into hydrated tree
+        # Phase 2C: Reconcile assets into hydrated tree
         if doc_pending_assets:
             self._reconcile_pending_assets(
                 doc=doc,
@@ -148,41 +160,58 @@ class DocumentNavigationRunner:
         root: DocTreeNode,
         doc_name: str,
         job_result_id: str,
+        section_rows: list,
+        query_intent: str,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Collector Agent navigation loop.
 
         Returns (doc_pending_assets, collected_paths).
         """
         doc_exclude: set[str] = set()
-        nav_trace: list[dict[str, Any]] = []
-        collected_paths: list[dict[str, Any]] = []
+        doc_discovery_hints = self._discovery_by_doc.get(doc.document_id, [])
         doc_pending_assets: list[dict[str, Any]] = []
-
-        # Current navigation scope (None = root)
-        current_scope: str | None = None
-        step_count = 0
-
+        nav_state = NavigationState(
+            document_id=doc.document_id,
+            document_name=doc_name,
+            job_result_id=job_result_id,
+        )
         # Context from SEARCH tools — injected into next navigate prompt
         search_context: str = ""
         prior_tool_result: dict[str, Any] | None = None
 
         exit_reason = "unknown"
+        budget_failure: dict[str, Any] | None = None
 
-        while step_count < self._config.max_nav_steps:
+        while nav_state.step_count < self._config.max_nav_steps:
             if self._state.elapsed_ms >= self._config.latency_budget_ms:
                 exit_reason = "latency"
                 break
-            if self._state.ledger and self._state.ledger.status("planning") == "EXHAUSTED":
+            has_tool_context = bool(prior_tool_result or search_context)
+            if (
+                self._state.ledger
+                and self._state.ledger.status("planning") == "EXHAUSTED"
+                and not has_tool_context
+            ):
                 logger.info("  agentic: planning budget exhausted, ending navigation for current doc")
                 exit_reason = "budget"
                 break
 
-            step_count += 1
+            nav_state.step_count += 1
+            before_scope = nav_state.current_scope
+            expanded_before = set(nav_state.expanded_scopes)
+            rejected_before = set(nav_state.rejected_paths)
+            rejected_collect_before = set(nav_state.rejected_collect_paths)
+            collected_before_count = len(nav_state.collected_paths)
 
             doc_llm_fn = self._llm_budget.for_document(
                 cast(LLMFn, self._llm_fn),
                 doc_id=doc.document_id,
-                step=step_count,
+                step=nav_state.step_count,
+                allow_overdraft=has_tool_context,
+                overdraft_reason=(
+                    "report_tool_result_to_main_agent"
+                    if has_tool_context else ""
+                ),
             )
             try:
                 nav_result = await tools.navigate_step(
@@ -194,16 +223,29 @@ class DocumentNavigationRunner:
                     user_id=self._user_id,
                     namespace=self._namespace,
                     doc_name=doc_name,
-                    scope_path=current_scope,
+                    scope_path=nav_state.current_scope,
                     exclude_paths=doc_exclude,
                     budget_snapshot=self._state.ledger.snapshot() if self._state.ledger else None,
-                    nav_trace=nav_trace if nav_trace else None,
-                    collected_paths=collected_paths,
+                    nav_trace=nav_state.nav_trace if nav_state.nav_trace else None,
+                    collected_paths=nav_state.collected_paths,
+                    expanded_scopes=nav_state.expanded_scopes,
+                    rejected_paths=nav_state.rejected_paths,
+                    rejected_collect_paths=nav_state.rejected_collect_paths,
+                    disabled_asset_types=nav_state.blocked_asset_types_for_scope(
+                        nav_state.current_scope
+                    ),
+                    discovery_hints=doc_discovery_hints,
+                    section_rows=section_rows,
+                    query_intent=query_intent,
                     search_context=search_context,
                     prior_tool_result=prior_tool_result,
                 )
-            except BudgetExceeded:
-                logger.info("  agentic: planning budget exhausted during navigation")
+            except BudgetExceeded as exc:
+                budget_failure = getattr(exc, "details", {}) or {}
+                logger.info(
+                    "  agentic: planning budget exhausted during navigation "
+                    f"details={budget_failure}"
+                )
                 if self._trace_enabled:
                     self._trace.record_budget_stop("planning_exhausted")
                 exit_reason = "budget"
@@ -218,86 +260,89 @@ class DocumentNavigationRunner:
             asset_tool_result = await self._execute_asset_tools(
                 doc=doc,
                 job_result_id=job_result_id,
-                scope=current_scope,
+                scope=nav_state.current_scope,
                 nav_result=nav_result,
                 pending_assets=doc_pending_assets,
                 parent_step_index=len(self._decision_steps),
             )
             search_context = asset_tool_result.get("context", "")
             prior_tool_result = asset_tool_result.get("summary")
+            if (
+                prior_tool_result is not None
+                and self._should_block_asset_search(
+                    prior_tool_result, nav_state.current_scope,
+                )
+            ):
+                nav_state.block_asset_search(
+                    nav_state.current_scope,
+                    str(prior_tool_result.get("asset_type") or ""),
+                )
 
             # Merge outline + confidence into root tree
             _merge_step_node(root, nav_result.node)
+
+            requested_collects = list(nav_result.collect)
+            collect_reconcile = self._reconcile_collects_after_tool(
+                nav_result=nav_result,
+                asset_tool_result=asset_tool_result,
+            )
+            rejected_collects = collect_reconcile["rejected_collects"]
+            if rejected_collects:
+                nav_result.collect = collect_reconcile["accepted_collects"]
+                for path in rejected_collects:
+                    nav_state.mark_rejected_collect(path)
+                    doc_exclude.add(path)
+                logger.info(
+                    "  agentic: tool reconciliation rejected collects: "
+                    f"{rejected_collects}"
+                )
 
             # ── Process COLLECT ──────────────────────────────────────────
             collected_in_step: list[str] = []
             for coll_item in nav_result.collect:
                 path = coll_item["path"]
-                coll_item["collected_at_step"] = step_count
-                coll_item["scope_context"] = current_scope or "root"
-                collected_paths.append(coll_item)
+                nav_state.add_collected(
+                    coll_item,
+                    step=nav_state.step_count,
+                    scope_context=nav_state.current_scope,
+                )
                 collected_in_step.append(path)
                 # Outline collections should NOT exclude children — the intent
                 # is "see structure, then drill deeper for full content".
                 if coll_item.get("hydrate_mode") != "outline":
                     doc_exclude.add(path)
 
-            # ── Build trace entry ────────────────────────────────────────
-            trace_entry: dict[str, Any] = {
-                "step": step_count,
-                "scope": current_scope or "root",
-                "action": nav_result.action,
-                "drill_into": nav_result.drill_into,
-                "back_to": nav_result.back_to,
-                "collected": collected_in_step,
-                "tools_used": nav_result.tools,
-                "reason": nav_result.reason,
-                "result_status": nav_result.result_status,
-            }
-            # Record tool usage & results so future steps can see search history
-            if prior_tool_result:
-                trace_entry["tool_results"] = prior_tool_result
-            nav_trace.append(trace_entry)
-
-            # ── Record decision step ─────────────────────────────────────
-            main_step_index = self._record_navigation_step(
-                doc=doc,
-                scope=current_scope,
-                step_num=step_count,
-                nav_result=nav_result,
-                collected_in_step=collected_in_step,
-                asset_summary=asset_tool_result.get("summary"),
-            )
-            asset_trace = asset_tool_result.get("asset_trace")
-            if asset_trace:
-                asset_trace["parent_step_index"] = main_step_index
-                self._append_decision_trace_step(DecisionTraceStep(**asset_trace))
-
             # ── Process navigation action ────────────────────────────────
-            if nav_result.action == "EXPAND" and nav_result.drill_into:
+            should_break = False
+            if (
+                nav_result.action == "EXPAND"
+                and nav_result.result_status == "ok"
+                and nav_result.drill_into
+            ):
                 drill_path = nav_result.drill_into
                 # Create child node in tree for the drill target
                 target_parent = _find_target_node(root, drill_path)
                 target_parent.children.setdefault(drill_path, DocTreeNode(scope_path=drill_path))
-                current_scope = drill_path
+                nav_state.mark_expanded(drill_path)
+                nav_state.current_scope = drill_path
 
-            elif nav_result.action == "BACK":
-                if current_scope is None:
+            elif nav_result.action == "BACK" and nav_result.result_status == "ok":
+                if nav_state.current_scope is None:
                     logger.info("  agentic: BACK at root scope, staying at root")
                     nav_result.result_status = "invalid_back"
                     nav_result.result_note = "already_at_root"
-                    continue
-
-                back_target = nav_result.back_to  # None = root
-                if _is_valid_ancestor(current_scope, back_target):
-                    current_scope = back_target
                 else:
-                    logger.warning(
-                        f"  agentic: invalid back_to='{back_target}' "
-                        f"from scope='{current_scope}'"
-                    )
-                    nav_result.result_status = "invalid_back"
-                    nav_result.result_note = f"invalid_back_target: {back_target}"
+                    back_target = nav_result.back_to  # None = root
+                    if PathLedger.valid_back_target(nav_state.current_scope, back_target):
+                        nav_state.mark_rejected_if_unproductive(nav_state.current_scope)
+                        nav_state.current_scope = back_target
+                    else:
+                        logger.warning(
+                            f"  agentic: invalid back_to='{back_target}' "
+                            f"from scope='{nav_state.current_scope}'"
+                        )
+                        nav_result.result_status = "invalid_back"
+                        nav_result.result_note = f"invalid_back_target: {back_target}"
 
             elif nav_result.action == "ERROR":
                 logger.warning(
@@ -305,10 +350,62 @@ class DocumentNavigationRunner:
                     f"{nav_result.error_reason or nav_result.reason}"
                 )
                 exit_reason = "error"
-                break
+                should_break = True
 
-            elif nav_result.action == "FINISH":
+            elif nav_result.action == "FINISH" and nav_result.result_status == "ok":
                 exit_reason = "llm_finish"
+                should_break = True
+
+            # ── Build trace entry ────────────────────────────────────────
+            state_delta = nav_state.snapshot_delta(
+                before_scope=before_scope,
+                expanded_before=expanded_before,
+                rejected_before=rejected_before,
+                rejected_collect_before=rejected_collect_before,
+                collected_before_count=collected_before_count,
+            )
+            trace_entry: dict[str, Any] = {
+                "step": nav_state.step_count,
+                "scope": before_scope or "root",
+                "action": nav_result.action,
+                "drill_into": nav_result.drill_into,
+                "back_to": nav_result.back_to,
+                "collected": collected_in_step,
+                "tools_used": nav_result.tools,
+                "reason": nav_result.reason,
+                "result_status": nav_result.result_status,
+                "state_delta": state_delta,
+            }
+            if rejected_collects:
+                trace_entry["requested_collects"] = [
+                    item.get("path", "")
+                    for item in requested_collects
+                    if item.get("path")
+                ]
+                trace_entry["rejected_collects"] = rejected_collects
+                trace_entry["tool_reconciliation"] = collect_reconcile["reason"]
+            # Record tool usage & results so future steps can see search history
+            if prior_tool_result:
+                trace_entry["tool_results"] = prior_tool_result
+            nav_state.nav_trace.append(trace_entry)
+
+            # ── Record decision step ─────────────────────────────────────
+            main_step_index = self._record_navigation_step(
+                doc=doc,
+                scope=before_scope,
+                step_num=nav_state.step_count,
+                nav_result=nav_result,
+                collected_in_step=collected_in_step,
+                asset_summary=asset_tool_result.get("summary"),
+                rejected_collects=rejected_collects,
+                state_delta=state_delta,
+            )
+            asset_trace = asset_tool_result.get("asset_trace")
+            if asset_trace:
+                asset_trace["parent_step_index"] = main_step_index
+                self._append_decision_trace_step(DecisionTraceStep(**asset_trace))
+
+            if should_break:
                 break
         else:
             # while loop exhausted — max_nav_steps reached
@@ -323,9 +420,9 @@ class DocumentNavigationRunner:
         #   error     – unexpected exception during navigate_step
         forced_exits = ("budget", "latency", "max_steps", "error")
         guard_triggered = False
-        if not collected_paths and step_count > 0 and exit_reason in forced_exits:
+        if not nav_state.collected_paths and nav_state.step_count > 0 and exit_reason in forced_exits:
             guard_triggered = True
-            guard_scope = current_scope
+            guard_scope = nav_state.current_scope
             logger.info(
                 f"  agentic: forced exit ({exit_reason}) with 0 collected paths, "
                 f"auto-collecting leaves under scope={guard_scope or 'root'}"
@@ -338,17 +435,18 @@ class DocumentNavigationRunner:
                 doc.document_id,
                 job_result_id,
                 guard_scope,
+                section_rows=section_rows,
             )
             for item in guard_items:
                 if not item.get("show_summary", True):
                     continue
                 if item.get("is_leaf"):
                     path = item["path"]
-                    collected_paths.append({
+                    nav_state.collected_paths.append({
                         "path": path,
                         "confidence": 0.4,
                         "hydrate_mode": "chunks",
-                        "collected_at_step": step_count,
+                        "collected_at_step": nav_state.step_count,
                         "scope_context": guard_scope or "root",
                         "guard_reason": f"forced_exit_{exit_reason}",
                     })
@@ -376,7 +474,7 @@ class DocumentNavigationRunner:
                             "path": p["path"],
                             "confidence": p.get("confidence", 0.0),
                         }
-                        for p in collected_paths
+                        for p in nav_state.collected_paths
                     ],
                     "note": f"forced_exit_{exit_reason}",
                 },
@@ -392,11 +490,13 @@ class DocumentNavigationRunner:
             phase="navigate_summary",
             document_id=doc.document_id,
             document=doc_name,
-            scope=current_scope or "root",
+            scope=nav_state.current_scope or "root",
             observation={
-                "total_steps": step_count,
-                "collected_count": len(collected_paths),
+                "total_steps": nav_state.step_count,
+                "collected_count": len(nav_state.collected_paths),
                 "guard_triggered": guard_triggered,
+                "query_intent": query_intent,
+                "budget_failure": budget_failure,
             },
             decision={
                 "action": "summarize_navigation",
@@ -405,20 +505,43 @@ class DocumentNavigationRunner:
             },
             result={
                 "status": exit_reason,
-                "final_scope": current_scope or "root",
+                "final_scope": nav_state.current_scope or "root",
                 "collected": [
                     {
                         "path": p.get("path", ""),
                         "confidence": p.get("confidence", 0.0),
                     }
-                    for p in collected_paths
+                    for p in nav_state.collected_paths
                 ],
             },
             budget=self._state.ledger.snapshot() if self._state.ledger else None,
             elapsed_ms=self._state.elapsed_ms,
         ))
 
-        return doc_pending_assets, collected_paths
+        return doc_pending_assets, nav_state.collected_paths
+
+    async def _classify_query_intent(
+        self,
+    ) -> str:
+        """Classify query intent as advisory state. Fail-open to UNKNOWN."""
+        if self._llm_fn is None:
+            return "UNKNOWN"
+        prompt = QUERY_INTENT_PROMPT.format(
+            query=self._query,
+        )
+        try:
+            response = await self._llm_budget.call(
+                cast(LLMFn, self._llm_fn),
+                prompt,
+                pool="planning",
+                priority="low",
+            )
+        except Exception as exc:
+            logger.info(
+                f"  agentic: query intent classifier failed-open: {exc}"
+            )
+            return "UNKNOWN"
+        return parse_query_intent_response(response)
 
     async def _hydrate_collected(
         self,
@@ -427,16 +550,19 @@ class DocumentNavigationRunner:
         root: DocTreeNode,
         job_result_id: str,
         collected_paths: list[dict[str, Any]],
+        section_rows: list,
     ) -> None:
         """Batch-hydrate all collected paths after navigation completes."""
         if not collected_paths:
             return
 
-        # Deduplicate: keep highest confidence per path
+        # Deduplicate: keep the most complete evidence mode per path.  A later
+        # full collect is an upgrade over an earlier outline collect even when
+        # the outline confidence was higher.
         deduped: dict[str, dict[str, Any]] = {}
         for item in collected_paths:
             path = item["path"]
-            if path not in deduped or item.get("confidence", 0) > deduped[path].get("confidence", 0):
+            if path not in deduped or _collect_rank(item) > _collect_rank(deduped[path]):
                 deduped[path] = item
         unique_selections = list(deduped.values())
 
@@ -471,6 +597,7 @@ class DocumentNavigationRunner:
                 section_items = await load_child_sections(
                     self._db, doc.document_id, job_result_id, path,
                     limit_depth=False,
+                    section_rows=section_rows,
                 )
                 if section_items:
                     # Filter out the scope node itself AND ancestor/sibling
@@ -527,23 +654,36 @@ class DocumentNavigationRunner:
         params = nav_result.search_assets_params
         search_query = params["query"]
         asset_type = params["asset_type"]
+        scope_paths = params.get("scope_paths")
         tool_name = "SEARCH_IMAGES" if asset_type == "image" else "SEARCH_TABLES"
+        budget_before = self._state.ledger.snapshot() if self._state.ledger else None
 
         search_llm_fn = self._llm_budget.for_document(
             cast(LLMFn, self._llm_fn),
             doc_id=doc.document_id,
             step=self._state.step_count,
+            allow_overdraft=True,
+            overdraft_reason=f"{tool_name}_asset_inspector",
         ) if self._llm_fn else None
         if search_llm_fn is None:
             summary = {
                 "tool": tool_name,
+                "asset_type": asset_type,
                 "query": search_query,
                 "matched": 0,
                 "status": "unavailable",
+                "scope_paths": scope_paths if scope_paths is not None else ([scope] if scope else []),
+                "matched_paths": [],
                 "sub_agent_assessment": "LLM unavailable for asset inspection",
             }
             return {
-                "context": self._format_asset_context(tool_name, asset_type, search_query, []),
+                "context": self._format_asset_context(
+                    tool_name,
+                    asset_type,
+                    search_query,
+                    [],
+                    status="unavailable",
+                ),
                 "summary": summary,
                 "asset_trace": self._build_asset_trace_payload(
                     doc=doc,
@@ -559,28 +699,44 @@ class DocumentNavigationRunner:
         vlm_fn: LLMFn | None = None
         if asset_type == "image":
             from shared.services.retrieval.llm_adapter import create_retrieval_vlm_fn
-            vlm_fn = create_retrieval_vlm_fn()
+            raw_vlm_fn = create_retrieval_vlm_fn()
+            if raw_vlm_fn is not None:
+                vlm_fn = self._llm_budget.for_document(
+                    raw_vlm_fn,
+                    doc_id=doc.document_id,
+                    step=self._state.step_count,
+                    allow_overdraft=True,
+                    overdraft_reason=f"{tool_name}_vlm_asset_inspector",
+                )
 
         try:
             asset_result = await tools.search_assets_step(
                 self._db,
                 document_id=doc.document_id,
                 job_result_id=job_result_id,
-                scope_path=scope,
+                scope_path=scope_paths if scope_paths is not None else scope,
                 asset_type=asset_type,
                 query=search_query,
                 llm_fn=search_llm_fn,
                 vlm_fn=vlm_fn,
             )
-        except BudgetExceeded:
-            logger.info(f"  agentic: {tool_name} skipped — planning budget exhausted")
+        except BudgetExceeded as exc:
+            failure = getattr(exc, "details", {}) or {}
+            logger.info(
+                f"  agentic: {tool_name} skipped — planning budget exhausted "
+                f"details={failure}"
+            )
             asset_result = {
                 "status": "budget_exceeded",
+                "status_detail": "budget_reserve_failed",
+                "budget_failure": failure,
                 "matched_assets": [],
                 "verdicts": [],
                 "candidate_count": 0,
             }
 
+        budget_after = self._state.ledger.snapshot() if self._state.ledger else None
+        budget_delta = _budget_delta(budget_before, budget_after)
         matched_assets = asset_result.get("matched_assets") or []
         verdicts = asset_result.get("verdicts") or []
         candidate_count = int(asset_result.get("candidate_count") or 0)
@@ -589,24 +745,52 @@ class DocumentNavigationRunner:
 
         summary = {
             "tool": tool_name,
+            "asset_type": asset_type,
             "query": search_query,
             "matched": len(matched_assets),
+            "candidate_count": candidate_count,
             "status": asset_result.get("status", "empty"),
+            "status_detail": asset_result.get("status_detail", ""),
+            "budget": {
+                "before": _compact_budget_snapshot(budget_before),
+                "after": _compact_budget_snapshot(budget_after),
+                "delta": budget_delta,
+            },
+            "scope_paths": scope_paths if scope_paths is not None else ([scope] if scope else []),
+            "matched_paths": [
+                asset.get("file_path", "")
+                for asset in matched_assets
+                if asset.get("file_path")
+            ],
+            "matched_owner_paths": [
+                asset.get("owner_section_path") or asset.get("section_path") or ""
+                for asset in matched_assets
+                if asset.get("owner_section_path") or asset.get("section_path")
+            ],
             "sub_agent_assessment": (
                 f"asset inspector matched {len(matched_assets)} "
-                f"of {candidate_count} {asset_type} candidates"
+                f"of {candidate_count} {asset_type} candidates "
+                f"(status={asset_result.get('status', 'empty')})"
             ),
         }
         logger.info(
             f"  agentic step {self._state.step_count}: {tool_name} "
             f'doc="{doc.source_file_name}" scope={scope or "root"} '
-            f'query="{search_query[:50]}" matched={len(matched_assets)}'
+            f'search_scope={scope_paths if scope_paths is not None else scope or "root"} '
+            f'query="{search_query}" matched={len(matched_assets)}'
         )
         return {
             "context": self._format_asset_context(
-                tool_name, asset_type, search_query, matched_assets,
+                tool_name,
+                asset_type,
+                search_query,
+                matched_assets,
+                status=str(asset_result.get("status", "empty")),
+                status_detail=str(asset_result.get("status_detail", "")),
             ),
             "summary": summary,
+            "matched_assets": matched_assets,
+            "candidate_count": candidate_count,
             "asset_trace": self._build_asset_trace_payload(
                 doc=doc,
                 scope=scope,
@@ -615,120 +799,87 @@ class DocumentNavigationRunner:
                 query=search_query,
                 candidates=verdicts,
                 result=asset_result,
+                budget_before=budget_before,
+                budget_after=budget_after,
+                budget_delta=budget_delta,
             ),
+            }
+
+    @staticmethod
+    def _should_block_asset_search(
+        summary: dict[str, Any] | None,
+        current_scope: str | None,
+    ) -> bool:
+        if not summary:
+            return False
+        if int(summary.get("matched") or 0) > 0:
+            return False
+        if not _tool_searched_current_scope(summary, current_scope):
+            return False
+        return str(summary.get("status") or "").lower() in {
+            "empty",
+            "fallback_empty",
+            "unavailable",
+            "error",
+            "budget_exceeded",
         }
 
-    async def _hydrate_discovery_hints(
-        self,
+    @staticmethod
+    def _reconcile_collects_after_tool(
         *,
-        doc: CandidateDoc,
-        root: DocTreeNode,
-        doc_name: str,
-        collected_paths: list[dict[str, Any]] | None = None,
-    ) -> None:
-        doc_hints = self._discovery_by_doc.get(doc.document_id, [])
-        if not doc_hints or self._llm_fn is None:
-            return
-        if self._state.elapsed_ms >= self._config.latency_budget_ms:
-            return
+        nav_result: NavigateStepResult,
+        asset_tool_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        accepted_collects = list(nav_result.collect)
+        empty = {
+            "accepted_collects": accepted_collects,
+            "rejected_collects": [],
+            "reason": "",
+        }
+        if not accepted_collects or not nav_result.tools:
+            return empty
+        summary = asset_tool_result.get("summary")
+        if not isinstance(summary, dict):
+            return empty
+        tool_name = str(summary.get("tool") or "")
+        if tool_name not in {"SEARCH_IMAGES", "SEARCH_TABLES"}:
+            return empty
+        status = str(summary.get("status") or "").lower()
+        if status not in {"empty", "fallback_empty", "matched", "fallback_matched"}:
+            return empty
 
-        discovery_exclude_paths = _build_discovery_exclude_set(
-            root, collected_paths or []
-        )
-
-        doc_discovery_llm_fn = self._llm_budget.for_discovery(
-            cast(LLMFn, self._llm_fn),
-            doc_id=doc.document_id,
-            low_priority=root.has_content(),
-        )
-        try:
-            result = await tools.discovery_select_step(
-                self._db,
-                document_id=doc.document_id,
-                query=self._query,
-                llm_fn=doc_discovery_llm_fn,
-                user_id=self._user_id,
-                namespace=self._namespace,
-                doc_name=doc_name,
-                discovery_hints=doc_hints,
-                exclude_paths=discovery_exclude_paths,
-                budget_snapshot=self._state.ledger.snapshot() if self._state.ledger else None,
+        matched_assets = asset_tool_result.get("matched_assets") or []
+        matched_owner_paths = [
+            str(asset.get("owner_section_path") or asset.get("section_path") or "")
+            for asset in matched_assets
+            if asset.get("owner_section_path") or asset.get("section_path")
+        ]
+        still_accepted: list[dict[str, Any]] = []
+        rejected_paths: list[str] = []
+        for item in accepted_collects:
+            path = str(item.get("path") or "")
+            if not path:
+                continue
+            has_matching_asset = any(
+                PathLedger.is_same_or_descendant(owner_path, path)
+                for owner_path in matched_owner_paths
             )
-        except BudgetExceeded:
-            logger.info("  agentic: planning budget exhausted during discovery selection")
-            if self._trace_enabled:
-                self._trace.record_budget_stop("planning_exhausted")
-            self._append_decision_trace_step(DecisionTraceStep(
-                step_index=len(self._decision_steps),
-                agent="discovery_selector",
-                phase="discovery_select",
-                document_id=doc.document_id,
-                document=doc_name,
-                scope="discovery",
-                observation={
-                    "query": self._query,
-                    "candidate_count": len(doc_hints),
-                    "exclude_set": sorted(discovery_exclude_paths),
-                },
-                decision={
-                    "action": "skip",
-                    "args": {},
-                    "reason": "planning budget exhausted before LLM call",
-                },
-                result={
-                    "status": "budget_exceeded",
-                    "collected": [],
-                    "hydrated_count": 0,
-                    "excluded_hints": [],
-                },
-                budget=self._state.ledger.snapshot() if self._state.ledger else None,
-                elapsed_ms=self._state.elapsed_ms,
-            ))
-            self._state.step_count += 1
-            return
-        self._state.step_count += 1
+            if has_matching_asset:
+                still_accepted.append(item)
+            else:
+                rejected_paths.append(path)
 
-        discovery_node = result.node
-        excluded_hints = result.excluded_hints
-
-        has_content = discovery_node.has_content()
-        self._append_decision_trace_step(DecisionTraceStep(
-            step_index=len(self._decision_steps),
-            agent="discovery_selector",
-            phase="discovery_select",
-            document_id=doc.document_id,
-            document=doc_name,
-            scope="discovery",
-            observation={
-                "query": self._query,
-                "candidate_count": result.candidate_count,
-                "exclude_set": sorted(discovery_exclude_paths),
-            },
-            decision={
-                "action": "select" if has_content else "skip",
-                "args": {},
-                "reason": "",
-            },
-            result={
-                "status": "selected" if has_content else "empty",
-                "collected": [
-                    {
-                        "path": path,
-                        "confidence": discovery_node.confidence.get(path, 0.0),
-                    }
-                    for path in discovery_node.leaf_content.keys()
-                ],
-                "hydrated_count": len(discovery_node.leaf_content),
-                "excluded_hints": excluded_hints,
-            },
-            budget=self._state.ledger.snapshot() if self._state.ledger else None,
-            elapsed_ms=self._state.elapsed_ms,
-        ))
-        root.merge(discovery_node)
-        if self._state.ledger is not None:
-            self._state.ledger.mark_explored(
-                chunks=sum(len(chunks) for chunks in discovery_node.leaf_content.values()),
-            )
+        if not rejected_paths:
+            return empty
+        reason = (
+            f"{tool_name} returned no valid matching assets under rejected "
+            f"collect paths; status={status}, matched={len(matched_assets)}"
+        )
+        return {
+            "accepted_collects": still_accepted,
+            "rejected_collects": rejected_paths,
+            "reason": reason,
+        }
 
     def _reconcile_pending_assets(
         self,
@@ -769,29 +920,34 @@ class DocumentNavigationRunner:
         asset_type: str,
         search_query: str,
         matched_assets: list[dict[str, Any]],
+        *,
+        status: str = "empty",
+        status_detail: str = "",
     ) -> str:
         if not matched_assets:
+            detail = f" Status detail: {status_detail}." if status_detail else ""
             return (
                 f"=== {tool_name} Results ===\n"
-                f"No matching {asset_type}s found for \"{search_query}\".\n"
+                f"No matching {asset_type}s found for \"{search_query}\" "
+                f"(status={status}).{detail}\n"
                 f"=== End {tool_name} Results ==="
             )
         lines = [
             f"=== {tool_name} Results ===",
             f'Found {len(matched_assets)} matching {asset_type}s for "{search_query}".',
-            "Matched assets have already been collected into evidence.",
+            "Matched assets are available as asset evidence.",
         ]
-        for i, asset in enumerate(matched_assets[:10]):
-            chunk_id = asset.get("chunk_id", "")
+        for i, asset in enumerate(matched_assets):
             file_path = asset.get("file_path", "")
-            owner = asset.get("owner_section_path", "")
-            metadata = asset.get("chunk_metadata") or {}
-            desc = (metadata.get("summary") or asset.get("content", ""))[:120]
-            lines.append(f"  {i + 1}. chunk_id=\"{chunk_id}\" file=\"{file_path}\"")
-            lines.append(f"     section: {owner}")
-            lines.append(f"     {desc}")
+            lines.append(f"  {i + 1}. {file_path}")
+        owner_paths = _unique_asset_owner_paths(matched_assets)
+        if owner_paths:
+            lines.append("Owner sections with matching assets:")
+            for owner_path in owner_paths:
+                lines.append(f'  - "{owner_path}"')
         lines.append(
-            "Decide whether owner-section context is still needed, or FINISH."
+            "Use these asset results and owner sections to decide collect, "
+            "finish, back, or further navigation."
         )
         lines.append(f"=== End {tool_name} Results ===")
         return "\n".join(lines)
@@ -806,6 +962,9 @@ class DocumentNavigationRunner:
         query: str,
         candidates: list[dict[str, Any]],
         result: dict[str, Any],
+        budget_before: dict[str, Any] | None = None,
+        budget_after: dict[str, Any] | None = None,
+        budget_delta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         matched_assets = result.get("matched_assets") or []
         matched = [
@@ -837,8 +996,15 @@ class DocumentNavigationRunner:
             },
             "result": {
                 "status": result.get("status", "empty"),
+                "status_detail": result.get("status_detail", ""),
                 "verdicts": result.get("verdicts") or [],
                 "matched": matched,
+                "budget_failure": result.get("budget_failure"),
+                "budget": {
+                    "before": _compact_budget_snapshot(budget_before),
+                    "after": _compact_budget_snapshot(budget_after),
+                    "delta": budget_delta or {},
+                },
             },
             "budget": self._state.ledger.snapshot() if self._state.ledger else None,
             "elapsed_ms": self._state.elapsed_ms,
@@ -860,6 +1026,8 @@ class DocumentNavigationRunner:
         nav_result: NavigateStepResult,
         collected_in_step: list[str],
         asset_summary: dict[str, Any] | None = None,
+        rejected_collects: list[str] | None = None,
+        state_delta: dict[str, Any] | None = None,
     ) -> int:
         action = nav_result.action
         reason = nav_result.reason
@@ -893,11 +1061,16 @@ class DocumentNavigationRunner:
             "new_scope": projected_scope,
             "note": nav_result.result_note,
         }
+        if state_delta is not None:
+            result_payload["state_delta"] = state_delta
+        if rejected_collects:
+            result_payload["rejected_collects"] = rejected_collects
         if nav_result.error_reason:
             result_payload["error"] = nav_result.error_reason
         if asset_summary:
             result_payload["matched_assets"] = asset_summary.get("matched", 0)
             result_payload["tool_status"] = asset_summary.get("status")
+            result_payload["tool_budget"] = asset_summary.get("budget")
             result_payload["sub_agent_assessment"] = asset_summary.get(
                 "sub_agent_assessment"
             )
@@ -940,21 +1113,77 @@ class DocumentNavigationRunner:
         return step_index
 
 
-def _is_valid_ancestor(current_scope: str, target: str | None) -> bool:
-    """Check if *target* is a valid ancestor of *current_scope*.
+def _tool_searched_current_scope(
+    summary: dict[str, Any],
+    current_scope: str | None,
+) -> bool:
+    current = PathLedger.normalize(current_scope) or "root"
+    scope_paths = summary.get("scope_paths")
+    if not isinstance(scope_paths, list) or not scope_paths:
+        return current == "root"
+    searched = [
+        PathLedger.normalize(str(path or ""))
+        for path in scope_paths
+        if PathLedger.normalize(str(path or ""))
+    ]
+    if current == "root":
+        return not searched
+    return searched == [current]
 
-    Valid ancestors are:
-    - ``None`` (root): always valid when current_scope is not None
-    - Any proper prefix by ``" / "`` splitting
 
-    E.g. for ``"A / B / C"``: valid = {None, "A", "A / B"}
-    """
-    if target is None:
-        return True  # root is always a valid ancestor
-    if not current_scope:
-        return False  # can't go back from root
-    # target must be a proper prefix of current_scope
-    return current_scope.startswith(target + " / ")
+def _compact_budget_snapshot(snapshot: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(snapshot, dict):
+        return {}
+    planning = snapshot.get("planning")
+    if not isinstance(planning, dict):
+        return {}
+    compact = {
+        "status": planning.get("status"),
+        "used_pct": planning.get("used_pct"),
+        "remaining": planning.get("remaining"),
+        "capacity": planning.get("capacity"),
+        "overdraft": planning.get("overdraft", 0),
+    }
+    overdraft_events = snapshot.get("overdraft_events")
+    if isinstance(overdraft_events, list) and overdraft_events:
+        compact["overdraft_events"] = overdraft_events[-3:]
+    return compact
+
+
+def _budget_delta(
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+) -> dict[str, Any]:
+    before_planning = (
+        before.get("planning") if isinstance(before, dict) else None
+    )
+    after_planning = (
+        after.get("planning") if isinstance(after, dict) else None
+    )
+    if not isinstance(before_planning, dict) or not isinstance(after_planning, dict):
+        return {}
+    return {
+        "used": int(after_planning.get("used") or 0)
+        - int(before_planning.get("used") or 0),
+        "used_pct": int(after_planning.get("used_pct") or 0)
+        - int(before_planning.get("used_pct") or 0),
+        "remaining": int(after_planning.get("remaining") or 0)
+        - int(before_planning.get("remaining") or 0),
+        "overdraft": int(after_planning.get("overdraft") or 0)
+        - int(before_planning.get("overdraft") or 0),
+    }
+
+
+def _unique_asset_owner_paths(matched_assets: list[dict[str, Any]]) -> list[str]:
+    seen: set[str] = set()
+    owner_paths: list[str] = []
+    for asset in matched_assets:
+        owner_path = str(asset.get("owner_section_path") or asset.get("section_path") or "")
+        if not owner_path or owner_path in seen:
+            continue
+        seen.add(owner_path)
+        owner_paths.append(owner_path)
+    return owner_paths
 
 
 def _find_target_node(node: DocTreeNode, path: str) -> DocTreeNode:
@@ -966,7 +1195,7 @@ def _find_target_node(node: DocTreeNode, path: str) -> DocTreeNode:
     where a path appears in both ``children`` and ``leaf_content``.
     """
     for child_path, child in node.children.items():
-        if path.startswith(child_path + " / "):
+        if PathLedger.is_ancestor(child_path, path):
             return _find_target_node(child, path)
     return node
 
@@ -985,37 +1214,11 @@ def _merge_step_node(root: DocTreeNode, step_node: DocTreeNode) -> None:
         target.confidence[path] = max(target.confidence.get(path, 0), conf)
 
 
-def _collect_leaf_paths(node: DocTreeNode) -> set[str]:
-    """Collect all paths that have been hydrated (leaf_content)."""
-    paths = set(node.leaf_content.keys())
-    for child in node.children.values():
-        paths.update(_collect_leaf_paths(child))
-    return paths
-
-
-def _build_discovery_exclude_set(
-    root: DocTreeNode,
-    collected_paths: list[dict[str, Any]],
-) -> set[str]:
-    """Build exclude set for discovery using collected navigation paths.
-
-    If navigation COLLECT'd a parent path like "五、施工安全保证措施",
-    all discovery hints under that path should be excluded because
-    COLLECT already loads all descendants via prefix matching.
-    """
-    # 1. Already-hydrated leaf paths
-    exclude = _collect_leaf_paths(root)
-
-    # 2. Collected parent paths from navigation COLLECT decisions.
-    #    These haven't been hydrated yet (hydrate runs after discovery),
-    #    but we know COLLECT will load all their descendants.
-    for item in collected_paths:
-        path = item.get("path", "")
-        if path:
-            exclude.add(path)
-
-    return exclude
-
+def _collect_rank(item: dict[str, Any]) -> tuple[int, float]:
+    mode = str(item.get("hydrate_mode") or "chunks")
+    mode_rank = 0 if mode == "outline" else 1
+    confidence = float(item.get("confidence") or 0.0)
+    return (mode_rank, confidence)
 
 
 def _ensure_child_node(root: DocTreeNode, path: str) -> None:
@@ -1036,7 +1239,7 @@ def _ensure_child_node(root: DocTreeNode, path: str) -> None:
     # Walk to find the deepest existing ancestor node
     target = root
     for child_path, child in root.children.items():
-        if path.startswith(child_path + " / "):
+        if PathLedger.is_ancestor(child_path, path):
             target = child
             break
         if path == child_path:
@@ -1067,7 +1270,7 @@ def _build_outline_subtree(node: DocTreeNode) -> None:
     parent_paths: set[str] = set()
     for path in all_paths:
         for other in all_paths:
-            if other != path and other.startswith(path + " / "):
+            if other != path and PathLedger.is_ancestor(path, other):
                 parent_paths.add(path)
                 break
 
@@ -1079,7 +1282,7 @@ def _build_outline_subtree(node: DocTreeNode) -> None:
     # will be created when the function recurses into "A / B".
     parent_paths = {
         pp for pp in parent_paths
-        if not any(pp != other and pp.startswith(other + " / ") for other in parent_paths)
+        if not any(pp != other and PathLedger.is_ancestor(other, pp) for other in parent_paths)
     }
 
     # Track children that already exist (e.g. from collected hydration).
@@ -1102,7 +1305,7 @@ def _build_outline_subtree(node: DocTreeNode) -> None:
         to_move = [
             cp for cp in list(node.children.keys())
             if cp != parent_path
-            and cp.startswith(parent_path + " / ")
+            and PathLedger.is_ancestor(parent_path, cp)
         ]
         for cp in to_move:
             parent_node.children[cp] = node.children.pop(cp)
@@ -1114,7 +1317,7 @@ def _build_outline_subtree(node: DocTreeNode) -> None:
         item_path = item["path"]
         best_parent: str | None = None
         for pp in parent_paths:
-            if item_path.startswith(pp + " / "):
+            if PathLedger.is_ancestor(pp, item_path):
                 if best_parent is None or len(pp) > len(best_parent):
                     best_parent = pp
         if best_parent and best_parent not in pre_existing:

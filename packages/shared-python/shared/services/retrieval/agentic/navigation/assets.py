@@ -8,11 +8,12 @@ from sqlalchemy import func as sa_func
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import Document, DocumentChunk, DocumentSection
+from shared.models.database.document import DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.agentic.core.budget import BudgetExceeded
 from shared.services.retrieval.hydration.assets import build_retrieval_asset_url_map
 from shared.services.retrieval.llm_adapter import LLMFn
+from shared.utils.token_estimate import estimate_tokens
 
 
 def build_connected_owner_map(text_chunks: list[dict[str, Any]]) -> dict[str, str]:
@@ -96,41 +97,6 @@ async def count_assets_under_scope(
         elif chunk_type == "table":
             total_tables = count
     return total_images, total_tables
-
-
-def build_asset_tools_block(
-    total_images: int,
-    total_tables: int,
-) -> str:
-    """Build the asset tool description block for the navigation prompt.
-
-    Describes SEARCH_IMAGES and SEARCH_TABLES tools as a decision block.
-    When no assets exist, returns empty string so no tool references
-    appear in the prompt at all.
-    """
-    if total_images <= 0 and total_tables <= 0:
-        return ""
-
-    tools_lines = [
-        "Asset actions — When the user query asks for images, charts, diagrams, "
-        "tables, or any visual content, you MUST choose one of the asset actions "
-        "below as your main action to retrieve actual assets rather than "
-        "collecting text-only sections.\n"
-    ]
-    if total_images > 0:
-        tools_lines.append(
-            f"  SEARCH_IMAGES — Inspect images matching a query ({total_images} available).\n"
-            f'    Set action="SEARCH_IMAGES" and action_args.query (string).\n'
-        )
-    if total_tables > 0:
-        tools_lines.append(
-            f"  SEARCH_TABLES — Inspect tables matching a query ({total_tables} available).\n"
-            f'    Set action="SEARCH_TABLES" and action_args.query (string).\n'
-        )
-    tools_lines.append(
-        '  Example: {"action": "SEARCH_IMAGES", "action_args": {"query": "..."}, "reason": "..."}\n'
-    )
-    return "\n".join(tools_lines)
 
 
 async def resolve_root_asset_owners(
@@ -265,16 +231,6 @@ async def asset_filter_step(
             for section_id, chunk_type, metadata, source_chunk_path in text_rows
         ]
         owner_by_target_id = build_connected_owner_map(text_row_dicts)
-
-        if any(value == "Root" for value in owner_by_target_id.values()):
-            doc_stmt = select(Document.source_file_name).where(
-                Document.document_id == document_id
-            )
-            doc_file_name = (await db.execute(doc_stmt)).scalar() or ""
-            if doc_file_name:
-                for target_id in list(owner_by_target_id):
-                    if owner_by_target_id[target_id] == "Root":
-                        owner_by_target_id[target_id] = doc_file_name
 
         connected_target_ids: set[str] = set(owner_by_target_id.keys())
         if connected_target_ids:
@@ -411,24 +367,42 @@ async def search_assets_step(
             "candidate_count": 0,
         }
 
+    status_detail = ""
+    status = "empty"
+
     # ── Route by asset type ──────────────────────────────────────────
     if asset_type == "image":
         if vlm_fn is None:
             logger.info("  search_assets_step: VLM unavailable for image search")
-            return {
-                "status": "unavailable",
-                "matched_assets": [],
-                "verdicts": [
-                    _asset_verdict(asset, relevant=False, reason="vlm_unavailable")
-                    for asset in asset_by_id.values()
-                ],
-                "candidate_count": len(asset_by_id),
-            }
-        selected_ids = await _search_images_via_vlm(
-            query=query,
-            assets=list(asset_by_id.values()),
-            vlm_fn=vlm_fn,
-        )
+            selected_ids = await _search_assets_via_text_llm(
+                query=query,
+                asset_type=asset_type,
+                assets=list(asset_by_id.values()),
+                llm_fn=llm_fn,
+            )
+            status = "fallback_matched" if selected_ids else "fallback_empty"
+            status_detail = "vlm_unavailable_text_fallback"
+        else:
+            selected_ids, vlm_error = await _search_images_via_vlm(
+                query=query,
+                assets=list(asset_by_id.values()),
+                vlm_fn=vlm_fn,
+            )
+            if vlm_error:
+                logger.info(
+                    "  search_assets_step: VLM image search fell back to text "
+                    f"filter, reason={vlm_error}"
+                )
+                selected_ids = await _search_assets_via_text_llm(
+                    query=query,
+                    asset_type=asset_type,
+                    assets=list(asset_by_id.values()),
+                    llm_fn=llm_fn,
+                )
+                status = "fallback_matched" if selected_ids else "fallback_empty"
+                status_detail = "vlm_failed_text_fallback"
+            else:
+                status = "matched" if selected_ids else "empty"
     else:
         selected_ids = await _search_assets_via_text_llm(
             query=query,
@@ -436,6 +410,7 @@ async def search_assets_step(
             assets=list(asset_by_id.values()),
             llm_fn=llm_fn,
         )
+        status = "matched" if selected_ids else "empty"
 
     selected_id_set = {str(cid) for cid in selected_ids}
     matched_assets = [asset_by_id[cid] for cid in selected_ids if cid in asset_by_id]
@@ -444,9 +419,9 @@ async def search_assets_step(
             asset,
             relevant=str(asset.get("chunk_id") or "") in selected_id_set,
             reason=(
-                "selected_by_asset_inspector"
+                _selected_reason(status)
                 if str(asset.get("chunk_id") or "") in selected_id_set
-                else "not_selected_by_asset_inspector"
+                else _not_selected_reason(status)
             ),
         )
         for asset in asset_by_id.values()
@@ -454,11 +429,12 @@ async def search_assets_step(
 
     latency = int((time.monotonic() - t0) * 1000)
     logger.info(
-        f"  search_assets_step query=\"{query[:50]}\" type={asset_type}: "
+        f"  search_assets_step query=\"{query}\" type={asset_type}: "
         f"{len(matched_assets)}/{len(all_assets)} assets matched, {latency}ms"
     )
     return {
-        "status": "matched" if matched_assets else "empty",
+        "status": status,
+        "status_detail": status_detail,
         "matched_assets": matched_assets,
         "verdicts": verdicts,
         "candidate_count": len(asset_by_id),
@@ -478,10 +454,22 @@ def _asset_verdict(
         "chunk_id": asset.get("chunk_id", ""),
         "file_path": asset.get("file_path", ""),
         "section_path": asset.get("owner_section_path") or asset.get("section_path", ""),
-        "summary": summary[:240],
+        "summary": summary,
         "relevant": relevant,
         "reason": reason,
     }
+
+
+def _selected_reason(status: str) -> str:
+    if status.startswith("fallback_"):
+        return "selected_by_text_fallback"
+    return "selected_by_asset_inspector"
+
+
+def _not_selected_reason(status: str) -> str:
+    if status.startswith("fallback_"):
+        return "not_selected_by_text_fallback"
+    return "not_selected_by_asset_inspector"
 
 
 async def _search_assets_via_text_llm(
@@ -492,26 +480,21 @@ async def _search_assets_via_text_llm(
     llm_fn: LLMFn,
 ) -> list[str]:
     """Text-based LLM filtering for table assets."""
-    candidates_for_llm: list[dict[str, str]] = []
-    valid_ids: set[str] = set()
-    for asset in assets:
-        chunk_id = str(asset.get("chunk_id") or "")
-        metadata = asset.get("chunk_metadata") or {}
-        summary = metadata.get("summary", "")
-        file_path = asset.get("file_path") or ""
-        content = asset.get("content") or ""
-        description = summary or content[:200]
-        candidates_for_llm.append({
-            "id": chunk_id,
-            "file": file_path,
-            "desc": description[:150],
-        })
-        valid_ids.add(chunk_id)
+    candidates_for_llm, valid_ids, id_to_chunk_id = _project_assets_for_text_filter(
+        query=query,
+        asset_type=asset_type,
+        assets=assets,
+    )
 
     prompt = _format_asset_filter_prompt(query, asset_type, candidates_for_llm)
     try:
         response = await llm_fn(prompt)
-        return _parse_asset_filter_response(response, valid_ids)
+        selected_ids = _parse_asset_filter_response(response, valid_ids)
+        return [
+            id_to_chunk_id[row_id]
+            for row_id in selected_ids
+            if row_id in id_to_chunk_id
+        ]
     except BudgetExceeded:
         raise
     except Exception as exc:
@@ -519,12 +502,119 @@ async def _search_assets_via_text_llm(
         return []
 
 
+def _project_assets_for_text_filter(
+    *,
+    query: str,
+    asset_type: str,
+    assets: list[dict[str, Any]],
+) -> tuple[list[dict[str, str]], set[str], dict[str, str]]:
+    """Project assets into a prompt-sized text view.
+
+    Stable row identifiers are shown to the model. Owner paths stay internal:
+    reconciliation and hydration use the original asset rows, not prompt text.
+    Descriptive text is reduced only when the complete prompt would exceed the
+    navigation planning budget envelope.
+    """
+    projected: list[dict[str, str]] = []
+    valid_ids: set[str] = set()
+    id_to_chunk_id: dict[str, str] = {}
+    for index, asset in enumerate(assets, start=1):
+        chunk_id = str(asset.get("chunk_id") or "")
+        if not chunk_id:
+            continue
+        row_id = f"I{index}" if asset_type == "image" else f"T{index}"
+        metadata = asset.get("chunk_metadata") or {}
+        summary = str(metadata.get("summary") or "").strip()
+        file_path = str(asset.get("file_path") or "")
+        content = str(asset.get("content") or "").strip()
+        description = summary or (content if asset_type == "table" else "")
+        projected.append({
+            "id": row_id,
+            "file": file_path,
+            "desc": description,
+        })
+        valid_ids.add(row_id)
+        id_to_chunk_id[row_id] = chunk_id
+
+    if not projected:
+        return projected, valid_ids, id_to_chunk_id
+
+    prompt = _format_asset_filter_prompt(query, asset_type, projected)
+    prompt_budget = _asset_filter_prompt_budget()
+    if estimate_tokens(prompt) <= prompt_budget:
+        return projected, valid_ids, id_to_chunk_id
+
+    structural_prompt = _format_asset_filter_prompt(
+        query,
+        asset_type,
+        [
+            {
+                "id": item["id"],
+                "file": item["file"],
+                "desc": "",
+            }
+            for item in projected
+        ],
+    )
+    structural_tokens = estimate_tokens(structural_prompt)
+    desc_budget = max(prompt_budget - structural_tokens, len(projected))
+    per_item_desc_tokens = max(desc_budget // len(projected), 1)
+    compacted = [
+        {
+            "id": item["id"],
+            "file": item["file"],
+            "desc": _fit_text_to_token_budget(item["desc"], per_item_desc_tokens),
+        }
+        for item in projected
+    ]
+    return compacted, valid_ids, id_to_chunk_id
+
+
+def _asset_filter_prompt_budget() -> int:
+    from shared.services.retrieval.agentic.core.runtime import build_config_from_env
+
+    config = build_config_from_env()
+    planning_capacity = int(
+        max(config.token_budget_total - config.bootstrap_budget, 0)
+        * config.planning_ratio
+    )
+    return max(planning_capacity, 1)
+
+
+def _fit_text_to_token_budget(text: str, token_budget: int) -> str:
+    text = text.strip()
+    if not text or estimate_tokens(text) <= token_budget:
+        return text
+    words = text.split()
+    if len(words) > 1:
+        kept: list[str] = []
+        for word in words:
+            candidate = " ".join([*kept, word])
+            if estimate_tokens(candidate) > token_budget:
+                break
+            kept.append(word)
+        return " ".join(kept).strip()
+
+    lo = 0
+    hi = len(text)
+    best = ""
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        candidate = text[:mid].strip()
+        if estimate_tokens(candidate) <= token_budget:
+            best = candidate
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return best
+
+
 async def _search_images_via_vlm(
     *,
     query: str,
     assets: list[dict[str, Any]],
     vlm_fn: LLMFn,
-) -> list[str]:
+) -> tuple[list[str], str | None]:
     """VLM-based image search with presigned S3 URLs.
 
     Generates presigned URLs for each image asset, builds a multimodal
@@ -534,31 +624,39 @@ async def _search_images_via_vlm(
         assets, log_context="search_images_vlm",
     )
 
-    # Only include images that have valid URLs
-    candidates: list[tuple[str, str, str]] = []  # (chunk_id, file_path, url)
+    # Only include images that have valid URLs.
+    candidates: list[tuple[str, str, str]] = []  # (row_id, file_path, url)
     valid_ids: set[str] = set()
-    for asset in assets:
+    id_to_chunk_id: dict[str, str] = {}
+    for index, asset in enumerate(assets, start=1):
         chunk_id = str(asset.get("chunk_id") or "")
         url = url_map.get(chunk_id)
         if not url:
             continue
+        row_id = f"I{index}"
         file_path = asset.get("file_path") or ""
-        candidates.append((chunk_id, file_path, url))
-        valid_ids.add(chunk_id)
+        candidates.append((row_id, file_path, url))
+        valid_ids.add(row_id)
+        id_to_chunk_id[row_id] = chunk_id
 
     if not candidates:
         logger.info("  _search_images_via_vlm: no presigned URLs available, skipping")
-        return []
+        return [], "no_presigned_urls"
 
     messages = _format_vlm_image_filter_messages(query, candidates)
     try:
         response = await vlm_fn(messages)
-        return _parse_asset_filter_response(response, valid_ids)
+        selected_ids = _parse_asset_filter_response(response, valid_ids)
+        return [
+            id_to_chunk_id[row_id]
+            for row_id in selected_ids
+            if row_id in id_to_chunk_id
+        ], None
     except BudgetExceeded:
         raise
     except Exception as exc:
         logger.warning(f"  _search_images_via_vlm failed: {exc}")
-        return []
+        return [], str(exc)
 
 
 def _format_asset_filter_prompt(
@@ -568,20 +666,59 @@ def _format_asset_filter_prompt(
 ) -> str:
     """Build the text LLM prompt for table asset filtering."""
     type_label = "images" if asset_type == "image" else "tables"
-    items_text = "\n".join(
-        f'  {i+1}. id="{c["id"]}" file="{c["file"]}"\n     {c["desc"]}'
-        for i, c in enumerate(candidates)
-    )
+    items_text = _format_asset_candidates_table(candidates)
+    example_id = candidates[0]["id"] if candidates else ("I1" if asset_type == "image" else "T1")
     return (
         f"You are an asset relevance filter.\n\n"
-        f"User query: {query}\n\n"
+        f"Original user query: {query}\n\n"
         f"Below are {len(candidates)} {type_label} from a document. "
-        f"Select ONLY those that are relevant to the user's query.\n\n"
-        f"=== {type_label.title()} ===\n{items_text}\n=== End ===\n\n"
-        f"Return ONLY a JSON array of matching asset IDs, e.g.: "
-        f'["{candidates[0]["id"]}"]\n'
+        f"Select ONLY assets that directly satisfy the user's query.\n\n"
+        f"Selection policy:\n"
+        f"- Match the requested asset type and the requested subject. "
+        f"Being an image/chart/table is not enough.\n"
+        f"- Do not select assets only because they belong to the same broad "
+        f"domain as the query.\n"
+        f"- Do not broaden specific market, instrument, company, metric, or "
+        f"entity terms. Neighboring topics are not matches unless the candidate "
+        f"explicitly connects them to the requested subject.\n"
+        f"- Treat words like \"all\" as all relevant assets, not all visible "
+        f"candidates.\n"
+        f"- If the file name, summary, or content signal does not "
+        f"directly support relevance, leave it out.\n"
+        f"- If uncertain, do not select the asset.\n\n"
+        f"=== Candidate {type_label.title()} ===\n{items_text}\n=== End ===\n\n"
+        f"Return ONLY a JSON array of matching row IDs, e.g.: "
+        f'["{example_id}"]\n'
         f"If none are relevant, return an empty array: []\n"
         f"Do not include any explanation."
+    )
+
+
+def _format_asset_candidates_table(candidates: list[dict[str, str]]) -> str:
+    lines = [
+        "| ID | File | Summary / content signal |",
+        "|---|---|---|",
+    ]
+    for candidate in candidates:
+        lines.append(
+            "| "
+            + " | ".join([
+                _markdown_cell(candidate.get("id", "")),
+                _markdown_cell(candidate.get("file", "")),
+                _markdown_cell(candidate.get("desc", "")),
+            ])
+            + " |"
+        )
+    return "\n".join(lines)
+
+
+def _markdown_cell(value: str) -> str:
+    return (
+        str(value or "")
+        .replace("\n", " ")
+        .replace("\r", " ")
+        .replace("|", "\\|")
+        .strip()
     )
 
 
@@ -591,7 +728,7 @@ def _format_vlm_image_filter_messages(
 ) -> list[dict[str, Any]]:
     """Build multimodal VLM messages with inline image URLs.
 
-    Each candidate is (chunk_id, file_path, presigned_url).
+    Each candidate is (row_id, file_path, presigned_url).
     The VLM sees the actual images and decides relevance.
     """
     content_parts: list[dict[str, Any]] = [
@@ -599,18 +736,28 @@ def _format_vlm_image_filter_messages(
             "type": "text",
             "text": (
                 f"You are an image relevance filter.\n\n"
-                f"User query: {query}\n\n"
+                f"Original user query: {query}\n\n"
                 f"Below are {len(candidates)} images from a document. "
-                f"Look at each image and select ONLY those relevant to "
-                f"the user's query.\n\n"
+                f"Look at each image and select ONLY images that directly "
+                f"satisfy the user's query.\n\n"
+                f"Selection policy:\n"
+                f"- Match both the requested visual type and requested subject.\n"
+                f"- Do not select images only because they are charts or from "
+                f"the same broad domain.\n"
+                f"- Do not broaden specific market, instrument, company, metric, "
+                f"or entity terms. Neighboring topics are not matches unless "
+                f"the image explicitly connects them to the requested subject.\n"
+                f"- Treat words like \"all\" as all relevant images, not all "
+                f"visible candidates.\n"
+                f"- If uncertain, do not select the image.\n\n"
             ),
         },
     ]
 
-    for chunk_id, file_path, url in candidates:
+    for row_id, file_path, url in candidates:
         content_parts.append({
             "type": "text",
-            "text": f'Image id="{chunk_id}" file="{file_path}":',
+            "text": f'Image {row_id} file="{file_path}":',
         })
         content_parts.append({
             "type": "image_url",
@@ -620,7 +767,7 @@ def _format_vlm_image_filter_messages(
     content_parts.append({
         "type": "text",
         "text": (
-            f"\n\nReturn ONLY a JSON array of matching image IDs, e.g.: "
+            f"\n\nReturn ONLY a JSON array of matching image row IDs, e.g.: "
             f'["{candidates[0][0]}"]\n'
             f"If none are relevant, return an empty array: []\n"
             f"Do not include any explanation."
@@ -634,7 +781,7 @@ def _parse_asset_filter_response(
     text: str,
     valid_ids: set[str],
 ) -> list[str]:
-    """Parse LLM response for asset filter — extract valid chunk IDs."""
+    """Parse LLM response for asset filter and keep valid row IDs."""
     import json
     import re
 

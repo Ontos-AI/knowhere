@@ -5,6 +5,8 @@ import json
 import re
 from typing import Any
 
+from shared.services.retrieval.agentic.core.budget import project_budget_snapshot
+
 
 FILE_SELECT_PROMPT = """\
 You are a document routing assistant.
@@ -28,118 +30,131 @@ Do not include any explanation.
 """
 
 
-DISCOVERY_SELECT_PROMPT = """\
-You are a document navigation assistant.
-
-Document: "{doc_name}"
-
-{budget_block}
-After navigating the document's section tree, the following section paths
-were additionally discovered via keyword and semantic search.
-They may contain relevant evidence not found through hierarchical navigation.
-
-=== Discovery Candidates ===
-| ID | Path |
-|:---|:-----|
-{items}
-=== End Discovery Candidates ===
-
-User query: {query}
-Select candidate IDs whose content is needed to answer the query.
-If none are relevant, return an EMPTY list [].
-
-Return ONLY a JSON object:
-{{"selections": [{{"id": "D1", "confidence": <float>}}, ...]}}
-Do not include any explanation.
-"""
-
-
 COLLECTOR_PROMPT = """\
 You are a document navigation agent running an observe-act loop.
 
 Document: "{doc_name}" (id: {doc_id})
 
-{budget_block}
+{agent_state_block}
 
 {trace_block}
 
-Below is your current observation of the document section tree.
-Nodes marked [Leaf] have no further sub-sections.
-Nodes marked [✓] are already collected as evidence.
-Nodes marked [seen] were already expanded/observed.
-Token estimates (e.g. ~1.2k) show approximate content size.
-
-=== Section Tree ===
-{items_overview}
-=== End Section Tree ===
-
 User query: {query}
+
+{actionable_observation}
 
 === Rules ===
 
 Each step chooses exactly ONE main action, plus optional COLLECT side effects.
 
-{tools_block}
+Action semantics:
+   - EXPAND observes a listed section's children in the next step.
+   - COLLECT adds a listed section and all descendant content to evidence.
+   - BACK only changes current scope; it does not collect evidence.
+   - SEARCH_IMAGES and SEARCH_TABLES inspect assets in the current scope.
+     Use only the listed SEARCH action ID. The asset inspector receives the
+     user's original query directly.
+     After a SEARCH result returns matches, use the matched assets and owner
+     sections to decide whether more owner context is needed; avoid repeating
+     the same asset search unless the current scope has changed and the prior
+     result is insufficient for the query.
+   - FINISH ends navigation for this document.
 
-Navigation state:
-   - Current scope: "{current_scope}"
-   - EXPAND means observing a scope's children. Do not EXPAND [seen], [✓],
-     the current scope, or any ancestor of the current scope.
-   - COLLECT means adding a section and all descendant content to evidence.
-     Do not COLLECT [✓] paths or descendants of [✓] paths.
-   - Treat already expanded scopes and fully collected paths as processed:
-     do not spend another action on processed content.
-   - BACK only changes the current scope; it does not collect evidence.
-
-COLLECT side effect — Add sections to your evidence collection (optional, can be empty).
+COLLECT side effect:
    - COLLECT includes the section AND ALL its descendant content.
    - Set "outline": true to collect only structure (titles + summaries),
      keeping children available for further EXPAND or COLLECT.
+   - If you COLLECT the same section you EXPAND as the main action, use
+     "outline": true so the section remains open for child exploration.
+   - If the advisory query intent is MACRO_SUMMARY or STRUCTURE_OVERVIEW
+     (document overview, chapter map, high-level summary), prefer outline
+     collection; outline evidence can be sufficient final evidence.
+   - If the advisory query intent is FACTUAL_DETAIL, NUMERIC_DETAIL, or
+     ASSET_LOOKUP, prefer full evidence collection ("outline": false), or
+     SEARCH_IMAGES/SEARCH_TABLES when visual/table evidence is central.
+   - If the advisory query intent is UNKNOWN, decide from the user's wording:
+     broad summaries can use outline, specific facts/numbers/assets need full
+     evidence.
+   - FINISH only when the collected evidence is sufficient for the user's query.
+     The system will not infer missing evidence for you.
+   - In CRITICAL budget mode, exploration is closed. Prefer the smallest
+     sufficient COLLECT side effects, then FINISH.
+   - In EXHAUSTED or overdraft budget mode, do not explore or search again.
+     Use current observations/tool results to FINISH, or collect only
+     indispensable visible evidence before FINISH.
    - For [Leaf] nodes or small sections, prefer COLLECT over EXPAND.
-
-Available main actions — choose ONE:
-{main_actions_block}
 
 === End Rules ===
 
 Return ONLY a JSON object:
-{{"collect": [{{"path": "...", "confidence": <float>, "outline": false}}],
- "action": "EXPAND",
- "action_args": {{"target": "section/path"}},
+{{"collect": [{{"id": "C1", "confidence": <float>, "outline": false}}],
+ "action": "<EXPAND|BACK|SEARCH_IMAGES|SEARCH_TABLES|FINISH>",
+ "action_args": {{"id": "<main action ID>"}},
  "reason": "..."}}
-or
-{{"collect": [...],
- "action": "SEARCH_TABLES",
- "action_args": {{"query": "..."}},
- "reason": "..."}}
-or
-{{"collect": [...], "action": "FINISH", "reason": "..."}}
 Do not include any explanation outside the JSON.
 
 IMPORTANT: 
 1. All agent-generated text (e.g., "reason" and other free-text fields) MUST be written in English.
 2. Document content and section paths MUST remain in their original language.
+3. Use only action IDs from Actionable Observation. Never invent IDs or write raw section paths as action targets.
+4. The action value MUST match the chosen ID group: E*=EXPAND, B*=BACK, S*=SEARCH, F*=FINISH.
+5. When Budget mode is CRITICAL or EXHAUSTED, choose the best sufficient COLLECT side effects and then FINISH.
 """
+
+
+QUERY_INTENT_PROMPT = """\
+Classify the user's retrieval query for document navigation.
+
+Return ONLY a JSON object: {{"intent": "<label>"}}
+
+Allowed labels:
+- MACRO_SUMMARY: asks for a broad summary, synthesis, overview, or "what is this document about"
+- STRUCTURE_OVERVIEW: asks for chapters, outline, table of contents, hierarchy, or document structure
+- FACTUAL_DETAIL: asks for specific facts, claims, definitions, clauses, or exact passages
+- NUMERIC_DETAIL: asks for numbers, dates, prices, amounts, percentages, forecasts, metrics, or comparisons
+- ASSET_LOOKUP: asks about images, figures, charts, tables, screenshots, or visual/table evidence
+- UNKNOWN: unclear or mixed intent
+
+User query: {query}
+"""
+
+
+QUERY_INTENT_LABELS = {
+    "MACRO_SUMMARY",
+    "STRUCTURE_OVERVIEW",
+    "FACTUAL_DETAIL",
+    "NUMERIC_DETAIL",
+    "ASSET_LOOKUP",
+    "UNKNOWN",
+}
+
+
+def parse_query_intent_response(text: str) -> str:
+    data = _parse_json_object(text.strip())
+    if not isinstance(data, dict):
+        return "UNKNOWN"
+    intent = str(data.get("intent") or "").strip().upper()
+    return intent if intent in QUERY_INTENT_LABELS else "UNKNOWN"
 
 
 def parse_collector_response(text: str) -> dict:
     """Parse the Collector Agent navigation response.
 
     Expected format:
-    {"collect": [...], "action": "EXPAND|BACK|FINISH|SEARCH_IMAGES|SEARCH_TABLES",
-     "action_args": {"target": "...", "query": "..."}, "reason": "..."}
+    {"collect": [{"id": "C1", ...}], "action": "EXPAND|BACK|FINISH|SEARCH_IMAGES|SEARCH_TABLES",
+     "action_args": {"id": "E1"}, "reason": "..."}
     """
     text = text.strip()
     valid_actions = {"EXPAND", "BACK", "FINISH", "SEARCH_IMAGES", "SEARCH_TABLES"}
     default: dict[str, Any] = {
-        "collect": [], "action": "FINISH", "drill_into": None,
-        "tools": [], "tool_params": {}, "reason": "",
+        "collect": [], "action": "ERROR", "action_id": None,
+        "tools": [], "tool_params": {}, "reason": "invalid model response",
     }
 
     def extract(data: dict) -> dict:
-        action = str(data.get("action", "FINISH")).strip().upper()
+        action = str(data.get("action", "ERROR")).strip().upper()
         if action not in valid_actions:
-            action = "FINISH"
+            action = "ERROR"
         action_args = data.get("action_args")
         if not isinstance(action_args, dict):
             action_args = {}
@@ -149,92 +164,40 @@ def parse_collector_response(text: str) -> dict:
         collect: list[dict[str, Any]] = []
         if isinstance(collect_val, list):
             for item in collect_val:
-                if isinstance(item, dict) and item.get("path"):
+                if isinstance(item, dict) and item.get("id"):
                     confidence = normalize_confidence(item.get("confidence", 0.7))
                     outline = bool(item.get("outline", False))
                     collect.append({
-                        "path": str(item["path"]),
+                        "id": str(item["id"]).strip(),
                         "confidence": confidence or 0.7,
                         "outline": outline,
                     })
 
-        # Parse drill target
-        drill_into = None
-        if action == "EXPAND":
-            drill_into = action_args.get("target")
-            if isinstance(drill_into, str):
-                drill_into = drill_into.strip() or None
-            else:
-                drill_into = None
-            if drill_into is None:
-                action = "FINISH"
+        action_id = action_args.get("id")
+        if isinstance(action_id, str):
+            action_id = action_id.strip() or None
+        else:
+            action_id = None
 
-        # Parse tool parameters.
+        # SEARCH tools use the original user query. We intentionally ignore
+        # model-generated query rewrites here so navigation cannot silently
+        # broaden or narrow the asset inspector's task.
         tool_params: dict[str, Any] = {}
         if action in {"SEARCH_IMAGES", "SEARCH_TABLES"}:
-            query = action_args.get("query") or action_args.get("search_query")
-            if isinstance(query, str) and query.strip():
-                tool_params["search_query"] = query.strip()
             tools = [action]
         else:
             tools = []
 
         reason = str(data.get("reason") or "").strip()[:500]
 
-        # Parse back_to target for BACK action
-        back_to = None
-        if action == "BACK":
-            raw_back = action_args.get("target")
-            if isinstance(raw_back, str) and raw_back.strip():
-                back_to = raw_back.strip()
-            # else: back_to remains None (= root)
-
         return {
             "collect": collect,
             "action": action,
-            "drill_into": drill_into,
-            "back_to": back_to,
+            "action_id": action_id,
             "tools": tools,
             "tool_params": tool_params,
             "reason": reason,
         }
-
-    data = _parse_json_object(text)
-    if data is not None:
-        return extract(data)
-
-    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
-    if fence_match:
-        data = _parse_json_object(fence_match.group(1).strip())
-        if data is not None:
-            return extract(data)
-
-    brace_match = re.search(r"\{.*\}", text, re.DOTALL)
-    if brace_match:
-        data = _parse_json_object(brace_match.group())
-        if data is not None:
-            return extract(data)
-
-    return default
-
-
-def parse_action_response(text: str) -> dict:
-    """Parse discovery_select response (ID-based selections format)."""
-    text = text.strip()
-    default: dict[str, Any] = {"selections": []}
-
-    def extract(data: dict) -> dict:
-        selections_val = data.get("selections") or []
-        selections: list[dict[str, Any]] = []
-        if isinstance(selections_val, list):
-            for selection in selections_val:
-                if isinstance(selection, dict) and selection.get("id"):
-                    confidence = normalize_confidence(selection.get("confidence", 0.7))
-                    selections.append({
-                        "id": str(selection["id"]).strip(),
-                        "confidence": confidence or 0.7,
-                    })
-        return {"selections": selections}
 
     data = _parse_json_object(text)
     if data is not None:
@@ -264,28 +227,11 @@ def adjust_budget_snapshot(
     This ensures the LLM sees the budget state *after* this call's cost,
     not before, preventing misleadingly low percentages.
     """
-    if not snapshot:
-        return snapshot
-    import copy
-    adjusted = copy.deepcopy(snapshot)
-    planning = adjusted.get("planning")
-    if not planning:
-        return adjusted
-    capacity = planning.get("capacity", 1)
-    used = planning.get("used", 0) + additional_tokens
-    used_pct = min(int(used * 100 / capacity), 100) if capacity > 0 else 100
-    planning["used"] = used
-    planning["used_pct"] = used_pct
-    planning["remaining"] = max(0, capacity - used)
-    if used_pct >= 90:
-        planning["status"] = "EXHAUSTED"
-    elif used_pct >= 75:
-        planning["status"] = "CRITICAL"
-    elif used_pct >= 50:
-        planning["status"] = "TIGHT"
-    else:
-        planning["status"] = "HEALTHY"
-    return adjusted
+    return project_budget_snapshot(
+        snapshot,
+        pool="planning",
+        additional_tokens=additional_tokens,
+    )
 
 
 def format_budget_block(snapshot: dict | None) -> str:
