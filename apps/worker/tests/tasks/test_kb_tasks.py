@@ -277,6 +277,7 @@ def test_parse_uses_s3_extension_for_internal_parse_name(monkeypatch, tmp_path):
     estimated_paths = []
 
     metadata_service.metadata["source_file_name"] = "legacy-upload.txt"
+    metadata_service.metadata["parsing_params"] = {"is_atlas": True}
 
     def fake_checkerboard_inject_parse(**kwargs):
         parse_call.update(kwargs)
@@ -341,6 +342,8 @@ def test_parse_uses_s3_extension_for_internal_parse_name(monkeypatch, tmp_path):
     assert parse_call["file_full_path"].endswith("/legacy-upload.pdf")
     assert parse_call["filename"] == "legacy-upload.txt"
     assert parse_call["internal_output_filename"] == "legacy-upload.pdf"
+    assert parse_call["is_atlas"] is True
+    assert parse_call["page_count"] == 1
     assert _find_task_workspaces(tmp_path, "job_123") == []
 
 

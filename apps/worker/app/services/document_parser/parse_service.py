@@ -12,9 +12,49 @@ from shared.core.exceptions.domain_exceptions import (
 )
 
 # document_parser imports
-from app.services.document_parser.doc_profiler import profile_document
+from app.services.document_parser.doc_profiler import DocProfile, profile_document
 from app.services.document_parser.stage_profiler import stage_timer
 from app.services.document_parser.atlas_classifier import classify_atlas_with_vlm
+
+PDF_PAGE_LIMIT = 600
+
+
+def _count_pdf_pages(file_full_path: str) -> int:
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(file_full_path)
+        return max(1, len(reader.pages))
+    except Exception as err:
+        logger.warning(f"Failed to count forced atlas PDF pages for {file_full_path}: {err}")
+        return 0
+
+
+def _create_forced_atlas_profile(file_full_path: str, page_count: int | None) -> DocProfile:
+    """Create the routing profile for an explicit client atlas override."""
+    forced_page_count = page_count if page_count is not None else _count_pdf_pages(file_full_path)
+    return DocProfile(
+        file_type="pdf",
+        route="standard",
+        decision_band="safe_standard",
+        doc_category="atlas",
+        page_count=forced_page_count,
+        reasoning="forced_atlas=True",
+    )
+
+
+def _enforce_pdf_page_limit(profile: DocProfile | None) -> None:
+    if profile and profile.file_type == "pdf" and profile.page_count > PDF_PAGE_LIMIT:
+        raise ValidationException(
+            user_message=(
+                f"Document too large: {profile.page_count} pages exceeds the {PDF_PAGE_LIMIT}-page limit. "
+                f"Please split the document and upload in smaller batches."
+            ),
+            violations=[{
+                "field": "page_count",
+                "description": f"PDF has {profile.page_count} pages, limit is {PDF_PAGE_LIMIT}",
+            }],
+        )
 
 
 def cleanup_unreferenced_images(output_dir: str) -> int:
@@ -74,6 +114,8 @@ def checkerboard_inject_parse(
     base_url: str = "",
     fragment_content: str = "",
     s3_key: str | None = None,
+    is_atlas: bool = False,
+    page_count: int | None = None,
 ) -> tuple[str, object]:
     """
     main parsing function
@@ -96,6 +138,8 @@ def checkerboard_inject_parse(
         job_id: optional job identifier used for parser artifacts
         internal_output_filename: normalized internal folder name for on-disk output
         s3_key: optional S3 key for downstream parsers
+        is_atlas: force PDF input through the atlas parser when true
+        page_count: optional precomputed page count used for forced atlas guards
     
     Returns:
         tuple: (output_dir, parsed_df)
@@ -146,10 +190,15 @@ def checkerboard_inject_parse(
 
     file_path_lower = file_full_path.lower()
     parsed_df = None
+    should_force_atlas = is_atlas and ".pdf" in file_path_lower
     
     # ── Agentic Profiler: classify document before routing ──
-    with stage_timer("document.profile", filename=filename):
-        profile = profile_document(file_full_path, internal_output_filename)
+    if should_force_atlas:
+        profile = _create_forced_atlas_profile(file_full_path, page_count)
+        logger.info(f"📐 Forced atlas parsing enabled for {filename}")
+    else:
+        with stage_timer("document.profile", filename=filename):
+            profile = profile_document(file_full_path, internal_output_filename)
     logger.info(f"📋 DocProfile: {profile.summary()}")
     logger.debug(f"📋 Reasoning: {profile.reasoning}")
 
@@ -157,7 +206,7 @@ def checkerboard_inject_parse(
     # Heuristics can miss atlases that have a rich OCR text layer on top of
     # scanned drawing pages (avg_text_density too high). VLM sees the actual
     # page layout and makes the final call.
-    if profile.atlas_candidate and profile.doc_category not in ("atlas", "ppt_converted"):
+    if not should_force_atlas and profile.atlas_candidate and profile.doc_category not in ("atlas", "ppt_converted"):
         logger.info(f"🔍 Atlas candidate detected, running VLM visual check for {filename}")
         with stage_timer("document.atlas_vlm_check", filename=filename):
             vlm_is_atlas = classify_atlas_with_vlm(file_full_path)
@@ -170,18 +219,7 @@ def checkerboard_inject_parse(
             logger.info(f"ℹ️ VLM rejected atlas for {filename}, routing as generic")
 
     # ── Page count guard: reject oversized PDFs before routing ──
-    PDF_PAGE_LIMIT = 600
-    if profile and profile.file_type == "pdf" and profile.page_count > PDF_PAGE_LIMIT:
-        raise ValidationException(
-            user_message=(
-                f"Document too large: {profile.page_count} pages exceeds the {PDF_PAGE_LIMIT}-page limit. "
-                f"Please split the document and upload in smaller batches."
-            ),
-            violations=[{
-                "field": "page_count",
-                "description": f"PDF has {profile.page_count} pages, limit is {PDF_PAGE_LIMIT}",
-            }],
-        )
+    _enforce_pdf_page_limit(profile)
 
     # Atlas routing: rename output folder from .pdf → .atlas for easy filtering
     if profile and profile.doc_category == "atlas":
@@ -355,4 +393,3 @@ def checkerboard_inject_parse(
             parsed_df = apply_rename_map_to_dataframe(parsed_df, compress_stats.rename_map)
 
     return full_output_dir, parsed_df
-

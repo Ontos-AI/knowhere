@@ -434,9 +434,10 @@ def _parse(job_id: str, user_id: str | None):
             job_metadata.update(metadata_updates)
 
             doc_type = JobMetadataHelper.get_parsing_param(job_metadata, "doc_type", "auto")
+            is_atlas: bool = JobMetadataHelper.get_parsing_param(job_metadata, "is_atlas", False) is True
             logger.info(
                 f"Start parse: job_id={job_id}, filename={filename}, "
-                f"internal_filename={internal_parse_name}, type={doc_type}"
+                f"internal_filename={internal_parse_name}, type={doc_type}, is_atlas={is_atlas}"
             )
 
             with stage_timer("worker.parse.document", job_id=job_id, filename=filename, doc_type=doc_type):
@@ -454,6 +455,8 @@ def _parse(job_id: str, user_id: str | None):
                     summary_txt=JobMetadataHelper.get_parsing_param(job_metadata, "summary_txt", True),
                     add_frag_desc=JobMetadataHelper.get_parsing_param(job_metadata, "add_frag_desc", ""),
                     s3_key=s3_key,
+                    is_atlas=is_atlas,
+                    page_count=page_count,
                 )
 
             logger.info(f"File parsing completed: job_id={job_id}, add_dir={add_dir}, chunks={len(add_contents_df) if add_contents_df is not None else 0}")

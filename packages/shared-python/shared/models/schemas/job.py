@@ -24,6 +24,7 @@ class ParsingParams(BaseModel):
     summary_table: bool = Field(True, description="是否生成表格摘要")
     summary_txt: bool = Field(True, description="是否生成文本摘要")
     add_frag_desc: Optional[str] = Field("", description="添加片段描述")
+    is_atlas: bool = Field(False, description="是否将PDF显式按图集解析")
 
 
 class JobCreate(BaseModel):
