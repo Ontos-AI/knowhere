@@ -45,6 +45,7 @@ def _cache_shape_digest(
     rerank: bool = False,
     threshold: float = 0.0,
     internal_recall_k: int | None = None,
+    use_agentic: bool | None = None,
     decomposition_enabled: bool | None = None,
 ) -> str:
     normalized_excludes = sorted(exclude_document_ids)
@@ -59,6 +60,7 @@ def _cache_shape_digest(
             str(rerank),
             str(threshold),
             str(internal_recall_k),
+            str(use_agentic),
             str(decomposition_enabled),
         ]
     )

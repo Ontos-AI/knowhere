@@ -5,7 +5,7 @@ Flow:
   Phase 2: Per-document iterative navigation (navigate_step)
   Phase 3: Render evidence text for downstream agents
 
-Each navigate_step decides action (NAVIGATE/STOP), optional asset tools,
-and section selections in a single LLM call. KNOWHERE does not generate
-final answers; downstream agents decide whether the evidence is sufficient.
+Each navigate_step chooses one observe-act action plus optional collection
+side effects. KNOWHERE does not generate final answers; downstream agents
+decide whether the evidence is sufficient.
 """

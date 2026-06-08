@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import os
-
 from loguru import logger
 
-from shared.services.retrieval.execution.legacy_route import run_legacy_retrieval_route
 from shared.services.retrieval.execution.reference_resolver import resolve_workflow_references
 from shared.services.retrieval.hydration.result_assembly import assemble_retrieval_results
 from shared.services.retrieval.execution.response_projection import (
@@ -28,10 +25,7 @@ async def run_retrieval_route(
     if small_corpus_outcome is not None:
         return small_corpus_outcome
 
-    if _should_use_agentic_route(context.use_agentic):
-        return await _run_agentic_route(context)
-
-    return await run_legacy_retrieval_route(context)
+    return await _run_agentic_route(context)
 
 
 async def _try_run_small_corpus_route(
@@ -97,12 +91,6 @@ async def _try_run_small_corpus_route(
     )
 
 
-def _should_use_agentic_route(use_agentic: bool | None) -> bool:
-    if use_agentic is not None:
-        return use_agentic
-    return os.environ.get("RETRIEVAL_AGENTIC_ENABLED", "true") == "true"
-
-
 async def _run_agentic_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
@@ -119,8 +107,7 @@ async def _run_agentic_route(
     # 1. Discovery RRF score — available for chunks that surfaced in the
     #    3-channel BM25 pass (stored in each referenced_chunk as 'score').
     # 2. KG document confidence — LLM-assigned confidence per selected document
-    #    (stored in decision_trace kg_select entry), used as a fallback for
-    #    chunks that were only found through navigation (no discovery score).
+    #    (stored in decision_trace kg_select entry), used for navigation-only chunks.
     score_by_chunk_id: dict[str, float] = {}
 
     # Layer 1: referenced_chunk-level score (propagated from discovery rows)
@@ -134,13 +121,12 @@ async def _run_agentic_route(
                 pass
 
     # Layer 2: per-document KG confidence as default for navigation-only chunks.
-    # Each step's decision_trace contains a 'kg_select' phase entry that holds
-    # the LLM-assigned confidence score per selected document.
     doc_confidence: dict[str, float] = {}
     for step in workflow_result.steps:
         for entry in step.decision_trace or []:
             if entry.get('phase') == 'kg_select':
-                for doc_info in entry.get('documents', []):
+                result = entry.get('result') or {}
+                for doc_info in result.get('collected', []):
                     doc_id = doc_info.get('document_id', '')
                     conf = doc_info.get('confidence')
                     if doc_id and conf is not None:
@@ -202,15 +188,37 @@ async def _run_agentic_route(
         if step.decision_trace:
             all_decision_trace.extend(step.decision_trace)
 
-    # Embed stop/failure into decision_trace as terminal entry
+    # Embed stop/failure into decision_trace as a homogeneous terminal entry.
     stop_reason = response.get("stop_reason") or ""
     failure_reason = response.get("failure_reason") or ""
-    if stop_reason or failure_reason:
+    has_terminal_trace = any(
+        entry.get("phase") == "terminal"
+        for entry in all_decision_trace
+    )
+    if (stop_reason or failure_reason) and not has_terminal_trace:
+        terminal_index = len(all_decision_trace)
         all_decision_trace.append({
+            "step_index": terminal_index,
+            "agent": "workflow",
+            "parent_step_index": None,
             "phase": "terminal",
-            "action": "complete",
-            "stop_reason": stop_reason,
-            "failure_reason": failure_reason,
+            "document_id": None,
+            "document": None,
+            "scope": "workflow",
+            "observation": {
+                "router_used": workflow_result.router_used,
+                "referenced_chunks": len(resolved_references.refs),
+            },
+            "decision": {
+                "action": "complete",
+                "args": {},
+                "reason": stop_reason or failure_reason,
+            },
+            "result": {
+                "status": "error" if failure_reason else "ok",
+                "stop_reason": stop_reason,
+                "failure_reason": failure_reason,
+            },
         })
 
     if all_decision_trace:

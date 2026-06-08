@@ -10,15 +10,11 @@ from shared.services.retrieval.agentic.navigation.section_counts import attach_s
 from shared.services.retrieval.search.lexical_text import normalize_section_path, split_section_path
 
 
-async def load_child_sections(
+async def load_document_section_rows(
     db: AsyncSession,
     document_id: str,
     job_result_id: str,
-    scope_path: str | list[str] | None = None,
-    exclude_paths: set[str] | None = None,
-    limit_depth: bool = True,
-) -> list[dict]:
-    """Load the continuous context tree for a navigation scope."""
+) -> list:
     stmt = (
         select(
             DocumentSection.section_id,
@@ -31,7 +27,25 @@ async def load_child_sections(
         .where(DocumentSection.job_result_id == job_result_id)
         .order_by(DocumentSection.sort_order)
     )
-    section_rows = (await db.execute(stmt)).all()
+    return list((await db.execute(stmt)).all())
+
+
+async def load_child_sections(
+    db: AsyncSession,
+    document_id: str,
+    job_result_id: str,
+    scope_path: str | list[str] | None = None,
+    exclude_paths: set[str] | None = None,
+    limit_depth: bool = True,
+    section_rows: list | None = None,
+) -> list[dict]:
+    """Load the continuous context tree for a navigation scope."""
+    if section_rows is None:
+        section_rows = await load_document_section_rows(
+            db,
+            document_id=document_id,
+            job_result_id=job_result_id,
+        )
     if not section_rows:
         return []
 
@@ -215,5 +229,3 @@ def _resolve_allowed_depths(items_by_path: dict[str, dict], scope_list: list[str
         if child_depths:
             allowed_set.update(sorted(child_depths)[:2])
     return allowed_set
-
-

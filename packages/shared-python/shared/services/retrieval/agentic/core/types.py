@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from shared.services.retrieval.agentic.core.budget import BudgetLedger
 
@@ -183,6 +183,53 @@ class DocTreeNode:
         self.reparent_leaf_content()
 
 
+NavAction = Literal[
+    "EXPAND",
+    "BACK",
+    "FINISH",
+    "SEARCH_IMAGES",
+    "SEARCH_TABLES",
+    "ERROR",
+]
+
+
+@dataclass
+class DecisionTraceStep:
+    """Uniform observe-act-result trace entry exposed to downstream agents."""
+
+    step_index: int
+    agent: str
+    phase: str
+    observation: dict[str, Any]
+    decision: dict[str, Any]
+    result: dict[str, Any]
+    parent_step_index: int | None = None
+    document_id: str | None = None
+    document: str | None = None
+    scope: str | None = None
+    budget: dict[str, Any] | None = None
+    elapsed_ms: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "step_index": self.step_index,
+            "agent": self.agent,
+            "parent_step_index": self.parent_step_index,
+            "phase": self.phase,
+            "document_id": self.document_id,
+            "document": self.document,
+            "scope": self.scope,
+            "observation": self.observation,
+            "decision": self.decision,
+            "result": self.result,
+        }
+        if self.budget is not None:
+            data["budget"] = self.budget
+        if self.elapsed_ms is not None:
+            data["elapsed_ms"] = self.elapsed_ms
+        return data
+
+
 @dataclass
 class NavigateStepResult:
     """Return type for navigate_step — Collector Agent model.
@@ -190,18 +237,16 @@ class NavigateStepResult:
     Each step returns:
     - ``collect``: paths to add to the evidence collection (full hydration)
     - ``drill``: paths to explore deeper in subsequent steps
-    - ``action``: navigation direction — DRILL/BACK/STOP/ERROR
-    - ``tools``: asset tools requested (SEARCH_IMAGES/SEARCH_TABLES)
+    - ``action``: one explicit action — EXPAND/BACK/FINISH/SEARCH_*/ERROR
     - ``node``: outline tree node for rendering context
     - ``reason``: LLM reasoning for trace
     - ``error_reason``: set when action is ERROR — distinguishes system
-      errors from intentional STOP so callers can decide retry vs skip.
-    - ``fallback_reason``: set when DRILL was forced to STOP due to an
-      invalid target (e.g. re-drill into current scope).  The system
-      auto-collects visible leaf children to preserve LLM intent.
+      errors from intentional FINISH so callers can decide retry vs skip.
     - ``search_assets_params``: parameters for SEARCH_IMAGES/SEARCH_TABLES
+    - ``observation``: what the navigator saw before choosing the action
+    - ``result_status`` / ``result_note``: executor-visible action validation
     """
-    action: str = "STOP"  # DRILL | BACK | STOP | ERROR
+    action: NavAction = "FINISH"
     collect: list[dict[str, Any]] = field(default_factory=list)
     drill: list[dict[str, Any]] = field(default_factory=list)
     back_to: str | None = None  # BACK target ancestor path (None = root)
@@ -209,8 +254,10 @@ class NavigateStepResult:
     node: DocTreeNode = field(default_factory=DocTreeNode)
     reason: str = ""
     error_reason: str | None = None
-    fallback_reason: str | None = None
     search_assets_params: dict[str, Any] | None = None
+    observation: dict[str, Any] = field(default_factory=dict)
+    result_status: str = "ok"
+    result_note: str | None = None
 
     @property
     def drill_into(self) -> str | None:
@@ -219,24 +266,27 @@ class NavigateStepResult:
 
     @property
     def is_terminal(self) -> bool:
-        """True when navigation should stop (STOP/ERROR or empty collect+drill)."""
-        return self.action in ("STOP", "ERROR") or (not self.collect and not self.drill)
+        """True only for explicit terminal actions."""
+        return self.action in ("FINISH", "ERROR")
 
     @staticmethod
-    def stop(scope_path: str | None = None) -> 'NavigateStepResult':
+    def stop(scope_path: str | None = None, *, reason: str = "") -> 'NavigateStepResult':
         return NavigateStepResult(
-            action="STOP",
+            action="FINISH",
             node=DocTreeNode.empty(scope_path),
+            reason=reason,
         )
 
     @staticmethod
     def error(scope_path: str | None = None, *, reason: str = "") -> 'NavigateStepResult':
-        """Return an ERROR result that is distinguishable from intentional STOP."""
+        """Return an ERROR result distinguishable from intentional FINISH."""
         return NavigateStepResult(
             action="ERROR",
             node=DocTreeNode.empty(scope_path),
             reason=f"navigation_error: {reason[:200]}" if reason else "navigation_error",
             error_reason=reason[:500] if reason else "unknown_error",
+            result_status="error",
+            result_note=reason[:500] if reason else "unknown_error",
         )
 
 

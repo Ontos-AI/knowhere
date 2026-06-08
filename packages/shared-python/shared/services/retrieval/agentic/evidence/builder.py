@@ -142,7 +142,7 @@ async def render_evidence(
     for doc_id, doc_tree in doc_trees.items():
         # Only render if there is actual hydrated evidence (chunks collected
         # via COLLECT or discovery).  Outline-only trees (e.g. navigation
-        # STOP with empty collect) must not leak into evidence_text.
+        # FINISH with empty collect must not leak into evidence_text.
         if not doc_tree.has_leaf_content():
             continue
         doc_name = doc_id_to_name.get(doc_id, doc_id)

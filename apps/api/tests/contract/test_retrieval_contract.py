@@ -1,6 +1,5 @@
 from collections.abc import Callable, Coroutine, Sequence
 from contextlib import AbstractAsyncContextManager
-from datetime import datetime, timezone
 from typing import Any, cast
 from uuid import uuid4
 
@@ -357,128 +356,55 @@ async def test_should_return_empty_results_for_an_empty_query(
 
 
 @pytest.mark.asyncio
-async def test_legacy_retrieval_should_rank_hot_chunk_before_cold_chunk_when_discovery_scores_tie(
+async def test_retrieval_should_ignore_false_agentic_hint_and_use_workflow(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
     monkeypatch: MonkeyPatch,
 ) -> None:
-    async with developer_api_client_factory() as api_client:
-        cold_document = await _seed_retrieval_document(
-            user_id="local-dev-user",
-            namespace="contract-hot-ranking",
-            source_file_name="cold.pdf",
-            section_path="ranking/cold",
-            content="same ranking marker cold",
+    async def fake_run_request(
+        self: object,
+        db: AsyncSession,
+        *,
+        request: WorkflowRunRequest,
+        llm_fn: object | None = None,
+    ) -> WorkflowResult:
+        return WorkflowResult(
+            namespace=request.namespace,
+            query=request.query,
+            router_used="workflow_single_step",
+            answer_text="",
+            plan=QueryPlan.single_step(request.query),
+            referenced_chunks=[],
+            results=[],
         )
-        hot_document = await _seed_retrieval_document(
+
+    monkeypatch.setattr(
+        "shared.services.retrieval.workflow.orchestrator.WorkflowOrchestrator.run_request",
+        fake_run_request,
+    )
+
+    async with developer_api_client_factory() as api_client:
+        await _seed_retrieval_document(
             user_id="local-dev-user",
-            namespace="contract-hot-ranking",
-            source_file_name="hot.pdf",
-            section_path="ranking/hot",
-            content="same ranking marker hot",
+            namespace="contract-agentic-only",
+            source_file_name="a.pdf",
+            section_path="agentic/a",
+            content="same ranking marker a",
         )
         await _seed_retrieval_document(
             user_id="local-dev-user",
-            namespace="contract-hot-ranking",
-            source_file_name="filler.pdf",
-            section_path="ranking/filler",
-            content="same ranking marker filler",
+            namespace="contract-agentic-only",
+            source_file_name="b.pdf",
+            section_path="agentic/b",
+            content="same ranking marker b",
         )
-
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        await ContractDatabase.execute(
-            """
-            INSERT INTO retrieval_hit_stats (
-                id,
-                user_id,
-                namespace,
-                hit_kind,
-                document_id,
-                chunk_id,
-                hit_count,
-                last_hit_at,
-                created_at,
-                updated_at
-            ) VALUES (
-                :id,
-                :user_id,
-                :namespace,
-                'chunk',
-                :document_id,
-                :chunk_id,
-                :hit_count,
-                :now,
-                :now,
-                :now
-            )
-            """,
-            {
-                "id": f"rhs_{uuid4().hex[:12]}",
-                "user_id": "local-dev-user",
-                "namespace": "contract-hot-ranking",
-                "document_id": hot_document["document_id"],
-                "chunk_id": hot_document["chunk_id"],
-                "hit_count": 100,
-                "now": now,
-            },
-        )
-
-        def to_channel_row(document: dict[str, str]) -> dict[str, object]:
-            return {
-                "document_id": document["document_id"],
-                "chunk_id": document["chunk_id"],
-                "section_id": document["section_id"],
-                "section_path": document["section_path"],
-                "source_file_name": "cold.pdf"
-                if document["document_id"] == cold_document["document_id"]
-                else "hot.pdf",
-                "chunk_type": "text",
-                "content": "same ranking marker",
-                "score": 1.0,
-                "file_path": None,
-                "chunk_metadata": {},
-                "job_result_id": document["job_result_id"],
-                "job_id": document["job_id"],
-                "sort_order": 0,
-            }
-
-        async def fake_content_channel(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
-            return [
-                to_channel_row(hot_document),
-                to_channel_row(cold_document),
-            ]
-
-        async def fake_path_channel(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
-            return [
-                to_channel_row(cold_document),
-                to_channel_row(hot_document),
-            ]
-
-        async def fake_graph_routing(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
-            return []
-
-        monkeypatch.setattr(
-            "shared.services.retrieval.execution.legacy_route.path_channel",
-            fake_path_channel,
-        )
-        monkeypatch.setattr(
-            "shared.services.retrieval.execution.legacy_route.content_channel",
-            fake_content_channel,
-        )
-        monkeypatch.setattr(
-            "shared.services.retrieval.execution.legacy_route.list_graph_routed_chunks",
-            fake_graph_routing,
-        )
-
         response = await api_client.post(
             "/api/v1/retrieval/query",
             json={
-                "namespace": "contract-hot-ranking",
+                "namespace": "contract-agentic-only",
                 "query": "same ranking marker",
                 "top_k": 1,
-                "channels": ["path", "content"],
-                "channel_weights": {"path": 1.0, "content": 1.0},
                 "use_agentic": False,
             },
         )
@@ -486,10 +412,8 @@ async def test_legacy_retrieval_should_rank_hot_chunk_before_cold_chunk_when_dis
     assert response.status_code == 200
 
     response_json = cast(dict[str, object], response.json())
-    results = cast(list[dict[str, object]], response_json["results"])
-
-    assert len(results) == 1
-    assert _result_source(results[0])["document_id"] == hot_document["document_id"]
+    assert response_json["router_used"] == "workflow_single_step"
+    assert response_json["results"] == []
 
 
 @pytest.mark.asyncio

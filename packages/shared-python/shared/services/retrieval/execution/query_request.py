@@ -82,6 +82,7 @@ class RetrievalQuery:
             "rerank": self.rerank,
             "threshold": self.threshold,
             "internal_recall_k": self.internal_recall_k,
+            "use_agentic": self.use_agentic,
             "decomposition_enabled": True,
         }
 

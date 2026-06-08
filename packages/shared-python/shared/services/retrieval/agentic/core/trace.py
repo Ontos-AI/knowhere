@@ -15,7 +15,11 @@ from uuid import uuid4
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic.core.types import AgentRunConfig, ToolResult
+from shared.services.retrieval.agentic.core.types import (
+    AgentRunConfig,
+    DecisionTraceStep,
+    ToolResult,
+)
 from shared.services.retrieval.settings import DEFAULT_TOP_K
 
 
@@ -132,6 +136,27 @@ class TraceRecorder:
             'created_at': _now_utc(),
         })
 
+    def record_decision_trace_step(self, step: DecisionTraceStep) -> None:
+        """Buffer a DB trace row derived from the public decision trace step."""
+        result_status = str(step.result.get("status") or "unknown")
+        self._steps.append({
+            "step_index": len(self._steps),
+            "action_type": f"{step.phase}:{step.agent}:{step.decision.get('action', '')}",
+            "action_input": {
+                "public_step_index": step.step_index,
+                "decision": step.decision,
+                "scope": step.scope,
+                "document_id": step.document_id,
+                "parent_step_index": step.parent_step_index,
+            },
+            "observation_status": result_status,
+            "observation_payload_keys": list(step.observation.keys()),
+            "latency_ms": step.elapsed_ms or 0,
+            "error": step.result.get("error"),
+            "tokens_used": 0,
+            "created_at": _now_utc(),
+        })
+
     def record_budget_stop(self, reason: str) -> None:
         """Record that the agent loop stopped due to a budget guard."""
         self._steps.append({
@@ -139,20 +164,6 @@ class TraceRecorder:
             'action_type': f'budget_stop_{reason}',
             'action_input': {},
             'observation_status': 'budget_stop',
-            'observation_payload_keys': [],
-            'latency_ms': 0,
-            'error': None,
-            'tokens_used': 0,
-            'created_at': _now_utc(),
-        })
-
-    def record_fallback(self, fallback_type: str, detail: str) -> None:
-        """Record that a fallback mechanism was triggered."""
-        self._steps.append({
-            'step_index': len(self._steps),
-            'action_type': f'fallback_{fallback_type}',
-            'action_input': {'detail': detail},
-            'observation_status': 'fallback',
             'observation_payload_keys': [],
             'latency_ms': 0,
             'error': None,
