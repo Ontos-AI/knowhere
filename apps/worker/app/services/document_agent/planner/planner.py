@@ -77,21 +77,35 @@ def _segment_sample(candidates: list[int], count: int) -> list[int]:
     return [candidates[round(index * step)] for index in range(count)]
 
 
-def _sample_pages(page_count: int, extrema_pages: list[int]) -> list[int]:
+def _sample_pages(
+    page_count: int,
+    extrema_pages: list[int],
+    exclude_pages: set[int] | None = None,
+) -> list[int]:
+    """Select representative pages for VLM profiling.
+
+    Args:
+        page_count: Total number of pages.
+        extrema_pages: Pages with statistical extrema (min/max text, tables, etc.).
+        exclude_pages: Pages to skip entirely (e.g. TOC pages already detected
+            by the TOC pipeline). These inflate text-density metrics without
+            adding profiling value.
+    """
     if page_count <= 0:
         return []
-    extrema = [page for page in extrema_pages if 1 <= page <= page_count]
-    remaining = [page for page in range(1, page_count + 1) if page not in set(extrema)]
-    if not remaining:
+    skip = exclude_pages or set()
+    extrema = [page for page in extrema_pages if 1 <= page <= page_count and page not in skip]
+    pool = [page for page in range(1, page_count + 1) if page not in set(extrema) and page not in skip]
+    if not pool:
         return sorted(set(extrema))
-    third = max(len(remaining) // 3, 1)
-    front = remaining[:third]
-    middle = remaining[third : third * 2]
-    back = remaining[third * 2 :]
+    third = max(len(pool) // 3, 1)
+    front = pool[:third]
+    middle = pool[third : third * 2]
+    back = pool[third * 2 :]
     sampled = (
         _segment_sample(front, 4)
-        + _segment_sample(middle or remaining, 3)
-        + _segment_sample(back or remaining, 3)
+        + _segment_sample(middle or pool, 3)
+        + _segment_sample(back or pool, 3)
     )
     ordered = []
     for page in extrema + sampled:
@@ -168,7 +182,16 @@ class ProfilePlanner:
             or self.ctx.settings.get("vlm_model")
             or os.environ.get("IMAGE_MODEL")
         )
-        pages = _sample_pages(self.ctx.blackboard.page_count, self.ctx.blackboard.extrema_pages)
+        toc_pages = set(
+            self.ctx.blackboard.toc_result.toc_pages
+            if self.ctx.blackboard.toc_result
+            else []
+        )
+        pages = _sample_pages(
+            self.ctx.blackboard.page_count,
+            self.ctx.blackboard.extrema_pages,
+            exclude_pages=toc_pages,
+        )
         if not model:
             profile = DocumentProfile(
                 is_scanned=False,

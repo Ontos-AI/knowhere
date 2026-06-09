@@ -139,15 +139,11 @@ def _detect_mock_task(prompt_text: str) -> str:
     if "perform ocr operation" in normalized_prompt:
         return "ocr-image"
     if (
-        "you will receive an image" in normalized_prompt
-        and "line 1: output a short title" in normalized_prompt
+        "you will receive an image from a document" in normalized_prompt
+        and "identify the image type" in normalized_prompt
     ):
         return "summary-images"
-    if (
-        "you will receive one or more images and the user's current question"
-        in normalized_prompt
-    ):
-        return "ask-image"
+
     if "summaries of sub-sections from a document section" in normalized_prompt:
         return "file-summary"
     if (
@@ -302,7 +298,7 @@ def _build_mock_response(task_name: str) -> str:
         "atlas-page-info": "Mock atlas page info",
         "ocr-image": "Mock OCR text",
         "summary-images": "Mock Image Title\nMock image summary",
-        "ask-image": "Mock image answer",
+
         "file-summary": "Mock section summary",
         "summary-titled": "Mock Title\nMock summary",
         "summary": "Mock summary",

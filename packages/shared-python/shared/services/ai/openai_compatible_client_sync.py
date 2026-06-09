@@ -20,6 +20,7 @@ from shared.core.exceptions.domain_exceptions import LLMServiceException
 from shared.services.http.client_pool import get_sync_client
 from shared.services.ai.llm_mock import build_mock_chat_completion_response
 from shared.utils.security_utils import mask_api_key
+from shared.services.ai.token_tracking import record_tokens
 
 LOCAL_DEBUG = os.getenv("LOCAL_DEBUG", "0") == "1"
 LLMUsage = dict[str, int]
@@ -213,7 +214,9 @@ class OpenAICompatibleClientSync:
                         internal_message="AI returned empty result",
                         provider=self.default_model,
                     )
-                return response, _extract_usage(response)
+                usage = _extract_usage(response)
+                record_tokens(usage)
+                return response, usage
             except openai.RateLimitError as exc:
                 retry_after = _parse_retry_after(exc)
                 quota_manager.mark_rate_limited(lease.token_id, retry_after)
@@ -295,18 +298,18 @@ class OpenAICompatibleClientSync:
         allowed_api_params = {
             "n", "stop", "presence_penalty", "frequency_penalty",
             "logit_bias", "user", "seed", "tools", "tool_choice",
-            "response_format", "logprobs", "top_logprobs",
+            "response_format", "logprobs", "top_logprobs", "extra_body",
         }
         for key, value in kwargs.items():
             if key in allowed_api_params:
                 api_kwargs[key] = value
 
-        extra_body = api_kwargs.get("extra_body", {})
-        if isinstance(extra_body, dict):
-            extra_body.setdefault("enable_thinking", False)
+        if "extra_body" not in api_kwargs:
+            api_kwargs["extra_body"] = {"enable_thinking": False}
         else:
-            extra_body = {"enable_thinking": False}
-        api_kwargs["extra_body"] = extra_body
+            extra_body = api_kwargs["extra_body"]
+            if isinstance(extra_body, dict):
+                extra_body.setdefault("enable_thinking", False)
 
         effective_model = model or self.default_model
         if _should_mock_llm_calls():
@@ -344,7 +347,9 @@ class OpenAICompatibleClientSync:
                     internal_message="AI returned empty result",
                     provider=self.default_model,
                 )
-            return response, _extract_usage(response)
+            usage = _extract_usage(response)
+            record_tokens(usage)
+            return response, usage
         except LLMServiceException:
             raise
         except Exception as exc:
@@ -385,21 +390,22 @@ class OpenAICompatibleClientSync:
         allowed_api_params = {
             "n", "stop", "presence_penalty", "frequency_penalty",
             "logit_bias", "user", "seed", "tools", "tool_choice",
-            "response_format", "logprobs", "top_logprobs",
+            "response_format", "logprobs", "top_logprobs", "extra_body",
         }
         for key, value in kwargs.items():
             if key in allowed_api_params:
                 api_kwargs[key] = value
 
-        # ── disable thinking mode ──
+        # ── disable thinking mode (Qwen default) ──
         # Qwen3.5 by default enables thinking mode, which wastes tokens by outputting <think>...</think>
-        # Explicitly disable it in all API calls
-        extra_body = api_kwargs.get("extra_body", {})
-        if isinstance(extra_body, dict):
-            extra_body.setdefault("enable_thinking", False)
+        # Only inject the disable flag when the caller hasn't already set extra_body
+        # (e.g. DeepSeek thinking mode explicitly passes its own extra_body).
+        if "extra_body" not in api_kwargs:
+            api_kwargs["extra_body"] = {"enable_thinking": False}
         else:
-            extra_body = {"enable_thinking": False}
-        api_kwargs["extra_body"] = extra_body
+            extra_body = api_kwargs["extra_body"]
+            if isinstance(extra_body, dict):
+                extra_body.setdefault("enable_thinking", False)
 
         effective_model = model or self.default_model
         if _should_mock_llm_calls():
@@ -453,7 +459,9 @@ class OpenAICompatibleClientSync:
                 )
 
             content = choices[0].message.content or ""
-            return content, _extract_usage(response)
+            usage = _extract_usage(response)
+            record_tokens(usage)
+            return content, usage
         except LLMServiceException:
             raise
         except Exception as exc:

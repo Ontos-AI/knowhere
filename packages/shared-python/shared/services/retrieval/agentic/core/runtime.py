@@ -1,6 +1,7 @@
 """Runtime setup helpers for agentic retrieval."""
 from __future__ import annotations
 
+
 import json
 import os
 from typing import Any
@@ -66,6 +67,8 @@ class AgentLlmBudget:
         pool: BudgetPoolName,
         doc_id: str | None = None,
         priority: str = "normal",
+        allow_overdraft: bool = False,
+        overdraft_reason: str = "",
     ) -> str:
         ledger = self._state.ledger
         if ledger is None:
@@ -73,14 +76,19 @@ class AgentLlmBudget:
 
         prompt_text = _stringify_llm_input(prompt)
         est = estimate_tokens(prompt_text)
-        reserved = await ledger.try_reserve(
+        reservation = await ledger.reserve(
             pool,
             est,
             doc_id=doc_id,
             priority="low" if priority == "low" else "normal",
+            allow_overdraft=allow_overdraft,
+            overdraft_reason=overdraft_reason,
         )
-        if not reserved:
-            raise BudgetExceeded(f"{pool} budget exhausted")
+        if not reservation.get("reserved"):
+            raise BudgetExceeded(
+                f"{pool} budget exhausted",
+                details=reservation.get("failure") or {},
+            )
 
         try:
             response = await llm_fn(prompt)
@@ -89,7 +97,7 @@ class AgentLlmBudget:
             raise
 
         usage = current_llm_usage.get() or {}
-        actual = int(usage.get("prompt_tokens") or est)
+        actual = _extract_actual_tokens(usage, est)
         await ledger.commit(pool, actual=actual, est=est, doc_id=doc_id)
         return response
 
@@ -105,6 +113,8 @@ class AgentLlmBudget:
         *,
         doc_id: str,
         step: int = 0,
+        allow_overdraft: bool = False,
+        overdraft_reason: str = "",
     ) -> LLMFn:
         async def _call(prompt: Any) -> str:
             return await self.call(
@@ -112,7 +122,9 @@ class AgentLlmBudget:
                 prompt,
                 pool="planning",
                 doc_id=doc_id,
-                priority="low" if step >= 4 else "normal",
+                priority="normal",
+                allow_overdraft=allow_overdraft,
+                overdraft_reason=overdraft_reason,
             )
 
         return _call
@@ -134,6 +146,20 @@ class AgentLlmBudget:
             )
 
         return _call
+
+
+def _extract_actual_tokens(usage: dict, est: int) -> int:
+    """Derive actual token consumption from LLM usage dict.
+
+    Checks ``total_tokens`` first, then sums ``prompt_tokens`` and
+    ``completion_tokens``. Falls back to the pre-call estimate.
+    """
+    total = usage.get("total_tokens")
+    if total:
+        return int(total)
+    prompt = int(usage.get("prompt_tokens") or 0)
+    completion = int(usage.get("completion_tokens") or 0)
+    return (prompt + completion) or est
 
 
 def _stringify_llm_input(prompt: Any) -> str:

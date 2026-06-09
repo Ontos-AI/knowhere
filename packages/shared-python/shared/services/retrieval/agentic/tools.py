@@ -9,9 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic.core.types import ToolResult
-from shared.services.retrieval.agentic.discovery import selection as discovery_selection
-from shared.services.retrieval.agentic.discovery.selection import DiscoverySelectResult
+from shared.services.retrieval.agentic.core.types import NavigateStepResult, ToolResult
 from shared.services.retrieval.agentic.discovery import tools as discovery_tools
 from shared.services.retrieval.agentic.navigation import assets as asset_tools
 from shared.services.retrieval.agentic.navigation import tools as navigation_tools
@@ -76,23 +74,6 @@ async def kg_document_select(
     )
 
 
-async def asset_filter_step(
-    db: AsyncSession,
-    *,
-    document_id: str,
-    job_result_id: str,
-    scope_path: str | list[str] | None,
-    asset_type: str,
-) -> list[dict[str, Any]]:
-    return await asset_tools.asset_filter_step(
-        db,
-        document_id=document_id,
-        job_result_id=job_result_id,
-        scope_path=scope_path,
-        asset_type=asset_type,
-    )
-
-
 async def navigate_step(
     db: AsyncSession,
     *,
@@ -108,7 +89,16 @@ async def navigate_step(
     budget_snapshot: dict | None = None,
     nav_trace: list[dict[str, Any]] | None = None,
     collected_paths: list[dict[str, Any]] | None = None,
-) -> navigation_tools.NavigateStepResult:
+    expanded_scopes: set[str] | None = None,
+    rejected_paths: set[str] | None = None,
+    rejected_collect_paths: set[str] | None = None,
+    disabled_asset_types: set[str] | None = None,
+    discovery_hints: list[dict[str, Any]] | None = None,
+    section_rows: list | None = None,
+    query_intent: str = "UNKNOWN",
+    search_context: str = "",
+    prior_tool_result: dict[str, Any] | None = None,
+) -> NavigateStepResult:
     return await navigation_tools.navigate_step(
         db,
         document_id=document_id,
@@ -123,31 +113,36 @@ async def navigate_step(
         budget_snapshot=budget_snapshot,
         nav_trace=nav_trace,
         collected_paths=collected_paths,
+        expanded_scopes=expanded_scopes,
+        rejected_paths=rejected_paths,
+        rejected_collect_paths=rejected_collect_paths,
+        disabled_asset_types=disabled_asset_types,
+        discovery_hints=discovery_hints,
+        section_rows=section_rows,
+        query_intent=query_intent,
+        search_context=search_context,
+        prior_tool_result=prior_tool_result,
     )
 
 
-async def discovery_select_step(
+async def search_assets_step(
     db: AsyncSession,
     *,
     document_id: str,
+    job_result_id: str,
+    scope_path: str | list[str] | None,
+    asset_type: str,
     query: str,
     llm_fn: LLMFn,
-    user_id: str,
-    namespace: str,
-    doc_name: str = "",
-    discovery_hints: list[dict[str, Any]],
-    exclude_paths: set[str] | None = None,
-    budget_snapshot: dict | None = None,
-) -> DiscoverySelectResult:
-    return await discovery_selection.discovery_select_step(
+    vlm_fn: LLMFn | None = None,
+) -> dict[str, Any]:
+    return await asset_tools.search_assets_step(
         db,
         document_id=document_id,
+        job_result_id=job_result_id,
+        scope_path=scope_path,
+        asset_type=asset_type,
         query=query,
         llm_fn=llm_fn,
-        user_id=user_id,
-        namespace=namespace,
-        doc_name=doc_name,
-        discovery_hints=discovery_hints,
-        exclude_paths=exclude_paths,
-        budget_snapshot=budget_snapshot,
+        vlm_fn=vlm_fn,
     )

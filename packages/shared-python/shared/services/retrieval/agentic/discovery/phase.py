@@ -4,10 +4,8 @@ from __future__ import annotations
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import Document
 from shared.services.retrieval.agentic import tools
 from shared.services.retrieval.agentic.core.budget import BudgetExceeded
 from shared.services.retrieval.agentic.core.trace import TraceRecorder
@@ -168,42 +166,12 @@ async def _select_documents(
         )
 
     _append_selected_docs(state, kg_result)
-    if not state.selected_docs and state.discovery_top_doc_ids:
-        await _append_discovery_hints(db, state=state)
 
     logger.info(
         f"  agentic step {state.step_count}: kg_document_select "
         f"status={kg_result.status} docs={len(state.selected_docs)} "
         f"latency={kg_result.latency_ms}ms"
     )
-
-
-async def _append_discovery_hints(db: AsyncSession, *, state: AgentState) -> None:
-    hint_ids = [
-        doc_id
-        for doc_id in state.discovery_top_doc_ids
-        if doc_id not in state.ever_explored_doc_ids
-    ]
-    if not hint_ids:
-        return
-    doc_stmt = (
-        select(Document.document_id, Document.source_file_name, Document.current_job_result_id)
-        .where(Document.document_id.in_(hint_ids))
-    )
-    doc_result = await db.execute(doc_stmt)
-    for doc_id, source_file_name, job_result_id in doc_result.all():
-        state.selected_docs.append(
-            CandidateDoc(
-                document_id=doc_id,
-                source_file_name=source_file_name or doc_id,
-                confidence=0.5,
-                reason="discovery_hint (KG returned 0)",
-                source="discovery_hint",
-            )
-        )
-        state.doc_id_to_name[doc_id] = source_file_name or doc_id
-        if job_result_id:
-            state.doc_job_map[doc_id] = job_result_id
 
 
 def _append_selected_docs(state: AgentState, kg_result: ToolResult) -> None:

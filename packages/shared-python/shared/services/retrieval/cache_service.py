@@ -45,6 +45,7 @@ def _cache_shape_digest(
     rerank: bool = False,
     threshold: float = 0.0,
     internal_recall_k: int | None = None,
+    use_agentic: bool | None = None,
     decomposition_enabled: bool | None = None,
 ) -> str:
     normalized_excludes = sorted(exclude_document_ids)
@@ -59,6 +60,7 @@ def _cache_shape_digest(
             str(rerank),
             str(threshold),
             str(internal_recall_k),
+            str(use_agentic),
             str(decomposition_enabled),
         ]
     )
@@ -187,10 +189,27 @@ async def set_cached_retrieval_query_result(
     )
 
 
-def _workflow_plan_cache_key(*, user_id: str, namespace: str, query: str) -> str:
+async def _workflow_plan_cache_key(
+    *,
+    user_id: str,
+    namespace: str,
+    query: str,
+    top_k: int,
+    data_type: int = 1,
+    exclude_document_ids: list[str] | None = None,
+) -> str:
     namespace = normalize_retrieval_namespace(namespace)
-    digest = hashlib.sha256(query.encode("utf-8")).hexdigest()
-    return f"retrieval:workflow:plan:{user_id}:{namespace}:{digest}"
+    version = await get_retrieval_namespace_cache_version(
+        user_id=user_id, namespace=namespace
+    )
+    digest = _cache_shape_digest(
+        query=query,
+        top_k=top_k,
+        data_type=data_type,
+        exclude_document_ids=exclude_document_ids or [],
+        exclude_sections=[],
+    )
+    return f"retrieval:workflow:plan:{user_id}:{namespace}:v{version}:{digest}"
 
 
 async def get_cached_workflow_plan(
@@ -198,12 +217,17 @@ async def get_cached_workflow_plan(
     user_id: str,
     namespace: str,
     query: str,
+    top_k: int,
+    data_type: int = 1,
+    exclude_document_ids: list[str] | None = None,
 ) -> dict[str, Any] | None:
     redis_service = RedisServiceFactory.get_service()
-    cached = await redis_service.get(
-        _workflow_plan_cache_key(user_id=user_id, namespace=namespace, query=query),
-        default=None,
+    key = await _workflow_plan_cache_key(
+        user_id=user_id, namespace=namespace, query=query,
+        top_k=top_k, data_type=data_type,
+        exclude_document_ids=exclude_document_ids,
     )
+    cached = await redis_service.get(key, default=None)
     return cached if isinstance(cached, dict) else None
 
 
@@ -212,11 +236,15 @@ async def set_cached_workflow_plan(
     user_id: str,
     namespace: str,
     query: str,
+    top_k: int,
+    data_type: int = 1,
+    exclude_document_ids: list[str] | None = None,
     plan: dict[str, Any],
 ) -> None:
     redis_service = RedisServiceFactory.get_service()
-    await redis_service.set(
-        _workflow_plan_cache_key(user_id=user_id, namespace=namespace, query=query),
-        plan,
-        ex=_WORKFLOW_PLAN_CACHE_TTL_SECONDS,
+    key = await _workflow_plan_cache_key(
+        user_id=user_id, namespace=namespace, query=query,
+        top_k=top_k, data_type=data_type,
+        exclude_document_ids=exclude_document_ids,
     )
+    await redis_service.set(key, plan, ex=_WORKFLOW_PLAN_CACHE_TTL_SECONDS)

@@ -1,96 +1,79 @@
-from shared.services.retrieval.agentic.core.types import DocTreeNode
-from shared.services.retrieval.agentic.discovery.selection import (
-    _build_discovery_path_selections,
-    _project_discovery_hints,
-)
+from shared.services.retrieval.agentic.navigation.actions import build_legal_actions
 
 
-def test_root_discovery_hint_is_projected_for_llm_selection() -> None:
-    hint_lines, hint_by_path, excluded_hints = _project_discovery_hints(
-        [
+def test_discovery_hint_is_projected_as_collect_action() -> None:
+    action_set = build_legal_actions(
+        items=[],
+        current_scope=None,
+        collected_paths=[],
+        expanded_scopes=set(),
+        discovery_hints=[
             {
-                "section_path": "Root",
-                "chunk_id": "chunk_root_relevant",
-                "summary": "document-level market chart",
+                "section_path": "2 阶段性调整还是牛熊切换？ / 2.1 牛熊切换缘何开启?",
+                "discovery_score": 0.82,
+                "chunk_type": "text",
             }
         ],
-        exclude_paths=None,
+        rejected_paths=set(),
+        rejected_collect_paths=set(),
+        total_images=0,
+        total_tables=0,
+        budget_snapshot=None,
     )
 
-    assert hint_lines == [
-        '▸ path="Root"',
-        "    document-level market chart",
-    ]
-    assert hint_by_path["Root"]["chunk_id"] == "chunk_root_relevant"
+    assert len(action_set.collect) == 1
+    action = action_set.collect[0]
+    assert action.id == "D1"
+    assert action.action == "COLLECT"
+    assert action.source == "discovery"
+    assert action.path == "2 阶段性调整还是牛熊切换？ / 2.1 牛熊切换缘何开启?"
+    assert action.score == 0.82
 
 
-def test_root_discovery_hint_without_llm_selection_does_not_hydrate() -> None:
-    node = DocTreeNode()
-
-    path_selections, chunk_refs = _build_discovery_path_selections(
-        selections=[],
-        hint_by_path={
-            "Root": {
-                "section_path": "Root",
-                "chunk_id": "chunk_root_relevant",
+def test_discovery_hint_under_collected_path_is_not_repeated() -> None:
+    action_set = build_legal_actions(
+        items=[],
+        current_scope=None,
+        collected_paths=[
+            {
+                "path": "2 阶段性调整还是牛熊切换？",
+                "hydrate_mode": "chunks",
             }
-        },
-        document_id="doc_root",
-        node=node,
-    )
-
-    assert path_selections == []
-    assert chunk_refs == []
-    assert node.confidence == {}
-
-
-def test_explicit_root_discovery_selection_with_chunk_id_uses_exact_chunk_ref() -> None:
-    node = DocTreeNode()
-
-    path_selections, chunk_refs = _build_discovery_path_selections(
-        selections=[{"path": "Root", "confidence": 0.91}],
-        hint_by_path={
-            "Root": {
-                "section_path": "Root",
-                "chunk_id": "chunk_root_relevant",
+        ],
+        expanded_scopes=set(),
+        discovery_hints=[
+            {
+                "section_path": "2 阶段性调整还是牛熊切换？ / 2.1 牛熊切换缘何开启?",
+                "discovery_score": 0.82,
             }
-        },
-        document_id="doc_root",
-        node=node,
+        ],
+        rejected_paths=set(),
+        rejected_collect_paths=set(),
+        total_images=0,
+        total_tables=0,
+        budget_snapshot=None,
     )
 
-    assert path_selections == []
-    assert chunk_refs == [
-        {
-            "document_id": "doc_root",
-            "chunk_id": "chunk_root_relevant",
-            "section_path": "Root",
-        }
-    ]
-    assert node.confidence["Root"] == 0.91
+    assert action_set.collect == []
 
 
-def test_explicit_root_discovery_selection_without_chunk_id_keeps_path_fallback() -> None:
-    node = DocTreeNode()
-
-    path_selections, chunk_refs = _build_discovery_path_selections(
-        selections=[{"path": "Root", "confidence": 0.7}],
-        hint_by_path={
-            "Root": {
-                "section_path": "Root",
-                "chunk_id": "",
+def test_discovery_hint_under_rejected_collect_path_is_not_repeated() -> None:
+    action_set = build_legal_actions(
+        items=[],
+        current_scope=None,
+        collected_paths=[],
+        expanded_scopes=set(),
+        discovery_hints=[
+            {
+                "section_path": "1、2016：机构行为助推行情演绎 / 二是英国“脱欧”影响下",
+                "discovery_score": 0.7,
             }
-        },
-        document_id="doc_root",
-        node=node,
+        ],
+        rejected_paths=set(),
+        rejected_collect_paths={"1、2016：机构行为助推行情演绎"},
+        total_images=0,
+        total_tables=0,
+        budget_snapshot=None,
     )
 
-    assert path_selections == [
-        {
-            "path": "Root",
-            "confidence": 0.7,
-            "hydrate_mode": "self_only",
-        }
-    ]
-    assert chunk_refs == []
-    assert node.confidence["Root"] == 0.7
+    assert action_set.collect == []
