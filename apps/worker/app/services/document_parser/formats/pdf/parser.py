@@ -8,6 +8,7 @@ from app.services.document_parser.orchestration.oversized_pdf_policy import (
     build_oversized_pdf_processing_failed_exception,
 )
 from app.services.document_parser.providers.mineru.pdf_service import parse_via_full
+from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
 from app.services.document_parser.support.stage_profiler import stage_timer
 from loguru import logger
 
@@ -25,11 +26,10 @@ def parse_pdfs(
     s3_key=None,
     job_id=None,
 ):
-    route = profile.route if profile else "standard"
     base_llm_paras.update({"doc_name": filename})
 
     # ── Atlas routing: bypass MinerU entirely ──
-    if profile and profile.doc_category == "atlas":
+    if profile and profile.routing_category is PdfRoutingCategory.ATLAS:
         logger.info(f"📐 Atlas detected, bypassing MinerU for {filename}")
         from app.services.document_parser.formats.atlas.parser import parse_atlas
 
@@ -61,7 +61,7 @@ def parse_pdfs(
             ) from exc
 
     # ── Standard single-pass MinerU ──
-    logger.info(f"📄 Standard MinerU parse for {filename} [route={route}]")
+    logger.info(f"📄 Standard MinerU parse for {filename}")
     with stage_timer("pdf.extract.standard", filename=filename):
         parse_via_full(pdf_path, filename, output_dir, s3_key=s3_key)
 
@@ -100,23 +100,21 @@ def _parse_oversized_pdf(
         merge_html_tables,
     )
     from app.services.document_parser.formats.pdf.shard_merger import merge_images, merge_shard_lines
-    from app.services.document_parser.formats.pdf.shard_splitter import (
-        bin_pack_shards,
-        run_doc_agent,
-        split_pdf,
-    )
+    from app.services.document_parser.formats.pdf.shard_splitter import bin_pack_shards, split_pdf
 
-    doc_agent_job_id = job_id or base_llm_paras.get("doc_name", filename)
     work_dir: str | None = None
     temp_shard_s3_keys: list[str] = []
 
     try:
-        # 1. Run doc_agent to get full anatomy map (shard plan + TOC info)
-        with stage_timer("pdf.doc_agent", filename=filename):
-            anatomy = run_doc_agent(
-                pdf_path,
-                job_id=doc_agent_job_id,
-                output_dir=output_dir,
+        # 1. Reuse the entry DOC_PROFILE anatomy map (shard plan + TOC info).
+        anatomy = getattr(profile, "anatomy", None)
+        if anatomy is None:
+            raise RuntimeError(
+                f"Oversized PDF profile for {filename} is missing structural anatomy"
+            )
+        if not anatomy.shard_plan.enabled or not anatomy.shard_plan.shards:
+            raise RuntimeError(
+                f"Oversized PDF profile for {filename} did not produce a shard plan"
             )
 
         agent_shards = anatomy.shard_plan.shards

@@ -14,7 +14,11 @@ from app.services.document_agent.bootstrap import (
 )
 from app.services.document_agent.budget import BudgetTracker
 from app.services.document_agent.executor import ReActExecutor
-from app.services.document_agent.manifest import PageAnatomyMap, ToolContext
+from app.services.document_agent.manifest import (
+    DocumentProfile,
+    PageAnatomyMap,
+    ToolContext,
+)
 from app.services.document_agent.persist import build_anatomy_map, persist_anatomy_map
 from app.services.document_agent.planner import ProfilePlanner
 from app.services.document_agent.registry import REGISTRY
@@ -58,63 +62,99 @@ class ProfileCoordinator:
 
     def run(self) -> PageAnatomyMap:
         try:
-            self.state = DocumentAgentState.RUNNING
-            self._run_bootstrap()
-            self._run_toc_pipeline()
-            profile, initial_decision, planner_result = ProfilePlanner(self.ctx).propose()
-            self.blackboard.document_profile = profile
-            self.blackboard.global_signals["document_profile"] = profile.to_dict()
-            self.trace.record_step(
-                round_index=self.round_index,
-                actor="planner",
-                action_type="plan",
-                result=planner_result,
-                tool_name=None,
-                tool_args={},
-            )
-            self.round_index += 1
-
-            executor_result = ReActExecutor(
-                self.ctx,
-                registry=REGISTRY,
-                max_rounds=int(self.ctx.settings.get("max_rounds", 30)),
-                initial_decision=initial_decision,
-            ).run()
-            if executor_result.verdict.status != "success":
-                raise RuntimeError(
-                    f"profile aborted: {executor_result.verdict.rationale}"
-                )
-            anatomy = build_anatomy_map(self.ctx)
-            persist_result = persist_anatomy_map(self.ctx, {})
-            self.trace.record_step(
-                round_index=self.round_index,
-                actor="persist",
-                action_type="persist",
-                result=persist_result,
-                tool_name="persist.anatomy_map",
-                tool_args={},
-            )
-            self.state = DocumentAgentState.READY
-            self.trace.write_trace_artifact(
-                self.ctx.output_dir,
-                final_status="ready",
-                summary=anatomy.trace_summary | self.trace.summary(),
-            )
-            self.trace.flush(
-                final_status="ready",
-                summary=anatomy.trace_summary | self.trace.summary(),
-            )
-            return anatomy
+            return self._run_structural()
         except Exception as exc:
-            logger.error(f"[document_agent] profile failed: {exc}")
-            self.state = DocumentAgentState.FAILED
-            self.trace.write_trace_artifact(
-                self.ctx.output_dir,
-                final_status="failed",
-                summary={"error": str(exc), "budget": self.ctx.budget.snapshot()},
-            )
-            self.trace.flush(final_status="failed", summary={"error": str(exc)})
+            self._record_failure(exc)
             raise
+
+    def run_coarse(self) -> DocumentProfile:
+        try:
+            return self._run_coarse()
+        except Exception as exc:
+            self._record_failure(exc)
+            raise
+
+    def run_structural(self) -> PageAnatomyMap:
+        try:
+            return self._run_structural()
+        except Exception as exc:
+            self._record_failure(exc)
+            raise
+
+    def _run_coarse(self) -> DocumentProfile:
+        self.state = DocumentAgentState.RUNNING
+        if not self.blackboard.page_features:
+            self._run_bootstrap()
+        profile, _initial_decision, planner_result = ProfilePlanner(self.ctx).propose()
+        self.blackboard.document_profile = profile
+        self.blackboard.global_signals["document_profile"] = profile.to_dict()
+        self.trace.record_step(
+            round_index=self.round_index,
+            actor="planner:coarse",
+            action_type="plan",
+            result=planner_result,
+            tool_name=None,
+            tool_args={},
+        )
+        self.round_index += 1
+        return profile
+
+    def _run_structural(self) -> PageAnatomyMap:
+        self.state = DocumentAgentState.RUNNING
+        if not self.blackboard.page_features:
+            self._run_bootstrap()
+        self._run_toc_pipeline()
+        profile, initial_decision, planner_result = ProfilePlanner(self.ctx).propose()
+        self.blackboard.document_profile = profile
+        self.blackboard.global_signals["document_profile"] = profile.to_dict()
+        self.trace.record_step(
+            round_index=self.round_index,
+            actor="planner",
+            action_type="plan",
+            result=planner_result,
+            tool_name=None,
+            tool_args={},
+        )
+        self.round_index += 1
+        executor_result = ReActExecutor(
+            self.ctx,
+            registry=REGISTRY,
+            max_rounds=int(self.ctx.settings.get("max_rounds", 30)),
+            initial_decision=initial_decision,
+        ).run()
+        if executor_result.verdict.status != "success":
+            raise RuntimeError(f"profile aborted: {executor_result.verdict.rationale}")
+        anatomy = build_anatomy_map(self.ctx)
+        persist_result = persist_anatomy_map(self.ctx, {})
+        self.trace.record_step(
+            round_index=self.round_index,
+            actor="persist",
+            action_type="persist",
+            result=persist_result,
+            tool_name="persist.anatomy_map",
+            tool_args={},
+        )
+        self.state = DocumentAgentState.READY
+        self.trace.write_trace_artifact(
+            self.ctx.output_dir,
+            final_status="ready",
+            summary=anatomy.trace_summary | self.trace.summary(),
+        )
+        self.trace.flush(
+            final_status="ready",
+            summary=anatomy.trace_summary | self.trace.summary(),
+        )
+        return anatomy
+
+    def _record_failure(self, exc: Exception) -> None:
+        logger.error(f"[document_agent] profile failed: {exc}")
+        self.state = DocumentAgentState.FAILED
+        self.trace.write_trace_artifact(
+            self.ctx.output_dir,
+            final_status="failed",
+            summary={"error": str(exc), "budget": self.ctx.budget.snapshot()},
+        )
+        self.trace.flush(final_status="failed", summary={"error": str(exc)})
 
     def _run_bootstrap(self) -> None:
         for tool_name, handler in (

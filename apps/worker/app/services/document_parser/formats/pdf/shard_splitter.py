@@ -1,4 +1,4 @@
-"""PDF shard splitting: doc_agent integration + bin-packing + physical split."""
+"""PDF shard splitting: bin-packing + physical split."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import pymupdf
 from loguru import logger
 
 if TYPE_CHECKING:
-    from app.services.document_agent.manifest import PageAnatomyMap, Shard
+    from app.services.document_agent.manifest import Shard
 
 
 @dataclass
@@ -29,40 +29,6 @@ class MergedShard:
     def page_offset(self) -> int:
         """Offset to add to MinerU's 0-based page_idx to get original page_idx."""
         return self.page_start - 1
-
-
-def run_doc_agent(
-    pdf_path: str, job_id: str, output_dir: str
-) -> "PageAnatomyMap":
-    """Run doc_agent ProfileCoordinator and return the full anatomy map.
-
-    Returns the complete PageAnatomyMap so callers can access TOC info
-    (toc_result.toc_pages, toc_hierarchies) in addition to the shard plan.
-
-    Raises RuntimeError if the agent fails or produces no shards.
-    """
-    from app.services.document_agent.coordinator import ProfileCoordinator
-
-    agent_output_dir = os.path.join(output_dir, "_doc_agent")
-    os.makedirs(agent_output_dir, exist_ok=True)
-
-    coordinator = ProfileCoordinator(
-        pdf_path=pdf_path,
-        job_id=job_id,
-        output_dir=agent_output_dir,
-    )
-    anatomy = coordinator.run()
-
-    if not anatomy.shard_plan.enabled or not anatomy.shard_plan.shards:
-        raise RuntimeError(
-            f"Doc agent did not produce a valid shard plan for {job_id}"
-        )
-
-    shards = anatomy.shard_plan.shards
-    logger.info(
-        f"📋 Doc agent: {len(shards)} shards via {anatomy.shard_plan.reason}"
-    )
-    return anatomy
 
 
 def bin_pack_shards(

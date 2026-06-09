@@ -47,6 +47,7 @@ class PageLabel:
 class DocumentProfile:
     is_scanned: bool
     category: str
+    routing_category: str = "generic"
     category_rationale: str = ""
     language: str = "unknown"
     rationale: str = ""

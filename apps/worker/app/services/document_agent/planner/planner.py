@@ -18,6 +18,7 @@ from app.services.document_agent.manifest import (
 )
 from app.services.document_agent.planner.prompts import PLANNER_INSTRUCTIONS
 from app.services.document_agent.visual import render_pages
+from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
 from shared.utils.token_estimate import estimate_tokens
 
 PAGE_KIND_DEFINITIONS = {
@@ -119,6 +120,9 @@ def _parse_profile_and_decision(raw: str) -> tuple[DocumentProfile, ReflexionDec
     if not isinstance(data, dict):
         raise ValueError("planner output must be a JSON object")
     category = " ".join(str(data.get("category") or "unknown document").split()[:5])
+    routing_category = PdfRoutingCategory.normalize(
+        data.get("routing_category") or data.get("category")
+    ).value
     raw_is_scanned = data.get("is_scanned")
     if isinstance(raw_is_scanned, bool):
         is_scanned = raw_is_scanned
@@ -129,6 +133,7 @@ def _parse_profile_and_decision(raw: str) -> tuple[DocumentProfile, ReflexionDec
     profile = DocumentProfile(
         is_scanned=is_scanned,
         category=category or "unknown document",
+        routing_category=routing_category,
         category_rationale=str(data.get("category_rationale") or ""),
         language=str(data.get("language") or "unknown"),
         rationale=str(data.get("rationale") or ""),
@@ -196,6 +201,7 @@ class ProfilePlanner:
             profile = DocumentProfile(
                 is_scanned=False,
                 category="unknown document",
+                routing_category=PdfRoutingCategory.GENERIC.value,
                 rationale="No planner model configured.",
             )
             decision = ReflexionDecision(
@@ -227,6 +233,7 @@ class ProfilePlanner:
                 {},
             ),
             "page_kind_definitions": PAGE_KIND_DEFINITIONS,
+            "doc_shape": self.ctx.blackboard.global_signals.get("doc_shape", {}),
             "doc_stats": self.ctx.blackboard.doc_stats,
             "extrema_samples": self.ctx.blackboard.global_signals.get(
                 "extrema_samples",
@@ -314,5 +321,3 @@ class ProfilePlanner:
         except Exception:
             self.ctx.budget.refund("visual", est=prompt_tokens_est)
             raise
-
-

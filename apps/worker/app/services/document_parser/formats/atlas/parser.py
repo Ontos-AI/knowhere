@@ -2,7 +2,7 @@
 """
 Atlas-specific parsing pipeline.
 
-For documents detected as atlas (doc_category="atlas") — e.g. engineering drawing
+For documents detected as atlas (category="atlas") — e.g. engineering drawing
 collections — this module BYPASSES MinerU entirely and uses PyMuPDF directly to:
   1. Extract text from each page (for naming and content)
   2. Render each page as a single complete image (preserving full-page layout)
@@ -282,7 +282,7 @@ def parse_atlas(
         output_dir: output directory for images, full.md, etc.
         base_llm_paras: LLM parameters dict
         relative_root: path prefix for chunk path field
-        profile: DocProfile with scan_type info
+        profile: parser profile with is_scanned info
 
     Returns:
         pd.DataFrame with ALL_DF_COLS columns
@@ -305,7 +305,7 @@ def parse_atlas(
 
     # ── Determine if VLM is needed ──
     use_vlm = True
-    is_scanned = profile and profile.scan_type == "scanned"
+    is_scanned = bool(profile and profile.is_scanned)
     scan_label = "scanned" if is_scanned else "non-scanned"
     logger.info(f"📐 Atlas: {scan_label} document, VLM enabled for info extraction")
 
