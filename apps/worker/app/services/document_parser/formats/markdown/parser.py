@@ -228,6 +228,7 @@ def parse_md(
     toc_hierarchies=None,
     lines_with_heading=None,
     is_first_shard=True,
+    skip_toc_detection=False,
 ):
     if lines_with_heading is not None:
         # ── Phase A bypass ──
@@ -277,6 +278,8 @@ def parse_md(
                 f"({len(toc_hierarchies)} regions), "
                 f"skipping detect_tocs_in_texts"
             )
+        elif skip_toc_detection:
+            logger.info("📌 Skipping TOC detection by upstream parser decision")
         else:
             with stage_timer(
                 "md.detect_toc", line_count=len(md_lines), model_name=toc_model_name

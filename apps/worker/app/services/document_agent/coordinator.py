@@ -236,13 +236,7 @@ class ProfileCoordinator:
         )
 
     def _should_run_toc_before_coarse(self) -> bool:
-        if self.ctx.settings.get("toc_before_coarse"):
-            return True
-        try:
-            page_limit = int(self.ctx.settings.get("toc_before_coarse_page_limit", 0))
-        except (TypeError, ValueError):
-            page_limit = 0
-        return page_limit > 0 and self.blackboard.page_count > page_limit
+        return bool(self.ctx.settings.get("toc_before_coarse"))
 
     def _ensure_toc_profile(self, *, strict: bool) -> None:
         should_run = self.blackboard.toc_result is None

@@ -71,8 +71,7 @@ def _profile_pdf(
             "planner_model": settings.IMAGE_MODEL,
             "vlm_model": settings.IMAGE_MODEL,
             "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
-            "toc_before_coarse": settings.PDF_PROFILE_TOC_ENABLED,
-            "toc_before_coarse_page_limit": settings.MAX_PDF_PAGE_LIMIT,
+            "toc_before_coarse": True,
         },
     )
     agent_profile = coordinator.run_coarse()
@@ -107,7 +106,9 @@ def _profile_pdf(
                     page_count=profile.page_count,
                     original_exception=exc,
                 ) from exc
-    elif settings.PDF_PROFILE_TOC_ENABLED:
+        else:
+            profile.toc = _map_toc_profile(coordinator)
+    else:
         if not profile.is_atlas:
             profile.anatomy = coordinator.run_lightweight_anatomy()
         profile.toc = _map_toc_profile(coordinator)
@@ -136,6 +137,7 @@ def _map_toc_profile(coordinator: ProfileCoordinator) -> ParserTocProfile:
         source=source,
         method=toc_result.method,
         notes=toc_result.notes,
+        attempted=True,
     )
 
 
