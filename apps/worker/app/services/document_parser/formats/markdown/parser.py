@@ -113,6 +113,7 @@ def eval_md_headings(
     model_name=None,
     output_dir=None,
     layout_json_path=None,
+    is_first_shard=True,
 ):
     """Evaluate markdown headings with optional TOC hierarchies context"""
     heading_preds = predict_heading_hierarchy(
@@ -125,6 +126,7 @@ def eval_md_headings(
             model_name=model_name,
             output_dir=output_dir,
             layout_json_path=layout_json_path,
+            is_first_shard=is_first_shard,
         )
     )
 
@@ -225,6 +227,7 @@ def parse_md(
     relative_root=None,
     toc_hierarchies=None,
     lines_with_heading=None,
+    is_first_shard=True,
 ):
     if lines_with_heading is not None:
         # ── Phase A bypass ──
@@ -312,6 +315,7 @@ def parse_md(
                 model_name=hierarchy_model_name,
                 output_dir=output_dir,
                 layout_json_path=layout_json_path,
+                is_first_shard=is_first_shard,
             )
 
     # ── Phase B: MarkdownParseState traversal ──

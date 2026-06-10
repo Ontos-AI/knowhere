@@ -79,6 +79,14 @@ class StorageConfig(BaseModel):
         description="Soft page limit for oversized PDF shard pipeline. "
         "Documents exceeding this are rejected with a contact-support message.",
     )
+    PDF_PROFILE_TOC_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Enable PDF TOC extraction during parser-entry DOC_PROFILE for "
+            "standard and atlas PDFs. Oversized PDFs still run TOC profiling as "
+            "part of the shard pipeline."
+        ),
+    )
     MINERU_SHARD_CONCURRENCY: int = Field(
         default=3,
         ge=1,

@@ -9,7 +9,11 @@ from app.services.document_parser.orchestration.oversized_pdf_policy import (
     build_oversized_pdf_processing_failed_exception,
     raise_if_oversized_pdf_not_supported,
 )
-from app.services.document_parser.profiling.profile_model import ParserDocumentProfile
+from app.services.document_parser.profiling.profile_model import (
+    ParserDocumentProfile,
+    ParserTocProfile,
+    TocEvidence,
+)
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
 
 from shared.core.config import settings
@@ -67,6 +71,8 @@ def _profile_pdf(
             "planner_model": settings.IMAGE_MODEL,
             "vlm_model": settings.IMAGE_MODEL,
             "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
+            "toc_before_coarse": settings.PDF_PROFILE_TOC_ENABLED,
+            "toc_before_coarse_page_limit": settings.MAX_PDF_PAGE_LIMIT,
         },
     )
     agent_profile = coordinator.run_coarse()
@@ -95,13 +101,42 @@ def _profile_pdf(
         if not profile.is_atlas:
             try:
                 profile.anatomy = coordinator.run_structural()
+                profile.toc = _map_toc_profile(coordinator)
             except Exception as exc:
                 raise build_oversized_pdf_processing_failed_exception(
                     page_count=profile.page_count,
                     original_exception=exc,
                 ) from exc
+    elif settings.PDF_PROFILE_TOC_ENABLED:
+        if not profile.is_atlas:
+            profile.anatomy = coordinator.run_lightweight_anatomy()
+        profile.toc = _map_toc_profile(coordinator)
 
     return profile
+
+
+def _map_toc_profile(coordinator: ProfileCoordinator) -> ParserTocProfile:
+    toc_result = coordinator.blackboard.toc_result
+    if toc_result is None:
+        return ParserTocProfile()
+    evidence = [
+        TocEvidence(
+            page_index=item.page_index,
+            source=item.source,
+            confidence=item.confidence,
+            reason=item.reason,
+        )
+        for item in toc_result.evidence
+    ]
+    source = "pdf_vlm" if toc_result.method != "none" else "none"
+    return ParserTocProfile(
+        toc_pages=list(toc_result.toc_pages),
+        hierarchies=coordinator.blackboard.toc_hierarchies,
+        evidence=evidence,
+        source=source,
+        method=toc_result.method,
+        notes=toc_result.notes,
+    )
 
 
 __all__ = ["profile_document"]

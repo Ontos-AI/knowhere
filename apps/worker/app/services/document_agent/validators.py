@@ -35,7 +35,7 @@ def validate_shard_plan(
         if shard.page_offset != shard.page_start - 1:
             errors.append(f"shard {shard.shard_index} page_offset mismatch")
         length = shard.page_end - shard.page_start + 1
-        if plan.enabled and length > max_pages:
+        if length > max_pages:
             errors.append(f"shard {shard.shard_index} exceeds max_pages={max_pages}")
         if plan.enabled and length < min_pages:
             if is_last:

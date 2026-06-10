@@ -5,9 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import os
-import re
 import time
-import unicodedata
 from typing import Any, cast
 
 from app.services.document_agent.manifest import (
@@ -19,42 +17,12 @@ from app.services.document_agent.manifest import (
 from app.services.document_agent.pdf_text import read_page_texts
 from app.services.document_agent.registry import has_toc_result, register_tool
 from app.services.document_agent.visual import render_pages
-from loguru import logger
-
-
-# ── Text normalization for matching ──────────────────────────────────────
-
-_LEADING_NUMBER_RE = re.compile(
-    r"""^
-    (?:
-        [#]+\s*
-        | 第\s*[零一二三四五六七八九十百千\d]+\s*[章节篇部分]
-        | [零一二三四五六七八九十百千]+\s*[、。，,]
-        | [（(]\s*[零一二三四五六七八九十百千\d]+\s*[）)]
-        | \d+(?:\.\d+)*\.?\s*
-        | [IVXLCDM]+\.?\s+
-        | [A-Za-z]\.\s+
-        | Chapter\s+\w+\s*
-    )
-    """,
-    re.VERBOSE | re.IGNORECASE,
+from app.services.document_parser.structure.body_boundary import (
+    clean_toc_title,
+    extract_level1_titles,
+    normalize_heading_text,
 )
-
-_PAGE_SUFFIX_RE = re.compile(r"[\s\.\-·…]+\d+\s*$")
-
-
-def _normalize(text: str) -> str:
-    """Normalize text for fuzzy heading matching."""
-    text = unicodedata.normalize("NFKC", text or "")
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-
-def _clean_toc_title(title: str) -> str:
-    """Remove leading numbering/hashes and trailing page numbers from a TOC title."""
-    cleaned = _PAGE_SUFFIX_RE.sub("", title or "").strip()
-    cleaned = _LEADING_NUMBER_RE.sub("", cleaned).strip()
-    return cleaned
+from loguru import logger
 
 
 # ── C1: Unified grep matching ────────────────────────────────────────────
@@ -80,14 +48,14 @@ def grep_titles_in_pages(
     unmatched: list[str] = []
 
     for title in titles:
-        normalized_title = _normalize(title)
+        normalized_title = normalize_heading_text(title)
         found = False
         for page in search_pages:
             text = page_texts.get(page, "")
-            if normalized_title in _normalize(text):
+            if normalized_title in normalize_heading_text(text):
                 matched_line = ""
                 for line in text.splitlines():
-                    if normalized_title in _normalize(line):
+                    if normalized_title in normalize_heading_text(line):
                         matched_line = line.strip()[:100]
                         break
                 candidates.append(
@@ -130,30 +98,20 @@ def extract_children_titles(
         in_scope = False
         for entry in entries:
             if entry.get("level") == 1:
-                cleaned = _clean_toc_title(entry.get("heading", ""))
-                in_scope = _normalize(cleaned) == _normalize(parent_title)
+                cleaned = clean_toc_title(entry.get("heading", ""))
+                in_scope = normalize_heading_text(cleaned) == normalize_heading_text(
+                    parent_title
+                )
                 continue
             if in_scope and entry.get("level") == 2:
-                cleaned = _clean_toc_title(entry.get("heading", ""))
+                cleaned = clean_toc_title(entry.get("heading", ""))
                 if cleaned and len(cleaned) >= 2:
                     titles.append(cleaned)
     return titles
 
 
 def _extract_level1_titles(toc_hierarchies: list[dict[str, Any]]) -> list[str]:
-    """Extract level-1 titles from toc_hierarchies.
-
-    Each hierarchy dict contains ``toc_tree`` – a nested dict where top-level
-    keys are level-1 headings (values are sub-heading dicts).
-    """
-    titles: list[str] = []
-    for hier in toc_hierarchies:
-        toc_tree = hier.get("toc_tree") or {}
-        for raw_title in toc_tree.keys():
-            cleaned = _clean_toc_title(raw_title)
-            if cleaned and len(cleaned) >= 2:
-                titles.append(cleaned)
-    return titles
+    return extract_level1_titles(toc_hierarchies)
 
 
 # ── C2: Lazy VLM verification ────────────────────────────────────────────

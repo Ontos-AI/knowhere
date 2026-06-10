@@ -7,6 +7,28 @@ from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
 
 
 @dataclass
+class TocEvidence:
+    page_index: int
+    source: str
+    confidence: float
+    reason: str = ""
+
+
+@dataclass
+class ParserTocProfile:
+    toc_pages: list[int] = field(default_factory=list)
+    hierarchies: list[dict[str, Any]] | None = None
+    evidence: list[TocEvidence] = field(default_factory=list)
+    source: str = "none"
+    method: str = "none"
+    notes: str = ""
+
+    @property
+    def has_toc(self) -> bool:
+        return bool(self.toc_pages or self.hierarchies)
+
+
+@dataclass
 class ParserDocumentProfile:
     """Parser-entry document profile used for routing and PDF anatomy reuse."""
 
@@ -18,6 +40,8 @@ class ParserDocumentProfile:
     language: str = "unknown"
     reasoning: str = ""
     category_rationale: str = ""
+    toc: ParserTocProfile = field(default_factory=ParserTocProfile)
+    granularity: str = "page"
     anatomy: Any | None = None
     metrics: dict[str, Any] = field(default_factory=dict)
 
@@ -48,9 +72,11 @@ class ParserDocumentProfile:
             f"routing={self.routing_category.value}, "
             f"scanned={self.is_scanned}, pages={self.page_count}"
         )
+        if self.toc.has_toc:
+            parts += f", toc={self.toc.method}"
         if self.has_structural_anatomy:
             parts += ", anatomy=True"
         return parts
 
 
-__all__ = ["ParserDocumentProfile"]
+__all__ = ["ParserDocumentProfile", "ParserTocProfile", "TocEvidence"]

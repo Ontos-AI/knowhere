@@ -9,7 +9,9 @@ from app.services.document_parser.orchestration.oversized_pdf_policy import (
 )
 from app.services.document_parser.providers.mineru.pdf_service import parse_via_full
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
+from app.services.document_parser.structure.toc_parser import detect_tocs_in_texts
 from app.services.document_parser.support.stage_profiler import stage_timer
+from app.services.document_parser.support.text_helpers import normalize_md
 from loguru import logger
 
 from shared.core.config import settings
@@ -37,19 +39,27 @@ def parse_pdfs(
             pdf_path, output_dir, base_llm_paras, relative_root, profile=profile
         )
 
-    # ── Oversized PDF: doc_agent → shard → parallel MinerU → merge → parse_md ──
-    if profile and profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
-        logger.info(
-            f"📄 Oversized PDF: {profile.page_count} pages > "
-            f"{settings.MAX_PDF_PAGE_LIMIT} limit, entering shard pipeline"
-        )
+    # ── Unified anatomy path: DOC_PROFILE → shard wrapper → parse_md Phase B ──
+    if profile and getattr(profile, "anatomy", None) is not None:
+        is_oversized = profile.page_count > settings.MAX_PDF_PAGE_LIMIT
+        if is_oversized:
+            logger.info(
+                f"📄 Oversized PDF: {profile.page_count} pages > "
+                f"{settings.MAX_PDF_PAGE_LIMIT} limit, entering shard pipeline"
+            )
+        else:
+            logger.info(
+                f"📄 Profile anatomy detected, entering PDF shard pipeline for {filename}"
+            )
         try:
-            return _parse_oversized_pdf(
+            return _parse_pdf_via_shards(
                 pdf_path, filename, output_dir, base_llm_paras,
                 profile=profile, relative_root=relative_root, s3_key=s3_key,
                 job_id=job_id,
             )
         except Exception as exc:
+            if not is_oversized:
+                raise
             logger.exception(
                 "Oversized PDF shard pipeline failed for {} (pages={})",
                 filename,
@@ -77,11 +87,11 @@ def parse_pdfs(
         )
 
 
-def _parse_oversized_pdf(
+def _parse_pdf_via_shards(
     pdf_path, filename, output_dir, base_llm_paras,
     profile=None, relative_root=None, s3_key=None, job_id=None,
 ):
-    """Handle PDFs exceeding MinerU's page limit via shard-first hierarchy.
+    """Handle PDFs via the unified shard-first hierarchy pipeline.
 
     Pipeline:
     1. DOC_AGENT → shard plan + TOC
@@ -99,8 +109,14 @@ def _parse_oversized_pdf(
         eval_md_headings,
         merge_html_tables,
     )
-    from app.services.document_parser.formats.pdf.shard_merger import merge_images, merge_shard_lines
-    from app.services.document_parser.formats.pdf.shard_splitter import bin_pack_shards, split_pdf
+    from app.services.document_parser.formats.pdf.shard_merger import (
+        merge_images,
+        merge_shard_lines,
+    )
+    from app.services.document_parser.formats.pdf.shard_splitter import (
+        bin_pack_shards,
+        split_pdf,
+    )
 
     work_dir: str | None = None
     temp_shard_s3_keys: list[str] = []
@@ -110,21 +126,20 @@ def _parse_oversized_pdf(
         anatomy = getattr(profile, "anatomy", None)
         if anatomy is None:
             raise RuntimeError(
-                f"Oversized PDF profile for {filename} is missing structural anatomy"
+                f"PDF profile for {filename} is missing structural anatomy"
             )
-        if not anatomy.shard_plan.enabled or not anatomy.shard_plan.shards:
+        if not anatomy.shard_plan.shards:
             raise RuntimeError(
-                f"Oversized PDF profile for {filename} did not produce a shard plan"
+                f"PDF profile for {filename} did not produce a shard plan"
             )
 
         agent_shards = anatomy.shard_plan.shards
 
         # 2. Extract TOC info from anatomy for page exclusion and heading constraint
         toc_pages: set[int] = set()
-        toc_hierarchies = None
+        toc_hierarchies = anatomy.toc_hierarchies
         if anatomy.toc_result and anatomy.toc_result.toc_pages:
             toc_pages = set(anatomy.toc_result.toc_pages)
-            toc_hierarchies = anatomy.toc_hierarchies
             logger.info(
                 f"📌 DOC_AGENT TOC detected: {len(toc_pages)} pages to exclude "
                 f"({sorted(toc_pages)}), "
@@ -146,55 +161,77 @@ def _parse_oversized_pdf(
                 f"({ms.page_count} pages)"
             )
 
-        # 4. Physically split PDF (exclude TOC pages if detected)
-        work_dir = os.path.join(output_dir, "_shards")
-        os.makedirs(work_dir, exist_ok=True)
-        with stage_timer("pdf.split", filename=filename):
-            shard_pdf_paths, _page_remap = split_pdf(
-                pdf_path, merged_shards, work_dir,
-                exclude_pages=toc_pages if toc_pages else None,
-            )
+        fast_path_original_pdf = len(merged_shards) == 1 and not toc_pages
 
-        temp_shard_s3_keys = [
-            _build_temp_shard_s3_key(
-                source_s3_key=s3_key,
-                job_id=job_id,
-                filename=filename,
-                shard_index=shard_index,
-            )
-            for shard_index, _shard_pdf_path in enumerate(shard_pdf_paths)
-        ]
-
-        # 5. Parse each shard via MinerU (parallel)
-        shard_output_dirs: list[str | None] = [None] * len(shard_pdf_paths)
+        # 4. Parse via MinerU. The 1-shard/no-TOC case keeps the original
+        # PDF/S3 object to avoid temporary split/upload churn.
+        shard_output_dirs: list[str | None]
         concurrency = settings.MINERU_SHARD_CONCURRENCY
 
-        def _parse_single_shard(shard_idx, shard_pdf):
-            assert work_dir is not None
-            shard_out = os.path.join(work_dir, f"shard_{shard_idx}_output")
-            os.makedirs(shard_out, exist_ok=True)
-            shard_filename = (
-                f"{os.path.splitext(filename)[0]}_shard{shard_idx}.pdf"
-            )
-            shard_s3_key = temp_shard_s3_keys[shard_idx]
-            logger.info(
-                f"  🔄 MinerU shard_{shard_idx}: parsing via S3 URL "
-                f"({shard_s3_key})"
-            )
-            parse_via_full(shard_pdf, shard_filename, shard_out, s3_key=shard_s3_key)
-            return shard_out
+        if fast_path_original_pdf:
+            logger.info("📄 Single shard without TOC pages; using original PDF fast path")
+            with stage_timer("pdf.extract.single_shard_fast", filename=filename):
+                parse_via_full(pdf_path, filename, output_dir, s3_key=s3_key)
+            shard_output_dirs = [output_dir]
+        else:
+            # Physically split PDF when TOC pages must be excluded or multiple
+            # MinerU requests are required.
+            work_dir = os.path.join(output_dir, "_shards")
+            os.makedirs(work_dir, exist_ok=True)
+            with stage_timer("pdf.split", filename=filename):
+                shard_pdf_paths, _page_remap = split_pdf(
+                    pdf_path, merged_shards, work_dir,
+                    exclude_pages=toc_pages if toc_pages else None,
+                )
 
-        with stage_timer(
-            "pdf.mineru_parallel", filename=filename, shard_count=len(shard_pdf_paths)
-        ):
-            with ThreadPoolExecutor(max_workers=concurrency) as executor:
-                futures = {
-                    executor.submit(_parse_single_shard, i, shard_pdf_path): i
-                    for i, shard_pdf_path in enumerate(shard_pdf_paths)
-                }
-                for future in as_completed(futures):
-                    idx = futures[future]
-                    shard_output_dirs[idx] = future.result()
+            if not shard_pdf_paths:
+                raise RuntimeError(
+                    f"PDF shard split for {filename} produced no shard PDFs"
+                )
+
+            temp_shard_s3_keys = [
+                _build_temp_shard_s3_key(
+                    source_s3_key=s3_key,
+                    job_id=job_id,
+                    filename=filename,
+                    shard_index=shard_index,
+                )
+                for shard_index, _shard_pdf_path in enumerate(shard_pdf_paths)
+            ]
+
+            # 5. Parse each shard via MinerU (parallel)
+            shard_output_dirs = [None] * len(shard_pdf_paths)
+
+            def _parse_single_shard(shard_idx, shard_pdf):
+                assert work_dir is not None
+                shard_out = os.path.join(work_dir, f"shard_{shard_idx}_output")
+                os.makedirs(shard_out, exist_ok=True)
+                shard_filename = (
+                    f"{os.path.splitext(filename)[0]}_shard{shard_idx}.pdf"
+                )
+                shard_s3_key = temp_shard_s3_keys[shard_idx]
+                logger.info(
+                    f"  🔄 MinerU shard_{shard_idx}: parsing via S3 URL "
+                    f"({shard_s3_key})"
+                )
+                parse_via_full(
+                    shard_pdf, shard_filename, shard_out, s3_key=shard_s3_key
+                )
+                return shard_out
+
+            with stage_timer(
+                "pdf.mineru_parallel",
+                filename=filename,
+                shard_count=len(shard_pdf_paths),
+            ):
+                with ThreadPoolExecutor(max_workers=concurrency) as executor:
+                    futures = {
+                        executor.submit(_parse_single_shard, i, shard_pdf_path): i
+                        for i, shard_pdf_path in enumerate(shard_pdf_paths)
+                    }
+                    for future in as_completed(futures):
+                        idx = futures[future]
+                        shard_output_dirs[idx] = future.result()
 
         # 6. Per-shard heading prediction (parallel)
         @dataclass
@@ -204,12 +241,16 @@ def _parse_oversized_pdf(
             heading_count: int
 
         smart_parse = base_llm_paras.get("smart_title_parse", True)
+        toc_model_name = base_llm_paras.get("model_name", settings.NORMOL_MODEL)
         hierarchy_model_name = (
             base_llm_paras.get("hierarchy_model_name")
             or base_llm_paras.get("model_name", settings.NORMOL_MODEL)
         )
 
-        def _predict_shard_headings(shard_idx: int, shard_out_dir: str) -> ShardHeadingResult:
+        def _predict_shard_headings(
+            shard_idx: int,
+            shard_out_dir: str,
+        ) -> ShardHeadingResult:
             """Run full heading prediction pipeline on a single shard's full.md."""
             md_path = os.path.join(shard_out_dir, "full.md")
             if not os.path.exists(md_path):
@@ -220,10 +261,18 @@ def _parse_oversized_pdf(
             md_lines = [line.strip() for line in md_lines if line.strip() != ""]
             md_lines = merge_html_tables(md_lines)
 
-            # TOC context: first TOC shared by all shards; subsequent TOCs assigned
-            # by page boundary. For simplicity, all TOCs are passed since pred_titles
-            # only matches headings actually present in this shard's content.
+            is_first_shard = shard_idx == 0
             shard_toc = toc_hierarchies
+            if shard_toc is None and is_first_shard and _md_has_toc_keyword(md_lines):
+                logger.info(
+                    f"📌 shard_{shard_idx}: TOC keyword found without profile TOC; "
+                    "reusing markdown TOC detector"
+                )
+                shard_toc, md_lines = detect_tocs_in_texts(
+                    md_lines,
+                    model_name=toc_model_name,
+                    hierarchy_model_name=hierarchy_model_name,
+                )
 
             lines_with_heading = eval_md_headings(
                 md_lines,
@@ -237,6 +286,7 @@ def _parse_oversized_pdf(
                     if os.path.exists(os.path.join(shard_out_dir, "layout.json"))
                     else None
                 ),
+                is_first_shard=is_first_shard,
             )
 
             heading_count = sum(1 for line in lines_with_heading if line.startswith("#"))
@@ -250,7 +300,9 @@ def _parse_oversized_pdf(
                 heading_count=heading_count,
             )
 
-        shard_heading_results: list[ShardHeadingResult | None] = [None] * len(shard_output_dirs)
+        shard_heading_results: list[ShardHeadingResult | None] = [None] * len(
+            shard_output_dirs
+        )
 
         with stage_timer(
             "pdf.shard_headings", filename=filename, shard_count=len(shard_output_dirs)
@@ -274,7 +326,7 @@ def _parse_oversized_pdf(
 
         # Compute level offsets: continuation shards get shifted deeper.
         shard_offsets: list[int] = []
-        for shard in agent_shards:
+        for shard in agent_shards[: len(complete_heading_results)]:
             if shard.is_continuation:
                 shard_offsets.append(max(shard.split_depth - 1, 0))
             else:
@@ -296,7 +348,8 @@ def _parse_oversized_pdf(
         )
 
         with stage_timer("pdf.merge_images", filename=filename):
-            merge_images(shard_output_dirs, output_dir)
+            if not fast_path_original_pdf:
+                merge_images(shard_output_dirs, output_dir)
 
         logger.info("✅ Shard-first hierarchy complete, entering parse_md Phase B")
 
@@ -312,6 +365,11 @@ def _parse_oversized_pdf(
     finally:
         _cleanup_temp_shard_s3_assets(temp_shard_s3_keys)
         _cleanup_local_shard_workspace(work_dir)
+
+
+def _md_has_toc_keyword(md_lines: list[str]) -> bool:
+    toc_keywords = {"目录", "目次", "tableofcontents", "contents"}
+    return any(normalize_md(line) in toc_keywords for line in md_lines)
 
 
 def _build_temp_shard_s3_key(
@@ -333,6 +391,7 @@ def _source_key_stem(source_s3_key: str | None) -> str | None:
     key_name = os.path.basename(source_s3_key.rstrip("/"))
     stem, _extension = os.path.splitext(key_name)
     return stem or None
+
 
 def _sanitize_temp_storage_segment(value: object) -> str:
     normalized = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value)).strip(".-")

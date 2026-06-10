@@ -13,6 +13,7 @@ from shared.utils.token_estimate import estimate_tokens
 
 from app.services.document_agent.manifest import (
     TocAnchorPage,
+    TocEvidence,
     TocResult,
     ToolContext,
     ToolResult,
@@ -67,12 +68,12 @@ def _vlm_confirm_anchors(
     anchor_pages: list[TocAnchorPage],
     model: str,
     budget: Any | None = None,
-) -> tuple[list[TocAnchorPage], bool]:
+) -> tuple[list[TocAnchorPage], bool, list[TocEvidence]]:
     """Phase 1: send all anchor PNGs to VLM, ask which are real TOC starts."""
     from shared.services.ai.openai_compatible_client_sync import get_openai_client
 
     if not anchor_pages:
-        return [], False
+        return [], False, []
 
     import base64
 
@@ -120,7 +121,7 @@ def _vlm_confirm_anchors(
     est = estimate_tokens(str(content_parts[0]["text"])) + len(anchor_pages) * 800
     if budget and not budget.try_reserve("visual", est):
         logger.warning("[extract.toc] insufficient visual budget for anchor confirmation")
-        return [], True
+        return [], True, []
 
     try:
         client = get_openai_client(model=model)
@@ -144,18 +145,50 @@ def _vlm_confirm_anchors(
             items = []
 
         confirmed_pages: set[int] = set()
+        evidence_by_page: dict[int, TocEvidence] = {}
         for item in items:
-            if isinstance(item, dict) and item.get("is_toc_start"):
-                confirmed_pages.add(int(item["page"]))
+            if not isinstance(item, dict) or "page" not in item:
+                continue
+            page = int(item["page"])
+            is_toc_start = bool(item.get("is_toc_start"))
+            if is_toc_start:
+                confirmed_pages.add(page)
+            raw_confidence = item.get("confidence")
+            try:
+                confidence = (
+                    float(raw_confidence)
+                    if raw_confidence is not None
+                    else (0.95 if is_toc_start else 0.05)
+                )
+            except (TypeError, ValueError):
+                confidence = 0.95 if is_toc_start else 0.05
+            evidence_by_page[page] = TocEvidence(
+                page_index=page,
+                source="vlm",
+                confidence=max(0.0, min(1.0, confidence)),
+                reason=str(item.get("reason") or ""),
+            )
 
         confirmed = [a for a in anchor_pages if a.page in confirmed_pages]
         rejected = [a.page for a in anchor_pages if a.page not in confirmed_pages]
+        evidence = [
+            evidence_by_page.get(
+                a.page,
+                TocEvidence(
+                    page_index=a.page,
+                    source="vlm",
+                    confidence=0.05,
+                    reason="VLM response omitted this candidate page",
+                ),
+            )
+            for a in anchor_pages
+        ]
         logger.info(
             "[extract.toc] VLM confirmed {} TOC starts, rejected pages: {}",
             len(confirmed),
             rejected,
         )
-        return confirmed, False
+        return confirmed, False, evidence
     except Exception as exc:
         if budget:
             budget.refund("visual", est=est)
@@ -164,7 +197,7 @@ def _vlm_confirm_anchors(
             "falling back to no confirmed anchors (safe degradation)",
             exc,
         )
-        return [], True
+        return [], True, []
 
 
 # -- Main tool -----------------------------------------------------------------
@@ -190,6 +223,7 @@ def extract_toc_with_boundaries(
         ctx.blackboard.toc_result = TocResult(
             method="none",
             notes="No TOC anchor pages found by find.toc_anchor_pages",
+            failure_kind="none",
         )
         return ToolResult(
             status="ok",
@@ -203,6 +237,7 @@ def extract_toc_with_boundaries(
         ctx.blackboard.toc_result = TocResult(
             method="none",
             notes="No VLM model configured for TOC extraction",
+            failure_kind="degraded",
         )
         return ToolResult(
             status="ok",
@@ -219,18 +254,40 @@ def extract_toc_with_boundaries(
     os.makedirs(output_dir, exist_ok=True)
 
     # -- Phase 1: VLM confirm anchors -----------------------------------------
-    confirmed, confirm_failed = _vlm_confirm_anchors(anchors, model, budget=ctx.budget)
+    confirmed, confirm_failed, confirm_evidence = _vlm_confirm_anchors(
+        anchors, model, budget=ctx.budget
+    )
     if confirm_failed:
         warnings.append("vlm_anchor_confirmation_failed")
     debug_info["phase1_confirmed"] = [a.page for a in confirmed]
-    debug_info["phase1_rejected"] = [
-        a.page for a in anchors if a not in confirmed
-    ]
+    debug_info["phase1_rejected"] = (
+        [] if confirm_failed else [a.page for a in anchors if a not in confirmed]
+    )
+    if confirm_failed:
+        debug_info["phase1_unconfirmed"] = [a.page for a in anchors]
 
     if not confirmed:
+        if confirm_failed:
+            ctx.blackboard.toc_result = TocResult(
+                candidates=list(anchors),
+                evidence=confirm_evidence,
+                method="none",
+                notes="VLM anchor confirmation failed; TOC candidates left unconfirmed",
+                failure_kind="confirm_failed",
+            )
+            return ToolResult(
+                status="ok",
+                payload={"toc_count": 0},
+                latency_ms=int((time.monotonic() - start) * 1000),
+                warnings=warnings,
+                debug=debug_info,
+            )
         ctx.blackboard.toc_result = TocResult(
+            candidates=list(anchors),
+            evidence=confirm_evidence,
             method="none",
             notes="VLM rejected all TOC anchor candidates",
+            failure_kind="rejected_all",
         )
         return ToolResult(
             status="ok",
@@ -364,12 +421,14 @@ def extract_toc_with_boundaries(
 
     ctx.blackboard.toc_result = TocResult(
         toc_pages=all_toc_pages_sorted,
+        evidence=confirm_evidence,
         method="vlm_batch",
         notes=(
             f"VLM confirmed {len(confirmed)} TOC starts, "
             f"batch classify+extract found {toc_region_count} regions, "
             f"toc_pages={all_toc_pages_sorted}"
         ),
+        failure_kind="none",
     )
     ctx.blackboard.toc_hierarchies = toc_hierarchies if toc_hierarchies else None
     ctx.blackboard.global_signals["vlm_toc_entries"] = {
@@ -421,4 +480,3 @@ def extract_toc_with_boundaries(
         warnings=warnings,
         debug=debug_info,
     )
-

@@ -20,6 +20,10 @@ from app.services.document_parser.structure.heading_tree import (
 from app.services.document_parser.structure.heading_tree import (
     tree_to_dataframe as heading_tree_to_dataframe,
 )
+from app.services.document_parser.structure.body_boundary import (
+    extract_level1_titles,
+    find_first_body_boundary,
+)
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.document_parser.tables.table_text_parser import df2md
 from gevent.pool import Pool as GeventPool
@@ -415,6 +419,12 @@ def _resolve_first_toc_boundary(toc_hierarchies=None, first_toc_ele_num=None):
     return resolved_start
 
 
+def _first_toc_range_unit(toc_hierarchies=None) -> str | None:
+    if not toc_hierarchies:
+        return None
+    return toc_hierarchies[0].get("toc_range_unit")
+
+
 def pred_titles(
     infos,
     doc_type,
@@ -426,6 +436,7 @@ def pred_titles(
     output_dir=None,
     layout_json_path=None,
     first_toc_ele_num=None,
+    is_first_shard=True,
 ):
     """
     predict title hierarchy
@@ -441,6 +452,7 @@ def pred_titles(
         output_dir: output directory for saving intermediate CSV results
         layout_json_path: path to layout.json for META features (optional)
         first_toc_ele_num: ele_num of the first TOC block in DOCX (for pre-TOC exclusion)
+        is_first_shard: whether PDF-derived markdown belongs to the first document shard
     """
     model_name = _resolve_hierarchy_model_name(model_name)
     logger.info(
@@ -465,6 +477,18 @@ def pred_titles(
     first_toc_start = None
     if doc_type == "md":
         first_toc_start = _resolve_first_toc_boundary(toc_hierarchies=toc_hierarchies)
+        if (
+            first_toc_start is None
+            and is_first_shard
+            and _first_toc_range_unit(toc_hierarchies) == "page"
+        ):
+            level1_titles = extract_level1_titles(toc_hierarchies or [])
+            first_toc_start = find_first_body_boundary(infos, level1_titles)
+            if first_toc_start is not None:
+                logger.info(
+                    f"📌 Demoting PDF front matter before first TOC H1 line "
+                    f"(id < {first_toc_start})"
+                )
     elif doc_type == "docx":
         first_toc_start = _resolve_first_toc_boundary(
             toc_hierarchies=toc_hierarchies,
@@ -494,6 +518,7 @@ def pred_titles(
         and len(toc_hierarchies) > 1
         and doc_type in {"md", "docx"}
         and smart_parse
+        and _first_toc_range_unit(toc_hierarchies) != "page"
     ):
         # Multiple TOCs divide the document into independent zones.
         # Each zone gets its own naive + LLM pipeline with zone-specific TOC context.

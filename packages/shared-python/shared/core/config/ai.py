@@ -29,12 +29,12 @@ class AIConfig(BaseModel):
         description="Heading and outline recognition model; falls back to NORMOL_MODEL when empty",
     )
     IMAGE_MODEL: str = Field(
-        default="qwen3.5-flash",
+        default="qwen3.6-flash",
         description="Image model for image summary, atlas, and OCR flows",
     )
 
     IMAGE_MODEL_MAX: str = Field(
-        default="qwen3.5-flash",
+        default="qwen3.6-flash",
         description="Higher-capability image model for OCR and image type classification",
     )
     RETRIEVAL_DECOMPOSITION_ENABLED: bool = Field(

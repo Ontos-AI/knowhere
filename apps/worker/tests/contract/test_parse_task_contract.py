@@ -498,6 +498,13 @@ def test_oversized_pdf_shard_failure_preserves_processing_error(
     monkeypatch.setenv("S3_SECRET_ACCESS_KEY", "test")
     monkeypatch.setenv("S3_TEMP_PATH", str(tmp_path))
 
+    from app.services.document_agent.manifest import (
+        H1BoundaryResult,
+        PageAnatomyMap,
+        Shard,
+        ShardPlan,
+        TocResult,
+    )
     from app.services.document_parser.formats.pdf import parser as pdf_parser
     from app.services.document_parser.profiling.profile_model import ParserDocumentProfile
     from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
@@ -508,7 +515,7 @@ def test_oversized_pdf_shard_failure_preserves_processing_error(
     def _fail_oversized_parse(*args, **kwargs):
         raise RuntimeError("MinerU shard 0 failed")
 
-    monkeypatch.setattr(pdf_parser, "_parse_oversized_pdf", _fail_oversized_parse)
+    monkeypatch.setattr(pdf_parser, "_parse_pdf_via_shards", _fail_oversized_parse)
 
     with pytest.raises(PDFParsingException) as exc_info:
         pdf_parser.parse_pdfs(
@@ -521,6 +528,30 @@ def test_oversized_pdf_shard_failure_preserves_processing_error(
                 category="generic document",
                 routing_category=PdfRoutingCategory.GENERIC,
                 page_count=2,
+                anatomy=PageAnatomyMap(
+                    job_id="job-oversized-fail",
+                    file_path=str(tmp_path / "source.pdf"),
+                    page_count=2,
+                    page_features=[],
+                    page_labels=[],
+                    toc_result=TocResult(method="none"),
+                    h1_result=H1BoundaryResult(method="none"),
+                    shard_plan=ShardPlan(
+                        enabled=True,
+                        reason="too_large",
+                        shards=[
+                            Shard(
+                                shard_index=0,
+                                page_start=1,
+                                page_end=2,
+                                page_offset=0,
+                                anchor_type="forced_max_size",
+                                anchor_evidence="fixture",
+                                confidence=1.0,
+                            )
+                        ],
+                    ),
+                ),
             ),
         )
 
@@ -630,6 +661,7 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
         model_name=None,
         output_dir=None,
         layout_json_path=None,
+        is_first_shard=True,
     ):
         calls.setdefault("heading_dirs", []).append(output_dir)
         return list(md_lines)
