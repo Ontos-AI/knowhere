@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
+from app.services.document_agent import coordinator as coordinator_module
 from app.services.document_agent.coordinator import ProfileCoordinator
 from app.services.document_agent.manifest import (
     DocumentProfile,
@@ -26,8 +28,12 @@ from app.services.document_agent.manifest import (
     ToolResult,
 )
 from app.services.document_agent.validators import validate_shard_plan
+from app.services.document_parser.formats.pdf import parser as pdf_parser
+from app.services.document_parser.formats.pdf import shard_splitter
+from app.services.document_parser.profiling import doc_profiler
 from app.services.document_parser.profiling.doc_profiler import profile_document
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
+from app.services.document_parser.structure.layout_parser import pred_titles
 
 
 def _page_feature(page: int = 1) -> PageFeature:
@@ -165,8 +171,6 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
     monkeypatch.setattr(coordinator, "_run_h1_boundary_pipeline", fake_h1_boundary)
     monkeypatch.setattr(coordinator, "_persist_ready_anatomy", fake_persist)
 
-    from app.services.document_agent import coordinator as coordinator_module
-
     monkeypatch.setattr(
         coordinator_module.ProfilePlanner,
         "propose",
@@ -263,8 +267,6 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
     monkeypatch.setattr(coordinator, "_run_h1_boundary_pipeline", fake_h1_boundary)
     monkeypatch.setattr(coordinator, "_persist_ready_anatomy", fake_persist)
 
-    from app.services.document_agent import coordinator as coordinator_module
-
     monkeypatch.setattr(
         coordinator_module.ProfilePlanner,
         "propose",
@@ -349,8 +351,6 @@ def test_run_coarse_runs_toc_before_planner_for_oversized_and_reuses_planner(
     monkeypatch.setattr(coordinator, "_run_toc_extraction_pipeline", fake_toc_extraction)
     monkeypatch.setattr(coordinator, "_run_h1_boundary_pipeline", fake_h1_boundary)
     monkeypatch.setattr(coordinator, "_persist_ready_anatomy", fake_persist)
-
-    from app.services.document_agent import coordinator as coordinator_module
 
     def fake_propose(_self):
         calls.append("planner")
@@ -453,8 +453,6 @@ def test_standard_pdf_profile_toc_flag_off_preserves_current_behavior(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from app.services.document_parser.profiling import doc_profiler
-
     fake_instances: list[object] = []
 
     class FakeCoordinator:
@@ -505,8 +503,6 @@ def test_standard_pdf_profile_toc_flag_on_builds_toc_and_lightweight_anatomy(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from app.services.document_parser.profiling import doc_profiler
-
     fake_anatomy = object()
 
     class FakeCoordinator:
@@ -583,10 +579,6 @@ def test_pdf_shard_pipeline_accepts_single_shard_fast_path(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from app.services.document_parser.formats.markdown import parser as markdown_parser
-    from app.services.document_parser.formats.pdf import parser as pdf_parser
-    from app.services.document_parser.formats.pdf import shard_splitter
-
     output_dir = tmp_path / "out"
     output_dir.mkdir()
     calls: list[str] = []
@@ -605,9 +597,16 @@ def test_pdf_shard_pipeline_accepts_single_shard_fast_path(
         calls.append("parse_md")
         return {"lines": kwargs["lines_with_heading"]}
 
+    active_markdown_parser = importlib.import_module(
+        "app.services.document_parser.formats.markdown.parser"
+    )
     monkeypatch.setattr(pdf_parser, "parse_via_full", fake_parse_via_full)
     monkeypatch.setattr(shard_splitter, "split_pdf", fail_split)
-    monkeypatch.setattr(markdown_parser, "eval_md_headings", fake_eval_md_headings)
+    monkeypatch.setattr(
+        active_markdown_parser,
+        "eval_md_headings",
+        fake_eval_md_headings,
+    )
     monkeypatch.setattr(pdf_parser, "parse_md", fake_parse_md)
 
     profile = SimpleNamespace(
@@ -657,9 +656,6 @@ def test_pdf_first_shard_reuses_markdown_toc_detector_when_profile_misses_toc(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from app.services.document_parser.formats.markdown import parser as markdown_parser
-    from app.services.document_parser.formats.pdf import parser as pdf_parser
-
     output_dir = tmp_path / "out"
     output_dir.mkdir()
     detector_calls: list[list[str]] = []
@@ -688,9 +684,16 @@ def test_pdf_first_shard_reuses_markdown_toc_detector_when_profile_misses_toc(
         heading_contexts.append(kwargs.get("toc_hierarchies"))
         return [f"# {line}" if line.startswith("1 ") else line for line in md_lines]
 
+    active_markdown_parser = importlib.import_module(
+        "app.services.document_parser.formats.markdown.parser"
+    )
     monkeypatch.setattr(pdf_parser, "parse_via_full", fake_parse_via_full)
     monkeypatch.setattr(pdf_parser, "detect_tocs_in_texts", fake_detect_tocs_in_texts)
-    monkeypatch.setattr(markdown_parser, "eval_md_headings", fake_eval_md_headings)
+    monkeypatch.setattr(
+        active_markdown_parser,
+        "eval_md_headings",
+        fake_eval_md_headings,
+    )
     monkeypatch.setattr(
         pdf_parser,
         "parse_md",
@@ -742,8 +745,6 @@ def test_pdf_first_shard_reuses_markdown_toc_detector_when_profile_misses_toc(
 
 
 def test_page_based_toc_demotes_front_matter_only_on_first_shard() -> None:
-    from app.services.document_parser.structure.layout_parser import pred_titles
-
     toc_hierarchies = [
         {
             "toc_range": [2, 2],
