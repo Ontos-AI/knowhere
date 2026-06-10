@@ -217,9 +217,9 @@ flowchart LR
 |:---|:---|:---|
 | Text/table summarization | `NORMOL_MODEL` | `deepseek-chat` |
 | Heading hierarchy recognition | `HIERARCHY_LLM_MODEL` | Falls back to `NORMOL_MODEL` |
-| Image description (VLM) | `IMAGE_MODEL` | `qwen3.5-flash` |
-| Image OCR / Q&A | `IMAGE_MODEL_MAX` | `qwen3.5-flash` |
-| PDF coarse classification | `IMAGE_MODEL` | `qwen3.5-flash` |
+| Image description (VLM) | `IMAGE_MODEL` | `qwen3.6-flash` |
+| Image OCR / Q&A | `IMAGE_MODEL_MAX` | `qwen3.6-flash` |
+| PDF coarse classification | `IMAGE_MODEL` | `qwen3.6-flash` |
 
 ---
 

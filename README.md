@@ -77,7 +77,7 @@ A: Knowhere uses MinerU as its default parser because it performs best in our te
 
 **Q: What LLM / VLM dependencies does Knowhere have?**
 
-A: By default, DeepSeek (`deepseek-chat`) handles text and table summarization, and Qwen-VL (`qwen3.5-flash`) handles image OCR and descriptions. Knowhere is model-agnostic. Swap in OpenAI, DashScope, Zhipu, or Volcengine via environment variables.
+A: By default, DeepSeek (`deepseek-chat`) handles text and table summarization, and Qwen-VL (`qwen3.6-flash`) handles image OCR and descriptions. Knowhere is model-agnostic. Swap in OpenAI, DashScope, Zhipu, or Volcengine via environment variables.
 
 **Q: How is Agentic Retrieval different from traditional RAG?**
 
