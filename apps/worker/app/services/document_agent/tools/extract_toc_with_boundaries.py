@@ -132,6 +132,7 @@ def _vlm_confirm_anchors(
             temperature=0.1,
             max_tokens=500,
             response_format={"type": "json_object"},
+            usage_task="document_agent.toc_anchor_confirm",
         )
         if budget:
             budget.commit(

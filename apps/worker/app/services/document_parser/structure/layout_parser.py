@@ -210,6 +210,7 @@ def hiearchy_llm(
                 model=model_name,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                usage_task="parser.heading_hierarchy",
             )
             layout_res = eval_response(answer)
 

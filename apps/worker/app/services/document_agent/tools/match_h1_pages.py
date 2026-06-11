@@ -176,6 +176,7 @@ def verify_section_start(
             temperature=0.0,
             max_tokens=256,
             response_format={"type": "json_object"},
+            usage_task="document_agent.match_h1_pages",
         )
         ctx.budget.commit(
             "visual",

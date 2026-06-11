@@ -8,6 +8,7 @@ from app.services.document_parser.support.stage_profiler import (
     stage_timer,
     init_stage_tracker,
     cleanup_stage_tracker,
+    get_current_stage_tracker,
 )
 from loguru import logger
 
@@ -15,6 +16,7 @@ from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.ai.token_tracking import (
     init_token_tracker,
     cleanup_token_tracker,
+    get_current_token_tracker,
 )
 
 
@@ -39,8 +41,15 @@ def execute_document_parse(
         f"type={doc_type}, parse_track={parse_track}"
     )
 
-    token_usage_dict = init_token_tracker()
-    stage_timing_dict = init_stage_tracker()
+    token_usage_dict = get_current_token_tracker()
+    owns_token_tracker = token_usage_dict is None
+    if token_usage_dict is None:
+        token_usage_dict = init_token_tracker()
+
+    stage_timing_dict = get_current_stage_tracker()
+    owns_stage_tracker = stage_timing_dict is None
+    if stage_timing_dict is None:
+        stage_timing_dict = init_stage_tracker()
 
     try:
         with stage_timer(
@@ -103,8 +112,10 @@ def execute_document_parse(
             "token_usage": dict(token_usage_dict),
         }
     finally:
-        cleanup_token_tracker()
-        cleanup_stage_tracker()
+        if owns_token_tracker:
+            cleanup_token_tracker()
+        if owns_stage_tracker:
+            cleanup_stage_tracker()
 
     return parse_output
 

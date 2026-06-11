@@ -295,6 +295,7 @@ class ProfilePlanner:
                 temperature=0.0,
                 max_tokens=1800,
                 response_format={"type": "json_object"},
+                usage_task="document_agent.coarse_profile",
             )
             self.ctx.budget.commit(
                 "visual",
