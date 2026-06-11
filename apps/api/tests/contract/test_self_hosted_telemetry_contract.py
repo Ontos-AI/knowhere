@@ -177,6 +177,41 @@ async def test_telemetry_client_flush_before_start_does_not_deadlock(
     await http_client.aclose()
 
 
+@pytest.mark.asyncio
+async def test_telemetry_client_does_not_restart_after_stop(tmp_path: Path) -> None:
+    sent_requests: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        sent_requests.append(request.read().decode("utf-8"))
+        return httpx.Response(status_code=200, json={"status": "ok"})
+
+    transport = httpx.MockTransport(handler)
+    http_client = httpx.AsyncClient(transport=transport)
+    telemetry_client = TelemetryClient(
+        _build_config(tmp_path),
+        http_client=http_client,
+    )
+
+    await telemetry_client.start()
+    telemetry_client.capture(
+        "self_hosted_instance_heartbeat",
+        {
+            "app_version": "1.2.3",
+        },
+    )
+    await telemetry_client.stop()
+    await telemetry_client.start()
+    queued_after_stop = telemetry_client.capture(
+        "self_hosted_instance_heartbeat",
+        {
+            "app_version": "1.2.4",
+        },
+    )
+
+    assert len(sent_requests) == 1
+    assert queued_after_stop is False
+
+    await http_client.aclose()
 
 
 @dataclass(frozen=True)

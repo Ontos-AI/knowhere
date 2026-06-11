@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
-from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -49,7 +48,7 @@ class TelemetryClient:
 
     async def start(self) -> None:
         """Start the background sender if telemetry is configured."""
-        if not self._config.is_ready or self._worker_task is not None:
+        if self._is_closed or not self._config.is_ready or self._worker_task is not None:
             return
 
         if self._http_client is None:
@@ -107,11 +106,10 @@ class TelemetryClient:
             await self.flush()
 
         worker_task = self._worker_task
-        self._worker_task = None
         if worker_task is not None:
             worker_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await worker_task
+            await asyncio.gather(worker_task, return_exceptions=True)
+            self._worker_task = None
 
         if self._owns_http_client and self._http_client is not None:
             await self._http_client.aclose()
