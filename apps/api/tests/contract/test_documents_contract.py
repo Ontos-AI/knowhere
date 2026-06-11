@@ -42,6 +42,7 @@ async def _insert_document(
                         status,
                         current_job_result_id,
                         source_file_name,
+                        parse_track,
                         created_at,
                         updated_at,
                         archived_at
@@ -52,6 +53,7 @@ async def _insert_document(
                         :status,
                         :current_job_result_id,
                         :source_file_name,
+                        :parse_track,
                         :created_at,
                         :updated_at,
                         :archived_at
@@ -64,6 +66,7 @@ async def _insert_document(
                     "status": status,
                     "current_job_result_id": None,
                     "source_file_name": source_file_name or f"{document_id}.pdf",
+                    "parse_track": "chunk",
                     "created_at": timestamp,
                     "updated_at": effective_updated_at,
                     "archived_at": (
@@ -268,6 +271,7 @@ async def _insert_document_revision_with_chunks(
                         status,
                         current_job_result_id,
                         source_file_name,
+                        parse_track,
                         created_at,
                         updated_at,
                         archived_at
@@ -278,6 +282,7 @@ async def _insert_document_revision_with_chunks(
                         'active',
                         NULL,
                         :source_file_name,
+                        :parse_track,
                         :created_at,
                         :updated_at,
                         NULL
@@ -288,6 +293,7 @@ async def _insert_document_revision_with_chunks(
                     "user_id": user_id,
                     "namespace": namespace,
                     "source_file_name": source_file_name,
+                    "parse_track": "chunk",
                     "created_at": timestamp,
                     "updated_at": timestamp,
                 },
