@@ -33,6 +33,38 @@ class BaseConfig(BaseSettings):
     LOGFIRE_TOKEN: str = Field(
         default="", description="Logfire API token for distributed tracing"
     )
+    TELEMETRY_ENABLED: bool = Field(
+        default=False,
+        description="Enable anonymous product telemetry for self-hosted deployments",
+    )
+    TELEMETRY_POSTHOG_HOST: str = Field(
+        default="https://us.i.posthog.com",
+        description="PostHog ingestion host for anonymous telemetry events",
+    )
+    TELEMETRY_POSTHOG_PROJECT_KEY: str = Field(
+        default_factory=lambda: os.getenv("NEXT_PUBLIC_POSTHOG_KEY", ""),
+        description="PostHog project token for anonymous telemetry events",
+    )
+    TELEMETRY_INSTALLATION_ID: str = Field(
+        default="",
+        description="Optional operator-provided anonymous self-hosted installation id",
+    )
+    TELEMETRY_INSTALLATION_ID_PATH: str = Field(
+        default="/data/secrets/telemetry-installation-id",
+        description="Persistent file used to store the generated telemetry installation id",
+    )
+    TELEMETRY_BATCH_SIZE: int = Field(
+        default=20,
+        description="Maximum anonymous telemetry events per PostHog batch request",
+    )
+    TELEMETRY_REQUEST_TIMEOUT_SECONDS: float = Field(
+        default=2.0,
+        description="Short timeout for outbound anonymous telemetry requests",
+    )
+    TELEMETRY_DEPLOYMENT_MODE: str = Field(
+        default="self_hosted",
+        description="Deployment-mode label attached to anonymous telemetry events",
+    )
 
     # Security configuration.
     WEBHOOK_MASTER_KEY: str = Field(
@@ -76,6 +108,28 @@ class BaseConfig(BaseSettings):
         if v.upper() not in valid_levels:
             raise ValueError(f"LOG_LEVEL must be one of {valid_levels}")
         return v.upper()
+
+    @field_validator("TELEMETRY_POSTHOG_HOST")
+    @classmethod
+    def validate_telemetry_posthog_host(cls, v):
+        """Normalize the PostHog ingestion host."""
+        return v.strip().rstrip("/")
+
+    @field_validator("TELEMETRY_BATCH_SIZE")
+    @classmethod
+    def validate_telemetry_batch_size(cls, v):
+        """Validate anonymous telemetry batch size."""
+        if v < 1:
+            raise ValueError("TELEMETRY_BATCH_SIZE must be at least 1")
+        return v
+
+    @field_validator("TELEMETRY_REQUEST_TIMEOUT_SECONDS")
+    @classmethod
+    def validate_telemetry_request_timeout_seconds(cls, v):
+        """Validate anonymous telemetry request timeout."""
+        if v <= 0:
+            raise ValueError("TELEMETRY_REQUEST_TIMEOUT_SECONDS must be positive")
+        return v
 
     def validate_file_paths(self) -> bool:
         """Validate required local file paths."""
