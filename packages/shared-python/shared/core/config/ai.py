@@ -78,6 +78,13 @@ class AIConfig(BaseModel):
         default=8,
         description="Max concurrent gevent greenlets for parallel post-heading summary LLM calls -- image/table/text (Dashscope).",
     )
+    TOKEN_PRICING_TABLE_JSON: str = Field(
+        default="",
+        description=(
+            "JSON model pricing table for internal token cost estimates. "
+            "Rates are USD per 1M tokens, keyed by model name."
+        ),
+    )
 
     # Compatibility fields retained during migration.
     ARK_API_KEY: str = Field(

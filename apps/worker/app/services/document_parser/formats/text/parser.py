@@ -136,7 +136,10 @@ def extract_title_keywords_summary(texts, max_keywords=3, summary_len=None):
             redis_service.set(f"task:{ctx_task_id}:status", "processing", ttl=7200)
 
         resp = get_openai_client().chat_completion(
-            messages=messages, timeout=90, max_tokens=max_tokens
+            messages=messages,
+            timeout=90,
+            max_tokens=max_tokens,
+            usage_task="parser.text_summary",
         )
 
         # Handle null/none response

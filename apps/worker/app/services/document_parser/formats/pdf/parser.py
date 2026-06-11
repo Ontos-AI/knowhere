@@ -9,9 +9,7 @@ from app.services.document_parser.orchestration.oversized_pdf_policy import (
 )
 from app.services.document_parser.providers.mineru.pdf_service import parse_via_full
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
-from app.services.document_parser.structure.toc_parser import detect_tocs_in_texts
 from app.services.document_parser.support.stage_profiler import stage_timer
-from app.services.document_parser.support.text_helpers import normalize_md
 from loguru import logger
 
 from shared.core.config import settings
@@ -84,6 +82,7 @@ def parse_pdfs(
             file_path=os.path.join(output_dir, "full.md"),
             base_llm_paras=base_llm_paras,
             relative_root=relative_root,
+            skip_toc_detection=True,
         )
 
 
@@ -241,7 +240,6 @@ def _parse_pdf_via_shards(
             heading_count: int
 
         smart_parse = base_llm_paras.get("smart_title_parse", True)
-        toc_model_name = base_llm_paras.get("model_name", settings.NORMOL_MODEL)
         hierarchy_model_name = (
             base_llm_paras.get("hierarchy_model_name")
             or base_llm_paras.get("model_name", settings.NORMOL_MODEL)
@@ -263,16 +261,6 @@ def _parse_pdf_via_shards(
 
             is_first_shard = shard_idx == 0
             shard_toc = toc_hierarchies
-            if shard_toc is None and is_first_shard and _md_has_toc_keyword(md_lines):
-                logger.info(
-                    f"📌 shard_{shard_idx}: TOC keyword found without profile TOC; "
-                    "reusing markdown TOC detector"
-                )
-                shard_toc, md_lines = detect_tocs_in_texts(
-                    md_lines,
-                    model_name=toc_model_name,
-                    hierarchy_model_name=hierarchy_model_name,
-                )
 
             lines_with_heading = eval_md_headings(
                 md_lines,
@@ -365,12 +353,6 @@ def _parse_pdf_via_shards(
     finally:
         _cleanup_temp_shard_s3_assets(temp_shard_s3_keys)
         _cleanup_local_shard_workspace(work_dir)
-
-
-def _md_has_toc_keyword(md_lines: list[str]) -> bool:
-    toc_keywords = {"目录", "目次", "tableofcontents", "contents"}
-    return any(normalize_md(line) in toc_keywords for line in md_lines)
-
 
 def _build_temp_shard_s3_key(
     *,

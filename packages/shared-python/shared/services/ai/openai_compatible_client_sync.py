@@ -184,6 +184,7 @@ class OpenAICompatibleClientSync:
         temperature: float,
         max_tokens: int,
         api_kwargs: Dict[str, Any],
+        usage_task: str | None = None,
     ) -> tuple[Any, LLMUsage]:
         """Acquire a token, make the call, and retry inline on 429."""
         from shared.services.ai.ali_quota_manager import get_ali_quota_manager
@@ -215,7 +216,7 @@ class OpenAICompatibleClientSync:
                         provider=self.default_model,
                     )
                 usage = _extract_usage(response)
-                record_tokens(usage)
+                record_tokens(usage, model=model, task=usage_task)
                 return response, usage
             except openai.RateLimitError as exc:
                 retry_after = _parse_retry_after(exc)
@@ -262,6 +263,7 @@ class OpenAICompatibleClientSync:
         temperature: float,
         max_tokens: int,
         api_kwargs: Dict[str, Any],
+        usage_task: str | None = None,
     ) -> tuple[str, LLMUsage]:
         response, usage = self._make_ali_pool_raw_call(
             model=model,
@@ -269,6 +271,7 @@ class OpenAICompatibleClientSync:
             temperature=temperature,
             max_tokens=max_tokens,
             api_kwargs=api_kwargs,
+            usage_task=usage_task,
         )
         return response.choices[0].message.content or "", usage
 
@@ -290,6 +293,7 @@ class OpenAICompatibleClientSync:
         else:
             all_messages = [{"role": "user", "content": str(messages)}]
 
+        usage_task = str(kwargs.pop("usage_task", "") or "") or None
         api_kwargs: Dict[str, Any] = {}
         if top_p is not None:
             api_kwargs["top_p"] = top_p
@@ -326,6 +330,7 @@ class OpenAICompatibleClientSync:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 api_kwargs=api_kwargs,
+                usage_task=usage_task,
             )
 
         client = self._client
@@ -348,7 +353,7 @@ class OpenAICompatibleClientSync:
                     provider=self.default_model,
                 )
             usage = _extract_usage(response)
-            record_tokens(usage)
+            record_tokens(usage, model=effective_model, task=usage_task)
             return response, usage
         except LLMServiceException:
             raise
@@ -381,6 +386,7 @@ class OpenAICompatibleClientSync:
         else:
             all_messages = [{"role": "user", "content": str(messages)}]
 
+        usage_task = str(kwargs.pop("usage_task", "") or "") or None
         api_kwargs: Dict[str, Any] = {}
         if top_p is not None:
             api_kwargs["top_p"] = top_p
@@ -423,6 +429,7 @@ class OpenAICompatibleClientSync:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     api_kwargs=api_kwargs,
+                    usage_task=usage_task,
                 )
             except LLMServiceException:
                 raise
@@ -460,7 +467,7 @@ class OpenAICompatibleClientSync:
 
             content = choices[0].message.content or ""
             usage = _extract_usage(response)
-            record_tokens(usage)
+            record_tokens(usage, model=effective_model, task=usage_task)
             return content, usage
         except LLMServiceException:
             raise

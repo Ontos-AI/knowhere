@@ -119,7 +119,8 @@ def _vlm_confirm_anchors(
 
     messages = cast(Any, [{"role": "user", "content": content_parts}])
     est = estimate_tokens(str(content_parts[0]["text"])) + len(anchor_pages) * 800
-    if budget and not budget.try_reserve("visual", est):
+    stage = "toc_confirm"
+    if budget and not budget.try_reserve("visual", est, stage=stage):
         logger.warning("[extract.toc] insufficient visual budget for anchor confirmation")
         return [], True, []
 
@@ -131,9 +132,15 @@ def _vlm_confirm_anchors(
             temperature=0.1,
             max_tokens=500,
             response_format={"type": "json_object"},
+            usage_task="document_agent.toc_anchor_confirm",
         )
         if budget:
-            budget.commit("visual", actual=usage.get("total_tokens", est), est=est)
+            budget.commit(
+                "visual",
+                actual=usage.get("total_tokens", est),
+                est=est,
+                stage=stage,
+            )
         data = json.loads(raw)
         if isinstance(data, dict):
             items = data.get("pages") or data.get("results") or data.get("data") or []
@@ -191,7 +198,7 @@ def _vlm_confirm_anchors(
         return confirmed, False, evidence
     except Exception as exc:
         if budget:
-            budget.refund("visual", est=est)
+            budget.refund("visual", est=est, stage=stage)
         logger.warning(
             "[extract.toc] VLM anchor confirmation failed: {}, "
             "falling back to no confirmed anchors (safe degradation)",

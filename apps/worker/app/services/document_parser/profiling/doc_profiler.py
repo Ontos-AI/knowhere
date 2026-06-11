@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
+from typing import Any, Iterator
 
+from loguru import logger
 from app.services.document_agent.coordinator import ProfileCoordinator
 from app.services.document_parser.orchestration.oversized_pdf_policy import (
     build_oversized_pdf_processing_failed_exception,
@@ -17,6 +20,7 @@ from app.services.document_parser.profiling.profile_model import (
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
 
 from shared.core.config import settings
+from shared.core.database_sync import get_sync_session_factory
 
 
 def profile_document(
@@ -60,19 +64,39 @@ def _profile_pdf(
     job_id: str | None,
     output_dir: str | None,
 ) -> ParserDocumentProfile:
+    with _profile_db_context(enabled=bool(job_id)) as db:
+        return _profile_pdf_with_db(
+            file_path=file_path,
+            filename=filename,
+            job_id=job_id,
+            output_dir=output_dir,
+            db=db,
+        )
+
+
+def _profile_pdf_with_db(
+    *,
+    file_path: str,
+    filename: str,
+    job_id: str | None,
+    output_dir: str | None,
+    db: Any | None,
+) -> ParserDocumentProfile:
     profile_job_id = job_id or filename
     agent_output_dir = os.path.join(output_dir, "_doc_agent") if output_dir else None
+    page_toc_enabled = settings.PDF_PAGE_TOC_ENABLED
     coordinator = ProfileCoordinator(
         pdf_path=file_path,
         job_id=profile_job_id,
         output_dir=agent_output_dir,
+        db=db,
         model=settings.IMAGE_MODEL,
         settings={
             "planner_model": settings.IMAGE_MODEL,
             "vlm_model": settings.IMAGE_MODEL,
             "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
-            "toc_before_coarse": settings.PDF_PROFILE_TOC_ENABLED,
-            "toc_before_coarse_page_limit": settings.MAX_PDF_PAGE_LIMIT,
+            "toc_profile_enabled": page_toc_enabled,
+            "toc_before_coarse": page_toc_enabled,
         },
     )
     agent_profile = coordinator.run_coarse()
@@ -95,7 +119,6 @@ def _profile_pdf(
             ),
         },
     )
-
     if profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
         raise_if_oversized_pdf_not_supported(page_count=profile.page_count)
         if not profile.is_atlas:
@@ -107,10 +130,15 @@ def _profile_pdf(
                     page_count=profile.page_count,
                     original_exception=exc,
                 ) from exc
-    elif settings.PDF_PROFILE_TOC_ENABLED:
+        else:
+            profile.toc = _map_toc_profile(coordinator)
+    else:
         if not profile.is_atlas:
             profile.anatomy = coordinator.run_lightweight_anatomy()
         profile.toc = _map_toc_profile(coordinator)
+
+    if trace := getattr(coordinator, "trace", None):
+        trace.persist_doc_profile(profile)
 
     return profile
 
@@ -119,6 +147,10 @@ def _map_toc_profile(coordinator: ProfileCoordinator) -> ParserTocProfile:
     toc_result = coordinator.blackboard.toc_result
     if toc_result is None:
         return ParserTocProfile()
+    attempted_signal = coordinator.blackboard.global_signals.get(
+        "toc_profile_attempted"
+    )
+    attempted = bool(attempted_signal) if attempted_signal is not None else True
     evidence = [
         TocEvidence(
             page_index=item.page_index,
@@ -136,7 +168,32 @@ def _map_toc_profile(coordinator: ProfileCoordinator) -> ParserTocProfile:
         source=source,
         method=toc_result.method,
         notes=toc_result.notes,
+        attempted=attempted,
     )
+
+
+@contextmanager
+def _profile_db_context(*, enabled: bool) -> Iterator[Any | None]:
+    if not enabled:
+        yield None
+        return
+    session = None
+    try:
+        session = get_sync_session_factory()()
+    except Exception as exc:
+        logger.debug(f"parse profile db session unavailable: {exc}")
+        yield None
+        return
+
+    try:
+        yield session
+        try:
+            session.commit()
+        except Exception as exc:
+            logger.debug(f"parse profile db commit failed: {exc}")
+            session.rollback()
+    finally:
+        session.close()
 
 
 __all__ = ["profile_document"]

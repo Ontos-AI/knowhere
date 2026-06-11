@@ -12,7 +12,7 @@ from app.services.document_agent.bootstrap import (
     classify_page_kinds,
     probe_page_features,
 )
-from app.services.document_agent.budget import BudgetTracker
+from app.services.document_agent.budget import BudgetTracker, StageEnvelope
 from app.services.document_agent.executor import ReActExecutor
 from app.services.document_agent.manifest import (
     DocumentProfile,
@@ -45,6 +45,32 @@ class ProfileCoordinator:
         self.budget = BudgetTracker(
             plan_budget=int(os.environ.get("PARSE_AGENT_PLAN_BUDGET", "50000")),
             visual_budget=int(os.environ.get("PARSE_AGENT_VISUAL_BUDGET", "80000")),
+            visual_stage_envelopes={
+                "toc_confirm": StageEnvelope(
+                    min_guarantee=int(
+                        os.environ.get("PARSE_AGENT_TOC_CONFIRM_MIN_BUDGET", "8000")
+                    ),
+                    cap=int(os.environ.get("PARSE_AGENT_TOC_CONFIRM_CAP", "24000")),
+                ),
+                "coarse_planner": StageEnvelope(
+                    min_guarantee=int(
+                        os.environ.get("PARSE_AGENT_COARSE_PLANNER_MIN_BUDGET", "12000")
+                    ),
+                    cap=int(os.environ.get("PARSE_AGENT_COARSE_PLANNER_CAP", "36000")),
+                ),
+                "structural_react": StageEnvelope(
+                    min_guarantee=int(
+                        os.environ.get("PARSE_AGENT_STRUCTURAL_REACT_MIN_BUDGET", "24000")
+                    ),
+                    cap=int(os.environ.get("PARSE_AGENT_STRUCTURAL_REACT_CAP", "64000")),
+                ),
+                "page_tagging": StageEnvelope(
+                    min_guarantee=int(
+                        os.environ.get("PARSE_AGENT_PAGE_TAGGING_MIN_BUDGET", "0")
+                    ),
+                    cap=int(os.environ.get("PARSE_AGENT_PAGE_TAGGING_CAP", "0")) or None,
+                ),
+            },
         )
         effective_settings = settings or {}
         if model:
@@ -122,7 +148,10 @@ class ProfileCoordinator:
         self.state = DocumentAgentState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
-        self._ensure_toc_profile(strict=True)
+        if self._toc_profile_enabled():
+            self._ensure_toc_profile(strict=True)
+        else:
+            self._ensure_disabled_toc_placeholder()
         profile, initial_decision, _planner_result = self._propose_profile(
             actor="planner"
         )
@@ -143,6 +172,12 @@ class ProfileCoordinator:
         self.state = DocumentAgentState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
+        if not self._toc_profile_enabled():
+            self._ensure_disabled_toc_placeholder()
+            toc_result = self.blackboard.toc_result
+            if toc_result is None:
+                raise RuntimeError("TOC placeholder was not initialized")
+            return toc_result
         self._ensure_toc_profile(strict=False)
         if self.blackboard.toc_result is None:
             self.blackboard.toc_result = TocResult(
@@ -156,10 +191,13 @@ class ProfileCoordinator:
         if not self.blackboard.page_features:
             self._run_bootstrap()
         if self.blackboard.toc_result is None:
-            self.blackboard.toc_result = TocResult(
-                method="none",
-                notes="TOC profiling disabled or not attempted",
-            )
+            if self._toc_profile_enabled():
+                self.blackboard.toc_result = TocResult(
+                    method="none",
+                    notes="TOC profiling not attempted",
+                )
+            else:
+                self._ensure_disabled_toc_placeholder()
         self._run_h1_boundary_pipeline()
         result = REGISTRY.dispatch("propose.shard_plan", self.ctx, {})
         self.trace.record_step(
@@ -236,13 +274,20 @@ class ProfileCoordinator:
         )
 
     def _should_run_toc_before_coarse(self) -> bool:
-        if self.ctx.settings.get("toc_before_coarse"):
-            return True
-        try:
-            page_limit = int(self.ctx.settings.get("toc_before_coarse_page_limit", 0))
-        except (TypeError, ValueError):
-            page_limit = 0
-        return page_limit > 0 and self.blackboard.page_count > page_limit
+        return self._toc_profile_enabled() and bool(
+            self.ctx.settings.get("toc_before_coarse")
+        )
+
+    def _toc_profile_enabled(self) -> bool:
+        return bool(self.ctx.settings.get("toc_profile_enabled", True))
+
+    def _ensure_disabled_toc_placeholder(self) -> None:
+        self.blackboard.toc_result = TocResult(
+            method="none",
+            notes="TOC profiling disabled by PDF_PAGE_TOC_ENABLED",
+        )
+        self.blackboard.toc_hierarchies = None
+        self.blackboard.global_signals["toc_profile_attempted"] = False
 
     def _ensure_toc_profile(self, *, strict: bool) -> None:
         should_run = self.blackboard.toc_result is None
@@ -255,6 +300,7 @@ class ProfileCoordinator:
             return
 
         self._planner_cache = None
+        self.blackboard.global_signals["toc_profile_attempted"] = True
         try:
             self._run_toc_extraction_pipeline()
         except Exception as exc:

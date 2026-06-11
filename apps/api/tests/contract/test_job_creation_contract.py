@@ -80,6 +80,7 @@ async def _insert_document(
                         namespace,
                         status,
                         source_file_name,
+                        parse_track,
                         created_at,
                         updated_at,
                         archived_at
@@ -89,6 +90,7 @@ async def _insert_document(
                         :namespace,
                         :status,
                         :source_file_name,
+                        :parse_track,
                         :created_at,
                         :updated_at,
                         :archived_at
@@ -101,6 +103,7 @@ async def _insert_document(
                     "namespace": namespace,
                     "status": status,
                     "source_file_name": f"{document_id}.pdf",
+                    "parse_track": "chunk",
                     "created_at": timestamp,
                     "updated_at": timestamp,
                     "archived_at": timestamp if status == "archived" else None,

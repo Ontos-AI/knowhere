@@ -148,7 +148,8 @@ def verify_section_start(
         'Return JSON: {"is_section_start": true/false, "reason": "brief"}'
     )
     est = 800  # ~800 tokens for 1 image
-    if not ctx.budget.try_reserve("visual", est):
+    stage = "structural_react"
+    if not ctx.budget.try_reserve("visual", est, stage=stage):
         return True  # Budget exhausted → trust GREP
 
     try:
@@ -175,9 +176,13 @@ def verify_section_start(
             temperature=0.0,
             max_tokens=256,
             response_format={"type": "json_object"},
+            usage_task="document_agent.match_h1_pages",
         )
         ctx.budget.commit(
-            "visual", actual=usage.get("total_tokens", est), est=est,
+            "visual",
+            actual=usage.get("total_tokens", est),
+            est=est,
+            stage=stage,
         )
         data = json.loads(raw)
         result = bool(data.get("is_section_start", True))
@@ -187,7 +192,7 @@ def verify_section_start(
         )
         return result
     except Exception as exc:
-        ctx.budget.refund("visual", est=est)
+        ctx.budget.refund("visual", est=est, stage=stage)
         logger.warning("[verify_section_start] VLM failed for page {}: {}", page, exc)
         return True  # VLM failure → trust GREP
 

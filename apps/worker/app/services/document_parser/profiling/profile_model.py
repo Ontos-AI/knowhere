@@ -22,6 +22,7 @@ class ParserTocProfile:
     source: str = "none"
     method: str = "none"
     notes: str = ""
+    attempted: bool = False
 
     @property
     def has_toc(self) -> bool:

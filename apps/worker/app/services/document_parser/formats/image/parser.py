@@ -166,6 +166,7 @@ def ask_image(
                 temperature=temperature,
                 max_tokens=max_tokens,
                 top_p=top_p,
+                usage_task=f"parser.image.{task}",
             )
             logger.debug(f"Image understanding response: {resp}")
             # Only parse as JSON for tasks that return structured data

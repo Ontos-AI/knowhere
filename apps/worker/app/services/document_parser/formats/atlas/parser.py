@@ -23,7 +23,6 @@ from app.services.document_parser.tables.dataframe_helpers import process_dup_pa
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.support.parser_rows import ParsedRow, ParsedRowsBuilder
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import run_in_child_process, worker
-from app.services.document_parser.structure.toc_parser import detect_tocs_in_texts
 from loguru import logger
 
 from shared.core.config import settings
@@ -204,63 +203,6 @@ def _atlas_render_pages_worker(
     queue.put({"ok": True, "page_data": page_data})
 
 
-def _detect_toc_pages_from_texts(
-    page_texts: list[str],
-    model_name: str,
-    hierarchy_model_name: str | None = None,
-) -> tuple:
-    """Detect TOC pages from pre-extracted page texts (no PyMuPDF needed).
-
-    Args:
-        page_texts: list of text strings, one per page (0-indexed).
-        model_name: LLM model for TOC range detection.
-        hierarchy_model_name: Optional dedicated model for TOC hierarchy parsing.
-
-    Returns:
-        (toc_page_set, toc_hierarchies)
-    """
-    md_lines = []
-    for page_idx, text in enumerate(page_texts):
-        if text:
-            md_lines.append(f"<!-- page {page_idx + 1} -->")
-            for line in text.split("\n"):
-                stripped = line.strip()
-                if stripped:
-                    md_lines.append(stripped)
-
-    if not md_lines:
-        return set(), None
-
-    toc_hierarchies, _ = detect_tocs_in_texts(
-        md_lines,
-        model_name=model_name,
-        hierarchy_model_name=hierarchy_model_name,
-    )
-
-    if not toc_hierarchies:
-        return set(), None
-
-    page_marker_re = re.compile(r"<!--\s*page\s+(\d+)\s*-->", re.IGNORECASE)
-    line_to_page = {}
-    current_page = 0
-    for i, line in enumerate(md_lines):
-        m = page_marker_re.search(line)
-        if m:
-            current_page = int(m.group(1))
-        line_to_page[i] = current_page
-
-    toc_pages = set()
-    for toc_info in toc_hierarchies:
-        toc_start = toc_info.get("toc_range", (0, 0))[0]
-        toc_end = toc_info.get("toc_range", (0, 0))[1]
-        for line_idx in range(toc_start, toc_end + 1):
-            pg = line_to_page.get(line_idx, 0)
-            if pg > 0:
-                toc_pages.add(pg)
-
-    return toc_pages, toc_hierarchies
-
-
 # ─── Main entry point ────────────────────────────────────────────────
 
 
@@ -309,14 +251,22 @@ def parse_atlas(
     scan_label = "scanned" if is_scanned else "non-scanned"
     logger.info(f"📐 Atlas: {scan_label} document, VLM enabled for info extraction")
 
-    # ── TOC detection (runs in parent — uses LLM, no PyMuPDF) ──
-    model_name = base_llm_paras.get("model_name", settings.NORMOL_MODEL)
-    hierarchy_model_name = base_llm_paras.get("hierarchy_model_name") or model_name
-    toc_page_set, toc_hierarchies = _detect_toc_pages_from_texts(
-        page_texts,
-        model_name,
-        hierarchy_model_name=hierarchy_model_name,
-    )
+    # ── TOC detection is owned by PDF profiling, not atlas text parsing. ──
+    profile_toc = getattr(profile, "toc", None)
+    if profile_toc is not None and getattr(profile_toc, "attempted", False):
+        toc_page_set = set(profile_toc.toc_pages)
+        toc_hierarchies = profile_toc.hierarchies
+        logger.info(
+            f"📐 Atlas: consuming profile.toc (source={profile_toc.source}, "
+            f"method={profile_toc.method}, pages={sorted(toc_page_set)}); "
+            "skipping atlas text TOC detection"
+        )
+    else:
+        toc_page_set = set()
+        toc_hierarchies = None
+        logger.info(
+            "📐 Atlas: no attempted profile.toc available; treating document as no-TOC"
+        )
 
     if toc_page_set:
         logger.info(f"📐 Atlas: TOC pages detected: {sorted(toc_page_set)}")
