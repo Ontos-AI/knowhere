@@ -58,6 +58,13 @@ class JobCreate(BaseModel):
         description="File name; required when source_type=file and must include the extension",
     )
     data_id: Optional[str] = Field(None, max_length=128, description="User-defined ID")
+    parse_track: Literal["chunk", "page_memory"] = Field(
+        "chunk",
+        description=(
+            "Parser track. page_memory is feature-gated and currently only "
+            "supported for PDF/PPT/PPTX."
+        ),
+    )
     parsing_params: Optional[ParsingParams] = Field(
         None, description="Parsing parameters"
     )

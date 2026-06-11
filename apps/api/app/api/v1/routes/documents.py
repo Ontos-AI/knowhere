@@ -17,7 +17,7 @@ from shared.models.schemas.retrieval_namespace import normalize_retrieval_namesp
 router = APIRouter(tags=["Documents"])
 
 _document_service = DocumentService()
-DocumentChunkType = Literal["text", "image", "table"]
+DocumentChunkType = Literal["text", "image", "table", "page"]
 
 
 async def _archive_document_response(

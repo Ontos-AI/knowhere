@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +15,7 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 from app.services.document_agent import coordinator as coordinator_module
 from app.services.document_agent.coordinator import ProfileCoordinator
+from app.services.document_agent.trace import ParseRunRecorder
 from app.services.document_agent.manifest import (
     DocumentProfile,
     H1BoundaryResult,
@@ -34,7 +36,10 @@ from app.services.document_parser.formats.pdf import parser as pdf_parser
 from app.services.document_parser.formats.pdf import shard_splitter
 from app.services.document_parser.profiling import doc_profiler
 from app.services.document_parser.profiling.doc_profiler import profile_document
-from app.services.document_parser.profiling.profile_model import ParserTocProfile
+from app.services.document_parser.profiling.profile_model import (
+    ParserDocumentProfile,
+    ParserTocProfile,
+)
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
 from app.services.document_parser.structure.layout_parser import pred_titles
 
@@ -130,6 +135,93 @@ def test_run_lightweight_anatomy_builds_single_shard_without_planner_llm(
     assert anatomy.shard_plan.shards[0].page_end == 2
     assert anatomy.toc_result.method == "none"
     assert (output_dir / "anatomy_map.json").exists()
+    trace_data = json.loads((output_dir / "trace.json").read_text(encoding="utf-8"))
+    assert "visual_stages" in trace_data["summary"]["budget"]
+
+
+def test_parse_run_recorder_doc_profile_uses_final_anatomy_toc() -> None:
+    recorder = ParseRunRecorder(job_id="job-doc-profile")
+    recorder.set_doc_profile(
+        ParserDocumentProfile(
+            file_type="pdf",
+            category="Financial Prospectus",
+            routing_category=PdfRoutingCategory.GENERIC,
+            page_count=0,
+        )
+    )
+    recorder._anatomy = PageAnatomyMap(  # noqa: SLF001
+        job_id="job-doc-profile",
+        file_path="/tmp/doc.pdf",
+        page_count=2,
+        page_features=[_page_feature(1), _page_feature(2)],
+        page_labels=[
+            PageLabel(page=1, kind="normal", confidence=1.0),
+            PageLabel(page=2, kind="normal", confidence=1.0),
+        ],
+        toc_result=TocResult(toc_pages=[2], method="vlm_batch", notes="ok"),
+        h1_result=H1BoundaryResult(method="toc_grep"),
+        shard_plan=ShardPlan(enabled=False, reason="not_needed"),
+        toc_hierarchies=[{"toc_range": [2, 2], "toc_tree": {}}],
+        global_signals={"toc_profile_attempted": True},
+    )
+
+    doc_profile = recorder._doc_profile_for_plan()  # noqa: SLF001
+
+    assert doc_profile is not None
+    assert doc_profile["category"] == "Financial Prospectus"
+    assert doc_profile["routing_category"] == PdfRoutingCategory.GENERIC.value
+    assert doc_profile["page_count"] == 2
+    assert doc_profile["toc"]["method"] == "vlm_batch"
+    assert doc_profile["toc"]["toc_pages"] == [2]
+
+
+def test_parse_run_recorder_profile_only_row_is_updated_by_anatomy_flush() -> None:
+    class FakeDb:
+        def __init__(self) -> None:
+            self.rows = []
+            self.flushes = 0
+
+        def add(self, row) -> None:
+            self.rows.append(row)
+
+        def flush(self) -> None:
+            self.flushes += 1
+
+        def rollback(self) -> None:
+            raise AssertionError("rollback should not be called")
+
+    db = FakeDb()
+    recorder = ParseRunRecorder(job_id="job-profile-only", db=db)
+    recorder.persist_doc_profile(
+        ParserDocumentProfile(
+            file_type="pdf",
+            category="Atlas",
+            routing_category=PdfRoutingCategory.ATLAS,
+            page_count=12,
+        )
+    )
+
+    assert len(db.rows) == 1
+    assert db.rows[0].doc_profile["category"] == "Atlas"
+    assert db.rows[0].shard_plan is None
+
+    recorder._anatomy = PageAnatomyMap(  # noqa: SLF001
+        job_id="job-profile-only",
+        file_path="/tmp/doc.pdf",
+        page_count=12,
+        page_features=[_page_feature(1)],
+        page_labels=[PageLabel(page=1, kind="normal", confidence=1.0)],
+        toc_result=TocResult(toc_pages=[2], method="vlm_batch", notes="ok"),
+        h1_result=H1BoundaryResult(method="toc_grep"),
+        shard_plan=ShardPlan(enabled=False, reason="not_needed"),
+        toc_hierarchies=[{"toc_range": [2, 2], "toc_tree": {}}],
+        global_signals={"toc_profile_attempted": True},
+    )
+    recorder.flush(final_status="ready")
+
+    assert len(db.rows) == 2
+    assert db.rows[0].shard_plan is not None
+    assert db.rows[0].doc_profile["toc"]["method"] == "vlm_batch"
 
 
 def test_run_structural_retries_transient_confirm_failed_toc_result(
@@ -518,7 +610,66 @@ def test_standard_pdf_profile_builds_page_toc_and_lightweight_anatomy_by_default
     assert profile.toc.attempted is True
     assert profile.anatomy is fake_anatomy
     assert fake_instances[0].calls == ["run_coarse", "run_lightweight_anatomy"]
+    assert init_settings[0]["toc_profile_enabled"] is True
     assert init_settings[0]["toc_before_coarse"] is True
+
+
+def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fake_anatomy = object()
+    init_settings: list[dict[str, object]] = []
+
+    class FakeCoordinator:
+        def __init__(self, **kwargs) -> None:
+            self.calls: list[str] = []
+            init_settings.append(kwargs["settings"])
+            self.blackboard = SimpleNamespace(
+                page_count=2,
+                doc_stats={"page_count": 2},
+                global_signals={},
+                toc_result=None,
+                toc_hierarchies=None,
+            )
+
+        def run_coarse(self) -> DocumentProfile:
+            self.calls.append("run_coarse")
+            return DocumentProfile(
+                is_scanned=False,
+                category="Research Report",
+                routing_category=PdfRoutingCategory.GENERIC.value,
+            )
+
+        def run_toc(self) -> TocResult:
+            raise AssertionError("kill switch should not call TOC profiling")
+
+        def run_lightweight_anatomy(self):
+            self.calls.append("run_lightweight_anatomy")
+            self.blackboard.toc_result = TocResult(
+                method="none",
+                notes="TOC profiling disabled by PDF_PAGE_TOC_ENABLED",
+            )
+            self.blackboard.global_signals["toc_profile_attempted"] = False
+            return fake_anatomy
+
+    monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
+    monkeypatch.setattr(doc_profiler.settings, "PDF_PAGE_TOC_ENABLED", False)
+    monkeypatch.setattr(doc_profiler.settings, "MAX_PDF_PAGE_LIMIT", 200)
+
+    profile = profile_document(
+        str(tmp_path / "standard.pdf"),
+        "standard.pdf",
+        job_id="job-page-toc-disabled",
+        output_dir=str(tmp_path),
+    )
+
+    assert init_settings[0]["toc_profile_enabled"] is False
+    assert init_settings[0]["toc_before_coarse"] is False
+    assert profile.toc.attempted is False
+    assert profile.toc.has_toc is False
+    assert profile.toc.notes == "TOC profiling disabled by PDF_PAGE_TOC_ENABLED"
+    assert profile.anatomy is fake_anatomy
 
 
 def test_standard_pdf_profile_maps_page_toc_evidence(

@@ -264,7 +264,8 @@ class ProfilePlanner:
             ensure_ascii=False,
         )
         prompt_tokens_est = estimate_tokens(prompt_text) + len(pngs) * 800
-        if not self.ctx.budget.try_reserve("visual", prompt_tokens_est):
+        stage = "coarse_planner"
+        if not self.ctx.budget.try_reserve("visual", prompt_tokens_est, stage=stage):
             raise RuntimeError("Insufficient visual budget for profile planning.")
 
         content_parts: list[dict[str, Any]] = [{"type": "text", "text": prompt_text}]
@@ -299,6 +300,7 @@ class ProfilePlanner:
                 "visual",
                 actual=usage.get("total_tokens", prompt_tokens_est),
                 est=prompt_tokens_est,
+                stage=stage,
             )
             profile, decision = _parse_profile_and_decision(raw)
             return profile, decision, ToolResult(
@@ -319,5 +321,5 @@ class ProfilePlanner:
                 },
             )
         except Exception:
-            self.ctx.budget.refund("visual", est=prompt_tokens_est)
+            self.ctx.budget.refund("visual", est=prompt_tokens_est, stage=stage)
             raise

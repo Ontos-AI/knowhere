@@ -61,7 +61,8 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             latency_ms=int((time.monotonic() - start) * 1000),
             warnings=["No VLM model configured; returned rendered page paths only."],
         )
-    if not ctx.budget.try_reserve("visual", est):
+    stage = "structural_react"
+    if not ctx.budget.try_reserve("visual", est, stage=stage):
         return ToolResult(
             status="error",
             error="insufficient visual budget",
@@ -87,7 +88,12 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             max_tokens=1200,
             response_format={"type": "json_object"},
         )
-        ctx.budget.commit("visual", actual=usage.get("total_tokens", est), est=est)
+        ctx.budget.commit(
+            "visual",
+            actual=usage.get("total_tokens", est),
+            est=est,
+            stage=stage,
+        )
         try:
             payload: dict[str, Any] = json.loads(raw)
         except json.JSONDecodeError:
@@ -104,5 +110,5 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             tokens_used=usage.get("total_tokens", 0),
         )
     except Exception:
-        ctx.budget.refund("visual", est=est)
+        ctx.budget.refund("visual", est=est, stage=stage)
         raise

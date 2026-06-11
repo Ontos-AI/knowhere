@@ -46,6 +46,7 @@ class JobMetadataHelper:
             "original_request": request.model_dump(),
             "namespace": namespace,
             "document_id": request.document_id,
+            "parse_track": request.parse_track,
             "parsing_params": (
                 request.parsing_params.model_dump() if request.parsing_params else None
             ),
@@ -125,6 +126,11 @@ class JobMetadataHelper:
     def get_document_id(metadata: Optional[Dict[str, Any]]) -> str | None:
         """Return the retrieval document id stored in metadata."""
         return JobMetadataHelper.get_string_field(metadata, "document_id")
+
+    @staticmethod
+    def get_parse_track(metadata: Optional[Dict[str, Any]]) -> str:
+        """Return the parser track stored in metadata."""
+        return JobMetadataHelper.get_string_field(metadata, "parse_track", "chunk") or "chunk"
 
     @staticmethod
     def get_data_id(metadata: Optional[Dict[str, Any]]) -> str | None:
