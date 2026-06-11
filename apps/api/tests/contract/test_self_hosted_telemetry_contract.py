@@ -6,7 +6,6 @@ import asyncio
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-import httpx
 import pytest
 
 from shared.services.telemetry.client import TelemetryClient
@@ -76,20 +75,13 @@ def test_telemetry_properties_strip_unknown_and_non_scalar_values() -> None:
 
 
 @pytest.mark.asyncio
-async def test_telemetry_client_sends_anonymous_posthog_batch(
+async def test_telemetry_client_sends_anonymous_posthog_capture(
     tmp_path: Path,
 ) -> None:
-    sent_requests: list[str] = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        sent_requests.append(request.read().decode("utf-8"))
-        return httpx.Response(status_code=200, json={"status": "ok"})
-
-    transport = httpx.MockTransport(handler)
-    http_client = httpx.AsyncClient(transport=transport)
+    posthog_client = _FakePostHogClient()
     telemetry_client = TelemetryClient(
         _build_config(tmp_path),
-        http_client=http_client,
+        posthog_client=posthog_client,
     )
 
     await telemetry_client.start()
@@ -104,29 +96,28 @@ async def test_telemetry_client_sends_anonymous_posthog_batch(
     await telemetry_client.stop()
 
     assert queued is True
-    assert len(sent_requests) == 1
-    assert "phc_test_project_key" in str(sent_requests[0])
-    assert "550e8400-e29b-41d4-a716-446655440000" in str(sent_requests[0])
-    assert "$process_person_profile" in str(sent_requests[0])
-    assert "private prompt" not in str(sent_requests[0])
-
-    await http_client.aclose()
+    assert len(posthog_client.captured_events) == 1
+    captured_event = posthog_client.captured_events[0]
+    assert captured_event.event_name == "self_hosted_instance_heartbeat"
+    assert captured_event.kwargs["distinct_id"] == (
+        "550e8400-e29b-41d4-a716-446655440000"
+    )
+    assert captured_event.kwargs["disable_geoip"] is True
+    assert captured_event.kwargs["properties"] == {
+        "app_version": "1.2.3",
+        "api_healthy": True,
+        "$process_person_profile": False,
+    }
+    assert posthog_client.flush_count == 1
 
 
 @pytest.mark.asyncio
 async def test_telemetry_client_respects_batch_size(tmp_path: Path) -> None:
-    sent_requests: list[str] = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        sent_requests.append(request.read().decode("utf-8"))
-        return httpx.Response(status_code=200, json={"status": "ok"})
-
-    transport = httpx.MockTransport(handler)
-    http_client = httpx.AsyncClient(transport=transport)
+    posthog_client = _FakePostHogClient()
     config = _build_config(tmp_path)
     telemetry_client = TelemetryClient(
         replace(config, batch_size=2),
-        http_client=http_client,
+        posthog_client=posthog_client,
     )
 
     await telemetry_client.start()
@@ -139,23 +130,22 @@ async def test_telemetry_client_respects_batch_size(tmp_path: Path) -> None:
         )
     await telemetry_client.stop()
 
-    assert len(sent_requests) == 2
-
-    await http_client.aclose()
+    assert [event.event_name for event in posthog_client.captured_events] == [
+        "self_hosted_instance_heartbeat",
+        "self_hosted_instance_heartbeat",
+        "self_hosted_instance_heartbeat",
+    ]
+    assert posthog_client.flush_count == 1
 
 
 @pytest.mark.asyncio
 async def test_telemetry_client_flush_before_start_does_not_deadlock(
     tmp_path: Path,
 ) -> None:
-    async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(status_code=200, json={"status": "ok"})
-
-    transport = httpx.MockTransport(handler)
-    http_client = httpx.AsyncClient(transport=transport)
+    posthog_client = _FakePostHogClient()
     telemetry_client = TelemetryClient(
         _build_config(tmp_path),
-        http_client=http_client,
+        posthog_client=posthog_client,
     )
 
     telemetry_client.capture(
@@ -174,22 +164,15 @@ async def test_telemetry_client_flush_before_start_does_not_deadlock(
     )
 
     await asyncio.wait_for(telemetry_client.stop(), timeout=1.0)
-    await http_client.aclose()
+    assert len(posthog_client.captured_events) == 2
 
 
 @pytest.mark.asyncio
 async def test_telemetry_client_does_not_restart_after_stop(tmp_path: Path) -> None:
-    sent_requests: list[str] = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        sent_requests.append(request.read().decode("utf-8"))
-        return httpx.Response(status_code=200, json={"status": "ok"})
-
-    transport = httpx.MockTransport(handler)
-    http_client = httpx.AsyncClient(transport=transport)
+    posthog_client = _FakePostHogClient()
     telemetry_client = TelemetryClient(
         _build_config(tmp_path),
-        http_client=http_client,
+        posthog_client=posthog_client,
     )
 
     await telemetry_client.start()
@@ -208,16 +191,39 @@ async def test_telemetry_client_does_not_restart_after_stop(tmp_path: Path) -> N
         },
     )
 
-    assert len(sent_requests) == 1
+    assert len(posthog_client.captured_events) == 1
     assert queued_after_stop is False
-
-    await http_client.aclose()
 
 
 @dataclass(frozen=True)
 class _ConfigOverrides:
     installation_id: str = "550e8400-e29b-41d4-a716-446655440000"
     posthog_project_key: str = "phc_test_project_key"
+
+
+@dataclass(frozen=True)
+class _CapturedPostHogEvent:
+    event_name: str
+    kwargs: dict[str, object]
+
+
+class _FakePostHogClient:
+    def __init__(self) -> None:
+        self.captured_events: list[_CapturedPostHogEvent] = []
+        self.flush_count = 0
+        self.shutdown_count = 0
+
+    def capture(self, event: str, **kwargs: object) -> str:
+        self.captured_events.append(
+            _CapturedPostHogEvent(event_name=event, kwargs=kwargs)
+        )
+        return "fake-posthog-event-id"
+
+    def flush(self) -> None:
+        self.flush_count += 1
+
+    def shutdown(self) -> None:
+        self.shutdown_count += 1
 
 
 def _build_config(

@@ -53,11 +53,6 @@ class TelemetryRuntimeConfig:
             and bool(self.installation_id)
         )
 
-    @property
-    def batch_url(self) -> str:
-        """Return the PostHog batch ingestion URL."""
-        return f"{self.posthog_host.rstrip('/')}/batch/"
-
 
 def build_telemetry_config(
     settings: TelemetrySettings,
