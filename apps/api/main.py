@@ -68,6 +68,16 @@ async def lifespan(app: FastAPI):
         await load_rules(session)
     logger.info("rate limit rules loaded at startup; restart the pod to apply changes")
 
+    from shared.services.telemetry.runtime import start_self_hosted_telemetry
+
+    app.state.self_hosted_telemetry_client = await start_self_hosted_telemetry(
+        settings,
+        service_name="knowhere-api",
+        api_healthy=True,
+        postgres_healthy=True,
+        redis_healthy=True,
+    )
+
     mcp_server = getattr(app.state, "retrieval_mcp_server", None)
     mcp_session_manager = getattr(mcp_server, "session_manager", None)
 
@@ -77,6 +87,15 @@ async def lifespan(app: FastAPI):
             yield
     else:
         yield
+
+    try:
+        from shared.services.telemetry.runtime import stop_self_hosted_telemetry
+
+        await stop_self_hosted_telemetry(
+            getattr(app.state, "self_hosted_telemetry_client", None)
+        )
+    except Exception as e:
+        logger.error(f"self-hosted telemetry shutdown failed: {e}")
 
     try:
         from shared.services.retrieval.stats.recorder import (

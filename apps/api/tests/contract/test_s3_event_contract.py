@@ -3,6 +3,7 @@ import json
 import socket
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
+from types import SimpleNamespace
 from typing import cast
 from uuid import uuid4
 
@@ -276,6 +277,80 @@ async def test_should_reject_an_sns_subscription_confirmation_url_that_resolves_
     assert response.status_code == 200
     assert response.json() == {"message": "SNS subscription confirmation failed"}
     assert contacted_urls == []
+
+
+@pytest.mark.asyncio
+async def test_should_confirm_a_configured_localstack_subscription_url_in_self_hosted_runtime(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    contacted_requests: list[dict[str, str]] = []
+
+    class FakeOutboundResponse:
+        status = 200
+
+    async def send_fake_pinned_outbound_request(
+        *,
+        method: str,
+        url: str,
+        pinned_ip: str,
+        timeout_seconds: float,
+    ) -> FakeOutboundResponse:
+        contacted_requests.append(
+            {
+                "method": method,
+                "url": url,
+                "pinned_ip": pinned_ip,
+                "timeout_seconds": str(timeout_seconds),
+            }
+        )
+        return FakeOutboundResponse()
+
+    def resolve_localstack_address(
+        host: str,
+        port: int | None,
+        *args: object,
+        **kwargs: object,
+    ) -> list[tuple[socket.AddressFamily, socket.SocketKind, int, str, tuple[str, int]]]:
+        assert host == "localstack"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("172.18.0.10", 0))]
+
+    subscription_service = importlib.import_module(
+        "app.services.s3_events.subscription_service"
+    )
+
+    monkeypatch.setattr(
+        subscription_service,
+        "settings",
+        SimpleNamespace(S3_ENDPOINT_URL="http://localstack:4566"),
+    )
+    monkeypatch.setattr(socket, "getaddrinfo", resolve_localstack_address)
+    monkeypatch.setattr(
+        subscription_service,
+        "send_pinned_outbound_request",
+        send_fake_pinned_outbound_request,
+    )
+
+    response = await subscription_service.confirm_sns_subscription(
+        "http://localhost.localstack.cloud:4566/"
+        "?Action=ConfirmSubscription"
+        "&TopicArn=arn:aws:sns:us-west-1:000000000000:test"
+        "&Token=contract-token"
+    )
+
+    assert response == {"message": "SNS subscription confirmed"}
+    assert contacted_requests == [
+        {
+            "method": "GET",
+            "url": (
+                "http://localstack:4566/"
+                "?Action=ConfirmSubscription"
+                "&TopicArn=arn:aws:sns:us-west-1:000000000000:test"
+                "&Token=contract-token"
+            ),
+            "pinned_ip": "172.18.0.10",
+            "timeout_seconds": "10",
+        }
+    ]
 
 
 @pytest.mark.asyncio
