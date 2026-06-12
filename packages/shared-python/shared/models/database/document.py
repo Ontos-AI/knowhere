@@ -418,4 +418,5 @@ class RetrievalStep(Base):
 
     __table_args__ = (
         Index('idx_retrieval_steps_run', 'run_id', 'step_index'),
+        Index('idx_retrieval_steps_created', 'created_at'),
     )

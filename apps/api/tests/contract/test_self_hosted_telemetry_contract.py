@@ -7,7 +7,7 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import TracebackType
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,7 @@ from shared.services.telemetry.config import TelemetryRuntimeConfig
 from shared.services.telemetry.api_metrics import ApiRequestTelemetryMetrics
 from shared.services.telemetry.aggregates import (
     TelemetryAggregateSettings,
+    collect_self_hosted_aggregate_event_properties,
     start_self_hosted_aggregate_telemetry,
     stop_self_hosted_aggregate_telemetry,
 )
@@ -134,6 +135,68 @@ def test_api_request_metrics_snapshot_resets_bucket() -> None:
     assert snapshot.status_5xx_count == 1
     assert snapshot.latency_avg_ms == 20
     assert empty_snapshot.request_count == 0
+
+
+@pytest.mark.asyncio
+async def test_api_aggregate_uses_interval_window_when_global_lock_unavailable(
+    tmp_path: Path,
+) -> None:
+    metrics = ApiRequestTelemetryMetrics()
+    metrics.record(status_code=200, latency_ms=12)
+
+    properties = await collect_self_hosted_aggregate_event_properties(
+        config=_build_config(tmp_path),
+        db_session_factory=_build_lock_unavailable_session,
+        api_metrics=metrics,
+        window_seconds=86_400,
+        api_window_seconds=300,
+    )
+
+    assert set(properties) == {"self_hosted_api_aggregate"}
+    api_properties = properties["self_hosted_api_aggregate"]
+    assert api_properties["window_seconds"] == 300
+    assert api_properties["api_requests_total"] == 1
+    assert api_properties["api_requests_2xx"] == 1
+
+
+def test_telemetry_client_filters_posthog_sdk_properties_after_capture(
+    tmp_path: Path,
+) -> None:
+    telemetry_client = TelemetryClient(_build_config(tmp_path))
+
+    sanitized_message = telemetry_client._sanitize_posthog_message(
+        {
+            "event": "self_hosted_api_aggregate",
+            "properties": {
+                "app_version": "1.2.3",
+                "api_requests_total": 1,
+                "email": "user@example.com",
+                "$context_tags": ["private-context"],
+                "$geoip_disable": True,
+                "$is_server": True,
+                "$lib": "posthog-python",
+                "$lib_version": "7.18.1",
+                "$os": "Linux",
+                "$os_version": "20.04",
+                "$python_runtime": "CPython",
+                "$python_version": "3.14.4",
+            },
+        }
+    )
+
+    assert sanitized_message is not None
+    assert sanitized_message["properties"] == {
+        "app_version": "1.2.3",
+        "api_requests_total": 1,
+        "$geoip_disable": True,
+        "$is_server": True,
+        "$lib": "posthog-python",
+        "$lib_version": "7.18.1",
+        "$os": "Linux",
+        "$os_version": "20.04",
+        "$python_runtime": "CPython",
+        "$python_version": "3.14.4",
+    }
 
 
 @pytest.mark.asyncio
@@ -346,6 +409,38 @@ class _FailingSessionContext(AbstractAsyncContextManager[AsyncSession]):
         return None
 
 
+@dataclass(frozen=True)
+class _ScalarResult:
+    value: object
+
+    def scalar_one_or_none(self) -> object:
+        return self.value
+
+
+class _LockUnavailableSession:
+    async def execute(
+        self,
+        statement: object,
+        params: dict[str, Any] | None = None,
+    ) -> _ScalarResult:
+        assert "pg_try_advisory_lock" in str(statement)
+        assert params is not None
+        return _ScalarResult(False)
+
+
+class _LockUnavailableSessionContext(AbstractAsyncContextManager[AsyncSession]):
+    async def __aenter__(self) -> AsyncSession:
+        return cast(AsyncSession, _LockUnavailableSession())
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool | None:
+        return None
+
+
 class _FakePostHogClient:
     def __init__(self) -> None:
         self.captured_events: list[_CapturedPostHogEvent] = []
@@ -367,6 +462,10 @@ class _FakePostHogClient:
 
 def _build_failing_session() -> AbstractAsyncContextManager[AsyncSession]:
     return _FailingSessionContext()
+
+
+def _build_lock_unavailable_session() -> AbstractAsyncContextManager[AsyncSession]:
+    return _LockUnavailableSessionContext()
 
 
 def _build_config(

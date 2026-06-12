@@ -31,6 +31,21 @@ _AGGREGATE_PROPERTY_NAMES = frozenset(
     }
 )
 
+_POSTHOG_SDK_PROPERTY_NAMES = frozenset(
+    {
+        "$geoip_disable",
+        "$is_server",
+        "$lib",
+        "$lib_version",
+        "$os",
+        "$os_distro",
+        "$os_version",
+        "$process_person_profile",
+        "$python_runtime",
+        "$python_version",
+    }
+)
+
 _EVENT_PROPERTY_NAMES: dict[str, frozenset[str]] = {
     "self_hosted_instance_started": frozenset(),
     "self_hosted_instance_heartbeat": frozenset(
@@ -182,6 +197,24 @@ def sanitize_event_properties(
     for property_name, property_value in properties.items():
         if property_name not in allowed_property_names:
             continue
+        if _is_safe_property_value(property_value):
+            sanitized_properties[property_name] = cast(
+                TelemetryPropertyValue,
+                property_value,
+            )
+    return sanitized_properties
+
+
+def sanitize_posthog_event_properties(
+    event_name: str,
+    properties: Mapping[str, object],
+) -> TelemetryProperties:
+    """Strip unknown properties after the PostHog SDK adds system metadata."""
+    sanitized_properties = sanitize_event_properties(event_name, properties)
+    for property_name in _POSTHOG_SDK_PROPERTY_NAMES:
+        if property_name not in properties:
+            continue
+        property_value = properties.get(property_name)
         if _is_safe_property_value(property_value):
             sanitized_properties[property_name] = cast(
                 TelemetryPropertyValue,

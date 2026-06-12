@@ -17,6 +17,7 @@ from .events import (
     TelemetryProperties,
     get_allowed_telemetry_event_names,
     sanitize_event_properties,
+    sanitize_posthog_event_properties,
 )
 
 
@@ -186,7 +187,22 @@ class TelemetryClient:
             disable_geoip=True,
             enable_exception_autocapture=False,
             enable_local_evaluation=False,
+            before_send=self._sanitize_posthog_message,
         )
+
+    def _sanitize_posthog_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
+        event_name = message.get("event")
+        if not isinstance(event_name, str) or event_name not in self._allowed_event_names:
+            return None
+
+        raw_properties = message.get("properties")
+        properties = raw_properties if isinstance(raw_properties, Mapping) else {}
+        sanitized_message = dict(message)
+        sanitized_message["properties"] = sanitize_posthog_event_properties(
+            event_name,
+            properties,
+        )
+        return sanitized_message
 
     async def _flush_posthog_client(self) -> None:
         posthog_client = self._posthog_client

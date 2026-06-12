@@ -16,6 +16,7 @@ from .config import TelemetryRuntimeConfig, TelemetrySettings
 from .events import TelemetryProperties, build_base_event_properties
 
 AGGREGATE_WINDOW_SECONDS = 24 * 60 * 60
+AGGREGATE_ADVISORY_LOCK_ID = 0x4B4E4F5748455245
 
 
 class DatabaseSessionFactory(Protocol):
@@ -56,6 +57,7 @@ class SelfHostedAggregateTelemetryRunner:
             db_session_factory=self._db_session_factory,
             api_metrics=self._api_metrics,
             window_seconds=AGGREGATE_WINDOW_SECONDS,
+            api_window_seconds=self._interval_seconds,
         )
         for event_name, properties in event_properties.items():
             self._telemetry_client.capture(event_name, properties)
@@ -107,11 +109,11 @@ async def start_self_hosted_aggregate_telemetry(
         interval_seconds=interval_seconds,
     )
     try:
-        await runner.emit_once()
+        runner.start()
     except Exception as exc:
-        logger.warning(f"anonymous aggregate telemetry failed: {exc}")
-    runner.start()
-    logger.info("anonymous self-hosted aggregate telemetry started")
+        logger.warning(f"anonymous aggregate telemetry start failed: {exc}")
+        return None
+    logger.info("anonymous self-hosted aggregate telemetry scheduled")
     return runner
 
 
@@ -130,36 +132,48 @@ async def collect_self_hosted_aggregate_event_properties(
     db_session_factory: DatabaseSessionFactory,
     api_metrics: ApiRequestTelemetryMetrics,
     window_seconds: int = AGGREGATE_WINDOW_SECONDS,
+    api_window_seconds: int = AGGREGATE_WINDOW_SECONDS,
 ) -> dict[str, TelemetryProperties]:
     """Collect aggregate event properties without including customer content."""
+    event_properties = {
+        "self_hosted_api_aggregate": _collect_api_aggregate(
+            config,
+            api_metrics.snapshot_and_reset(),
+            api_window_seconds,
+        ),
+    }
     async with db_session_factory() as session:
-        return {
-            "self_hosted_usage_aggregate": await _collect_usage_aggregate(
-                session,
-                config,
-                window_seconds,
-            ),
-            "self_hosted_retrieval_aggregate": await _collect_retrieval_aggregate(
-                session,
-                config,
-                window_seconds,
-            ),
-            "self_hosted_worker_aggregate": await _collect_worker_aggregate(
-                session,
-                config,
-                window_seconds,
-            ),
-            "self_hosted_api_aggregate": _collect_api_aggregate(
-                config,
-                api_metrics.snapshot_and_reset(),
-                window_seconds,
-            ),
-            "self_hosted_provider_aggregate": await _collect_provider_aggregate(
-                session,
-                config,
-                window_seconds,
-            ),
-        }
+        lock_acquired = await _try_aggregate_advisory_lock(session)
+        if not lock_acquired:
+            return event_properties
+        try:
+            event_properties.update(
+                {
+                    "self_hosted_usage_aggregate": await _collect_usage_aggregate(
+                        session,
+                        config,
+                        window_seconds,
+                    ),
+                    "self_hosted_retrieval_aggregate": await _collect_retrieval_aggregate(
+                        session,
+                        config,
+                        window_seconds,
+                    ),
+                    "self_hosted_worker_aggregate": await _collect_worker_aggregate(
+                        session,
+                        config,
+                        window_seconds,
+                    ),
+                    "self_hosted_provider_aggregate": await _collect_provider_aggregate(
+                        session,
+                        config,
+                        window_seconds,
+                    ),
+                }
+            )
+            return event_properties
+        finally:
+            await _release_aggregate_advisory_lock(session)
 
 
 async def _collect_usage_aggregate(
@@ -527,6 +541,21 @@ async def _scalar(
     params = {} if window_seconds is None else {"window_seconds": window_seconds}
     result = await session.execute(text(statement), params)
     return result.scalar_one_or_none()
+
+
+async def _try_aggregate_advisory_lock(session: AsyncSession) -> bool:
+    result = await session.execute(
+        text("SELECT pg_try_advisory_lock(:lock_id)"),
+        {"lock_id": AGGREGATE_ADVISORY_LOCK_ID},
+    )
+    return bool(result.scalar_one_or_none())
+
+
+async def _release_aggregate_advisory_lock(session: AsyncSession) -> None:
+    await session.execute(
+        text("SELECT pg_advisory_unlock(:lock_id)"),
+        {"lock_id": AGGREGATE_ADVISORY_LOCK_ID},
+    )
 
 
 def _windowed_count_sql(
