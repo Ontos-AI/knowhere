@@ -27,7 +27,7 @@ class BillingConfig(BaseSettings):
 
     # Credits (Micro-Dollar System: $1.00 = 1,000,000 micro-credits)
     MICRO_DOLLARS_PER_PAGE: int = Field(
-        default=1500, description="Micro dollars per page ($0.0015 = 1500 micros)"
+        default=15000, description="Micro dollars per page ($0.015 = 15000 micros)"
     )
     CREDITS_VALID_DAYS: int = Field(
         default=365, description="Credit validity period in days"
