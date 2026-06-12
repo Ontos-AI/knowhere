@@ -34,15 +34,15 @@ class PostHogTelemetryClient(Protocol):
 
     def capture(self, event: str, **kwargs: Any) -> str | None:
         """Capture one event."""
-        ...
+        raise NotImplementedError
 
     def flush(self) -> None:
         """Flush the SDK queue."""
-        ...
+        raise NotImplementedError
 
     def shutdown(self) -> None:
         """Flush and stop the SDK client."""
-        ...
+        raise NotImplementedError
 
 
 class TelemetryClient:

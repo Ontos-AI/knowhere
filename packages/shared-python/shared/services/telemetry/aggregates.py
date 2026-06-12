@@ -23,7 +23,7 @@ class DatabaseSessionFactory(Protocol):
 
     def __call__(self) -> AbstractAsyncContextManager[AsyncSession]:
         """Return an async context manager yielding an AsyncSession."""
-        ...
+        raise NotImplementedError
 
 
 class TelemetryAggregateSettings(TelemetrySettings, Protocol):
