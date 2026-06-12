@@ -66,7 +66,7 @@ class BaseConfig(BaseSettings):
         description="Deployment-mode label attached to anonymous telemetry events",
     )
     TELEMETRY_AGGREGATE_INTERVAL_SECONDS: int = Field(
-        default=3600,
+        default=300,
         description="Interval for anonymous self-hosted aggregate telemetry snapshots",
     )
 
