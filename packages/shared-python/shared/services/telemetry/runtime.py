@@ -7,7 +7,7 @@ from pathlib import Path
 from loguru import logger
 
 from .client import TelemetryClient
-from .config import TelemetrySettings, build_telemetry_config
+from .config import TelemetryRuntimeConfig, TelemetrySettings, build_telemetry_config
 from .events import build_instance_event_properties
 from .identity import get_or_create_installation_id
 
@@ -19,7 +19,7 @@ async def start_self_hosted_telemetry(
     api_healthy: bool,
     postgres_healthy: bool,
     redis_healthy: bool,
-) -> TelemetryClient | None:
+) -> tuple[TelemetryClient, TelemetryRuntimeConfig] | None:
     """Start anonymous self-hosted telemetry for the current service."""
     if not settings.TELEMETRY_ENABLED:
         logger.info("anonymous self-hosted telemetry disabled")
@@ -67,7 +67,7 @@ async def start_self_hosted_telemetry(
     )
 
     logger.info("anonymous self-hosted telemetry started")
-    return telemetry_client
+    return telemetry_client, config
 
 
 async def stop_self_hosted_telemetry(
