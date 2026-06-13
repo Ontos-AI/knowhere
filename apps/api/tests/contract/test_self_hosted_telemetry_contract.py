@@ -3,15 +3,28 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import TracebackType
+from typing import Any, cast
 
-import httpx
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.services.telemetry.client import TelemetryClient
 from shared.services.telemetry.config import TelemetryRuntimeConfig
-from shared.services.telemetry.events import sanitize_event_properties
+from shared.services.telemetry.api_metrics import ApiRequestTelemetryMetrics
+from shared.services.telemetry.aggregates import (
+    TelemetryAggregateSettings,
+    collect_self_hosted_aggregate_event_properties,
+    start_self_hosted_aggregate_telemetry,
+    stop_self_hosted_aggregate_telemetry,
+)
+from shared.services.telemetry.events import (
+    get_allowed_telemetry_event_names,
+    sanitize_event_properties,
+)
 from shared.services.telemetry.identity import get_or_create_installation_id
 
 
@@ -75,21 +88,125 @@ def test_telemetry_properties_strip_unknown_and_non_scalar_values() -> None:
     }
 
 
+def test_aggregate_event_names_are_allowed() -> None:
+    assert {
+        "self_hosted_usage_aggregate",
+        "self_hosted_retrieval_aggregate",
+        "self_hosted_worker_aggregate",
+        "self_hosted_api_aggregate",
+        "self_hosted_provider_aggregate",
+    }.issubset(get_allowed_telemetry_event_names())
+
+
+def test_aggregate_properties_strip_sensitive_values() -> None:
+    properties = sanitize_event_properties(
+        "self_hosted_usage_aggregate",
+        {
+            "app_version": "1.2.3",
+            "window_seconds": 86_400,
+            "total_jobs": 3,
+            "total_users": 2,
+            "email": "user@example.com",
+            "document_name": "private.pdf",
+            "query": "private retrieval query",
+        },
+    )
+
+    assert properties == {
+        "app_version": "1.2.3",
+        "window_seconds": 86_400,
+        "total_jobs": 3,
+        "total_users": 2,
+    }
+
+
+def test_api_request_metrics_snapshot_resets_bucket() -> None:
+    metrics = ApiRequestTelemetryMetrics()
+    metrics.record(status_code=200, latency_ms=10)
+    metrics.record(status_code=404, latency_ms=20)
+    metrics.record(status_code=500, latency_ms=30)
+
+    snapshot = metrics.snapshot_and_reset()
+    empty_snapshot = metrics.snapshot_and_reset()
+
+    assert snapshot.request_count == 3
+    assert snapshot.status_2xx_count == 1
+    assert snapshot.status_4xx_count == 1
+    assert snapshot.status_5xx_count == 1
+    assert snapshot.latency_avg_ms == 20
+    assert empty_snapshot.request_count == 0
+
+
 @pytest.mark.asyncio
-async def test_telemetry_client_sends_anonymous_posthog_batch(
+async def test_api_aggregate_uses_interval_window_when_global_lock_unavailable(
     tmp_path: Path,
 ) -> None:
-    sent_requests: list[str] = []
+    metrics = ApiRequestTelemetryMetrics()
+    metrics.record(status_code=200, latency_ms=12)
 
-    async def handler(request: httpx.Request) -> httpx.Response:
-        sent_requests.append(request.read().decode("utf-8"))
-        return httpx.Response(status_code=200, json={"status": "ok"})
+    properties = await collect_self_hosted_aggregate_event_properties(
+        config=_build_config(tmp_path),
+        db_session_factory=_build_lock_unavailable_session,
+        api_metrics=metrics,
+        window_seconds=86_400,
+        api_window_seconds=300,
+    )
 
-    transport = httpx.MockTransport(handler)
-    http_client = httpx.AsyncClient(transport=transport)
+    assert set(properties) == {"self_hosted_api_aggregate"}
+    api_properties = properties["self_hosted_api_aggregate"]
+    assert api_properties["window_seconds"] == 300
+    assert api_properties["api_requests_total"] == 1
+    assert api_properties["api_requests_2xx"] == 1
+
+
+def test_telemetry_client_filters_posthog_sdk_properties_after_capture(
+    tmp_path: Path,
+) -> None:
+    telemetry_client = TelemetryClient(_build_config(tmp_path))
+
+    sanitized_message = telemetry_client._sanitize_posthog_message(
+        {
+            "event": "self_hosted_api_aggregate",
+            "properties": {
+                "app_version": "1.2.3",
+                "api_requests_total": 1,
+                "email": "user@example.com",
+                "$context_tags": ["private-context"],
+                "$geoip_disable": True,
+                "$is_server": True,
+                "$lib": "posthog-python",
+                "$lib_version": "7.18.1",
+                "$os": "Linux",
+                "$os_version": "20.04",
+                "$python_runtime": "CPython",
+                "$python_version": "3.14.4",
+            },
+        }
+    )
+
+    assert sanitized_message is not None
+    assert sanitized_message["properties"] == {
+        "app_version": "1.2.3",
+        "api_requests_total": 1,
+        "$geoip_disable": True,
+        "$is_server": True,
+        "$lib": "posthog-python",
+        "$lib_version": "7.18.1",
+        "$os": "Linux",
+        "$os_version": "20.04",
+        "$python_runtime": "CPython",
+        "$python_version": "3.14.4",
+    }
+
+
+@pytest.mark.asyncio
+async def test_telemetry_client_sends_anonymous_posthog_capture(
+    tmp_path: Path,
+) -> None:
+    posthog_client = _FakePostHogClient()
     telemetry_client = TelemetryClient(
         _build_config(tmp_path),
-        http_client=http_client,
+        posthog_client=posthog_client,
     )
 
     await telemetry_client.start()
@@ -104,29 +221,87 @@ async def test_telemetry_client_sends_anonymous_posthog_batch(
     await telemetry_client.stop()
 
     assert queued is True
-    assert len(sent_requests) == 1
-    assert "phc_test_project_key" in str(sent_requests[0])
-    assert "550e8400-e29b-41d4-a716-446655440000" in str(sent_requests[0])
-    assert "$process_person_profile" in str(sent_requests[0])
-    assert "private prompt" not in str(sent_requests[0])
+    assert len(posthog_client.captured_events) == 1
+    captured_event = posthog_client.captured_events[0]
+    assert captured_event.event_name == "self_hosted_instance_heartbeat"
+    assert captured_event.kwargs["distinct_id"] == (
+        "550e8400-e29b-41d4-a716-446655440000"
+    )
+    assert captured_event.kwargs["disable_geoip"] is True
+    assert captured_event.kwargs["properties"] == {
+        "app_version": "1.2.3",
+        "api_healthy": True,
+        "$process_person_profile": False,
+    }
+    assert posthog_client.flush_count == 1
 
-    await http_client.aclose()
+
+@pytest.mark.asyncio
+async def test_telemetry_client_sends_aggregate_events(tmp_path: Path) -> None:
+    posthog_client = _FakePostHogClient()
+    telemetry_client = TelemetryClient(
+        _build_config(tmp_path),
+        posthog_client=posthog_client,
+    )
+
+    await telemetry_client.start()
+    queued = telemetry_client.capture(
+        "self_hosted_api_aggregate",
+        {
+            "app_version": "1.2.3",
+            "window_seconds": 86_400,
+            "api_requests_total": 7,
+            "api_requests_2xx": 6,
+            "prompt": "private prompt",
+        },
+    )
+    await telemetry_client.stop()
+
+    assert queued is True
+    assert len(posthog_client.captured_events) == 1
+    captured_event = posthog_client.captured_events[0]
+    assert captured_event.event_name == "self_hosted_api_aggregate"
+    assert captured_event.kwargs["properties"] == {
+        "app_version": "1.2.3",
+        "window_seconds": 86_400,
+        "api_requests_total": 7,
+        "api_requests_2xx": 6,
+        "$process_person_profile": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_aggregate_telemetry_start_does_not_require_successful_snapshot(
+    tmp_path: Path,
+) -> None:
+    posthog_client = _FakePostHogClient()
+    telemetry_client = TelemetryClient(
+        _build_config(tmp_path),
+        posthog_client=posthog_client,
+    )
+
+    await telemetry_client.start()
+    runner = await start_self_hosted_aggregate_telemetry(
+        cast(TelemetryAggregateSettings, _AggregateSettings()),
+        telemetry_client=telemetry_client,
+        config=_build_config(tmp_path),
+        db_session_factory=_build_failing_session,
+        api_metrics=ApiRequestTelemetryMetrics(),
+    )
+    await stop_self_hosted_aggregate_telemetry(runner)
+    await telemetry_client.stop()
+
+    assert runner is not None
+    assert posthog_client.captured_events == []
 
 
 @pytest.mark.asyncio
 async def test_telemetry_client_respects_batch_size(tmp_path: Path) -> None:
-    sent_requests: list[str] = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        sent_requests.append(request.read().decode("utf-8"))
-        return httpx.Response(status_code=200, json={"status": "ok"})
-
-    transport = httpx.MockTransport(handler)
-    http_client = httpx.AsyncClient(transport=transport)
+    posthog_client = _FakePostHogClient()
     config = _build_config(tmp_path)
     telemetry_client = TelemetryClient(
         replace(config, batch_size=2),
-        http_client=http_client,
+        posthog_client=posthog_client,
     )
 
     await telemetry_client.start()
@@ -139,23 +314,22 @@ async def test_telemetry_client_respects_batch_size(tmp_path: Path) -> None:
         )
     await telemetry_client.stop()
 
-    assert len(sent_requests) == 2
-
-    await http_client.aclose()
+    assert [event.event_name for event in posthog_client.captured_events] == [
+        "self_hosted_instance_heartbeat",
+        "self_hosted_instance_heartbeat",
+        "self_hosted_instance_heartbeat",
+    ]
+    assert posthog_client.flush_count == 1
 
 
 @pytest.mark.asyncio
 async def test_telemetry_client_flush_before_start_does_not_deadlock(
     tmp_path: Path,
 ) -> None:
-    async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(status_code=200, json={"status": "ok"})
-
-    transport = httpx.MockTransport(handler)
-    http_client = httpx.AsyncClient(transport=transport)
+    posthog_client = _FakePostHogClient()
     telemetry_client = TelemetryClient(
         _build_config(tmp_path),
-        http_client=http_client,
+        posthog_client=posthog_client,
     )
 
     telemetry_client.capture(
@@ -174,22 +348,15 @@ async def test_telemetry_client_flush_before_start_does_not_deadlock(
     )
 
     await asyncio.wait_for(telemetry_client.stop(), timeout=1.0)
-    await http_client.aclose()
+    assert len(posthog_client.captured_events) == 2
 
 
 @pytest.mark.asyncio
 async def test_telemetry_client_does_not_restart_after_stop(tmp_path: Path) -> None:
-    sent_requests: list[str] = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        sent_requests.append(request.read().decode("utf-8"))
-        return httpx.Response(status_code=200, json={"status": "ok"})
-
-    transport = httpx.MockTransport(handler)
-    http_client = httpx.AsyncClient(transport=transport)
+    posthog_client = _FakePostHogClient()
     telemetry_client = TelemetryClient(
         _build_config(tmp_path),
-        http_client=http_client,
+        posthog_client=posthog_client,
     )
 
     await telemetry_client.start()
@@ -208,16 +375,97 @@ async def test_telemetry_client_does_not_restart_after_stop(tmp_path: Path) -> N
         },
     )
 
-    assert len(sent_requests) == 1
+    assert len(posthog_client.captured_events) == 1
     assert queued_after_stop is False
-
-    await http_client.aclose()
 
 
 @dataclass(frozen=True)
 class _ConfigOverrides:
     installation_id: str = "550e8400-e29b-41d4-a716-446655440000"
     posthog_project_key: str = "phc_test_project_key"
+
+
+@dataclass(frozen=True)
+class _CapturedPostHogEvent:
+    event_name: str
+    kwargs: dict[str, object]
+
+
+@dataclass(frozen=True)
+class _AggregateSettings:
+    TELEMETRY_AGGREGATE_INTERVAL_SECONDS: int = 60
+
+
+class _FailingSessionContext(AbstractAsyncContextManager[AsyncSession]):
+    async def __aenter__(self) -> AsyncSession:
+        raise RuntimeError("database unavailable")
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool | None:
+        return None
+
+
+@dataclass(frozen=True)
+class _ScalarResult:
+    value: object
+
+    def scalar_one_or_none(self) -> object:
+        return self.value
+
+
+class _LockUnavailableSession:
+    async def execute(
+        self,
+        statement: object,
+        params: dict[str, Any] | None = None,
+    ) -> _ScalarResult:
+        assert "pg_try_advisory_lock" in str(statement)
+        assert params is not None
+        return _ScalarResult(False)
+
+
+class _LockUnavailableSessionContext(AbstractAsyncContextManager[AsyncSession]):
+    async def __aenter__(self) -> AsyncSession:
+        return cast(AsyncSession, _LockUnavailableSession())
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool | None:
+        return None
+
+
+class _FakePostHogClient:
+    def __init__(self) -> None:
+        self.captured_events: list[_CapturedPostHogEvent] = []
+        self.flush_count = 0
+        self.shutdown_count = 0
+
+    def capture(self, event: str, **kwargs: object) -> str:
+        self.captured_events.append(
+            _CapturedPostHogEvent(event_name=event, kwargs=kwargs)
+        )
+        return "fake-posthog-event-id"
+
+    def flush(self) -> None:
+        self.flush_count += 1
+
+    def shutdown(self) -> None:
+        self.shutdown_count += 1
+
+
+def _build_failing_session() -> AbstractAsyncContextManager[AsyncSession]:
+    return _FailingSessionContext()
+
+
+def _build_lock_unavailable_session() -> AbstractAsyncContextManager[AsyncSession]:
+    return _LockUnavailableSessionContext()
 
 
 def _build_config(

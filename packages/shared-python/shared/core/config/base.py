@@ -65,6 +65,10 @@ class BaseConfig(BaseSettings):
         default="self_hosted",
         description="Deployment-mode label attached to anonymous telemetry events",
     )
+    TELEMETRY_AGGREGATE_INTERVAL_SECONDS: int = Field(
+        default=300,
+        description="Interval for anonymous self-hosted aggregate telemetry snapshots",
+    )
 
     # Security configuration.
     WEBHOOK_MASTER_KEY: str = Field(
@@ -129,6 +133,14 @@ class BaseConfig(BaseSettings):
         """Validate anonymous telemetry request timeout."""
         if v <= 0:
             raise ValueError("TELEMETRY_REQUEST_TIMEOUT_SECONDS must be positive")
+        return v
+
+    @field_validator("TELEMETRY_AGGREGATE_INTERVAL_SECONDS")
+    @classmethod
+    def validate_telemetry_aggregate_interval_seconds(cls, v):
+        """Validate anonymous aggregate telemetry interval."""
+        if v < 60:
+            raise ValueError("TELEMETRY_AGGREGATE_INTERVAL_SECONDS must be at least 60")
         return v
 
     def validate_file_paths(self) -> bool:

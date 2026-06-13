@@ -1,21 +1,23 @@
-"""Non-blocking PostHog telemetry client for anonymous self-hosted events."""
+"""Non-blocking PostHog SDK client for anonymous self-hosted events."""
 
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Protocol
 
-import httpx
 from loguru import logger
+from posthog import Posthog
 
 from .config import TelemetryRuntimeConfig
 from .events import (
     TelemetryProperties,
     get_allowed_telemetry_event_names,
     sanitize_event_properties,
+    sanitize_posthog_event_properties,
 )
 
 
@@ -28,6 +30,22 @@ class TelemetryEvent:
     timestamp: datetime
 
 
+class PostHogTelemetryClient(Protocol):
+    """Small PostHog SDK surface used by anonymous product telemetry."""
+
+    def capture(self, event: str, **kwargs: Any) -> str | None:
+        """Capture one event."""
+        raise NotImplementedError
+
+    def flush(self) -> None:
+        """Flush the SDK queue."""
+        raise NotImplementedError
+
+    def shutdown(self) -> None:
+        """Flush and stop the SDK client."""
+        raise NotImplementedError
+
+
 class TelemetryClient:
     """Bounded, asynchronous client for anonymous self-hosted telemetry."""
 
@@ -35,13 +53,14 @@ class TelemetryClient:
         self,
         config: TelemetryRuntimeConfig,
         *,
-        http_client: httpx.AsyncClient | None = None,
+        posthog_client: PostHogTelemetryClient | None = None,
         queue_size: int = 100,
     ) -> None:
         self._config = config
         self._queue: asyncio.Queue[TelemetryEvent] = asyncio.Queue(maxsize=queue_size)
-        self._http_client = http_client
-        self._owns_http_client = http_client is None
+        self._posthog_client = posthog_client
+        self._owns_posthog_client = posthog_client is None
+        self._queue_size = queue_size
         self._worker_task: asyncio.Task[None] | None = None
         self._is_closed = False
         self._allowed_event_names = get_allowed_telemetry_event_names()
@@ -51,12 +70,8 @@ class TelemetryClient:
         if self._is_closed or not self._config.is_ready or self._worker_task is not None:
             return
 
-        if self._http_client is None:
-            timeout = httpx.Timeout(self._config.request_timeout_seconds)
-            self._http_client = httpx.AsyncClient(
-                timeout=timeout,
-                follow_redirects=True,
-            )
+        if self._posthog_client is None:
+            self._posthog_client = self._create_posthog_client()
         self._worker_task = asyncio.create_task(self._run(), name="telemetry-client")
 
     def capture(
@@ -89,6 +104,7 @@ class TelemetryClient:
             return
         if self._worker_task is not None:
             await self._queue.join()
+            await self._flush_posthog_client()
             return
 
         while not self._queue.empty():
@@ -98,6 +114,7 @@ class TelemetryClient:
             finally:
                 for _ in telemetry_events:
                     self._queue.task_done()
+        await self._flush_posthog_client()
 
     async def stop(self) -> None:
         """Flush queued telemetry and close the background sender."""
@@ -111,9 +128,9 @@ class TelemetryClient:
             await asyncio.gather(worker_task, return_exceptions=True)
             self._worker_task = None
 
-        if self._owns_http_client and self._http_client is not None:
-            await self._http_client.aclose()
-        self._http_client = None
+        if self._owns_posthog_client and self._posthog_client is not None:
+            await self._shutdown_posthog_client()
+        self._posthog_client = None
 
     async def _run(self) -> None:
         while True:
@@ -139,33 +156,68 @@ class TelemetryClient:
         return telemetry_events
 
     async def _send_batch(self, telemetry_events: list[TelemetryEvent]) -> None:
-        if not telemetry_events or self._http_client is None:
+        posthog_client = self._posthog_client
+        if not telemetry_events or posthog_client is None:
             return
 
-        payload = self._build_batch_payload(telemetry_events)
         try:
-            response = await self._http_client.post(
-                self._config.batch_url,
-                json=payload,
-            )
-            response.raise_for_status()
+            for telemetry_event in telemetry_events:
+                posthog_client.capture(
+                    telemetry_event.event_name,
+                    distinct_id=self._config.installation_id,
+                    properties={
+                        **telemetry_event.properties,
+                        "$process_person_profile": False,
+                    },
+                    timestamp=telemetry_event.timestamp,
+                    disable_geoip=True,
+                )
         except Exception as exc:
             logger.warning(f"anonymous telemetry send failed: {exc}")
 
-    def _build_batch_payload(self, telemetry_events: list[TelemetryEvent]) -> dict[str, Any]:
-        return {
-            "api_key": self._config.posthog_project_key,
-            "historical_migration": False,
-            "batch": [
-                {
-                    "event": telemetry_event.event_name,
-                    "properties": {
-                        **telemetry_event.properties,
-                        "distinct_id": self._config.installation_id,
-                        "$process_person_profile": False,
-                    },
-                    "timestamp": telemetry_event.timestamp.isoformat(),
-                }
-                for telemetry_event in telemetry_events
-            ],
-        }
+    def _create_posthog_client(self) -> PostHogTelemetryClient:
+        return Posthog(
+            self._config.posthog_project_key,
+            host=self._config.posthog_host,
+            max_queue_size=self._queue_size,
+            flush_at=self._config.batch_size,
+            flush_interval=0.5,
+            sync_mode=False,
+            timeout=math.ceil(self._config.request_timeout_seconds),
+            disable_geoip=True,
+            enable_exception_autocapture=False,
+            enable_local_evaluation=False,
+            before_send=self._sanitize_posthog_message,
+        )
+
+    def _sanitize_posthog_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
+        event_name = message.get("event")
+        if not isinstance(event_name, str) or event_name not in self._allowed_event_names:
+            return None
+
+        raw_properties = message.get("properties")
+        properties = raw_properties if isinstance(raw_properties, Mapping) else {}
+        sanitized_message = dict(message)
+        sanitized_message["properties"] = sanitize_posthog_event_properties(
+            event_name,
+            properties,
+        )
+        return sanitized_message
+
+    async def _flush_posthog_client(self) -> None:
+        posthog_client = self._posthog_client
+        if posthog_client is None:
+            return
+        try:
+            await asyncio.to_thread(posthog_client.flush)
+        except Exception as exc:
+            logger.warning(f"anonymous telemetry flush failed: {exc}")
+
+    async def _shutdown_posthog_client(self) -> None:
+        posthog_client = self._posthog_client
+        if posthog_client is None:
+            return
+        try:
+            await asyncio.to_thread(posthog_client.shutdown)
+        except Exception as exc:
+            logger.warning(f"anonymous telemetry shutdown failed: {exc}")

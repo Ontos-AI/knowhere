@@ -17,9 +17,11 @@ from loguru import logger
 from contextlib import asynccontextmanager
 from app.api.api_router import api_router
 from app.core.middleware import setup_cors, LoggingMiddleware
+from app.core.middleware.telemetry import ApiTelemetryMiddleware
 from app.core.exception_handlers import setup_exception_handlers
 from app.mcp import create_retrieval_mcp_server
 from app.services.rate_limit.rule_loader import load_rules
+from shared.services.telemetry.api_metrics import ApiRequestTelemetryMetrics
 
 
 @asynccontextmanager
@@ -68,15 +70,35 @@ async def lifespan(app: FastAPI):
         await load_rules(session)
     logger.info("rate limit rules loaded at startup; restart the pod to apply changes")
 
+    from shared.services.telemetry.aggregates import (
+        start_self_hosted_aggregate_telemetry,
+    )
     from shared.services.telemetry.runtime import start_self_hosted_telemetry
 
-    app.state.self_hosted_telemetry_client = await start_self_hosted_telemetry(
+    telemetry_runtime = await start_self_hosted_telemetry(
         settings,
         service_name="knowhere-api",
         api_healthy=True,
         postgres_healthy=True,
         redis_healthy=True,
     )
+    if telemetry_runtime is None:
+        app.state.self_hosted_telemetry_client = None
+        app.state.self_hosted_telemetry_config = None
+        app.state.self_hosted_aggregate_telemetry_runner = None
+    else:
+        telemetry_client, telemetry_config = telemetry_runtime
+        app.state.self_hosted_telemetry_client = telemetry_client
+        app.state.self_hosted_telemetry_config = telemetry_config
+        app.state.self_hosted_aggregate_telemetry_runner = (
+            await start_self_hosted_aggregate_telemetry(
+                settings,
+                telemetry_client=telemetry_client,
+                config=telemetry_config,
+                db_session_factory=get_db_context,
+                api_metrics=app.state.self_hosted_api_telemetry_metrics,
+            )
+        )
 
     mcp_server = getattr(app.state, "retrieval_mcp_server", None)
     mcp_session_manager = getattr(mcp_server, "session_manager", None)
@@ -89,8 +111,14 @@ async def lifespan(app: FastAPI):
         yield
 
     try:
+        from shared.services.telemetry.aggregates import (
+            stop_self_hosted_aggregate_telemetry,
+        )
         from shared.services.telemetry.runtime import stop_self_hosted_telemetry
 
+        await stop_self_hosted_aggregate_telemetry(
+            getattr(app.state, "self_hosted_aggregate_telemetry_runner", None)
+        )
         await stop_self_hosted_telemetry(
             getattr(app.state, "self_hosted_telemetry_client", None)
         )
@@ -150,6 +178,9 @@ def create_app() -> FastAPI:
 
     # Setup middleware
     setup_cors(app)
+    api_telemetry_metrics = ApiRequestTelemetryMetrics()
+    app.state.self_hosted_api_telemetry_metrics = api_telemetry_metrics
+    app.add_middleware(ApiTelemetryMiddleware, metrics=api_telemetry_metrics)
     app.add_middleware(LoggingMiddleware)
 
     @app.get("/", tags=["Root"])
