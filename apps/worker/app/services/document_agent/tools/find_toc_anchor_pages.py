@@ -1,4 +1,4 @@
-"""Scan for TOC anchor pages and render their PNGs for VLM inspection."""
+"""Scan PDF text for TOC anchor pages and render their PNGs for VLM inspection."""
 
 from __future__ import annotations
 
@@ -16,8 +16,9 @@ from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
 )
 from loguru import logger
 
-# CJK and English TOC keywords used for anchor detection.
-TOC_KEYWORDS = {"目录", "目次", "contents", "tableofcontents", "table of contents"}
+# CJK and English TOC keywords used for first-pass anchor detection.
+TOC_KEYWORDS = {"目录", "目次", "contents", "tableofcontents"}
+TOC_CROSS_LINE_WINDOW = 6
 
 # If a TOC keyword fingerprint appears on more than this fraction of total
 # pages, it is treated as a recurring navigation element (header/footer link)
@@ -32,6 +33,100 @@ MAX_ANCHOR_CANDIDATES = 30
 def _normalize_for_toc(text: str) -> str:
     """Collapse whitespace for keyword matching."""
     return text.replace(" ", "").replace("\u3000", "").lower()
+
+
+def _meaningful_text_lines(text: str) -> list[str]:
+    return [" ".join(line.split()) for line in text.splitlines() if line.split()]
+
+
+def _match_toc_keyword(normalized_text: str) -> str | None:
+    for keyword in sorted(TOC_KEYWORDS, key=len, reverse=True):
+        if keyword in normalized_text:
+            return keyword
+    return None
+
+
+def _find_toc_text_matches(
+    lines: list[str],
+    *,
+    cross_line_window: int,
+) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    direct_hit_lines: set[int] = set()
+    for line_idx, raw_line in enumerate(lines):
+        keyword = _match_toc_keyword(_normalize_for_toc(raw_line))
+        if keyword is None:
+            continue
+        direct_hit_lines.add(line_idx)
+        matches.append(
+            {
+                "raw_line": raw_line.strip(),
+                "line_index": line_idx,
+                "line_end_index": line_idx,
+                "match_kind": f"keyword:{keyword}",
+            }
+        )
+
+    if matches:
+        return matches
+
+    # TODO: Add second-layer table-of-contents shape scoring if first-pass
+    # keywords produce too many candidates.  Keep this layer as pure anchor
+    # discovery; VLM confirmation remains the semantic judge.
+    window = max(cross_line_window, 1)
+    for start_idx in range(len(lines)):
+        joined_parts: list[str] = []
+        end_limit = min(len(lines), start_idx + window)
+        for end_idx in range(start_idx, end_limit):
+            if end_idx in direct_hit_lines:
+                continue
+            joined_parts.append(lines[end_idx].strip())
+            if end_idx == start_idx:
+                continue
+            keyword = _match_toc_keyword(_normalize_for_toc("".join(joined_parts)))
+            if keyword is None:
+                continue
+            matches.append(
+                {
+                    "raw_line": " / ".join(joined_parts),
+                    "line_index": start_idx,
+                    "line_end_index": end_idx,
+                    "match_kind": f"cross_line:{keyword}",
+                }
+            )
+            return matches
+    return matches
+
+
+@worker
+def _scan_toc_text_worker(
+    queue, pdf_path: str, cross_line_window: int
+) -> None:
+    import pymupdf  # type: ignore[import]
+
+    matches: list[dict[str, Any]] = []
+    page_count = 0
+    doc = None
+    try:
+        doc = pymupdf.open(pdf_path)
+        page_count = doc.page_count
+        for page_idx in range(doc.page_count):
+            page_num = page_idx + 1
+            text = str(doc[page_idx].get_text("text") or "")
+            lines = _meaningful_text_lines(text)
+            for match in _find_toc_text_matches(
+                lines,
+                cross_line_window=cross_line_window,
+            ):
+                matches.append({"page": page_num, **match})
+    finally:
+        if doc is not None:
+            try:
+                doc.close()
+            except Exception:
+                pass
+        gc.collect()
+    queue.put({"ok": True, "matches": matches, "page_count": page_count})
 
 
 @worker
@@ -63,14 +158,15 @@ def _render_pages_worker(
 
 
 def _filter_recurring_elements(
-    matches: list[tuple[int, str, int]],
+    matches: list[dict[str, Any]],
     total_pages: int,
 ) -> set[int]:
     """Remove pages whose TOC keyword pattern is a recurring navigation element.
 
-    Each *match* is ``(page, raw_line, line_index)``.  We build a **composite
+    Each match contains ``page``, ``raw_line``, ``line_index``, and optionally
+    ``line_end_index``.  We build a **composite
     fingerprint** per page by joining all its matches as
-    ``"raw_line@line_idx\\n..."``.  If the same composite fingerprint appears
+    ``"raw_line@line_idx-line_end\\n..."``.  If the same composite fingerprint appears
     on more than ``RECURRING_ELEMENT_THRESHOLD`` of all pages, those pages are
     header/footer false-positives.
 
@@ -80,16 +176,21 @@ def _filter_recurring_elements(
       - page 401 → ``"Table of Contents@0"`` (~31 pages → VLM decides)
     """
     # Collect all matches per page
-    page_matches: dict[int, list[tuple[str, int]]] = {}
-    for page, raw_line, line_idx in matches:
-        page_matches.setdefault(page, []).append((raw_line, line_idx))
+    page_matches: dict[int, list[tuple[str, int, int]]] = {}
+    for match in matches:
+        page = int(match["page"])
+        raw_line = str(match.get("raw_line") or "").strip()
+        line_idx = int(match.get("line_index") or 0)
+        line_end_idx = int(match.get("line_end_index") or line_idx)
+        page_matches.setdefault(page, []).append((raw_line, line_idx, line_end_idx))
 
     # Build composite fingerprint per page (sorted by line_idx for stability)
     page_fingerprints: dict[int, str] = {}
     for page, hits in page_matches.items():
         hits_sorted = sorted(hits, key=lambda h: h[1])
         page_fingerprints[page] = "\n".join(
-            f"{raw}@{idx}" for raw, idx in hits_sorted
+            f"{raw}@{start_idx}-{end_idx}"
+            for raw, start_idx, end_idx in hits_sorted
         )
 
     # Group pages by composite fingerprint
@@ -118,7 +219,7 @@ def _filter_recurring_elements(
 @register_tool(
     name="find.toc_anchor_pages",
     description=(
-        "Scan page text previews for TOC keywords, filter recurring "
+        "Scan full PDF page text for TOC keywords, filter recurring "
         "navigation elements, then render candidate PNGs for VLM confirmation."
     ),
     preconditions=(has_page_labels,),
@@ -127,44 +228,20 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
     start = time.monotonic()
     total_pages = ctx.blackboard.page_count
 
-    # Scan text previews for TOC keywords and record per-line matches.
-    # Each entry: (page, raw_line_text, line_index)
-    # We use raw (original) text for fingerprinting so that casing
-    # differences (e.g. "Table of Contents" vs "TABLE OF CONTENTS")
-    # naturally produce distinct composite fingerprints.
-    keyword_matches: list[tuple[int, str, int]] = []
-    raw_hit_pages: set[int] = set()
-
-    for feature in ctx.blackboard.page_features:
-        page_matched = False
-        for line_idx, raw_line in enumerate(feature.text_lines_preview):
-            norm_line = _normalize_for_toc(raw_line)
-            for keyword in TOC_KEYWORDS:
-                if keyword in norm_line:
-                    keyword_matches.append((feature.page, raw_line.strip(), line_idx))
-                    raw_hit_pages.add(feature.page)
-                    page_matched = True
-                    break  # one match per line is enough
-
-        # Fallback: check if a TOC keyword spans across adjacent lines.
-        # PyMuPDF sometimes splits large headings across lines, e.g.
-        # "目" + "录" or "Table of" + "Contents".  Join the first few
-        # preview lines (where a page title would appear) and re-check
-        # with the same keywords and normalisation.
-        if not page_matched and feature.text_lines_preview:
-            head = feature.text_lines_preview[:10]
-            joined_head = _normalize_for_toc("".join(head))
-            for keyword in TOC_KEYWORDS:
-                if keyword in joined_head:
-                    keyword_matches.append((feature.page, keyword, 0))
-                    raw_hit_pages.add(feature.page)
-                    logger.debug(
-                        "[find.toc_anchor_pages] cross-line keyword '{}' "
-                        "detected on page {} (head lines joined)",
-                        keyword,
-                        feature.page,
-                    )
-                    break
+    scan_timeout = int(ctx.settings.get("toc_text_scan_timeout", "180"))
+    cross_line_window = int(
+        ctx.settings.get("toc_cross_line_window", TOC_CROSS_LINE_WINDOW)
+    )
+    scan_result = run_in_child_process(
+        _scan_toc_text_worker,
+        ctx.pdf_path,
+        cross_line_window,
+        timeout=scan_timeout,
+    )
+    keyword_matches = list(scan_result.get("matches") or [])
+    raw_hit_pages = {int(match["page"]) for match in keyword_matches}
+    if scan_result.get("page_count"):
+        total_pages = int(scan_result["page_count"])
 
     # Apply recurring element fingerprint filter
     if keyword_matches:
@@ -234,4 +311,3 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
             "pages": [a.to_dict() for a in anchors],
         },
     )
-

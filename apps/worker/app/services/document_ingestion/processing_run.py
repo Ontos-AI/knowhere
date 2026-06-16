@@ -28,6 +28,11 @@ from app.services.document_parser.orchestration.oversized_pdf_policy import (
 )
 from loguru import logger
 
+from app.services.document_parser.support.stage_profiler import (
+    cleanup_stage_tracker,
+    init_stage_tracker,
+)
+from shared.services.ai.token_tracking import cleanup_token_tracker, init_token_tracker
 from shared.services.jobs.lifecycle.service import get_sync_job_lifecycle_service
 from shared.services.redis.distributed_lock import RedisJobLock
 from shared.services.redis.redis_sync_service import (
@@ -78,30 +83,49 @@ def _run_parse_job(
     task_workspace: TemporaryParseWorkspace,
 ) -> dict[str, object]:
     lifecycle_service.update_progress(job_id, progress=10, message="Parsing document...")
+    token_usage_dict = init_token_tracker()
+    stage_timing_dict = init_stage_tracker()
 
-    prepared_source = prepare_source_file(
-        job_id=job_id,
-        job_context=job_context,
-        input_dir=task_workspace.input_dir,
-    )
-
-    workload_estimate = PageEstimator.estimate_workload(prepared_source.local_file_path)
-    page_count = workload_estimate.page_count
-    logger.info(
-        "Workload estimation: "
-        f"job_id={job_id}, page_count={page_count}, "
-        f"method={workload_estimate.method}, "
-        f"fallback_reason={workload_estimate.fallback_reason}"
-    )
-
-    processing_started_at = datetime.now(timezone.utc)
-    oversized_pdf_rejection = build_oversized_pdf_rejection(
-        file_extension=prepared_source.file_extension,
-        page_count=page_count,
-    )
-    if oversized_pdf_rejection is not None:
-        billing_snapshot = record_skipped_parse_job_billing(
+    try:
+        prepared_source = prepare_source_file(
             job_id=job_id,
+            job_context=job_context,
+            input_dir=task_workspace.input_dir,
+        )
+
+        workload_estimate = PageEstimator.estimate_workload(prepared_source.local_file_path)
+        page_count = workload_estimate.page_count
+        logger.info(
+            "Workload estimation: "
+            f"job_id={job_id}, page_count={page_count}, "
+            f"method={workload_estimate.method}, "
+            f"fallback_reason={workload_estimate.fallback_reason}"
+        )
+
+        processing_started_at = datetime.now(timezone.utc)
+        oversized_pdf_rejection = build_oversized_pdf_rejection(
+            file_extension=prepared_source.file_extension,
+            page_count=page_count,
+        )
+        if oversized_pdf_rejection is not None:
+            billing_snapshot = record_skipped_parse_job_billing(
+                job_id=job_id,
+                workload_estimate=workload_estimate,
+            )
+            record_processing_start(
+                job_id=job_id,
+                job_context=job_context,
+                billing_snapshot=billing_snapshot,
+                processing_started_at=processing_started_at,
+                workload_estimate=workload_estimate,
+                extra_metadata={"error_details": oversized_pdf_rejection.details},
+            )
+            raise oversized_pdf_rejection
+
+        billing_snapshot = charge_parse_job_pages(
+            job_id=job_id,
+            filename=prepared_source.source_file_name,
+            job_user_id=job_context.job_user_id,
             workload_estimate=workload_estimate,
         )
         record_processing_start(
@@ -110,57 +134,48 @@ def _run_parse_job(
             billing_snapshot=billing_snapshot,
             processing_started_at=processing_started_at,
             workload_estimate=workload_estimate,
-            extra_metadata={"error_details": oversized_pdf_rejection.details},
         )
-        raise oversized_pdf_rejection
 
-    billing_snapshot = charge_parse_job_pages(
-        job_id=job_id,
-        filename=prepared_source.source_file_name,
-        job_user_id=job_context.job_user_id,
-        workload_estimate=workload_estimate,
-    )
-    record_processing_start(
-        job_id=job_id,
-        job_context=job_context,
-        billing_snapshot=billing_snapshot,
-        processing_started_at=processing_started_at,
-        workload_estimate=workload_estimate,
-    )
+        parse_output = execute_document_parse(
+            job_id=job_id,
+            job_context=job_context,
+            prepared_source=prepared_source,
+            output_dir=task_workspace.output_dir,
+        )
 
-    parse_output = execute_document_parse(
-        job_id=job_id,
-        job_context=job_context,
-        prepared_source=prepared_source,
-        output_dir=task_workspace.output_dir,
-    )
+        lifecycle_service.update_progress(
+            job_id,
+            progress=30,
+            message="Parse completed, preparing chunks...",
+        )
+        result_package = build_parse_result_package(
+            job_id=job_id,
+            filename=prepared_source.source_file_name,
+            parse_output=parse_output,
+        )
 
-    lifecycle_service.update_progress(
-        job_id,
-        progress=30,
-        message="Parse completed, preparing chunks...",
-    )
-    result_package = build_parse_result_package(
-        job_id=job_id,
-        filename=prepared_source.source_file_name,
-        parse_output=parse_output,
-    )
+        lifecycle_service.update_progress(
+            job_id,
+            progress=70,
+            message="Chunks ready, generating zip...",
+        )
+        logger.info(
+            f"Chunks prepared: job_id={job_id}, count={len(result_package.chunks)}"
+        )
 
-    lifecycle_service.update_progress(
-        job_id,
-        progress=70,
-        message="Chunks ready, generating zip...",
-    )
-    logger.info(
-        f"Chunks prepared: job_id={job_id}, count={len(result_package.chunks)}"
-    )
-
-    return finalize_parse_success(
-        result_package=result_package,
-        job_context=job_context,
-        job_id=job_id,
-        lifecycle_service=lifecycle_service,
-        processing_started_at=processing_started_at,
-        task_workspace_dir=task_workspace.root_dir,
-        result_storage_factory=get_result_storage,
-    )
+        return finalize_parse_success(
+            result_package=result_package,
+            job_context=job_context,
+            job_id=job_id,
+            lifecycle_service=lifecycle_service,
+            processing_started_at=processing_started_at,
+            task_workspace_dir=task_workspace.root_dir,
+            result_storage_factory=get_result_storage,
+        )
+    finally:
+        job_context.job_metadata["stages"] = {
+            "timing_ms": dict(stage_timing_dict),
+            "token_usage": dict(token_usage_dict),
+        }
+        cleanup_token_tracker()
+        cleanup_stage_tracker()

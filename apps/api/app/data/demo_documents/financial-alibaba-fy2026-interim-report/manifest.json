@@ -1,0 +1,259 @@
+{
+  "version": "2.0",
+  "job_id": "job_b510179326c7",
+  "data_id": null,
+  "source_file_name": "Fiscal%20Year%202026%20Interim%20Report.pdf",
+  "processing_date": "2026-06-16T03:39:11.026115Z",
+  "processing": {
+    "page_count": 83,
+    "billing_status": "charged",
+    "cost": {
+      "micro_dollars": 124500,
+      "credits": 0.1245
+    },
+    "timing": {
+      "started_at": "2026-06-16T03:35:17.798204+00:00",
+      "completed_at": "2026-06-16T03:39:10.995478+00:00",
+      "duration_ms": 233197
+    },
+    "stages": {
+      "timing_ms": {
+        "document.profile": 7645,
+        "pdf.extract.standard": 178449,
+        "toc.detect_range_llm": 1797,
+        "heading.hierarchy_llm_call": 15078,
+        "toc.parse_hierarchy_llm": 1851,
+        "md.detect_toc": 3709,
+        "heading.merge_pre_pass_llm": 3010,
+        "heading.hierarchy_llm": 13257,
+        "md.predict_headings": 17338,
+        "md.deferred_summaries": 25282,
+        "md.build_dataframe": 2,
+        "pdf.parse_md": 46970,
+        "document.cleanup_unreferenced_images": 2,
+        "document.compress_images": 0,
+        "worker.parse.document": 233091
+      },
+      "token_usage": {
+        "prompt_tokens": 13512,
+        "completion_tokens": 2901,
+        "total_tokens": 16413
+      }
+    }
+  },
+  "statistics": {
+    "total_chunks": 216,
+    "text_chunks": 164,
+    "image_chunks": 2,
+    "table_chunks": 50,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "Root": {},
+    "Weighted Voting Rights": {
+      "Exchange Rate Information": {},
+      "Safe Harbor Statements": {},
+      "Six Months Ended September Segment Results": {
+        "Alibaba China E-commerce Group": {
+          "(i) Segment revenue": {
+            "• E-commerce Business": {},
+            "• Quick Commerce Business": {},
+            "• China Commerce Wholesale Business": {}
+          },
+          "(ii) Segment adjusted EBITA": {}
+        },
+        "Alibaba International Digital Commerce Group": {
+          "(i) Segment revenue": {
+            "• International Commerce Retail Business": {},
+            "• International Commerce Wholesale Business": {}
+          },
+          "(ii) Segment adjusted EBITA": {}
+        },
+        "Cloud Intelligence Group": {
+          "(i) Segment revenue": {},
+          "(ii) Segment adjusted EBITA": {}
+        },
+        "All Others": {
+          "(i) Segment revenue": {},
+          "(ii) Segment adjusted EBITA": {}
+        }
+      },
+      "Six Months Ended September Other Financial Results Costs and Expenses": {
+        "Income from operations and operating margin": {},
+        "Adjusted EBITDA and Adjusted EBITA": {},
+        "Adjusted EBITA by segment": {},
+        "Interest and investment income, net": {},
+        "Other (expense) income, net": {},
+        "Income tax expenses": {},
+        "Share of results of equity method investees": {},
+        "Net income and Non-GAAP net income": {},
+        "Net income attributable to ordinary shareholders": {},
+        "Net cash provided by operating activities and free cash flow": {},
+        "Net cash used in investing activities": {},
+        "Net cash provided by financing activities": {},
+        "Employees": {}
+      },
+      "Non-GAAP Financial Measures": {},
+      "Other Financial Information": {
+        "Liquidity and Capital Resources": {},
+        "Significant Investments": {},
+        "Material Investments, Acquisitions and Dispositions": {},
+        "Pledge of Assets": {},
+        "Foreign Exchange Risk": {},
+        "Contingent Liabilities": {},
+        "Capital Expenditure and Capital Commitment": {},
+        "Remuneration Policy": {},
+        "Subsequent Events": {}
+      }
+    },
+    "DIRECTORS AND CHIEF EXECUTIVE OFFICER": {
+      "Biographical Information": {},
+      "Board Committees": {
+        "Audit Committee": {},
+        "Compensation Committee": {},
+        "Nominating and Corporate Governance Committee": {},
+        "Sustainability Committee": {},
+        "Compliance and Risk Committee": {},
+        "Capital Management Committee": {}
+      }
+    },
+    "DISCLOSURE OF INTERESTS": {},
+    "EQUITY INCENTIVE PLANS": {
+      "The 2014 Plan": {
+        "Notes:": {},
+        "Notes:_2": {}
+      },
+      "The 2024 Plan": {},
+      "The 2024 Plan (Existing Shares)": {}
+    },
+    "PURCHASE, SALE OR REDEMPTION OF OUR COMPANY'S LISTED SECURITIES": {},
+    "OTHER INFORMATION": {
+      "Corporate Governance": {
+        "Compliance with the Corporate Governance Code": {},
+        "Compliance with the Model Code": {},
+        "Audit Committee Review": {}
+      },
+      "Interim Dividend": {},
+      "Use of Proceeds from the Notes Offerings": {}
+    },
+    "DEFINITIONS Conventions that apply to this Interim Report": {},
+    "ALIBABA GROUP HOLDING LIMITED": {
+      "INDEX TO CONDENSED CONSOLIDATED INTERIM FINANCIAL STATEMENTS": {
+        "Introduction": {},
+        "Scope of Review": {},
+        "Conclusion": {},
+        "PricewaterhouseCoopers Certified Public Accountants": {}
+      }
+    },
+    "ALIBABA GROUP HOLDING LIMITED_2": {
+      "UNAUDITED CONDENSED CONSOLIDATED STATEMENTS OF CASH FLOWS": {},
+      "1. Organization and principal activities": {},
+      "2. Summary of significant accounting policies": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_3": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
+      "2. Summary of significant accounting policies (Continued)": {
+        "(b) Use of estimates": {},
+        "(c) Consolidation": {}
+      },
+      "2. Summary of significant accounting policies (Continued)_2": {
+        "(d) Derivatives and hedging": {
+          "Cash flow hedges": {},
+          "Net investment hedges": {}
+        }
+      },
+      "2. Summary of significant accounting policies (Continued)_3": {
+        "(e) Borrowings": {},
+        "(f) Recent accounting pronouncements": {}
+      },
+      "3. Significant mergers and acquisitions, investments and dispositions": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_4": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
+      "4. Revenue": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_5": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
+      "4. Revenue (Continued)": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_6": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
+      "5. Income tax expenses": {},
+      "6. Share-based compensation expense by function": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_7": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
+      "7. Earnings per share∕ADS": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_8": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
+      "8. Equity securities and other investments": {
+        "Equity securities": {},
+        "Debt investments": {}
+      },
+      "8. Equity securities and other investments (Continued)": {},
+      "9. Fair value measurement": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_9": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
+      "9. Fair value measurement (Continued)": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_10": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
+      "9. Fair value measurement (Continued)": {},
+      "10. Intangible assets, net": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_11": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
+      "11. Goodwill": {},
+      "12. Supplier Finance Programs": {},
+      "13. Convertible unsecured senior notes": {},
+      "13. Convertible unsecured senior notes (Continued)": {},
+      "14. Exchangeable bonds": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_12": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
+      "15. Bank borrowings": {},
+      "16. Related party transactions": {},
+      "16. Related party transactions (Continued)": {},
+      "17. Risks and contingencies": {},
+      "17. Risks and contingencies (Continued)": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_13": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
+      "18. Segment information": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_14": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
+      "18. Segment information (Continued)": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_15": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
+      "19. Aging analysis": {
+        "Accounts receivable": {},
+        "Accounts payable": {}
+      },
+      "20. Dividends": {},
+      "21. Subsequent events": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_16": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_17": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {}
+    },
+    "ALIBABA GROUP HOLDING LIMITED_18": {
+      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {
+        "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025": {},
+        "(i) Consolidation and business combinations": {},
+        "(ii) Equity securities without readily determinable fair value": {},
+        "(iii) Equity method investments": {},
+        "(iv) Share-based awards": {},
+        "(v) Operating leases": {},
+        "(vi) Redeemable noncontrolling interests": {},
+        "(vii) Hyperinflation": {},
+        "Alibaba": {}
+      }
+    }
+  }
+}

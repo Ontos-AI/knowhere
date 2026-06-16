@@ -1,0 +1,804 @@
+{
+  "version": "1.0",
+  "file_name": "NVIDIA Q1 FY27 Results.pdf",
+  "stats": {
+    "total_chunks": 120,
+    "text_chunks": 72,
+    "image_chunks": 6,
+    "table_chunks": 42,
+    "max_depth": 4
+  },
+  "sections": [
+    {
+      "title": "Root",
+      "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf",
+      "level": 1,
+      "summary": "This is a Form 10-Q quarterly report filed by NVIDIA Corporation with the U.S. Securities and Exchange Commission for the quarterly period ended April 26, 2026. The document includes company identification details such as its Delaware incorporation, IRS Employer Identification Number, principal executive offices in Santa Clara, California, and its common stock trading under the symbol NVDA on the Nasdaq Global Select Market. It indicates NVIDIA is a large accelerated filer and not a shell company, with 24.2 billion shares outstanding as of May 15, 2026. The filing covers required financial statements and disclosures under the Securities Exchange Act of 1934.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Where You Can Find More Information",
+      "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Where You Can Find More Information",
+      "level": 1,
+      "summary": "Investors and others should note that we announce material financial information to our investors using our investor relations website, press releases, SEC filings and public conference calls and webcasts. We also use the following social media channels as a means of disclosing information about the company, our products, our planned financial and other announcements and attendance at upcoming investor and industry conferences, and other matters, and for complying with our disclosure obligations under Regulation FD: NVIDIA Corporate Blog (blogs.nvidia.com/) NVIDIA Technical Blog (developer.nvidia.com/blog/) NVIDIA LinkedIn (linkedin.com/company/nvidia) NVIDIA Facebook (facebook.com/nvidia) NVIDIA Instagram (instagram.com/nvidia) NVIDIA X (x.com/nvidia) NVIDIA Investor Relations (investor.nvidia.com) NVIDIA YouTube (YouTube.com/nvidia) The information we post through these social media channels may be deemed material. Accordingly, investors should monitor these channels, in addition to following our press releases, SEC filings and public conference calls and webcasts. This list may be updated from time to time. The information we post through these channels is not a part of this Quarterly Report on Form 10-Q.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Part I. Financial Information",
+      "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 33,
+      "children": [
+        {
+          "title": "Item 1. Financial Statements (Unaudited)",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Item 1. Financial Statements (Unaudited)",
+          "level": 2,
+          "summary": "NVIDIA Corporation and Subsidiaries Condensed Consolidated Statements of Income (In millions, except per share data) (Unaudited) [tables/table-1 Financial Results.html] See accompanying Notes to Condensed Consolidated Financial Statements. NVIDIA Corporation and Subsidiaries Condensed Consolidated Statements of Comprehensive Income (In millions) (Unaudited) [tables/table-2 Comprehensive Income.html] See accompanying Notes to Condensed Consolidated Financial Statements. NVIDIA Corporation and Subsidiaries Condensed Consolidated Balance Sheets (In millions) (Unaudited) [tables/table-3 Balance Sheet.html] See accompanying Notes to Condensed Consolidated Financial Statements. NVIDIA Corporation and Subsidiaries Condensed Consolidated Statements of Shareholders' Equity (Unaudited) [tables/table-4 Shareholders' Equity.html] See accompanying Notes to Condensed Consolidated Financial Statements. NVIDIA Corporation and Subsidiaries Condensed Consolidated Statements of Cash Flows (In millions) (Unaudited) [tables/table-5 Cash Flow Statement.html] See accompanying Notes to Condensed Consolidated Financial Statements. NVIDIA Corporation and Subsidiaries Notes to Condensed Consolidated Financial Statements (Unaudited)",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Note 1 - Summary of Significant Accounting Policies",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 1 - Summary of Significant Accounting Policies",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 7,
+          "children": [
+            {
+              "title": "Basis of Presentation",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 1 - Summary of Significant Accounting Policies/Basis of Presentation",
+              "level": 3,
+              "summary": "The accompanying unaudited condensed consolidated financial statements were prepared in accordance with accounting principles generally accepted in the United States of America, or U.S. GAAP, for interim financial information and with the instructions to Form 10-Q and Article 10 of Securities and Exchange Commission, or SEC, Regulation S-X. The January 25, 2026 consolidated balance sheet was derived from our audited consolidated financial statements included in our Annual Report on Form 10-K for the fiscal year ended January 25, 2026, as filed with the SEC, but does not include all disclosures required by U.S. GAAP. In the opinion of management, all adjustments, consisting only of normal recurring adjustments considered necessary for a fair presentation of results of operations and financial position, have been included. The results for the interim periods presented are not necessarily indicative of the results expected for any future period. The following information should be read in conjunction with the audited consolidated financial statements and notes thereto included in our Annual Report on Form 10-K for the fiscal year ended January 25, 2026. Certain prior fiscal year balances have been reclassified to conform to the current period presentation.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Significant Accounting Policies",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 1 - Summary of Significant Accounting Policies/Significant Accounting Policies",
+              "level": 3,
+              "summary": "There have been no material changes to our significant accounting policies disclosed in Note 1 - Organization and Summary of Significant Accounting Policies, of the Notes to the Consolidated Financial Statements included in our Annual Report on Form 10-K for the fiscal year ended January 25, 2026.",
+              "chunk_count": 4,
+              "children": [
+                {
+                  "title": "Fiscal Year",
+                  "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 1 - Summary of Significant Accounting Policies/Significant Accounting Policies/Fiscal Year",
+                  "level": 4,
+                  "summary": "Fiscal year 2027 is a 53-week year and fiscal year 2026 was a 52-week year, both ending on the last Sunday in January. The first quarters of fiscal years 2027 and 2026 were both 13-week quarters. The fourth quarter of fiscal year 2027 will be a 14-week quarter.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Principles of Consolidation",
+                  "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 1 - Summary of Significant Accounting Policies/Significant Accounting Policies/Principles of Consolidation",
+                  "level": 4,
+                  "summary": "Our condensed consolidated financial statements include the accounts of NVIDIA Corporation and our wholly owned subsidiaries. All intercompany balances and transactions have been eliminated in consolidation.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Use of Estimates",
+                  "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 1 - Summary of Significant Accounting Policies/Significant Accounting Policies/Use of Estimates",
+                  "level": 4,
+                  "summary": "The preparation of financial statements in conformity with U.S. GAAP requires management to make estimates and assumptions that affect the reported amounts of assets and liabilities and disclosures of contingent assets and liabilities at the date of the financial statements and the reported amounts of revenue and expenses during the reporting period. Actual results could differ materially from our estimates.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "title": "Recently Issued Accounting Pronouncements",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 1 - Summary of Significant Accounting Policies/Recently Issued Accounting Pronouncements",
+              "level": 3,
+              "summary": "Recent Accounting Pronouncements Not Yet Adopted In November 2024, the Financial Accounting Standards Board, or FASB, issued a new accounting standard requiring disclosures of certain additional expense information on an annual and interim basis, including, among other items, the amounts of purchases of inventory, employee compensation, depreciation and intangible asset amortization included within each income statement expense caption, as applicable. We will adopt this standard in the fiscal year 2028 annual report. We do not expect the adoption of this standard to have a material impact on our Consolidated Financial Statements other than additional disclosures.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "Note 2 - Stock-Based Compensation",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 2 - Stock-Based Compensation",
+          "level": 2,
+          "summary": "We recognize stock-based compensation expense from grants of restricted stock units, or RSUs, performance stock units, or PSUs, and market-based PSUs, and issuances under our employee stock purchase plan, or ESPP. NVIDIA Corporation and Subsidiaries Notes to Condensed Consolidated Financial Statements (Continued) (Unaudited) Condensed Consolidated Statements of Income include stock-based compensation expense as follows: [tables/table-6 Cost Breakdown.html] Equity Award Activity The following is a summary of our equity award transactions under our equity incentive plans: RSUs, PSUs and Market-based PSUs Outstanding [tables/table-7 Stock Grant Activity.html] As of April 26, 2026, aggregate unearned stock-based compensation expense was \\$20.8 billion, which is expected to be recognized over a weighted average period of 2.6 years for RSUs, PSUs, and market-based PSUs, and one year for ESPP.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Note 3 - Net Income Per Share",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 3 - Net Income Per Share",
+          "level": 2,
+          "summary": "The following is the basic and diluted net income per share computations for the periods presented: [tables/table-8 EPS Data Table.html] (1) Net income divided by basic weighted average shares. (2) Net income divided by diluted weighted average shares. Diluted net income per share was computed using the weighted average number of common and potentially dilutive shares outstanding during the period, using the treasury stock method. NVIDIA Corporation and Subsidiaries Notes to Condensed Consolidated Financial Statements (Continued) (Unaudited)",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Note 4 - Amortizable Intangible Assets and Goodwill",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 4 - Amortizable Intangible Assets and Goodwill",
+          "level": 2,
+          "summary": "The components of our amortizable intangible assets are as follows: [tables/table-9 Intangible Assets.html] Amortization expense associated with intangible assets was \\$232 million and \\$159 million for the first quarter of fiscal years 2027 and 2026, respectively. The following table outlines the estimated future amortization expense related to the net carrying amount of intangible assets as of April 26, 2026: [tables/table-10 Amortization Expense.html] In the first quarter of fiscal year 2027, goodwill increased by \\$62 million from acquisitions and was allocated to our Compute \\& Networking reporting unit. NVIDIA Corporation and Subsidiaries Notes to Condensed Consolidated Financial Statements (Continued) (Unaudited)",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Note 5 - Cash Equivalents and Marketable Securities",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 5 - Cash Equivalents and Marketable Securities",
+          "level": 2,
+          "summary": "The passage discusses the fair value measurement of cash equivalents and marketable securities, including debt and equity securities, using Level 1 and Level 2 inputs. It provides summaries for April 26, 2026 and January 25, 2026, noting investments subject to lock-up restrictions (e.g., $27.4 billion and $10.5 billion, respectively) and long-term publicly-held equity securities with lock-ups through December 2027. Net unrealized gains of $13.4 billion for Q1 fiscal 2027 and net unrealized losses of $222 million for Q1 fiscal 2026 are reported, recognized in Other income (expense). Tables detail unrealized losses by investment category and maturity of debt securities, with gross unrealized losses primarily due to interest rate changes.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Note 6 - Non-marketable Securities",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 6 - Non-marketable Securities",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 4,
+          "children": [
+            {
+              "title": "Non-marketable Equity Securities",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 6 - Non-marketable Securities/Non-marketable Equity Securities",
+              "level": 3,
+              "summary": "Our non-marketable equity securities are primarily in privately-held companies carried at cost less impairment, and adjusted for observable price changes. We value investments using observable comparable transactions and other inputs including volatility, expected time to liquidity, the risk-free rate, and security-specific rights and obligations. Adjustments to the carrying value of privately-held securities: [tables/table-15 Equity Securities.html] (1) Unrealized gains are recognized in Other income (expense), net, in the Condensed Consolidated Statements of Income. (2) Includes primarily reclassifications to marketable securities following public market trading. Non-marketable equity securities had cumulative gross unrealized gains of \\$5.3 billion and \\$396 million, and cumulative gross unrealized losses and impairments of \\$199 million and \\$110 million as of April 26, 2026 and April 27, 2025, respectively.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Equity Method Investments",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 6 - Non-marketable Securities/Equity Method Investments",
+              "level": 3,
+              "summary": "We have \\$1.0 billion of investments in infrastructure funds accounted for using the equity method as of April 26, 2026. Our maximum loss exposure under these investments, including invested and future committed amounts, was \\$2.3 billion as of April 26, 2026.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Investment Commitments",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 6 - Non-marketable Securities/Investment Commitments",
+              "level": 3,
+              "summary": "Total Investment commitments were \\$27 billion as of April 26, 2026, subject to certain contingencies, which we expect will be made through the remainder of fiscal year 2027.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "Note 7 - Balance Sheet Components",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 7 - Balance Sheet Components",
+          "level": 2,
+          "summary": "We refer to customers who purchase products directly from NVIDIA as direct customers, such as add-in board manufacturers, or AIBs, distributors, original design manufacturers, or ODMs, original equipment manufacturers, or OEMs, cloud service providers, or CSPs, AI model makers, and system integrators. Certain direct customers may use either internal resources or third-party system integrators to complete their build. Three direct customers accounted for 30%, 18%, and 16% of our accounts receivable balance as of April 26, 2026. Three direct customers accounted for 25%, 18%, and 13% of our accounts receivable balance as of January 25, 2026. Certain balance sheet components were as follows: [tables/table-16 Inventory Data.html] (1) We recorded inventory provisions of \\$0.8 billion and \\$2.3 billion for the first quarter of fiscal years 2027 and 2026, respectively, in Cost of revenue. NVIDIA Corporation and Subsidiaries Notes to Condensed Consolidated Financial Statements (Continued) (Unaudited)",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "Property and Equipment:",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 7 - Balance Sheet Components/Property and Equipment:",
+              "level": 3,
+              "summary": "Property, equipment and intangible assets acquired but not paid for the first quarter of fiscal years 2027 and 2026 were \\$1.1 billion and \\$408 million, respectively. [tables/table-17 Accrued Liabilities.html] (1) Related to the Groq, Inc. non-exclusive license agreement. (2) We recorded \\$0.3 billion and \\$3.0 billion for the first quarter of fiscal years 2027 and 2026, respectively, in Cost of revenue. (3) Includes customer advances and unearned revenue related to hardware and software support, cloud services, and license and development arrangements. The balance as of April 26, 2026 and January 25, 2026 included \\$297 million and \\$160 million of customer advances, respectively. [tables/table-18 Long-Term Liabilities.html] (1) Primarily comprised of unrecognized tax benefits and related interest and penalties. (2) Includes unearned revenue related to hardware and software support and cloud services.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Deferred Revenue",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 7 - Balance Sheet Components/Deferred Revenue",
+              "level": 3,
+              "summary": "The following table shows the changes in short- and long-term deferred revenue during the first quarter of fiscal years 2027 and 2026: Three Months Ended [tables/table-19 Deferred Revenue.html] (1) Includes \\$1.7 billion and \\$6.2 billion of customer advances for the first quarter of fiscal years 2027 and 2026, respectively. (2) Includes \\$1.6 billion and \\$6.0 billion related to customer advances for the first quarter of fiscal years 2027 and 2026, respectively. We recognized revenue of \\$451 million and \\$265 million in the first quarter of fiscal years 2027 and 2026, respectively, that was included in the prior year-end deferred revenue balance. As of April 26, 2026, revenue related to remaining performance obligations from contracts greater than one year in length was \\$2.6 billion, which includes \\$2.3 billion from deferred revenue and \\$304 million, which has not yet been billed or NVIDIA Corporation and Subsidiaries Notes to Condensed Consolidated Financial Statements (Continued) (Unaudited) recognized as revenue. Approximately 40% of revenue from contracts greater than one year in length will be recognized over the next twelve months.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "Note 8 - Derivative Financial Instruments",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 8 - Derivative Financial Instruments",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "Foreign Currency Derivatives",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 8 - Derivative Financial Instruments/Foreign Currency Derivatives",
+              "level": 3,
+              "summary": "The company uses foreign currency forward contracts to hedge against exchange rate fluctuations affecting operating expenses and monetary assets/liabilities. Contracts for operating expenses are designated as accounting hedges, with gains/losses recorded in Accumulated other comprehensive income and reclassified to Operating expenses when recognized. These were highly effective and not significant in Q1 FY2027 and FY2026. Non-designated contracts for assets/liabilities have fair value changes recorded in Other income/expense, offsetting hedged items. Notional values are presented in a table; fair values were not significant as of April 26, 2026 and January 25, 2026. All contracts mature within 18 months, with deferred gains/losses expected to be realized in the next twelve months not significant.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Facility Lease Guarantee",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 8 - Derivative Financial Instruments/Facility Lease Guarantee",
+              "level": 3,
+              "summary": "In fiscal year 2026, NVIDIA entered into agreements guaranteeing partners' facility lease obligations with a maximum gross exposure of $3.5 billion, reduced by partner payments over 5-7 years, and $712 million in escrow. The guarantees are classified as credit derivatives with immaterial fair value changes. As of April 26, 2026, the estimated fair value of debt was $7.4 billion (Level 2 inputs). Notes are unsecured senior obligations with semi-annual interest and make-whole redemption. The company complied with non-financial covenants and had a $25.0 billion commercial paper program with no outstanding amounts.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "Note 10 - Commitments and Contingencies",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 10 - Commitments and Contingencies",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 6,
+          "children": [
+            {
+              "title": "Commitments",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 10 - Commitments and Contingencies/Commitments",
+              "level": 3,
+              "summary": "Manufacturing, supply, and capacity commitments reflect data center-scale production and longer future ordering horizons across current and future product architectures. We enter into agreements with our supply vendors that allow them to procure inventory based upon our defined criteria, and in certain instances, these agreements are cancellable, able to be rescheduled, or adjustable for our business needs prior to placing firm orders. Changes to these agreements may result in additional costs. As of April 26, 2026, these commitments were \\$119 billion for which \\$95 billion will be paid in the remainder of fiscal year 2027 and the remaining balance will be paid in fiscal years 2028 through 2031. Multi-year cloud service agreement commitments as of April 26, 2026, were \\$30 billion for which \\$6 billion, \\$7 billion, \\$7 billion, \\$5 billion, \\$3 billion, and \\$2 billion will be paid in the remainder of fiscal year 2027, each fiscal year from 2028 through 2031, and fiscal year 2032 and thereafter, respectively. Cloud service capacity may be reduced or terminated. Cloud service agreements will be primarily used to support our research and development efforts. Other vendor commitments were \\$6 billion as of April 26, 2026, of which the majority will be paid through fiscal year 2027. NVIDIA Corporation and Subsidiaries Notes to Condensed Consolidated Financial Statements (Continued) (Unaudited)",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Accrual for Product Warranty Liabilities",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 10 - Commitments and Contingencies/Accrual for Product Warranty Liabilities",
+              "level": 3,
+              "summary": "The estimated amount of product warranty liabilities was \\$2.9 billion and \\$2.8 billion as of April 26, 2026 and January 25, 2026, respectively. The estimated product returns and product warranty activity consisted of the following: [tables/table-22 Balance Changes.html] For the first quarter of fiscal years 2027 and 2026, the additions in product warranty liabilities primarily related to our Compute & Networking segment. We have provided indemnities for matters such as tax, product, and employee liabilities. We have included intellectual property indemnification provisions in our technology-related agreements with third parties. Maximum potential future payments cannot be estimated because many of these agreements do not have a maximum stated liability. We have not recorded any liability in our Condensed Consolidated Financial Statements for such indemnifications.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Litigation",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 10 - Commitments and Contingencies/Litigation",
+              "level": 3,
+              "summary": "",
+              "chunk_count": 3,
+              "children": [
+                {
+                  "title": "Securities Class Action and Derivative Lawsuits",
+                  "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 10 - Commitments and Contingencies/Litigation/Securities Class Action and Derivative Lawsuits",
+                  "level": 4,
+                  "summary": "The text details multiple legal actions against NVIDIA Corporation. A securities class action (4:18-cv-07669-HSG) was filed in 2018, alleging false statements about channel inventory and cryptocurrency mining's impact on GPU demand. After dismissal and appeals, the Supreme Court dismissed NVIDIA's certiorari petition in 2024, leading to remand and class certification in 2026. Related derivative lawsuits in California and Delaware, asserting breach of fiduciary duty and other claims, remain stayed pending final resolution of the securities action.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Accounting for Loss Contingencies",
+                  "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 10 - Commitments and Contingencies/Litigation/Accounting for Loss Contingencies",
+                  "level": 4,
+                  "summary": "As of April 26, 2026, there are no accrued contingent liabilities associated with the legal proceedings described above based on our belief that liabilities, while reasonably possible, are not probable. Further, any possible loss or range of loss in these matters cannot be reasonably estimated at this time. We are engaged in legal actions not described above arising in the ordinary course of business, as well as regulatory and government inquiries and investigations, and, while there can be no assurance of favorable outcomes, we believe that the ultimate outcome of these matters will not have a material adverse effect on our operating results, liquidity or financial position. These matters are subject to inherent uncertainties and if the ultimate outcome is unfavorable, there exists the possibility of a material adverse impact on our operating results, liquidity or financial position in the period the outcome becomes estimable and probable.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Note 11 - Income Taxes",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 11 - Income Taxes",
+          "level": 2,
+          "summary": "Income tax expense was \\$11.6 billion and \\$3.1 billion for the first quarter of fiscal years 2027 and 2026, respectively. Income tax as a percentage of income before income tax was 16.6% and 14.3% for the first quarter of fiscal years 2027 and 2026, respectively. The effective tax rate increased primarily due to a lower percentage of tax benefits from stock-based compensation relative to the increase in income before income tax. Our effective tax rates for the first quarter of fiscal years 2027 and 2026 were lower than the U.S. federal statutory rate of 21% primarily due to tax benefits from foreign-derived deduction eligible income, income earned in jurisdictions that were subject to taxes at rates lower than the U.S. federal statutory tax rate, stock-based compensation, and the U.S. federal research tax credit. While we believe that we have adequately provided for all uncertain tax positions, or tax positions where we believe it is not more-likely-than-not that the position will be sustained upon review, amounts asserted by tax authorities could be greater or less than our accrued position. Accordingly, our provisions on federal, state and foreign tax related matters to be recorded in the future may change as revised estimates are made or the underlying matters are settled or otherwise resolved with the respective tax authorities. We are currently under examination by the Internal Revenue Service for our fiscal years 2023 and 2024.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Note 12 - Shareholders' Equity",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 12 - Shareholders' Equity",
+          "level": 2,
+          "summary": "Capital Return Program We repurchased 108 million and 126 million shares of our common stock for \\$20.2 billion and \\$14.5 billion during the first quarter of fiscal years 2027 and 2026, respectively. As of April 26, 2026, we were authorized, subject to certain specifications, to repurchase up to \\$38.5 billion of our common stock. On May 18, 2026, our Board of Directors approved an additional \\$80.0 billion in share repurchase authorization, without expiration. NVIDIA Corporation and Subsidiaries Notes to Condensed Consolidated Financial Statements (Continued) (Unaudited) We paid cash dividends to our shareholders of \\$243 million and \\$244 million during the first quarter of fiscal years 2027 and 2026, respectively. On May 18, 2026, we increased our quarterly cash dividend from \\$0.01 per share to \\$0.25 per share to all shareholders of record on June 4, 2026. Our quarterly cash dividend will be paid on June 26, 2026. The payment of future cash dividends is subject to our Board of Directors' continuing determination that the declaration of dividends is in the best interests of our shareholders.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Note 13 - Segment Information",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 13 - Segment Information",
+          "level": 2,
+          "summary": "NVIDIA's CODM reviews financial information on an operating segment basis, with two reportable segments: Compute & Networking (Data Center, AI, automotive) and Graphics (GeForce, Quadro). Segment operating income is assessed, but certain expenses like stock-based compensation are not allocated. Depreciation for Compute & Networking was $526M (FY2027 Q1) vs $296M (FY2026 Q1); Graphics was $194M vs $109M. Revenue concentration exists: three direct customers accounted for 21%, 17%, and 16% of total revenue in FY2027 Q1, primarily in Compute & Networking. Non-US revenue was 22% in FY2027 Q1 vs 42% in FY2026 Q1. The presentation of revenue by market platform changed in FY2027 Q1.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Note 14 - Leases",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part I. Financial Information/Note 14 - Leases",
+          "level": 2,
+          "summary": "Our lease obligations primarily consist of operating leases for our data centers and offices, with lease periods expiring between fiscal years 2027 and 2075. Future minimum lease obligations under our non-cancelable lease agreements as of April 26, 2026 were as follows: [tables/table-27 Lease Obligations.html] Between the second quarter of fiscal year 2027 and fiscal year 2033, we expect to commence leases with future obligations of \\$32.4 billion, primarily for data center leases to support our research and development efforts, with lease terms of 3 to 20 years. Operating lease costs were \\$171 million and \\$101 million for the first quarter of fiscal years 2027 and 2026, respectively. Short-term, variable, and finance lease costs for the first quarter of fiscal years 2027 and 2026 were not significant. Other information related to leases was as follows: [tables/table-28 Lease Cash Flows.html] NVIDIA Corporation and Subsidiaries Notes to Condensed Consolidated Financial Statements (Continued) (Unaudited) As of April 26, 2026, our operating leases have a weighted average remaining lease term of 10.4 years and a weighted average discount rate of 4.61%. As of January 25, 2026, our operating leases had a weighted average remaining lease term of 8.8 years and a weighted average discount rate of 4.38%. Item 2. Management's Discussion and Analysis of Financial Condition and Results of Operations",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Forward-Looking Statements",
+      "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements",
+      "level": 1,
+      "summary": "This passage contains forward-looking statements under the Securities Act and Exchange Act, based on management's beliefs and assumptions. It identifies terms like 'may,' 'will,' 'expect,' and 'anticipate' as indicators of such statements. Actual results may differ materially due to known and unknown risks, uncertainties, and factors discussed in the company's Annual Report on Form 10-K and this Quarterly Report. The company assumes no obligation to update these statements. References to 'NVIDIA' or 'we' mean NVIDIA Corporation and its subsidiaries. The text also cautions against undue reliance on beliefs and opinions expressed, which are based on information available as of the filing date.",
+      "chunk_count": 18,
+      "children": [
+        {
+          "title": "Overview",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Overview",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 4,
+          "children": [
+            {
+              "title": "Our Company and Our Businesses",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Overview/Our Company and Our Businesses",
+              "level": 3,
+              "summary": "NVIDIA pioneered accelerated computing to help solve the most challenging computational problems. Since our original focus on PC graphics, we have expanded to several other large and important computationally intensive fields. Fueled by the sustained demand for exceptional 3D graphics and the scale of the gaming market, NVIDIA has leveraged its GPU architecture to create platforms for scientific computing, AI, data science, autonomous vehicles, robotics, and digital twin applications. NVIDIA is now a data center-scale AI infrastructure company reshaping all industries. Our two operating segments are “Compute & Networking” and “Graphics.” Refer to Note 13 of the Notes to Condensed Consolidated Financial Statements in Part I, Item 1 of this Quarterly Report on Form 10-Q for additional information. Headquartered in Santa Clara, California, NVIDIA was incorporated in California in April 1993 and reincorporated in Delaware in April 1998.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Recent Developments, Future Objectives and Challenges",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Overview/Recent Developments, Future Objectives and Challenges",
+              "level": 3,
+              "summary": "NVIDIA's first quarter of fiscal year 2027 saw revenue of $81.6 billion, up 85% year-over-year, driven by Data Center products for accelerated computing and AI, particularly Blackwell architecture. Data Center revenue was $75.2 billion, with hyperscalers accounting for about 50%. Edge Computing revenue was $6.4 billion. The company faces risks including supply chain constraints, geopolitical issues, tariffs, and competition from open-source AI. Investments totaled $18.6 billion in private companies and infrastructure. No H200 revenue from China has been generated yet, and a new reporting framework with Data Center and Edge Computing platforms is being adopted.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Financial Information by Business Segment and Geographic Data",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Overview/Financial Information by Business Segment and Geographic Data",
+              "level": 3,
+              "summary": "Refer to Note 13 of the Notes to the Condensed Consolidated Financial Statements for disclosure regarding segment information.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "Critical Accounting Policies and Estimates",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Critical Accounting Policies and Estimates",
+          "level": 2,
+          "summary": "Refer to Part II, Item 7, \"Critical Accounting Policies and Estimates\" of our Annual Report on Form 10-K for the fiscal year ended January 25, 2026. There have been no material changes to our Critical Accounting Policies and Estimates.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Results of Operations",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Results of Operations",
+          "level": 2,
+          "summary": "The following table sets forth, for the periods indicated, certain items in our Condensed Consolidated Statements of Income expressed as a percentage of revenue. [tables/table-31 Revenue Analysis.html]",
+          "chunk_count": 11,
+          "children": [
+            {
+              "title": "Reportable Segments",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Results of Operations/Reportable Segments",
+              "level": 3,
+              "summary": "",
+              "chunk_count": 4,
+              "children": [
+                {
+                  "title": "Revenue by Reportable Segments",
+                  "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Results of Operations/Reportable Segments/Revenue by Reportable Segments",
+                  "level": 4,
+                  "summary": "[tables/table-32 Revenue Growth.html]",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Operating Income by Reportable Segments",
+                  "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Results of Operations/Reportable Segments/Operating Income by Reportable Segments",
+                  "level": 4,
+                  "summary": "[tables/table-33 Revenue Growth.html] Compute & Networking revenue – The year-over-year increase in the first quarter of fiscal year 2027 was due to growth in Data Center products, driven by the ramp of our Blackwell systems and demand for our InfiniBand, Spectrum-X Ethernet, and NVLink solutions. Graphics revenue – The year-over-year increase in the first quarter of fiscal year 2027 was driven by sales of our Blackwell architecture. Reportable segment operating income – The year-over-year increase in Compute & Networking segment operating income in the first quarter of fiscal year 2027 was driven by the growth in revenue and the non-recurrence of a \\$4.5 billion charge associated with H2O excess inventory and purchase obligations in the first quarter of fiscal year 2026. The year-over-year increase in Graphics segment operating income in the first quarter of fiscal year 2027 was driven by the growth in revenue.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Concentration of Revenue",
+                  "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Results of Operations/Reportable Segments/Concentration of Revenue",
+                  "level": 4,
+                  "summary": "NVIDIA's revenue is concentrated among a limited number of direct and indirect customers. Direct customers include AIBs, distributors, ODMs, OEMs, CSPs, AI model makers, and system integrators. In Q1 FY2027, three direct customers accounted for 21%, 17%, and 16% of total revenue, primarily from the Compute & Networking segment. Indirect customers purchase through system integrators and distributors, with some individually representing 10% or more of revenue. One AI research and deployment company contributed meaningfully to Q1 FY2027 revenue via cloud services. Revenue from customers headquartered outside the US was 22% in Q1 FY2027 and 42% in Q1 FY2026.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "title": "Gross Profit and Gross Margin",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Results of Operations/Gross Profit and Gross Margin",
+              "level": 3,
+              "summary": "The text discusses gross profit, cost of revenue, and gross margin trends for the first quarter of fiscal years 2027 and 2026. Gross margin increased to 74.9% in Q1 FY2027 from 60.5% in Q1 FY2026, mainly due to a prior year $4.5 billion charge for H2O excess inventory. Provisions for inventory and excess purchase obligations were $1.1 billion in FY2027 and $5.3 billion in FY2026. Sales of previously reserved inventory led to provision releases of $103 million and $436 million, respectively. The net unfavorable impact on gross margin was 1.2% in FY2027 and 11.0% in FY2026. Operating expenses increased due to higher compute and infrastructure costs, compensation, and engineering materials. Other income included unrealized gains of $13.4 billion from publicly-held equity securities and $2.6 billion from non-marketable securities.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Income Taxes",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Results of Operations/Income Taxes",
+              "level": 3,
+              "summary": "Income tax expense was $11.6 billion and $3.1 billion for Q1 of fiscal years 2027 and 2026, with effective tax rates of 16.6% and 14.3%, respectively. The rate increase was due to lower tax benefits from stock-based compensation relative to higher income. Both rates were below the 21% U.S. statutory rate due to foreign-derived deductions, lower foreign taxes, stock-based compensation, and research credits. Cash from operations increased due to higher revenue, while investing and financing cash uses rose from higher equity purchases and share repurchases.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Liquidity",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Results of Operations/Liquidity",
+              "level": 3,
+              "summary": "The passage discusses the company's primary liquidity sources, including cash, cash equivalents, and marketable debt and equity securities. As of April 26, 2026, it held $50.3 billion in cash, cash equivalents, and marketable debt securities, plus $30.2 billion in marketable equity securities. The company believes it has sufficient liquidity for at least the next twelve months. Marketable securities include U.S. government and corporate debt, equity securities, and certificates of deposit, mostly in U.S. dollars. About $1.7 billion held outside the U.S. has not accrued taxes for repatriation, but substantially all foreign-held cash is available for U.S. use without additional federal income tax. No federal income tax payments were made in the first quarter of fiscal year 2027, with two payments scheduled for the second quarter.",
+              "chunk_count": 4,
+              "children": [
+                {
+                  "title": "Capital Return to Shareholders",
+                  "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Results of Operations/Liquidity/Capital Return to Shareholders",
+                  "level": 4,
+                  "summary": "In Q1 FY2027, the company repurchased 108 million shares for $20.2 billion, with $38.5 billion remaining authorized as of April 26, 2026. On May 18, 2026, the Board approved an additional $80 billion in repurchase authorization without expiration. Repurchases may be executed via open market, private negotiations, Rule 10b5-1 plans, or structured agreements, and can be suspended anytime. Cash dividends of $243 million were paid in Q1 FY2027. On May 18, 2026, the quarterly dividend was increased from $0.01 to $0.25 per share, payable on June 26, 2026 to shareholders of record on June 4, 2026. Future dividends depend on Board discretion. A 1% excise tax on certain repurchases under the Inflation Reduction Act applies but was not significant for the quarter.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Outstanding Indebtedness and Commercial Paper Program",
+                  "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Results of Operations/Liquidity/Outstanding Indebtedness and Commercial Paper Program",
+                  "level": 4,
+                  "summary": "Our aggregate debt maturities as of April 26, 2026, by year payable, were as follows: [tables/table-38 Debt Maturity.html] We have a commercial paper program to support general corporate purposes, pursuant to which we may issue unsecured paper notes, from time to time or all at once, up to \\$25.0 billion. As of April 26, 2026, no commercial paper was outstanding. Refer to Note 9 of the Notes to Condensed Consolidated Financial Statements in Part I, Item 1 of this Quarterly Report on Form 10-Q for further discussion.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Material Cash Requirements and Other Obligations",
+                  "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Results of Operations/Liquidity/Material Cash Requirements and Other Obligations",
+                  "level": 4,
+                  "summary": "The passage discusses various financial obligations and commitments, including facility lease guarantees, long-term debt, purchase commitments, and operating lease obligations referenced in specific notes of the financial statements. It mentions unrecognized tax benefits of $4.5 billion including interest and penalties, and ongoing IRS examinations for fiscal years 2023 and 2024. It notes no material changes in contractual obligations outside ordinary course of business from the prior annual report.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Adoption of New and Recently Issued Accounting Pronouncements",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Forward-Looking Statements/Adoption of New and Recently Issued Accounting Pronouncements",
+          "level": 2,
+          "summary": "There has been no adoption of any new and recently issued accounting pronouncements.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Item 3. Quantitative and Qualitative Disclosures About Market Risk",
+      "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Item 3. Quantitative and Qualitative Disclosures About Market Risk",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 3,
+      "children": [
+        {
+          "title": "Investment and Interest Rate Risk",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Item 3. Quantitative and Qualitative Disclosures About Market Risk/Investment and Interest Rate Risk",
+          "level": 2,
+          "summary": "Financial market risks related to investment and interest rate risk are described in Part II, Item 7A, “Quantitative and Qualitative Disclosures About Market Risk” in our Annual Report on Form 10-K for the fiscal year ended January 25, 2026. Our marketable equity securities consist of publicly-held equity securities, while our non-marketable equity securities are investments in privately-held companies. Publicly-held equity securities are subject to market price volatility. A hypothetical 10% decrease in our publicly-held equity securities would decrease the fair value of the publicly-held equity securities balance by \\$3.9 billion and \\$1.8 billion as of April 26, 2026 and January 25, 2026, respectively. Non-marketable equity securities are measured based on cost minus impairment, if any, and are adjusted for observable price changes in orderly transactions for an identical or similar investment in the same issuer. Valuations of our non- marketable equity securities are inherently complex due to the lack of readily available market data and observable transactions, and impact of macroeconomic factors. For a description of our equity investments, refer to Notes 5 and 6 of the Notes to Condensed Consolidated Financial Statements in Part I, Item 1 of this Quarterly Report on Form 10-Q, respectively.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Foreign Exchange Rate Risk",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Item 3. Quantitative and Qualitative Disclosures About Market Risk/Foreign Exchange Rate Risk",
+          "level": 2,
+          "summary": "The impact of foreign currency transactions related to foreign exchange rate risk is described in Part II, Item 7A, “Quantitative and Qualitative Disclosures About Market Risk” in our Annual Report on Form 10-K for the fiscal year ended January 25, 2026. As of April 26, 2026, there have been no material changes to the foreign exchange rate risks described as of January 25, 2026.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Item 4. Controls and Procedures",
+      "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Item 4. Controls and Procedures",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 5,
+      "children": [
+        {
+          "title": "Controls and Procedures",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Item 4. Controls and Procedures/Controls and Procedures",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 4,
+          "children": [
+            {
+              "title": "Disclosure Controls and Procedures",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Item 4. Controls and Procedures/Controls and Procedures/Disclosure Controls and Procedures",
+              "level": 3,
+              "summary": "Based on their evaluation as of April 26, 2026, our management, including our Chief Executive Officer and Chief Financial Officer, has concluded that our disclosure controls and procedures (as defined in Rule 13a-15(e) under the Exchange Act) were effective to provide reasonable assurance that the information we are required to disclose in reports that we file or submit under the Exchange Act is recorded, processed, summarized and reported within the time periods specified in the SEC rules and forms, and that such information is accumulated and communicated to our management, including our Chief Executive Officer and our Chief Financial Officer, as appropriate, to allow timely decisions regarding required disclosures.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Changes in Internal Control Over Financial Reporting",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Item 4. Controls and Procedures/Controls and Procedures/Changes in Internal Control Over Financial Reporting",
+              "level": 3,
+              "summary": "There have been no changes in our internal control over financial reporting during the first quarter of fiscal year 2027 that have materially affected, or are reasonably likely to materially affect, our internal control over financial reporting. We are continuing a phased upgrade of our enterprise resource planning, or ERP, system to update our existing core financial systems. The ERP system is designed to accurately maintain our financial records used to report operating results. We will continue to evaluate each quarter whether there are changes that materially affect our internal control over financial reporting.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Inherent Limitations on Effectiveness of Controls",
+              "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Item 4. Controls and Procedures/Controls and Procedures/Inherent Limitations on Effectiveness of Controls",
+              "level": 3,
+              "summary": "Our management, including our Chief Executive Officer and Chief Financial Officer, does not expect that our disclosure controls and procedures, or our internal controls, will prevent all error and all fraud. A control system, no matter how well conceived and operated, can provide only reasonable, not absolute, assurance that the objectives of the control system are met. Further, the design of a control system must reflect the fact that there are resource constraints, and the benefits of controls must be considered relative to their costs. Because of the inherent limitations in all control systems, no evaluation of controls can provide absolute assurance that all control issues and instances of fraud, if any, within NVIDIA have been detected.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Part II. Other Information",
+      "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part II. Other Information",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 6,
+      "children": [
+        {
+          "title": "Item 1. Legal Proceedings",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part II. Other Information/Item 1. Legal Proceedings",
+          "level": 2,
+          "summary": "Refer to Part I, Item 1, Note 10 of the Notes to the Condensed Consolidated Financial Statements for a discussion of significant developments in our legal proceedings since January 25, 2026.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Item 1A. Risk Factors",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part II. Other Information/Item 1A. Risk Factors",
+          "level": 2,
+          "summary": "The passage details risk factors for NVIDIA common stock, focusing on competition, supply-demand mismatches, and complex export controls. Competition could harm market share and financial results. Long manufacturing lead times and inaccurate demand estimates may cause supply-demand mismatches, leading to inventory issues or lost revenue. Export controls, particularly targeting AI and GPU products to China and other countries, have significantly impacted NVIDIA's business, causing charges, limiting market access, and benefiting competitors. The text also mentions risks from new product introductions, regulatory changes, and geopolitical tensions.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Issuer Purchases of Equity Securities",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part II. Other Information/Issuer Purchases of Equity Securities",
+          "level": 2,
+          "summary": "In the first quarter of fiscal 2027, the company repurchased 108 million shares for $20.2 billion. As of April 26, 2026, authorization remained for up to $38.5 billion in repurchases. On May 18, 2026, the Board approved an additional $80.0 billion in repurchase authorization. Cash dividends of $243 million were paid in the first quarter, and the quarterly dividend was increased from $0.01 to $0.25 per share, payable on June 26, 2026. Additionally, 12 million shares were withheld for tax obligations under the employee equity incentive program, valued at $2.1 billion.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Recent Sales of Unregistered Securities and Use of Proceeds",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part II. Other Information/Recent Sales of Unregistered Securities and Use of Proceeds",
+          "level": 2,
+          "summary": "On February 17, 2026, we acquired a company and issued to a key employee a total of 37,890 shares of our common stock, valued at approximately \\$7 million based on our closing stock price on the issuance date. On April 10, 2026, we acquired a company and issued to key employees a total of 72,972 shares of our common stock, valued at approximately \\$14 million based on our closing stock price on the issuance date. The above securities were issued in transactions not involving a public offering pursuant to an exemption from registration set forth in Section 4(a)(2) of the Securities Act (and Regulation D or Regulation S promulgated thereunder).",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Item 5. Other Information",
+          "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Part II. Other Information/Item 5. Other Information",
+          "level": 2,
+          "summary": "The passage reports that members of the Board of Directors and officers adopted, modified, or terminated Rule 10b5-1 trading arrangements. One arrangement is solely for gifts to charitable donor-advised funds. Another was adopted on December 18, 2025, for sales through March 23, 2027, with no shares sold prior to termination. The document also lists exhibits for the quarterly report, including management contracts and certifications, and provides contact information for shareholder requests.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Signature",
+      "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/Signature",
+      "level": 1,
+      "summary": "Pursuant to the requirements of the Securities Exchange Act of 1934, the registrant has duly caused this report to be signed on its behalf by the undersigned thereunto duly authorized. Date: May 20, 2026 NVIDIA Corporation By: /s/ Colette M. Kress Colette M. Kress Executive Vice President and Chief Financial Officer (Duly Authorized Officer and Principal Financial Officer)",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "CERTIFICATION",
+      "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/CERTIFICATION",
+      "level": 1,
+      "summary": "Jen-Hsun Huang, President and CEO of NVIDIA Corporation, certifies the Quarterly Report on Form 10-Q. He confirms the report contains no material misstatements, the financial statements fairly present the company's condition and results, and he is responsible for establishing and maintaining disclosure controls and internal control over financial reporting. He also discloses that he has evaluated these controls and reported any significant deficiencies or fraud to auditors and the audit committee. The certification is dated May 20, 2026.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "CERTIFICATION_2",
+      "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/CERTIFICATION_2",
+      "level": 1,
+      "summary": "Colette M. Kress, Executive Vice President and Chief Financial Officer of NVIDIA Corporation, certifies the accuracy and completeness of the Quarterly Report on Form 10-Q. The certification covers the review of the report, the fairness of financial statements, the design and evaluation of disclosure controls and procedures, and the disclosure of any changes in internal control over financial reporting. It also includes reporting of significant deficiencies, material weaknesses, and fraud to auditors and the audit committee. The certification is dated May 20, 2026.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "CERTIFICATION_3",
+      "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/CERTIFICATION_3",
+      "level": 1,
+      "summary": "Jen-Hsun Huang, President and CEO of NVIDIA Corporation, certifies under Rule 13a-14(b) and 18 U.S.C. § 1350 that the Quarterly Report on Form 10-Q for the period ended April 26, 2026, complies with Exchange Act requirements and fairly presents the company's financial condition and results of operations. The certification is dated May 20, 2026, and is not deemed filed with the SEC.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "CERTIFICATION_4",
+      "path": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf/CERTIFICATION_4",
+      "level": 1,
+      "summary": "Colette M. Kress, Executive Vice President and Chief Financial Officer of NVIDIA Corporation, certifies under Rule 13a-14(b) of the Securities Exchange Act and 18 U.S.C. § 1350 that the Quarterly Report on Form 10-Q for the period ended April 26, 2026, fully complies with Exchange Act requirements and fairly presents the company's financial condition and results of operations. The certification is dated May 20, 2026, and accompanies the Form 10-Q as Exhibit 32.2.",
+      "chunk_count": 1,
+      "children": []
+    }
+  ],
+  "resources": {
+    "images": [
+      {
+        "path": "images/image-1-☒ QUARTERL.jpg",
+        "summary": "image-1 ☒ QUARTERLY REPORT PURSUANT TO SECTION 13 OR 15(d) OF THE SECURITIES EXCHANGE ACT OF 1934 NVIDIA.0"
+      },
+      {
+        "path": "images/image-2-The Nasdaq.jpg",
+        "summary": "image-2 The Nasdaq Global Select Market Accelerated filer0"
+      },
+      {
+        "path": "images/image-3-Indicate b.jpg",
+        "summary": "image-3 Indicate by check mark whether the registrant has submitted electronically every Interactive Data File required to be submitted pursuant to Rule 405 of Regulation S-T ( $§232.405$ of this chapter) during the preceding 12 months (or for such shorter period that the registrant was required to submit such files). Yes ☑ No ☐ Non-accelerated filer0"
+      },
+      {
+        "path": "images/image-4-Large acce.jpg",
+        "summary": "image-4 Large accelerated filer Smaller reporting company0"
+      },
+      {
+        "path": "images/image-5-Accelerate.jpg",
+        "summary": "image-5 Accelerated filer Emerging growth company0"
+      },
+      {
+        "path": "images/image-6-Non-accele.jpg",
+        "summary": "image-6 Non-accelerated filer If an emerging growth company, indicate by check mark if the registrant has elected not to use the extended transition period for complying with any new or revised financial accounting standards provided pursuant to Section 13(a) of the Exchange Act. □0"
+      }
+    ],
+    "tables": [
+      {
+        "path": "tables/table-0 Financial Report.html",
+        "summary": "table-1 Table of contents for a quarterly financial report (Form 10-Q) covering financial statements, management discussion, market risk, controls, legal proceedings, and exhibits."
+      },
+      {
+        "path": "tables/table-1 Financial Results.html",
+        "summary": "table-2 The table shows financial data for three months ending Apr 26, 2026 and Apr 27, 2025. Revenue increased from $44,062 to $81,615, net income rose from $18,775 to $58,321, and operating income grew from $21,638 to $53,536."
+      },
+      {
+        "path": "tables/table-2 Comprehensive Income.html",
+        "summary": "table-3 The table shows net income of $58,321 for Apr 26, 2026 vs $18,775 for Apr 27, 2025. Other comprehensive loss was $41 vs gain of $158, resulting in total comprehensive income of $58,280 vs $18,933."
+      },
+      {
+        "path": "tables/table-3 Balance Sheet.html",
+        "summary": "table-4 The balance sheet shows total assets of $259,474 as of Apr 26, 2026, up from $206,803. Liabilities are $64,000 and shareholders' equity is $195,474."
+      },
+      {
+        "path": "tables/table-4 Shareholders' Equity.html",
+        "summary": "table-5 The table shows changes in shareholders' equity from Jan 2025 to Apr 2026, including net income, stock issuance, repurchases, dividends, and other adjustments."
+      },
+      {
+        "path": "tables/table-5 Cash Flow Statement.html",
+        "summary": "table-6 The table shows cash flow data for three months ended Apr 26, 2026 and Apr 27, 2025. Net cash from operations was $50,344 and $27,414; investing used $26,429 and $5,216; financing used $21,283 and $15,553. Cash ended at $13,237 and $15,234."
+      },
+      {
+        "path": "tables/table-6 Cost Breakdown.html",
+        "summary": "table-7 The table shows costs for three months ending Apr 26, 2026 and Apr 27, 2025. Cost of revenue: $68M vs $64M; R&D: $1,459M vs $1,063M; SG&A: $401M vs $347M; Total: $1,928M vs $1,474M."
+      },
+      {
+        "path": "tables/table-7 Stock Grant Activity.html",
+        "summary": "table-8 The table shows restricted stock activity from Jan to Apr 2026: shares increased from 189 to 200 million, with 44 million granted at $181.73, 31 million vested at $48.04, and 2 million forfeited."
+      },
+      {
+        "path": "tables/table-8 EPS Data Table.html",
+        "summary": "table-9 The table shows net income of $58,321M (Apr 2026) vs $18,775M (Apr 2025), basic EPS $2.40 vs $0.77, diluted EPS $2.39 vs $0.76, with weighted average shares and anti-dilutive awards."
+      },
+      {
+        "path": "tables/table-9 Intangible Assets.html",
+        "summary": "table-10 The table shows intangible assets as of Apr 26, 2026 and Jan 25, 2026, with gross carrying amounts, accumulated amortization, and net carrying amounts for acquisition-related assets, patents, and total."
+      },
+      {
+        "path": "tables/table-10 Amortization Expense.html",
+        "summary": "table-11 The table shows future amortization expenses from 2027 to 2032 and beyond, totaling $3,120 million, with the highest in 2028 at $754 million."
+      },
+      {
+        "path": "tables/table-11 Debt Securities.html",
+        "summary": "table-12 The table details debt and equity securities by pricing category, showing cost, unrealized gains/losses, estimated fair value, and how they are reported as cash equivalents, marketable debt, or equity securities."
+      },
+      {
+        "path": "tables/table-12 Fair Value Table.html",
+        "summary": "table-13 The table details fair value measurements of debt and equity securities by pricing level, showing cost, unrealized gains/losses, and estimated fair value, with breakdowns by type and reporting category."
+      },
+      {
+        "path": "tables/table-13 Debt Securities.html",
+        "summary": "table-14 The table shows estimated fair values and gross unrealized losses for debt securities (U.S. Treasury, corporate, and government agencies) as of Apr 26, 2026 and Jan 25, 2026, with totals of $16,187M and $13,132M respectively."
+      },
+      {
+        "path": "tables/table-14 Debt Maturity.html",
+        "summary": "table-15 The table shows debt maturities: $24,307 million due within one year, $14,926 million due in 1-5 years, totaling $39,233 million as of Apr 26, 2026."
+      },
+      {
+        "path": "tables/table-15 Equity Securities.html",
+        "summary": "table-16 The table shows changes in non-marketable equity securities over three months ending Apr 26, 2026, with balance increasing from $22,251M to $42,336M, including net additions of $17,899M and unrealized gains of $2,603M."
+      },
+      {
+        "path": "tables/table-16 Inventory Data.html",
+        "summary": "table-17 The table shows inventories in millions for Apr 26, 2026 and Jan 25, 2026: raw materials $6,647 vs $3,807, work in process $9,949 vs $8,822, finished goods $9,201 vs $8,774, total $25,797 vs $21,403."
+      },
+      {
+        "path": "tables/table-17 Accrued Liabilities.html",
+        "summary": "table-18 The table shows accrued and other current liabilities as of Apr 26, 2026 ($29,787M) and Jan 25, 2026 ($21,352M), including taxes payable, customer program accruals, and warranty costs."
+      },
+      {
+        "path": "tables/table-18 Long-Term Liabilities.html",
+        "summary": "table-19 The table shows other long-term liabilities totaling $8,768 million as of Apr 26, 2026, down from $7,306 million on Jan 25, 2026, including income tax payable, deferred income tax, deferred revenue, and other items."
+      },
+      {
+        "path": "tables/table-19 Deferred Revenue.html",
+        "summary": "table-20 The table shows deferred revenue balances for Apr 26, 2026 ($3,117M) and Apr 27, 2025 ($2,078M), with additions and revenue recognized during each period."
+      },
+      {
+        "path": "tables/table-20 Hedge Designation.html",
+        "summary": "table-21 The table shows designated accounting hedges at $2,114M (Apr 26, 2026) and $1,765M (Jan 25, 2026), and non-designated hedges at $1,850M and $2,332M respectively."
+      },
+      {
+        "path": "tables/table-21 Debt Notes Table.html",
+        "summary": "table-22 The table lists various notes due from 2026 to 2060 with interest rates from 1.55% to 3.70%, remaining terms, and carrying amounts. Net carrying amount is $8,470 million as of Apr 26, 2026, with long-term portion of $7,470 million."
+      },
+      {
+        "path": "tables/table-22 Balance Changes.html",
+        "summary": "table-23 The table shows balance changes over three months ending Apr 26, 2026 and Apr 27, 2025, with beginning balances of $2,807M and $1,290M, additions of $330M and $870M, utilization of $189M and $80M, and ending balances of $2,948M and $2,080M."
+      },
+      {
+        "path": "tables/table-23 Segment Revenue.html",
+        "summary": "table-24 The table shows Compute & Networking and Graphics segment revenue, other items, and operating income for three-month periods ending April 2026 and April 2025, with totals."
+      },
+      {
+        "path": "tables/table-24 Income Statement.html",
+        "summary": "table-25 The table shows a consolidated income statement for three months ended Apr 26, 2026 and Apr 27, 2025, with segment operating income of $56,276M and $23,694M, leading to consolidated income before tax of $69,903M and $21,910M."
+      },
+      {
+        "path": "tables/table-25 Revenue by Region.html",
+        "summary": "table-26 The table shows geographic revenue for three months ended Apr 26, 2026 and Apr 27, 2025. US revenue was $63,769M (2026) vs $25,685M (2025); Taiwan $12,006M vs $7,648M; China $4,550M vs $9,659M; Other $1,290M vs $1,070M. Total revenue $81,615M vs $44,062M."
+      },
+      {
+        "path": "tables/table-26 Revenue by Market.html",
+        "summary": "table-27 The table shows revenue for three months ended Apr 26, 2026 and Apr 27, 2025. Data Center revenue grew from $39,112M to $75,246M, with Hyperscale and AI Clouds segments contributing significantly. Total revenue increased from $44,062M to $81,615M."
+      },
+      {
+        "path": "tables/table-27 Lease Obligations.html",
+        "summary": "table-28 The table shows operating lease obligations totaling $5,604 million, with a present value of $4,344 million after imputed interest, resulting in long-term liabilities of $3,878 million."
+      },
+      {
+        "path": "tables/table-28 Lease Cash Flows.html",
+        "summary": "table-29 The table shows supplemental cash flow information for three months ended Apr 26, 2026 and Apr 27, 2025. Operating cash flow used for leases was $185M and $96M; lease assets obtained were $1,516M and $98M."
+      },
+      {
+        "path": "tables/table-29 Quarterly Financials.html",
+        "summary": "table-30 The table shows Q1 2026 revenue of $81.6B, up 85% YoY, net income of $58.3B (up 211% YoY), and gross margin of 74.9%."
+      },
+      {
+        "path": "tables/table-30 Revenue by Market.html",
+        "summary": "table-31 Data Center revenue rose 92% year-over-year to $75,246M, with Hyperscale up 115% and AI Clouds up 74%. Total revenue reached $81,615M, a 20% quarterly and 85% yearly increase."
+      },
+      {
+        "path": "tables/table-31 Revenue Analysis.html",
+        "summary": "table-32 The table shows revenue, cost, gross profit, operating expenses, and net income for three months ending Apr 26, 2026 and Apr 27, 2025, with percentages of revenue."
+      },
+      {
+        "path": "tables/table-32 Revenue Growth.html",
+        "summary": "table-33 Compute & Networking revenue rose 88% to $74,550M, Graphics up 58% to $7,065M, total revenue increased 85% to $81,615M for the three months ended Apr 26, 2026 vs Apr 27, 2025."
+      },
+      {
+        "path": "tables/table-33 Revenue Growth.html",
+        "summary": "table-34 Compute & Networking revenue rose 142% to $53,335M, Graphics up 79% to $2,941M, total revenue $56,276M, a 138% increase from $23,694M."
+      },
+      {
+        "path": "tables/table-34 Operating Expenses.html",
+        "summary": "table-35 Total operating expenses increased 52% to $7,621 million, driven by R&D growth of 58% and SG&A growth of 25%."
+      },
+      {
+        "path": "tables/table-35 Other Income.html",
+        "summary": "table-36 The table shows three-month financial data ending Apr 26, 2026 and Apr 27, 2025. Interest income increased by $25M, interest expense rose by $39M, and other income surged by $16,109M, leading to total other income of $16,367M."
+      },
+      {
+        "path": "tables/table-36 Cash and Securities.html",
+        "summary": "table-37 The table shows cash and cash equivalents, marketable debt securities, and their total for Apr 26, 2026 ($50,335M) and Jan 25, 2026 ($49,670M)."
+      },
+      {
+        "path": "tables/table-37 Cash Flow Data.html",
+        "summary": "table-38 The table shows net cash provided by operating activities of $50,344 million and $27,414 million for the three months ended Apr 26, 2026 and Apr 27, 2025, respectively. Net cash used in investing and financing activities also reported."
+      },
+      {
+        "path": "tables/table-38 Debt Maturity.html",
+        "summary": "table-39 The table shows debt due in various periods totaling $8,470 million net carrying amount, with $1,000 million short-term and $7,470 million long-term portion."
+      },
+      {
+        "path": "tables/table-39 Stock Buyback.html",
+        "summary": "table-40 The table shows a company repurchased 108.3 million shares from Jan to Apr 2026, with $38.5 billion remaining in the buyback program."
+      },
+      {
+        "path": "tables/table-40 Stock Sale Plans.html",
+        "summary": "table-41 Tench Coxe, a Director, adopted a plan to sell up to 8,000,000 shares from 3/19/2026 to 10/30/2027. Colette M. Kress, CFO, terminated a plan to sell 500,000 shares on 4/10/2026."
+      },
+      {
+        "path": "tables/table-41 Exhibit List.html",
+        "summary": "table-42 The table lists exhibits filed with the SEC, including a variable compensation plan, CEO/CFO certifications, and inline XBRL documents, with filing dates and incorporation references."
+      }
+    ]
+  }
+}

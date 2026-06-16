@@ -1,0 +1,92 @@
+{
+  "version": "2.0",
+  "job_id": "job_9886373d369e",
+  "data_id": null,
+  "source_file_name": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf",
+  "processing_date": "2026-06-16T03:21:34.059667Z",
+  "processing": {
+    "page_count": 19,
+    "billing_status": "charged",
+    "cost": {
+      "micro_dollars": 28500,
+      "credits": 0.0285
+    },
+    "timing": {
+      "started_at": "2026-06-16T03:20:41.173722+00:00",
+      "completed_at": "2026-06-16T03:21:34.044762+00:00",
+      "duration_ms": 52871
+    },
+    "stages": {
+      "timing_ms": {
+        "document.profile": 5839,
+        "pdf.extract.standard": 34365,
+        "toc.detect_range_llm": 1021,
+        "md.detect_toc": 1049,
+        "heading.hierarchy_llm_call": 3562,
+        "heading.hierarchy_llm": 3573,
+        "md.predict_headings": 3859,
+        "md.deferred_summaries": 7460,
+        "md.build_dataframe": 4,
+        "pdf.parse_md": 12589,
+        "document.cleanup_unreferenced_images": 0,
+        "document.compress_images": 0,
+        "worker.parse.document": 52799
+      },
+      "token_usage": {
+        "prompt_tokens": 6334,
+        "completion_tokens": 508,
+        "total_tokens": 6842
+      }
+    }
+  },
+  "statistics": {
+    "total_chunks": 63,
+    "text_chunks": 38,
+    "image_chunks": 25,
+    "table_chunks": 0,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "Root": {},
+    "NVIDIA Corp. (NVDA)": {
+      "CORPORATE PARTICIPANTS": {},
+      "OTHER PARTICIPANTS": {},
+      "C.J. Muse": {}
+    },
+    "MANAGEMENT DISCUSSION SECTION": {
+      "Toshiya Hari": {},
+      "Colette M. Kress": {},
+      "Jen Hsun Huang": {},
+      "Toshiya Hari_2": {}
+    },
+    "QUESTION AND ANSWER SECTION": {
+      "Vivek Arya": {},
+      "Jen Hsun Huang": {},
+      "Joe Moore": {},
+      "Jen Hsun Huang_2": {},
+      "Harlan Sur": {},
+      "Jen Hsun Huang_3": {},
+      "C.J. Muse": {},
+      "Jen Hsun Huang_4": {},
+      "Stacy A. Rasgon": {},
+      "Colette M. Kress": {},
+      "Atif Malik": {},
+      "Jen Hsun Huang_5": {},
+      "Ben Reitzes": {},
+      "Jen Hsun Huang_6": {},
+      "Antoine Chkaiban": {},
+      "Jen Hsun Huang_7": {},
+      "Mark Lipacis": {},
+      "Colette M. Kress_2": {},
+      "Jen Hsun Huang_8": {},
+      "Aaron Rakers": {},
+      "Jen Hsun Huang_9": {},
+      "Timothy Arcuri": {},
+      "Colette M. Kress_3": {},
+      "James Edward Schneider": {},
+      "Jen Hsun Huang_10": {},
+      "Toshiya Hari": {}
+    },
+    "Disclaimer": {}
+  }
+}

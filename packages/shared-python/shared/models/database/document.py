@@ -46,6 +46,7 @@ class Document(Base):
         nullable=True,
     )
     source_file_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    parse_track: Mapped[str] = mapped_column(String(32), nullable=False, default="chunk")
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, nullable=False
     )
@@ -417,4 +418,5 @@ class RetrievalStep(Base):
 
     __table_args__ = (
         Index('idx_retrieval_steps_run', 'run_id', 'step_index'),
+        Index('idx_retrieval_steps_created', 'created_at'),
     )

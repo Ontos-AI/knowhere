@@ -11,8 +11,10 @@ import pytest
 from httpx import AsyncClient
 from pytest import MonkeyPatch
 
-from tests.support.contract_database import ContractDatabase
+from shared.core.billing import BillingCalculator
+from shared.core.config.billing import BillingConfig
 from shared.utils.api_keys import hash_api_key
+from tests.support.contract_database import ContractDatabase
 
 
 def _utc_now() -> datetime:
@@ -54,6 +56,28 @@ async def _insert_api_key_for_user(user_id: str, api_key: str) -> None:
             "is_active": True,
             "created_at": timestamp,
         },
+    )
+
+
+def test_billing_config_should_default_to_one_dollar_fifty_per_hundred_pages(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MICRO_DOLLARS_PER_PAGE", raising=False)
+
+    config: BillingConfig = BillingConfig(_env_file=None)
+
+    assert config.MICRO_DOLLARS_PER_PAGE == 15_000
+
+
+def test_billing_calculator_should_charge_one_dollar_fifty_per_hundred_pages() -> None:
+    calculator: BillingCalculator = BillingCalculator(price_per_page_micros=15_000)
+    charge = calculator.calculate_page_cost(100)
+
+    assert charge.amount == 1_500_000
+    assert charge.to_credit() == 1.5
+    assert (
+        calculator.format_description(100, "contract.pdf")
+        == "Document processing: contract.pdf (100 pages @ $0.0150/page)"
     )
 
 

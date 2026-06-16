@@ -197,6 +197,7 @@ def vlm_extract_toc_batch(
         temperature=0.1,
         max_tokens=8192,
         response_format={"type": "json_object"},
+        usage_task="document_agent.vlm_toc_batch",
     )
     elapsed_ms = int((time.monotonic() - start) * 1000)
 

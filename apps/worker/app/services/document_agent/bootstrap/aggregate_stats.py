@@ -54,6 +54,7 @@ def aggregate_doc_stats(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()
     features = list(ctx.blackboard.page_features)
     stats: dict[str, Any] = {}
+    page_count = len(features)
     extrema_pages: list[int] = []
     extrema_samples: list[dict[str, Any]] = []
     for metric in PROFILE_METRICS:
@@ -95,9 +96,43 @@ def aggregate_doc_stats(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
             )
 
     deduped_extrema = sorted(set(extrema_pages))
+    landscape_pages = sum(1 for feature in features if feature.orientation == "landscape")
+    scan_like_pages = sum(
+        1
+        for feature in features
+        if feature.raw_text_length < 50 and feature.image_coverage >= 0.5
+    )
+    image_heavy_pages = sum(
+        1 for feature in features if feature.image_coverage >= 0.35
+    )
+    table_signal_pages = sum(
+        1
+        for feature in features
+        if feature.table_count > 0 or feature.drawings_count >= 25
+    )
+    doc_shape = {
+        "page_count": page_count,
+        "landscape_pages": landscape_pages,
+        "landscape_ratio": round(landscape_pages / page_count, 4)
+        if page_count
+        else 0.0,
+        "scan_like_pages": scan_like_pages,
+        "scan_like_ratio": round(scan_like_pages / page_count, 4)
+        if page_count
+        else 0.0,
+        "image_heavy_pages": image_heavy_pages,
+        "image_heavy_ratio": round(image_heavy_pages / page_count, 4)
+        if page_count
+        else 0.0,
+        "table_signal_pages": table_signal_pages,
+        "table_signal_ratio": round(table_signal_pages / page_count, 4)
+        if page_count
+        else 0.0,
+    }
     ctx.blackboard.doc_stats = stats
     ctx.blackboard.extrema_pages = deduped_extrema
     ctx.blackboard.global_signals["doc_stats"] = stats
+    ctx.blackboard.global_signals["doc_shape"] = doc_shape
     ctx.blackboard.global_signals["extrema_pages"] = deduped_extrema
     ctx.blackboard.global_signals["extrema_samples"] = extrema_samples
     return ToolResult(
@@ -106,10 +141,12 @@ def aggregate_doc_stats(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
             "metric_count": len(PROFILE_METRICS),
             "extrema_pages": deduped_extrema,
             "extrema_samples": extrema_samples,
+            "doc_shape": doc_shape,
         },
         latency_ms=int((time.monotonic() - start) * 1000),
         output_summary={
             "doc_stats": stats,
+            "doc_shape": doc_shape,
             "extrema_pages": deduped_extrema,
             "extrema_samples": extrema_samples,
         },

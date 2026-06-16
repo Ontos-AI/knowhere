@@ -1,0 +1,64 @@
+{
+  "version": "2.0",
+  "job_id": "job_12a9a381bb04",
+  "data_id": null,
+  "source_file_name": "META-Q1-2026-Earnings-Call-Transcript.pdf",
+  "processing_date": "2026-06-16T03:35:02.680217Z",
+  "processing": {
+    "page_count": 20,
+    "billing_status": "charged",
+    "cost": {
+      "micro_dollars": 30000,
+      "credits": 0.03
+    },
+    "timing": {
+      "started_at": "2026-06-16T03:34:17.225197+00:00",
+      "completed_at": "2026-06-16T03:35:02.672609+00:00",
+      "duration_ms": 45447
+    },
+    "stages": {
+      "timing_ms": {
+        "document.profile": 4249,
+        "pdf.extract.standard": 34338,
+        "toc.detect_range_llm": 1055,
+        "md.detect_toc": 1090,
+        "heading.hierarchy_llm_call": 2513,
+        "heading.hierarchy_llm": 2522,
+        "md.predict_headings": 2839,
+        "md.deferred_summaries": 2622,
+        "md.build_dataframe": 1,
+        "pdf.parse_md": 6799,
+        "document.cleanup_unreferenced_images": 0,
+        "document.compress_images": 0,
+        "worker.parse.document": 45392
+      },
+      "token_usage": {
+        "prompt_tokens": 6675,
+        "completion_tokens": 170,
+        "total_tokens": 6845
+      }
+    }
+  },
+  "statistics": {
+    "total_chunks": 13,
+    "text_chunks": 12,
+    "image_chunks": 0,
+    "table_chunks": 1,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "Root": {},
+    "Kenneth Dorell, Director, Investor Relations": {},
+    "Mark Zuckerberg, CEO": {},
+    "Susan Li, CFO": {
+      "Brian Nowak:": {},
+      "Mark Zuckerberg:": {},
+      "Susan Li:": {},
+      "Operator:": {},
+      "Douglas Anmuth:": {},
+      "Susan Li:_2": {},
+      "Operator:_2": {},
+      "Kenneth Gawrelski:": {}
+    }
+  }
+}

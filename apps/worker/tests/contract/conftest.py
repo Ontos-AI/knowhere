@@ -17,12 +17,46 @@ from shared.testing.postgresql_environment import find_executable
 
 _REPO_ROOT: Path = Path(__file__).resolve().parents[4]
 _WORKER_ROOT: Path = _REPO_ROOT / "apps" / "worker"
+_API_ROOT: Path = _REPO_ROOT / "apps" / "api"
 _DOCUMENT_INGESTION_TASK_NAMES: tuple[str, ...] = (
     "app.core.tasks.document_ingestion_tasks.upload_url_file_task",
     "app.core.tasks.kb_tasks.upload_url_file_task",
     "app.core.tasks.document_ingestion_tasks.parse_task",
     "app.core.tasks.kb_tasks.parse_task",
 )
+
+
+def _module_loaded_from(module_name: str, root: Path) -> bool:
+    module = sys.modules.get(module_name)
+    if module is None:
+        return False
+
+    root_value = str(root)
+    module_file = getattr(module, "__file__", None)
+    if isinstance(module_file, str) and module_file.startswith(root_value):
+        return True
+
+    module_paths = getattr(module, "__path__", ())
+    return any(str(module_path).startswith(root_value) for module_path in module_paths)
+
+
+def _ensure_worker_import_context() -> None:
+    worker_root_value = str(_WORKER_ROOT)
+    if worker_root_value in sys.path:
+        sys.path.remove(worker_root_value)
+    sys.path.insert(0, worker_root_value)
+
+    cached_module_names = list(sys.modules)
+    for module_name in cached_module_names:
+        if module_name == "app" or module_name.startswith("app."):
+            if _module_loaded_from(module_name, _API_ROOT):
+                sys.modules.pop(module_name, None)
+
+
+@pytest.fixture(autouse=True)
+def worker_contract_import_context() -> Generator[None, None, None]:
+    _ensure_worker_import_context()
+    yield
 
 
 def _resolve_postgresql_executable() -> str | None:
@@ -65,10 +99,7 @@ def worker_contract_environment(
     contract_runtime.configure_contract_environment(monkeypatch, postgresql_proc)
     asyncio.run(contract_runtime.prepare_contract_storage())
 
-    worker_root_value = str(_WORKER_ROOT)
-    if worker_root_value in sys.path:
-        sys.path.remove(worker_root_value)
-    sys.path.insert(0, worker_root_value)
+    _ensure_worker_import_context()
     contract_runtime.clear_application_modules()
 
     from shared.core.celery_app import get_celery_app

@@ -20,6 +20,7 @@ class HeadingHierarchyInput:
     output_dir: str | None = None
     layout_json_path: str | None = None
     first_toc_ele_num: int | None = None
+    is_first_shard: bool = True
 
 
 def predict_heading_hierarchy(heading_input: HeadingHierarchyInput) -> pd.DataFrame:
@@ -34,4 +35,5 @@ def predict_heading_hierarchy(heading_input: HeadingHierarchyInput) -> pd.DataFr
         output_dir=heading_input.output_dir,
         layout_json_path=heading_input.layout_json_path,
         first_toc_ele_num=heading_input.first_toc_ele_num,
+        is_first_shard=heading_input.is_first_shard,
     )

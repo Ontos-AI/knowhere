@@ -21,7 +21,9 @@ class ParseRunRecorder:
         self._started = time.monotonic()
         self._steps: list[dict[str, Any]] = []
         self._anatomy: PageAnatomyMap | None = None
+        self._doc_profile_source: Any | None = None
         self._artifact_path: str | None = None
+        self._profile_plan_row: Any | None = None
 
     def record_step(
         self,
@@ -60,6 +62,73 @@ class ParseRunRecorder:
         self._anatomy = anatomy
         self._artifact_path = artifact_path
         self.write_trace_json(str(Path(artifact_path).with_name("trace.json")))
+
+    def set_doc_profile(self, profile: Any) -> None:
+        self._doc_profile_source = profile
+
+    def persist_doc_profile(self, profile: Any | None = None) -> None:
+        """Persist the coarse PDF profile independently from anatomy-map creation."""
+        if profile is not None:
+            self.set_doc_profile(profile)
+        if self._db is None:
+            return
+        try:
+            from shared.models.database.document_page_plan import DocumentPagePlan
+
+            doc_profile = self._doc_profile_for_plan()
+            if doc_profile is None:
+                return
+            if self._profile_plan_row is None:
+                self._profile_plan_row = DocumentPagePlan(
+                    page_plan_id=f"dpp_{uuid4().hex[:12]}",
+                    job_id=self.job_id,
+                    page_count=int(doc_profile.get("page_count") or 0),
+                    shard_plan=None,
+                    doc_profile=doc_profile,
+                    global_signals=None,
+                )
+                self._db.add(self._profile_plan_row)
+            else:
+                self._profile_plan_row.page_count = int(
+                    doc_profile.get("page_count") or self._profile_plan_row.page_count or 0
+                )
+                self._profile_plan_row.doc_profile = doc_profile
+            self._db.flush()
+        except Exception as exc:
+            logger.debug(f"parse agent doc profile persist failed: {exc}")
+            try:
+                if self._profile_plan_row is not None:
+                    self._db.expunge(self._profile_plan_row)
+                self._profile_plan_row = None
+            except Exception:
+                pass
+
+    def _doc_profile_for_plan(self) -> dict[str, Any] | None:
+        if self._doc_profile_source is None and self._anatomy is None:
+            return None
+        if self._doc_profile_source is None:
+            profile: dict[str, Any] = {}
+        elif hasattr(self._doc_profile_source, "to_dict"):
+            profile = self._doc_profile_source.to_dict()
+        else:
+            profile = dict(self._doc_profile_source)
+
+        if self._anatomy is not None:
+            toc_result = self._anatomy.toc_result
+            profile.setdefault("file_type", "pdf")
+            profile["page_count"] = self._anatomy.page_count
+            profile["toc"] = {
+                "toc_pages": list(toc_result.toc_pages),
+                "hierarchies": self._anatomy.toc_hierarchies,
+                "evidence": [item.to_dict() for item in toc_result.evidence],
+                "source": "pdf_vlm" if toc_result.method != "none" else "none",
+                "method": toc_result.method,
+                "notes": toc_result.notes,
+                "attempted": bool(
+                    self._anatomy.global_signals.get("toc_profile_attempted", True)
+                ),
+            }
+        return profile
 
     def write_trace_artifact(
         self,
@@ -155,15 +224,22 @@ class ParseRunRecorder:
                     )
                 )
             if self._anatomy is not None:
-                self._db.add(
-                    DocumentPagePlan(
+                doc_profile = self._doc_profile_for_plan()
+                if self._profile_plan_row is None:
+                    self._profile_plan_row = DocumentPagePlan(
                         page_plan_id=f"dpp_{uuid4().hex[:12]}",
                         job_id=self.job_id,
                         page_count=self._anatomy.page_count,
                         shard_plan=self._anatomy.shard_plan.to_dict(),
+                        doc_profile=doc_profile,
                         global_signals=self._anatomy.global_signals,
                     )
-                )
+                    self._db.add(self._profile_plan_row)
+                else:
+                    self._profile_plan_row.page_count = self._anatomy.page_count
+                    self._profile_plan_row.shard_plan = self._anatomy.shard_plan.to_dict()
+                    self._profile_plan_row.doc_profile = doc_profile
+                    self._profile_plan_row.global_signals = self._anatomy.global_signals
             self._db.flush()
         except Exception as exc:
             logger.debug(f"parse agent trace flush failed: {exc}")

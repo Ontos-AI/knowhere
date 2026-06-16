@@ -1,0 +1,23 @@
+[
+  {
+    "toc_range": [
+      4,
+      12
+    ],
+    "scan_range": [
+      4,
+      163
+    ],
+    "toc_with_level": "| id | heading                                                            | level |\n|----|--------------------------------------------------------------------|-------|\n| 1  | 4 Management Discussion and Analysis                               | 1     |\n| 2  | 25 Directors and Chief Executive Officer                           | 1     |\n| 3  | 29 Disclosure of Interests                                         | 1     |\n| 4  | 34 Equity Incentive Plans                                          | 1     |\n| 5  | 38 Purchase, Sale or Redemption of our Company's Listed Securities | 1     |\n| 6  | 39 Other Information                                               | 1     |\n| 7  | 42 Definitions                                                     | 1     |\n| 8  | 44 Financial Statements                                            | 1     |",
+    "toc_tree": {
+      "4 Management Discussion and Analysis": {},
+      "25 Directors and Chief Executive Officer": {},
+      "29 Disclosure of Interests": {},
+      "34 Equity Incentive Plans": {},
+      "38 Purchase, Sale or Redemption of our Company's Listed Securities": {},
+      "39 Other Information": {},
+      "42 Definitions": {},
+      "44 Financial Statements": {}
+    }
+  }
+]

@@ -235,6 +235,7 @@ def llm_judge_toc_range(
                 model=model_name,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                usage_task="parser.toc_detect_range",
             )
 
             result = eval_response(answer)

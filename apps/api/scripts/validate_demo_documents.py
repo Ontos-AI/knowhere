@@ -24,6 +24,10 @@ def _bootstrap_python_path() -> None:
 
 _bootstrap_python_path()
 
+from app.services.demo.official_library_catalog import (
+    iter_official_library_categories,
+    iter_official_library_sources,
+)
 from app.services.demo.source_catalog import DemoSourceCatalog, DemoSourceDefinition
 from shared.services.storage.zip_result_schema import ZipResultSchemaBuilder
 
@@ -39,6 +43,7 @@ def validate_demo_documents(*, write: bool = False) -> list[DemoValidationIssue]
     issues: list[DemoValidationIssue] = []
     for source in catalog.list_sources():
         issues.extend(_validate_source(catalog=catalog, source=source, write=write))
+    issues.extend(_validate_official_library_catalog(catalog=catalog))
     return issues
 
 
@@ -116,6 +121,81 @@ def _validate_catalog_projection(
             DemoValidationIssue(
                 source_id=source.demo_source_id,
                 message=f"catalog projection failed: {exc}",
+            )
+        )
+
+
+def _validate_official_library_catalog(
+    *,
+    catalog: DemoSourceCatalog,
+) -> list[DemoValidationIssue]:
+    issues: list[DemoValidationIssue] = []
+    category_ids = [category.category_id for category in iter_official_library_categories()]
+    source_ids = [source.library_source_id for source in iter_official_library_sources()]
+    demo_source_ids = {
+        source.demo_source_id for source in catalog.list_sources()
+    }
+
+    _append_duplicate_issues(
+        source_id="official-library",
+        field_name="category_id",
+        values=category_ids,
+        issues=issues,
+    )
+    _append_duplicate_issues(
+        source_id="official-library",
+        field_name="library_source_id",
+        values=source_ids,
+        issues=issues,
+    )
+
+    known_category_ids = set(category_ids)
+    for source in iter_official_library_sources():
+        if source.category_id not in known_category_ids:
+            issues.append(
+                DemoValidationIssue(
+                    source_id=source.library_source_id,
+                    message=f"unknown Official Library category: {source.category_id}",
+                )
+            )
+        if source.status == "ready" and not source.demo_source_id:
+            issues.append(
+                DemoValidationIssue(
+                    source_id=source.library_source_id,
+                    message="ready Official Library source is missing demo_source_id",
+                )
+            )
+        if source.demo_source_id and source.demo_source_id not in demo_source_ids:
+            issues.append(
+                DemoValidationIssue(
+                    source_id=source.library_source_id,
+                    message=f"unknown ready demo source: {source.demo_source_id}",
+                )
+            )
+    return issues
+
+
+def _append_duplicate_issues(
+    *,
+    source_id: str,
+    field_name: str,
+    values: list[str],
+    issues: list[DemoValidationIssue],
+) -> None:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for value in values:
+        if value in seen:
+            duplicates.add(value)
+        seen.add(value)
+    if duplicates:
+        issues.append(
+            DemoValidationIssue(
+                source_id=source_id,
+                message=(
+                    f"duplicate {field_name} values: "
+                    f"{', '.join(sorted(duplicates))}"
+                ),
             )
         )
 

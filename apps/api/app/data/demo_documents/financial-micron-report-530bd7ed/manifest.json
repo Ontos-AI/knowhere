@@ -1,0 +1,97 @@
+{
+  "version": "2.0",
+  "job_id": "job_3a7c35dd349d",
+  "data_id": null,
+  "source_file_name": "micron-530bd7ed.pdf",
+  "processing_date": "2026-06-16T09:36:10.848153Z",
+  "processing": {
+    "page_count": 44,
+    "billing_status": "charged",
+    "cost": {
+      "micro_dollars": 66000,
+      "credits": 0.066
+    },
+    "timing": {
+      "started_at": "2026-06-16T09:35:04.044889+00:00",
+      "completed_at": "2026-06-16T09:36:10.838333+00:00",
+      "duration_ms": 66793
+    },
+    "stages": {
+      "timing_ms": {
+        "document.profile": 6279,
+        "pdf.extract.standard": 35759,
+        "toc.detect_range_llm": 1051,
+        "md.detect_toc": 1074,
+        "heading.merge_pre_pass_llm": 1952,
+        "heading.hierarchy_llm_call": 5149,
+        "heading.hierarchy_llm": 5161,
+        "md.predict_headings": 7433,
+        "md.deferred_summaries": 15338,
+        "md.build_dataframe": 1,
+        "pdf.parse_md": 24460,
+        "document.cleanup_unreferenced_images": 1,
+        "document.compress_images": 1,
+        "worker.parse.document": 66507
+      },
+      "token_usage": {
+        "prompt_tokens": 7282,
+        "completion_tokens": 877,
+        "total_tokens": 8159
+      }
+    }
+  },
+  "statistics": {
+    "total_chunks": 82,
+    "text_chunks": 42,
+    "image_chunks": 20,
+    "table_chunks": 20,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "Financial results": {
+      "Safe harbor statement": {},
+      "Sanjay Mehrotra": {},
+      "Overview (1 of 3)": {},
+      "Overview (2 of 3)": {},
+      "Overview (3 of 3)": {},
+      "Technology and operations (1 of 2)": {},
+      "Technology and operations (2 of 2)": {},
+      "Data center server demand": {},
+      "Data center HBM and LP DRAM": {},
+      "Data center NAND": {},
+      "PC": {},
+      "Mobile": {},
+      "Automotive and embedded": {},
+      "Market outlook (1 of 2)": {},
+      "Market outlook (2 of 2)": {},
+      "Supply efforts (1 of 2)": {},
+      "Supply efforts (2 of 2)": {},
+      "Mark Murphy": {},
+      "FQ1-26 revenue \\$13.6B": {},
+      "Performance by technology": {
+        "DRAM FQ1-26": {},
+        "NAND FQ1-26": {}
+      },
+      "Financial performance by business unit (1 of 2)": {},
+      "Financial performance by business unit (2 of 2)": {},
+      "FQ1-26 Non-GAAP operating results": {},
+      "Cash flow and capital allocation From FY-23 to FQ1-26": {},
+      "Al use at Micron": {}
+    },
+    "Outlook": {},
+    "Appendix": {
+      "Financial summary": {},
+      "Non-GAAP financial data and guidance": {},
+      "Revenue by technology": {},
+      "Non-GAAP reconciliations": {},
+      "Non-GAAP reconciliations_2": {},
+      "Non-GAAP reconciliations_3": {},
+      "Non-GAAP reconciliations_4": {},
+      "Non-GAAP reconciliations_5": {},
+      "Non-GAAP reconciliations_6": {},
+      "Non-GAAP reconciliations_7": {},
+      "FQ2-26 guidance Non-GAAP reconciliations": {}
+    },
+    "micron": {}
+  }
+}

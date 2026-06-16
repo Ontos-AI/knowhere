@@ -96,6 +96,7 @@ class RetrievalPublicationService:
         job_metadata = job.job_metadata or {}
         namespace = normalize_retrieval_namespace(job_metadata.get("namespace"))
         document_id = job_metadata.get("document_id")
+        parse_track = str(job_metadata.get("parse_track") or "chunk")
         source_file_name = job_metadata.get("source_file_name") or job_metadata.get(
             "file_name"
         )
@@ -121,6 +122,7 @@ class RetrievalPublicationService:
             job_result_id=job_result_id,
             document_id=str(document_id) if document_id else None,
             namespace=namespace,
+            parse_track=parse_track,
             source_file_name=str(source_file_name) if source_file_name else None,
         )
         if document is None:
@@ -160,6 +162,7 @@ class RetrievalPublicationService:
         job_result_id: str,
         document_id: str | None,
         namespace: str,
+        parse_track: str,
         source_file_name: str | None,
     ) -> Document | None:
         document = None
@@ -181,6 +184,7 @@ class RetrievalPublicationService:
                 status="active",
                 current_job_result_id=job_result_id,
                 source_file_name=source_file_name,
+                parse_track=parse_track,
             )
             db.add(document)
         else:
@@ -198,6 +202,7 @@ class RetrievalPublicationService:
             document.archived_at = None
             document.current_job_result_id = job_result_id
             document.source_file_name = source_file_name or document.source_file_name
+            document.parse_track = parse_track or document.parse_track
             document.updated_at = utc_now_naive()
 
         db.flush()

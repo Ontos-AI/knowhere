@@ -1,0 +1,131 @@
+{
+  "version": "1.0",
+  "file_name": "Meta Q1 2026 Exhibit 99.1.pdf",
+  "stats": {
+    "total_chunks": 17,
+    "text_chunks": 11,
+    "image_chunks": 0,
+    "table_chunks": 6,
+    "max_depth": 2
+  },
+  "sections": [
+    {
+      "title": "Meta Reports First Quarter 2026 Results",
+      "path": "Meta-03-31-2026-Exhibit-99-1_final.pdf/Meta Reports First Quarter 2026 Results",
+      "level": 1,
+      "summary": "MENLO PARK, Calif. – April 29, 2026 – Meta Platforms, Inc. (Nasdaq: META) today reported financial results for the quarter ended March 31, 2026. \"We had a milestone quarter with strong momentum across our apps and the release of our first model from Meta Superintelligence Labs,\" said Mark Zuckerberg, Meta founder and CEO. \"We're on track to deliver personal superintelligence to billions of people.\" First Quarter 2026 Financial Highlights [tables/table-0 Q1 Financial Results.html] NM — not meaningful (1) Includes an \\$8.03 billion income tax benefit recognized in the first quarter of 2026, which partially offsets the \\$15.93 billion non-cash tax charge recorded in the third quarter of 2025 upon enactment of the One Big Beautiful Bill Act. This benefit is the result of U.S. Treasury Notice 2026-7, which addressed the Corporate Alternative Minimum Tax treatment of previously capitalized U.S. research and development costs. Excluding this tax benefit, our effective tax rate would have been 37 percentage points higher and our diluted earnings per share (EPS) would have been \\$3.13 lower.",
+      "chunk_count": 11,
+      "children": [
+        {
+          "title": "First Quarter 2026 Operational and Other Financial Highlights",
+          "path": "Meta-03-31-2026-Exhibit-99-1_final.pdf/Meta Reports First Quarter 2026 Results/First Quarter 2026 Operational and Other Financial Highlights",
+          "level": 2,
+          "summary": "- Family daily active people (DAP) – DAP was 3.56 billion on average for March 2026, an increase of 4% year-over-year. The slight decline in DAP on a quarter-over-quarter basis was driven by internet disruptions in Iran, as well as a restriction on access to WhatsApp in Russia. - Ad impressions – Ad impressions delivered across our Family of Apps increased by 19% year-over-year. • Average price per ad – Average price per ad increased by 12% year-over-year. • Revenue – Revenue was \\$56.31 billion, an increase of 33% year-over-year. Revenue on a constant currency basis would have increased by 29% year-over-year. - Costs and expenses – Total costs and expenses were \\$33.44 billion, an increase of 35% year-over-year. - Capital expenditures – Capital expenditures, including principal payments on finance leases, were \\$19.84 billion. - Capital return program – Dividend and dividend equivalent payments were \\$1.35 billion. - Cash, cash equivalents, and marketable securities – Cash, cash equivalents, and marketable securities were \\$81.18 billion as of March 31, 2026. - Cash flow – Cash flow from operating activities was \\$32.23 billion, and free cash flow was \\$12.39 billion. $^{(1)}$ - Headcount – Headcount was 77,986 as of March 31, 2026, an increase of $1\\%$ year-over-year.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "CFO Outlook Commentary",
+          "path": "Meta-03-31-2026-Exhibit-99-1_final.pdf/Meta Reports First Quarter 2026 Results/CFO Outlook Commentary",
+          "level": 2,
+          "summary": "We expect second quarter 2026 total revenue to be in the range of \\$58-61 billion. Our guidance assumes foreign currency is an approximately 2% tailwind to year-over-year total revenue growth, based on current exchange rates. We expect full year 2026 total expenses to be in the range of \\$162-169 billion, unchanged from our prior outlook. We continue to expect to deliver operating income this year that is above 2025 operating income. We anticipate 2026 capital expenditures, including principal payments on finance leases, to be in the range of \\$125-145 billion, increased from our prior range of \\$115-135 billion. This reflects our expectations for higher component pricing this year and, to a lesser extent, additional data center costs to support future year capacity. Absent any changes to our tax landscape, we expect our tax rate for the remaining quarters of 2026 to be between 13-16%. Lastly, we continue to monitor active legal and regulatory matters, including headwinds in the EU and the U.S. that could significantly impact our business and financial results. For example, we continue to see scrutiny on youth-related issues and have additional trials scheduled for this year in the U.S., which may ultimately result in a material loss.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Webcast and Conference Call Information",
+          "path": "Meta-03-31-2026-Exhibit-99-1_final.pdf/Meta Reports First Quarter 2026 Results/Webcast and Conference Call Information",
+          "level": 2,
+          "summary": "Meta will host a conference call to discuss its results at 2:30 p.m. PT / 5:30 p.m. ET today. The live webcast of the call can be accessed at the Meta Investor Relations website at investor.atmeta.com, along with the company's earnings press release, financial tables, and slide presentation. Following the call, a replay will be available at the same website. Transcripts of conference calls with publishing equity research analysts held today will also be posted to the investor.atmeta.com website.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Disclosure Information",
+          "path": "Meta-03-31-2026-Exhibit-99-1_final.pdf/Meta Reports First Quarter 2026 Results/Disclosure Information",
+          "level": 2,
+          "summary": "Meta uses the investor.atmeta.com and meta.com/news websites as well as Mark Zuckerberg's Facebook profile (facebook.com/zuck), Instagram account (instagram.com/zuck) and Threads profile (threads.net/zuck) as means of disclosing material non-public information and for complying with its disclosure obligations under Regulation FD.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "About Meta",
+          "path": "Meta-03-31-2026-Exhibit-99-1_final.pdf/Meta Reports First Quarter 2026 Results/About Meta",
+          "level": 2,
+          "summary": "Meta is building the future of human connection, powered by artificial intelligence and immersive technologies. When Facebook launched in 2004, it changed the way people connect. Apps like Messenger, Instagram, and WhatsApp further empowered billions around the world. Now, Meta is moving beyond 2D screens toward experiences that foster deeper connections and unlock new possibilities.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Contacts",
+          "path": "Meta-03-31-2026-Exhibit-99-1_final.pdf/Meta Reports First Quarter 2026 Results/Contacts",
+          "level": 2,
+          "summary": "Investors: Kenneth Dorell investor@meta.com / investor.atmeta.com Press: Matt Tye press@meta.com / meta.com/news",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Forward-Looking Statements",
+          "path": "Meta-03-31-2026-Exhibit-99-1_final.pdf/Meta Reports First Quarter 2026 Results/Forward-Looking Statements",
+          "level": 2,
+          "summary": "This press release contains forward-looking statements about future business plans and expectations, which may differ materially from actual results due to various factors including macroeconomic conditions, user engagement, advertising revenue, data dependency, third-party policies, new products like AI and Reality Labs, competition, government actions, litigation, privacy regulations, acquisitions, security breaches, and market conditions. These risks are detailed in the company's Annual Report on Form 10-K filed with the SEC on January 29, 2026, and will be updated in the Quarterly Report for March 31, 2026. The release is dated April 29, 2026, and the company undertakes no obligation to update these statements. Limitations of community metrics are discussed in the most recent SEC filings.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Non-GAAP Financial Measures",
+          "path": "Meta-03-31-2026-Exhibit-99-1_final.pdf/Meta Reports First Quarter 2026 Results/Non-GAAP Financial Measures",
+          "level": 2,
+          "summary": "The passage discusses Meta Platforms' use of non-GAAP financial measures, including revenue excluding foreign exchange effect, advertising revenue excluding foreign exchange effect, and free cash flow. It explains that these measures supplement GAAP financials, provide useful comparisons, and are adjusted for foreign exchange effects and capital expenditures. The text also references condensed consolidated financial statements (income, balance sheet, cash flows) for the three months ended March 31, 2026, but the actual table data is not provided in the input.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Segment Results",
+          "path": "Meta-03-31-2026-Exhibit-99-1_final.pdf/Meta Reports First Quarter 2026 Results/Segment Results",
+          "level": 2,
+          "summary": "We report our financial results for our two reportable segments: Family of Apps (FoA) and Reality Labs (RL). FoA includes Facebook, Instagram, Messenger, WhatsApp, and other services. RL includes our virtual and augmented reality related consumer hardware, software, and content. The following table sets forth our segment information of revenue and income (loss) from operations: Segment Information (In millions) (Unaudited) [tables/table-4 Meta Q1 Revenue.html]",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Reconciliation of GAAP to Non-GAAP Results",
+          "path": "Meta-03-31-2026-Exhibit-99-1_final.pdf/Meta Reports First Quarter 2026 Results/Reconciliation of GAAP to Non-GAAP Results",
+          "level": 2,
+          "summary": "(In millions, except percentages) (Unaudited) [tables/table-5 Revenue & Cash Flow.html]",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    }
+  ],
+  "resources": {
+    "images": [],
+    "tables": [
+      {
+        "path": "tables/table-0 Q1 Financial Results.html",
+        "summary": "table-1 Microsoft's Q1 2026 revenue rose 33% to $56.3B, net income up 61% to $26.8B, and diluted EPS up 62% to $10.44, with operating margin steady at 41%."
+      },
+      {
+        "path": "tables/table-1 Q1 Financial Results.html",
+        "summary": "table-2 The table shows Q1 financial data for 2026 vs 2025. Revenue rose from $42,314 to $56,311. Net income increased from $16,644 to $26,773. Basic EPS grew from $6.59 to $10.57."
+      },
+      {
+        "path": "tables/table-2 Balance Sheet.html",
+        "summary": "table-3 Condensed balance sheet as of March 31, 2026 and December 31, 2025, showing total assets of $395,250 and $366,021, with liabilities and stockholders' equity."
+      },
+      {
+        "path": "tables/table-3 Cash Flow Statement.html",
+        "summary": "table-4 The table shows cash flows for three months ended March 31, 2026 and 2025, with net cash provided by operating activities of $32,226 and $24,026, respectively."
+      },
+      {
+        "path": "tables/table-4 Meta Q1 Revenue.html",
+        "summary": "table-5 Meta's Q1 2026 total revenue was $56,311M, up from $42,314M in 2025. Family of Apps income rose to $26,900M, while Reality Labs loss narrowed to $4,028M."
+      },
+      {
+        "path": "tables/table-5 Revenue & Cash Flow.html",
+        "summary": "table-6 GAAP revenue rose 33% to $56,311M in Q1 2026; excluding FX, growth was 29%. Advertising revenue similarly grew 33% (29% ex-FX). Free cash flow was $12,386M, up from $10,334M."
+      }
+    ]
+  }
+}

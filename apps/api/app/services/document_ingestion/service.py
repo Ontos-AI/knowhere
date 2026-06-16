@@ -196,6 +196,15 @@ class DocumentIngestionService:
                         }
                     ],
                 )
+            _validate_parse_track_for_extension(
+                parse_track=payload.parse_track,
+                file_extension=file_extension,
+            )
+        elif payload.file_name:
+            _validate_parse_track_for_extension(
+                parse_track=payload.parse_track,
+                file_extension=os.path.splitext(payload.file_name)[1].lower(),
+            )
 
     async def _resolve_scope(
         self,
@@ -261,3 +270,35 @@ def _is_supported_file_name(file_name: str) -> bool:
         return False
     file_extension = os.path.splitext(file_name)[1].lower()
     return file_extension in settings.get_supported_extensions()
+
+
+def _validate_parse_track_for_extension(*, parse_track: str, file_extension: str) -> None:
+    if parse_track == "chunk":
+        return
+    if parse_track != "page_memory":
+        raise ValidationException(
+            user_message="Unsupported parse_track",
+            violations=[
+                {"field": "parse_track", "description": "Must be chunk or page_memory"}
+            ],
+        )
+    if not settings.RETRIEVAL_PAGE_MEMORY_ENABLED:
+        raise ValidationException(
+            user_message="page_memory parse track is not enabled",
+            violations=[
+                {
+                    "field": "parse_track",
+                    "description": "page_memory is disabled by configuration",
+                }
+            ],
+        )
+    if file_extension.lower() not in {".pdf", ".pptx"}:
+        raise ValidationException(
+            user_message="page_memory parse track only supports PDF and PPTX",
+            violations=[
+                {
+                    "field": "parse_track",
+                    "description": "Allowed file types in this build: .pdf, .pptx",
+                }
+            ],
+        )

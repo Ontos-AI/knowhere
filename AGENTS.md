@@ -124,8 +124,13 @@ flowchart TB
 
 This is the typed `ParseOutput` entry for all file types. The parser flow:
 
-1. **Profiles** the document via `profiling.doc_profiler.profile_document()` to detect
-   file type, page count, and special categories (e.g. `atlas`).
+1. **Profiles** the document via `profiling.doc_profiler.profile_document()`. PDF
+   profiling uses `document_agent` as the single PyMuPDF feature source, then runs
+   VLM coarse classification with two fields: open semantic `category` (for example,
+   `Financial Prospectus`) and routing-only `routing_category`
+   (`atlas/scanned/slides/generic`). Oversized non-atlas PDFs additionally run the
+   structural anatomy stage once at the entry point and pass the resulting shard
+   plan to PDF parsing.
 2. **Routes** to the appropriate parser based on file extension.
 3. **Post-processes**: cleans up unreferenced images, compresses PNG→JPG.
 4. Returns typed parse output with task-local artifact paths.
@@ -134,7 +139,7 @@ This is the typed `ParseOutput` entry for all file types. The parser flow:
 
 | Extension | Parser Module | Strategy |
 |:---|:---|:---|
-| `.pdf` | `formats.pdf.parser.parse_pdfs` | MinerU API → Markdown parser → `structure.layout_parser.pred_titles` |
+| `.pdf` | `formats.pdf.parser.parse_pdfs` | DOC_PROFILE category dispatch: `atlas` → atlas parser; oversized with entry anatomy → shard MinerU; otherwise MinerU API → Markdown parser → `structure.layout_parser.pred_titles` |
 | `.docx` | `formats.docx.parser.parse_docx` + `convert_doc2dics` | OXML iteration → heading detection → hierarchical tree |
 | `.doc` | `conversion.legacy_converter.doc_to_docx` → `.docx` pipeline | LibreOffice headless conversion first |
 | `.pptx` | `formats.pptx.parser.parse_pptx` | iLoveAPI PPTX→PDF → MinerU pipeline |
@@ -187,12 +192,19 @@ Key logic in `parse_docx()`:
 - **Table handling**: `table2html()` converts python-docx Table to HTML with
   accurate `rowspan`/`colspan` via direct OXML inspection.
 
-### PDF Parsing: MinerU Pipeline
+### PDF Parsing: DOC_PROFILE + MinerU Pipeline
 
 ```mermaid
 flowchart LR
-    PDF[formats.pdf.parser] --> MinerU[MinerU Cloud API]
-    MinerU --> MDFile[Markdown + layout.json]
+    PDF[profiling.doc_profiler.profile_document] --> Probe[document_agent probe_page_features]
+    Probe --> Coarse[VLM coarse category]
+    Coarse -->|atlas| Atlas[formats.atlas.parser]
+    Coarse -->|oversized generic/scanned/slides| Anatomy[document_agent structural anatomy + shard_plan]
+    Coarse -->|standard| MinerU[MinerU Cloud API]
+    Anatomy --> Shards[Shard MinerU pipeline]
+    Shards --> MDFile[Markdown + layout.json]
+    Atlas --> Chunks[Atlas page chunks]
+    MinerU --> MDFile
     MDFile --> MDParser[formats.markdown.parser.parse_md]
     MDParser --> EvalHeadings[eval_md_headings + layout.json]
     EvalHeadings --> PredTitles[structure.layout_parser.pred_titles]
@@ -205,9 +217,9 @@ flowchart LR
 |:---|:---|:---|
 | Text/table summarization | `NORMOL_MODEL` | `deepseek-chat` |
 | Heading hierarchy recognition | `HIERARCHY_LLM_MODEL` | Falls back to `NORMOL_MODEL` |
-| Image description (VLM) | `IMAGE_MODEL` | `qwen3.5-flash` |
-| Image OCR / Q&A | `IMAGE_MODEL_MAX` | `qwen3.5-flash` |
-| Atlas classification | VLM via `formats.atlas.classifier` | `IMAGE_MODEL` |
+| Image description (VLM) | `IMAGE_MODEL` | `qwen3.6-flash` |
+| Image OCR / Q&A | `IMAGE_MODEL_MAX` | `qwen3.6-flash` |
+| PDF coarse classification | `IMAGE_MODEL` | `qwen3.6-flash` |
 
 ---
 

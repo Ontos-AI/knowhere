@@ -1,0 +1,71 @@
+{
+  "version": "2.0",
+  "job_id": "job_aaa8e22a9fc6",
+  "data_id": null,
+  "source_file_name": "Earnings-Presentation-Q1-2026.pdf",
+  "processing_date": "2026-06-16T03:34:12.351345Z",
+  "processing": {
+    "page_count": 18,
+    "billing_status": "charged",
+    "cost": {
+      "micro_dollars": 27000,
+      "credits": 0.027
+    },
+    "timing": {
+      "started_at": "2026-06-16T03:32:23.126400+00:00",
+      "completed_at": "2026-06-16T03:34:12.342979+00:00",
+      "duration_ms": 109216
+    },
+    "stages": {
+      "timing_ms": {
+        "document.profile": 3820,
+        "pdf.extract.standard": 86235,
+        "toc.detect_range_llm": 1104,
+        "md.detect_toc": 1124,
+        "heading.merge_pre_pass_llm": 1102,
+        "heading.hierarchy_llm_call": 2246,
+        "heading.hierarchy_llm": 2254,
+        "md.predict_headings": 3563,
+        "md.deferred_summaries": 12910,
+        "md.build_dataframe": 1,
+        "pdf.parse_md": 18302,
+        "document.cleanup_unreferenced_images": 0,
+        "document.compress_images": 797,
+        "worker.parse.document": 109161
+      },
+      "token_usage": {
+        "prompt_tokens": 5607,
+        "completion_tokens": 308,
+        "total_tokens": 5915
+      }
+    }
+  },
+  "statistics": {
+    "total_chunks": 55,
+    "text_chunks": 16,
+    "image_chunks": 18,
+    "table_chunks": 21,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "Meta Earnings Presentation Q1 2026": {
+      "Advertising Revenue by User Geography": {},
+      "Revenue by User Geography": {},
+      "Segment Results": {
+        "Expenses as a Percentage of Revenue": {},
+        "Effective Tax Rate": {},
+        "Diluted Earnings Per Share": {},
+        "Capital Expenditures": {},
+        "Family Daily Active People (DAP)": {},
+        "Family Average Revenue per Person (ARPP)": {},
+        "Ad Impressions Delivered YoY Percentage Change": {},
+        "Average Price Per Ad YoY Percentage Change": {}
+      }
+    },
+    "Appendix": {
+      "Free Cash Flow Reconciliation": {},
+      "Limitations of Key Metrics and Other Data": {},
+      "Limitations of Key Metrics and Other Data_2": {}
+    }
+  }
+}

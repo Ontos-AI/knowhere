@@ -1,0 +1,447 @@
+{
+  "version": "1.0",
+  "file_name": "Introduction to Statistical Learning Theory.pdf",
+  "stats": {
+    "total_chunks": 62,
+    "text_chunks": 43,
+    "image_chunks": 15,
+    "table_chunks": 4,
+    "max_depth": 5
+  },
+  "sections": [
+    {
+      "title": "Class 1 Introduction to Statistical Learning Theory",
+      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory",
+      "level": 1,
+      "summary": "Carlo Ciliberto Department of Computer Science, UCL October 5, 2018",
+      "chunk_count": 43,
+      "children": [
+        {
+          "title": "Administrative Info",
+          "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Administrative Info",
+          "level": 2,
+          "summary": "▶ Class times: Fridays 14:00 - 15:30 $^{1}$ ▶ Location: Ground Floor Lecture Theater, Wilkins Building $^{2}$ ▶ Office hours: (Time TBA), 3rd Floor Hub room, CS Building, 66 Gower street. TA: Giulia Luise Website: ccilib er.github.io/intro-stl email(s): ccilib er@gmail.com, g.luise.16@ucl.ac.uk ▶ Workload: 2 assignments (50%) and a final exam (50%). Final exam requires to choose 3 problems out of 6. At least one problem from each “sides” of this course (RKHS or SLT) \\*must\\* be chosen.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Course Material",
+          "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Course Material",
+          "level": 2,
+          "summary": "Main resources for the course: Classes Slides Books and other Resources: S. Shalev-Shwartz and S. Ben-David Understanding Machine Learning: From Theory to Algorithms (Online Book). Cambridge University Press, 2014. ▶ O. Bousquet, S. Boucheron and G. Lugosi Introduction to Statistical Learning Theory (Tutorial). T. Poggio and L. Rosasco course slides and videos from MIT 9.520: Statistical Learning Theory and Applications. P. Liang course notes from Stanford CS229T: Statistical Learning Theory.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Prerequisites",
+          "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Prerequisites",
+          "level": 2,
+          "summary": "▶ Linear Algebra: familiarity with vector spaces, matrix operations (e.g. inversion, singular value decomposition (SVD)), inner products and norms, etc. ▶ Calculus: limits, derivatives, measures, integrals, etc. ▶ Probability Theory: probability distributions, conditional and marginal distribution, expectation, variance, etc.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Statistical Learning Theory (SLT)",
+          "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Statistical Learning Theory (SLT)",
+          "level": 2,
+          "summary": "SLT addresses questions related to: What does it mean for an algorithm to learn. What we can/cannot expect from a learning algorithm. ▶ How to design computationally & statistically efficient algorithms. What to do when a learning algorithm does not work... SLT studies theoretical quantities that we don't have access to: It tries to bridge the gap between the unknown functional relations governing a process and our (finite) empirical observations of it.",
+          "chunk_count": 6,
+          "children": [
+            {
+              "title": "Motivations and Examples: Regression",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Statistical Learning Theory (SLT)/Motivations and Examples: Regression",
+              "level": 3,
+              "summary": "[tables/table-0 Housing Data.html] What to do when a learning algorithm does not work... <details>0 [images/image-1-Housing Prices Scatter Plot.jpg] <details> <summary>scatter plot</summary> [tables/table-1 House Price Data.html] </details> Image credits: coursera",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Motivations and Examples: Binary Classification",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Statistical Learning Theory (SLT)/Motivations and Examples: Binary Classification",
+              "level": 3,
+              "summary": "Spam detection: Automatically discriminate spam vs non-spam e-mails. </details> <details>0 [images/image-2-__details_.jpg] <details> <summary>flowchart</summary> ```mermaid graph LR A[\"Stacked Document\"] --> B[\"{ legit, spam}\"] ``` </details> Image Classification graph LR <details>0 [images/image-3-graph LR _.jpg] <details> <summary>text_image</summary> f : → {dog, not dog} </details>",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Motivations and Examples: Multi-class Classification",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Statistical Learning Theory (SLT)/Motivations and Examples: Multi-class Classification",
+              "level": 3,
+              "summary": "Identify the category of the object depicted in an image. Example: Caltech 101 → {dog, not dog} ### Motivations and Examples: Multi-class Classification0 [images/image-4-Image Type_ Photo.jpg]",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Motivations and Examples: Multi-class Classification_2",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Statistical Learning Theory (SLT)/Motivations and Examples: Multi-class Classification_2",
+              "level": 3,
+              "summary": "Scaling things up: detect correct object among thousands of categories. ImageNet Large Scale Visual Recognition Challenge Identify the category of the object depicted in an image. <details>0 [images/image-5-Visual Data Grid.jpg] <details> <summary>text_image</summary> Grid of numerous emoji icons and text, likely representing a collection of various application or service types. </details>",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Motivations and Examples: Structured Prediction Image Captioning",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Statistical Learning Theory (SLT)/Motivations and Examples: Structured Prediction Image Captioning",
+              "level": 3,
+              "summary": "Image Captioning (also Localization Segmentation Classification) Grid of numerous emoji icons and text, likely representing a collection of various application or service types. <details>0 [images/image-6-Grid of nu.jpg] <details> <summary>natural_image</summary> Cat sitting at a desk with papers and a cup, viewed through a window with curtains (no visible text or symbols) </details> <details> <details>0 [images/image-7-_details_ .jpg] <details> <summary>natural_image</summary> A cat sitting at a desk with a book, viewed through a window (no visible text or symbols) </details> Gray striped cat Business suit Coffee mug Newspaper Movie Ranking NETFLIX user:127 Coffee mug Speech Recognition \"Ok Google\"0 [images/image-8-Coffee mug.jpg] Newspaper Speech Recognition \"Ok Google\"0 [images/image-9-Newspaper .jpg] Movie Ranking Speech Recognition \"Ok Google\"0 [images/image-10-Movie Rank.jpg] Speech Recognition \"Ok Google\" user:127 <details>0 [images/image-11-user_127 _.jpg] <details> <summary>natural_image</summary> Abstract blue waveform visualization with no text or symbols </details> Protein Folding <details> ## Formulating The Learning Problem0 [images/image-12-_details_ .jpg] <summary>natural_image</summary> ## Formulating The Learning Problem0 [images/image-13-_summary_n.jpg]",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "Formulating The Learning Problem",
+          "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 13,
+          "children": [
+            {
+              "title": "Formulating the Learning Problem",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem",
+              "level": 3,
+              "summary": "",
+              "chunk_count": 9,
+              "children": [
+                {
+                  "title": "Main ingredients:",
+                  "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Main ingredients:",
+                  "level": 4,
+                  "summary": "▶ X input and Y output spaces. ▶ ρ unknown distribution on $X \\times Y$ . $\\ell : \\mathcal{Y} \\times \\mathcal{Y} \\to \\mathbb{R}$ a loss function measuring the discrepancy $\\ell(y, y')$ between any two points $y, y' \\in \\mathcal{Y}$ . We would like to minimize the expected risk $$ \\underset {f: \\mathcal {X} \\to \\mathcal {Y}} {\\text { minimize }} \\mathcal {E} (f) \\quad \\mathcal {E} (f) = \\int_ {\\mathcal {X} \\times \\mathcal {Y}} \\ell (f (x), y) d \\rho (x, y) $$ The expected prediction error incurred by a predictor $^{3}$ $f : X \\to Y$ .",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Input Space Linear Spaces",
+                  "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Input Space Linear Spaces",
+                  "level": 4,
+                  "summary": "Linear Spaces Vectors Matrices Functions \"Structured\" Spaces ▶ Strings ▶ Graphs Probabilities ▶ Points on a manifold ▶ ...",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Output Space",
+                  "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Output Space",
+                  "level": 4,
+                  "summary": "Linear Spaces, e.g. ▶ $\\mathcal{Y} = R$ regression ▶ $Y = \\{1, \\ldots, T\\}$ classification $\\mathcal{Y} = \\mathbb{R}^{T}$ multi-task \"Structured\" Spaces, e.g. ▶ Strings Graphs Probabilities Orders (i.e. Ranking) ▶ ...",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Probability Distribution",
+                  "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Probability Distribution",
+                  "level": 4,
+                  "summary": "Informally: the distribution $\\rho$ on $X \\times Y$ encodes the probability of getting a pair $(x, y) \\in \\mathcal{X} \\times \\mathcal{Y}$ when observing (sampling from) the unknown process. Throughout the course we will assume $\\rho(x,y)=\\rho(y|x)\\rho_{\\mathcal{X}}(x)$ ▶ $\\rho_{\\mathcal{X}}(x)$ marginal distribution on X. ▶ $\\rho(y|x)$ conditional distribution on Y given $x \\in X$ .",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Conditional Distribution",
+                  "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Conditional Distribution",
+                  "level": 4,
+                  "summary": "$\\rho(y|x)$ characterizes the relation between a given input x and the possible outcomes y that could be observed. In noisy settings it represents the uncertainty in our observations. Example: $y = f_{*}(x) + \\epsilon$ , with $f_{*} : X \\to R$ the “true” function and $\\epsilon \\sim \\mathcal{N}(0, \\sigma)$ Gaussian distributed noise. Then: $$ \\rho (y | x) = \\mathcal {N} (f _ {*} (x), \\sigma) $$",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Loss Functions",
+                  "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Loss Functions",
+                  "level": 4,
+                  "summary": "The loss function $$ \\ell : \\mathcal {Y} \\times \\mathcal {Y} \\rightarrow [ 0, + \\infty) $$ represents the cost $\\ell(f(x), y)$ incurred when predicting $f(x)$ instead of y. It is part of the problem formulation: $$ \\mathcal {E} (f) = \\int \\ell (f (x), y) d \\rho (x, y) $$ The minimizer of the risk (if it exists) is “chosen” by the loss.",
+                  "chunk_count": 3,
+                  "children": [
+                    {
+                      "title": "Loss Functions for Regression",
+                      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Loss Functions/Loss Functions for Regression",
+                      "level": 5,
+                      "summary": "$$ L (y, y ^ {\\prime}) = L (y - y ^ {\\prime}) $$ ▶ Square loss $L(y, y') = (y - y')^{2}$ , ▶ Absolute loss $L(y, y') = |y - y'|$ , ▶ ε-insensitive $L(y, y') = \\max(|y - y'| - \\epsilon, 0)$ , L (y, y ^ {\\prime}) = L (y - y ^ {\\prime}) <details>0 [images/image-14-Loss Functions Comparison.jpg] <details> <summary>line chart</summary> [tables/table-2 Loss Functions.html] </details>",
+                      "chunk_count": 1,
+                      "children": []
+                    },
+                    {
+                      "title": "Loss Functions for Classification",
+                      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Loss Functions/Loss Functions for Classification",
+                      "level": 5,
+                      "summary": "$$ L (y, y ^ {\\prime}) = L (- y y ^ {\\prime}) $$ ▶ 0-1 loss $L(y, y') = \\mathbf{1}_{\\{-yy' > 0\\}}$ ▶ Square loss $L(y, y') = (1 - yy')^{2}$ , ▶ Hinge-loss $L(y, y') = \\max(1 - yy', 0)$ , ▶ logistic loss $L(y, y') = \\log(1 + \\exp(-yy'))$ , $$ <details>0 [images/image-15-Exponential Functions Graph.jpg] <details> <summary>line chart</summary> [tables/table-3 Data Table.html] </details> — 01 loss — square loss — Hinge loss — Logistic loss",
+                      "chunk_count": 1,
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "Formulating the Learning Problem_2",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem_2",
+              "level": 3,
+              "summary": "The relation between X and Y encoded by the distribution $\\rho$ is unknown in reality. The only way we have to access a phenomenon is from finite observations. The goal of a learning algorithm is therefore to find a good approximation $f_{n}: X \\to Y$ for the minimizer of expected risk $$ \\inf _ {f: \\mathcal {X} \\to \\mathcal {Y}} \\mathcal {E} (f) $$ from a finite set of examples $(x_{i}, y_{i})_{i=1}^{n}$ sampled independently from $\\rho$ .",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Defining Learning Algorithms",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Defining Learning Algorithms",
+              "level": 3,
+              "summary": "Let $S = \\bigcup_{n \\in N} (\\mathcal{X} \\times \\mathcal{Y})^n$ be the set of all finite datasets on $\\mathcal{X} \\times \\mathcal{Y}$ . Denote F the set of all measurable functions $f: \\mathcal{X} \\to \\mathcal{Y}$ . A learning algorithm is a map $$ \\begin{array}{l} A: \\mathcal {S} \\to \\mathcal {F} \\\\ S \\mapsto A (S): \\mathcal {X} \\to \\mathcal {Y} \\\\ \\end{array} $$ To highlight our interest in studying the relation between the size of a training set $S = (x_{i}, y_{i})_{i=1}^{n}$ and the corresponding predictor produced by an algorithm A, we will often denote (with some abuse of notation) $$ f _ {n} = A \\left(\\left(x _ {i}, y _ {i}\\right) _ {i = 1} ^ {n}\\right) $$ Non-deterministic Learning Algorithms We can also consider stochastic algorithms, where the estimator $f_{n}$ is not automatically determined by the training set. In these cases, given a dataset $S \\in S$ , an algorithm $A(S)$ can be seen as a distribution on $\\mathcal{F}$ and its output is one sample from $A(S)$ . Under this interpretation a deterministic algorithm corresponds to $A(S)$ being a Dirac's delta.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Formulating the Learning Problem_3",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem_3",
+              "level": 3,
+              "summary": "Given a training set, we would like a learning algorithm to find a “good” predictor $f_{n}$ . What does “good” mean? That it has small error (or excess risk) with respect to the best solution of the learning problem. Excess Risk $$ \\mathcal {E} (f _ {n}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) $$",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "The Elements of Learning Theory",
+          "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 13,
+          "children": [
+            {
+              "title": "Consistency",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Consistency",
+              "level": 3,
+              "summary": "Ideally we would like the learning algorithm to be consistent $$ \\lim _ {n \\to + \\infty} \\mathcal {E} (f _ {n}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) = 0 $$ Namely that (asymptotically) our algorithm “solves” the problem. However $f_{n}=A(S)$ is a random variable: the points in the training set $S=(x_{i},y_{i})_{i=1}^{n}$ are randomly sampled from $\\rho$ . So what do we mean by $\\mathcal{E}(f_{n})\\to\\inf\\mathcal{E}(f)$ ?",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Convergence of Random Variables",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Convergence of Random Variables",
+              "level": 3,
+              "summary": "Convergence in expectation: $$ \\lim _ {n \\to + \\infty} \\mathbb {E} \\left[ \\mathcal {E} (f _ {n}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) \\right] = 0 $$ Convergence in probability: $$ \\lim _ {n \\rightarrow + \\infty} \\mathbb {P} \\left(\\mathcal {E} (f _ {n}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) > \\epsilon\\right) = 0 \\quad \\forall \\epsilon > 0 $$ Many other notions of convergence of random variables exist!",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Consistency vs Convergence of the Estimator",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Consistency vs Convergence of the Estimator",
+              "level": 3,
+              "summary": "Note that we are only interested in guaranteeing that the risk of our estimator will converge to the best possible value $$ \\mathcal {E} (f _ {n}) \\to \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) $$ but we are not directly interested in determining whether $f_{n} \\to f^{*}$ (in some norm) where $f^{*}: X \\to Y$ is a minimizer of the expected risk $$ \\mathcal {E} (f ^ {*}) = \\inf _ {f: \\mathcal {X} \\to \\mathcal {Y}} \\mathcal {E} (f) $$ Actually, the risk could even not admit a minimizer $f^{*}$ (although typically it will). This is a main difference with several settings such as compressive sensing and inverse problems.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Existence of a Minimizer for the Risk",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Existence of a Minimizer for the Risk",
+              "level": 3,
+              "summary": "However, the existence of $f^{*}$ can be useful in several situations. Least Squares. $\\ell(f(x),y)=(f(x)-y)^{2}$ . Then $$ \\mathcal {E} (f) - \\mathcal {E} (f ^ {*}) = \\| f - f ^ {*} \\| _ {L ^ {2} (\\mathcal {X}, \\rho)} $$ Lipschitz Loss. $|\\ell(z,y)-\\ell(z',y)|\\leq L|z-z'|$ $$ \\mathcal {E} (f) - \\mathcal {E} (f ^ {*}) \\leq L \\| f - f ^ {*} \\| _ {L ^ {1} (\\mathcal {X}, \\rho)} $$ Convergence $f_{n} \\rightarrow f^{*}$ (in $L^{1}$ or $L^{2}$ norm respectively) automatically guarantees consistency!",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Measuring the “Quality” of a Learning Algorithm",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Measuring the “Quality” of a Learning Algorithm",
+              "level": 3,
+              "summary": "Is consistency enough? Well no. It does not provide a quantitative measure of how “good” a learning algorithm is. In other words, question: how do we compare two learning algorithms? Answer: via their Learning Rates, namely the “speed” at which the excess risk goes to zero as n increases. Example: Expectation $$ \\mathbb {E} \\left[ \\mathcal {E} (f _ {n}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) \\right] = O (n ^ {- \\alpha}) \\quad \\text { for some } \\alpha > 0. $$ We can compare two algorithms by determining which one has a faster learning rate (i.e. larger exponent $\\alpha$ ).",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Sample Complexity, Error Bounds and Tail Bounds",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Sample Complexity, Error Bounds and Tail Bounds",
+              "level": 3,
+              "summary": "Sample Complexity: minimum number $n(\\epsilon, \\delta)$ of training points the algorithm needs to achieve an excess risk lower than $\\epsilon$ with at least probability $1 - \\delta$ : $$ \\mathbb {P} \\left(\\mathcal {E} (f _ {n (\\epsilon , \\delta)}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) \\leq \\epsilon\\right) \\geq 1 - \\delta $$ Error Bounds: Upper bound $\\epsilon(\\delta,n)>0$ on the excess risk of $f_{n}$ which holds with probability larger than $1-\\delta$ $$ \\mathbb {P} \\left(\\mathcal {E} (f _ {n}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) \\leq \\epsilon (\\delta , n)\\right) \\geq 1 - \\delta $$ Tail Bounds: Lower bound $\\delta(\\epsilon,n)\\in(0,1)$ on the probability that $f_{n}$ will have excess risk larger than $\\epsilon$ $$ \\mathbb {P} \\left(\\mathcal {E} (f _ {n}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) \\leq \\epsilon\\right) \\geq 1 - \\delta (\\epsilon , n) $$",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Empirical Risk as a Proxy",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Empirical Risk as a Proxy",
+              "level": 3,
+              "summary": "If $\\rho$ is unknown... how can we say anything about $\\mathcal{E}(f_n) - \\inf_{f\\in \\mathcal{F}}\\mathcal{E}(f)?$ We have “glimpses” of $\\rho$ only via the samples $(x_{i}, y_{i})_{i=1}^{n}$ . Can we use them to gather some information about $\\rho$ (or better, on $\\mathcal{E}(f)$ )? Consider function $f : X \\to Y$ and its empirical risk $$ \\mathcal {E} _ {n} (f) = \\frac {1}{n} \\sum_ {i = 1} ^ {n} \\ell (f (x _ {i}), y _ {i}) $$ A simple calculation shows that $$ \\mathbb {E} _ {S \\sim \\rho^ {n}} (\\mathcal {E} _ {n} (f)) = \\frac {1}{n} \\sum_ {i = 1} ^ {n} \\mathbb {E} _ {(x _ {i}, y _ {i}) \\sim \\rho} (\\ell (f (x _ {i}), y _ {i})) = \\frac {1}{n} \\sum_ {i = 1} ^ {n} \\mathcal {E} (f) = \\mathcal {E} (f) $$ The expectation of $\\mathcal{E}_{n}(f)$ is the expected risk $\\mathcal{E}(f)!$",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Empirical Vs Expected",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Empirical Vs Expected",
+              "level": 3,
+              "summary": "How close is $\\mathcal{E}_{n}(f)$ to $\\mathcal{E}(f)$ with respect to the number n of training points? Consider i.i.d. random variables X and $(X_{i})_{i=1}^{n}$ . Let $\\bar{X}_{n} = \\frac{1}{n} \\sum_{i=1}^{n} X_{i}$ . Then $$ \\mathbb {E} [ (\\bar {X} _ {n} - \\mathbb {E} (X)) ^ {2} ] = \\operatorname{Var} (\\bar {X} _ {n}) = \\frac {\\operatorname{Var} (X)}{n} $$ Therefore the expected (squared) distance between the empirical mean of the $X_{i}$ and their expectation $\\mathbb{E}(X)$ goes to zero as $O(1/n)$ (Assuming X to have finite variance). If $X_{i} = \\ell (f(x_{i}),y_{i})$ , we have $\\bar{X}_n = \\mathcal{E}_n(f)$ and therefore $$ \\mathbb {E} [ (\\mathcal {E} _ {n} (f) - \\mathcal {E} (f)) ^ {2} ] = \\frac {\\operatorname{Var} (\\ell (f (x) , y))}{n} $$",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Empirical Vs Expected Risk",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Empirical Vs Expected Risk",
+              "level": 3,
+              "summary": "If $X_{i} = \\ell(f(x_{i}), y_{i})$ , we have $\\bar{X}_{n} = \\mathcal{E}_{n}(f)$ and therefore $$ \\mathbb {E} [ (\\mathcal {E} _ {n} (f) - \\mathcal {E} (f)) ^ {2} ] = \\frac {\\mathrm{Var} (\\ell (f (x) , y))}{n} $$ In particular $$ \\mathbb {E} [ | \\mathcal {E} _ {n} (f) - \\mathcal {E} (f) | ] \\leq \\sqrt {\\frac {\\mathrm{Var} (\\ell (f (x) , y))}{n}} $$",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Empirical Vs Expected_2",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Empirical Vs Expected_2",
+              "level": 3,
+              "summary": "Assume for simplicity that there exists a minimizer $f_{*}: X \\to Y$ of the expected risk $$ \\mathcal {E} (f _ {*}) = \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) $$ For any function $f : X \\to Y$ we can decompose the excess risk as $$ \\begin{array}{l} \\mathcal {E} (f) - \\mathcal {E} (f _ {*}) = \\\\ \\mathcal {E} (f) - \\mathcal {E} _ {n} (f) + \\mathcal {E} _ {n} (f) - \\mathcal {E} _ {n} (f _ {*}) + \\mathcal {E} _ {n} (f _ {*}) - \\mathcal {E} (f _ {*}), \\\\ \\end{array} $$ recalling the definition $\\mathcal{E}_{n}(f):=\\frac{1}{n}\\sum_{i=1}^{n}\\ell(f(x_{i}),y_{i})$ of the empirical risk. Note that this in particularly then also holds for $f_{n}$ , which we will use below. We can therefore leverage on the statistical relation between $E_{n}$ and E to study the expected risk in terms of the empirical risk. This perspective leads to one of the most well-established strategies on SLT: Empirical Risk Minimization",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Empirical Risk Minimization",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Empirical Risk Minimization",
+              "level": 3,
+              "summary": "Let $f_{n}$ be the minimizer of the empirical risk $$ f _ {n} = \\underset {f \\in \\mathcal {F}} {\\operatorname{argmin}} \\mathcal {E} _ {n} (f) $$ Then we automatically have $\\mathcal{E}_{n}(f_{n}) - \\mathcal{E}_{n}(f_{*}) \\leq 0$ (for any choice of training set). Then $$ \\mathbb {E} \\mathcal {E} (f _ {n}) - \\mathcal {E} (f _ {*}) \\leq \\mathbb {E} \\mathcal {E} (f _ {n}) - \\mathcal {E} _ {n} (f _ {n}) \\quad (\\text { why? }) $$ We can focus on studying only the generalization error $$ \\mathbb {E} \\mathcal {E} (f _ {n}) - \\mathcal {E} _ {n} (f _ {n}) $$",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Generalization Error",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Generalization Error",
+              "level": 3,
+              "summary": "How can we control the generalization error $$ \\mathcal {E} _ {n} (f _ {n}) - \\mathcal {E} (f _ {n}) $$ with respect to the number n of examples? This question is far from trivial... (and it is one of the main subject of SLT) Indeed, $E_{n}$ and $f_{n}$ both depend on the sampled training data. Therefore, we cannot use the result $$ \\mathbb {E} \\left[ \\left. \\left| \\mathcal {E} _ {n} (f _ {n}) - \\mathcal {E} (f _ {n}) \\right| \\right] \\leq O (1 / \\sqrt {n}) \\right. $$ which indeed will not be true in general... (next class).",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "A Taxonomy of Supervised Learning Problems",
+          "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/A Taxonomy of Supervised Learning Problems",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 6,
+          "children": [
+            {
+              "title": "A Taxonomy of Supervised Learning Problems",
+              "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/A Taxonomy of Supervised Learning Problems/A Taxonomy of Supervised Learning Problems",
+              "level": 3,
+              "summary": "In practice we can have many different problems and scenarios: Parametric Vs Non-parametric learning ▶ Fixed design Vs random design ▶ Transductive Vs inductive learning ▶ Offline/batch Vs online/adversarial learning Different goals and assumptions but similar tools to study/solve them!",
+              "chunk_count": 5,
+              "children": [
+                {
+                  "title": "Parametric Vs Non-parametric",
+                  "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/A Taxonomy of Supervised Learning Problems/A Taxonomy of Supervised Learning Problems/Parametric Vs Non-parametric",
+                  "level": 4,
+                  "summary": "How much do we know about the model? ▶ Parametric: assume the predictor to be modeled by a finite number of unknown parameters. Goal: find the parametrization that best fits the observed data. In several scenario the goal is not in (only) having good predictions but rather use the recovered model for other purposes (e.g. identification). ▶ Non-parametric. allow the parametrization of the model to increase in complexity as more examples are observed. Goal: find an estimator with optimal generalization performance (i.e. lowest expected risk E).",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Fixed Design Vs Random Design",
+                  "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/A Taxonomy of Supervised Learning Problems/A Taxonomy of Supervised Learning Problems/Fixed Design Vs Random Design",
+                  "level": 4,
+                  "summary": "From experiment design... ▶ Fixed Design. Given training examples $(x_{i}, y_{i})_{i=1}^{n}$ , the goal is to achieve good estimates for $\\rho(y|x_{i})$ on the prescribed training inputs. No distribution on the input data $\\rho_{X}$ is assumed/considered. $$ \\frac {1}{n} \\sum_ {i = 1} ^ {n} \\int_ {\\mathcal {Y}} \\ell (f (x _ {i}), y) d \\rho (y | x _ {i}) $$ ▶ Random Design. Agnostic about where the learned model will be tested. The goal is to make good predictions with respect to the distribution $\\rho(x,y)$ .",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Inductive Vs Transductive Learning",
+                  "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/A Taxonomy of Supervised Learning Problems/A Taxonomy of Supervised Learning Problems/Inductive Vs Transductive Learning",
+                  "level": 4,
+                  "summary": "Do we have access to the test set in advance? Transductive: the goal is to achieve good prediction performance on a prescribed set of test points $(\\tilde{x}_{j})_{j=1}^{n_{test}}$ provided in advance. Transductive learning ignores the effect of $\\rho_{X}$ on the risk but focuses only on $$ \\frac {1}{n _ {t e s t}} \\sum_ {j = 1} ^ {n _ {t e s t}} \\int_ {\\mathcal {Y}} \\ell (f (\\tilde {x} _ {j}), y) d \\rho (y | \\tilde {x} _ {j}) $$ ▶ Inductive Agnostic about where the learned model will be tested. The goal is to make good predictions with respect to the distribution $\\rho(x, y)$ .",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Offline∕Batch Vs Online∕Adversarial Learning",
+                  "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/A Taxonomy of Supervised Learning Problems/A Taxonomy of Supervised Learning Problems/Offline∕Batch Vs Online∕Adversarial Learning",
+                  "level": 4,
+                  "summary": "How do we observe samples from $\\rho$ ? ▶ Offline/Batch: a finite sample of input-output examples independently and identically distributed. Goal: minimize prediction errors on new examples ▶ Online/Adversarial: We observe one input, propose a prediction and then observe the output. Goal: minimize the regret (i.e. choose the estimator that would have made less mistakes). Note. The distribution could be adversarial: $\\rho(y|x, f(x))$ instead of $\\rho(y|x)$ can make things “hard” for us.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Wrapping up This class:",
+          "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Wrapping up This class:",
+          "level": 2,
+          "summary": "This class: ▶ Motivations and Examples Formulating the learning problem ▶ Brief introduction to Learning Theory ▶ A Taxonomy of supervised learning problems Next class: overfitting and the need for regularization...",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    }
+  ],
+  "resources": {
+    "images": [
+      {
+        "path": "images/image-1-Housing Prices Scatter Plot.jpg",
+        "summary": "image-1 Chart Title: housing prices X-Axis Label: square feet (Range: 500 to 5000) Y-Axis Label: price (in $1000) (Range: 0 to 1000) Data Points: Blue 'x' markers representing individual data points. Notable Patterns: The chart displays a positive correlation between house size and price; as square footage increases, the price tends to increase. Most data points are clustered between 1000-3000 square feet and $200k-$600k."
+      },
+      {
+        "path": "images/image-2-__details_.jpg",
+        "summary": "image-2 </details> <details>0"
+      },
+      {
+        "path": "images/image-3-graph LR _.jpg",
+        "summary": "image-3 graph LR <details>0"
+      },
+      {
+        "path": "images/image-4-Image Type_ Photo.jpg",
+        "summary": "image-4 Title: Image Grid of Objects and Scenes - Row 1 (baseball): Images include a player in uniform, wooden bats, a baseball field diagram, a batter swinging, and novelty baseball bats. - Row 2 (dog): Photos show dogs with life rings, on beaches, lying on blankets, groups of dogs, close-ups, and one dog in gear. - Row 3 (basketball-hoop): Various basketball hoops including backboards, nets, rims, and scenes with balls; includes text \"America Conference\". - Row 4 (Kayak): Kayaks in water, people kayaking near waterfalls, colorful kayaks lined up, and kayaks loaded on vehicles. - Row 5 (traffic light): Traffic lights at intersections, digital displays, pedestrian signals, and traffic control panels."
+      },
+      {
+        "path": "images/image-5-Visual Data Grid.jpg",
+        "summary": "image-5 A large grid of small thumbnail images displaying a diverse collection of subjects. The top half primarily features nature scenes, including flowers, plants, and landscapes. The bottom half contains a wide variety of objects such as tools, musical instruments, vehicles, furniture, clothing, and household items."
+      },
+      {
+        "path": "images/image-6-Grid of nu.jpg",
+        "summary": "image-6 Grid of numerous emoji icons and text, likely representing a collection of various application or service types. <details>0"
+      },
+      {
+        "path": "images/image-7-_details_ .jpg",
+        "summary": "image-7 <details> <details>0"
+      },
+      {
+        "path": "images/image-8-Coffee mug.jpg",
+        "summary": "image-8 Coffee mug Speech Recognition \"Ok Google\"0"
+      },
+      {
+        "path": "images/image-9-Newspaper .jpg",
+        "summary": "image-9 Newspaper Speech Recognition \"Ok Google\"0"
+      },
+      {
+        "path": "images/image-10-Movie Rank.jpg",
+        "summary": "image-10 Movie Ranking Speech Recognition \"Ok Google\"0"
+      },
+      {
+        "path": "images/image-11-user_127 _.jpg",
+        "summary": "image-11 user:127 <details>0"
+      },
+      {
+        "path": "images/image-12-_details_ .jpg",
+        "summary": "image-12 <details> ## Formulating The Learning Problem0"
+      },
+      {
+        "path": "images/image-13-_summary_n.jpg",
+        "summary": "image-13 <summary>natural_image</summary> ## Formulating The Learning Problem0"
+      },
+      {
+        "path": "images/image-14-Loss Functions Comparison.jpg",
+        "summary": "image-14 - Chart Title: Comparison of Square Loss, Absolute, and Epsilon-insensitive loss functions - X-axis: Error values ranging from -1.0 to 1.0 - Y-axis: Loss values ranging from 0.0 to 1.0 - Curves displayed: * Square Loss (blue curve): Parabolic shape increasing quadratically with error * Absolute (purple line): Linear V-shape representing absolute value function * ε-insensitive (yellow line): Flat region near zero with linear increase outside the epsilon margin - Legend identifies all three loss function types"
+      },
+      {
+        "path": "images/image-15-Exponential Functions Graph.jpg",
+        "summary": "image-15 - Chart Title: None visible - Axes: - X-axis: Range from approximately -0.5 to 2, with major tick marks at 0, 1, and 2. - Y-axis: Range from 0 to above 2.0, with labeled ticks at 0.5, 1.0, 1.5, and 2.0. - Key Data Points & Features: - All plotted curves intersect at the point (0, 1). - One curve is a horizontal line at y = 1. - Two curves show exponential decay (decreasing as x increases), one steeper than the other. - One curve shows exponential growth (increasing as x increases) and intersects the decaying curves again near x = 1.5. - Context: The graph illustrates the behavior of different exponential functions passing through the common point (0, 1)."
+      }
+    ],
+    "tables": [
+      {
+        "path": "tables/table-0 Housing Data.html",
+        "summary": "table-1 The table shows living area in square feet and corresponding house prices in thousands of dollars for several properties."
+      },
+      {
+        "path": "tables/table-1 House Price Data.html",
+        "summary": "table-2 The table shows house prices (in $1000) vs. square footage. Price rises from $200k at 1000 sq ft to $700k at 3000 sq ft, then declines symmetrically back to $200k at 5000 sq ft."
+      },
+      {
+        "path": "tables/table-2 Loss Functions.html",
+        "summary": "table-3 The table compares three loss functions (Square, Absolute, ε-insensitive) across x values from -1.0 to 1.0, showing symmetric values with ε-insensitive loss being lower at extremes."
+      },
+      {
+        "path": "tables/table-3 Data Table.html",
+        "summary": "table-4 The table shows three rows of data with columns x, Line 1, Line 2, Line 3, and Line 4. Row 0 has all 1.0, row 1 has all 0.0, and row 2 has 1.0, 0.5, 0.2, 0.3."
+      }
+    ]
+  }
+}

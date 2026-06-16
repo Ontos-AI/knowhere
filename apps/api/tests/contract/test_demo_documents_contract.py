@@ -1,21 +1,29 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
+import sys
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from types import SimpleNamespace
+from types import ModuleType
 from typing import Any, cast
 
 import pytest
 from httpx import AsyncClient
 from pytest import MonkeyPatch
 
+from tests.support.import_environment import (
+    configure_import_environment,
+    ensure_import_paths,
+)
 from tests.support.contract_database import ContractDatabase
 
 
 DEMO_SOURCE_ID = "demo-tsla-q4-2025"
 SPACEX_DEMO_SOURCE_ID = "demo-spacex-s1"
+NVDA_EARNINGS_CALL_DEMO_SOURCE_ID = "demo-financial-nvda-q1-fy27-earnings-call"
 
 
 class FakeResultStorage:
@@ -69,6 +77,58 @@ class FakeResultStorage:
         return f"https://assets.example.test/{job_id}/{normalized}"
 
 
+def _load_source_catalog_module() -> ModuleType:
+    configure_import_environment()
+    ensure_import_paths()
+    for module_name in list(sys.modules):
+        if module_name == "app" or module_name.startswith("app."):
+            sys.modules.pop(module_name, None)
+    return importlib.import_module("app.services.demo.source_catalog")
+
+
+def test_should_keep_demo_catalog_metadata_light_for_sources_without_examples(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    source_catalog_module = _load_source_catalog_module()
+    loaded_demo_source_ids: list[str] = []
+    original_load_source_chunks = source_catalog_module._load_source_chunks
+
+    def load_source_chunks(
+        source: Any,
+    ) -> tuple[dict[str, Any], ...]:
+        loaded_demo_source_ids.append(source.demo_source_id)
+        return original_load_source_chunks(source)
+
+    monkeypatch.setattr(
+        source_catalog_module,
+        "_load_source_chunks",
+        load_source_chunks,
+    )
+
+    catalog = source_catalog_module.DemoSourceCatalog().get_catalog()
+
+    assert catalog["sources"]
+    assert DEMO_SOURCE_ID in loaded_demo_source_ids
+    assert SPACEX_DEMO_SOURCE_ID in loaded_demo_source_ids
+    assert NVDA_EARNINGS_CALL_DEMO_SOURCE_ID not in loaded_demo_source_ids
+
+
+def test_should_preserve_filename_rooted_sections_when_publishing_demo_chunks() -> None:
+    source_catalog_module = _load_source_catalog_module()
+    catalog = source_catalog_module.DemoSourceCatalog()
+    source = catalog.require_source(NVDA_EARNINGS_CALL_DEMO_SOURCE_ID)
+    publication_chunks = catalog.publication_chunks(source)
+    publication_paths = {
+        str(chunk.get("path") or "")
+        for chunk in publication_chunks
+        if chunk.get("type") == "text"
+    }
+
+    assert source.title in publication_paths
+    assert f"{source.title}/NVIDIA Corp. (NVDA)" in publication_paths
+    assert f"{source.title}/MANAGEMENT DISCUSSION SECTION" in publication_paths
+
+
 @pytest.mark.asyncio
 async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
@@ -82,6 +142,11 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     sources_by_id = {str(source["demo_source_id"]): source for source in sources}
     source = sources_by_id[DEMO_SOURCE_ID]
     spacex_source = sources_by_id[SPACEX_DEMO_SOURCE_ID]
+    official_library = cast(dict[str, Any], catalog["official_library"])
+    library_sources = cast(list[dict[str, Any]], official_library["sources"])
+    library_sources_by_id = {
+        str(source["library_source_id"]): source for source in library_sources
+    }
     examples = cast(list[dict[str, Any]], source["examples"])
     citations = cast(list[dict[str, Any]], examples[0]["citations"])
     citation = citations[0]
@@ -96,11 +161,54 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     assert source["original_file"]["can_download"] is False
     assert citation["canonical_document_id"] == "demo-doc-tsla-q4-2025"
     assert citation["canonical_chunk_id"].startswith(f"{DEMO_SOURCE_ID}:")
+    assert spacex_source["official_library"]["library_source_id"] == (
+        "financial-spacex-s1"
+    )
     assert spacex_source["canonical_document_id"] == "demo-doc-spacex-s1"
     assert spacex_source["chunk_count"] == 922
     assert spacex_citations[0]["canonical_chunk_id"].startswith(
         f"{SPACEX_DEMO_SOURCE_ID}:"
     )
+    assert [
+        category["category_id"]
+        for category in cast(list[dict[str, Any]], official_library["categories"])
+    ] == ["financial-reports", "research-papers", "stem-books"]
+    assert library_sources_by_id["financial-spacex-s1"]["status"] == "ready"
+    assert library_sources_by_id["financial-spacex-s1"]["demo_source_id"] == (
+        SPACEX_DEMO_SOURCE_ID
+    )
+    assert library_sources_by_id["financial-spacex-s1"]["chunk_count"] == 922
+    assert library_sources_by_id["stem-statistical-learning"]["status"] == "ready"
+    assert library_sources_by_id["stem-statistical-learning"]["demo_source_id"] == (
+        "demo-stem-statistical-learning"
+    )
+    assert library_sources_by_id["stem-statistical-learning"]["chunk_count"] == 71
+    assert (
+        library_sources_by_id["financial-nvda-q1-fy27-earnings-call"]["demo_source_id"]
+        == "demo-financial-nvda-q1-fy27-earnings-call"
+    )
+    assert library_sources_by_id["financial-micron-report-530bd7ed"]["status"] == (
+        "ready"
+    )
+    assert (
+        library_sources_by_id["financial-micron-report-530bd7ed"]["demo_source_id"]
+        == "demo-financial-micron-report-530bd7ed"
+    )
+    assert (
+        library_sources_by_id["financial-micron-report-530bd7ed"]["chunk_count"] == 82
+    )
+    assert (
+        library_sources_by_id["financial-micron-report-9c0becf5"]["demo_source_id"]
+        == "demo-financial-micron-report-9c0becf5"
+    )
+    assert (
+        library_sources_by_id["financial-micron-report-9c0becf5"]["chunk_count"] == 87
+    )
+    assert library_sources_by_id["stem-transformers-tutorial"]["demo_source_id"] == (
+        "demo-stem-transformers-tutorial"
+    )
+    assert library_sources_by_id["stem-transformers-tutorial"]["chunk_count"] == 519
+    assert library_sources_by_id["stem-information-theory"]["status"] == "planned"
 
     async with api_client_factory() as api_client:
         chunks_response = await api_client.get(

@@ -1,0 +1,467 @@
+{
+  "version": "2.0",
+  "job_id": "job_98d80fe7d16a",
+  "data_id": null,
+  "source_file_name": "2026-Annual-Report-Web.pdf",
+  "processing_date": "2026-06-16T03:29:27.750103Z",
+  "processing": {
+    "page_count": 175,
+    "billing_status": "charged",
+    "cost": {
+      "micro_dollars": 262500,
+      "credits": 0.2625
+    },
+    "timing": {
+      "started_at": "2026-06-16T03:21:53.245268+00:00",
+      "completed_at": "2026-06-16T03:29:27.675571+00:00",
+      "duration_ms": 454430
+    },
+    "stages": {
+      "timing_ms": {
+        "document.profile": 6845,
+        "pdf.extract.standard": 344218,
+        "toc.detect_range_llm": 1383,
+        "heading.hierarchy_llm_call": 30236,
+        "toc.parse_hierarchy_llm": 3726,
+        "md.detect_toc": 5177,
+        "heading.merge_pre_pass_llm": 3380,
+        "heading.hierarchy_llm": 26567,
+        "md.predict_headings": 32743,
+        "md.deferred_summaries": 62600,
+        "md.build_dataframe": 27,
+        "pdf.parse_md": 102662,
+        "document.cleanup_unreferenced_images": 3,
+        "document.compress_images": 302,
+        "worker.parse.document": 454038
+      },
+      "token_usage": {
+        "prompt_tokens": 19598,
+        "completion_tokens": 6361,
+        "total_tokens": 25959
+      }
+    }
+  },
+  "statistics": {
+    "total_chunks": 551,
+    "text_chunks": 349,
+    "image_chunks": 86,
+    "table_chunks": 116,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "Root": {},
+    "BUSINESS OVERVIEW": {
+      "Fiscal 2026 Reportable Segments": {},
+      "Fiscal 2026 Market Platforms": {},
+      "Business Highlights": {},
+      "Fiscal 2026 Shareholder Returns": {}
+    },
+    "PROXY SUMMARY": {
+      "Voting Matters and Board Recommendations": {},
+      "Election of Directors (Proposal 1)": {
+        "Recent Refreshment and Nominee Qualifications": {},
+        "Corporate Governance Highlights": {}
+      },
+      "Advisory Approval of Executive Compensation for Fiscal 2026 (Proposal 2)": {
+        "Executive Compensation Highlights": {},
+        "Financial Performance and Link to Executive Pay": {}
+      },
+      "Stockholder Proposal 4": {},
+      "Stockholder Proposal 5": {},
+      "Stockholder Proposal 6": {},
+      "Stockholder Proposal 7": {}
+    },
+    "IN MEMORIAM ROBERT K. BURGESS": {},
+    "Information About the 2026 Meeting": {
+      "Virtual Meeting Philosophy and Benefits": {},
+      "Meeting Attendance": {},
+      "Asking Questions": {},
+      "Quorum and Voting": {
+        "Stockholder of Record": {},
+        "Street Name Holder": {},
+        "Vote Count": {},
+        "Vote Results": {}
+      },
+      "Proxy Materials": {},
+      "Director Nominations Under Our Proxy Access Bylaw": {},
+      "Other Director Nominations and Proposals": {},
+      "Additional Requirements and Information": {},
+      "Recommendation of the Board": {},
+      "Director Qualifications and Nomination of Directors": {},
+      "Our Director Nominees": {
+        "JEN-HSUN HUANG": {},
+        "DAWN HUDSON": {},
+        "HARVEY C. JONES": {},
+        "MELISSA B. LORA": {},
+        "STEPHEN C. NEAL": {},
+        "A. BROOKE SEAWELL": {},
+        "MARK A. STEVENS": {
+          "Other Current Public Company Boards: None": {},
+          "Independent Director": {}
+        }
+      }
+    },
+    "Information About the Board of Directors and Corporate Governance": {
+      "Independence of the Members of the Board of Directors": {},
+      "Board Leadership Structure": {
+        "Our Lead Director": {},
+        "Duties of Our Lead Director": {}
+      },
+      "Committees of the Board of Directors": {
+        "AC Members as of our 2026 Meeting": {},
+        "CC Members as of our 2026 Meeting": {},
+        "NCGC Members as of our 2026 Meeting": {}
+      },
+      "Compensation Committee Interlocks and Insider Participation": {},
+      "Role of the Board in Risk Oversight": {},
+      "Corporate Governance": {
+        "Board Refreshment": {},
+        "Corporate Governance Policies": {},
+        "Executive Sessions of the Board": {},
+        "Director Attendance at Annual Meeting": {},
+        "Board Self-Assessments": {},
+        "Director Orientation and Continuing Education": {},
+        "Director Time Commitment and Outside Board Memberships": {},
+        "Director Stock Ownership Guidelines": {},
+        "Senior Management Development": {},
+        "Outside Advisors": {},
+        "Code of Conduct": {},
+        "Insider Trading Policy": {},
+        "Corporate Hotline": {}
+      },
+      "Stockholder Communications with the Board of Directors": {},
+      "Majority Vote Standard": {},
+      "Stockholder Special Meeting Right": {},
+      "Board Meeting Information": {},
+      "Corporate Sustainability": {},
+      "Public Policy Engagement and Accountability": {},
+      "Director Compensation": {
+        "Roles of the Board, the Compensation Committee, and Compensation Consultant": {},
+        "New Directors": {},
+        "Deferred Compensation Program": {},
+        "Other Compensation∕Benefits": {}
+      },
+      "Review of Transactions with Related Persons": {},
+      "Security Ownership of Certain Beneficial Owners and Management": {},
+      "Proposal 2—Advisory Approval of Executive Compensation": {}
+    },
+    "Executive Compensation": {
+      "Compensation Discussion and Analysis": {
+        "Fiscal 2026 Executive Compensation Summary": {
+          "Continued Focus on Pay for Performance": {},
+          "Executive Pay Heavily Weighted Towards Equity Awards": {}
+        },
+        "Key NEO Compensation Actions for Fiscal 2026": {},
+        "Our Compensation Philosophy and Practices": {
+          "What We Do": {},
+          "What We Don't Do": {}
+        },
+        "Roles of the Compensation Committee, Compensation Consultant, and Management": {},
+        "Peer Companies and Market Compensation Data": {},
+        "Factors Used in Determining Executive Compensation": {},
+        "Fiscal 2026 Compensation Actions and Achievements": {
+          "Stockholder Outreach and Feedback": {},
+          "Total Target Compensation Approach": {},
+          "Components of Pay": {
+            "Pay Mix Considerations": {},
+            "Setting Executive Compensation Values": {},
+            "Determining Equity Award Amounts": {}
+          },
+          "Performance Metrics and Goals for Executive Compensation": {},
+          "Fiscal 2026 Performance Achievement": {},
+          "Fiscal 2026 Target Compensation Actions and Performance-Based Payouts": {}
+        },
+        "Additional Executive Compensation Practices, Policies, and Procedures": {
+          "Other Compensation and Benefits": {},
+          "Equity Grant Timing Practices": {},
+          "Stock Ownership Guidelines": {},
+          "Compensation Recovery Policy": {},
+          "Tax and Accounting Implications": {},
+          "Reconciliation of Non-GAAP Financial Measures": {}
+        }
+      },
+      "Compensation Committee Report": {},
+      "Risk Analysis of Our Compensation Plans": {},
+      "Summary Compensation Table for Fiscal 2026, 2025, and 2024": {},
+      "Grants of Plan-Based Awards for Fiscal 2026": {},
+      "Option Exercises and Stock Vested in Fiscal 2026": {},
+      "Employment, Severance, and Change-in-Control Arrangements": {},
+      "Pay Ratio": {},
+      "Pay Versus Performance": {
+        "Most Important Financial Performance Measures": {},
+        "Relationships Between Compensation Actually Paid and Financial Performance": {}
+      },
+      "Recommendation of the Board": {},
+      "Fees Billed by the Independent Registered Public Accounting Firm": {},
+      "Report of the Audit Committee of the Board of Directors": {},
+      "Stockholder Proposals": {
+        "Proposal 4—Stockholder Proposal: Simple Majority Vote Standard": {
+          "Stockholder Proposal and Supporting Statement": {},
+          "Proposal 4 – Majority Vote Standard": {},
+          "Majority Vote Standard – Proposal 4": {
+            "Opposing Statement of the Board": {},
+            "Recommendation of the Board": {}
+          },
+          "Stockholder Proposal and Supporting Statement_2": {},
+          "Proposal 5 – Report on Faith-Based Community Resource Groups": {
+            "Opposing Statement of the Board": {},
+            "Recommendation of the Board": {}
+          },
+          "Stockholder Proposal and Supporting Statement_3": {},
+          "Proposal 6 – Report on Respecting Workforce Civil Liberties": {
+            "Opposing Statement of the Board": {},
+            "Recommendation of the Board": {}
+          },
+          "Stockholder Proposal and Supporting Statement_4": {},
+          "Proposal 7 – Greenhouse Gas Emissions Disclosure": {
+            "Opposing Statement of the Board": {},
+            "Recommendation of the Board": {}
+          }
+        }
+      },
+      "Equity Compensation Plan Information": {},
+      "Additional Information": {
+        "Delinquent Section 16(a) Reports": {},
+        "Other Matters": {}
+      },
+      "By Order of the Board of Directors": {}
+    },
+    "FORM 10-K": {
+      "NVIDIA CORPORATION": {},
+      "DOCUMENTS INCORPORATED BY REFERENCE": {}
+    },
+    "Part I": {},
+    "Part II": {},
+    "Part III": {},
+    "Part IV": {
+      "Where You Can Find More Information": {},
+      "Forward-Looking Statements": {}
+    },
+    "Part I_2": {
+      "Item 1. Business": {
+        "Our Company": {},
+        "Our Businesses": {
+          "Our Markets": {
+            "Data Center": {},
+            "Gaming": {},
+            "Professional Visualization": {},
+            "Automotive": {}
+          }
+        },
+        "Business Strategies": {},
+        "Sales and Marketing": {},
+        "Seasonality": {},
+        "Manufacturing": {},
+        "Competition": {},
+        "Patents and Proprietary Rights": {},
+        "Government Regulations": {},
+        "Human Capital Management": {},
+        "Information About Our Executive Officers": {},
+        "Available Information": {}
+      },
+      "Item 1A. Risk Factors": {
+        "Risk Factors Summary": {
+          "Risks Related to Our Industry and Markets": {},
+          "Risks Related to Demand, Supply, and Manufacturing": {},
+          "Risks Related to Our Global Operating Business": {},
+          "Risks Related to Regulatory, Legal, Our Stock, and Other Matters": {}
+        },
+        "Risk Factors": {
+          "Risks Related to Our Industry and Markets": {},
+          "Risks Related to Demand, Supply, and Manufacturing": {},
+          "Risks Related to Our Global Operating Business": {},
+          "Risks Related to Regulatory, Legal, Our Stock and Other Matters": {}
+        }
+      },
+      "Item 1B. Unresolved Staff Comments": {},
+      "Item 1C. Cybersecurity": {
+        "Risk management and strategy": {},
+        "Governance": {}
+      },
+      "Item 2. Properties": {},
+      "Item 3. Legal Proceedings": {},
+      "Item 4. Mine Safety Disclosures": {}
+    },
+    "Part II_2": {
+      "Issuer Purchases of Equity Securities": {},
+      "Recent Sales of Unregistered Securities and Use of Proceeds": {},
+      "Stock Performance Graphs": {
+        "Overview": {
+          "Our Company and Our Businesses": {},
+          "Recent Developments, Future Objectives and Challenges": {},
+          "Critical Accounting Estimates": {
+            "Inventories": {},
+            "Income Taxes": {},
+            "Non-Marketable Equity Securities": {},
+            "Revenue Recognition": {
+              "Revenue Allowances": {},
+              "Contracts with Multiple Performance Obligations": {}
+            }
+          },
+          "Results of Operations": {
+            "Reportable Segments": {
+              "Revenue by Reportable Segments": {},
+              "Operating Income by Reportable Segments": {},
+              "Concentration of Revenue": {}
+            },
+            "Gross Profit and Gross Margin": {},
+            "Income Taxes": {},
+            "Liquidity": {
+              "Capital Return to Shareholders": {},
+              "Outstanding Indebtedness and Commercial Paper Program": {},
+              "Material Cash Requirements and Other Obligations": {}
+            },
+            "Adoption of New and Recently Issued Accounting Pronouncements": {}
+          }
+        }
+      },
+      "Item 7A. Quantitative and Qualitative Disclosures about Market Risk": {
+        "Investment and Interest Rate Risk": {},
+        "Foreign Exchange Rate Risk": {}
+      },
+      "Item 8. Financial Statements and Supplementary Data": {},
+      "Item 9A. Controls and Procedures": {
+        "Controls and Procedures": {
+          "Disclosure Controls and Procedures": {},
+          "Management's Annual Report on Internal Control Over Financial Reporting": {},
+          "Changes in Internal Control Over Financial Reporting": {},
+          "Inherent Limitations on Effectiveness of Controls": {}
+        }
+      },
+      "Item 9B. Other Information": {},
+      "Item 9C. Disclosure Regarding Foreign Jurisdictions that Prevent Inspections": {}
+    },
+    "Part III_2": {
+      "Item 10. Directors, Executive Officers and Corporate Governance": {
+        "Identification of Directors": {},
+        "Identification of Executive Officers": {},
+        "Identification of Audit Committee and Financial Experts": {},
+        "Material Changes to Procedures for Recommending Directors": {},
+        "Delinquent Section 16(a) Reports": {},
+        "Code of Conduct": {},
+        "Insider Trading Policy": {}
+      },
+      "Item 11. Executive Compensation": {
+        "Ownership of NVIDIA Securities": {},
+        "Equity Compensation Plan Information": {}
+      },
+      "Item 13. Certain Relationships and Related Transactions, and Director Independence": {},
+      "Item 14. Principal Accountant Fees and Services": {},
+      "Item 15. Exhibits and Financial Statement Schedules": {
+        "(a) 1. Financial Statements": {},
+        "2. Financial Statement Schedule": {},
+        "3. Exhibits": {},
+        "Report of Independent Registered Public Accounting Firm": {
+          "Basis for Opinions": {},
+          "Definition and Limitations of Internal Control over Financial Reporting": {},
+          "Critical Audit Matters": {}
+        },
+        "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements": {
+          "Note 1 - Organization and Summary of Significant Accounting Policies": {
+            "Our Company": {},
+            "Fiscal Year": {},
+            "Principles of Consolidation": {},
+            "Use of Estimates": {},
+            "Revenue Recognition": {
+              "Product Sales Revenue": {},
+              "Contracts with Multiple Performance Obligations": {},
+              "Product Warranties": {}
+            },
+            "Stock-based Compensation": {},
+            "Litigation, Investigation and Settlement Costs": {},
+            "Foreign Currency Remeasurement": {},
+            "Income Taxes": {},
+            "Net Income Per Share": {},
+            "Cash and Cash Equivalents and Marketable Securities": {},
+            "Fair Value of Financial Instruments": {},
+            "Concentration of Credit Risk": {},
+            "Inventories": {},
+            "Property and Equipment": {},
+            "Leases": {},
+            "Goodwill": {},
+            "Intangible Assets and Other Long-Lived Assets": {},
+            "Business Combination": {},
+            "Non-Marketable Equity Securities": {},
+            "Recently Issued Accounting Pronouncements": {}
+          },
+          "Note 2 - Groq": {},
+          "Note 3 - Stock-Based Compensation": {},
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements": {
+            "Equity Incentive Program": {
+              "Amended and Restated 2007 Equity Incentive Plan": {},
+              "Amended and Restated 2012 Employee Stock Purchase Plan": {}
+            }
+          },
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements_2": {},
+          "Note 4 - Net Income Per Share": {},
+          "Note 5 - Goodwill": {},
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements_3": {},
+          "Note 6 - Amortizable Intangible Assets": {},
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements_4": {},
+          "Note 7 - Cash Equivalents and Marketable Securities": {},
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements_5": {},
+          "Note 8 - Non-marketable Equity Securities": {},
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements (Continued)": {},
+          "Note 9 - Balance Sheet Components": {},
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements (Continued)_2": {},
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements_6": {},
+          "Note 10 - Derivative Financial Instruments": {
+            "Foreign Currency Derivatives": {},
+            "Facility Lease Guarantees": {}
+          },
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements_7": {},
+          "Note 12 - Commitments and Contingencies": {
+            "Commitments": {},
+            "Accrual for Product Warranty Liabilities": {},
+            "Litigation": {},
+            "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements": {}
+          },
+          "Note 13 - Income Taxes": {},
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements_8": {},
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements_9": {},
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements_10": {},
+          "Note 14 - Shareholders' Equity": {},
+          "Note 15 - Employee Retirement Plans": {},
+          "Note 16 - Segment Information": {},
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements_11": {},
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements_12": {},
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements_13": {},
+          "Note 17 - Leases": {},
+          "NVIDIA Corporation and Subsidiaries Notes to the Consolidated Financial Statements_14": {}
+        }
+      },
+      "Item 16. Form 10-K Summary": {},
+      "Signatures": {}
+    },
+    "Corporate Information": {
+      "Board of Directors": {
+        "Jensen Huang": {},
+        "Tench Coxe": {},
+        "John O. Dabiri": {},
+        "Dawn Hudson": {},
+        "Harvey C. Jones": {},
+        "Melissa B. Lora": {},
+        "Stephen C. Neal (Lead Director)": {},
+        "A. Brooke Seawell": {},
+        "Aarti Shah": {},
+        "Mark A. Stevens": {}
+      },
+      "Founders": {
+        "Jensen Huang": {},
+        "Chris A. Malachowsky": {}
+      },
+      "Executive Team": {
+        "Colette M. Kress": {},
+        "Jay Puri": {},
+        "Debora Shoquist": {},
+        "Timothy S. Teter": {}
+      },
+      "Independent Accountants": {},
+      "General Legal Counsel": {},
+      "Transfer Agent and Registrar": {},
+      "Annual Meeting": {},
+      "Form 10-K": {},
+      "Investor Relations": {}
+    }
+  }
+}

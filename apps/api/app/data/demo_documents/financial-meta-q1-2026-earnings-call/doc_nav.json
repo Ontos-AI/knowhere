@@ -1,0 +1,119 @@
+{
+  "version": "1.0",
+  "file_name": "Meta Q1 2026 Earnings Call Transcript.pdf",
+  "stats": {
+    "total_chunks": 13,
+    "text_chunks": 12,
+    "image_chunks": 0,
+    "table_chunks": 1,
+    "max_depth": 2
+  },
+  "sections": [
+    {
+      "title": "Root",
+      "path": "META-Q1-2026-Earnings-Call-Transcript.pdf",
+      "level": 1,
+      "summary": "Meta Platforms, Inc. (META) First Quarter 2026 Results Conference Call April 29 $^{th}$ , 2026",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Kenneth Dorell, Director, Investor Relations",
+      "path": "META-Q1-2026-Earnings-Call-Transcript.pdf/Kenneth Dorell, Director, Investor Relations",
+      "level": 1,
+      "summary": "Thank you. Good afternoon and welcome to Meta Platforms' first quarter 2026 earnings conference call. Joining me today to discuss our results are Mark Zuckerberg, CEO and Susan Li, CFO. Our remarks today will include forward-looking statements, which are based on assumptions as of today. Actual results may differ materially as a result of various factors including those set forth in today's earnings press release, and in our annual report on Form 10-K filed with the SEC. We undertake no obligation to update any forward-looking statement. During this call we will present both GAAP and certain non-GAAP financial measures. A reconciliation of GAAP to non-GAAP measures is included in today's earnings press release. The earnings press release and an accompanying investor presentation are available on our website at investor.atmeta.com. And now, I'd like to turn the call over to Mark.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Mark Zuckerberg, CEO",
+      "path": "META-Q1-2026-Earnings-Call-Transcript.pdf/Mark Zuckerberg, CEO",
+      "level": 1,
+      "summary": "The speaker discusses Meta's strong quarterly performance with over 3.5 billion daily users across apps, highlighting the release of the Muse family of models and Meta AI's advancements. They emphasize a vision of AI amplifying human potential rather than replacing people, focusing on personal and business agents. The talk covers improvements in recommendation systems, increased infrastructure investment, growth in AI glasses usage, and the transformative impact of AI on work efficiency at Meta.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Susan Li, CFO",
+      "path": "META-Q1-2026-Earnings-Call-Transcript.pdf/Susan Li, CFO",
+      "level": 1,
+      "summary": "Meta reported Q1 2026 results with total revenue of $56.3 billion, up 33% year-over-year. Family of Apps revenue was $55.9 billion, with ad revenue of $55.0 billion. Daily active people across Family of Apps was 3.56 billion in March. Operating income was $22.9 billion with a 41% margin. Net income was $26.8 billion, or $10.44 per share, including a tax benefit. Capital expenditures were $19.8 billion. The company highlighted AI-driven improvements in content recommendations, ad performance, and product experiences, including gains from Meta AI and Muse Spark. Revenue guidance for Q2 2026 is $58-61 billion, with full-year expense outlook of $162-169 billion and capex of $125-145 billion.",
+      "chunk_count": 9,
+      "children": [
+        {
+          "title": "Brian Nowak:",
+          "path": "META-Q1-2026-Earnings-Call-Transcript.pdf/Susan Li, CFO/Brian Nowak:",
+          "level": 2,
+          "summary": "Thanks for taking my question. Mark, I wanted to ask you just about the level of investment you're making and sort of the signposts you're watching to ensure you're going to generate ROIC on all these investments behind Muse and the other products. So if you could just sort of let us know some of the key factors you're watching over the next 12 to 24 months, whether it's Meta AI, Muse advances, core algorithm, what are you sort of watching foremost just to make sure that you're on the right path to generating healthy ROIC on all this CapEx and infrastructure spend?",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Mark Zuckerberg:",
+          "path": "META-Q1-2026-Earnings-Call-Transcript.pdf/Susan Li, CFO/Mark Zuckerberg:",
+          "level": 2,
+          "summary": "Mark Zuckerberg discusses Meta's AI strategy, focusing on building leading models and converting them into products for billions of users. Key milestones include technical quality, product scaling, and monetization efficiency. The lab is on track with Muse Spark model powering Meta AI. Future plans involve personal and business agents, with monetization through commissions or premium offerings. Susan Li addresses workforce efficiency and AI glasses growth. The roadmap includes continuous model improvement and product innovation, with emphasis on delivering polished, easy-to-use AI experiences for consumers and businesses.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Susan Li:",
+          "path": "META-Q1-2026-Earnings-Call-Transcript.pdf/Susan Li, CFO/Susan Li:",
+          "level": 2,
+          "summary": "The passage discusses ongoing improvements to recommendation systems on Facebook and Instagram. Key areas include enhancing data infrastructure for better model training, adding more detail to user engagement descriptions, and scaling model architecture. Efforts focus on personalization through redesigned content retrieval to match user interests and tailor topic diversity. Additionally, LLM-based features allow users to give natural language feedback. These improvements aim to drive engagement and are part of a broader roadmap beyond Q1.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Operator:",
+          "path": "META-Q1-2026-Earnings-Call-Transcript.pdf/Susan Li, CFO/Operator:",
+          "level": 2,
+          "summary": "Your next question comes from the line of Doug Anmuth with JPMorgan. Please go ahead,",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Douglas Anmuth:",
+          "path": "META-Q1-2026-Earnings-Call-Transcript.pdf/Susan Li, CFO/Douglas Anmuth:",
+          "level": 2,
+          "summary": "Thanks so much for taking the questions. Mark, how do you think about the step up as you go from leveraging smaller models in the ad business to Muse Spark and future large language models going forward, what are some of the key unlocks across engagement and monetization? And then on Manus, can you just talk at all about the strategic importance and the role in developing agentic products for Meta and then just current status around the tech and the deal.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Susan Li:_2",
+          "path": "META-Q1-2026-Earnings-Call-Transcript.pdf/Susan Li, CFO/Susan Li:_2",
+          "level": 2,
+          "summary": "The speaker discusses advancements in ads ranking models, moving from smaller to larger architectures like LLMs with trillion parameters. Historically, cost and latency constraints prevented using large models for inference, but a new adaptive ranking model and system co-design with silicon now enable sub-second ad serving. Intelligent request routing improves performance and inference ROI.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Operator:_2",
+          "path": "META-Q1-2026-Earnings-Call-Transcript.pdf/Susan Li, CFO/Operator:_2",
+          "level": 2,
+          "summary": "We have time for one more question, Ken Gawrelski with Wells Fargo. Your line is open.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Kenneth Gawrelski:",
+          "path": "META-Q1-2026-Earnings-Call-Transcript.pdf/Susan Li, CFO/Kenneth Gawrelski:",
+          "level": 2,
+          "summary": "Mark Zuckerberg discusses Meta's AI strategy, emphasizing a vision of empowering individuals with personal AI agents rather than building a centralized AI. He highlights shopping and commerce as key verticals, noting Meta's unique focus on consumer AI for tasks like finding the right shirt. Susan Li adds that Meta's ad revenue growth is driven by ROI-based budgeting and continuous model improvements, with strong visibility into future investment opportunities.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    }
+  ],
+  "resources": {
+    "images": [],
+    "tables": [
+      {
+        "path": "tables/table-0 AI Compute Plans.html",
+        "summary": "table-1 Meta discusses underestimating AI compute needs, plans flexible infrastructure buildout, and explores agentic opportunities for consumers and enterprises."
+      }
+    ]
+  }
+}

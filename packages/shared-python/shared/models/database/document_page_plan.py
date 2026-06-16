@@ -21,6 +21,7 @@ class DocumentPagePlan(Base):
     )
     page_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     shard_plan: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    doc_profile: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     global_signals: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, nullable=False
