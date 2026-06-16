@@ -8,6 +8,7 @@ from PIL import Image
 from shared.core.exceptions.domain_exceptions import StorageServiceException
 from shared.services.redis.chunks_redis_service import ChunksRedisService
 from shared.services.storage.zip_result_service import ZipResultService
+from shared.utils.chunk_refs import render_legacy_image_chunk_content
 
 
 def test_dataframe_to_chunks_preserves_embedded_atlas_image_filename():
@@ -32,6 +33,23 @@ def test_dataframe_to_chunks_preserves_embedded_atlas_image_filename():
     chunks = ChunksRedisService(None)._dataframe_to_chunks(df)
 
     assert chunks[0]["metadata"]["file_path"] == "images/05SG522 （总说明）page 4.jpg"
+
+
+def test_legacy_image_content_removes_only_line_leading_parser_page_label():
+    rendered_content = render_legacy_image_chunk_content(
+        (
+            "[images/24S913 page 22.jpg]\n"
+            "[page-27] 24S913 page 22\n"
+            "Keep inline reference [page-27] in OCR text\n"
+        ),
+        "image-chunk-1",
+    )
+
+    assert rendered_content == (
+        "IMAGE_image-chunk-1_IMAGE\n"
+        "24S913 page 22\n"
+        "Keep inline reference [page-27] in OCR text"
+    )
 
 
 def test_dataframe_to_chunks_preserves_actual_extension_for_vector_images():

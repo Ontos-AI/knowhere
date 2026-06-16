@@ -2,10 +2,14 @@ import re
 from typing import List
 
 
+IMAGE_RESOURCE_PATH_REF_PATTERN = r"\[images/[^\]\n]+\]"
+LINE_LEADING_PAGE_LABEL_PATTERN = r"(?im)^\s*\[page-\d+\]\s*"
 RESOURCE_PATH_REF_PATTERN = r"\[(?:images|tables)/[^\]\n]+\]"
 CHUNK_REF_PATTERN = RESOURCE_PATH_REF_PATTERN
 REFERENCE_LABEL_PATTERN = r"^\s*(?:image|table)-\d+\s*$"
 
+IMAGE_RESOURCE_PATH_REF_RE = re.compile(IMAGE_RESOURCE_PATH_REF_PATTERN, re.IGNORECASE)
+LINE_LEADING_PAGE_LABEL_RE = re.compile(LINE_LEADING_PAGE_LABEL_PATTERN)
 RESOURCE_PATH_REF_RE = re.compile(RESOURCE_PATH_REF_PATTERN, re.IGNORECASE)
 CHUNK_REF_RE = re.compile(CHUNK_REF_PATTERN, re.IGNORECASE)
 REFERENCE_LABEL_RE = re.compile(REFERENCE_LABEL_PATTERN, re.IGNORECASE)
@@ -24,9 +28,23 @@ def build_legacy_image_chunk_ref(chunk_id: str) -> str:
 
 
 def render_legacy_image_chunk_content(content: str, chunk_id: str) -> str:
-    """Render image chunk content as the legacy IMAGE_<chunk_id>_IMAGE marker."""
+    """Render image chunk content with legacy marker and no parser page labels."""
+    original_content = str(content or "")
     legacy_ref = build_legacy_image_chunk_ref(chunk_id)
-    return legacy_ref if legacy_ref else str(content or "")
+    if not legacy_ref:
+        return original_content
+
+    if not IMAGE_RESOURCE_PATH_REF_RE.search(original_content):
+        return legacy_ref
+
+    rendered_content = IMAGE_RESOURCE_PATH_REF_RE.sub(legacy_ref, original_content)
+    rendered_content = LINE_LEADING_PAGE_LABEL_RE.sub("", rendered_content)
+    lines = [line.rstrip() for line in rendered_content.splitlines()]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines) if lines else legacy_ref
 
 
 def extract_chunk_refs(content: str) -> List[str]:
