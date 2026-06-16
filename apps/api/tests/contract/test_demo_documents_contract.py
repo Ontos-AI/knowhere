@@ -82,6 +82,11 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     sources_by_id = {str(source["demo_source_id"]): source for source in sources}
     source = sources_by_id[DEMO_SOURCE_ID]
     spacex_source = sources_by_id[SPACEX_DEMO_SOURCE_ID]
+    official_library = cast(dict[str, Any], catalog["official_library"])
+    library_sources = cast(list[dict[str, Any]], official_library["sources"])
+    library_sources_by_id = {
+        str(source["library_source_id"]): source for source in library_sources
+    }
     examples = cast(list[dict[str, Any]], source["examples"])
     citations = cast(list[dict[str, Any]], examples[0]["citations"])
     citation = citations[0]
@@ -96,11 +101,37 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     assert source["original_file"]["can_download"] is False
     assert citation["canonical_document_id"] == "demo-doc-tsla-q4-2025"
     assert citation["canonical_chunk_id"].startswith(f"{DEMO_SOURCE_ID}:")
+    assert spacex_source["official_library"]["library_source_id"] == (
+        "financial-spacex-s1"
+    )
     assert spacex_source["canonical_document_id"] == "demo-doc-spacex-s1"
     assert spacex_source["chunk_count"] == 922
     assert spacex_citations[0]["canonical_chunk_id"].startswith(
         f"{SPACEX_DEMO_SOURCE_ID}:"
     )
+    assert [
+        category["category_id"]
+        for category in cast(list[dict[str, Any]], official_library["categories"])
+    ] == ["financial-reports", "research-papers", "stem-books"]
+    assert library_sources_by_id["financial-spacex-s1"]["status"] == "ready"
+    assert library_sources_by_id["financial-spacex-s1"]["demo_source_id"] == (
+        SPACEX_DEMO_SOURCE_ID
+    )
+    assert library_sources_by_id["financial-spacex-s1"]["chunk_count"] == 922
+    assert library_sources_by_id["stem-statistical-learning"]["status"] == "ready"
+    assert library_sources_by_id["stem-statistical-learning"]["demo_source_id"] == (
+        "demo-stem-statistical-learning"
+    )
+    assert library_sources_by_id["stem-statistical-learning"]["chunk_count"] == 71
+    assert library_sources_by_id["financial-nvda-q1-fy27-earnings-call"][
+        "demo_source_id"
+    ] == "demo-financial-nvda-q1-fy27-earnings-call"
+    assert library_sources_by_id["financial-micron-report-530bd7ed"][
+        "status"
+    ] == "planned"
+    assert "demo_source_id" not in library_sources_by_id[
+        "financial-micron-report-530bd7ed"
+    ]
 
     async with api_client_factory() as api_client:
         chunks_response = await api_client.get(

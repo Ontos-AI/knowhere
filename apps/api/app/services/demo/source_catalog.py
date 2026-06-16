@@ -9,6 +9,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from app.services.demo.official_library_catalog import (
+    get_official_library_catalog,
+    get_official_library_source_payload_by_demo_source_id,
+)
 from app.services.demo.source_projection import DemoSourceProjection
 
 
@@ -205,6 +209,196 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         ),
         original_file_name=None,
     ),
+    DemoSourceDefinition(
+        demo_source_id="demo-financial-nvda-q1-fy27-earnings-call",
+        canonical_document_id="demo-doc-financial-nvda-q1-fy27-earnings-call",
+        title="NVDA Q1 FY27 Earnings Call Transcript.pdf",
+        mime_type="application/pdf",
+        size_bytes=288_661,
+        asset_directory="financial-nvda-q1-fy27-earnings-call",
+        chunk_count=44,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-financial-nvda-q4-fy26-earnings-call",
+        canonical_document_id="demo-doc-financial-nvda-q4-fy26-earnings-call",
+        title="NVDA Q4 FY26 Earnings Call Transcript.pdf",
+        mime_type="application/pdf",
+        size_bytes=306_317,
+        asset_directory="financial-nvda-q4-fy26-earnings-call",
+        chunk_count=63,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-financial-nvda-q1-fy27-cfo-commentary",
+        canonical_document_id="demo-doc-financial-nvda-q1-fy27-cfo-commentary",
+        title="NVIDIA Q1 FY27 CFO Commentary.pdf",
+        mime_type="application/pdf",
+        size_bytes=75_796,
+        asset_directory="financial-nvda-q1-fy27-cfo-commentary",
+        chunk_count=19,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-financial-nvda-q1-fy27-results",
+        canonical_document_id="demo-doc-financial-nvda-q1-fy27-results",
+        title="NVIDIA Q1 FY27 Results.pdf",
+        mime_type="application/pdf",
+        size_bytes=379_572,
+        asset_directory="financial-nvda-q1-fy27-results",
+        chunk_count=120,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-financial-nvda-q1-fy27-presentation",
+        canonical_document_id="demo-doc-financial-nvda-q1-fy27-presentation",
+        title="NVIDIA Q1 FY27 Quarterly Presentation.pdf",
+        mime_type="application/pdf",
+        size_bytes=3_371_774,
+        asset_directory="financial-nvda-q1-fy27-presentation",
+        chunk_count=39,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-financial-nvda-fy26-annual-report",
+        canonical_document_id="demo-doc-financial-nvda-fy26-annual-report",
+        title="NVIDIA FY26 Annual Report.pdf",
+        mime_type="application/pdf",
+        size_bytes=15_850_437,
+        asset_directory="financial-nvda-fy26-annual-report",
+        chunk_count=551,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-financial-goog-10-k-2025",
+        canonical_document_id="demo-doc-financial-goog-10-k-2025",
+        title="GOOG 10-K 2025.pdf",
+        mime_type="application/pdf",
+        size_bytes=940_068,
+        asset_directory="financial-goog-10-k-2025",
+        chunk_count=300,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-financial-meta-q1-2026-results",
+        canonical_document_id="demo-doc-financial-meta-q1-2026-results",
+        title="Meta Q1 2026 Exhibit 99.1.pdf",
+        mime_type="application/pdf",
+        size_bytes=154_270,
+        asset_directory="financial-meta-q1-2026-results",
+        chunk_count=17,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-financial-meta-q1-2026-presentation",
+        canonical_document_id="demo-doc-financial-meta-q1-2026-presentation",
+        title="Meta Q1 2026 Earnings Presentation.pdf",
+        mime_type="application/pdf",
+        size_bytes=239_814,
+        asset_directory="financial-meta-q1-2026-presentation",
+        chunk_count=55,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-financial-meta-q1-2026-earnings-call",
+        canonical_document_id="demo-doc-financial-meta-q1-2026-earnings-call",
+        title="Meta Q1 2026 Earnings Call Transcript.pdf",
+        mime_type="application/pdf",
+        size_bytes=131_758,
+        asset_directory="financial-meta-q1-2026-earnings-call",
+        chunk_count=13,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-financial-microsoft-2025-annual-report",
+        canonical_document_id="demo-doc-financial-microsoft-2025-annual-report",
+        title="Microsoft 2025 Annual Report.docx",
+        mime_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        ),
+        size_bytes=1_044_155,
+        asset_directory="financial-microsoft-2025-annual-report",
+        chunk_count=122,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-financial-alibaba-fy2026-interim-report",
+        canonical_document_id="demo-doc-financial-alibaba-fy2026-interim-report",
+        title="Alibaba Fiscal Year 2026 Interim Report.pdf",
+        mime_type="application/pdf",
+        size_bytes=346_418,
+        asset_directory="financial-alibaba-fy2026-interim-report",
+        chunk_count=216,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-stem-jurafsky-transformers",
+        canonical_document_id="demo-doc-stem-jurafsky-transformers",
+        title="Speech and Language Processing, Chapter 8: Transformers.pdf",
+        mime_type="application/pdf",
+        size_bytes=1_363_617,
+        asset_directory="stem-jurafsky-transformers",
+        chunk_count=46,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-stem-deep-learning-transformer-network",
+        canonical_document_id="demo-doc-stem-deep-learning-transformer-network",
+        title="Deep Learning - Transformer Network.pdf",
+        mime_type="application/pdf",
+        size_bytes=2_619_505,
+        asset_directory="stem-deep-learning-transformer-network",
+        chunk_count=25,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-stem-probability-theory-lecture-notes",
+        canonical_document_id="demo-doc-stem-probability-theory-lecture-notes",
+        title="Probability Theory Lecture Notes.pdf",
+        mime_type="application/pdf",
+        size_bytes=708_671,
+        asset_directory="stem-probability-theory-lecture-notes",
+        chunk_count=109,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-stem-introduction-statistical-learning-theory",
+        canonical_document_id="demo-doc-stem-introduction-statistical-learning-theory",
+        title="Introduction to Statistical Learning Theory.pdf",
+        mime_type="application/pdf",
+        size_bytes=1_208_674,
+        asset_directory="stem-introduction-statistical-learning-theory",
+        chunk_count=62,
+        examples=(),
+        original_file_name=None,
+    ),
+    DemoSourceDefinition(
+        demo_source_id="demo-stem-statistical-learning",
+        canonical_document_id="demo-doc-stem-statistical-learning",
+        title="Statistical Learning Notes.pdf",
+        mime_type="application/pdf",
+        size_bytes=614_119,
+        asset_directory="stem-statistical-learning",
+        chunk_count=71,
+        examples=(),
+        original_file_name=None,
+    ),
 )
 
 
@@ -216,14 +410,32 @@ class DemoSourceCatalog:
         return _DEMO_SOURCE_DEFINITIONS
 
     def get_catalog(self) -> dict[str, Any]:
+        source_payloads = [
+            self._projection.source_catalog_payload(
+                source=source,
+                chunks=_load_source_chunks(source),
+            )
+            for source in _DEMO_SOURCE_DEFINITIONS
+        ]
+        library_source_payload_by_demo_source_id = (
+            get_official_library_source_payload_by_demo_source_id()
+        )
+        for payload in source_payloads:
+            demo_source_id = str(payload["demo_source_id"])
+            library_payload = library_source_payload_by_demo_source_id.get(
+                demo_source_id
+            )
+            if library_payload is not None:
+                payload["official_library"] = library_payload
+
         return {
-            "sources": [
-                self._projection.source_catalog_payload(
-                    source=source,
-                    chunks=_load_source_chunks(source),
-                )
-                for source in _DEMO_SOURCE_DEFINITIONS
-            ],
+            "sources": source_payloads,
+            "official_library": get_official_library_catalog(
+                {
+                    str(payload["demo_source_id"]): payload
+                    for payload in source_payloads
+                }
+            ),
         }
 
     def list_chunks(

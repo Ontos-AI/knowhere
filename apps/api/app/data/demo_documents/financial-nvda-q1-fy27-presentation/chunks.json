@@ -1,0 +1,1417 @@
+{
+  "chunks": [
+    {
+      "chunk_id": "2691b21d-6132-5483-a2ca-2711db854668",
+      "type": "text",
+      "content": "May 2026\nCertain matters in this presentation including, but not limited to, statements as to: expectations with respect to growth, performance and benefits of NVIDIA's products, services, and technologies, including Blackwell and Vera Rubin, and related trends and drivers; expectations with respect to supply and demand for NVIDIA's products, services, and technologies, including Blackwell and Vera Rubin, and related matters including inventory, production and distribution; NVIDIA's financial position and financial and business outlook; NVIDIA's future cash dividends and other returns to shareholders; expectations with respect to technology developments and related trends and drivers; projected market growth and trends; expectations with respect to AI and related industries; and other statements that are not historical facts are forward-looking statements within the meaning of Section 27A of the Securities Act of 1933, as amended, and Section 21E of the Securities Exchange Act of 1934, as amended, which are subject to the “safe harbor” created by those sections based on management’s beliefs and assumptions and on information currently available to management and are subject to risks and uncertainties that could cause results to be materially different than expectations.\nImportant factors that could cause actual results to differ materially include: global economic and political conditions; NVIDIA's reliance on third parties to manufacture, assemble, package and test NVIDIA's products; the impact of technological development and competition; development of new products and technologies or enhancements to NVIDIA's existing product and technologies; market acceptance of NVIDIA's products or NVIDIA's partners' products; design, manufacturing or software defects; changes in consumer preferences or demands; changes in industry standards and interfaces; unexpected loss of performance of NVIDIA's products or technologies when integrated into systems; NVIDIA's ability to realize the potential benefits of business investments or acquisitions; and changes in applicable laws and regulations, as well as other factors detailed from time to time in the most recent reports NVIDIA files with the Securities and Exchange Commission, or SEC, including, but not limited to, its annual report on Form 10-K and quarterly reports on Form 10-Q. Copies of reports filed with the SEC are posted on the company's website and are available from NVIDIA without charge. These forward-looking statements are not guarantees of future performance and speak only as of the date hereof, and, except as required by law, NVIDIA disclaims any obligation to update these forward-looking statements to reflect future events or circumstances.\nMany of the products and features described herein remain in various stages and will be offered on a when-and-if-available basis. The statements within are not intended to be, and should not be interpreted as a commitment, promise, or legal obligation, and the development, release, and timing of any features or functionalities described for our products is subject to change and remains at the sole discretion of NVIDIA. NVIDIA will have no liability for failure to deliver or delay in the delivery of any of the products, features or functions set forth herein.\nNVIDIA uses certain non-GAAP measures in this presentation including non-GAAP gross margin, non-GAAP operating expense, non-GAAP operating income, non-GAAP net income, non-GAAP diluted earnings per share, and free cash flow. NVIDIA believes the presentation of its non-GAAP financial measures enhances investors' overall understanding of the company's historical financial performance. The presentation of the company's non-GAAP financial measures is not meant to be considered in isolation or as a substitute for the company's financial results prepared in accordance with GAAP, and the company's non-GAAP measures may be different from non-GAAP measures used by other companies. Further information relevant to the interpretation of non-GAAP financial measures, and reconciliations of these non-GAAP financial measures to the most comparable GAAP measures, may be found in the slide titled “Reconciliation of Non-GAAP to GAAP Financial Measures”.",
+      "path": "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf/Investor Presentation Q1 FY27",
+      "metadata": {
+        "length": 4254,
+        "summary": "This presentation from May 2026 contains forward-looking statements regarding NVIDIA's growth, products like Blackwell and Vera Rubin, financial outlook, and AI industry trends. These statements are subject to risks including global economic conditions, reliance on third-party manufacturing, technological competition, and market acceptance. The document also notes that many products and features are offered on a when-and-if-available basis, with no commitment to delivery. Additionally, NVIDIA uses non-GAAP financial measures such as non-GAAP gross margin and free cash flow, which are not substitutes for GAAP measures, and reconciliations are provided.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "tokens": [
+          "May",
+          "2026",
+          "Certain",
+          "matters",
+          "presentation",
+          "including",
+          "limited",
+          "statements",
+          "expectations",
+          "respect",
+          "growth",
+          "performance",
+          "benefits",
+          "NVIDIA",
+          "products",
+          "services",
+          "technologies",
+          "Blackwell",
+          "Vera",
+          "Rubin",
+          "related",
+          "trends",
+          "drivers",
+          "supply",
+          "demand",
+          "inventory",
+          "production",
+          "distribution",
+          "financial",
+          "position",
+          "business",
+          "outlook",
+          "future",
+          "cash",
+          "dividends",
+          "returns",
+          "shareholders",
+          "technology",
+          "developments",
+          "projected",
+          "market",
+          "AI",
+          "industries",
+          "historical",
+          "facts",
+          "forward",
+          "meaning",
+          "Section",
+          "27A",
+          "Securities",
+          "Act",
+          "1933",
+          "amended",
+          "21E",
+          "Exchange",
+          "1934",
+          "subject",
+          "safe",
+          "harbor",
+          "created",
+          "sections",
+          "based",
+          "management",
+          "beliefs",
+          "assumptions",
+          "information",
+          "risks",
+          "uncertainties",
+          "results",
+          "materially",
+          "Important",
+          "factors",
+          "actual",
+          "differ",
+          "include",
+          "global",
+          "economic",
+          "political",
+          "conditions",
+          "reliance",
+          "parties",
+          "manufacture",
+          "assemble",
+          "package",
+          "test",
+          "impact",
+          "technological",
+          "development",
+          "competition",
+          "enhancements",
+          "existing",
+          "product",
+          "acceptance",
+          "partners",
+          "design",
+          "manufacturing",
+          "software",
+          "defects",
+          "consumer",
+          "preferences",
+          "demands",
+          "industry",
+          "standards",
+          "interfaces",
+          "unexpected",
+          "loss",
+          "integrated",
+          "systems",
+          "ability",
+          "realize",
+          "potential",
+          "investments",
+          "acquisitions",
+          "applicable",
+          "laws",
+          "regulations",
+          "detailed",
+          "time",
+          "recent",
+          "reports",
+          "files",
+          "Commission",
+          "SEC",
+          "annual",
+          "report",
+          "Form",
+          "10",
+          "quarterly",
+          "Copies",
+          "filed",
+          "posted",
+          "company",
+          "website",
+          "charge",
+          "These",
+          "guarantees",
+          "speak",
+          "date",
+          "hereof",
+          "required",
+          "law",
+          "disclaims",
+          "obligation",
+          "update",
+          "reflect",
+          "events",
+          "circumstances",
+          "Many",
+          "features",
+          "remain",
+          "stages",
+          "offered",
+          "basis",
+          "The",
+          "intended",
+          "interpreted",
+          "commitment",
+          "promise",
+          "legal",
+          "release",
+          "timing",
+          "functionalities",
+          "change",
+          "remains",
+          "sole",
+          "discretion",
+          "liability",
+          "failure",
+          "deliver",
+          "delay",
+          "delivery",
+          "functions",
+          "set",
+          "GAAP",
+          "measures",
+          "gross",
+          "margin",
+          "operating",
+          "expense",
+          "income",
+          "net",
+          "diluted",
+          "earnings",
+          "share",
+          "free",
+          "flow",
+          "believes",
+          "enhances",
+          "investors",
+          "understanding",
+          "meant",
+          "considered",
+          "isolation",
+          "substitute",
+          "prepared",
+          "accordance",
+          "companies",
+          "Further",
+          "relevant",
+          "interpretation",
+          "reconciliations",
+          "comparable",
+          "found",
+          "slide",
+          "titled",
+          "Reconciliation",
+          "Non",
+          "Financial",
+          "Measures"
+        ],
+        "keywords": [
+          "forward-looking statements",
+          "non-GAAP measures",
+          "risk factors"
+        ],
+        "connect_to": []
+      }
+    },
+    {
+      "chunk_id": "fbdc85d3-12a0-59ff-8076-6a7ea5545daa",
+      "type": "image",
+      "content": "\nStrong growth across a diverse end-customer base – hyperscalers to model builders to AI Clouds, enterprise on-premise and sovereign customers <details>0\n[images/image-1-Financial Growth Comparison.jpg]\n",
+      "path": "images/image-1-Financial Growth Comparison.jpg",
+      "metadata": {
+        "length": 186,
+        "summary": "image-1\nQ1 FY26: $44.1B\nQ1 FY27: $81.6B",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "images/image-1-Financial Growth Comparison.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "553b8966-4ebb-54a7-87a4-dd6e473795bf",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Period</th>\n      <th>Value</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1 FY26</td>\n      <td>$44.1B</td>\n    </tr>\n    <tr>\n      <td>Q1 FY27</td>\n      <td>$81.6B</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-0 Revenue Forecast.html",
+      "metadata": {
+        "length": 304,
+        "summary": "table-1\nThe table shows projected revenue values for Q1 FY26 at $44.1B and Q1 FY27 at $81.6B, indicating significant growth.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-0 Revenue Forecast.html",
+        "keywords": [
+          "Revenue",
+          "Forecast",
+          "Quarterly"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "d7d0b5bb-78a5-50de-addd-bb549031d607",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-2-Q1 FY26 vs Q1 FY27 Revenue.jpg]\n",
+      "path": "images/image-2-Q1 FY26 vs Q1 FY27 Revenue.jpg",
+      "metadata": {
+        "length": 55,
+        "summary": "image-2\n- Chart Type: Bar Chart comparing financial data across two periods.\n- Data Points:\n  - Q1 FY26: $17.6B (represented by a grey bar)\n  - Q1 FY27: $37.9B (represented by a green bar)\n- Trend: Significant increase in value from Q1 FY26 to Q1 FY27, more than doubling the previous period's figure.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "images/image-2-Q1 FY26 vs Q1 FY27 Revenue.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "308bfa4c-5008-5951-a18b-5e9ba3b08d19",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Period</th>\n      <th>Value</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1 FY26</td>\n      <td>$17.6B</td>\n    </tr>\n    <tr>\n      <td>Q1 FY27</td>\n      <td>$37.9B</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-1 Revenue Forecast.html",
+      "metadata": {
+        "length": 304,
+        "summary": "table-2\nThe table shows projected revenue values for Q1 FY26 at $17.6B and Q1 FY27 at $37.9B.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-1 Revenue Forecast.html",
+        "keywords": [
+          "Revenue",
+          "Forecast",
+          "Quarterly"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "6a7e25e7-5eb4-5ef9-b0e7-b7f4fb930863",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-3-Financial Growth Comparison.jpg]\n",
+      "path": "images/image-3-Financial Growth Comparison.jpg",
+      "metadata": {
+        "length": 55,
+        "summary": "image-3\nQ1 FY26: $21.5B\nQ1 FY27: $37.4B",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "images/image-3-Financial Growth Comparison.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "e5595fd3-c434-5e91-87d0-af02e4fa91d9",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Period</th>\n      <th>Value</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1 FY26</td>\n      <td>$21.5B</td>\n    </tr>\n    <tr>\n      <td>Q1 FY27</td>\n      <td>$37.4B</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-2 Revenue Forecast.html",
+      "metadata": {
+        "length": 304,
+        "summary": "table-3\nThe table shows projected revenue values for Q1 FY26 at $21.5B and Q1 FY27 at $37.4B, indicating significant growth.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-2 Revenue Forecast.html",
+        "keywords": [
+          "Revenue",
+          "Forecast",
+          "Quarterly"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "89765158-7b6e-5bea-bfd5-b5c2a7b211da",
+      "type": "text",
+      "content": "\\$ in billions\nStrong growth across a diverse end-customer base – hyperscalers to model builders to AI Clouds, enterprise on-premise and sovereign customers\nBlackwell adopted and deployed by every major hyperscaler, every cloud provider, and every model builder\nAgentic AI and reinforcement learning represent new CPU growth opportunities\nVera Rubin on track for the second half of this year, starting in Q3\nNVIDIA AI infrastructure delivers the lowest token cost and highest token throughput as shown in latest MLPerf and InferenceX benchmarks\n\nStrong growth across a diverse end-customer base – hyperscalers to model builders to AI Clouds, enterprise on-premise and sovereign customers <details>0\n[images/image-1-Financial Growth Comparison.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-0 Revenue Forecast.html]\n\n</details>\nData Center\nRevenue \\$ in billions\nHyperscale\n\n</details> <details>0\n[images/image-2-Q1 FY26 vs Q1 FY27 Revenue.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-1 Revenue Forecast.html]\n\n</details>\nAI Clouds, Industrial, and Enterprise (ACIE)\n\n</details> <details>0\n[images/image-3-Financial Growth Comparison.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-2 Revenue Forecast.html]\n\n</details>\nContinued strong demand for our Blackwell architecture",
+      "path": "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf/Investor Presentation Q1 FY27/Revenue \\$ in billions",
+      "metadata": {
+        "length": 1250,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "tokens": [
+          "billions",
+          "Strong",
+          "growth",
+          "diverse",
+          "end",
+          "customer",
+          "base",
+          "hyperscalers",
+          "model",
+          "builders",
+          "AI",
+          "Clouds",
+          "enterprise",
+          "premise",
+          "sovereign",
+          "customers",
+          "Blackwell",
+          "adopted",
+          "deployed",
+          "major",
+          "hyperscaler",
+          "cloud",
+          "provider",
+          "builder",
+          "Agentic",
+          "reinforcement",
+          "learning",
+          "represent",
+          "CPU",
+          "opportunities",
+          "Vera",
+          "Rubin",
+          "track",
+          "half",
+          "year",
+          "starting",
+          "Q3",
+          "NVIDIA",
+          "infrastructure",
+          "delivers",
+          "lowest",
+          "token",
+          "cost",
+          "highest",
+          "throughput",
+          "shown",
+          "latest",
+          "MLPerf",
+          "InferenceX",
+          "benchmarks",
+          "details",
+          "summary",
+          "bar",
+          "chart",
+          "Data",
+          "Center",
+          "Revenue",
+          "Hyperscale",
+          "Industrial",
+          "Enterprise",
+          "ACIE",
+          "Continued",
+          "strong",
+          "demand",
+          "architecture"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "fbdc85d3-12a0-59ff-8076-6a7ea5545daa",
+            "relation": "embeds",
+            "ref": "[images/image-1-Financial Growth Comparison.jpg]",
+            "position": {
+              "start": 699,
+              "end": 747
+            }
+          },
+          {
+            "target": "553b8966-4ebb-54a7-87a4-dd6e473795bf",
+            "relation": "embeds",
+            "ref": "[tables/table-0 Revenue Forecast.html]",
+            "position": {
+              "start": 789,
+              "end": 827
+            }
+          },
+          {
+            "target": "d7d0b5bb-78a5-50de-addd-bb549031d607",
+            "relation": "embeds",
+            "ref": "[images/image-2-Q1 FY26 vs Q1 FY27 Revenue.jpg]",
+            "position": {
+              "start": 909,
+              "end": 956
+            }
+          },
+          {
+            "target": "308bfa4c-5008-5951-a18b-5e9ba3b08d19",
+            "relation": "embeds",
+            "ref": "[tables/table-1 Revenue Forecast.html]",
+            "position": {
+              "start": 998,
+              "end": 1036
+            }
+          },
+          {
+            "target": "6a7e25e7-5eb4-5ef9-b0e7-b7f4fb930863",
+            "relation": "embeds",
+            "ref": "[images/image-3-Financial Growth Comparison.jpg]",
+            "position": {
+              "start": 1117,
+              "end": 1165
+            }
+          },
+          {
+            "target": "e5595fd3-c434-5e91-87d0-af02e4fa91d9",
+            "relation": "embeds",
+            "ref": "[tables/table-2 Revenue Forecast.html]",
+            "position": {
+              "start": 1207,
+              "end": 1245
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "3dc86686-3dde-592d-9ea5-bb8e20ab9a90",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-4-Q1 FY26 vs Q1 FY27.jpg]\n",
+      "path": "images/image-4-Q1 FY26 vs Q1 FY27.jpg",
+      "metadata": {
+        "length": 55,
+        "summary": "image-4\n- Chart Type: Bar Chart\n- Data Points:\n  - Q1 FY26: 60.5%\n  - Q1 FY27: 74.9%\n- Trend: Significant increase from the first quarter of fiscal year 26 to the first quarter of fiscal year 27.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "images/image-4-Q1 FY26 vs Q1 FY27.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "cfaaa7df-6ca2-5601-aee2-c956585b36f6",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Period</th>\n      <th>Value (%)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1 FY26</td>\n      <td>60.5</td>\n    </tr>\n    <tr>\n      <td>Q1 FY27</td>\n      <td>74.9</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-3 Quarterly Values.html",
+      "metadata": {
+        "length": 304,
+        "summary": "table-4\nThe table shows two quarterly periods with their corresponding percentage values: Q1 FY26 at 60.5% and Q1 FY27 at 74.9%.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-3 Quarterly Values.html",
+        "keywords": [
+          "Period",
+          "Value",
+          "Percentage"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "1ba62209-1422-54b3-a0dd-3ff8bf818ac4",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-5-Q1 FY26 vs Q1 FY27.jpg]\n",
+      "path": "images/image-5-Q1 FY26 vs Q1 FY27.jpg",
+      "metadata": {
+        "length": 55,
+        "summary": "image-5\n- Chart Type: Bar Chart\n- Data Points:\n  - Q1 FY26: 60.8%\n  - Q1 FY27: 75.0%\n- Trend: Significant increase from the first period to the second.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "images/image-5-Q1 FY26 vs Q1 FY27.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "18a8955f-f1b6-563c-8d4e-f69d3cb6e306",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Period</th>\n      <th>Value (%)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1 FY26</td>\n      <td>60.8</td>\n    </tr>\n    <tr>\n      <td>Q1 FY27</td>\n      <td>75.0</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-4 Quarterly Values.html",
+      "metadata": {
+        "length": 304,
+        "summary": "table-5\nThe table shows two quarterly values: 60.8% for Q1 FY26 and 75.0% for Q1 FY27, indicating an increase.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-4 Quarterly Values.html",
+        "keywords": [
+          "Q1 FY26",
+          "Q1 FY27",
+          "Value"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "eee301e5-988f-5e25-9d67-dd621388b161",
+      "type": "text",
+      "content": "GAAP\n\n</details> <details>0\n[images/image-4-Q1 FY26 vs Q1 FY27.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-3 Quarterly Values.html]\n\n</details>\nNon-GAAP\n\n</details> <details>0\n[images/image-5-Q1 FY26 vs Q1 FY27.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-4 Quarterly Values.html]\n\n</details>\nGross margin year-on-year increase driven by lower inventory provisions, primarily due to a \\$4.5B charge associated with H2O excess inventory in the prior year",
+      "path": "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf/Investor Presentation Q1 FY27/Gross Margin",
+      "metadata": {
+        "length": 468,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "tokens": [
+          "GAAP",
+          "details",
+          "summary",
+          "bar",
+          "chart",
+          "Non",
+          "Gross",
+          "margin",
+          "year",
+          "increase",
+          "driven",
+          "lower",
+          "inventory",
+          "provisions",
+          "primarily",
+          "due",
+          "4.5",
+          "charge",
+          "H2O",
+          "excess",
+          "prior"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "3dc86686-3dde-592d-9ea5-bb8e20ab9a90",
+            "relation": "embeds",
+            "ref": "[images/image-4-Q1 FY26 vs Q1 FY27.jpg]",
+            "position": {
+              "start": 28,
+              "end": 67
+            }
+          },
+          {
+            "target": "cfaaa7df-6ca2-5601-aee2-c956585b36f6",
+            "relation": "embeds",
+            "ref": "[tables/table-3 Quarterly Values.html]",
+            "position": {
+              "start": 109,
+              "end": 147
+            }
+          },
+          {
+            "target": "1ba62209-1422-54b3-a0dd-3ff8bf818ac4",
+            "relation": "embeds",
+            "ref": "[images/image-5-Q1 FY26 vs Q1 FY27.jpg]",
+            "position": {
+              "start": 192,
+              "end": 231
+            }
+          },
+          {
+            "target": "18a8955f-f1b6-563c-8d4e-f69d3cb6e306",
+            "relation": "embeds",
+            "ref": "[tables/table-4 Quarterly Values.html]",
+            "position": {
+              "start": 273,
+              "end": 311
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "d0ddf35d-5f35-545a-9b0e-d8b8baebaf6f",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-6-GAAP Revenue Growth.jpg]\n",
+      "path": "images/image-6-GAAP Revenue Growth.jpg",
+      "metadata": {
+        "length": 55,
+        "summary": "image-6\nChart Title: GAAP\nData Points:\n- Q1 FY26: $5.0B\n- Q1 FY27: $7.6B",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "images/image-6-GAAP Revenue Growth.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "21cb7c93-5982-58db-94df-c33e726be8ca",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Period</th>\n      <th>Value ($B)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1 FY26</td>\n      <td>5.0</td>\n    </tr>\n    <tr>\n      <td>Q1 FY27</td>\n      <td>7.6</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-5 Revenue Forecast.html",
+      "metadata": {
+        "length": 303,
+        "summary": "table-6\nThe table shows projected revenue values of $5.0B for Q1 FY26 and $7.6B for Q1 FY27, indicating growth.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-5 Revenue Forecast.html",
+        "keywords": [
+          "Revenue",
+          "Forecast",
+          "Quarterly"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "95da4069-d756-52e5-a23e-92c3f645c276",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-7-Non-GAAP Revenue Growth.jpg]\n",
+      "path": "images/image-7-Non-GAAP Revenue Growth.jpg",
+      "metadata": {
+        "length": 55,
+        "summary": "image-7\nChart Title: Non-GAAP\n\nData Points:\n- Q1 FY26: $5.0B\n- Q1 FY27: $7.4B",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "images/image-7-Non-GAAP Revenue Growth.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "7e207392-6e74-5f9a-96d8-2d1cd59d8c2e",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Period</th>\n      <th>Value ($B)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1 FY26</td>\n      <td>5.0</td>\n    </tr>\n    <tr>\n      <td>Q1 FY27</td>\n      <td>7.4</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-6 Revenue Forecast.html",
+      "metadata": {
+        "length": 303,
+        "summary": "table-7\nThe table shows projected revenue values for Q1 FY26 at $5.0B and Q1 FY27 at $7.4B, indicating growth over the two periods.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-6 Revenue Forecast.html",
+        "keywords": [
+          "Revenue",
+          "Forecast",
+          "Quarterly"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "cee412ca-51ad-5c67-afbe-1265a6a2197d",
+      "type": "image",
+      "content": "\n</details> Top-line growth and operating leverage drove accelerating EPS growth0\n[images/image-8-GAAP vs Non-GAAP Comparison.jpg]\n",
+      "path": "images/image-8-GAAP vs Non-GAAP Comparison.jpg",
+      "metadata": {
+        "length": 114,
+        "summary": "image-8\n- GAAP: Q1 FY26 ($0.76), Q1 FY27 ($2.39)\n- Non-GAAP: Q1 FY26 ($0.78), Q1 FY27 ($1.87)",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "images/image-8-GAAP vs Non-GAAP Comparison.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "b12ffcab-99f1-52e6-b9a3-60441e206605",
+      "type": "text",
+      "content": "\\$ in billions\n\n</details> <details>0\n[images/image-6-GAAP Revenue Growth.jpg]\n\n<details>\n<summary>bar chart</summary>\nGAAP\n\n[tables/table-5 Revenue Forecast.html]\n\n</details>\n\n</details> <details>0\n[images/image-7-Non-GAAP Revenue Growth.jpg]\n\n<details>\n<summary>bar chart</summary>\nNon-GAAP\n\n[tables/table-6 Revenue Forecast.html]\n\n</details>\nInvesting to address the multitude of growth opportunities ahead\nEarnings per Share\n\n</details> Top-line growth and operating leverage drove accelerating EPS growth0\n[images/image-8-GAAP vs Non-GAAP Comparison.jpg]\n\nTop-line growth and operating leverage drove accelerating EPS growth",
+      "path": "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf/Investor Presentation Q1 FY27/Operating Expenses",
+      "metadata": {
+        "length": 592,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "tokens": [
+          "billions",
+          "details",
+          "summary",
+          "bar",
+          "chart",
+          "GAAP",
+          "Non",
+          "Investing",
+          "address",
+          "multitude",
+          "growth",
+          "opportunities",
+          "ahead",
+          "Earnings",
+          "Share",
+          "Top",
+          "line",
+          "operating",
+          "leverage",
+          "drove",
+          "accelerating",
+          "EPS",
+          "growth0"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "d0ddf35d-5f35-545a-9b0e-d8b8baebaf6f",
+            "relation": "embeds",
+            "ref": "[images/image-6-GAAP Revenue Growth.jpg]",
+            "position": {
+              "start": 38,
+              "end": 78
+            }
+          },
+          {
+            "target": "21cb7c93-5982-58db-94df-c33e726be8ca",
+            "relation": "embeds",
+            "ref": "[tables/table-5 Revenue Forecast.html]",
+            "position": {
+              "start": 125,
+              "end": 163
+            }
+          },
+          {
+            "target": "95da4069-d756-52e5-a23e-92c3f645c276",
+            "relation": "embeds",
+            "ref": "[images/image-7-Non-GAAP Revenue Growth.jpg]",
+            "position": {
+              "start": 199,
+              "end": 243
+            }
+          },
+          {
+            "target": "7e207392-6e74-5f9a-96d8-2d1cd59d8c2e",
+            "relation": "embeds",
+            "ref": "[tables/table-6 Revenue Forecast.html]",
+            "position": {
+              "start": 294,
+              "end": 332
+            }
+          },
+          {
+            "target": "cee412ca-51ad-5c67-afbe-1265a6a2197d",
+            "relation": "embeds",
+            "ref": "[images/image-8-GAAP vs Non-GAAP Comparison.jpg]",
+            "position": {
+              "start": 511,
+              "end": 559
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "f5f4a4d6-0f47-53c6-8553-aa7e00cca420",
+      "type": "image",
+      "content": "\nTop-line growth and operating leverage drove accelerating EPS growth <details>0\n[images/image-9-Financial Growth Comparison.jpg]\n",
+      "path": "images/image-9-Financial Growth Comparison.jpg",
+      "metadata": {
+        "length": 113,
+        "summary": "image-9\nQ1 FY26: $26.1B\nQ1 FY27: $48.6B",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "images/image-9-Financial Growth Comparison.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "ec2e3b6d-2257-547d-a660-dce84a02bebe",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Period</th>\n      <th>Value</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1 FY26</td>\n      <td>$26.1B</td>\n    </tr>\n    <tr>\n      <td>Q1 FY27</td>\n      <td>$48.6B</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-7 Revenue Forecast.html",
+      "metadata": {
+        "length": 304,
+        "summary": "table-8\nThe table shows projected revenue values for Q1 FY26 at $26.1B and Q1 FY27 at $48.6B, indicating significant growth.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-7 Revenue Forecast.html",
+        "keywords": [
+          "Revenue",
+          "Forecast",
+          "Quarterly"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "c941e7ab-e113-5e57-bbb3-ae791c57edca",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-10-Dividends vs Share Repurchases.jpg]\n",
+      "path": "images/image-10-Dividends vs Share Repurchases.jpg",
+      "metadata": {
+        "length": 56,
+        "summary": "image-10\nChart Title: Dividends and Share Repurchases Comparison\n\nData Points:\n- Q1 FY26: ~$14.0B (represented by a grey bar)\n- Q1 FY27: ~$20.0B (represented by a bright green bar)\n\nLegend:\n- Dark Green Square: Dividends\n- Bright Green Square: Share Repurchases\n\nObservations:\n- The chart compares financial figures for two quarters: Q1 FY26 and Q1 FY27.\n- There is an increase in value from approximately $14.0 billion to $20.0 billion between the two periods.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "images/image-10-Dividends vs Share Repurchases.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "406869a7-b4d8-5901-91d5-8d5f840ae4d7",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Period</th>\n      <th>Dividends</th>\n      <th>Share Repurchases</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1 FY26</td>\n      <td>~$14.0B</td>\n      <td>-</td>\n    </tr>\n    <tr>\n      <td>Q1 FY27</td>\n      <td>-</td>\n      <td>~$20.0B</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-8 Dividends & Buybacks.html",
+      "metadata": {
+        "length": 377,
+        "summary": "table-9\nThe table shows Q1 FY26 dividends of ~$14.0B and Q1 FY27 share repurchases of ~$20.0B.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-8 Dividends & Buybacks.html",
+        "keywords": [
+          "Dividends",
+          "Share Repurchases",
+          "FY26-FY27"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "28a269ec-3fcf-5432-8194-07a91613d637",
+      "type": "text",
+      "content": "\\$ in billions\nFree Cash Flow\n\nTop-line growth and operating leverage drove accelerating EPS growth <details>0\n[images/image-9-Financial Growth Comparison.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-7 Revenue Forecast.html]\n\n</details>\nCapital Return\n\n</details> <details>0\n[images/image-10-Dividends vs Share Repurchases.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-8 Dividends & Buybacks.html]\n\n</details>\nReturned a record \\~\\$20B to our shareholders, while executing strategic investments. Announced new \\$80B share repurchase authorization, on top of \\~\\$39B remaining as of Q1 FY27. Increased quarterly dividend from \\$0.01 to \\$0.25 per share.",
+      "path": "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf/Investor Presentation Q1 FY27/Free Cash Flow and Capital Return",
+      "metadata": {
+        "length": 654,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "tokens": [
+          "billions",
+          "Free",
+          "Cash",
+          "Flow",
+          "Top",
+          "line",
+          "growth",
+          "operating",
+          "leverage",
+          "drove",
+          "accelerating",
+          "EPS",
+          "details",
+          "summary",
+          "bar",
+          "chart",
+          "Capital",
+          "Return",
+          "Returned",
+          "record",
+          "20B",
+          "shareholders",
+          "executing",
+          "strategic",
+          "investments",
+          "Announced",
+          "80B",
+          "share",
+          "repurchase",
+          "authorization",
+          "top",
+          "39B",
+          "remaining",
+          "Q1",
+          "FY27",
+          "Increased",
+          "quarterly",
+          "dividend",
+          "0.01",
+          "0.25"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "f5f4a4d6-0f47-53c6-8553-aa7e00cca420",
+            "relation": "embeds",
+            "ref": "[images/image-9-Financial Growth Comparison.jpg]",
+            "position": {
+              "start": 111,
+              "end": 159
+            }
+          },
+          {
+            "target": "ec2e3b6d-2257-547d-a660-dce84a02bebe",
+            "relation": "embeds",
+            "ref": "[tables/table-7 Revenue Forecast.html]",
+            "position": {
+              "start": 201,
+              "end": 239
+            }
+          },
+          {
+            "target": "c941e7ab-e113-5e57-bbb3-ae791c57edca",
+            "relation": "embeds",
+            "ref": "[images/image-10-Dividends vs Share Repurchases.jpg]",
+            "position": {
+              "start": 290,
+              "end": 342
+            }
+          },
+          {
+            "target": "406869a7-b4d8-5901-91d5-8d5f840ae4d7",
+            "relation": "embeds",
+            "ref": "[tables/table-8 Dividends & Buybacks.html]",
+            "position": {
+              "start": 384,
+              "end": 426
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "f020fa0f-d13d-53cb-abc9-b7f2ac9ae38e",
+      "type": "table",
+      "content": "<table><tr><td></td><td>Q1 FY27</td><td>YoY %</td><td>Q1 FY26</td></tr><tr><td>Revenue</td><td>$81.6</td><td>85%</td><td>$44.1</td></tr><tr><td>Gross Margin %</td><td>74.9%</td><td>+14.4 pts</td><td>60.5%</td></tr><tr><td>Operating Expenses</td><td>$7.6</td><td>52%</td><td>$5.0</td></tr><tr><td>Operating Income</td><td>$53.5</td><td>147%</td><td>$21.6</td></tr><tr><td>Net Income</td><td>$58.3</td><td>211%</td><td>$18.8</td></tr><tr><td>Diluted EPS</td><td>$2.39</td><td>214%</td><td>$0.76</td></tr></table>",
+      "path": "tables/table-9 Q1 FY27 Results.html",
+      "metadata": {
+        "length": 510,
+        "summary": "table-10\nRevenue grew 85% YoY to $81.6M, gross margin improved to 74.9%, and net income surged 211% to $58.3M in Q1 FY27.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-9 Q1 FY27 Results.html",
+        "keywords": [
+          "Revenue",
+          "Gross Margin",
+          "Net Income"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "07b055c7-c8cc-5133-84ef-fc65b788a59b",
+      "type": "text",
+      "content": "\\$ in billions, except EPS\n\n[tables/table-9 Q1 FY27 Results.html]",
+      "path": "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf/Investor Presentation Q1 FY27/GAAP P&L Financial Measures \\$ in billions, except EPS",
+      "metadata": {
+        "length": 72,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "tokens": [
+          "billions",
+          "EPS"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "f020fa0f-d13d-53cb-abc9-b7f2ac9ae38e",
+            "relation": "embeds",
+            "ref": "[tables/table-9 Q1 FY27 Results.html]",
+            "position": {
+              "start": 28,
+              "end": 65
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "eb119c2a-6a1e-5597-b9bc-f93d25d10677",
+      "type": "table",
+      "content": "<table><tr><td></td><td>Q1 FY27</td><td>YoY %</td><td>Q1 FY26</td></tr><tr><td>Revenue</td><td>$81.6</td><td>85%</td><td>$44.1</td></tr><tr><td>Gross Margin %</td><td>75.0%</td><td>+14.2 pts</td><td>60.8%</td></tr><tr><td>Operating Expenses</td><td>$7.4</td><td>49%</td><td>$5.0</td></tr><tr><td>Operating Income</td><td>$53.8</td><td>147%</td><td>$21.8</td></tr><tr><td>Net Income</td><td>$45.5</td><td>139%</td><td>$19.1</td></tr><tr><td>Diluted EPS</td><td>$1.87</td><td>140%</td><td>$0.78</td></tr></table>",
+      "path": "tables/table-10 Q1 FY27 Results.html",
+      "metadata": {
+        "length": 510,
+        "summary": "table-11\nRevenue grew 85% YoY to $81.6M, gross margin improved to 75.0%, and net income rose 139% to $45.5M, with diluted EPS at $1.87.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-10 Q1 FY27 Results.html",
+        "keywords": [
+          "Revenue",
+          "Gross Margin",
+          "Net Income"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "07b055c7-c8cc-5133-84ef-fc65b788a59b",
+      "type": "text",
+      "content": "\\$ in billions, except EPS\n\n[tables/table-10 Q1 FY27 Results.html]",
+      "path": "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf/Investor Presentation Q1 FY27/Non-GAAP P&L Financial Measures \\$ in billions, except EPS",
+      "metadata": {
+        "length": 72,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "tokens": [
+          "billions",
+          "EPS"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "eb119c2a-6a1e-5597-b9bc-f93d25d10677",
+            "relation": "embeds",
+            "ref": "[tables/table-10 Q1 FY27 Results.html]",
+            "position": {
+              "start": 28,
+              "end": 66
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "d73747ff-4fd8-5177-bacb-8bbfbacf3632",
+      "type": "table",
+      "content": "<table><tr><td></td><td>Q2 FY27</td><td></td></tr><tr><td>Revenue</td><td>$91.0 billion*</td><td>+ / - 2%</td></tr><tr><td>Gross Margin %</td><td>75.0%</td><td>+ / - 50 bps</td></tr><tr><td>Operating Expenses</td><td>$8.3 billion</td><td>Approximately</td></tr></table>",
+      "path": "tables/table-11 Q2 FY27 Guidance.html",
+      "metadata": {
+        "length": 269,
+        "summary": "table-12\nQ2 FY27 revenue guidance is $91.0 billion, plus or minus 2%. Gross margin is 75.0%, plus or minus 50 bps. Operating expenses are approximately $8.3 billion.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-11 Q2 FY27 Guidance.html",
+        "keywords": [
+          "Revenue",
+          "Gross Margin",
+          "Operating Expenses"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "f97eedeb-62b4-5a17-a2f4-9307e17a2822",
+      "type": "text",
+      "content": "[tables/table-11 Q2 FY27 Guidance.html]\n\nFor the full year fiscal 2027, expect non-GAAP tax rates to be between 16.0% and 18.0%, excluding any discrete items and material changes to our tax environment",
+      "path": "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf/Investor Presentation Q1 FY27/Q2 FY27 Outlook – Non-GAAP",
+      "metadata": {
+        "length": 192,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "tokens": [
+          "For",
+          "full",
+          "year",
+          "fiscal",
+          "2027",
+          "expect",
+          "GAAP",
+          "tax",
+          "rates",
+          "16.0%",
+          "18.0%",
+          "excluding",
+          "discrete",
+          "items",
+          "material",
+          "environment"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "d73747ff-4fd8-5177-bacb-8bbfbacf3632",
+            "relation": "embeds",
+            "ref": "[tables/table-11 Q2 FY27 Guidance.html]",
+            "position": {
+              "start": 0,
+              "end": 39
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "85f5d248-d5c3-5de0-a2b2-72dcd545ec6a",
+      "type": "table",
+      "content": "<table><tr><td>Q1 FY27</td><td>Non-GAAP</td><td>Acquisition-Related and Other Costs (A)</td><td>Other (B)</td><td>Tax Impact of Adjustments</td><td>GAAP</td></tr><tr><td>Gross margin ($ in million)</td><td>$61,232</td><td>(47)</td><td>(28)</td><td>—</td><td>$61,157</td></tr><tr><td>Gross margin %</td><td>75.0%</td><td>(0.1)</td><td>—</td><td>—</td><td>74.9%</td></tr><tr><td>Operating expense ($ in million)</td><td>$7,449</td><td>172</td><td>—</td><td>—</td><td>$7,621</td></tr><tr><td>Operating income ($ in million)</td><td>$53,783</td><td>(219)</td><td>(28)</td><td>—</td><td>$53,536</td></tr><tr><td>Net income ($ in million)</td><td>$45,548</td><td>(219)</td><td>15,882</td><td>(2,890)</td><td>$58,321</td></tr><tr><td>Diluted shares (millions)</td><td>24,391</td><td>—</td><td>—</td><td>—</td><td>24,391</td></tr><tr><td>Diluted EPS</td><td>$1.87</td><td>(0.01)</td><td>0.65</td><td>(0.12)</td><td>$2.39</td></tr></table>",
+      "path": "tables/table-12 Q1 FY27 GAAP.html",
+      "metadata": {
+        "length": 930,
+        "summary": "table-13\nThe table shows Q1 FY27 financials: Non-GAAP gross margin 75.0% ($61,232M), GAAP 74.9% ($61,157M); Net income GAAP $58,321M; Diluted EPS GAAP $2.39.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-12 Q1 FY27 GAAP.html",
+        "keywords": [
+          "Gross margin",
+          "Net income",
+          "Diluted EPS"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "d952a3ac-47ad-5454-b7df-e77b4fc3afd3",
+      "type": "text",
+      "content": "Reconciliation of Non-GAAP to GAAP Financial Measures\n\n[tables/table-12 Q1 FY27 GAAP.html]\n\nBeginning in Q1 FY27, NVIDIA's non-GAAP financial measures no longer exclude stock-based compensation expense. The historical non-GAAP financial information presented has been updated to include stock-based compensation expense.\nA. Consists of amortization of intangible assets, transaction costs, and certain compensation charges.\nB. Other consists of net gain from equity securities, interest expense related to acquisition consideration discount to be paid in the future and amortization of debt discount, legal settlements, dividend income on equity securities, and share of net earnings related to equity method investments.",
+      "path": "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf/Investor Presentation Q1 FY27/Reconciliation of Non-GAAP to GAAP Financial Measures",
+      "metadata": {
+        "length": 788,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "tokens": [
+          "Reconciliation",
+          "Non",
+          "GAAP",
+          "Financial",
+          "Measures",
+          "Beginning",
+          "Q1",
+          "FY27",
+          "NVIDIA",
+          "financial",
+          "measures",
+          "longer",
+          "exclude",
+          "stock",
+          "based",
+          "compensation",
+          "expense",
+          "The",
+          "historical",
+          "information",
+          "presented",
+          "updated",
+          "include",
+          "Consists",
+          "amortization",
+          "intangible",
+          "assets",
+          "transaction",
+          "costs",
+          "charges",
+          "Other",
+          "consists",
+          "net",
+          "gain",
+          "equity",
+          "securities",
+          "interest",
+          "related",
+          "acquisition",
+          "consideration",
+          "discount",
+          "paid",
+          "future",
+          "debt",
+          "legal",
+          "settlements",
+          "dividend",
+          "income",
+          "share",
+          "earnings",
+          "method",
+          "investments"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "85f5d248-d5c3-5de0-a2b2-72dcd545ec6a",
+            "relation": "embeds",
+            "ref": "[tables/table-12 Q1 FY27 GAAP.html]",
+            "position": {
+              "start": 55,
+              "end": 90
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "5ffd9825-2e9a-5d4d-8d9f-30261f2ddf13",
+      "type": "table",
+      "content": "<table><tr><td>Q1 FY26</td><td>Non-GAAP</td><td>Acquisition-Related and Other Costs (A)</td><td>Other (B)</td><td>Tax Impact of Adjustments</td><td>GAAP</td></tr><tr><td>Gross margin ($ in million)</td><td>$26,794</td><td>(123)</td><td>(3)</td><td>—</td><td>$26,668</td></tr><tr><td>Gross margin %</td><td>60.8%</td><td>(0.3)</td><td>—</td><td>—</td><td>60.5%</td></tr><tr><td>Operating expense ($ in million)</td><td>$4,993</td><td>37</td><td>—</td><td>—</td><td>$5,030</td></tr><tr><td>Operating income ($ in million)</td><td>$21,801</td><td>(160)</td><td>(3)</td><td>—</td><td>$21,638</td></tr><tr><td>Net income ($ in million)</td><td>$19,094</td><td>(160)</td><td>(179)</td><td>20</td><td>$18,775</td></tr><tr><td>Diluted shares (millions)</td><td>24,611</td><td>—</td><td>—</td><td>—</td><td>24,611</td></tr><tr><td>Diluted EPS</td><td>$0.78</td><td>(0.01)</td><td>(0.01)</td><td>—</td><td>$0.76</td></tr></table>",
+      "path": "tables/table-13 Q1 FY26 Financials.html",
+      "metadata": {
+        "length": 919,
+        "summary": "table-14\nThe table shows Q1 FY26 financials with Non-GAAP gross margin of 60.8% and GAAP of 60.5%. Net income is $19,094M Non-GAAP vs $18,775M GAAP, with diluted EPS of $0.78 and $0.76 respectively.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-13 Q1 FY26 Financials.html",
+        "keywords": [
+          "Non-GAAP",
+          "GAAP",
+          "Gross Margin"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "797a48f3-cd54-59df-b9fb-f1aa47cba117",
+      "type": "text",
+      "content": "[tables/table-13 Q1 FY26 Financials.html]\n\nBeginning in Q1 FY27, NVIDIA's non-GAAP financial measures no longer exclude stock-based compensation expense. The historical non-GAAP financial information presented has been updated to include stock-based compensation expense.\nA. Consists of amortization of intangible assets, transaction costs, and certain compensation charges.\nB. Other consists of legal settlements, net loss from equity securities, and interest expense related to amortization of debt discount.",
+      "path": "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf/Investor Presentation Q1 FY27/Reconciliation of Non-GAAP to GAAP Financial Measures_2",
+      "metadata": {
+        "length": 571,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "tokens": [
+          "Beginning",
+          "Q1",
+          "FY27",
+          "NVIDIA",
+          "GAAP",
+          "financial",
+          "measures",
+          "longer",
+          "exclude",
+          "stock",
+          "based",
+          "compensation",
+          "expense",
+          "The",
+          "historical",
+          "information",
+          "presented",
+          "updated",
+          "include",
+          "Consists",
+          "amortization",
+          "intangible",
+          "assets",
+          "transaction",
+          "costs",
+          "charges",
+          "Other",
+          "consists",
+          "legal",
+          "settlements",
+          "net",
+          "loss",
+          "equity",
+          "securities",
+          "interest",
+          "related",
+          "debt",
+          "discount"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "5ffd9825-2e9a-5d4d-8d9f-30261f2ddf13",
+            "relation": "embeds",
+            "ref": "[tables/table-13 Q1 FY26 Financials.html]",
+            "position": {
+              "start": 0,
+              "end": 41
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "e757adf1-b61f-5447-adf3-b3f031f2368d",
+      "type": "table",
+      "content": "<table><tr><td>($ in Millions)</td><td>Q2 FY27 Outlook</td></tr><tr><td>Non-GAAP gross margin</td><td>75.0%</td></tr><tr><td>Impact of acquisition-related costs and other costs</td><td>(0.1%)</td></tr><tr><td>GAAP gross margin</td><td>74.9%</td></tr><tr><td></td><td></td></tr><tr><td>Non-GAAP operating expenses</td><td>$8,300</td></tr><tr><td>Acquisition-related costs and other costs</td><td>200</td></tr><tr><td>GAAP operating expenses</td><td>$8,500</td></tr></table>",
+      "path": "tables/table-14 Q2 FY27 Outlook.html",
+      "metadata": {
+        "length": 472,
+        "summary": "table-15\nThe table shows Q2 FY27 outlook: Non-GAAP gross margin 75.0%, GAAP 74.9%; Non-GAAP operating expenses $8,300M, GAAP $8,500M.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-14 Q2 FY27 Outlook.html",
+        "keywords": [
+          "Gross margin",
+          "Operating expenses",
+          "GAAP"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "504dec07-cb4d-542f-82b8-c72b1f65bf7b",
+      "type": "text",
+      "content": "[tables/table-14 Q2 FY27 Outlook.html]",
+      "path": "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf/Investor Presentation Q1 FY27/Reconciliation of Non-GAAP to GAAP Financial Measures (contd.)",
+      "metadata": {
+        "length": 54,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "tokens": [],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "e757adf1-b61f-5447-adf3-b3f031f2368d",
+            "relation": "embeds",
+            "ref": "[tables/table-14 Q2 FY27 Outlook.html]",
+            "position": {
+              "start": 0,
+              "end": 38
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "ec646ce0-f94f-5fc4-baf0-5b203fd702e7",
+      "type": "table",
+      "content": "<table><tr><td>($ in Millions)</td><td>Free Cash Flow</td><td>Purchases Related to Property and Equipment and Intangible Assets</td><td>Principal Payments on Property and Equipment and Intangible Assets</td><td>Net Cash Provided by Operating Activities</td></tr><tr><td>Q1 FY2027</td><td>$48,554</td><td>(1,757)</td><td>(33)</td><td>$50,344</td></tr><tr><td>Q1 FY 2026</td><td>$26,135</td><td>(1,227)</td><td>(52)</td><td>$27,414</td></tr></table>",
+      "path": "tables/table-15 Free Cash Flow.html",
+      "metadata": {
+        "length": 447,
+        "summary": "table-16\nThe table shows Q1 FY2027 Free Cash Flow of $48,554M from $50,344M operating activities, minus $1,757M property purchases, up from $26,135M in Q1 FY2026.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "tables/table-15 Free Cash Flow.html",
+        "keywords": [
+          "Free Cash Flow",
+          "Operating Activities",
+          "Property Equipment"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "7fe4a603-f0e8-57b3-95fc-8d2905559763",
+      "type": "image",
+      "content": "\nB. Other consists of legal settlements, net loss from equity securities, and interest expense related to amortization of debt discount. <details>0\n[images/image-11-Abstract Green Wave Design.jpg]\n",
+      "path": "images/image-11-Abstract Green Wave Design.jpg",
+      "metadata": {
+        "length": 181,
+        "summary": "image-11\n- A 3D rendered abstract image featuring layered, glowing lime-green curved bands.\n- The bands create a tunnel or wave effect receding into the distance on the right side.\n- The background is black with scattered white dots resembling stars in space.\n- No text or specific data is visible in the image.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "file_path": "images/image-11-Abstract Green Wave Design.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "d57169f5-e0e7-5623-bc2d-0bc9c03535a9",
+      "type": "text",
+      "content": "[tables/table-15 Free Cash Flow.html]\n\n\nB. Other consists of legal settlements, net loss from equity securities, and interest expense related to amortization of debt discount. <details>0\n[images/image-11-Abstract Green Wave Design.jpg]\n\n<details>\n<summary>natural_image</summary>\nAbstract green curved bands against a black starry background (no text or symbols)\n</details>",
+      "path": "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf/Investor Presentation Q1 FY27/Reconciliation of Non-GAAP to GAAP Financial Measures (contd.)_2",
+      "metadata": {
+        "length": 423,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Investor Presentation Q1 FY27",
+        "tokens": [
+          "Other",
+          "consists",
+          "legal",
+          "settlements",
+          "net",
+          "loss",
+          "equity",
+          "securities",
+          "interest",
+          "expense",
+          "related",
+          "amortization",
+          "debt",
+          "discount",
+          "details",
+          "summary",
+          "natural",
+          "image",
+          "Abstract",
+          "green",
+          "curved",
+          "bands",
+          "black",
+          "starry",
+          "background",
+          "text",
+          "symbols"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "ec646ce0-f94f-5fc4-baf0-5b203fd702e7",
+            "relation": "embeds",
+            "ref": "[tables/table-15 Free Cash Flow.html]",
+            "position": {
+              "start": 0,
+              "end": 37
+            }
+          },
+          {
+            "target": "7fe4a603-f0e8-57b3-95fc-8d2905559763",
+            "relation": "embeds",
+            "ref": "[images/image-11-Abstract Green Wave Design.jpg]",
+            "position": {
+              "start": 187,
+              "end": 235
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

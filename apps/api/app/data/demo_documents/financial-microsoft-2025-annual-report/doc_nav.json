@@ -1,0 +1,712 @@
+{
+  "version": "1.0",
+  "file_name": "Microsoft 2025 Annual Report.docx",
+  "stats": {
+    "total_chunks": 122,
+    "text_chunks": 49,
+    "image_chunks": 4,
+    "table_chunks": 69,
+    "max_depth": 2
+  },
+  "sections": [
+    {
+      "title": "**Preface**",
+      "path": "2025_AnnualReport.docx/**Preface**",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 48,
+      "children": [
+        {
+          "title": "**Preface** part 1",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 1",
+          "level": 2,
+          "summary": "Microsoft's 2025 annual report highlights the AI platform shift as a generational moment, with record revenue of $281.7 billion and Azure surpassing $75 billion. The company focuses on security, quality, and AI innovation, citing examples like Mercy Health saving 100,000 hours and Barclays deploying AI to 100,000 employees.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 2",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 2",
+          "level": 2,
+          "summary": "Microsoft's QEI frameworks improve engineering accountability and quality. Major AI advances include leading Cloud and AI infrastructure with over 400 datacenters globally, the Majorana-1 quantum chip, and Azure AI Foundry with 11,000+ models. Copilot products surpass 100 million monthly active users, with updates like Agent Mode and Copilot Studio used by 230,000 organizations. GitHub Copilot has 20 million users, and Dragon Copilot aids healthcare.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 3",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 3",
+          "level": 2,
+          "summary": "Microsoft integrates Copilot across Bing, Edge, GroupMe, MSN, Windows, and Xbox, and refreshes its Copilot consumer app. LinkedIn reaches 1.2 billion members, and gaming has 500 million monthly active users. The company emphasizes responsibility through initiatives like Microsoft Elevate, investing $4 billion over five years in AI cloud technology for schools and nonprofits. It aims to help 20 million people earn AI credentials in two years and launches the AI Economy Institute. Microsoft offers free Microsoft 365 Copilot Personal for U.S. college students and new LinkedIn courses. It commits to responsible AI innovation, safety, and security, guided by values of respect, integrity, and accountability. The company strengthens digital stability in Europe, follows UN Guiding Principles on Business and Human Rights, and publishes a Responsible AI Transparency Report. It also partners with StopNCII.org to address abusive AI-generated content.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 4",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 4",
+          "level": 2,
+          "summary": "Microsoft's 2025 report highlights progress in AI skilling for accessibility, renewable energy procurement reaching 34 gigawatts, carbon removal contracts, clean water access, and zero waste initiatives. The company emphasizes a growth mindset culture, employee volunteering, and long-term vision for AI-driven transformation across cybersecurity, speech interfaces, disability support, education, and medical knowledge.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 5",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 5",
+          "level": 2,
+          "summary": "The passage covers Microsoft's common stock trading on NASDAQ under MSFT, with 77,014 registered holders as of July 24, 2025. It details share repurchase programs approved in 2021 and 2024, each authorizing up to $60 billion, with $57.3 billion remaining as of June 30, 2025. Quarterly repurchase data for fiscal years 2023-2025 shows totals of 31 shares ($13,000M) in 2025, 32 shares ($11,960M) in 2024, and 69 shares ($18,400M) in 2023. Dividends declared quarterly were $0.83 per share in 2025 and $0.75 in 2024, totaling $24,678 million and $22,295 million respectively. A stock performance chart compares 5-year cumulative total returns of Microsoft, S&P 500, and NASDAQ Computer Index from June 2020 to June 2025, with Microsoft ending at $255.13, S&P 500 at $215.89, and NASDAQ Computer at $254.97, all starting at $100.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 6",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 6",
+          "level": 2,
+          "summary": "Microsoft is a technology company focused on AI and digital transformation, offering a broad portfolio of software, services, and devices. Its mission is to empower people and organizations globally. The Microsoft Cloud provides integrated solutions across the technology stack, benefiting from economies of scale in datacenters and multi-tenancy. The report includes forward-looking statements about business plans and objectives, subject to risks and uncertainties.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 7",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 7",
+          "level": 2,
+          "summary": "Microsoft prioritizes security and offers AI-driven products for security, compliance, identity, and management across multi-cloud, application, and device assets. Their R&D focuses on reinventing productivity, building the intelligent cloud and edge platform, and creating more personal computing. They aim to lead in AI, cloud services, workplace transformation, gaming, and Windows. Microsoft is committed to sustainability with goals to be carbon negative, water positive, and zero waste by 2030. The company operates in three segments: Productivity and Business Processes, Intelligent Cloud, and More Personal Computing, with changes announced in August 2024 to align with current business management.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 8",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 8",
+          "level": 2,
+          "summary": "The text describes Microsoft's reportable segments, focusing on Productivity and Business Processes. This segment includes Microsoft 365 Commercial and Consumer products and cloud services, LinkedIn, and Dynamics products. Key offerings include AI-powered productivity tools, cloud subscriptions, and professional networking solutions. Revenue growth depends on user adoption, AI features, and shifts from on-premises to cloud services.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 9",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 9",
+          "level": 2,
+          "summary": "The passage describes Microsoft's Dynamics business solutions for financial management, ERP, CRM, and supply chain, with revenue driven by user licenses and cloud shift. It outlines competition for Office, Windows, Enterprise Mobility, LinkedIn, and Dynamics. The Intelligent Cloud segment includes Azure and server products, with Azure offering AI services and competing via infrastructure and platform services.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 10",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 10",
+          "level": 2,
+          "summary": "The passage discusses Microsoft's server products, including server software, databases, and development tools, which are sold through volume licensing, OEMs, and retail. It also covers GitHub and Nuance Healthcare offerings, enterprise services, and competition faced by Azure and server products from various cloud providers, open source alternatives, and commercial vendors. The summary highlights competitive advantages in hybrid cloud, AI, security, and performance.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 11",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 11",
+          "level": 2,
+          "summary": "The text describes three major business segments of Microsoft: Windows and Devices, Gaming, and Search and News Advertising. Windows and Devices covers OEM licensing, Surface devices, and PC accessories, with revenue impacted by market mix, AI PCs, and supply chain. Gaming includes Xbox hardware, content, Game Pass subscriptions, and cloud gaming, focusing on expanding the player base across platforms. Search and News Advertising involves Bing, Copilot, Microsoft News, and Edge, generating revenue through ads.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 12",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 12",
+          "level": 2,
+          "summary": "The passage covers Microsoft's Search and news advertising business, competition in Windows, Devices, Xbox, and Search advertising. It details human capital resources with 228,000 employees as of June 2025, including distribution by function and location. Operations include regional service centers and datacenters focused on AI service demand.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 13",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 13",
+          "level": 2,
+          "summary": "The passage discusses the company's reliance on third-party manufacturers and potential risks from limited suppliers for server components. It emphasizes significant investments in research and development for new products and services, including cloud computing, AI, and devices. The company develops most products internally to maintain competitive advantages and protects its intellectual property through patents, trademarks, and licensing. It also engages in open source and cross-license agreements. The summary covers supply chain resilience, R&D strategy, and IP protection.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 14",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 14",
+          "level": 2,
+          "summary": "Microsoft sells products and services through direct sales, distributors and resellers, and OEMs. Direct sales include Enterprise Agreements and online stores. Resellers include LSPs, VARs, and retailers. OEMs pre-install software on devices, with direct OEMs and system builders as categories.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 15",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 15",
+          "level": 2,
+          "summary": "The text describes Microsoft's volume licensing programs for organizations of varying sizes, covering cloud services and on-premises software. It explains Software Assurance (SA) benefits and outlines specific programs: Enterprise Agreement for large organizations with three-year terms, Microsoft Customer Agreement as a digital non-expiring option, Microsoft Online Subscription Agreement for small/medium businesses, Microsoft Products and Services Agreement for medium/large organizations without organization-wide commitment, Open Value for small/medium organizations with three-year terms including SA, and Select Plus for government/academic entities. Partner programs include Cloud Solution Provider Program, Services Provider License Agreement, and Independent Software Vendor Royalty Program.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 16",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 16",
+          "level": 2,
+          "summary": "The passage discusses Microsoft's compliance with a wide range of U.S. and global laws, including those related to privacy, telecommunications, data protection, advertising, and online content. The company has implemented comprehensive compliance programs, monitors regulatory developments, and uses policies, controls, and technical safeguards to meet legal standards. It highlights tailored programs for specific obligations like the EU Digital Markets Act and Digital Services Act. The text also describes available investor information on Microsoft's website, including SEC filings, business strategies, press releases, and corporate governance materials, as well as social media channels for public communication.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 17",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 17",
+          "level": 2,
+          "summary": "Microsoft's MD&A for fiscal year 2025 highlights strong growth driven by cloud and AI. Microsoft Cloud revenue rose 23% to $168.9 billion, with Azure and other cloud services growing 34%. The company discusses its strategic partnership with OpenAI, industry trends, and competitive risks. Key revenue drivers include Microsoft 365, Dynamics 365, LinkedIn, Xbox, and search advertising.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 18",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 18",
+          "level": 2,
+          "summary": "The passage discusses Microsoft's investments in cloud and AI infrastructure, which may increase operating costs and decrease margins. It highlights dependencies on datacenter resources, third-party manufacturers, and qualified employees. International operations face foreign exchange risks, and global trade policies could impact supply chains. Revenue is seasonal, peaking in Q4. Segment reporting was restructured in August 2024, aligning with management practices. Key metrics are disclosed for performance evaluation.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 19",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 19",
+          "level": 2,
+          "summary": "Microsoft's fiscal year 2025 results show total revenue of $281.7 billion (up 15%), gross margin of $193.9 billion, operating income of $128.5 billion, and net income of $101.8 billion. Segment performance includes Productivity & Business Processes revenue up 13% to $120.8 billion, Intelligent Cloud up 21% to $106.3 billion, and More Personal Computing up 7% to $54.6 billion. Key metric changes include a new Microsoft 365 Commercial cloud revenue growth metric and combining Windows OEM with Devices. Microsoft Cloud gross margin decreased to 69% due to AI infrastructure scaling. Revenue growth was driven by Azure, Microsoft 365 Commercial cloud, Gaming, and Search advertising.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 20",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 20",
+          "level": 2,
+          "summary": "Microsoft's fiscal year 2025 results show strong growth across segments. Microsoft 365 Consumer revenue rose 11% with subscriber growth to 89 million. LinkedIn revenue increased 9%. Dynamics 365 revenue grew 19%. Intelligent Cloud revenue rose 21%, driven by Azure growth of 34%. More Personal Computing revenue increased 7%, with Gaming up 9% due to Xbox content and services growth of 16%, offset by a 25% decline in Xbox hardware. Operating income increased 17% overall. Research and development expenses rose 10% due to investments in cloud, AI, and Gaming.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 21",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 21",
+          "level": 2,
+          "summary": "Sales and marketing costs rose 5% to $25,654 million in 2025 (9% of revenue) from $24,456 million in 2024 (10% of revenue). General and administrative expenses decreased 5% to $7,223 million. Other income (expense), net showed a net loss of $4,901 million in 2025 versus $1,646 million in 2024. The effective tax rate remained at 18% for both years, with U.S. income before taxes at $69.2 billion and foreign income at $54.4 billion in 2025.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 22",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 22",
+          "level": 2,
+          "summary": "The passage discusses Microsoft's tax and liquidity positions. It covers the OECD's Pillar Two global minimum tax (15%) effective FY2025, the U.S. OBBBA Act (14% GILTI rate from FY2027), and an ongoing IRS audit for tax years 2004-2013 involving a $28.9 billion proposed adjustment for intercompany transfer pricing, which Microsoft contests. The company expects no material impact from Pillar Two and does not anticipate a resolution of the IRS audit within 12 months. On liquidity, cash, cash equivalents, and short-term investments totaled $94.6 billion as of June 30, 2025, with sufficient resources to fund operations and commitments for at least the next 12 months.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 23",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 23",
+          "level": 2,
+          "summary": "The passage discusses fair value measurement of financial instruments, classifying them into Level 1 (quoted market prices), Level 2 (observable inputs), and Level 3 (unobservable inputs). Most investments are Level 1 or 2, priced by vendors or brokers. Cash flows show operations increased $17.6B to $136.2B, financing used $13.9B more, and investing decreased $24.4B. Debt proceeds fund corporate purposes. Unearned revenue, mainly from volume licensing and cloud services, totals $67,265 million expected to be recognized through June 2026.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 24",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 24",
+          "level": 2,
+          "summary": "The passage details Microsoft's material cash requirements and obligations as of June 30, 2025, including $397,045 million in contractual obligations (debt, leases, purchase commitments) with $148,106 million due in 2026. It covers a $4.4 billion transition tax installment due in Q1 FY2026, $13.0 billion in share repurchases during FY2025 with $57.3 billion remaining authorized, $24.7 billion in dividends declared, and planned capital investments in cloud, AI infrastructure, and facilities.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 25",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 25",
+          "level": 2,
+          "summary": "The passage discusses revenue recognition judgments for contracts with multiple products and services, including determining distinct performance obligations, standalone selling price estimation, variable consideration for returns and credits, and impairment assessments for investment securities and goodwill.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 26",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 26",
+          "level": 2,
+          "summary": "The passage discusses accounting policies for goodwill, research and development costs, legal contingencies, and income taxes. Goodwill is allocated to reporting units and tested for impairment annually or upon triggering events, using discounted cash flow analysis requiring significant judgment. R&D costs are expensed until technological feasibility is established, then capitalized. Legal loss contingencies are accrued when probable and reasonably estimable. Income taxes are also mentioned.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 27",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 27",
+          "level": 2,
+          "summary": "The passage covers accounting for income taxes, including recognizing current and deferred tax liabilities/assets, uncertain tax positions, and management's responsibility for financial statements. It also discusses market risk exposures (foreign currency, interest rate, credit, equity) and the use of derivatives for risk management.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 28",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 28",
+          "level": 2,
+          "summary": "The passage presents financial statements and supplementary data for a company (likely Microsoft) as of June 30, 2025. It includes tables on risk categories (foreign currency, interest rate, credit, equity) with hypothetical changes impacting earnings or fair value. Income statements show total revenue growing from $211,915M to $281,724M, net income from $72,361M to $101,832M, and diluted EPS from $9.68 to $13.64 over fiscal years 2023-2025. Comprehensive income statements, balance sheets (total assets $619,003M in 2025), cash flow statements (net cash from operations $136,162M in 2025), and stockholders' equity statements (ending total equity $343,479M in 2025) are included. Notes to financial statements cover accounting policies, principles of consolidation, recast of prior period segment information (effective August 2024), and estimates and assumptions.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 29",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 29",
+          "level": 2,
+          "summary": "Assets and liabilities in foreign currencies are translated at balance sheet date exchange rates, with revenue and expenses at average rates, and adjustments recorded to other comprehensive income. Revenue includes product revenue from software, hardware, and services like cloud solutions, advertising, and consulting. Revenue is recognized when control transfers to customers, net of returns and taxes. On-premises software licenses are recognized upfront, while cloud services are recognized ratably or based on consumption. Software Assurance revenue is recognized over the contract period. Hardware and software are often a single performance obligation recognized at transfer of ownership.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 30",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 30",
+          "level": 2,
+          "summary": "The passage discusses significant judgments in revenue recognition for contracts with multiple products and services, including determining distinct performance obligations, estimating standalone selling prices (SSP), and accounting for variable consideration such as returns and credits. It also covers contract balances, unearned revenue, and timing differences between revenue recognition and invoicing, with examples like Office 365 and multi-year agreements.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 31",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 31",
+          "level": 2,
+          "summary": "The passage discusses payment terms (30-60 days), revenue recognition timing, and financing receivables. It details long-term accounts receivable ($5.2B in 2025, $4.9B in 2024), other receivables for server components ($8.2B in 2025, $10.5B in 2024), and financing receivables ($4.3B in 2025, $4.5B in 2024). It also covers allowance for doubtful accounts, capitalized costs to obtain contracts, and cost categories including cost of revenue, research and development, and sales and marketing expenses.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 32",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 32",
+          "level": 2,
+          "summary": "The passage details sales and marketing expenses including payroll, advertising, and promotions, with advertising costs of $2.1B, $1.7B, and $904M for fiscal years 2025, 2024, and 2023. It explains stock-based compensation for RSUs and PSUs, measured at fair value and recognized over service periods. Income taxes cover U.S. and international taxes, deferred taxes, and valuation allowances. Financial instruments section describes investments: cash equivalents, short-term investments, debt investments classified as available-for-sale with fair value changes in other comprehensive income, and equity investments measured at fair value or using the measurement alternative.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 33",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 33",
+          "level": 2,
+          "summary": "The passage discusses accounting treatments for variable interest entities (VIEs), derivatives, and fair value measurements. VIEs are evaluated for consolidation but none are consolidated; they are accounted for under the equity method, including a $13 billion investment in OpenAI. Derivatives are measured at fair value, with gains/losses recognized based on designation as fair value hedges, cash flow hedges, or non-designated instruments. Fair value measurements are categorized into three levels: Level 1 (quoted prices in active markets), Level 2 (observable inputs via models), and Level 3 (unobservable inputs using management estimates).",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 34",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 34",
+          "level": 2,
+          "summary": "The passage details accounting policies for equity investments, property and equipment, leases, goodwill, intangible assets, and related party transactions. It explains valuation methods, depreciation, lease recognition, impairment testing, and a recent agreement with Inflection AI.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 35",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 35",
+          "level": 2,
+          "summary": "The passage discusses recent FASB accounting standards adopted or pending adoption, including improved segment disclosures (effective fiscal 2025), income tax disclosures (effective fiscal 2026), and disaggregation of income statement expenses (effective fiscal 2028). It also covers Notes 2-4: Earnings Per Share (basic and diluted EPS calculations with net income rising from $72,361M to $101,832M and diluted EPS from $9.68 to $13.64), Other Income/Expense (net totals of -$4,901M, -$1,646M, and $788M for fiscal years 2025, 2024, 2023, including losses on equity method investments like OpenAI), and Investments (total $109,970 million as of June 30, 2025, with components including adjusted cost basis, unrealized gains/losses, and classifications).",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 36",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 36",
+          "level": 2,
+          "summary": "The passage details investments as of June 30, 2024, with adjusted cost basis, unrealized gains/losses, and recorded basis totaling $90,143 million. It discusses equity investments without readily determinable fair values, equity method investments, and unrealized losses on debt investments, noting a decrease in total fair value from $54,589M to $42,736M and unrealized losses from $(3,348)M to $(1,625)M. Debt investment maturities as of June 30, 2025 show total cost basis of $85,589 million and fair value of $84,259 million. Note 5 covers derivatives used to manage foreign currency, interest rate, equity, and credit risks, including hedging instruments and non-designated contracts.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 37",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 37",
+          "level": 2,
+          "summary": "The passage covers derivative instruments, including counterparty agreements requiring investment-grade credit rating and $1.0B liquidity, with no collateral posted as of June 30, 2025. Notional amounts and fair values of derivatives are detailed, with gross assets of $758M and liabilities of $(1,837M) in 2025, offset by collateral. Gains and losses from hedging instruments are reported for fiscal years 2023-2025. Property and equipment are summarized with net values of $204,966M (2025) and $135,591M (2024), depreciation expenses, and $32.1B committed for construction. The acquisition of Activision Blizzard for $75.4B in cash on October 13, 2023, is noted, with purchase price allocation completed.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 38",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 38",
+          "level": 2,
+          "summary": "The passage discusses Microsoft's goodwill and intangible assets, primarily from the Activision Blizzard acquisition. Goodwill was assigned to the More Personal Computing segment, totaling $119.5 billion by June 2025, up from $67.9 billion in 2023. Intangible assets acquired had a fair value of $21.97 billion with a weighted average life of 15 years, including marketing-related ($11.6B, 24 years), technology-based ($9.7B, 4 years), and customer-related ($0.7B, 4 years). Pro forma financial results for fiscal year 2024 show revenue of $247.4 billion, net income of $88.3 billion, and diluted EPS of $11.82. No goodwill impairment was identified in annual tests for 2023, 2024, or 2025. Net intangible assets decreased from $27.6 billion to $22.6 billion between 2024 and 2025.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 39",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 39",
+          "level": 2,
+          "summary": "The passage covers Notes 10 and 11 from a financial report. Note 10 details debt: no commercial paper in 2025 (vs. $6.7B in 2024), long-term debt totaling $43.151B (2025) and $44.937B (2024) with fair values of $40.4B and $42.3B, and future maturities of $49.206B. Note 11 covers income taxes: total provisions of $21.795B (2025), $19.651B (2024), $16.950B (2023); income before taxes of $123.627B, $107.787B, $89.311B; effective tax rate reconciliation from 21% federal rate, with lower foreign rates (81-83% from Ireland) as primary driver. Intangible assets amortization was $6.0B (2025), $4.8B (2024), $2.5B (2023), with future amortization totaling $22.604M.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 40",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 40",
+          "level": 2,
+          "summary": "The passage discusses changes in the effective tax rate for fiscal years 2025, 2024, and 2023, attributed to earnings mix and tax law changes. It details deferred income tax assets and liabilities, with net deferred tax assets of $26,273 million and $19,652 million as of June 30, 2025 and 2024. Net operating loss carryforwards are reported for federal ($390 million), state ($836 million), and foreign ($2.6 billion) jurisdictions, along with federal capital loss carryforwards ($816 million). A valuation allowance is noted for certain deferred tax assets. Income taxes paid were $28.7 billion, $23.4 billion, and $23.1 billion for fiscal years 2025, 2024, and 2023. Gross unrecognized tax benefits related to uncertain tax positions were $24.7 billion, $22.8 billion, and $17.1 billion as of June 30, 2025, 2024, and 2023, with accrued interest of $8.2 billion, $6.8 billion, and $5.2 billion. The IRS is auditing tax years 2014 to 2017 and issued NOPAs for 2004 to 2013 seeking $28.9 billion plus penalties, which the company contests.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 41",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 41",
+          "level": 2,
+          "summary": "The passage covers financial notes including unearned revenue, leases, and contingencies. Unearned revenue increased from $60,184M to $67,265M, with $186,957M deferred and $179,876M recognized in fiscal year 2025. Remaining performance obligations total $375 billion. Lease disclosures detail operating and finance lease costs, cash flows, balance sheet data, and maturities totaling $25,481M for operating and $60,506M for finance leases, with $92.7 billion in additional leases not yet commenced. Contingencies include an Irish Data Protection Commission matter against LinkedIn with a fine appealed to Irish courts, and other ordinary course claims not expected to be material.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 42",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 42",
+          "level": 2,
+          "summary": "The passage details financial notes including $541 million in accrued legal liabilities with potential additional $600 million in adverse outcomes. It covers share repurchases under two $60 billion programs, with $57.3 billion remaining as of June 2025, and quarterly repurchases totaling 31 shares ($13,000M) in 2025. Dividends declared were $0.83 per share in 2025 and $0.75 in 2024. Accumulated other comprehensive loss was $(3,347) million in 2025. Stock-based compensation expenses and related tax benefits are noted, along with stock award vesting periods and activity assumptions.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 43",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 43",
+          "level": 2,
+          "summary": "The passage covers stock plan activity for fiscal year 2025, including nonvested stock awards, unrecognized compensation costs, and the Employee Stock Purchase Plan (ESPP) with share purchases and average prices. It also details savings plans and employer-funded retirement benefits. Additionally, it introduces segment information for Productivity and Business Processes, Intelligent Cloud, and More Personal Computing, with operating income as the key performance measure.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 44",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 44",
+          "level": 2,
+          "summary": "The text describes Microsoft's three business segments: Productivity and Business Processes (including Microsoft 365, LinkedIn, Dynamics), Intelligent Cloud (including Azure, server products, enterprise services), and More Personal Computing (including Windows, Gaming, Search). It explains revenue and cost allocation methods among segments, including direct attribution and allocation based on relative gross margin or headcount. Financial data for fiscal years 2023-2025 is presented in tables, showing total revenue of $281,724 million in 2025, $245,122 million in 2024, and $211,915 million in 2023, split between the United States and other countries. No single customer or country (except the US) accounted for more than 10% of revenue.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 45",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 45",
+          "level": 2,
+          "summary": "Microsoft's fiscal 2025 revenue reached $281,724M, up from $245,122M in 2024 and $211,915M in 2023, led by Server products and cloud services. Microsoft Cloud revenue was $168.9 billion in 2025, compared to $137.7 billion in 2024 and $111.6 billion in 2023. Total revenue including other items was $371,902 million in June 2025. The report also includes an independent auditor's opinion confirming the financial statements are fairly presented in accordance with U.S. GAAP, with an unqualified opinion on internal control over financial reporting as of June 30, 2025.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 46",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 46",
+          "level": 2,
+          "summary": "The passage describes two critical audit matters (CAMs) from a financial statement audit: Revenue Recognition and Income Taxes (Uncertain Tax Positions). For Revenue Recognition, the company recognizes revenue upon transfer of control, involving significant judgment on distinct performance obligations, delivery patterns, contract terms, and stand-alone selling prices. Audit procedures included testing controls, evaluating policies, and sampling contracts. For Income Taxes, the company faces uncertain tax positions related to transfer pricing issues unresolved with the IRS, with potential material impact from remaining audits.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 47",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 47",
+          "level": 2,
+          "summary": "The passage discusses the critical audit matter of recognizing and measuring uncertain tax positions, focusing on unresolved transfer pricing issues. It highlights the complexity and subjective nature of these estimates, requiring significant auditor judgment and involvement of tax specialists. Audit procedures included evaluating management's methods, testing internal controls, assessing reasonableness of judgments regarding future resolution, and considering changes in tax law. The report also covers management's evaluation of disclosure controls and internal control over financial reporting, both deemed effective as of June 30, 2025, with Deloitte & Touche LLP providing the audit opinion.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "**Preface** part 48",
+          "path": "2025_AnnualReport.docx/**Preface**/**Preface** part 48",
+          "level": 2,
+          "summary": "The text is an audit report on Microsoft Corporation's internal control over financial reporting as of June 30, 2025. Deloitte & Touche LLP expresses an unqualified opinion that the company maintained effective internal control in all material respects, based on COSO criteria. The report also notes an unqualified opinion on the consolidated financial statements. It describes the basis for the opinion, the responsibilities of management and auditors, and the definition and limitations of internal control over financial reporting. The document includes a signature block dated July 30, 2025, and lists board members and executive officers.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "4.\tEnvironmental, Social, and Public Policy Committee",
+      "path": "2025_AnnualReport.docx/4.\tEnvironmental, Social, and Public Policy Committee",
+      "level": 1,
+      "summary": "The document provides information about Microsoft's executive officers including CEO Satya Nadella and CFO Amy Hood. It details investor relations contact information, the 2025 virtual annual shareholders meeting scheduled for December 5, 2025, and shareholder services provided by Computershare. The document also covers environmental, social, and governance (ESG) commitments, with the Board's Environmental, Social, and Public Policy Committee overseeing corporate social responsibility. Additionally, it includes a certification for mixed sources paper from the Forest Stewardship Council.",
+      "chunk_count": 1,
+      "children": []
+    }
+  ],
+  "resources": {
+    "images": [
+      {
+        "path": "images/image-1 Annual Report 2025.png",
+        "summary": "image-1 Microsoft Annual Report 2025 Cover Primary Subject: Two colleagues collaborating at a desk with a laptop. Visible Text: \"Annual Report 2025\", Microsoft Logo."
+      },
+      {
+        "path": "images/image-2 Signature.jpeg",
+        "summary": "image-2 Sarga N."
+      },
+      {
+        "path": "images/image-3 Microsoft vs S&P 500 v.jpeg",
+        "summary": "image-3 Chart Title: Microsoft Corporation, S&P 500, and NASDAQ Computer Index Performance Y-Axis: Dollar Value ($0 to $300) X-Axis: Dates (6/20 to 6/25) Data Points & Trends: - All three indices start at a baseline of $100 on 6/20. - Microsoft Corporation (Square marker): Starts at $100, dips slightly on 6/21 (~$135), drops to ~$128 on 6/22, then rises sharply to finish at approximately $250 on 6/25. It shows the strongest overall growth among the three. - NASDAQ Computer (Circle marker): Starts at $100, peaks at ~$150 on 6/21, drops to its lowest point (~$118) on 6/22, then recovers strongly to end near $250 on 6/25. Its trajectory closely mirrors Microsoft's in the latter half."
+      },
+      {
+        "path": "images/image-4 FSC Certification Labe.jpeg",
+        "summary": "image-4 Certification Type: MIX (Mixed Sources) Description: Paper | Supporting responsible forestry License Number: FSC® C132107 Issuing Authority: FSC (Forest Stewardship Council) Website: www.fsc.org"
+      }
+    ],
+    "tables": [
+      {
+        "path": "tables/table-1 Share Repurchases.html",
+        "summary": "table-1 The table shows quarterly share repurchases and amounts for fiscal years 2023-2025, with totals of 31 shares ($13,000M) in 2025, 32 shares ($11,960M) in 2024, and 69 shares ($18,400M) in 2023."
+      },
+      {
+        "path": "tables/table-2 Dividend History.html",
+        "summary": "table-2 The table shows quarterly dividends for fiscal years 2025 and 2024, with per-share amounts of $0.83 and $0.75 respectively, totaling $24,678 million and $22,295 million."
+      },
+      {
+        "path": "tables/table-3 Stock Index Data.html",
+        "summary": "table-3 The table shows daily values for Microsoft Corporation, S&P 500, and NASDAQ Computer from June 20 to June 25, with each starting at 100.00 and ending at 255.13, 215.89, and 254.97 respectively."
+      },
+      {
+        "path": "tables/table-4 Microsoft Cloud KPIs.html",
+        "summary": "table-4 Table defines three Microsoft Cloud metrics: Commercial remaining performance obligation, Cloud revenue and growth, and Cloud gross margin percentage."
+      },
+      {
+        "path": "tables/table-5 Microsoft Cloud KPIs.html",
+        "summary": "table-5 The table defines key performance indicators for Microsoft's commercial and consumer cloud services, including revenue growth, seat growth, and subscriber counts for Microsoft 365, LinkedIn, Dynamics 365, and Azure."
+      },
+      {
+        "path": "tables/table-6 Microsoft Revenue.html",
+        "summary": "table-6 Revenue growth from Windows OEM and Devices, Xbox content and services, and Search and news advertising excluding traffic acquisition costs."
+      },
+      {
+        "path": "tables/table-7 Revenue Growth.html",
+        "summary": "table-7 The table shows financial results for 2025 vs 2024: Revenue $281,724M (up 15%), Gross margin $193,893M (up 13%), Operating income $128,528M (up 17%), Net income $101,832M (up 16%), Diluted EPS $13.64 (up 16%)."
+      },
+      {
+        "path": "tables/table-8 Microsoft Segment Results.html",
+        "summary": "table-8 Microsoft's 2025 vs 2024 segment data: Productivity & Business Processes revenue $120,810M (+13%), Intelligent Cloud $106,265M (+21%), More Personal Computing $54,649M (+7%). Total revenue $281,724M (+15%), operating income $128,528M (+17%)."
+      },
+      {
+        "path": "tables/table-9 R&D Spending 2025.html",
+        "summary": "table-9 Research and development spending increased from $29,510 million in 2024 to $32,488 million in 2025, a 10% rise, while remaining at 12% of revenue."
+      },
+      {
+        "path": "tables/table-10 Sales & Marketing.html",
+        "summary": "table-10 Sales and marketing costs were $25,654 million in 2025 (9% of revenue) and $24,456 million in 2024 (10% of revenue), a 5% increase and a 1 percentage point decrease as a percent of revenue."
+      },
+      {
+        "path": "tables/table-11 G&A Expenses.html",
+        "summary": "table-11 General and administrative expenses decreased 5% from $7,609M in 2024 to $7,223M in 2025, remaining at 3% of revenue with 0ppt change."
+      },
+      {
+        "path": "tables/table-12 Financial Summary.html",
+        "summary": "table-12 The table shows financial data for years ended June 30, 2025 and 2024, including interest income, expenses, investment losses, derivatives losses, foreign currency gains/losses, and other net losses, resulting in total net losses of $4,901 million and $1,646 million respectively."
+      },
+      {
+        "path": "tables/table-13 Revenue Schedule.html",
+        "summary": "table-13 The table shows quarterly revenue figures from September 2025 to June 2026, with a total of $67,265 million."
+      },
+      {
+        "path": "tables/table-14 Debt Commitments.html",
+        "summary": "table-14 The table summarizes contractual obligations totaling $397,045 million, including principal and interest payments, construction commitments, leases, and purchase commitments, with $148,106 million due in 2026 and $248,939 million thereafter."
+      },
+      {
+        "path": "tables/table-15 Risk Sensitivity.html",
+        "summary": "table-15 The table shows risk categories (foreign currency, interest rate, credit, equity) with hypothetical changes and their impacts on earnings or fair value as of June 30, 2025."
+      },
+      {
+        "path": "tables/table-16 Revenue & Income.html",
+        "summary": "table-16 The table shows financial data for years ending June 30, 2025, 2024, and 2023. Total revenue grew from $211,915M to $281,724M, net income from $72,361M to $101,832M, and diluted EPS from $9.68 to $13.64."
+      },
+      {
+        "path": "tables/table-17 Comprehensive Income.html",
+        "summary": "table-17 The table shows net income, other comprehensive income (OCI) components, and total comprehensive income for fiscal years 2025, 2024, and 2023, with net income rising from $72,361M to $101,832M."
+      },
+      {
+        "path": "tables/table-18 Balance Sheet.html",
+        "summary": "table-18 Consolidated balance sheet as of June 30, 2025 and 2024, showing total assets of $619,003 million and $512,163 million, with corresponding liabilities and stockholders' equity."
+      },
+      {
+        "path": "tables/table-19 Cash Flow Statement.html",
+        "summary": "table-19 The table shows cash flow from operations, financing, and investing for fiscal years 2023-2025, with net cash from operations increasing from $87,582M to $136,162M."
+      },
+      {
+        "path": "tables/table-20 Stockholders' Equity.html",
+        "summary": "table-20 The table shows stockholders' equity components for fiscal years 2023-2025, including common stock, retained earnings, and accumulated other comprehensive loss, with ending total equity of $343,479 million in 2025."
+      },
+      {
+        "path": "tables/table-21 EPS Data Table.html",
+        "summary": "table-21 The table shows net income, weighted average shares, and basic/diluted EPS for fiscal years 2023-2025. Net income rose from $72,361M to $101,832M, while diluted EPS increased from $9.68 to $13.64."
+      },
+      {
+        "path": "tables/table-22 Investment Income.html",
+        "summary": "table-22 The table shows interest and dividends income, interest expense, net gains/losses on investments, derivatives, foreign currency, and other items for fiscal years 2025, 2024, and 2023, with totals of -$4,901M, -$1,646M, and $788M respectively."
+      },
+      {
+        "path": "tables/table-23 Investment Gains.html",
+        "summary": "table-23 The table shows realized gains and losses from sales of available-for-sale securities and impairments for fiscal years 2025, 2024, and 2023, with total net losses of $17M, $53M, and $98M respectively."
+      },
+      {
+        "path": "tables/table-24 Investment Gains.html",
+        "summary": "table-24 The table shows net realized gains, unrealized gains, and impairments for fiscal years 2025, 2024, and 2023, with totals of -332, -65, and 358 million respectively."
+      },
+      {
+        "path": "tables/table-25 Investment Table.html",
+        "summary": "table-25 The table details investments as of June 30, 2025, showing adjusted cost basis, unrealized gains/losses, recorded basis, and classification into cash, short-term, equity, and other investments, totaling $109,970 million."
+      },
+      {
+        "path": "tables/table-26 Investment Summary.html",
+        "summary": "table-26 Table details investments as of June 30, 2024, with adjusted cost basis, unrealized gains/losses, and recorded basis across debt and equity categories, totaling $90,143 million."
+      },
+      {
+        "path": "tables/table-27 Unrealized Losses.html",
+        "summary": "table-27 The table shows fair values and unrealized losses for securities held less than 12 months and 12 months or greater as of June 30, 2025 and 2024. Total fair value decreased from $54,589M to $42,736M, while total unrealized losses decreased from $(3,348)M to $(1,625)M."
+      },
+      {
+        "path": "tables/table-28 Debt Securities.html",
+        "summary": "table-28 The table shows adjusted cost basis and estimated fair value of debt securities by maturity as of June 30, 2025. Total cost basis is $85,589 million, with fair value at $84,259 million."
+      },
+      {
+        "path": "tables/table-29 Derivative Notional.html",
+        "summary": "table-29 The table shows notional amounts of derivative instruments as of June 30, 2025 and 2024, categorized by hedging designation and contract type, with foreign exchange contracts being the largest."
+      },
+      {
+        "path": "tables/table-30 Derivative Assets.html",
+        "summary": "table-30 The table shows derivative assets and liabilities as of June 30, 2025 and 2024, with gross amounts of $758M and $331M in assets, and $(1,837M) and $(800M) in liabilities, offset by collateral."
+      },
+      {
+        "path": "tables/table-31 Derivatives by Level.html",
+        "summary": "table-31 The table shows derivative assets and liabilities by fair value hierarchy (Level 1, 2, 3) as of June 30, 2025 and 2024. Total derivative assets were $758M (2025) and $331M (2024); liabilities were $(1,837M) and $(800M) respectively."
+      },
+      {
+        "path": "tables/table-32 Hedging Gains_Losses.html",
+        "summary": "table-32 The table shows gains and losses from interest rate, foreign exchange, equity, and other contracts designated as fair value, cash flow, or non-designated hedging instruments for fiscal years 2023-2025."
+      },
+      {
+        "path": "tables/table-33 Cash Flow Hedges.html",
+        "summary": "table-33 The table shows gains (losses) on foreign exchange contracts designated as cash flow hedging instruments: $77M in 2025, $(14)M in 2024, and $34M in 2023."
+      },
+      {
+        "path": "tables/table-34 Property Assets.html",
+        "summary": "table-34 The table shows property assets at cost of $298,619M (2025) vs $212,012M (2024), with accumulated depreciation of $93,653M and $76,421M, resulting in net values of $204,966M and $135,591M."
+      },
+      {
+        "path": "tables/table-35 Purchase Price.html",
+        "summary": "table-35 The table shows a total purchase price of $75,408 million, comprising cash, goodwill, intangible assets, other assets, and various liabilities."
+      },
+      {
+        "path": "tables/table-36 Intangible Assets.html",
+        "summary": "table-36 The table shows fair value of acquired intangible assets totaling $21,969 million with a weighted average life of 15 years, broken down into marketing-related ($11,619M, 24 years), technology-based ($9,689M, 4 years), and customer-related ($661M, 4 years)."
+      },
+      {
+        "path": "tables/table-37 Microsoft FY2024.html",
+        "summary": "table-37 Microsoft's fiscal year ended June 30, 2024, shows revenue of $247,442 million, net income of $88,308 million, and diluted EPS of $11.82, compared to $219,790 million, $71,383 million, and $9.55 in 2023."
+      },
+      {
+        "path": "tables/table-38 Goodwill by Segment.html",
+        "summary": "table-38 Microsoft's goodwill by segment from June 2023 to June 2025, showing totals increasing from $67,886M to $119,509M, driven by acquisitions in More Personal Computing."
+      },
+      {
+        "path": "tables/table-39 Intangible Assets.html",
+        "summary": "table-39 The table shows gross carrying amounts, accumulated amortization, and net carrying amounts of intangible assets (marketing, technology, customer, contract-based) as of June 30, 2025 and 2024. Total net carrying amount decreased from $27,597M to $22,604M."
+      },
+      {
+        "path": "tables/table-40 Intangible Assets.html",
+        "summary": "table-40 The table shows intangible assets by type (marketing, technology, customer, contract) with amounts and weighted average lives for fiscal years 2025 and 2024. Total assets decreased from $23,264M to $1,096M."
+      },
+      {
+        "path": "tables/table-41 Revenue Forecast.html",
+        "summary": "table-41 The table shows projected revenue from 2026 to 2030 and thereafter, totaling $22,604 million, with the largest amount in the 'Thereafter' period."
+      },
+      {
+        "path": "tables/table-42 Debt Issuance Table.html",
+        "summary": "table-42 The table details long-term debt issuances from 2009 to 2024, including face values, maturities, stated and effective interest rates, and carrying amounts as of June 30, 2025 and 2024, totaling $43,151 million and $44,937 million respectively."
+      },
+      {
+        "path": "tables/table-43 Debt Maturity.html",
+        "summary": "table-43 The table shows debt maturities from 2026 onward, with $49,206 million total. Key payments: $3,000M in 2026, $9,250M in 2027, $2,054M in 2029, and $34,902M thereafter."
+      },
+      {
+        "path": "tables/table-44 Income Tax Provision.html",
+        "summary": "table-44 The table shows current and deferred tax provisions for fiscal years 2023-2025. Current taxes total $28,851M (2025), $24,389M (2024), $23,009M (2023). Deferred taxes are negative, resulting in total provision of $21,795M, $19,651M, $16,950M respectively."
+      },
+      {
+        "path": "tables/table-45 Income Before Taxes.html",
+        "summary": "table-45 The table shows income before income taxes for years 2025, 2024, and 2023, with U.S. and foreign breakdowns, totaling $123,627 million, $107,787 million, and $89,311 million respectively."
+      },
+      {
+        "path": "tables/table-46 Tax Rate Analysis.html",
+        "summary": "table-46 The table shows a reconciliation of the federal statutory tax rate (21%) to the effective tax rate for fiscal years 2023-2025, with adjustments for foreign earnings, credits, and other items."
+      },
+      {
+        "path": "tables/table-47 Deferred Tax Assets.html",
+        "summary": "table-47 The table details deferred income tax assets and liabilities as of June 30, 2025 and 2024, with net deferred tax assets of $26,273 million and $19,652 million respectively."
+      },
+      {
+        "path": "tables/table-48 Tax Benefits.html",
+        "summary": "table-48 The table shows unrecognized tax benefits from 2023 to 2025, starting at $15,593 million and ending at $24,729 million, with changes from settlements, current and prior year positions, and statute lapses."
+      },
+      {
+        "path": "tables/table-49 Microsoft Revenue.html",
+        "summary": "table-49 Microsoft's total revenue increased from $60,184 million in 2024 to $67,265 million in 2025, driven by growth in Productivity and Business Processes and Intelligent Cloud."
+      },
+      {
+        "path": "tables/table-50 Unearned Revenue.html",
+        "summary": "table-50 The table shows unearned revenue balance increased from $60,184M to $67,265M, with $186,957M deferred and $179,876M recognized in fiscal year 2025."
+      },
+      {
+        "path": "tables/table-51 Lease Costs.html",
+        "summary": "table-51 The table shows operating lease costs of $5,524M (2025), $3,555M (2024), $2,875M (2023) and total finance lease costs of $4,825M, $2,534M, $1,853M for the same years."
+      },
+      {
+        "path": "tables/table-52 Lease Cash Flows.html",
+        "summary": "table-52 The table shows cash paid for operating and finance leases from 2023 to 2025, and right-of-use assets obtained in exchange for lease obligations."
+      },
+      {
+        "path": "tables/table-53 Lease Data.html",
+        "summary": "table-53 The table presents operating and finance lease data as of June 30, 2025 and 2024, including right-of-use assets, liabilities, weighted average lease terms, and discount rates."
+      },
+      {
+        "path": "tables/table-54 Lease Payments.html",
+        "summary": "table-54 The table shows future lease payments for operating and finance leases from 2026 to 2030 and thereafter, totaling $25,481 million and $60,506 million respectively, with imputed interest deducted to present net lease liabilities."
+      },
+      {
+        "path": "tables/table-55 Share Repurchases.html",
+        "summary": "table-55 The table shows share balances for fiscal years 2023-2025, with beginning balances around 7,432-7,464 million, issuances of 31-37 million, repurchases of 31-69 million, and ending balances of 7,432-7,434 million."
+      },
+      {
+        "path": "tables/table-56 Share Repurchases.html",
+        "summary": "table-56 The table shows quarterly share repurchases and amounts for fiscal years 2023-2025, with totals of 69 shares ($18,400M) in 2023, 32 shares ($11,960M) in 2024, and 31 shares ($13,000M) in 2025."
+      },
+      {
+        "path": "tables/table-57 Dividend History.html",
+        "summary": "table-57 The table shows quarterly dividends for fiscal years 2025 and 2024, with per-share amounts of $0.83 and $0.75 respectively, totaling $24,678 million and $22,295 million."
+      },
+      {
+        "path": "tables/table-58 AOCI Rollforward.html",
+        "summary": "table-58 The table shows changes in accumulated other comprehensive loss for derivatives, investments, and translation adjustments for fiscal years 2023-2025, ending with a total loss of $(3,347) million in 2025."
+      },
+      {
+        "path": "tables/table-59 Stock Compensation.html",
+        "summary": "table-59 The table shows stock-based compensation expenses and related income tax benefits for fiscal years 2025, 2024, and 2023, with amounts in millions of dollars."
+      },
+      {
+        "path": "tables/table-60 Dividends & Rates.html",
+        "summary": "table-60 The table shows quarterly dividends per share and interest rates for fiscal years 2023-2025. Dividends range from $0.62 to $0.83, and interest rates range from 2.0% to 5.6%."
+      },
+      {
+        "path": "tables/table-61 Stock Awards.html",
+        "summary": "table-61 The table shows nonvested stock award activity: beginning balance 88 shares at $292.28, 39 granted at $413.90, 38 vested at $293.25, 7 forfeited at $317.23, ending balance 82 shares at $347.44."
+      },
+      {
+        "path": "tables/table-62 Share Repurchase.html",
+        "summary": "table-62 The table shows shares purchased and average price per share for fiscal years 2025, 2024, and 2023. Shares purchased were 6 million in 2025 and 2024, and 7 million in 2023. Average prices were $385.10, $339.46, and $245.59 respectively."
+      },
+      {
+        "path": "tables/table-63 Microsoft Segment Results.html",
+        "summary": "table-63 The table shows revenue, cost of revenue, operating expenses, and operating income for three Microsoft segments (Productivity, Intelligent Cloud, More Personal Computing) and totals for fiscal years 2023-2025."
+      },
+      {
+        "path": "tables/table-64 Revenue by Region.html",
+        "summary": "table-64 The table shows total revenue of $281,724 million in 2025, $245,122 million in 2024, and $211,915 million in 2023, split between United States and other countries."
+      },
+      {
+        "path": "tables/table-65 Microsoft Revenue.html",
+        "summary": "table-65 Microsoft's revenue for fiscal years 2025, 2024, and 2023 is shown, with totals of $281,724M, $245,122M, and $211,915M respectively, led by Server products and cloud services."
+      },
+      {
+        "path": "tables/table-66 Revenue by Region.html",
+        "summary": "table-66 The table shows total revenue of $371,902 million in June 2025, up from $301,369 million in 2024 and $187,239 million in 2023, with United States and Other countries contributions."
+      },
+      {
+        "path": "tables/table-67 Deloitte Signature.html",
+        "summary": "table-67 A signature block for Deloitte & Touche LLP, located in Seattle, Washington, dated July 30, 2025."
+      },
+      {
+        "path": "tables/table-68 Microsoft Board.html",
+        "summary": "table-68 The table lists Microsoft Corporation's board members including Satya Nadella, Reid Hoffman, Hugh Johnston, and others with their roles and affiliations."
+      },
+      {
+        "path": "tables/table-69 Microsoft Executives.html",
+        "summary": "table-69 The table lists Microsoft's top executives including Satya Nadella (CEO), Amy Hood (CFO), Judson Althoff, Takeshi Numoto, Amy Coleman, Bradford Smith, and Kathleen Hogan."
+      }
+    ]
+  }
+}
