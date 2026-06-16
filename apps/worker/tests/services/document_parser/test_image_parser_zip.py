@@ -71,7 +71,5 @@ def test_parse_image_packages_standalone_image_under_images_directory(
         chunk_payload = json.loads(zip_file.read("chunks.json"))["chunks"]
 
     assert zip_image_entries == [f"images/{packaged_images[0]}"]
-    assert chunk_payload[0]["content"].splitlines()[0] == (
-        f"IMAGE_{chunk_payload[0]['chunk_id']}_IMAGE"
-    )
+    assert chunk_payload[0]["content"] == f"IMAGE_{chunk_payload[0]['chunk_id']}_IMAGE"
     assert chunk_payload[0]["metadata"]["file_path"] == zip_image_entries[0]
