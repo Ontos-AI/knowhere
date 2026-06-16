@@ -136,6 +136,8 @@ _OFFICIAL_LIBRARY_SOURCES: tuple[OfficialLibrarySourceDefinition, ...] = (
             "530bd7ed-a8c8-4687-af4a-8c129f740e09"
         ),
         mime_type="application/pdf",
+        status="ready",
+        demo_source_id="demo-financial-micron-report-530bd7ed",
     ),
     OfficialLibrarySourceDefinition(
         library_source_id="financial-micron-report-9c0becf5",
@@ -146,6 +148,8 @@ _OFFICIAL_LIBRARY_SOURCES: tuple[OfficialLibrarySourceDefinition, ...] = (
             "9c0becf5-df56-4eec-bd67-453dda68b273"
         ),
         mime_type="application/pdf",
+        status="ready",
+        demo_source_id="demo-financial-micron-report-9c0becf5",
     ),
     OfficialLibrarySourceDefinition(
         library_source_id="financial-goog-10-k-2025",
@@ -241,6 +245,8 @@ _OFFICIAL_LIBRARY_SOURCES: tuple[OfficialLibrarySourceDefinition, ...] = (
             "Transformers-tutorial.pdf"
         ),
         mime_type="application/pdf",
+        status="ready",
+        demo_source_id="demo-stem-transformers-tutorial",
     ),
     OfficialLibrarySourceDefinition(
         library_source_id="stem-deep-learning-transformer-network",

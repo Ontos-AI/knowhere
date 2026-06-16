@@ -126,12 +126,26 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     assert library_sources_by_id["financial-nvda-q1-fy27-earnings-call"][
         "demo_source_id"
     ] == "demo-financial-nvda-q1-fy27-earnings-call"
+    assert library_sources_by_id["financial-micron-report-530bd7ed"]["status"] == (
+        "ready"
+    )
     assert library_sources_by_id["financial-micron-report-530bd7ed"][
-        "status"
-    ] == "planned"
-    assert "demo_source_id" not in library_sources_by_id[
-        "financial-micron-report-530bd7ed"
-    ]
+        "demo_source_id"
+    ] == "demo-financial-micron-report-530bd7ed"
+    assert library_sources_by_id["financial-micron-report-530bd7ed"][
+        "chunk_count"
+    ] == 82
+    assert library_sources_by_id["financial-micron-report-9c0becf5"][
+        "demo_source_id"
+    ] == "demo-financial-micron-report-9c0becf5"
+    assert library_sources_by_id["financial-micron-report-9c0becf5"][
+        "chunk_count"
+    ] == 87
+    assert library_sources_by_id["stem-transformers-tutorial"]["demo_source_id"] == (
+        "demo-stem-transformers-tutorial"
+    )
+    assert library_sources_by_id["stem-transformers-tutorial"]["chunk_count"] == 519
+    assert library_sources_by_id["stem-information-theory"]["status"] == "planned"
 
     async with api_client_factory() as api_client:
         chunks_response = await api_client.get(

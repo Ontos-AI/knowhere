@@ -1,0 +1,518 @@
+{
+  "version": "1.0",
+  "file_name": "Micron investor report 530bd7ed.pdf",
+  "stats": {
+    "total_chunks": 82,
+    "text_chunks": 42,
+    "image_chunks": 20,
+    "table_chunks": 20,
+    "max_depth": 3
+  },
+  "sections": [
+    {
+      "title": "Financial results",
+      "path": "micron-530bd7ed.pdf/Financial results",
+      "level": 1,
+      "summary": "FQ1 2026 # Financial results <details>0 [images/image-1-Abstract Grid Pattern.jpg] <details> <summary>natural_image</summary> Close-up of a semiconductor wafer with green, purple, and blue photovoltaic bands (no text or symbols visible) </details>",
+      "chunk_count": 28,
+      "children": [
+        {
+          "title": "Safe harbor statement",
+          "path": "micron-530bd7ed.pdf/Financial results/Safe harbor statement",
+          "level": 2,
+          "summary": "This passage contains standard legal disclaimers regarding forward-looking statements and non-GAAP financial measures. It cautions that projections about market demand, pricing, technology impact, manufacturing investments, and financial performance involve risks and uncertainties. It directs readers to SEC filings and a risk factor website for details. It also explains that non-GAAP measures exclude certain activities to help analyze operating results and trends, with reconciliations provided in the appendix.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Sanjay Mehrotra",
+          "path": "micron-530bd7ed.pdf/Financial results/Sanjay Mehrotra",
+          "level": 2,
+          "summary": "Chairman, President and Chief Executive Officer ## Safe harbor statement <details>0 [images/image-2-Micron Executive Portrait.jpg] <details> <summary>natural_image</summary> Portrait of a smiling man with gray hair and beard, wearing a blue blazer over a patterned shirt (no text or symbols visible) </details> <details> <details>0 [images/image-3-Automated RAM Testing Machine.jpg] <details> <summary>natural_image</summary> Industrial automation scene with robotic arms and green memory chips under purple lighting (no readable text or symbols) </details>",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Overview (1 of 3)",
+          "path": "micron-530bd7ed.pdf/Financial results/Overview (1 of 3)",
+          "level": 2,
+          "summary": "- Micron had an outstanding start to fiscal 2026, delivering fiscal Q1 revenue, gross margin and EPS (earnings per share) well above the high end of our guidance. - This financial performance was driven by our strong execution across end markets and products in a tight supply environment. We achieved a number of records in fiscal Q1. - Total company revenue, DRAM and NAND revenue, as well as HBM and data center revenue and revenue in each of our business units, also reached new records. • We have completed agreements on price and volume for our entire calendar 2026 HBM supply, including Micron's industry-leading HBM4. - We forecast an HBM TAM CAGR of approximately 40% through calendar 2028, from approximately \\$35 billion in 2025 to around \\$100 billion in 2028. - This \\$100 billion HBM TAM milestone is now projected to arrive two years earlier than in our prior outlook. Remarkably, this 2028 HBM TAM projection is larger than the size of the entire DRAM market in calendar 2024. - This financial performance was driven by our strong execution across end markets and products in a tight supply environment. We achieved a number of records in fiscal Q1. <details>0 [images/image-4-Automated Industrial Machinery.jpg] <details> <summary>natural_image</summary> Interior view of a modern industrial facility with blue-tinted machinery and control panels (no visible text or symbols) </details>",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Overview (2 of 3)",
+          "path": "micron-530bd7ed.pdf/Financial results/Overview (2 of 3)",
+          "level": 2,
+          "summary": "Micron highlights its customized HBM4E customer engagements and progress on its HBM roadmap, emphasizing memory's shift from a system component to a strategic asset for AI. The company's technology leadership and product portfolio position it as a key AI enabler, with anticipated record revenue, gross margin, EPS, and free cash flow for Q2 and full fiscal year 2026.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Overview (3 of 3)",
+          "path": "micron-530bd7ed.pdf/Financial results/Overview (3 of 3)",
+          "level": 2,
+          "summary": "- Sustained and strong industry demand, along with supply constraints, are contributing to tight market conditions, and we expect these conditions to persist beyond calendar 2026. • We are making progress with customers in our discussions for multiyear contracts with specific commitments. - Simultaneously, we are focused on maximizing our production output from our current footprint, ramping our industry-leading technology nodes and investing in new cleanroom space to add to our supply capability.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Technology and operations (1 of 2)",
+          "path": "micron-530bd7ed.pdf/Financial results/Technology and operations (1 of 2)",
+          "level": 2,
+          "summary": "- Micron’s technology leadership is foundational to our strong competitive position. - Micron has led the industry for four consecutive technology nodes in DRAM and three nodes in NAND, with progressively faster yield ramps in every node. - Our 1-gamma DRAM node is ramping well. 1-gamma will be the primary driver of our DRAM bit growth in calendar 2026, and will be the majority of our bit output in the second half of the calendar year. - Looking beyond 1-gamma, development is underway for 1-delta and 1-epsilon nodes, which will feature innovations that we expect to extend our differentiation and technology leadership.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Technology and operations (2 of 2)",
+          "path": "micron-530bd7ed.pdf/Financial results/Technology and operations (2 of 2)",
+          "level": 2,
+          "summary": "- In NAND, we are ramping our G9 node with robust yield ramps across both data center and client SSDs. Our QLC NAND mix, including G9 QLC, reached a record high during the quarter. - Technology transitions to G9 will be the primary driver of our NAND bit growth in calendar 2026, and we expect it to become our largest NAND node later in fiscal 2026. - Calendar 2025 is a record year for Micron in terms of both internal and customer quality measures, positioning us well to deliver for our customers as the memory industry's quality leader. - As our products are increasingly integrated into higher value applications, our leadership in quality is becoming a more important differentiator. ## Technology and operations (2 of 2) <details>0 [images/image-6-Micron Semiconductor Wafer.jpg] <details> <summary>text_image</summary> micron | 8 </details>",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Data center server demand",
+          "path": "micron-530bd7ed.pdf/Financial results/Data center server demand",
+          "level": 2,
+          "summary": "- As the world’s leading technology companies advance toward artificial general intelligence and transform the global economy, our customers are committing to an extraordinary, multiyear data center buildout. - This growth in AI data center capacity is driving a significant increase in demand for high-performance and high-capacity memory and storage. - Server unit demand has strengthened significantly, and we now expect calendar 2025 server unit growth in the high-teens percentage range, higher than our last earnings call outlook of $10\\%$ . • We expect server demand strength to continue in 2026. Server memory and storage content and performance requirements continue to increase generation to generation. - Micron has a differentiated portfolio of high-value data center solutions to address these requirements, including our HBM, high-capacity server memory solutions and data center SSDs. - As the world’s leading technology companies advance toward artificial general intelligence and transform the global economy, our customers are committing to an extraordinary, multiyear data center buildout. <details>0 [images/image-7-Server Rack Infrastructure.jpg] <details> <summary>natural_image</summary> Interior view of a server room with rows of server racks and illuminated green indicator lights, labeled 'micron' in the corner (no readable text on equipment) </details>",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Data center HBM and LP DRAM",
+          "path": "micron-530bd7ed.pdf/Financial results/Data center HBM and LP DRAM",
+          "level": 2,
+          "summary": "- Micron’s HBM4, with industry leading speed over 11 Gbps, is on track to ramp with high yields in the second calendar quarter of 2026, consistent with our customers’ product ramp plans. - Our HBM4 uses advanced CMOS and advanced metallization process technologies on the base logic die and DRAM core dies, which are designed and manufactured in-house. - This, along with our unique HBM design, packaging and test capability, enables Micron’s industry-leading performance and low-power leadership. - Micron pioneered the adoption of LP DRAM in the data center. Micron's Low Power (LP) DRAM server modules consume one-third the power of DDR DRAM server modules. - Building on this leadership, we have sampled our 192GB LP SOCAMM2 product, which enables a $50\\%$ increase in capacity per module and a rack-scale LP DRAM density of over 50TB. - Micron’s HBM4, with industry leading speed over 11 Gbps, is on track to ramp with high yields in the second calendar quarter of 2026, consistent with our customers’ product ramp plans. <details>0 [images/image-8-Micron Data Center.jpg] <details> <summary>natural_image</summary> Interior view of a modern data center with server racks illuminated by purple and blue neon lights (no visible text or symbols) </details>",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Data center NAND",
+          "path": "micron-530bd7ed.pdf/Financial results/Data center NAND",
+          "level": 2,
+          "summary": "- Our data center NAND portfolio revenue exceeded a billion dollars in fiscal Q1, and we are seeing strong momentum across our data center SSD portfolio, enabled by our leadership NAND technology. - In the performance SSD category, Micron has introduced the world's first PCIe Gen6 SSD, leveraging our G9 NAND. • We are seeing rapidly increasing qualification commitments for this product, including at hyperscalers. - In mainstream storage, our SSDs based on G9 NAND are already seeing robust demand in the first quarter of calendar 2026. - In capacity storage, our QLC-based 122 and 245TB G9 SSDs are entering qualification at multiple hyperscale customers.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "PC",
+          "path": "micron-530bd7ed.pdf/Financial results/PC",
+          "level": 2,
+          "summary": "- PC demand continues to be driven by Windows 10 end of life and AI PCs. • We forecast PC unit sales to grow high-single-digit percentage range in calendar 2025, above our prior expectations provided in our last earnings call of mid-single digits. - As we look ahead into 2026, we expect these demand drivers to continue, while memory supply constraints may affect some PC unit shipments. - Micron has completed multiple OEM qualifications of our 16Gb 1-gamma-based DDR5 and our G9-based PCIe Gen4 QLC SSDs. ## PC <details>0 [images/image-9-Laptop Keyboard and Screen.jpg] <details> <summary>text_image</summary> micron | 12 </details>",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Mobile",
+          "path": "micron-530bd7ed.pdf/Financial results/Mobile",
+          "level": 2,
+          "summary": "- Smartphone unit volumes in calendar 2025 are on track to grow in the low-single-digit percentage range. - AI is driving memory content growth. The shipment mix of flagship smartphones with 12GB of DRAM increased to $59\\%$ in calendar Q3, more than twice the level from a year ago. • Micron is accelerating innovation across our mobile DRAM portfolio. - In fiscal Q1, we began sampling our breakthrough 1-gamma 16Gb LPDDR6 product to leading OEM and ecosystem partners, marking a major milestone in next-generation memory technology. - LPDDR6 will power AI at the edge, delivering over 50% higher performance and improved power efficiency for flagship smartphones and AI PCs. - Micron also sampled our 1-gamma LP5x 24Gb product and began volume shipments of the previously announced 1-gamma LP5x 16Gb product to multiple OEMs. - AI is driving memory content growth. The shipment mix of flagship smartphones with 12GB of DRAM increased to $59\\%$ in calendar Q3, more than twice the level from a year ago. <details>0 [images/image-10-Concert Photography.jpg] <details> <summary>natural_image</summary> Hand holding smartphone displaying a live music show with stage lights against a red and pink background (no text or symbols on screen) </details>",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Automotive and embedded",
+          "path": "micron-530bd7ed.pdf/Financial results/Automotive and embedded",
+          "level": 2,
+          "summary": "The passage discusses strong demand for memory and storage in automotive (L2+ and L3 adoption, ASIL-rated LPDDR5x and UFS4.1 NAND) and industrial markets (autonomous systems, factory automation, robotics). Micron highlights its differentiated product portfolio and market leadership, with billions in design wins and investments in long-term supply from its Virginia fab.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Market outlook (1 of 2)",
+          "path": "micron-530bd7ed.pdf/Financial results/Market outlook (1 of 2)",
+          "level": 2,
+          "summary": "• Over the last few months, our customers' AI data center build-out plans have driven a sharp increase in demand forecasts for memory and storage. • We believe that the aggregate industry supply will remain substantially short of the demand for the foreseeable future. - The dramatic increase in HBM demand is further challenging the supply environment due to the 3-to-1 trade ratio with DDR5, and this trade ratio only increases with future generations of HBM. - Additional cleanroom space is necessary to address this increased demand, and lead times for cleanroom build-out are lengthening across geographies. • Together, these demand and supply factors are driving tight industry conditions across DRAM and NAND, and we expect tightness to persist through and beyond calendar 2026. • Over the last few months, our customers' AI data center build-out plans have driven a sharp increase in demand forecasts for memory and storage. <details>0 [images/image-13-Silicon Wafer in Manufacturing.jpg] <details> <summary>natural_image</summary> Close-up of a semiconductor wafer with colorful grid patterns, captured in a lab setting (no text or symbols on the wafer itself) </details>",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Market outlook (2 of 2)",
+          "path": "micron-530bd7ed.pdf/Financial results/Market outlook (2 of 2)",
+          "level": 2,
+          "summary": "- Calendar 2025 DRAM and NAND industry bit demand growth expectations are higher than in our last earnings call outlook. - We now expect calendar 2025 DRAM bit demand growth in the low $20\\%$ range versus high teens previously. - We expect 2025 NAND bit demand growth to be in the high-teens percentage range versus low to mid-teens previously. - We expect calendar 2026 industry DRAM and NAND bit shipment growth to be constrained by industry supply. - We expect both DRAM and NAND calendar 2026 industry bit shipments to increase around 20% from 2025 levels. - Micron is working hard to support our customers' demand during this time, and we expect to grow our DRAM and NAND bit shipments approximately 20% in calendar 2026. - Despite significant efforts, we are disappointed to be unable to meet demand from our customers, across all market segments. - We expect 2025 NAND bit demand growth to be in the high-teens percentage range versus low to mid-teens previously. <details>0 [images/image-14-Semiconductor Cleanroom.jpg] <details> <summary>natural_image</summary> Interior of a high-tech semiconductor fabrication facility with workers in full cleanroom suits walking along a central aisle (no visible text or symbols) </details>",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Supply efforts (1 of 2)",
+          "path": "micron-530bd7ed.pdf/Financial results/Supply efforts (1 of 2)",
+          "level": 2,
+          "summary": "- Micron plans to increase our fiscal 2026 capex to approximately \\$20 billion, versus our prior estimate of \\$18 billion. This increase will primarily support our HBM supply capability, and also our 1-gamma supply, in calendar 2026. - We are pulling in equipment orders and accelerating installation timelines to maximize output capability. Micron is also investing across our global manufacturing footprint to add supply to support longer-term demand. We are seeing an enthusiastic customer response to our planned U.S. supply. - We are pulling in our first Idaho fab timeline, and we now expect first wafer output in mid-calendar 2027, earlier than our prior expectations of second-half calendar 2027. Earlier this year, we announced our plans for a second Idaho fab, which will begin construction in 2026 and be operational by the end of 2028. - We are making good progress on securing necessary permits for our New York site and appreciate the partnership with the state of New York and the Trump administration. - We plan to break ground on our first New York fab in early calendar 2026, which we expect will provide supply in 2030 and beyond. - Micron plans to increase our fiscal 2026 capex to approximately \\$20 billion, versus our prior estimate of \\$18 billion. This increase will primarily support our HBM supply capability, and also our 1-gamma supply, in calendar 2026. <details>0 [images/image-15-Laboratory Safety Work.jpg] <details> <summary>text_image</summary> December 17, 2025 </details>",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Supply efforts (2 of 2)",
+          "path": "micron-530bd7ed.pdf/Financial results/Supply efforts (2 of 2)",
+          "level": 2,
+          "summary": "- In Japan, with the support of METI (Japan’s Ministry of Economy, Trade and Industry), we are making technology and manufacturing investments. • We are enabling future DRAM technology transitions in coordination with our Boise R&D team. - We are also adding cleanroom space in our Hiroshima fab to support these advanced nodes, which will increase production scale and optimize fab economics. - In Singapore, our HBM advanced packaging facility is on track to contribute meaningfully to our HBM supply in calendar 2027. As HBM becomes a part of our Singapore manufacturing footprint, we expect opportunities for synergies between NAND and DRAM production. • We are pleased with the progress on our assembly and test facility in India, which has initiated pilot production and will ramp in 2026. - As we make progress on our strategic manufacturing initiatives, we will continue to be responsive to the market environment and disciplined with our capex plans",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Mark Murphy",
+          "path": "micron-530bd7ed.pdf/Financial results/Mark Murphy",
+          "level": 2,
+          "summary": "Chief Financial Officer - In Singapore, our HBM advanced packaging facility is on track to contribute meaningfully to our HBM supply in calendar 2027. As HBM becomes a part of our Singapore manufacturing footprint, we expect opportunities for synergies between NAND and DRAM production. <details>0 [images/image-16-Corporate Executive Portrait.jpg] <details> <summary>natural_image</summary> Portrait of a man in a gray suit against a black background, no visible text or symbols on the subject or background. </details>",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "FQ1-26 revenue \\$13.6B",
+          "path": "micron-530bd7ed.pdf/Financial results/FQ1-26 revenue \\$13.6B",
+          "level": 2,
+          "summary": "\\$13.6B Revenue up 21% Q/Q and up 57% Y/Y",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Performance by technology",
+          "path": "micron-530bd7ed.pdf/Financial results/Performance by technology",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "DRAM FQ1-26",
+              "path": "micron-530bd7ed.pdf/Financial results/Performance by technology/DRAM FQ1-26",
+              "level": 3,
+              "summary": "- \\$10.8 billion, representing 79% of total revenue in FQ1-26 • Revenue increased 69% Y/Y • Revenue increased 20% Q/Q - Bit shipments up slightly Q/Q • ASPs increased approximately 20% Q/Q",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "NAND FQ1-26",
+              "path": "micron-530bd7ed.pdf/Financial results/Performance by technology/NAND FQ1-26",
+              "level": 3,
+              "summary": "- \\$2.7 billion, representing 20% of total revenue in FQ1-26 • Revenue increased 22% Y/Y • Revenue increased 22% Q/Q - Bit shipments increased in mid-to-high single digit percentage range Q/Q - ASPs increased in the mid-teens percentage range Q/Q Quarterly business unit financial results [tables/table-0 Segment Financials.html] • Revenue increased 22% Q/Q <details>0 [images/image-17-Abstract Digital Art.jpg] <details> <summary>natural_image</summary> Abstract digital artwork with glowing dots and bokeh background, no readable text or symbols </details>",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "Financial performance by business unit (1 of 2)",
+          "path": "micron-530bd7ed.pdf/Financial results/Financial performance by business unit (1 of 2)",
+          "level": 2,
+          "summary": "- Cloud Memory Business Unit revenue was a record \\$5.3 billion and represented 39% of total company revenue. - CMBU revenue was up 16% sequentially, driven by an increase in bit shipments and higher prices - CMBU gross margins were 66%, higher by 620 basis points sequentially, supported by cost execution and higher pricing. - Core Data Center Business Unit revenue was a record \\$2.4 billion and represented 17% of total company revenue. - CDBU revenue was up 51% sequentially, driven by robust bit shipments and higher pricing. - CDBU gross margins were 51%, up 990 basis points sequentially, supported by higher pricing and cost execution. - CMBU revenue was up 16% sequentially, driven by an increase in bit shipments and higher prices <details>0 [images/image-18-Abstract Digital Art.jpg] <details> <summary>natural_image</summary> Abstract digital network visualization with glowing nodes and green-to-blue bokeh background (no text or symbols) </details>",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Financial performance by business unit (2 of 2)",
+          "path": "micron-530bd7ed.pdf/Financial results/Financial performance by business unit (2 of 2)",
+          "level": 2,
+          "summary": "- Mobile Client Business Unit revenue was a record \\$4.3 billion and represented 31% of total company revenue. - MCBU revenue was up 13% sequentially, driven by higher pricing, partly offset by lower bit shipments. - MCBU gross margins were 54%, up 17 percentage points sequentially, driven primarily by higher pricing. - Automotive and Embedded Business Unit revenue was a record \\$1.7 billion and represented 13% of total company revenue. - AEBU revenue was up 20% sequentially, driven by higher bit shipments and higher pricing. - AEBU gross margins were 45%, up 14 percentage points sequentially, driven primarily by higher pricing.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "FQ1-26 Non-GAAP operating results",
+          "path": "micron-530bd7ed.pdf/Financial results/FQ1-26 Non-GAAP operating results",
+          "level": 2,
+          "summary": "Non-GAAP operating results Revenue: \\$13.64 billion Gross margin: 56.8% Operating expenses: \\$1.33 billion Operating income: \\$6.42 billion Net income: \\$5.48 billion Diluted earnings per share: \\$4.78 Cash from operations (GAAP): \\$8.41 billion See non-GAAP reconciliations in Appendix Operating income: \\$6.42 billion <details>0 [images/image-19-Micron Presentation Slide.jpg] <details> <summary>natural_image</summary> Abstract digital artwork featuring glowing purple and blue water droplets with bokeh bokeh effects (no text or symbols) </details>",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Cash flow and capital allocation From FY-23 to FQ1-26",
+          "path": "micron-530bd7ed.pdf/Financial results/Cash flow and capital allocation From FY-23 to FQ1-26",
+          "level": 2,
+          "summary": "From FY-23 to FQ1-26 - \\$1.0 billion toward repurchasing 13 million shares - \\$1.7 billion towards dividends paid - \\$2.7 billion returned to shareholders from share repurchases and dividends [tables/table-1 FQ1-26 Cash Flow.html] $^{1}$ Capex net of proceeds from government incentives and proceeds from sales of property, plant, and equipment. $^{2}$ Cash, short-term and long-term marketable investments, restricted cash, and undrawn revolver capacity. \\*Adjusted free cash flow is a non-GAAP measure defined as net cash provided by operating activities less investments in capital expenditures net of proceeds from government incentives and proceeds from sales of property, plant, and equipment. See non-GAAP reconciliations in Appendix.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Al use at Micron",
+          "path": "micron-530bd7ed.pdf/Financial results/Al use at Micron",
+          "level": 2,
+          "summary": "• Over 80% of our professional workforce actively uses GenAI, with total usage up tenfold since last year. - In manufacturing, integrating AI into yield and quality management has cut root cause identification time by half in cases. - Our coding teams are realizing productivity gains of 30% or more using agentic AI. - In R&D, GenAI is accelerating development by reducing cycle times in design verification, product validation, issue triage and root cause analysis. - Across business functions, GenAI is broadening automation opportunities, and we are deploying conversational analytics to accelerate and improve decision-making. - We expect Micron’s use of AI across the enterprise to further strengthen our competitiveness in the coming years.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Outlook",
+      "path": "micron-530bd7ed.pdf/Outlook",
+      "level": 1,
+      "summary": "- We expect higher price, lower cost and favorable mix to all contribute to gross margin expansion in Q2. - Operating expenses for fiscal Q2 are projected to be approximately \\$1.38 billion. - As mentioned last quarter, Micron’s fiscal Q4 2026 opex will also reflect the effect of an additional workweek in this 53-week fiscal year. • We expect a fiscal Q2 and fiscal year 2026 tax rate of around 15.5%. - Micron is investing in a disciplined manner across our global manufacturing footprint to better meet demand. - To address tight supply/demand conditions extending beyond 2026, we now project our capital spending in fiscal 2026 to be approximately \\$20 billion, weighted to the second half of the fiscal year. - We expect free cash flow to strengthen in fiscal Q2, and we expect to generate significantly higher free cash flow year over year in fiscal 2026. - Any impacts that may occur due to potential new tariffs are not included in our guidance. • We expect a fiscal Q2 and fiscal year 2026 tax rate of around 15.5%. <details>0 [images/image-20-Silicon Wafer Close-up.jpg] <details> <summary>natural_image</summary> Close-up of a semiconductor wafer with visible green and blue grating pattern against dark background (no text or symbols) </details> FQ2-26 guidance Non-GAAP [tables/table-2 Financial Data.html] \\*Based on \\~1.15 billion diluted shares. See non-GAAP reconciliations in Appendix.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Appendix",
+      "path": "micron-530bd7ed.pdf/Appendix",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 12,
+      "children": [
+        {
+          "title": "Financial summary",
+          "path": "micron-530bd7ed.pdf/Appendix/Financial summary",
+          "level": 2,
+          "summary": "Non-GAAP [tables/table-3 Financial Results.html] See non-GAAP reconciliations.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Non-GAAP financial data and guidance",
+          "path": "micron-530bd7ed.pdf/Appendix/Non-GAAP financial data and guidance",
+          "level": 2,
+          "summary": "[tables/table-4 Revenue Breakdown.html] [tables/table-5 Sales Volume Change.html] [tables/table-6 ASP Changes Q_Q.html] [tables/table-7 Non-GAAP Guidance.html] [tables/table-8 Non-GAAP Estimates.html]",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Revenue by technology",
+          "path": "micron-530bd7ed.pdf/Appendix/Revenue by technology",
+          "level": 2,
+          "summary": "[tables/table-9 Memory Revenue.html] Percentages of total revenue may not total 100% due to rounding. Revenue by technology [tables/table-10 Memory Revenue.html] Revenue by business unit [tables/table-11 Revenue by Segment.html]",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Non-GAAP reconciliations",
+          "path": "micron-530bd7ed.pdf/Appendix/Non-GAAP reconciliations",
+          "level": 2,
+          "summary": "Consolidated results",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Non-GAAP reconciliations_2",
+          "path": "micron-530bd7ed.pdf/Appendix/Non-GAAP reconciliations_2",
+          "level": 2,
+          "summary": "[tables/table-12 Gross Margin & OpEx.html] Consolidated results",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Non-GAAP reconciliations_3",
+          "path": "micron-530bd7ed.pdf/Appendix/Non-GAAP reconciliations_3",
+          "level": 2,
+          "summary": "[tables/table-13 Non-GAAP Financials.html] Consolidated results",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Non-GAAP reconciliations_4",
+          "path": "micron-530bd7ed.pdf/Appendix/Non-GAAP reconciliations_4",
+          "level": 2,
+          "summary": "[tables/table-14 Non-GAAP Net Income.html] Consolidated results",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Non-GAAP reconciliations_5",
+          "path": "micron-530bd7ed.pdf/Appendix/Non-GAAP reconciliations_5",
+          "level": 2,
+          "summary": "[tables/table-15 Adjusted EBITDA.html] Consolidated results",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Non-GAAP reconciliations_6",
+          "path": "micron-530bd7ed.pdf/Appendix/Non-GAAP reconciliations_6",
+          "level": 2,
+          "summary": "[tables/table-16 Financial Highlights.html] Consolidated results",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Non-GAAP reconciliations_7",
+          "path": "micron-530bd7ed.pdf/Appendix/Non-GAAP reconciliations_7",
+          "level": 2,
+          "summary": "[tables/table-17 Cash Position.html]",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "FQ2-26 guidance Non-GAAP reconciliations",
+          "path": "micron-530bd7ed.pdf/Appendix/FQ2-26 guidance Non-GAAP reconciliations",
+          "level": 2,
+          "summary": "Non-GAAP reconciliations [tables/table-18 GAAP vs Non-GAAP.html] Non-GAAP Adjustments (amounts in millions) [tables/table-19 Stock Compensation.html] \\*GAAP earnings per share based on approximately 1.14 billion diluted shares and non-GAAP earnings per share based on approximately 1.15 billion diluted shares. The above guidance does not incorporate the impact of any potential business combinations, divestitures, additional restructuring activities, balance sheet valuation adjustments, strategic investments, financing transactions, and other significant transactions. The timing and impact of such items are dependent on future events that may be uncertain or outside of our control.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "micron",
+      "path": "micron-530bd7ed.pdf/micron",
+      "level": 1,
+      "summary": "Intelligence Accelerated™ © 2025 Micron Technology, Inc. All rights reserved. Information, products, and/or specifications are subject to change without notice. All information is provided on an “AS IS” basis without warranties of any kind. Statements regarding products, including statements regarding product features, availability, functionality, or compatibility, are provided for informational purposes only and do not modify the warranty, if any, applicable to any product. Drawings may not be to scale. Micron, the Micron logo, the M logo, Intelligence Accelerated™, and other Micron trademarks are the property of Micron Technology, Inc. All other trademarks are the property of their respective owners.",
+      "chunk_count": 1,
+      "children": []
+    }
+  ],
+  "resources": {
+    "images": [
+      {
+        "path": "images/image-1-Abstract Grid Pattern.jpg",
+        "summary": "image-1 A close-up view of a circular object featuring a precise grid pattern. The image displays vibrant, iridescent colors including magenta, cyan, green, and blue, which shift across the surface. The grid consists of intersecting horizontal and vertical lines creating small rectangular cells. The lighting creates a gradient effect, with the left side appearing darker and the right side brighter."
+      },
+      {
+        "path": "images/image-2-Micron Executive Portrait.jpg",
+        "summary": "image-2 - Subject: Professional headshot of a middle-aged man with graying hair and beard, smiling at the camera. - Attire: Wearing a textured blue blazer over a patterned light purple button-down shirt. - Background: Solid black studio background. - Visible Text/Logos: \"micron\" logo in the bottom right corner; page number \"3\"."
+      },
+      {
+        "path": "images/image-3-Automated RAM Testing Machine.jpg",
+        "summary": "image-3 - Industrial automation equipment featuring a vertical array of mechanical grippers or probes. - Multiple green RAM memory modules (SODIMM type) are held in place by the machine's fixtures. - The machinery is illuminated with purple and red lighting, highlighting the precision components. - A conveyor system with metal rollers is visible at the bottom for transporting parts. - Date stamp \"December 17, 2025\" is visible at the bottom left."
+      },
+      {
+        "path": "images/image-4-Automated Industrial Machinery.jpg",
+        "summary": "image-4 - Primary Subject: Close-up view of an automated industrial machine, likely a conveyor or sorting system. - Key Features: - Central rotating carousel mechanism with metallic arms and platforms. - Transparent safety shielding (likely polycarbonate) surrounding the machinery. - Vertical LED light strips visible in the background. - Warning labels and sensors attached to the central column. - Context: The scene is illuminated with strong blue lighting, suggesting a clean room or high-tech manufacturing environment. - Visible Text: \"December 17, 2025\" located at the bottom left corner."
+      },
+      {
+        "path": "images/image-5-Cleanroom Manufacturing Floor.jpg",
+        "summary": "image-5 - Workers wearing full-body white protective suits (bunny suits), hoods, and face masks. - Environment appears to be a high-tech manufacturing facility or cleanroom with specialized workstations. - Equipment includes computer monitors, keyboards, and various tools on metal tables. - A yellow label with the letters \"DE\" is visible on the back of an office chair in the foreground. - The floor has a textured, grid-like pattern typical of industrial settings."
+      },
+      {
+        "path": "images/image-6-Micron Semiconductor Wafer.jpg",
+        "summary": "image-6 - Subject: Close-up photograph of a silicon semiconductor wafer featuring a grid pattern of microchips. - Visual Details: The image displays iridescent colors (red, orange, green, blue) caused by light interference on the wafer's surface layers. - Text/Logo: \"micron\" logo visible in the bottom right corner. - Page Number: \"8\" located next to the logo."
+      },
+      {
+        "path": "images/image-7-Server Rack Infrastructure.jpg",
+        "summary": "image-7 - Multiple server racks with perforated mesh doors - Green and orange status indicator lights visible on equipment - Raised floor tiles typical of data center environments - Cable management tray visible at the top left - \"micron\" logo and page number \"9\" at the bottom"
+      },
+      {
+        "path": "images/image-8-Micron Data Center.jpg",
+        "summary": "image-8 - Visual: A futuristic server room or data center aisle featuring rows of glass-fronted server racks. The scene is illuminated by vibrant pink and blue neon lighting, with glowing light strips running along the floor and ceiling infrastructure. - Text visible at bottom right: \"micron\" logo and page number \"10\"."
+      },
+      {
+        "path": "images/image-9-Laptop Keyboard and Screen.jpg",
+        "summary": "image-9 - Close-up view of a laptop keyboard with illuminated keys in purple and pink hues. - The screen displays a colorful abstract wallpaper with wavy lines in blue, white, yellow, and pink. - Visible text on the keyboard includes standard QWERTY layout characters and function keys like \"Ctrl\", \"Page Down\", \"Enter\". - Bottom right corner shows the logo \"micron\" and page number \"12\". - The image appears to be from a presentation or promotional material showcasing technology products."
+      },
+      {
+        "path": "images/image-10-Concert Photography.jpg",
+        "summary": "image-10 - Primary subject: A pair of hands holding a smartphone horizontally to capture a live concert performance. - Scene details: The phone screen displays a stage illuminated by bright spotlights and laser beams in blue and red hues, with the silhouettes of a crowd visible below. - Notable features: The person holding the phone has dark nail polish. The background is blurred with pink lighting. - Visible text: \"micron\" logo and page number \"13\" at the bottom right corner."
+      },
+      {
+        "path": "images/image-11-Futuristic Car Interior.jpg",
+        "summary": "image-11 - Steering wheel with integrated controls and central emblem - Dashboard featuring four circular digital instrument clusters with blue glowing displays - Large vertical touchscreen infotainment system displaying vehicle schematics and interface icons - Center console with a secondary tablet device, gear selector knob, and control buttons - Ambient lighting accents in blue and red tones - \"micron\" logo visible at the bottom right corner alongside page number \"14\""
+      },
+      {
+        "path": "images/image-12-Business Meeting Discussion.jpg",
+        "summary": "image-12 - Scene: A group of four professionals gathered around a conference table in a glass-walled meeting room. - Key Action: A woman in a purple top is standing and pointing at documents on the table, appearing to lead the discussion or explain data. - Participants: Three other individuals (two women, one man) are seated and listening attentively. - Background: A large screen displays mathematical graphs or charts with curves plotted on axes. - Visible Text: \"December 17, 2025\" located at the bottom left corner."
+      },
+      {
+        "path": "images/image-13-Silicon Wafer in Manufacturing.jpg",
+        "summary": "image-13 - Primary Subject: A close-up photograph of a silicon wafer held within an automated manufacturing or inspection machine. - Visual Details: The circular wafer displays a distinct rainbow iridescence caused by thin-film interference, overlaid with a precise grid pattern representing individual microchips (dies). - Context: The background is blurred, emphasizing the high-tech nature of semiconductor fabrication. - Visible Text: \"December 17, 2025\" located at the bottom left corner."
+      },
+      {
+        "path": "images/image-14-Semiconductor Cleanroom.jpg",
+        "summary": "image-14 - Environment: High-tech manufacturing facility (cleanroom) with rows of large, stainless steel industrial machinery. - Personnel: Worker wearing a full-body white protective suit (bunny suit), face mask, and hood walking down the aisle. - Lighting: Distinctive yellow lighting in the background, typical for photoresist processing areas in semiconductor fabrication. - Infrastructure: Raised perforated flooring for air circulation; overhead cable trays and utility lines. - Date Stamp: December 17, 2025"
+      },
+      {
+        "path": "images/image-15-Laboratory Safety Work.jpg",
+        "summary": "image-15 - Subject: Scientist or technician wearing full PPE (face shield, safety glasses, protective gown, orange chemical-resistant gloves) working inside a fume hood or glove box. - Environment: Blue-lit laboratory setting with visible ventilation piping on the left wall. - Text/Signage: \"SCRUBBER EXHAUST\" label with directional arrow on vertical pipe; date stamp at bottom reads \"December 17, 2025\". - Equipment: Fume hood/glove box with sliding sash and internal lighting; overhead exhaust fixture visible above work area."
+      },
+      {
+        "path": "images/image-16-Corporate Executive Portrait.jpg",
+        "summary": "image-16 Subject: Male executive with short brown hair, smiling at the camera. Attire: Grey suit jacket over a light blue patterned button-down shirt. Background: Solid black studio background. Visible Text/Logo: \"micron\" logo visible in the bottom right corner."
+      },
+      {
+        "path": "images/image-17-Abstract Digital Art.jpg",
+        "summary": "image-17 December 17, 2025"
+      },
+      {
+        "path": "images/image-18-Abstract Digital Art.jpg",
+        "summary": "image-18 December 17, 2025"
+      },
+      {
+        "path": "images/image-19-Micron Presentation Slide.jpg",
+        "summary": "image-19 - Brand: Micron - Page Number: 25 - Visual Content: Abstract digital artwork featuring flowing, translucent waves with glowing blue and purple light trails against a dark background. The image includes bokeh effects and particle-like sparkles, suggesting themes of data flow, technology, or connectivity."
+      },
+      {
+        "path": "images/image-20-Silicon Wafer Close-up.jpg",
+        "summary": "image-20 - Subject: Circular silicon wafer with visible grid pattern of microchips - Lighting: Blue-toned illumination with bright reflection on the right edge - Date stamp: December 17, 2025 (bottom left)"
+      }
+    ],
+    "tables": [
+      {
+        "path": "tables/table-0 Segment Financials.html",
+        "summary": "table-1 The table shows revenue, gross margin, and operating margin for Cloud Memory, Core Data, Mobile and Client, and Automotive and Embedded segments across FQ1-26, FQ4-25, and FQ1-25."
+      },
+      {
+        "path": "tables/table-1 FQ1-26 Cash Flow.html",
+        "summary": "table-2 Cash flow from operations $8.4B, net capex $4.5B, adjusted free cash flow $3.9B, buybacks $300M, dividend $0.115/share, liquidity $15.5B."
+      },
+      {
+        "path": "tables/table-2 Financial Data.html",
+        "summary": "table-3 Revenue $18.70B ± $400M, gross margin 68.0% ± 1.0%, operating expenses $1.38B ± $20M, diluted EPS $8.42 ± $0.20."
+      },
+      {
+        "path": "tables/table-3 Financial Results.html",
+        "summary": "table-4 The table shows quarterly financial data for FQ1-26, FQ4-25, and FQ1-25, with revenue increasing from $8.7B to $13.6B, gross margin rising from 40% to 57%, and net income growing from $2.0B to $5.5B."
+      },
+      {
+        "path": "tables/table-4 Revenue Breakdown.html",
+        "summary": "table-5 DRAM accounts for 79% of revenue, while NAND contributes 20% in FQ1-26."
+      },
+      {
+        "path": "tables/table-5 Sales Volume Change.html",
+        "summary": "table-6 DRAM sales volume up slightly quarter over quarter; NAND increased in mid-to-high single-digit percentage range."
+      },
+      {
+        "path": "tables/table-6 ASP Changes Q_Q.html",
+        "summary": "table-7 DRAM ASP increased approximately 20% Q/Q, while NAND ASP increased in the mid-teens percentage range in FQ1-26."
+      },
+      {
+        "path": "tables/table-7 Non-GAAP Guidance.html",
+        "summary": "table-8 The table compares FQ1-26 non-GAAP actuals with FQ2-26 guidance: Revenue $13.6B vs $18.7B, Gross margin 56.8% vs 68.0%, OpEx $1.33B vs $1.38B, Diluted EPS $4.78 vs $8.42."
+      },
+      {
+        "path": "tables/table-8 Non-GAAP Estimates.html",
+        "summary": "table-9 Table shows FQ1-26 non-GAAP actuals and FQ2-26 estimates: diluted shares ~1.15B, tax rate ~15.5%, capex ~$20B for fiscal 2026."
+      },
+      {
+        "path": "tables/table-9 Memory Revenue.html",
+        "summary": "table-10 The table shows memory revenue breakdown for FQ1-26, FQ4-25, and FQ1-25. DRAM revenue grew from $6,400M to $10,812M, NAND from $2,241M to $2,743M, with total revenue increasing from $8,709M to $13,643M."
+      },
+      {
+        "path": "tables/table-10 Memory Revenue.html",
+        "summary": "table-11 Memory revenue for FQ1-26 was $13,643M, up 21% Q/Q and 57% Y/Y. DRAM grew 20% Q/Q and 69% Y/Y to $10,812M. NAND grew 22% Q/Q and 22% Y/Y to $2,743M."
+      },
+      {
+        "path": "tables/table-11 Revenue by Segment.html",
+        "summary": "table-12 The table shows revenue for four segments: Cloud Memory ($5,284M), Core Data ($2,379M), Mobile and Client ($4,255M), and Automotive and Embedded ($1,720M) with Q/Q and Y/Y percentage changes."
+      },
+      {
+        "path": "tables/table-12 Gross Margin & OpEx.html",
+        "summary": "table-13 Financial data for FQ1-26, FQ4-25, FQ1-25 showing GAAP and Non-GAAP gross margins, operating expenses, and operating income with adjustments for stock-based compensation and other items."
+      },
+      {
+        "path": "tables/table-13 Non-GAAP Financials.html",
+        "summary": "table-14 The table compares GAAP and Non-GAAP costs for COGS, R&D, and SG&A across FQ1-26, FQ4-25, and FQ1-25, with stock-based compensation adjustments."
+      },
+      {
+        "path": "tables/table-14 Non-GAAP Net Income.html",
+        "summary": "table-15 The table shows GAAP net income and adjustments for stock-based compensation, restructuring, and debt losses, resulting in Non-GAAP net income of $5,482M for FQ1-26, $3,469M for FQ4-25, and $2,037M for FQ1-25."
+      },
+      {
+        "path": "tables/table-15 Adjusted EBITDA.html",
+        "summary": "table-16 The table shows GAAP net income and adjustments to calculate Adjusted EBITDA for FQ1-26, FQ4-25, and FQ1-25, with values of $8,604M, $6,066M, and $4,411M respectively."
+      },
+      {
+        "path": "tables/table-16 Financial Highlights.html",
+        "summary": "table-17 The table shows GAAP and Non-GAAP diluted EPS, shares, and adjusted free cash flow for FQ1-26, FQ4-25, and FQ1-25. Non-GAAP EPS rose to $4.78 from $1.79, and adjusted free cash flow increased to $3,906M from $112M."
+      },
+      {
+        "path": "tables/table-17 Cash Position.html",
+        "summary": "table-18 The table shows cash, investments, and debt for FQ1-26, FQ4-25, and FQ1-25. Net cash improved from negative to positive $260 million in FQ1-26."
+      },
+      {
+        "path": "tables/table-18 GAAP vs Non-GAAP.html",
+        "summary": "table-19 The table compares GAAP and Non-GAAP outlook for revenue ($18.70B), gross margin (67% vs 68%), operating expenses ($1.56B vs $1.38B), and diluted EPS ($8.19 vs $8.42) with adjustments."
+      },
+      {
+        "path": "tables/table-19 Stock Compensation.html",
+        "summary": "table-20 The table shows stock-based compensation costs: $125 for cost of goods sold, $119 for R&D, $61 for SG&A, and a tax adjustment of ($48), totaling $257."
+      }
+    ]
+  }
+}
