@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
+import sys
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from types import SimpleNamespace
+from types import ModuleType
 from typing import Any, cast
 
 import pytest
 from httpx import AsyncClient
 from pytest import MonkeyPatch
 
-from app.services.demo import source_catalog as source_catalog_module
-from app.services.demo.source_catalog import DemoSourceCatalog, DemoSourceDefinition
+from tests.support.import_environment import (
+    configure_import_environment,
+    ensure_import_paths,
+)
 from tests.support.contract_database import ContractDatabase
 
 
@@ -72,14 +77,24 @@ class FakeResultStorage:
         return f"https://assets.example.test/{job_id}/{normalized}"
 
 
+def _load_source_catalog_module() -> ModuleType:
+    configure_import_environment()
+    ensure_import_paths()
+    for module_name in list(sys.modules):
+        if module_name == "app" or module_name.startswith("app."):
+            sys.modules.pop(module_name, None)
+    return importlib.import_module("app.services.demo.source_catalog")
+
+
 def test_should_keep_demo_catalog_metadata_light_for_sources_without_examples(
     monkeypatch: MonkeyPatch,
 ) -> None:
+    source_catalog_module = _load_source_catalog_module()
     loaded_demo_source_ids: list[str] = []
     original_load_source_chunks = source_catalog_module._load_source_chunks
 
     def load_source_chunks(
-        source: DemoSourceDefinition,
+        source: Any,
     ) -> tuple[dict[str, Any], ...]:
         loaded_demo_source_ids.append(source.demo_source_id)
         return original_load_source_chunks(source)
@@ -90,7 +105,7 @@ def test_should_keep_demo_catalog_metadata_light_for_sources_without_examples(
         load_source_chunks,
     )
 
-    catalog = DemoSourceCatalog().get_catalog()
+    catalog = source_catalog_module.DemoSourceCatalog().get_catalog()
 
     assert catalog["sources"]
     assert DEMO_SOURCE_ID in loaded_demo_source_ids
@@ -99,7 +114,8 @@ def test_should_keep_demo_catalog_metadata_light_for_sources_without_examples(
 
 
 def test_should_preserve_filename_rooted_sections_when_publishing_demo_chunks() -> None:
-    catalog = DemoSourceCatalog()
+    source_catalog_module = _load_source_catalog_module()
+    catalog = source_catalog_module.DemoSourceCatalog()
     source = catalog.require_source(NVDA_EARNINGS_CALL_DEMO_SOURCE_ID)
     publication_chunks = catalog.publication_chunks(source)
     publication_paths = {
