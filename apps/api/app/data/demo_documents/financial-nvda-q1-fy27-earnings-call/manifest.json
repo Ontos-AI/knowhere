@@ -1,0 +1,84 @@
+{
+  "version": "2.0",
+  "job_id": "job_b03cca3ab2b1",
+  "data_id": null,
+  "source_file_name": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf",
+  "processing_date": "2026-06-16T03:21:44.822825Z",
+  "processing": {
+    "page_count": 16,
+    "billing_status": "charged",
+    "cost": {
+      "micro_dollars": 24000,
+      "credits": 0.024
+    },
+    "timing": {
+      "started_at": "2026-06-16T03:20:05.058875+00:00",
+      "completed_at": "2026-06-16T03:21:44.811693+00:00",
+      "duration_ms": 99752
+    },
+    "stages": {
+      "timing_ms": {
+        "document.profile": 5188,
+        "pdf.extract.standard": 84127,
+        "toc.detect_range_llm": 1088,
+        "md.detect_toc": 1117,
+        "heading.hierarchy_llm_call": 3511,
+        "heading.hierarchy_llm": 3524,
+        "md.predict_headings": 3915,
+        "md.deferred_summaries": 5166,
+        "md.build_dataframe": 1,
+        "pdf.parse_md": 10354,
+        "document.cleanup_unreferenced_images": 0,
+        "document.compress_images": 0,
+        "worker.parse.document": 99675
+      },
+      "token_usage": {
+        "prompt_tokens": 6583,
+        "completion_tokens": 469,
+        "total_tokens": 7052
+      }
+    }
+  },
+  "statistics": {
+    "total_chunks": 44,
+    "text_chunks": 30,
+    "image_chunks": 14,
+    "table_chunks": 0,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "Root": {},
+    "NVIDIA Corp. (NVDA)": {
+      "CORPORATE PARTICIPANTS": {},
+      "OTHER PARTICIPANTS": {}
+    },
+    "MANAGEMENT DISCUSSION SECTION": {
+      "Toshiya Hari": {},
+      "Colette M. Kress": {},
+      "Toshiya Hari_2": {}
+    },
+    "QUESTION AND ANSWER SECTION": {
+      "Joseph Moore": {},
+      "Jen Hsun Huang": {},
+      "Ben Reitzes": {},
+      "Jen Hsun Huang_2": {},
+      "C.J. Muse": {},
+      "Jen Hsun Huang_3": {},
+      "Timothy Arcuri": {},
+      "Jen Hsun Huang_4": {},
+      "Vivek Arya": {},
+      "Jen Hsun Huang_5": {},
+      "Stacy A. Rasgon": {},
+      "Jen Hsun Huang_6": {},
+      "Stacy A. Rasgon_2": {},
+      "Jen Hsun Huang_7": {},
+      "James Edward Schneider": {},
+      "Jen Hsun Huang_8": {},
+      "Joshua Buchalter": {},
+      "Colette M. Kress": {},
+      "Toshiya Hari": {},
+      "Jen Hsun Huang_9": {}
+    },
+    "Disclaimer": {}
+  }
+}

@@ -71,6 +71,7 @@ def parse_headers(
             header_response = get_openai_client().chat_completion(
                 messages=messages,
                 timeout=60,
+                usage_task="parser.table_detect_headers",
             )
             parsed_response = eval_response(header_response)
             if isinstance(parsed_response, dict):

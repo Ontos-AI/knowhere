@@ -1,0 +1,1581 @@
+{
+  "version": "1.0",
+  "file_name": "Alibaba Fiscal Year 2026 Interim Report.pdf",
+  "stats": {
+    "total_chunks": 216,
+    "text_chunks": 164,
+    "image_chunks": 2,
+    "table_chunks": 50,
+    "max_depth": 5
+  },
+  "sections": [
+    {
+      "title": "Root",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf",
+      "level": 1,
+      "summary": "Alibaba0 [images/image-1-Alibaba.jpg] Alibaba Alibaba Group Holding Limited NYSE: BABA HKEX: 9988 (HKD Counter) 89988 (RMB Counter)",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Weighted Voting Rights",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights",
+      "level": 1,
+      "summary": "The company has a weighted voting rights (WVR) structure where the Alibaba Partnership can nominate or appoint up to a simple majority of board members as long as the Partnership Condition is met. This structure is permanent unless amended by a 95% shareholder vote. The partnership's nomination rights survive a change of control. Shareholders face risks as the partnership limits their ability to elect directors and its interests may conflict with theirs.",
+      "chunk_count": 46,
+      "children": [
+        {
+          "title": "Exchange Rate Information",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Exchange Rate Information",
+          "level": 2,
+          "summary": "This Interim Report contains translations of certain Renminbi (“RMB”) amounts into U.S. dollars (“US\\$”) and Hong Kong dollars (“HK\\$”) for the convenience of the reader. Unless otherwise stated, all translations of RMB into US\\$ were made at RMB7.1190 to US\\$1.00, the exchange rate on September 30, 2025 as set forth in the H.10 statistical release of the Federal Reserve Board, and all translations of RMB into HK\\$ were made at RMB0.91298 to HK\\$1.00, the middle rate on September 30, 2025 as published by the People’s Bank of China. The percentages stated in this Interim Report are calculated based on the RMB amounts and there may be minor differences due to rounding.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Safe Harbor Statements",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Safe Harbor Statements",
+          "level": 2,
+          "summary": "This Interim Report contains forward-looking statements under safe harbor provisions, discussing Alibaba's strategies, business plans, and growth expectations. It highlights risks including competition, investments, strategic transactions, economic conditions, geopolitical tensions, and shareholder return changes. The Six Months Ended September Summary Financial Results section references non-GAAP measures, with year-over-year changes driven by factors like adjusted EBITA decrease, investments in quick commerce and technology, revenue growth in Alibaba China E-commerce Group, improved Cloud business results, and mark-to-market changes from equity investments.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Six Months Ended September Segment Results",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results",
+          "level": 2,
+          "summary": "Alibaba Group's revenue for the six months ended September 30, 2025, was RMB495,447 million (US$69,595 million), a 3% year-over-year increase from RMB479,739 million in 2024. Excluding disposed businesses (Sun Art and Intime), like-for-like revenue grew 12%. The company restructured its reporting segments, combining Taobao, Tmall, Ele.me, and Fliggy into Alibaba China E-commerce Group, and reclassifying Cainiao, Amap, and Digital Media and Entertainment Group into 'All others'. The text includes tables detailing revenue and adjusted EBITA breakdowns by segment, with notes on direct sales, quick commerce revenue, and segment performance drivers.",
+          "chunk_count": 18,
+          "children": [
+            {
+              "title": "Alibaba China E-commerce Group",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/Alibaba China E-commerce Group",
+              "level": 3,
+              "summary": "",
+              "chunk_count": 6,
+              "children": [
+                {
+                  "title": "(i) Segment revenue",
+                  "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/Alibaba China E-commerce Group/(i) Segment revenue",
+                  "level": 4,
+                  "summary": "",
+                  "chunk_count": 4,
+                  "children": [
+                    {
+                      "title": "• E-commerce Business",
+                      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/Alibaba China E-commerce Group/(i) Segment revenue/• E-commerce Business",
+                      "level": 5,
+                      "summary": "Revenue from our E-commerce business in the six months ended September 30, 2025 was RMB221,510 million (US\\$31,116 million), an increase of 9% compared to RMB202,988 million in the same period of 2024. Customer management revenue increased by 10% year-over-year, primarily due to the improvement of take rate. Direct sales, logistics and others revenue under E-commerce business in the six months ended September 30, 2025 was RMB53,331 million (US\\$7,492 million), an increase of 6% compared to RMB50,233 million in the same period of 2024, primarily driven by the increase in revenue from logistics services and value-added services, partly offset by the decrease in revenue from certain direct sales businesses.",
+                      "chunk_count": 1,
+                      "children": []
+                    },
+                    {
+                      "title": "• Quick Commerce Business",
+                      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/Alibaba China E-commerce Group/(i) Segment revenue/• Quick Commerce Business",
+                      "level": 5,
+                      "summary": "Revenue from our Quick commerce business in the six months ended September 30, 2025 was RMB37,690 million (US\\$5,294 million), an increase of 37% compared to RMB27,517 million in the same period of 2024, mainly due to order growth as a result of the rollout of “Taobao Instant Commerce” at the end of April 2025.",
+                      "chunk_count": 1,
+                      "children": []
+                    },
+                    {
+                      "title": "• China Commerce Wholesale Business",
+                      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/Alibaba China E-commerce Group/(i) Segment revenue/• China Commerce Wholesale Business",
+                      "level": 5,
+                      "summary": "Revenue from our China commerce wholesale business in the six months ended September 30, 2025 was RMB13,450 million (US\\$1,889 million), an increase of 13% compared to RMB11,938 million in the same period of 2024, primarily due to an increase in revenue from value-added services provided to paying members.",
+                      "chunk_count": 1,
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "title": "(ii) Segment adjusted EBITA",
+                  "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/Alibaba China E-commerce Group/(ii) Segment adjusted EBITA",
+                  "level": 4,
+                  "summary": "Alibaba China E-commerce Group adjusted EBITA decreased by 47% to RMB48,886 million (US\\$6,867 million) in the six months ended September 30, 2025, compared to RMB93,080 million in the same period of 2024, primarily due to the investment in quick commerce, user experiences, and technology, partly offset by double-digit revenue growth in Alibaba China E-commerce Group.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "title": "Alibaba International Digital Commerce Group",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/Alibaba International Digital Commerce Group",
+              "level": 3,
+              "summary": "",
+              "chunk_count": 5,
+              "children": [
+                {
+                  "title": "(i) Segment revenue",
+                  "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/Alibaba International Digital Commerce Group/(i) Segment revenue",
+                  "level": 4,
+                  "summary": "",
+                  "chunk_count": 3,
+                  "children": [
+                    {
+                      "title": "• International Commerce Retail Business",
+                      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/Alibaba International Digital Commerce Group/(i) Segment revenue/• International Commerce Retail Business",
+                      "level": 5,
+                      "summary": "Revenue from our International commerce retail business in the six months ended September 30, 2025 was RMB56,463 million (US\\$7,931 million), an increase of 15% compared to RMB49,309 million in the same period of 2024, primarily driven by the increase in revenue contributed by AliExpress and other international businesses. As certain of our international businesses generate revenue in local currencies while our reporting currency is Renminbi, AIDC's revenue is affected by exchange rate fluctuations.",
+                      "chunk_count": 1,
+                      "children": []
+                    },
+                    {
+                      "title": "• International Commerce Wholesale Business",
+                      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/Alibaba International Digital Commerce Group/(i) Segment revenue/• International Commerce Wholesale Business",
+                      "level": 5,
+                      "summary": "Revenue from our International commerce wholesale business in the six months ended September 30, 2025 was RMB13,077 million (US\\$1,837 million), an increase of 12% compared to RMB11,656 million in the same period of 2024, primarily due to an increase in revenue generated by cross-border related value-added services.",
+                      "chunk_count": 1,
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "title": "(ii) Segment adjusted EBITA",
+                  "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/Alibaba International Digital Commerce Group/(ii) Segment adjusted EBITA",
+                  "level": 4,
+                  "summary": "Alibaba International Digital Commerce Group adjusted EBITA was a profit of RMB103 million (US\\$14 million) in the six months ended September 30, 2025, compared to a loss of RMB6,611 million in the same period of 2024, primarily due to significant improvement in AliExpress' operating efficiency, and enhanced efficiency across various businesses.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "title": "Cloud Intelligence Group",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/Cloud Intelligence Group",
+              "level": 3,
+              "summary": "",
+              "chunk_count": 3,
+              "children": [
+                {
+                  "title": "(i) Segment revenue",
+                  "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/Cloud Intelligence Group/(i) Segment revenue",
+                  "level": 4,
+                  "summary": "Revenue from Cloud Intelligence Group was RMB73,222 million (US\\$10,285 million) in the six months ended September 30, 2025, an increase of 30% compared to RMB56,159 million in the same period of 2024. Overall revenue excluding Alibaba-consolidated subsidiaries increased by 28% year-over-year, primarily driven by public cloud revenue growth, including the increasing adoption of AI-related products.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "(ii) Segment adjusted EBITA",
+                  "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/Cloud Intelligence Group/(ii) Segment adjusted EBITA",
+                  "level": 4,
+                  "summary": "Cloud Intelligence Group adjusted EBITA increased by 31% to RMB6,558 million (US\\$921 million) in the six months ended September 30, 2025, compared to RMB4,998 million in the same period of 2024, primarily due to revenue growth and improving operating efficiency, partly offset by the increasing investments in customer growth and technology innovation.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "title": "All Others",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/All Others",
+              "level": 3,
+              "summary": "",
+              "chunk_count": 3,
+              "children": [
+                {
+                  "title": "(i) Segment revenue",
+                  "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/All Others/(i) Segment revenue",
+                  "level": 4,
+                  "summary": "Revenue from All others segment was RMB121,568 million (US\\$17,077 million) in the six months ended September 30, 2025, a decrease of 27% compared to RMB165,837 million in the same period of 2024, primarily due to the revenue decrease as a result of the disposal of Sun Art and Intime businesses, as well as the decrease in revenue from Cainiao, partly offset by the increase in revenue from Freshippo, Alibaba Health and Amap.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "(ii) Segment adjusted EBITA",
+                  "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Segment Results/All Others/(ii) Segment adjusted EBITA",
+                  "level": 4,
+                  "summary": "Adjusted EBITA from All others segment in the six months ended September 30, 2025 was a loss of RMB4,785 million (US\\$672 million), compared to a loss of RMB2,910 million in the same period of 2024, primarily due to the increased investment in technology businesses, partly offset by the improved operating results of Freshippo, Hujing Digital Media and Entertainment Group and Alibaba Health.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Six Months Ended September Other Financial Results Costs and Expenses",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Other Financial Results Costs and Expenses",
+          "level": 2,
+          "summary": "The text details Alibaba's costs and expenses for the six months ended September 30, 2025, compared to the same period in 2024. Cost of revenue decreased to 58.0% of revenue from 60.5%, driven by disposal of Sun Art and Intime, lower direct sales, and improved efficiency. Product development expenses rose to 6.5% of revenue from 5.7% due to increased technology investment. Sales and marketing expenses surged to 24.2% from 13.6%, mainly from investment in Alibaba China E-commerce Group. General and administrative expenses fell to 3.0% from 4.8%, aided by a prior-year lawsuit provision and cost controls. Total share-based compensation expense decreased to RMB6,870 million from RMB8,277 million, due to fewer awards granted. Amortization and impairment of intangible assets dropped 53% to RMB1,633 million from full amortization of certain assets.",
+          "chunk_count": 14,
+          "children": [
+            {
+              "title": "Income from operations and operating margin",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Other Financial Results Costs and Expenses/Income from operations and operating margin",
+              "level": 3,
+              "summary": "Income from operations in the six months ended September 30, 2025 was RMB40,353 million (US\\$5,668 million), or 8% of revenue, a decrease of 43% compared to RMB71,235 million, or 15% of revenue, in the same period of 2024, primarily due to the decrease in adjusted EBITA, partly offset by a one-time provision in the same period last year.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Adjusted EBITDA and Adjusted EBITA",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Other Financial Results Costs and Expenses/Adjusted EBITDA and Adjusted EBITA",
+              "level": 3,
+              "summary": "Adjusted EBITDA decreased 36% year-over-year to RMB62,991 million (US\\$8,848 million) in the six months ended September 30, 2025, compared to RMB98,488 million in the same period of 2024. Adjusted EBITA decreased 44% year-over-year to RMB47,917 million (US\\$6,731 million) in the six months ended September 30, 2025, compared to RMB85,596 million in the same period of 2024, primarily attributable to the investment in quick commerce, user experiences, and technology, partly offset by double-digit revenue growth in Alibaba China E-commerce Group, the improved operating results supported by continued growth in Cloud business, as well as enhanced operating efficiencies across various businesses. A reconciliation of net income to adjusted EBITDA and adjusted EBITA is included in the section entitled “Reconciliations of Non-GAAP Measures to the Nearest Comparable U.S. GAAP Measures” of this Interim Report.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Adjusted EBITA by segment",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Other Financial Results Costs and Expenses/Adjusted EBITA by segment",
+              "level": 3,
+              "summary": "Adjusted EBITA by segment as well as a reconciliation of income from operations to adjusted EBITA are set forth in the section entitled “Six Months Ended September Segment Results” above.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Interest and investment income, net",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Other Financial Results Costs and Expenses/Interest and investment income, net",
+              "level": 3,
+              "summary": "Interest and investment income, net in the six months ended September 30, 2025 was RMB37,468 million (US\\$5,263 million), an increase of 119% compared to RMB17,129 million in the same period of 2024, primarily due to mark-to-market changes from our equity investments, gain from the disposal of local consumer service business of Trendyol, and the decrease in impairment of our investments. The above-mentioned investment gains and losses were excluded from our non-GAAP net income.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Other (expense) income, net",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Other Financial Results Costs and Expenses/Other (expense) income, net",
+              "level": 3,
+              "summary": "Other (expense) income, net in the six months ended September 30, 2025 was an income of RMB1,329 million (US\\$187 million), compared to expense of RMB1,221 million in the same period of 2024, was primarily due to the decrease in net exchange loss in the six months ended September 30, 2025 compared to the same period last year, arising from the exchange rate fluctuation between Renminbi and U.S. dollar.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Income tax expenses",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Other Financial Results Costs and Expenses/Income tax expenses",
+              "level": 3,
+              "summary": "Income tax expenses in the six months ended September 30, 2025 were RMB14,415 million (US\\$2,024 million), compared to RMB17,442 million in the same period of 2024.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Share of results of equity method investees",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Other Financial Results Costs and Expenses/Share of results of equity method investees",
+              "level": 3,
+              "summary": "Share of results of equity method investees in the six months ended September 30, 2025 was RMB3,254 million (US\\$457 million), an increase of 31% compared to RMB2,483 million in the same period of 2024. The following table sets forth a breakdown of share of results of equity method investees for the periods indicated: [tables/table-5 Equity Investee Results.html] (1) “Others” mainly include basis differences arising from equity method investees, share-based compensation expense related to share-based awards granted to employees of our equity method investees, as well as gain or loss arising from the deemed disposal of the equity method investees. We record our share of results of all equity method investees one quarter in arrears. The share of net profit of other equity method investees recorded in the six months ended September 30 2025, compared to the share of net losses in the same period last year, was primarily attributable to the overall improvement in the financial performance of our equity method investees. This was partly offset by the decrease in share of profit of Ant Group, which was mainly attributable to investments in new growth initiatives and technologies.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Net income and Non-GAAP net income",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Other Financial Results Costs and Expenses/Net income and Non-GAAP net income",
+              "level": 3,
+              "summary": "Our net income in the six months ended September 30, 2025 was RMB62,994 million (US\\$8,849 million), compared to RMB67,569 million in the same period of 2024, primarily attributable to the decrease in income from operations, partly offset by the mark-to-market changes from our equity investments, gain from the disposal of local consumer service business of Trendyol and the decrease in both the impairment of our investments and net exchange loss. Excluding non-cash share-based compensation expense, gains/losses of investments, impairment of goodwill and intangible assets, and certain other items, non-GAAP net income in the six months ended September 30, 2025 was RMB43,862 million (US\\$6,161 million), a decrease of 43% compared to RMB77,209 million in the same period of 2024, primarily attributable to the investment in quick commerce, user experiences, and technology, partly offset by double-digit revenue growth in Alibaba China E-commerce Group, the improved operating results supported by continued growth in Cloud business, as well as enhanced operating efficiencies across various businesses. A reconciliation of net income to non-GAAP net income is included in the section entitled “Reconciliations of Non-GAAP Measures to the Nearest Comparable U.S. GAAP Measures” of this Interim Report.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Net income attributable to ordinary shareholders",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Other Financial Results Costs and Expenses/Net income attributable to ordinary shareholders",
+              "level": 3,
+              "summary": "Net income attributable to ordinary shareholders for the six months ended September 30, 2025 was RMB64,106 million, down from RMB68,143 million in 2024, due to decreased income from operations, partially offset by investment mark-to-market changes, Trendyol disposal gains, and lower impairment and exchange losses. Diluted earnings per ADS were RMB26.73, compared to RMB28.00 in 2024; non-GAAP diluted earnings per ADS fell 39% to RMB19.10. Diluted earnings per share were RMB3.34, versus RMB3.50 in 2024; non-GAAP diluted earnings per share also decreased 39% to RMB2.39. Cash, cash equivalents, short-term investments, and other treasury investments totaled RMB573,889 million as of September 30, 2025, down from RMB597,132 million as of March 31, 2025, primarily due to free cash flow outflow of RMB40,655 million, dividend payments of RMB33,621 million, and share repurchases of RMB7,638 million, partly offset by proceeds from convertible notes, bank borrowings, exchangeable bonds, and asset disposals.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Net cash provided by operating activities and free cash flow",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Other Financial Results Costs and Expenses/Net cash provided by operating activities and free cash flow",
+              "level": 3,
+              "summary": "During the six months ended September 30, 2025, net cash provided by operating activities was RMB30,771 million (US\\$4,322 million), a decrease of 53% compared to RMB65,074 million in the same period of 2024. Free cash flow, a non-GAAP measurement of liquidity, was an outflow of RMB40,655 million (US\\$5,711 million), compared to an inflow of RMB31,107 million in the same period of 2024. The decrease in free cash flow was mainly attributed to the increase in our cloud infrastructure expenditure and the investment in quick commerce. A reconciliation of net cash provided by operating activities to free cash flow is included in the section entitled “Reconciliations of Non-GAAP Measures to the Nearest Comparable U.S. GAAP Measures” of this Interim Report.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Net cash used in investing activities",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Other Financial Results Costs and Expenses/Net cash used in investing activities",
+              "level": 3,
+              "summary": "During the six months ended September 30, 2025, net cash used in investing activities of RMB51,324 million (US\\$7,209 million) primarily reflected capital expenditures of RMB70,177 million (US\\$9,858 million) and net increase in short-term investments and other treasury investments by RMB11,119 million (US\\$1,562 million), partly offset by net cash inflow of RMB29,710 million (US\\$4,173 million) for investment and acquisition activities.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Net cash provided by financing activities",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Other Financial Results Costs and Expenses/Net cash provided by financing activities",
+              "level": 3,
+              "summary": "During the six months ended September 30, 2025, net cash provided by financing activities of RMB8,171 million (US\\$1,148 million) primarily reflected cash provided by net proceeds from issuance of convertible unsecured senior notes and payments for capped call transactions of RMB20,994 million (US\\$2,949 million), net proceeds from bank borrowings of RMB17,804 million (US\\$2,501 million), and net proceeds from issuance of exchangeable bonds of RMB10,986 million (US\\$1,543 million), partly offset by dividend payment of RMB33,621 million (US\\$4,723 million), and cash used in repurchase of ordinary shares of RMB7,638 million (US\\$1,073 million).",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Employees",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Six Months Ended September Other Financial Results Costs and Expenses/Employees",
+              "level": 3,
+              "summary": "The passage provides reconciliations of non-GAAP financial measures to GAAP measures for a company, including adjusted EBITA, adjusted EBITDA, non-GAAP net income, non-GAAP diluted earnings per share/ADS, and free cash flow for the six months ended September 30, 2025. It also notes employee counts: 126,661 as of September 30, 2025, compared to 124,320 as of March 31, 2025. The reconciliations are presented in tables, with footnotes explaining tax effects, ADS-to-ordinary share ratio (1:8), and adjustments for noncontrolling interests.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "Non-GAAP Financial Measures",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Non-GAAP Financial Measures",
+          "level": 2,
+          "summary": "The passage explains the company's use of non-GAAP financial measures including adjusted EBITDA, adjusted EBITA, non-GAAP net income, non-GAAP diluted earnings per share/ADS, and free cash flow. These measures are used to supplement GAAP financial statements and help identify underlying business trends by excluding certain non-cash expenses and items not reflective of core operating performance. The definitions of each measure are provided, along with cautionary notes that they should not be considered in isolation or as alternatives to GAAP measures, and may not be comparable to similarly titled measures from other companies. Free cash flow is described as a liquidity measure for strategic corporate transactions, with specific adjustments explained.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Other Financial Information",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Other Financial Information",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 10,
+          "children": [
+            {
+              "title": "Liquidity and Capital Resources",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Other Financial Information/Liquidity and Capital Resources",
+              "level": 3,
+              "summary": "The passage discusses the company's funding sources, including cash from operations and debt/equity financing. It reports cash from operations of RMB65,074 million and RMB30,771 million for the six months ended September 30, 2024 and 2025, respectively. As of September 30, 2025, unrestricted cash, short-term investments, and other treasury investments totaled RMB573,889 million. The company issued zero coupon exchangeable bonds due 2032 for HK$12 billion in July 2025 and zero coupon convertible unsecured senior notes due 2032 for US$3.2 billion in September 2025. It amended a syndicated loan facility, reducing it to US$3.17 billion and restructuring it as a revolving credit facility expiring September 30, 2028, with an option to extend to 2030. Another US$6.5 billion revolving credit facility was amended to US$3.33 billion with similar terms. The company monitors financial health via total debts to adjusted EBITDA ratio (1.14 as of March 2025, 1.69 as of September 2025) and total debts to total capital ratio (17.62% and 20.35%, respectively).",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Significant Investments",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Other Financial Information/Significant Investments",
+              "level": 3,
+              "summary": "Our significant investment consists of Ant Group. Ant Group provides comprehensive digital payment services and facilitates digital financial and value-added services for consumers and merchants, in China and across the world. As of September 30, 2025, our equity interest in Ant Group on a fully diluted basis was 33%. During the six months ended September 30, 2025, dividend received from Ant Group amounted to RMB3,293 million (US\\$463 million). We did not hold any other significant investments as of September 30, 2025.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Material Investments, Acquisitions and Dispositions",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Other Financial Information/Material Investments, Acquisitions and Dispositions",
+              "level": 3,
+              "summary": "Our material investments, acquisitions and dispositions in the six months ended September 30, 2025 and the period through the date of this Interim Report are set forth below. In May 2025, we agreed to sell 85% of the equity interest in Trendyol GO, a wholly-owned subsidiary of Trendyol that operates local service business in Türkiye (the “Disposal”). The cash consideration for the Disposal is approximately US\\$0.7 billion (RMB5 billion). The Disposal was completed during the six months ended September 30, 2025. Save as disclosed above, as at the date of this Interim Report, the Group did not have detailed future plans for material investments or capital assets.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Pledge of Assets",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Other Financial Information/Pledge of Assets",
+              "level": 3,
+              "summary": "Certain of the Group's bank borrowings are collateralized by a pledge of certain buildings and property improvements, construction in progress and land use rights in the PRC, receivables and other treasury investments with carrying values of RMB30,213 million and RMB25,417 million, as of March 31, 2025 and September 30, 2025, respectively. In addition, certain of the Group's payables are collateralized by a pledge of certain short-term investments and other treasury investments with carrying values of RMB3,697 million and RMB4,155 million as of March 31, 2025 and September 30, 2025, respectively.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Foreign Exchange Risk",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Other Financial Information/Foreign Exchange Risk",
+              "level": 3,
+              "summary": "The passage discusses foreign currency risk arising from transactions and investments. Most revenue and expenses are in Renminbi, the functional currency. The Renminbi's value against the U.S. dollar fluctuates due to political, economic, and policy factors. Appreciation of the Renminbi reduces U.S. dollar conversion amounts for operations, while U.S. dollar appreciation reduces Renminbi conversion for dividends or debt payments.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Contingent Liabilities",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Other Financial Information/Contingent Liabilities",
+              "level": 3,
+              "summary": "Save as disclosed in this Interim Report, as at September 30, 2025, the Group had no material contingent liabilities.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Capital Expenditure and Capital Commitment",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Other Financial Information/Capital Expenditure and Capital Commitment",
+              "level": 3,
+              "summary": "Our capital expenditures have been incurred primarily in relation to (i) the acquisition of computer equipment and construction of data centers relating to our Cloud business and the operation of our mobile platforms and websites; (ii) the acquisition of infrastructure for logistics services and direct sales businesses; and (iii) the acquisition of land use rights and construction of corporate campuses and office facilities. In the six months ended September 30, 2024 and 2025, our capital expenditures totaled RMB29,585 million and RMB70,177 million (US\\$9,858 million), respectively. The Group’s capital commitments primarily relate to capital expenditures contracted for purchase of property and equipment, including the construction of corporate campuses. Total capital commitments contracted but not provided for amounted to RMB45,321 million and RMB29,483 million (US\\$4,141 million) as of March 31, 2025 and September 30, 2025, respectively.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Remuneration Policy",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Other Financial Information/Remuneration Policy",
+              "level": 3,
+              "summary": "Alibaba Group reviews its remuneration policy to maintain industry competitiveness, offering discretionary bonuses and long-term incentives based on performance. It provides learning programs for employee development. PRC subsidiaries participate in government-mandated defined contribution plans covering housing, pension, medical, and other benefits, with monthly contributions to local authorities. Commercial health and accidental insurance are also provided, along with tailored benefit plans. Outside the PRC, subsidiaries make payments to defined contribution and benefit plans. Equity incentives, including restricted share units, stock options, and share appreciation rights, may be granted to directors, employees, service providers, and consultants under adopted plans.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Subsequent Events",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/Weighted Voting Rights/Other Financial Information/Subsequent Events",
+              "level": 3,
+              "summary": "Save as disclosed in this Interim Report, as at the date of this Interim Report, there were no significant events that might affect Alibaba Group since September 30, 2025.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "DIRECTORS AND CHIEF EXECUTIVE OFFICER",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/DIRECTORS AND CHIEF EXECUTIVE OFFICER",
+      "level": 1,
+      "summary": "The following table sets forth certain information relating to our directors and chief executive officer. [tables/table-10 Board of Directors.html] $^{\\dagger}$ Director nominated by the Alibaba Partnership. (a) Group I directors. Current term of office will expire at our 2027 annual general meeting. (b) Group II directors. Current term of office will expire at our 2028 annual general meeting. (c) Group III directors. Current term of office will expire at our 2026 annual general meeting. (d) Beginning from April 1, 2025, Maggie Wu has started to serve as a non-executive director. (1) The business address of our directors is 26/F Tower One, Times Square, 1 Matheson Street, Causeway Bay, Hong Kong SAR., the People's Republic of China.",
+      "chunk_count": 9,
+      "children": [
+        {
+          "title": "Biographical Information",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/DIRECTORS AND CHIEF EXECUTIVE OFFICER/Biographical Information",
+          "level": 2,
+          "summary": "The text provides detailed biographies of 10 members of Alibaba Group's board of directors, including Joseph C. Tsai (Chairman), Eddie Yongming Wu (CEO), J. Michael Evans (President), Maggie Wei Wu, Jerry Yang, Wan Ling Martello, Weijian Shan, Irene Yun-Lien Lee, Albert Kong Ping Ng, and Kabir Misra. Each entry outlines their professional background, education, key roles at Alibaba and other companies, and board memberships.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Board Committees",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/DIRECTORS AND CHIEF EXECUTIVE OFFICER/Board Committees",
+          "level": 2,
+          "summary": "Our board of directors has established an audit committee, a compensation committee, a nominating and corporate governance committee, a sustainability committee, a compliance and risk committee and a capital management committee.",
+          "chunk_count": 7,
+          "children": [
+            {
+              "title": "Audit Committee",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/DIRECTORS AND CHIEF EXECUTIVE OFFICER/Board Committees/Audit Committee",
+              "level": 3,
+              "summary": "Our audit committee currently consists of Albert Ng, Wan Ling Martello and Weijian Shan. Mr. Ng is the chairman of our audit committee.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Compensation Committee",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/DIRECTORS AND CHIEF EXECUTIVE OFFICER/Board Committees/Compensation Committee",
+              "level": 3,
+              "summary": "Our compensation committee currently consists of Jerry Yang, Albert Ng and Kabir Misra. Mr. Yang is the chairman of our compensation committee.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Nominating and Corporate Governance Committee",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/DIRECTORS AND CHIEF EXECUTIVE OFFICER/Board Committees/Nominating and Corporate Governance Committee",
+              "level": 3,
+              "summary": "Our nominating and corporate governance committee currently consists of Irene Lee and Jerry Yang. Ms. Lee is the chairman of our nominating and corporate governance committee.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Sustainability Committee",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/DIRECTORS AND CHIEF EXECUTIVE OFFICER/Board Committees/Sustainability Committee",
+              "level": 3,
+              "summary": "Our sustainability committee currently consists of Jerry Yang, Joe Tsai and Maggie Wu. Mr. Yang is the chairman of our sustainability committee.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Compliance and Risk Committee",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/DIRECTORS AND CHIEF EXECUTIVE OFFICER/Board Committees/Compliance and Risk Committee",
+              "level": 3,
+              "summary": "Our compliance and risk committee currently consists of Irene Lee, Albert Ng, Kabir Misra and J. Michael Evans. Ms. Lee is the chairman of our compliance and risk committee.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Capital Management Committee",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/DIRECTORS AND CHIEF EXECUTIVE OFFICER/Board Committees/Capital Management Committee",
+              "level": 3,
+              "summary": "Our capital management committee currently consists of Joe Tsai, Eddie Wu, J. Michael Evans and Maggie Wu. Mr. Tsai is the chairman of our capital management committee.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "DISCLOSURE OF INTERESTS",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/DISCLOSURE OF INTERESTS",
+      "level": 1,
+      "summary": "The document details the interests and short positions in shares of the company as of September 30, 2025, for directors, the CEO, and substantial shareholders, as required under the Securities and Futures Ordinance (SFO). It includes tables and notes for directors like Joseph C. Tsai, Eddie Yongming Wu, J. Michael Evans, and Maggie Wei Wu, listing their holdings through shares, RSUs, options, trusts, and foundations. For substantial shareholders, it covers JPMorgan Chase & Co., Citigroup Inc., and Blackrock, Inc., with breakdowns of long and short positions, including derivatives. The report confirms no other disclosable interests beyond those listed.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "EQUITY INCENTIVE PLANS",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/EQUITY INCENTIVE PLANS",
+      "level": 1,
+      "summary": "The 2014 Plan, the 2024 Plan and the 2024 Plan (Existing Shares) are the equity incentive plans of our Company in effect. For a summary of the key terms of these plans, please see “Directors, Senior Management and Employees - Equity Incentive Plans” in our fiscal year 2025 annual report. During the Reporting Period, a total of 63,594,318 Shares (equivalent to approximately 7,949,290 ADSs), representing approximately 0.3% of the weighted average number of Shares in issue (excluding treasury shares) of our Company, that may be issued in respect of all share-based awards were granted to eligible participants under the 2024 Plan of our Company.",
+      "chunk_count": 6,
+      "children": [
+        {
+          "title": "The 2014 Plan",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/EQUITY INCENTIVE PLANS/The 2014 Plan",
+          "level": 2,
+          "summary": "The 2014 Plan (which we adopted in September 2014, amended and restated in February 2020 to reflect the Share Split and other administrative changes, and further amended and restated in May 2022 to reflect administrative changes) provides for the granting of share-based awards, including restricted share units, stock options, restricted shares and share appreciation rights, to any participant who is an employee, consultant or director of our company, our affiliates and/or certain other companies. No further awards will be granted under the 2014 Plan as from September 18, 2024. Any shares authorized but unissued under the 2014 Plan will no longer be available for granting. The share-based awards already granted under the 2014 Plan will remain in full force and effect pursuant to the terms and conditions of the 2014 Plan. Details of movements of RSUs under the 2014 Plan during the Reporting Period are as follows: [tables/table-13 RSU Grant Summary.html]",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "Notes:",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/EQUITY INCENTIVE PLANS/The 2014 Plan/Notes:",
+              "level": 3,
+              "summary": "1. The purchase price of all RSUs granted is nil. 2. Eight Shares are issuable upon the vesting of each RSU. 3. The RSUs vest over a period of 6 years. 4. The RSUs vest over a period of 5 years. 5. The RSUs vest over a period of 4 years. 6. The RSUs vest over a period of 2 years. 7. The RSUs granted to employee participants and related entity participants vest over a period of up to 10 years. 8. For directors and chief executive officer, the weighted average closing price of ADSs traded on the NYSE immediately before the dates on which the RSUs were vested during the Reporting Period was US\\$136.71. 9. For employee participants, the weighted average closing price of ADSs traded on the NYSE immediately before the dates on which the RSUs were vested during the Reporting Period was US\\$131.05 10. For related entity participants, the weighted average closing price of ADSs traded on the NYSE immediately before the dates on which the RSUs were vested during the Reporting Period was US\\$132.15. 11. A related entity participant is an employee of an associated company in which our Company owns, directly or indirectly, securities or interests representing 20% or more of its voting power. Details of movements of share options under the 2014 Plan during the Reporting Period are as follows: [tables/table-14 Share Options Table.html]",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Notes:_2",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/EQUITY INCENTIVE PLANS/The 2014 Plan/Notes:_2",
+              "level": 3,
+              "summary": "1. Eight Shares are issuable upon the exercise of each share option. 2. The share options vest over a period of 5 years and are exercisable within 10 years after date of grant. 3. The share options vest over a period of 6 years and are exercisable within 12 years after date of grant. 4. The share options vest over a period of 2 years and are exercisable within 8 years after date of grant. 5. The share options vest over a period of up to 9 years and are exercisable within up to 12 years after date of grant. 6. The closing price of ADSs traded on the NYSE immediately before the date on which the share options were exercised during the Reporting Period was US\\$123.90. 7. For employee participants, the weighted average closing price of ADSs traded on the NYSE immediately before the dates on which the share options were exercised during the Reporting Period was US\\$114.78. 8. For related entity participant, the weighted average closing price of ADSs traded on the NYSE immediately before the date on which the share options were exercised during the Reporting Period was US\\$118.09. 9. No share options granted were cancelled during the Reporting Period. 10. A related entity participant is an employee of an associated company in which our Company owns, directly or indirectly, securities or interests representing 20% or more of its voting power.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "The 2024 Plan",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/EQUITY INCENTIVE PLANS/The 2024 Plan",
+          "level": 2,
+          "summary": "The 2024 Plan, approved in August 2024, aims to attract, motivate, and retain employees, executive directors, and service providers by granting restricted share units (RSUs), stock options, restricted shares, and share appreciation rights. As of April 1, 2025, 473,488,465 shares were available for grant under the scheme mandate, and 93,716,369 shares under the service provider sub-limit. By September 30, 2025, available shares under the scheme mandate decreased to 411,246,946. RSUs granted have a nil purchase price, vest over up to 6 years, and one share is issuable per RSU. No RSUs were granted to directors during the reporting period. The weighted average closing price before vesting was HK$113.70. Grants to employee participants on various dates are detailed in a table, with some RSUs granted on May 23, 2025 subject to performance targets based on financial or operational indicators. Fair values of RSUs were determined by reference to underlying share fair values on grant date. No RSUs were cancelled during the period.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "The 2024 Plan (Existing Shares)",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/EQUITY INCENTIVE PLANS/The 2024 Plan (Existing Shares)",
+          "level": 2,
+          "summary": "The 2024 Plan (Existing Shares) was approved by our board in August 2024. The purpose of the 2024 Plan (Existing Shares) is to provide incentives to attract, motivate and retain the grantees and align the interests of the grantees with those of our shareholders. It provides for the granting of restricted share units, stock options, restricted shares and share appreciation rights to any participant who is an employee, a director or a service provider. The 2024 Plan (Existing Shares) is funded by existing Shares, therefore it does not constitute a scheme involving the new issuance of Shares as referred to in Chapter 17 of the Hong Kong Listing Rules but is subject to the applicable disclosure requirements under Rule 17.12 of the Hong Kong Listing Rules.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "PURCHASE, SALE OR REDEMPTION OF OUR COMPANY'S LISTED SECURITIES",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/PURCHASE, SALE OR REDEMPTION OF OUR COMPANY'S LISTED SECURITIES",
+      "level": 1,
+      "summary": "During the Reporting Period, our Company repurchased a total of 73 million Shares on the NYSE for an aggregate consideration of US\\$1.0 billion. Details of the Shares repurchased on the NYSE are as follows: [tables/table-17 Share Repurchase.html] Note: 1. Each ADS represents eight Shares. As of the date of this Interim Report, all the Shares repurchased during the Reporting Period have been cancelled. Save as disclosed above, neither our Company nor any of its subsidiaries purchased, sold or redeemed any of our Company's securities listed on the Hong Kong Stock Exchange or the NYSE (including sale of treasury shares) during the Reporting Period. As of September 30, 2025, our Company did not hold any treasury shares as defined in the Hong Kong Listing Rules.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "OTHER INFORMATION",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/OTHER INFORMATION",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 7,
+      "children": [
+        {
+          "title": "Corporate Governance",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/OTHER INFORMATION/Corporate Governance",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 4,
+          "children": [
+            {
+              "title": "Compliance with the Corporate Governance Code",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/OTHER INFORMATION/Corporate Governance/Compliance with the Corporate Governance Code",
+              "level": 3,
+              "summary": "To the knowledge of the Company and our directors, we have complied with all applicable code provisions set out in the Corporate Governance Code as set forth in Part 2 of Appendix C1 to the Hong Kong Listing Rules for the six months ended September 30, 2025.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Compliance with the Model Code",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/OTHER INFORMATION/Corporate Governance/Compliance with the Model Code",
+              "level": 3,
+              "summary": "We have adopted our own trading guidelines, on terms no less exacting than the required standard set out in the Model Code as set forth in Appendix C3 to the Hong Kong Listing Rules, to regulate, among others, all dealings by directors and relevant employees of securities in the Company. Having made specific enquiry of all directors, all directors confirmed that they have complied with our trading guidelines during the six months ended September 30, 2025.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Audit Committee Review",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/OTHER INFORMATION/Corporate Governance/Audit Committee Review",
+              "level": 3,
+              "summary": "The audit committee oversees accounting, financial reporting, and audits. Its responsibilities include selecting and evaluating the independent auditor, pre-approving audit and non-audit services, assessing internal controls, reviewing audit problems and related party transactions, and discussing quarterly, half-year, and annual reports. It also establishes procedures for employee complaints on accounting matters and meets separately with management and auditors. The committee reviewed the unaudited interim financial statements for the six months ended September 30, 2025, with PricewaterhouseCoopers, which also reviewed the statements under International Standard on Review Engagements 2410.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "Interim Dividend",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/OTHER INFORMATION/Interim Dividend",
+          "level": 2,
+          "summary": "Our board did not recommend the distribution of an interim dividend for the Reporting Period.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Use of Proceeds from the Notes Offerings",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/OTHER INFORMATION/Use of Proceeds from the Notes Offerings",
+          "level": 2,
+          "summary": "In September 2025, the company completed a private offering of $3.168 billion in Zero Coupon Convertible Senior Notes due 2032, along with capped call transactions costing $184 million. The notes have an initial conversion rate of 5.1773 ADSs per $1,000 principal, equivalent to an initial conversion price of about $193.15 per ADS. Net proceeds of approximately $3.13 billion are intended for general corporate purposes, with 80% allocated to enhancing cloud infrastructure and 20% to expanding international commerce operations. As of September 30, 2025, unutilized proceeds totaled $2.4 billion.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "DEFINITIONS Conventions that apply to this Interim Report",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/DEFINITIONS Conventions that apply to this Interim Report",
+      "level": 1,
+      "summary": "This section defines key terms and conventions used in the interim report, including references to equity incentive plans (2014 Plan, 2024 Plan, 2024 Plan Existing Shares), ADSs, Alibaba Group, Articles of Association, board of directors, Corporate Governance Code, Hong Kong Listing Rules, Model Code, NYSE, Reporting Period, RSUs, SEC, SFO, Share Split, shareholders, Shares, substantial shareholders, U.S., U.S. dollars, U.S. Exchange Act, and U.S. Securities Act.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 6,
+      "children": [
+        {
+          "title": "INDEX TO CONDENSED CONSOLIDATED INTERIM FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED/INDEX TO CONDENSED CONSOLIDATED INTERIM FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "[tables/table-19 Interim Report.html] Report on Review of Interim Financial Information To the Board of Directors of Alibaba Group Holding Limited (incorporated in the Cayman Islands with limited liability)",
+          "chunk_count": 5,
+          "children": [
+            {
+              "title": "Introduction",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED/INDEX TO CONDENSED CONSOLIDATED INTERIM FINANCIAL STATEMENTS/Introduction",
+              "level": 3,
+              "summary": "We have reviewed the interim financial information set out on pages 46 to 81, which comprises the condensed consolidated balance sheet of Alibaba Group Holding Limited (the “Company”) and its subsidiaries (together, the “Group”) as at September 30, 2025 and the condensed consolidated income statement, the condensed consolidated statement of comprehensive income, the condensed consolidated statement of changes in shareholders’ equity and the condensed consolidated statement of cash flows for the six-month period then ended, and selected explanatory notes. The Rules Governing the Listing of Securities on The Stock Exchange of Hong Kong Limited require the preparation of a report on interim financial information to be in compliance with the relevant provisions thereof and accounting principles generally accepted in the United States of America (“U.S. GAAP”). The directors of the Company are responsible for the preparation and presentation of this interim financial information in accordance with U.S. GAAP. Our responsibility is to express a conclusion on this interim financial information based on our review and to report our conclusion solely to you, as a body, in accordance with our agreed terms of engagement, and for no other purpose. We do not assume responsibility towards or accept liability to any other person for the contents of this report.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Scope of Review",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED/INDEX TO CONDENSED CONSOLIDATED INTERIM FINANCIAL STATEMENTS/Scope of Review",
+              "level": 3,
+              "summary": "We conducted our review in accordance with International Standard on Review Engagements 2410, “Review of Interim Financial Information Performed by the Independent Auditor of the Entity”. A review of interim financial information consists of making inquiries, primarily of persons responsible for financial and accounting matters, and applying analytical and other review procedures. A review is substantially less in scope than an audit conducted in accordance with International Standards on Auditing and consequently does not enable us to obtain assurance that we would become aware of all significant matters that might be identified in an audit. Accordingly, we do not express an audit opinion.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Conclusion",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED/INDEX TO CONDENSED CONSOLIDATED INTERIM FINANCIAL STATEMENTS/Conclusion",
+              "level": 3,
+              "summary": "Based on our review, nothing has come to our attention that causes us to believe that the interim financial information of the Group is not prepared, in all material respects, in accordance with U.S. GAAP.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "PricewaterhouseCoopers Certified Public Accountants",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED/INDEX TO CONDENSED CONSOLIDATED INTERIM FINANCIAL STATEMENTS/PricewaterhouseCoopers Certified Public Accountants",
+              "level": 3,
+              "summary": "Hong Kong, December 4, 2025 ALIBABA GROUP HOLDING LIMITED UNAUDITED CONDENSED CONSOLIDATED INCOME STATEMENTS [tables/table-20 Alibaba Financials.html] The accompanying notes form an integral part of these unaudited condensed consolidated financial statements. ALIBABA GROUP HOLDING LIMITED UNAUDITED CONDENSED CONSOLIDATED STATEMENTS OF COMPREHENSIVE INCOME [tables/table-21 Income Statement.html] The accompanying notes form an integral part of these unaudited condensed consolidated financial statements. ALIBABA GROUP HOLDING LIMITED UNAUDITED CONDENSED CONSOLIDATED BALANCE SHEETS [tables/table-22 Balance Sheet Data.html] The accompanying notes form an integral part of these unaudited condensed consolidated financial statements. ALIBABA GROUP HOLDING LIMITED UNAUDITED CONDENSED CONSOLIDATED BALANCE SHEETS (CONTINUED) [tables/table-23 Equity Summary.html] The accompanying notes form an integral part of these unaudited condensed consolidated financial statements. ALIBABA GROUP HOLDING LIMITED UNAUDITED CONDENSED CONSOLIDATED STATEMENTS OF CHANGES IN SHAREHOLDERS' EQUITY [tables/table-24 Equity Changes.html] The accompanying notes form an integral part of these unaudited condensed consolidated financial statements.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_2",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_2",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 4,
+      "children": [
+        {
+          "title": "UNAUDITED CONDENSED CONSOLIDATED STATEMENTS OF CASH FLOWS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_2/UNAUDITED CONDENSED CONSOLIDATED STATEMENTS OF CASH FLOWS",
+          "level": 2,
+          "summary": "[tables/table-25 Cash Flow Statement.html] The accompanying notes form an integral part of these unaudited condensed consolidated financial statements. ALIBABA GROUP HOLDING LIMITED NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "1. Organization and principal activities",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_2/1. Organization and principal activities",
+          "level": 2,
+          "summary": "Alibaba Group Holding Limited (the “Company”) is a limited liability company, which was incorporated in the Cayman Islands on June 28, 1999. The Company is a holding company and conducts its businesses primarily through its subsidiaries and variable interest entities. In these unaudited condensed consolidated financial statements, where appropriate, the term “Company” also refers to its subsidiaries as a whole. The Company provides the technology infrastructure and marketing reach to help merchants, brands, retailers and other businesses to leverage the power of new technology to engage with their users and customers and operate in a more efficient way. The Company's businesses comprise Alibaba China E-commerce Group, Alibaba International Digital Commerce Group, Cloud Intelligence Group and All others. An ecosystem has developed around the Company's platforms and businesses that consists of consumers, merchants, brands, retailers, enterprises, third-party service providers, strategic alliance partners and other businesses. The Company's American depositary shares (“ADSs”) are listed on the New York Stock Exchange (“NYSE”) under the symbol “BABA” and the Company’s ordinary shares are listed on the Hong Kong Stock Exchange (“HKSE”) under the stock codes “9988 (HKD Counter)” and “89988 (RMB Counter).”",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "2. Summary of significant accounting policies",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_2/2. Summary of significant accounting policies",
+          "level": 2,
+          "summary": "The document outlines the basis of presentation for unaudited condensed consolidated financial statements prepared under U.S. GAAP and Hong Kong Listing Rules for interim periods. It notes that these statements do not include all disclosures required for a full set of financials, but include normal recurring adjustments. The statements should be read with the audited financials for the year ended March 31, 2025, with no significant accounting policy changes except updates for derivatives, hedging, and borrowings due to exchangeable bonds. RMB amounts are translated to US dollars at a rate of 7.1190 for convenience, with no guarantee of convertibility at that rate.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_3",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_3",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 13,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_3/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "2. Summary of significant accounting policies (Continued)",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_3/2. Summary of significant accounting policies (Continued)",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "(b) Use of estimates",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_3/2. Summary of significant accounting policies (Continued)/(b) Use of estimates",
+              "level": 3,
+              "summary": "The preparation of the unaudited condensed consolidated financial statements in conformity with U.S. GAAP requires the Company to make estimates and assumptions that affect the reported amounts of assets and liabilities, disclosure of contingent assets and liabilities as of the date of the unaudited condensed consolidated financial statements and the reported amounts of revenue and expenses during the reporting period. The Company bases its estimates on historical experience and on various other assumptions that are believed to be reasonable, the results of which form the basis for making judgments about the carrying values of assets and liabilities.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "(c) Consolidation",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_3/2. Summary of significant accounting policies (Continued)/(c) Consolidation",
+              "level": 3,
+              "summary": "The unaudited condensed consolidated financial statements include the financial statements of the Company and its subsidiaries, which include the PRC-registered entities directly or indirectly owned by the Company (“WFOEs”) and variable interest entities (“VIEs”) over which the Company is the primary beneficiary for accounting purposes only. All transactions and balances among the Company, its subsidiaries and the VIEs have been eliminated upon consolidation. The results of subsidiaries acquired or disposed of are recorded in the unaudited condensed consolidated income statements from the effective date of acquisition or up to the effective date of disposal, as appropriate. The nature of the businesses and activities of the consolidated VIEs have not changed materially from the preceding fiscal year. The following financial information of the consolidated VIEs and their subsidiaries was recorded in the accompanying unaudited condensed consolidated financial statements: [tables/table-26 Financial Data.html] (i) Revenue generated by the VIEs are primarily from cloud services, digital media and entertainment services and others. ALIBABA GROUP HOLDING LIMITED NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "2. Summary of significant accounting policies (Continued)_2",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_3/2. Summary of significant accounting policies (Continued)_2",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 4,
+          "children": [
+            {
+              "title": "(d) Derivatives and hedging",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_3/2. Summary of significant accounting policies (Continued)_2/(d) Derivatives and hedging",
+              "level": 3,
+              "summary": "The passage discusses the accounting treatment for derivatives and embedded derivatives under ASC 815. Derivatives are recorded at fair value on the balance sheet, with changes recognized in income or other comprehensive income depending on hedge designation. Capped call transactions meeting the scope exception are recognized in shareholders' equity. Hedge accounting requires formal documentation and effectiveness testing, with a hedging relationship considered effective if results fall within an 80% to 125% ratio.",
+              "chunk_count": 3,
+              "children": [
+                {
+                  "title": "Cash flow hedges",
+                  "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_3/2. Summary of significant accounting policies (Continued)_2/(d) Derivatives and hedging/Cash flow hedges",
+                  "level": 4,
+                  "summary": "Interest rate swaps designated as hedging instruments to hedge against the cash flows attributable to recognized assets or liabilities or forecasted payments may qualify as cash flow hedges. The Company entered into interest rate swap contracts to swap floating interest payments related to certain borrowings for fixed interest payments to hedge the interest rate risk associated with certain forecasted payments and obligations. All changes in the fair value of interest rate swaps that are designated and qualify as cash flow hedges are recognized in accumulated other comprehensive income. Amounts in accumulated other comprehensive income are reclassified into earnings in the same period during which the hedged forecasted transaction affects earnings. The Company has elected the optional expedients under ASC 848 “Reference Rate Reform” for certain existing interest rate swaps that are designated as cash flow hedges in the hedging relationship designation and the assessment of probability of forecasted transaction and hedge effectiveness.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Net investment hedges",
+                  "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_3/2. Summary of significant accounting policies (Continued)_2/(d) Derivatives and hedging/Net investment hedges",
+                  "level": 4,
+                  "summary": "The Company uses cross currency swap contracts and RMB denominated unsecured senior notes and borrowings to hedge foreign currency risk from investments in PRC subsidiaries, designated as net investment hedges. Changes in fair value from spot exchange rate fluctuations are recognized in accumulated other comprehensive income, while excluded components are recognized in interest expenses. For the six months ended September 30, 2025, losses of RMB1,279 million were recognized in accumulated other comprehensive income. Amounts are reclassified to income upon subsidiary disposal, and hedge accounting is discontinued if ineffective. Fair values are estimated using market rates and industry standard valuation techniques.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "2. Summary of significant accounting policies (Continued)_3",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_3/2. Summary of significant accounting policies (Continued)_3",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "(e) Borrowings",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_3/2. Summary of significant accounting policies (Continued)_3/(e) Borrowings",
+              "level": 3,
+              "summary": "Borrowings consist of bank borrowings, unsecured senior notes, convertible unsecured senior notes and exchangeable bonds. Bank borrowings and unsecured senior notes are recognized initially at fair value, net of upfront fees, debt discounts or premiums, debt issuance costs and other incidental fees. Upfront fees, debt discounts or premiums, debt issuance costs and other incidental fees are recorded as a reduction of the proceeds received and the related accretion is recorded as interest expense in the unaudited condensed consolidated income statements over the estimated term of the facilities using the effective interest method. Convertible unsecured senior notes are accounted for in its entirety as liabilities, and the embedded conversion feature is not required to be accounted for separately under ASC 815. Exchangeable bonds are accounted for under the fair value option with changes in fair value recorded in the unaudited condensed consolidated income statements.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "(f) Recent accounting pronouncements",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_3/2. Summary of significant accounting policies (Continued)_3/(f) Recent accounting pronouncements",
+              "level": 3,
+              "summary": "The passage discusses four FASB Accounting Standards Updates (ASUs) issued in 2025. ASU 2025-05 provides a practical expedient for estimating credit losses on current receivables and contract assets, effective for the year ending March 31, 2027. ASU 2025-06 removes prescriptive software development stages for internal-use software, effective for the year ending March 31, 2029. ASU 2025-08 defines purchased seasoned loans and expands the gross-up approach for credit losses, effective for the year ending March 31, 2028. ASU 2025-09 clarifies hedge accounting, including expanding hedged risks and eliminating certain tests, effective for the year ending March 31, 2028. All updates permit early adoption, and the Company is evaluating their impacts.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "3. Significant mergers and acquisitions, investments and dispositions",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_3/3. Significant mergers and acquisitions, investments and dispositions",
+          "level": 2,
+          "summary": "Disposal of Trendyol GO In May 2025, the Company entered into a sale and purchase agreement to sell 85% of the equity interest in Trendyol GO, a wholly-owned subsidiary of Trendyol that operates local service business in Türkiye (the \"Disposal\"). The cash consideration for the Disposal is approximately US\\$0.7 billion (RMB5 billion). The Disposal was completed during the six months ended September 30, 2025, and a gain arising from the Disposal of approximately RMB6 billion was recorded in interest and investment income, net in the unaudited condensed consolidated income statements for the six months ended September 30, 2025, primarily taking into consideration (i) the cash considerations received, (ii) the carrying values of the net assets of Trendyol GO, and (iii) the fair value of the 15% retained equity interest in Trendyol GO.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_4",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_4",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 3,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_4/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "4. Revenue",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_4/4. Revenue",
+          "level": 2,
+          "summary": "The passage details revenue breakdown by segment for Alibaba. Key segments include E-commerce (Alibaba China E-commerce Group with customer management, goods, logistics), Quick commerce (Taobao Instant Commerce, Ele.me), China commerce wholesale (1688.com), International commerce retail (AliExpress, Trendyol, Lazada), International commerce wholesale (Alibaba.com), Cloud Intelligence Group (cloud services), and All others (Freshippo, Cainiao, Alibaba Health, etc.). Inter-segment eliminations primarily involve Cloud Intelligence Group and Cainiao.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_5",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_5",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 3,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_5/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "4. Revenue (Continued)",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_5/4. Revenue (Continued)",
+          "level": 2,
+          "summary": "(x) As a result of the change in composition in reportable segments (Note 18), the Company reclassified revenue by segment. Comparative figures for the six months ended September 30, 2024 were updated to conform to the segment presentation. Revenue by type is as follows: [tables/table-28 Revenue Breakdown.html] (i) Customer management services mainly include cost-per-click (\"CPC\"), cost-per-thousand impressions (\"CPM\"), time-based and cost-per-sale (\"CPS\") marketing services. (ii) Other revenue includes revenue from self-developed online games and multiple services provided through various platforms and businesses. The amount of revenue recognized for performance obligations satisfied (or partially satisfied) in prior periods for contracts with expected duration of more than one year during the six months ended September 30, 2024 and 2025 were not material. Deferred revenue and customer advances of the Company primarily represent service fees prepaid by merchants or customers for which the relevant services have not been provided. Substantially all of the balances of deferred revenue and customer advances are generally recognized as revenue within one year.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_6",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_6",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 4,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_6/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "5. Income tax expenses",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_6/5. Income tax expenses",
+          "level": 2,
+          "summary": "Composition of income tax expenses is as follows: [tables/table-29 Tax Expense Data.html] The Company's effective tax rate for the six months ended September 30, 2024 and 2025 was $21\\%$ and $19\\%$ , respectively. For the interim financial reporting, the Company estimates the annual tax rate based on projected taxable income for the full year and records an income tax provision for the interim period in accordance with the guidance on accounting for income taxes in an interim period. The tax status of the subsidiaries of the Company with major taxable profits is described below: \\- Alibaba (China) Technology Co., Ltd. (“Alibaba China”), Taobao (China) Software Co., Ltd. (“Taobao China”) and Zhejiang Tmall Technology Co., Ltd. (“Tmall China”), entities primarily engaged in the operations of the Company’s wholesale marketplaces, Taobao and Tmall, respectively, and Alibaba (Beijing) Software Services Co., Ltd (“Alibaba Beijing”) and Alibaba (China) Co., Ltd (“China Co.”), entities primarily engaged in the operations of technology, software research and development and relevant services, were qualified as High and New Technology Enterprises. For the taxation years of 2024 and 2025, Alibaba China, Taobao China, Tmall China, Alibaba Beijing and China Co. applied an EIT rate of 15% as High and New Technology Enterprises. Most of the remaining PRC entities of the Company are subject to EIT at 25% for the six months ended September 30, 2024 and 2025.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "6. Share-based compensation expense by function",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_6/6. Share-based compensation expense by function",
+          "level": 2,
+          "summary": "Share-based compensation expense by function is as follows: [tables/table-30 Cost Breakdown.html]",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_7",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_7",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 3,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_7/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "7. Earnings per share∕ADS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_7/7. Earnings per share∕ADS",
+          "level": 2,
+          "summary": "Each ADS represents eight ordinary shares. Basic earnings per share is computed by dividing net income attributable to ordinary shareholders by the weighted average number of outstanding ordinary shares, adjusted for treasury shares. Basic earnings per ADS is derived from the basic earnings per share. For the calculation of diluted earnings per share, net income attributable to ordinary shareholders for basic earnings per share is adjusted by the effect of dilutive securities, including share-based awards under the treasury stock method and convertible unsecured senior notes and exchangeable bonds under the if-converted method. Certain potentially dilutive instruments, including the exchangeable bonds and the share lending arrangement in connection with the issuance of the exchangeable bonds, and the capped call transactions in connection with the issuance of the convertible unsecured senior notes have been excluded from the computation of diluted net income per share as their inclusion is anti-dilutive. Diluted earnings per ADS is derived from the diluted earnings per share. The following table sets forth the computation of basic and diluted net income per share/ADS for the following periods: [tables/table-31 EPS Data Table.html]",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_8",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_8",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 7,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_8/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "8. Equity securities and other investments",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_8/8. Equity securities and other investments",
+          "level": 2,
+          "summary": "[tables/table-32 Investment Summary.html]",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "Equity securities",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_8/8. Equity securities and other investments/Equity securities",
+              "level": 3,
+              "summary": "Net unrealized gains, including impairment losses, on equity securities, recognized in interest and investment income, net were RMB4,159 million and RMB20,017 million for the six months ended September 30, 2024 and 2025, respectively. Investments in privately held companies include equity investments for which the Company elected to account for using the measurement alternative, for which the carrying value as of March 31 and September 30, 2025 were RMB88,728 million and RMB112,829 million, respectively. For the equity investments accounted for using the measurement alternative, the cumulative upward adjustments as of March 31 and September 30, 2025 were RMB27,197 million and RMB45,334 million, respectively, and the cumulative impairments and downward adjustments as of March 31 and September 30, 2025 were RMB44,232 million and RMB45,741 million, respectively. Upward adjustments recorded in the unaudited condensed consolidated income statements on equity investments accounted for using the measurement alternative were RMB4,614 million and RMB20,241 million for the six months ended September 30, 2024 and 2025, respectively, and impairments and downward adjustments recorded in the unaudited condensed consolidated income statements were RMB4,918 million and RMB4,338 million for the same periods, respectively.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Debt investments",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_8/8. Equity securities and other investments/Debt investments",
+              "level": 3,
+              "summary": "Debt investments include convertible and exchangeable bonds accounted for under the fair value option, for which the fair value as of March 31 and September 30, 2025 were RMB963 million and RMB759 million, respectively. The aggregate fair value of these convertible and exchangeable bonds was lower than their aggregate unpaid principal balance as of March 31 and September 30, 2025 by RMB2,420 million and RMB2,529 million, respectively. Unrealized losses recorded in the unaudited condensed consolidated income statements on these convertible and exchangeable bonds were RMB32 million and RMB158 million for the six months ended September 30, 2024 and 2025, respectively. ALIBABA GROUP HOLDING LIMITED NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "8. Equity securities and other investments (Continued)",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_8/8. Equity securities and other investments (Continued)",
+          "level": 2,
+          "summary": "The passage discusses debt investments accounted for at amortized cost, with allowances for credit losses of RMB3,779 million and RMB2,641 million as of March 31 and September 30, 2025. Reversal of impairment losses were RMB1,117 million and RMB1,103 million for the six months ended September 30, 2024 and 2025. Loans to shareholders of equity method investees totaling RMB5,518 million principal are expected to be repaid through collateral sale, with collateral fair values of RMB4,325 million and RMB6,250 million as of March 31 and September 30, 2025. Carrying amounts approximate fair value due to comparable interest rates. Other treasury investments include fixed deposits, certificates of deposit, and marketable debt securities with maturities over one year.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "9. Fair value measurement",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_8/9. Fair value measurement",
+          "level": 2,
+          "summary": "The passage defines fair value and describes the three-level hierarchy for valuation inputs: Level 1 uses unadjusted quoted prices in active markets for identical assets; Level 2 uses observable inputs like quoted prices for similar assets or inactive markets; Level 3 uses unobservable inputs requiring significant judgment. It details valuation methods for various instruments: listed equities use Level 1 inputs; unlisted equities may use market/income approaches with estimates; interest rate swaps and options use observable market data; convertible bonds use binomial models with unobservable inputs; exchangeable bonds rely on over-the-counter market prices; contingent consideration uses expected cash flow methods; and privately held company investments are measured on a non-recurring basis under Level 3.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_9",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_9",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 3,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_9/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "9. Fair value measurement (Continued)",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_9/9. Fair value measurement (Continued)",
+          "level": 2,
+          "summary": "The following table summarizes the Company's assets and liabilities that are measured at fair value on a recurring basis and are categorized under the fair value hierarchy: [tables/table-33 Fair Value Table.html] [tables/table-34 Fair Value Table.html]",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_10",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_10",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 4,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_10/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "9. Fair value measurement (Continued)",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_10/9. Fair value measurement (Continued)",
+          "level": 2,
+          "summary": "(i) Included in short-term investments and equity securities and other investments on the unaudited condensed consolidated balance sheets. (ii) Included in equity securities and other investments on the unaudited condensed consolidated balance sheets. (iii) Included in prepayments, receivables and other assets on the unaudited condensed consolidated balance sheets. (iv) Included in accrued expenses, accounts payable and other liabilities on the unaudited condensed consolidated balance sheets. (v) As of March 31 and September 30, 2025, listed equity securities with fair value of RMB11,921 million and RMB10,415 million were subject to contractual sale restrictions, respectively. (vi) Others primarily represent other investments with underlying assets measured at fair value. Convertible and exchangeable bonds investments categorized within Level 3 under the fair value hierarchy: [tables/table-35 Balance Change.html] Deferred consideration categorized within Level 3 under the fair value hierarchy: [tables/table-36 Fair Value Change.html]",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "10. Intangible assets, net",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_10/10. Intangible assets, net",
+          "level": 2,
+          "summary": "[tables/table-37 Intangible Assets.html] Total amortization expenses recognized for the six months ended September 30, 2024 and 2025 amounted to RMB7,122 million and RMB5,111 million, respectively, including the portion relating to licensed copyrights of RMB3,689 million and RMB3,478 million which were recorded in cost of revenue for the six months ended September 30, 2024 and 2025, respectively.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_11",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_11",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 7,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_11/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "11. Goodwill",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_11/11. Goodwill",
+          "level": 2,
+          "summary": "Changes in the carrying amount of goodwill by segment for the six months ended September 30, 2025 were as follows: [tables/table-38 Alibaba Segment Assets.html] Gross goodwill balances were RMB302,194 million and RMB302,244 million as of March 31 and September 30, 2025, respectively. Accumulated impairment losses were RMB46,693 million and RMB46,693 million as of March 31 and September 30, 2025, respectively.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "12. Supplier Finance Programs",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_11/12. Supplier Finance Programs",
+          "level": 2,
+          "summary": "The Company uses supplier finance programs with financial institutions, allowing suppliers to sell payment obligations at a discount for early cash. Payment terms are up to 180 days, and the Company's rights and obligations remain unchanged. As of March 31 and September 30, 2025, no assets were pledged except for RMB1,500 million in treasury investments. Outstanding obligations are recorded in accrued expenses, accounts payable, and other liabilities, except for certain discount payments recorded as current bank borrowings.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "13. Convertible unsecured senior notes",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_11/13. Convertible unsecured senior notes",
+          "level": 2,
+          "summary": "The passage details two convertible senior note issuances by Alibaba Group: $5.0 billion in 2024 notes due 2031 with 0.5% interest and initial conversion rate of 9.5202 ADSs per $1,000, and $3.2 billion in 2025 zero-coupon notes due 2032 with initial conversion rate of 5.1773 ADSs per $1,000. Both are senior unsecured obligations convertible into ADSs, with adjustment provisions for dividends and fundamental changes. As of September 30, 2025, the 2024 notes had an adjusted conversion rate of 9.8915 ADSs, while the 2025 notes remained unadjusted. The company may redeem notes under certain conditions, and holders can require repurchase on specific dates or upon fundamental changes. Unamortized costs and fair values are provided for both notes as of March and September 2025, with effective interest rates of 0.8% for 2024 notes and 0.3% for 2025 notes.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "13. Convertible unsecured senior notes (Continued)",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_11/13. Convertible unsecured senior notes (Continued)",
+          "level": 2,
+          "summary": "In connection with the issuance of the convertible senior notes, the Company entered into capped call transactions with certain financial institutions at a cost of US\\$638 million (RMB4,612 million) and US\\$184 million (RMB1,309 million) for the 2024 Convertible Senior Notes and the 2025 Convertible Senior Notes, respectively, which are expected to reduce potential dilution and/or offset cash payments upon conversion. The cap prices of the capped call transactions for the 2024 Convertible Senior Notes and the 2025 Convertible Senior Notes are initially US\\$161.60 per ADS and US\\$235.46 per ADS, respectively. The capped prices are subject to adjustments similar to the adjustments on the conversion rates of the respective convertible senior notes. The capped call transactions may be settled in cash at the Company’s election.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "14. Exchangeable bonds",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_11/14. Exchangeable bonds",
+          "level": 2,
+          "summary": "In July 2025, the Company issued HKD-denominated zero coupon exchangeable bonds due 2032, referencing Alibaba Health shares, with an aggregate principal of HK$12 billion. The bonds are exchangeable into AH Shares at an initial rate of 160,513.6 shares per HK$1,000,000, subject to adjustments. The Company may redeem or repurchase the bonds under certain conditions. A stock borrowing and lending arrangement was entered into for hedging, with fair value of lent shares at HK$8,492 million as of September 30, 2025. Losses of RMB327 million from fair value changes were recorded for the six months ended September 30, 2025.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_12",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_12",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 7,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_12/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "15. Bank borrowings",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_12/15. Bank borrowings",
+          "level": 2,
+          "summary": "The Company amended its syndicated loan facility, reducing it from $4.0 billion to $3.17 billion after a partial repayment. In September 2025, pricing was reduced to SOFR plus 66 basis points. The facility was restructured as a revolving credit facility on November 28, 2025, allowing drawdowns in USD and HKD, with the expiration extended to September 30, 2028, and an option to extend to September 30, 2030. Interest is SOFR or HIBOR plus 66 basis points, rising to 81 basis points during the optional extension. The Company then prepaid the $3.17 billion outstanding balance. Separately, a $6.5 billion revolving credit facility was amended to $3.33 billion, allowing USD and HKD utilization, with interest at SOFR or HIBOR plus 66 basis points, and expiration extended to September 30, 2028, with an optional extension to September 30, 2030 at 81 basis points. This facility has not been drawn.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "16. Related party transactions",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_12/16. Related party transactions",
+          "level": 2,
+          "summary": "During the six months ended September 30, 2024 and 2025, other than disclosed elsewhere, the Company had the following material related party transactions: Transactions with Ant Group and its affiliates [tables/table-40 Cloud Revenue Growth.html] (i) The Company has other commercial arrangements and cost sharing arrangements with Ant Group and its affiliates on various sales and marketing, cloud, and other administrative and support services. (ii) The Company has a commercial agreement with Alipay.com Co., Ltd., a wholly-owned subsidiary of Ant Group (“Alipay”), whereby the Company receives payment processing and escrow services in exchange for a payment for the services fee, which was recognized in cost of revenue. As of March 31 and September 30, 2025, the Company had certain amounts of cash held in accounts managed by Alipay in connection with the provision of online and mobile commerce and related services for a total amount of RMB5,863 million and RMB6,379 million, respectively, which have been classified as cash and cash equivalents on the unaudited condensed consolidated balance sheets. ALIBABA GROUP HOLDING LIMITED NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "16. Related party transactions (Continued)",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_12/16. Related party transactions (Continued)",
+          "level": 2,
+          "summary": "The Company has commercial arrangements with investees for cloud, marketing, and logistics services, recording revenues and costs for the six months ended September 30, 2024 and 2025. Loans to investees totaled RMB1,771 million and RMB1,992 million as of March 31 and September 30, 2025, with terms up to 6 years and interest rates up to 10% per annum. A guarantee was provided for a HK$6.5 billion revolving loan facility to Cingleot, with HK$5,090 million and HK$5,226 million drawn as of those dates. Other transactions with investees and related parties are less than 1% of revenue and costs.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "17. Risks and contingencies",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_12/17. Risks and contingencies",
+          "level": 2,
+          "summary": "The passage outlines key risks for a Cayman Islands company operating in China through Variable Interest Entities (VIEs) due to foreign ownership restrictions in value-added telecom services. It highlights uncertainties in PRC laws that could force restructuring or deconsolidation of VIEs. Macro-economic and regulatory risks in the PRC market, especially for internet and mobile commerce, are noted, with potential new restrictions possibly requiring business sales or closures. The company's association with Ant Group poses reputational and regulatory risks. Additionally, currency risks are discussed, as RMB is not freely convertible, and foreign exchange controls could hinder dividend payments and funding of foreign currency activities.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "17. Risks and contingencies (Continued)",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_12/17. Risks and contingencies (Continued)",
+          "level": 2,
+          "summary": "The passage outlines various risks faced by the company, including strategic investment volatility, credit risk from financial institutions, trade assurance program liabilities, legal proceedings such as the EU investigation into AliExpress under the Digital Services Act, impacts from the Russia-Ukraine conflict on supply chains and logistics, and risks from export controls and sanctions affecting technology upgrades and competitive edge.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_13",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_13",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 3,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_13/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "18. Segment information",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_13/18. Segment information",
+          "level": 2,
+          "summary": "The company updated its segment reporting from six segments to a new organizational structure starting June 30, 2025. Segments include Taobao and Tmall Group, Alibaba International Digital Commerce Group, Cloud Intelligence Group, Cainiao Smart Logistics, Local Services Group, and Hujing Digital Media. The CODM uses revenue and Adjusted EBITA to evaluate performance and allocate resources. Segment information is presented before inter-segment elimination, with costs allocated based on usage, revenue, or headcount. Assets are not allocated to segments. The table provides segment data for the six months ended September 30, 2024 and 2025.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_14",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_14",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 3,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_14/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "18. Segment information (Continued)",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_14/18. Segment information (Continued)",
+          "level": 2,
+          "summary": "The following table presents the reconciliation from the total segments Adjusted EBITA to the consolidated net income for the six months ended September 30, 2024 and 2025: [tables/table-42 Financial Results.html] The following table presents the depreciation and impairment of property and equipment, and operating lease cost relating to land use rights by segment for the six months ended September 30, 2024 and 2025: [tables/table-43 Depreciation by Segment.html] (i) Segment costs and expenses primarily comprise components that are included in cost of revenue, product development expenses, sales and marketing expenses, as well as general and administrative expenses. (ii) Adjusted EBITA represents net income before interest and investment income, net, interest expense, other (expense) income, net, income tax expenses, share of results of equity method investees, certain non-cash expenses, consisting of share-based compensation expense, amortization and impairment of intangible assets, impairment of goodwill, and others, which the Company does not believe are reflective of the Company's core operating performance during the periods presented. (iii) Unallocated primarily relates to certain costs incurred by corporate functions and other miscellaneous items that are not allocated to individual segments. Details of the Company's revenue by segment are set out in Note 4.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_15",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_15",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 7,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_15/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "19. Aging analysis",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_15/19. Aging analysis",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "Accounts receivable",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_15/19. Aging analysis/Accounts receivable",
+              "level": 3,
+              "summary": "The aging analysis of the accounts receivable, net of allowance, based on billing date is as follows: [tables/table-44 Accounts Receivable.html]",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Accounts payable",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_15/19. Aging analysis/Accounts payable",
+              "level": 3,
+              "summary": "The aging analysis of the accounts payable based on billing date is as follows: [tables/table-45 Accounts Payable.html]",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "20. Dividends",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_15/20. Dividends",
+          "level": 2,
+          "summary": "The Board did not recommend the distribution of interim dividend for the six months ended September 30, 2024 and 2025.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "21. Subsequent events",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_15/21. Subsequent events",
+          "level": 2,
+          "summary": "Save as disclosed in the unaudited condensed consolidated financial statements, there were no significant events that might affect the Company since September 30, 2025.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_16",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_16",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 2,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_16/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025 22. Reconciliations between U.S. GAAP and International Financial Reporting Standards The unaudited condensed consolidated financial statements are prepared in accordance with U.S. GAAP, which differ in certain respects from International Financial Reporting Standards (“IFRS”). The effects of material differences between the unaudited condensed consolidated financial statements of the Company prepared under U.S. GAAP and IFRS are as follows: Reconciliation of Unaudited Condensed Consolidated Balance Sheets (Extract) [tables/table-46 IFRS Adjustments.html]",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_17",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_17",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 2,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_17/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025 22. Reconciliations between U.S. GAAP and International Financial Reporting Standards (Continued) Reconciliation of Unaudited Condensed Consolidated Balance Sheets (Extract) As of September 30, 2025 [tables/table-47 GAAP to IFRS.html]",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "ALIBABA GROUP HOLDING LIMITED_18",
+      "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_18",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 11,
+      "children": [
+        {
+          "title": "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_18/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 10,
+          "children": [
+            {
+              "title": "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_18/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS/FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025",
+              "level": 3,
+              "summary": "22. Reconciliations between U.S. GAAP and International Financial Reporting Standards (Continued) Reconciliation of Unaudited Condensed Consolidated Income Statement (Extract) Six months ended September 30, 2024 [tables/table-48 GAAP to IFRS.html] 22. Reconciliations between U.S. GAAP and International Financial Reporting Standards (Continued) Reconciliation of Unaudited Condensed Consolidated Income Statement (Extract) (Continued) Six months ended September 30, 2025 [tables/table-49 GAAP to IFRS Reconciliation.html]",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "(i) Consolidation and business combinations",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_18/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS/(i) Consolidation and business combinations",
+              "level": 3,
+              "summary": "The passage discusses key differences between U.S. GAAP and IFRS in three areas: consolidation criteria (control via voting shares vs. de facto control), measurement of noncontrolling interests (fair value with full goodwill vs. proportionate share with partial goodwill), and goodwill impairment testing (comparing carrying value to fair value vs. recoverable amount). It is from Alibaba Group's financial statement notes for the six months ended September 30, 2024 and 2025.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "(ii) Equity securities without readily determinable fair value",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_18/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS/(ii) Equity securities without readily determinable fair value",
+              "level": 3,
+              "summary": "Under U.S. GAAP, the Company can elect, on an instrument-by-instrument basis, to apply the measurement alternative to record the investments in equity securities without readily determinable fair values at cost, less impairment, with subsequent adjustments for observable price changes recognized in the unaudited condensed consolidated income statements. Under IFRS, these investments are measured at fair value with changes in fair value recognized in the unaudited condensed consolidated income statements.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "(iii) Equity method investments",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_18/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS/(iii) Equity method investments",
+              "level": 3,
+              "summary": "The Company generally applies the equity method to account for equity investments over which it has significant influence. Under U.S. GAAP, significant influence is presumed to exist for an investment in limited partnership or unincorporated entity, unless the investment is so minor that the Company has virtually no influence over the entity's operating and financial policies. Under IFRS, significant influence is presumed to exist for an investment of over $20\\%$ of the voting rights of an entity. The Company records its share of the post-acquisition results of its equity method investees and adjusts for the basis differences that exist between the carrying values of the equity method investments and the Company's proportionate share of the carrying value of the investee's net assets. Adjustments are made to the financial statements of the equity method investees prepared under U.S. GAAP in order to conform to the Company's accounting policies under IFRS and to reflect the basis differences of the equity method investments under IFRS, if different from those under U.S. GAAP.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "(iv) Share-based awards",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_18/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS/(iv) Share-based awards",
+              "level": 3,
+              "summary": "The employees of the Company hold share-based awards relating to an equity method investee of the Company that were granted and will be settled by related parties or economic interest holders of the Company. Under U.S. GAAP, the cost related to these awards is recognized over the requisite service period, with subsequent changes in fair value of these awards recognized in the unaudited condensed consolidated income statements. Under IFRS, these awards are not considered as share based payments of the Company and the cost relating to these awards is not recognized. The Company accounts for income tax effects of share-based awards that ordinarily give rise to tax deduction. Under U.S. GAAP, deferred taxes for these awards are measured based on share-based compensation expenses recognized in the unaudited condensed consolidated financial statements. Under IFRS, deferred taxes for these awards are measured based on future tax deduction estimated at the end of each reporting period.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "(v) Operating leases",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_18/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS/(v) Operating leases",
+              "level": 3,
+              "summary": "Under U.S. GAAP, the amortization of right-of-use assets and the interest expense related to lease liabilities are recorded together as lease expense and recognized in the unaudited condensed consolidated income statements on a straight-line basis. Under IFRS, the right-of-use assets are amortized on a straight-line basis while the interest expense related to lease liabilities are recognized in the unaudited condensed consolidated income statements using effective interest method.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "(vi) Redeemable noncontrolling interests",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_18/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS/(vi) Redeemable noncontrolling interests",
+              "level": 3,
+              "summary": "Equity interests issued by certain subsidiaries of the Company are redeemable. Under U.S. GAAP, redeemable equity interests are classified as mezzanine equity if the redemption is outside the Company's control and as noncontrolling interests if equity interests issued by finite-lived subsidiaries are mandatorily redeemable only upon liquidation. Under IFRS, these redeemable equity interests are generally classified as financial liabilities. ALIBABA GROUP HOLDING LIMITED NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025 22. Reconciliations between U.S. GAAP and International Financial Reporting Standards (Continued)",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "(vii) Hyperinflation",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_18/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS/(vii) Hyperinflation",
+              "level": 3,
+              "summary": "The passage compares U.S. GAAP and IFRS treatments for hyperinflationary subsidiaries, convertible unsecured senior notes, and instruments in an entity's own equity. Under U.S. GAAP, subsidiaries in highly inflationary economies are remeasured using the parent's functional currency, while IFRS requires restatement for current purchasing power. For convertible notes, U.S. GAAP treats them as liabilities at amortized cost, whereas IFRS accounts for them as hybrid instruments at fair value with credit risk changes in OCI. For equity instruments, U.S. GAAP requires both a fixed-for-fixed test and equity classification, while IFRS allows equity treatment for derivatives meeting the test and non-derivatives without cash delivery obligations, with differences in settlement alternatives leading to potential classification disparities.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Alibaba",
+              "path": "Fiscal%20Year%202026%20Interim%20Report.pdf/ALIBABA GROUP HOLDING LIMITED_18/NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS/Alibaba",
+              "level": 3,
+              "summary": "Alibaba Group Holding Limited",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "resources": {
+    "images": [
+      {
+        "path": "images/image-1-Alibaba.jpg",
+        "summary": "image-1 Alibaba0"
+      },
+      {
+        "path": "images/image-2-### (vii) .jpg",
+        "summary": "image-2 ### (vii) Hyperinflation ### Alibaba0"
+      }
+    ],
+    "tables": [
+      {
+        "path": "tables/table-0 Financial Results.html",
+        "summary": "table-1 The table shows financial data for six months ending Sep 30, 2024 and 2025. Revenue grew 3% to RMB 495,447 million, while income from operations dropped 43%. Adjusted EBITDA fell 36% to RMB 62,991 million."
+      },
+      {
+        "path": "tables/table-1 Alibaba Revenue.html",
+        "summary": "table-2 Alibaba's consolidated revenue for six months ended Sep 2025 was RMB 495,447 million (US$69,595 million), up 3% YoY. China E-commerce grew 12%, International Digital Commerce 14%, and Cloud Intelligence 30%."
+      },
+      {
+        "path": "tables/table-2 Alibaba EBITA.html",
+        "summary": "table-3 Alibaba's consolidated adjusted EBITA for six months ended Sep 2025 was RMB 47,917M, down 44% YoY. Cloud Intelligence Group grew 31%, while China E-commerce dropped 47%."
+      },
+      {
+        "path": "tables/table-3 Costs & Expenses.html",
+        "summary": "table-4 The table shows costs and expenses for six months ended Sep 30, 2024 and 2025. Total costs rose from 409,355 to 455,391 RMB. Sales and marketing expenses increased significantly by 10.6% of revenue."
+      },
+      {
+        "path": "tables/table-4 Share-based Compensation.html",
+        "summary": "table-5 Alibaba Group's share-based compensation expense decreased 17% YoY to RMB 6,870 million for six months ended Sep 2025, with Alibaba awards down 21% and others down 8%."
+      },
+      {
+        "path": "tables/table-5 Equity Investee Results.html",
+        "summary": "table-6 The table shows share of profit from equity investees for six months ending Sep 30, 2024 and 2025. Ant Group contributed RMB 6,395M (2024) and RMB 4,280M (2025). Total profit was RMB 2,483M (2024) and RMB 3,254M (2025)."
+      },
+      {
+        "path": "tables/table-6 Financial Results.html",
+        "summary": "table-7 The table shows financial data for six months ending Sep 30, 2024 and 2025, with net income, adjusted EBITA, and EBITDA in RMB and US dollars."
+      },
+      {
+        "path": "tables/table-7 Non-GAAP Net Income.html",
+        "summary": "table-8 The table shows net income and non-GAAP net income for six months ending September 30, 2024 and 2025, with adjustments including share-based compensation, amortization, and investment gains."
+      },
+      {
+        "path": "tables/table-8 Earnings per Share.html",
+        "summary": "table-9 The table shows basic and diluted net income attributable to ordinary shareholders for six months ending Sep 30, 2024 and 2025, with non-GAAP adjustments and diluted earnings per share/ADS in RMB and USD."
+      },
+      {
+        "path": "tables/table-9 Free Cash Flow.html",
+        "summary": "table-10 The table shows net cash from operations, property purchases, and buyer protection deposits for six months ending Sep 2024 and 2025, resulting in free cash flow of 31,107 RMB (2024) and -40,655 RMB (2025)."
+      },
+      {
+        "path": "tables/table-10 Board of Directors.html",
+        "summary": "table-11 The table lists 10 board members of a company, including Chairman Joseph C. Tsai (61), CEO Eddie Yongming Wu (50), and President J. Michael Evans (68), along with independent directors."
+      },
+      {
+        "path": "tables/table-11 Shareholding Table.html",
+        "summary": "table-12 The table lists directors and CEOs with their shareholding interests, including beneficial ownership, spouse interests, and controlled corporations, showing share and ADS counts with percentages."
+      },
+      {
+        "path": "tables/table-12 Shareholder Holdings.html",
+        "summary": "table-13 The table lists major shareholders (JPMorgan, Citigroup, BlackRock) with their share counts, ADS equivalents, and approximate percentages of total shareholding, categorized by capacity (beneficial owner, trustee, etc.)."
+      },
+      {
+        "path": "tables/table-13 RSU Grant Summary.html",
+        "summary": "table-14 Table shows RSU activity for directors, CEO, and employees from April to September 2025, with 44.9M outstanding, 16.3M vested, and 26.8M remaining."
+      },
+      {
+        "path": "tables/table-14 Share Options Table.html",
+        "summary": "table-15 Table shows share option grants for directors and employees, including exercise prices, outstanding numbers, and changes during the reporting period ending September 30, 2025."
+      },
+      {
+        "path": "tables/table-15 RSU Activity Report.html",
+        "summary": "table-16 The table shows RSU activity for employee participants from April to September 2025, with 63.6 million granted, 4.7 million vested, 1.4 million forfeited, and 67 million outstanding as of September 30, 2025."
+      },
+      {
+        "path": "tables/table-16 RSU Grant Details.html",
+        "summary": "table-17 The table shows RSU grants on three dates in 2025: May 23 (53,429,597 RSUs, HK$118.78 fair value), June 13 (7,687,091 RSUs, HK$114.60), and September 4 (2,477,630 RSUs, HK$130.31), totaling 63,594,318 RSUs."
+      },
+      {
+        "path": "tables/table-17 Share Repurchase.html",
+        "summary": "table-18 The table shows monthly share repurchases from April to August 2025, totaling 72,733,488 shares for $1,046 million, with prices ranging from $11.97 to $16.79."
+      },
+      {
+        "path": "tables/table-18 Notes Proceeds Use.html",
+        "summary": "table-19 The table shows $3,130M net proceeds from September 2025 Notes Offering, with $730M utilized by September 30, 2025: $443M for cloud infrastructure and $287M for international commerce."
+      },
+      {
+        "path": "tables/table-19 Interim Report.html",
+        "summary": "table-20 Table of contents for an interim financial report for the six months ended September 30, 2025, listing unaudited financial statements and notes starting on page 45."
+      },
+      {
+        "path": "tables/table-20 Alibaba Financials.html",
+        "summary": "table-21 Alibaba Group's financial results for six months ended Sep 30, 2024 and 2025, showing revenue of 495,447 million RMB and net income attributable to ordinary shareholders of 64,106 million RMB in 2025."
+      },
+      {
+        "path": "tables/table-21 Income Statement.html",
+        "summary": "table-22 The table shows net income of 67,569 RMB (2024) and 62,994 RMB (2025), with total comprehensive income of 64,280 RMB and 57,874 RMB respectively, including foreign currency translation losses and other items."
+      },
+      {
+        "path": "tables/table-22 Balance Sheet Data.html",
+        "summary": "table-23 The table shows assets, liabilities, and equity as of March 31, 2025 and September 30, 2025, with figures in RMB and US dollars. Total assets were 1,804,227 million RMB in March and 1,883,880 million in September."
+      },
+      {
+        "path": "tables/table-23 Equity Summary.html",
+        "summary": "table-24 The table shows commitments, mezzanine equity, and shareholders' equity components as of March 31 and September 30, 2025, with RMB and US$ values. Total equity increased from 1,078,393 to 1,101,901 million RMB."
+      },
+      {
+        "path": "tables/table-24 Equity Changes.html",
+        "summary": "table-25 The table shows changes in shareholders' equity from April to September 2024 and 2025, including share issuances, repurchases, dividends, and net income, with totals in millions of RMB."
+      },
+      {
+        "path": "tables/table-25 Cash Flow Statement.html",
+        "summary": "table-26 The table shows cash flows for six months ending Sep 30, 2024 and 2025. Operating cash flow decreased from 65,074 to 30,771. Investing activities used 34,865 in 2024 and 51,324 in 2025. Financing activities shifted from -86,364 to 8,171."
+      },
+      {
+        "path": "tables/table-26 Financial Data.html",
+        "summary": "table-27 The table shows financial data for a company as of March 31 and September 30, 2025, and for six months ended September 30, 2024 and 2025. Total assets were 180,278 million RMB and 208,234 million RMB, while total liabilities were 182,979 million and 211,186 million. Revenue increased from 67,739 to 77,466 million, net income from 2,103 to 2,442 million."
+      },
+      {
+        "path": "tables/table-27 Alibaba Revenue.html",
+        "summary": "table-28 Alibaba Group's consolidated revenue for six months ended Sep 30, 2025 was RMB 495,447 million, up from RMB 479,739 million in 2024, driven by growth in China E-commerce, International Digital Commerce, and Cloud Intelligence."
+      },
+      {
+        "path": "tables/table-28 Revenue Breakdown.html",
+        "summary": "table-29 The table shows revenue for six months ending Sep 30, 2024 and 2025 in RMB millions. Key services include customer management, membership, logistics, cloud, goods sales, and other revenue, totaling 479,739 in 2024 and 495,447 in 2025."
+      },
+      {
+        "path": "tables/table-29 Tax Expense Data.html",
+        "summary": "table-30 The table shows current income tax expense and deferred taxation for six-month periods ending September 30, 2024 and 2025, with totals of 17,442 and 14,415 million RMB respectively."
+      },
+      {
+        "path": "tables/table-30 Cost Breakdown.html",
+        "summary": "table-31 The table shows cost of revenue, product development, sales and marketing, and general administrative expenses for six months ending Sep 30, 2024 and 2025, with totals of 8,277 and 6,870 million RMB respectively."
+      },
+      {
+        "path": "tables/table-31 EPS Data Table.html",
+        "summary": "table-32 The table shows basic and diluted earnings per ordinary share and ADS for six months ending September 30, 2024 and 2025, with net income and share count adjustments."
+      },
+      {
+        "path": "tables/table-32 Investment Summary.html",
+        "summary": "table-33 The table compares investment portfolios as of March 31, 2025 and September 30, 2025, showing original cost, cumulative net gains/losses, and carrying value for equity and debt investments in millions of RMB."
+      },
+      {
+        "path": "tables/table-33 Fair Value Table.html",
+        "summary": "table-34 The table shows assets and liabilities measured at fair value as of March 31, 2025, with totals of 590,532 million RMB for assets and 1,797 million RMB for liabilities, categorized by Level 1, 2, and 3 inputs."
+      },
+      {
+        "path": "tables/table-34 Fair Value Table.html",
+        "summary": "table-35 Table shows assets and liabilities measured at fair value as of September 30, 2025, with totals of 576,406 million RMB for assets and 16,181 million RMB for liabilities, categorized by Level 1, 2, and 3 inputs."
+      },
+      {
+        "path": "tables/table-35 Balance Change.html",
+        "summary": "table-36 Balance decreased from 818 to 620 million RMB between April and September 2025, with additions of 42, net fair value decrease of 158, disposals of 39, conversions of 34, and currency adjustments of 9."
+      },
+      {
+        "path": "tables/table-36 Fair Value Change.html",
+        "summary": "table-37 Balance increased from 3,039 to 3,052 million RMB between April and September 2025, with a net fair value increase of 40 and a currency translation loss of 27."
+      },
+      {
+        "path": "tables/table-37 Intangible Assets.html",
+        "summary": "table-38 The table shows intangible assets as of March 31 and September 30, 2025, including user base, trademarks, non-compete agreements, developed technology, and licensed copyrights, with total cost, accumulated amortization, and net book value."
+      },
+      {
+        "path": "tables/table-38 Alibaba Segment Assets.html",
+        "summary": "table-39 Alibaba's segment asset balances from April to September 2025 show a total of 255,551 million RMB, with major changes including the transfer of Cainiao, Local Services, and Hujing to 'All others'."
+      },
+      {
+        "path": "tables/table-39 Financial Liabilities.html",
+        "summary": "table-40 The table shows accrued expenses, accounts payable, and bank borrowings as of March 31 and September 30, 2025, in millions of RMB, with totals of 6,075 and 7,199 respectively."
+      },
+      {
+        "path": "tables/table-40 Cloud Revenue Growth.html",
+        "summary": "table-41 The table shows six-month financial data ending September 30, 2024 and 2025. Cloud services revenue rose from 4,977 to 8,928 million RMB, while marketplace fees decreased. Total amounts earned increased from 8,491 to 11,747 million RMB."
+      },
+      {
+        "path": "tables/table-41 Alibaba Segment Results.html",
+        "summary": "table-42 Financial data for Alibaba segments (China E-commerce, International Digital Commerce, Cloud Intelligence, Others) for six months ended Sep 2024 and 2025, showing revenue, costs, and adjusted EBITA in RMB millions."
+      },
+      {
+        "path": "tables/table-42 Financial Results.html",
+        "summary": "table-43 The table shows consolidated income from operations decreased from 71,235 to 40,353 million RMB, while net income dropped from 67,569 to 62,994 million RMB for the six months ended September 30, 2024 and 2025."
+      },
+      {
+        "path": "tables/table-43 Depreciation by Segment.html",
+        "summary": "table-44 The table shows depreciation and impairment of property and equipment for Alibaba segments for six months ended September 30, 2024 and 2025, with totals of 11,619 and 13,535 million RMB respectively."
+      },
+      {
+        "path": "tables/table-44 Accounts Receivable.html",
+        "summary": "table-45 The table shows accounts receivable aging as of March 31 and September 30, 2025, with totals of 30,652 and 31,646 million RMB respectively, broken down by 0-3, 3-6, 6-12 months, and over 1 year."
+      },
+      {
+        "path": "tables/table-45 Accounts Payable.html",
+        "summary": "table-46 The table shows accounts payable by maturity as of March 31 and September 30, 2025, in millions of RMB. Total payables are 58,201 and 64,939, with most due within 3 months."
+      },
+      {
+        "path": "tables/table-46 IFRS Adjustments.html",
+        "summary": "table-47 Reconciliation of U.S. GAAP to IFRS for assets, liabilities, and equity as of March 31, 2025, showing adjustments for consolidation, investments, leases, and convertible notes."
+      },
+      {
+        "path": "tables/table-47 GAAP to IFRS.html",
+        "summary": "table-48 Reconciliation of U.S. GAAP to IFRS for assets, liabilities, and equity, showing adjustments for consolidation, equity securities, leases, and convertible notes."
+      },
+      {
+        "path": "tables/table-48 GAAP to IFRS.html",
+        "summary": "table-49 Reconciliation of financial data from U.S. GAAP to IFRS for a company, showing adjustments for items like hyperinflation, convertible notes, and equity method investments, resulting in net income of 62,924 million RMB under IFRS."
+      },
+      {
+        "path": "tables/table-49 GAAP to IFRS Reconciliation.html",
+        "summary": "table-50 This table reconciles financial statement line items from U.S. GAAP to IFRS, showing adjustments for consolidation, equity securities, leases, and convertible notes, resulting in net income of RMB 43,856 million under IFRS."
+      }
+    ]
+  }
+}

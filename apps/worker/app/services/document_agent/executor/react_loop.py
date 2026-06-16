@@ -244,6 +244,7 @@ class ReActExecutor:
                 temperature=0.0,
                 max_tokens=1200,
                 response_format={"type": "json_object"},
+                usage_task="document_agent.react_loop",
             )
             self.ctx.budget.commit(
                 "plan",

@@ -1,0 +1,300 @@
+{
+  "version": "1.0",
+  "file_name": "Speech and Language Processing, Chapter 8: Transformers.pdf",
+  "stats": {
+    "total_chunks": 46,
+    "text_chunks": 23,
+    "image_chunks": 19,
+    "table_chunks": 4,
+    "max_depth": 4
+  },
+  "sections": [
+    {
+      "title": "CHAPTER 8 Transformers",
+      "path": "8.pdf/CHAPTER 8 Transformers",
+      "level": 1,
+      "summary": "This chapter introduces the transformer architecture, the standard for building large language models. It focuses on left-to-right (causal) autoregressive language modeling, where input tokens are processed to predict output tokens sequentially. The core components include token embedding, positional encoding, multi-head self-attention, feedforward networks, layer normalization, and a language modeling head (unembedding matrix and softmax). The residual stream allows information to flow through N transformer blocks, with attention enabling contextual token representations by integrating information from surrounding tokens. The chapter outlines subsequent chapters covering masked language modeling (BERT), instruction tuning, machine translation, and speech recognition applications.",
+      "chunk_count": 23,
+      "children": [
+        {
+          "title": "8.1 Attention",
+          "path": "8.pdf/CHAPTER 8 Transformers/8.1 Attention",
+          "level": 2,
+          "summary": "The passage discusses how static embeddings like word2vec represent words with fixed vectors regardless of context, using 'it' as an example. In contrast, transformer models use context to resolve ambiguity, as shown in sentences where 'it' refers to 'chicken' or 'road' depending on context. It also describes the transformer architecture: input tokens are encoded, passed through stacked transformer blocks, and then through a language modeling head (unembedding matrix and softmax) to predict the next token. A flowchart illustrates this process, showing how information from preceding tokens is incorporated.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "(8.3) The chicken didn't cross the road because it",
+          "path": "8.pdf/CHAPTER 8 Transformers/(8.3) The chicken didn't cross the road because it",
+          "level": 2,
+          "summary": "The passage explains how transformers use attention mechanisms to build contextual representations of word meaning. It describes how attention computes a weighted sum of context vectors, with weights determined by similarity scores between query and key vectors. The text covers both simplified and formal versions of attention, including single-head and multi-head attention, and explains the roles of query, key, and value matrices. It also discusses causal (left-to-right) attention used in language models.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "8.2 Transformer Blocks",
+          "path": "8.pdf/CHAPTER 8 Transformers/8.2 Transformer Blocks",
+          "level": 2,
+          "summary": "The text describes the architecture of a transformer block, focusing on the residual stream concept. It explains that a transformer block includes self-attention, feedforward layers, residual connections, and layer normalization. The residual stream is a pathway where token embeddings are passed through and progressively modified by attention and feedforward layers, with layer normalization applied before each. The feedforward layer is a two-layer network with ReLU activation. Layer normalization normalizes a vector by subtracting its mean and dividing by its standard deviation, then applies learnable gain and offset parameters. The block's computations are broken down into steps: layer norm, multi-head attention, residual addition, another layer norm, feedforward, and final residual addition. Only the attention component mixes information from other tokens, making it the token-mixing part. The input and output dimensions are matched, allowing stacking of multiple blocks (e.g., 12 to 96 layers) in large language models.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "8.3 Parallelizing computation using a single matrix X",
+          "path": "8.pdf/CHAPTER 8 Transformers/8.3 Parallelizing computation using a single matrix X",
+          "level": 2,
+          "summary": "This passage explains how multi-head attention and transformer blocks are parallelized for efficient computation. Input embeddings for N tokens are packed into a matrix X of shape [N x d]. For a single attention head, X is multiplied by query, key, and value weight matrices to produce Q, K, V matrices. All query-key comparisons are computed simultaneously via QK^T matrix multiplication, yielding an N x N matrix. A mask function sets upper-triangular elements to -infinity to prevent attending to future tokens. The scaled, masked, softmaxed result is multiplied by V to produce attention outputs. For multi-head attention, each head has its own Q, K, V projections; outputs are concatenated and linearly projected. The entire transformer layer computation is expressed in matrix form, with residual connections and layer normalization applied in parallel across all tokens. Attention is quadratic in input length, making long contexts computationally expensive.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "8.4 The input: embeddings for token and position",
+          "path": "8.pdf/CHAPTER 8 Transformers/8.4 The input: embeddings for token and position",
+          "level": 2,
+          "summary": "The passage explains how input embeddings are formed in transformers. Token embeddings are vectors from an embedding matrix E (size |V|×d) selected by token indices or one-hot vectors. Positional embeddings, often learned or sinusoidal, are added to token embeddings to encode position. The final input matrix X (N×d) combines both, with each row representing a token's composite embedding.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "8.5 The Language Modeling Head",
+          "path": "8.pdf/CHAPTER 8 Transformers/8.5 The Language Modeling Head",
+          "level": 2,
+          "summary": "The language modeling head is the final component of a transformer, used to predict the next word. It takes the output embedding from the last token at the final transformer layer and projects it via a linear layer (often using the transpose of the embedding matrix, called unembedding) to logits over the vocabulary. A softmax layer converts these logits into probabilities, enabling text generation through sampling. This architecture is also known as a decoder-only model.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "8.6 More on Sampling",
+          "path": "8.pdf/CHAPTER 8 Transformers/8.6 More on Sampling",
+          "level": 2,
+          "summary": "The passage discusses trade-offs in text generation sampling methods between quality (accuracy, coherence, factuality) and diversity (creativity, novelty). It then describes a transformer language model architecture (decoder-only) shown in Figure 8.16, where stacked transformer layers map an input token to a predicted next token, with input to each layer being the output from the previous layer.",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "8.6.1 Top-k sampling",
+              "path": "8.pdf/CHAPTER 8 Transformers/8.6 More on Sampling/8.6.1 Top-k sampling",
+              "level": 3,
+              "summary": "top-k sampling Top-k sampling is a simple generalization of greedy decoding. Instead of choosing the single most probable word to generate, we first truncate the distribution to the top k most likely words, renormalize to produce a legitimate probability distribution, and then randomly sample from within these k words according to their renormalized probabilities. More formally: 1. Choose in advance a number of words $k$ 2. For each word in the vocabulary $V$ , use the language model to compute the likelihood of this word given the context $p(w_{t}|\\mathbf{w}_{< t})$ 3. Sort the words by their likelihood, and throw away any word that is not one of the top k most probable words. 4. Renormalize the scores of the k words to be a legitimate probability distribu- tion. 5. Randomly sample a word from within these remaining $k$ most-probable words according to its probability. When k = 1, top-k sampling is identical to greedy decoding. Setting k to a larger number than 1 leads us to sometimes select a word which is not necessarily the most probable, but is still probable enough, and whose choice results in generating more diverse but still high-enough-quality text.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "8.6.2 Nucleus or top-p sampling",
+              "path": "8.pdf/CHAPTER 8 Transformers/8.6 More on Sampling/8.6.2 Nucleus or top-p sampling",
+              "level": 3,
+              "summary": "One problem with top-k sampling is that k is fixed, but the shape of the probability distribution over words differs in different contexts. If we set k = 10, sometimes the top 10 words will be very likely and include most of the probability mass, but other times the probability distribution will be flatter and the top 10 words will only include a small part of the probability mass. top-p sampling An alternative, called top-p sampling or nucleus sampling (Holtzman et al., 2020), is to keep not the top k words, but the top p percent of the probability mass. The goal is the same; to truncate the distribution to remove the very unlikely words. But by measuring probability rather than the number of words, the hope is that the measure will be more robust in very different contexts, dynamically increasing and decreasing the pool of word candidates. Given a distribution $P(w_{t}|\\mathbf{w}_{<t})$ , we sort the distribution from most probable, and then the top-p vocabulary $V^{(p)}$ is the smallest set of words such that $$ \\sum_ {w \\in V ^ {(p)}} P (w | \\mathbf {w} _ {< t}) \\geq p. \\tag {8.48} $$",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "8.7 Training",
+          "path": "8.pdf/CHAPTER 8 Transformers/8.7 Training",
+          "level": 2,
+          "summary": "The passage describes the training process for large language models using cross-entropy loss. At each step, the transformer layer outputs a distribution over the vocabulary, and the probability of the correct word is used to compute the loss. Training sequences are processed in parallel, with the average cross-entropy loss minimized via gradient descent. Large models fill the context window with text, packing multiple documents with end-of-text tokens, and use large batch sizes (e.g., 3.2 million tokens for GPT-3).",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "8.8 Dealing with Scale",
+          "path": "8.pdf/CHAPTER 8 Transformers/8.8 Dealing with Scale",
+          "level": 2,
+          "summary": "Large language models are large. For example the Llama 3.1 405B Instruct model from Meta has 405 billion parameters (it has L=126 layers, model dimensionality d=16,384, and A=128 attention heads) and was trained on 15.6 terabytes of text tokens using a vocabulary of 128K tokens (Llama Team, 2024). So there is a lot of research on understanding how LLMs scale, and especially how to implement them given limited resources. In the next few sections we discuss how to think about scale (the concept of scaling laws), and important techniques for getting language models to work efficiently, such as the KV cache and parameter-efficient fine tuning (PEFT).",
+          "chunk_count": 7,
+          "children": [
+            {
+              "title": "8.8.1 Scaling laws",
+              "path": "8.pdf/CHAPTER 8 Transformers/8.8 Dealing with Scale/8.8.1 Scaling laws",
+              "level": 3,
+              "summary": "The passage discusses scaling laws for large language models, which describe how performance (loss) scales as a power-law with model size (non-embedding parameters N), dataset size (D), and compute budget (C). It provides equations for loss as a function of each factor when others are held constant, and gives a formula for estimating the number of non-embedding parameters. The example of GPT-3 with 175 billion parameters is included. Scaling laws help predict performance and guide decisions on training data and model size.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "8.8.2 KV Cache",
+              "path": "8.pdf/CHAPTER 8 Transformers/8.8 Dealing with Scale/8.8.2 KV Cache",
+              "level": 3,
+              "summary": "We saw in Fig. 8.11 and in Eq. 8.34 (repeated below) how the attention vector can be very efficiently computed in parallel for training, via two matrix multiplications: $$ \\mathbf {A} = \\text { softmax } \\left(\\frac {\\mathbf {Q} \\mathbf {K} ^ {\\intercal}}{\\sqrt {d _ {k}}}\\right) \\mathbf {V} \\tag {8.53} $$ Unfortunately we can't do quite the same efficient computation in inference as in training. That's because at inference time, we iteratively generate the next tokens one at a time. For a new token that we have just generated, call it $\\mathbf{x}_i$ , we need to compute its query, key, and values by multiplying by $\\mathbf{W}^{\\mathbf{Q}}$ , $\\mathbf{W}^{\\mathbf{K}}$ , and $\\mathbf{W}^{\\mathbf{V}}$ respectively. But it would be a waste of computation time to recompute the key and value vectors for all the prior tokens $\\mathbf{x}_{<i}$ ; at prior steps we already computed these key and value vectors! So instead of recomputing these, whenever we compute the key and value vectors we store them in memory in the KV cache, and then we can just grab them from the cache when we need them. Fig. 8.18 modifies Fig. 8.11 to show the computation that takes place for a single new token, showing which values we can take from the cache rather than recompute. KV cache $$ <details>0 [images/image-17-Attention Mechanism Matrix Multiplication.jpg] <details> <summary>text_image</summary> Q X k1 k2 k3 k4 = QK^T q4",
+              "chunk_count": 4,
+              "children": [
+                {
+                  "title": "1 x dk",
+                  "path": "8.pdf/CHAPTER 8 Transformers/8.8 Dealing with Scale/8.8.2 KV Cache/1 x dk",
+                  "level": 4,
+                  "summary": "dk x N",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "1 x N",
+                  "path": "8.pdf/CHAPTER 8 Transformers/8.8 Dealing with Scale/8.8.2 KV Cache/1 x N",
+                  "level": 4,
+                  "summary": "V x v1 v2 v3 v4 N x dv = A a4",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "1 x dv",
+                  "path": "8.pdf/CHAPTER 8 Transformers/8.8 Dealing with Scale/8.8.2 KV Cache/1 x dv",
+                  "level": 4,
+                  "summary": "</details> Figure 8.18 Parts of the attention computation (extracted from Fig. 8.11) showing, in black, the vectors that can be stored in the cache rather than recomputed when computing the attention score for the 4th token.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "title": "8.8.3 Parameter Efficient Fine Tuning",
+              "path": "8.pdf/CHAPTER 8 Transformers/8.8 Dealing with Scale/8.8.3 Parameter Efficient Fine Tuning",
+              "level": 3,
+              "summary": "LoRA (Low-Rank Adaptation) is a parameter-efficient fine-tuning method for large language models. Instead of updating all parameters during fine-tuning, LoRA freezes the pretrained weight matrices (like W^Q, W^K, W^V, W^O in attention layers) and trains low-rank decomposition matrices A and B. This reduces hardware requirements, speeds up training, and allows easy swapping of fine-tuned modules without adding inference time.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "8.9 Interpreting the Transformer",
+          "path": "8.pdf/CHAPTER 8 Transformers/8.9 Interpreting the Transformer",
+          "level": 2,
+          "summary": "interpretability How does a transformer-based language model manage to do so well at language tasks? The subfield of interpretability, sometimes called mechanistic interpretability, focuses on ways to understand mechanistically what is going on inside the transformer. In the next two subsections we discuss two well-studied aspects of transformer interpretability.",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "8.9.1 In-Context Learning and Induction Heads",
+              "path": "8.pdf/CHAPTER 8 Transformers/8.9 Interpreting the Transformer/8.9.1 In-Context Learning and Induction Heads",
+              "level": 3,
+              "summary": "The passage discusses in-context learning, a concept introduced by Brown et al. (2020) with GPT-3, where language models learn from prompts during inference without gradient updates. It contrasts this with pretraining, which updates parameters via gradient descent. A key hypothesis for how in-context learning works involves induction heads, circuits in transformer attention that predict repeated sequences by matching prefixes and copying subsequent tokens. Olsson et al. (2022) propose a generalized fuzzy pattern completion rule, and Crosbie and Shutova (2022) provide evidence by showing that ablating induction heads reduces in-context learning performance.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "8.9.2 Logit Lens",
+              "path": "8.pdf/CHAPTER 8 Transformers/8.9 Interpreting the Transformer/8.9.2 Logit Lens",
+              "level": 3,
+              "summary": "logit lens Another useful interpretability tool, the logit lens (Nostalgebraist, 2020), offers a way to visualize what the internal layers of the transformer might be representing. The idea is that we take any vector from any layer of the transformer and, pretending that it is the prefinal embedding, simply multiply it by the unembedding layer to get logits, and compute a softmax to see the distribution over words that that vector might be representing. This can be a useful window into the internal representations of the model. Since the network wasn't trained to make the internal representations function in this way, the logit lens doesn't always work perfectly, but this can still be a useful trick to help us visualize the internal layers of a transformer.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "8.10 Summary",
+          "path": "8.pdf/CHAPTER 8 Transformers/8.10 Summary",
+          "level": 2,
+          "summary": "This chapter introduces the transformer and its components for language modeling. Key points include: transformers are non-recurrent networks using multi-head self-attention; a transformer block consists of a residual stream with multi-head attention and feedforward layers, each preceded by layer normalization; input is computed by adding token embeddings to positional encodings; language models stack transformer blocks with a language model head that generates logits via an unembedding matrix and softmax; these models have wide context windows (up to 200K tokens or more); efficiency tricks include KV cache and parameter-efficient finetuning.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Historical Notes",
+          "path": "8.pdf/CHAPTER 8 Transformers/Historical Notes",
+          "level": 2,
+          "summary": "The passage discusses the development of the Transformer model, drawing on self-attention and memory networks. Encoder-decoder attention was developed by Graves (2013) and Bahdanau et al. (2015), later extended to self-attention. Key, query, and value terminology originated from memory networks. The text includes a reference list of related works.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    }
+  ],
+  "resources": {
+    "images": [
+      {
+        "path": "images/image-1-Transformer Encoder Architecture Diagram.jpg",
+        "summary": "image-1 - Input: input token -> Embedding (pink trapezoid) - Positional encoding added to embeddings - Residual stream processing loop (repeated N times): - Layer Norm -> MultiHead Attention -> residual connection (+) - Layer Norm -> Feedforward -> residual connection (+) - Output processing: Unembedding -> Softmax -> output probabilities (over tokens) - Key components: Embedding, Positional, MultiHead Attention, Layer Norm, Feedforward, Unembedding, Softmax"
+      },
+      {
+        "path": "images/image-2-Transformer Architecture Diagram.jpg",
+        "summary": "image-2 - **Input Tokens**: Sequence \"So\", \"long\", \"and\", \"thanks\", \"for\" (x1-x5) - **Input Encoding**: Embedding layer (E) with positional encoding (1-5) - **Stacked Transformer Blocks**: Multiple layers of processing blocks with internal connections - **Language Modeling Head**: Output layer (U) producing logits for next token prediction - **Next Token Prediction**: Predicts \"long\", \"and\", \"thanks\", \"for\", \"all\" sequentially"
+      },
+      {
+        "path": "images/image-3-Self-Attention Visualization.jpg",
+        "summary": "image-3 Diagram illustrating the self-attention mechanism between Layer k and Layer k+1. Key Components: - Input Sequence (Columns): \"The chicken didn't cross the road because it was too tired\" - Layers: Two distinct layers labeled \"Layer k\" (bottom) and \"Layer k+1\" (top). - Focus Token: The word \"it\" in Layer k+1 is highlighted as the target of attention. Relationships & Attention Distribution: - The diagram visualizes how the token \"it\" at Layer k+1 attends to specific tokens from Layer k. - Strongest Connection: A thick blue line connects \"it\" (Layer k+1) to \"chicken\" (Layer k), indicating the highest attention weight. This demonstrates that the model associates \"it\" with \"chicken\". - Secondary Connections: Thinner lines connect \"it\" (Layer k+1) to \"road\" and \"because\" in Layer k, showing lower but present attention weights. - Visual Representation: The thickness of the connecting lines corresponds to the strength of the self-attention distribution."
+      },
+      {
+        "path": "images/image-4-Self-Attention Layer Diagram.jpg",
+        "summary": "image-4 - Component: Self-Attention Layer - Input nodes: x1, x2, x3, x4, x5 - Output nodes: a1, a2, a3, a4, a5 - Internal structure: Contains five parallel \"attention\" blocks. - Connectivity: Each input node (x) connects to every attention block, indicating full connectivity or global context processing within the layer."
+      },
+      {
+        "path": "images/image-5-Self-Attention Mechanism Process.jpg",
+        "summary": "image-5 1. Generate key, query, value vectors from inputs X1, X2, and X3 (dimension [1 x d]) using weight matrices W^K, W^Q, and W^V. 2. Compare the query vector of x3 with the key vectors for x1, x2, and x3. 3. Divide scalar scores by the square root of dimension K (√d_k). 4. Turn scores into attention weights (α_i,j) via softmax. 5. Weigh each value vector based on the calculated attention weights (e.g., α_3,1, α_3,2, α_3,3). 6. Sum the weighted value vectors to produce a combined vector of dimension [1 x d_v]. 7. Reshape the result to [1 x d]. 8. Output of self-attention (a_3), obtained by multiplying with weight matrix W^O (dimension [d_v x d])."
+      },
+      {
+        "path": "images/image-6-Multi-Head Attention Mechanism.jpg",
+        "summary": "image-6 The diagram illustrates the architecture of a multi-head attention mechanism, likely within a Transformer model. Key components and flow: - Input: A sequence of vectors (represented as $x_{i-3}, x_{i-2}, x_{i-1}, X_i$) with dimension $[1 \\times d]$. - Parallel Heads: The input is processed by four parallel \"heads\" (Head 1 through Head 4). Each head applies its own set of weight matrices ($W^K, W^V, W^Q$) to attend differently to the context. - Output Dimensions: Each head produces an output vector of dimension $[1 \\times d_v]$. - Concatenation: The outputs from all heads are concatenated to form a combined vector of dimension $[1 \\times Ad_v]$, where $A=4$ in this example. - Final Projection: The concatenated output is projected to the final representation using a weight matrix $W^O$. This results in a final output vector of dimension $[1 \\times d]$. - Note on Dimensions: The diagram specifies that usually"
+      },
+      {
+        "path": "images/image-7-Transformer Block Architecture.jpg",
+        "summary": "image-7 - Input sequence: x_i (with preceding steps x_{i-1}, x_{i-2}) - Output sequence: h_i (with preceding steps h_{i-1}, h_{i-2}) - Core components: - MultiHead Attention layer - Layer Norm layers (pre and post attention) - Feedforward network - Structural features: - Residual connections (indicated by green diamond \"+\" symbols) - Skip connections bypassing attention and feedforward blocks - Normalization applied before and after attention mechanisms"
+      },
+      {
+        "path": "images/image-8-Diagram of Token Residual Streams.jpg",
+        "summary": "image-8 - Illustrates the flow of residual streams for two tokens (Token A and Token B) across vertical lanes or channels. - Red arrows indicate the path of the residual stream: - Token A's stream starts in a lower lane and moves upward into an adjacent lane. - Token B's stream follows a similar trajectory, moving from one lane to another in an upward direction. - The diagram suggests a mechanism where token information is passed or shifted between different processing paths or layers."
+      },
+      {
+        "path": "images/image-9-N x N Grid Structure.jpg",
+        "summary": "image-9 q1·k1, q1·k2, q1·k3, q1·k4 q2·k1, q2·k2, q2·k3, q2·k4 q3·k1, q3·k2, q3·k3, q3·k4 q4·k1, q4·k2, q4·k3, q4·k4"
+      },
+      {
+        "path": "images/image-10-Attention Mechanism Process.jpg",
+        "summary": "image-10 Top Row: Linear Transformations - Input (X): N x d matrix containing Input Tokens 1 through 4. - Query Generation (Q): X multiplied by weight matrix W^Q (d x d_k) results in Q (N x d_k). - Key Generation (K): X multiplied by weight matrix W^K (d x d_k) results in K (N x d_k). - Value Generation (V): X multiplied by weight matrix W^V (d x d_v) results in V (N x d_v). Bottom Row: Attention Calculation - Matrix Multiplication: Q (N x d_k) is multiplied by the transpose of K (K^T, d_k x N) to produce the attention scores matrix QK^T (N x N). - Masking: The QK^T matrix is masked (indicated by \"mask\" and infinity symbols -∞) to prevent future tokens from attending to current ones. - Final Output (A): The masked matrix is multiplied by the Value matrix V (N x d_v) to produce the final output A (N x d"
+      },
+      {
+        "path": "images/image-11-$$ _detail.jpg",
+        "summary": "image-11 $$ <details>0"
+      },
+      {
+        "path": "images/image-12-__details_.jpg",
+        "summary": "image-12 </details> <details>0"
+      },
+      {
+        "path": "images/image-13-Transformer Block Architecture.jpg",
+        "summary": "image-13 - Core Component: Transformer Block (top level) - Input Definition: X = Composite Embeddings (word + position) - Process Flow: - Word Embeddings and Position Embeddings are combined via addition (+) to form the composite input. - Sequence Elements: - Token 1: \"Janet\" (Word) + \"1\" (Position) - Token 2: \"will\" (Word) + \"2\" (Position) - Token 3: \"back\" (Word) + \"3\" (Position) - Token 4: \"the\" (Word) + \"4\" (Position) - Token 5: \"bill\" (Word) + \"5\" (Position)"
+      },
+      {
+        "path": "images/image-14-Language Model Head Architecture.jpg",
+        "summary": "image-14 - **Input**: Sequence of words (w1, w2, ..., wN) processed by a Layer L Transformer Block. - **Intermediate Output**: Hidden states from the final layer ($h^L_1$, $h^L_2$, ..., $h^L_N$). The diagram focuses on the last hidden state $h^L_N$ with dimensions [1 x d]. - **Processing Steps**: - **Unembedding Layer**: Transforms the hidden state using matrix multiplication where $U = E^T$. This produces Logits with dimensions [1 x |V|]. - **Softmax**: Applies softmax over the vocabulary V to convert logits into probabilities. - **Output**: Word probabilities vector [1 x |V|], representing the distribution over the vocabulary V for the next token prediction."
+      },
+      {
+        "path": "images/image-15-Transformer Architecture Diagram.jpg",
+        "summary": "image-15 - Input Encoding: Input token (Wi) passes through Embedding (E) and positional encoding to produce x1i. - Layer Structure (Layers 1 to L): Each layer contains a sequence of operations: - Layer Norm - Attention mechanism - Layer Norm - Feedforward network - Residual Connections: Indicated by arrows bypassing blocks (e.g., h^1_i = x^2_i). - Language Modeling Head: Located at the top, consisting of: - Extra Layer Norm - Linear projection matrix U - Softmax function producing logits (u1...u|V|) - Output Generation: Produces token probabilities (y1...y|V|) used to sample the next token (w_{i+1})."
+      },
+      {
+        "path": "images/image-16-Transformer Language Model Architecture.jpg",
+        "summary": "image-16 - Input tokens: So, long, and, thanks, for... - Input Encoding: Embedding (E) + Positional Encoding (1, 2, 3...) -> x1, x2, x3... - Stacked Transformer Blocks: Multiple layers of processing with skip connections between blocks - Language Modeling Head: U projection layer producing logits - Loss Calculation: Negative log likelihood (-log y) for each predicted token (long, and, thanks, for, all) - Overall Loss Formula: L_CE = (1/T) * Σ(from t=1 to T) L_CE"
+      },
+      {
+        "path": "images/image-17-Attention Mechanism Matrix Multiplication.jpg",
+        "summary": "image-17 The image illustrates the mathematical process of calculating attention scores and weighted values using matrix multiplication. 1. **Query Vector (Q):** A single query vector `q4` with dimensions $1 \\times d_k$. 2. **Key Matrix Transpose ($K^T$):** A matrix containing keys $k_1, k_2, k_3, k_4$ with dimensions $d_k \\times N$. 3. **Dot Product ($QK^T$):** The result of multiplying Q by $K^T$, producing a row vector of dot products ($q4\\cdot k1, q4\\cdot k2, q4\\cdot k3, q4\\cdot k4$) with dimensions $1 \\times N$. 4. **Value Matrix (V):** A matrix containing values $v_1, v_2, v_3, v_4$ with dimensions $N \\times d_v$. 5. **Final Output (A):** The result of multiplying the dot product matrix by V, yielding a final output vector `a4` with dimensions $1"
+      },
+      {
+        "path": "images/image-18-Pretrained Weights Decomposition.jpg",
+        "summary": "image-18 The image illustrates a mathematical decomposition of a pretrained weight matrix W. - **Central Component**: A green square labeled \"Pretrained Weights\" with the symbol **W**. Its dimensions are defined as **k** (height) and **d** (width). - **Decomposition Structure**: The diagram shows that W is approximated by the sum of two components: 1. **Top Component**: A yellow horizontal rectangle labeled **h**, with dimensions **1** x **d**. 2. **Right Component**: The product of two red matrices, **A** and **B**. - Matrix **A** is a vertical rectangle with dimensions **k** x **r**. - Matrix **B** is a horizontal rectangle with dimensions **r** x **d**. - **Input Vector**: At the bottom, a blue horizontal vector labeled **x** is shown with dimensions **1** x **d**. - **Arrows**: Arrows indicate that the input **x** interacts with the decomposed components to reconstruct or approximate the original weights **W**."
+      },
+      {
+        "path": "images/image-19-Prefix matching and copying.jpg",
+        "summary": "image-19 The diagram illustrates a sequence alignment process involving two sentences: \"She owns vintage cars.\" and \"He dreams of owning vintage cars\". - Prefix matching: The word \"cars\" in the first sentence is matched with the word \"cars\" in the second sentence. - Copying: The word \"cars\" from the first sentence is copied to the corresponding position in the second sentence."
+      }
+    ],
+    "tables": [
+      {
+        "path": "tables/table-0 Self-Attention.html",
+        "summary": "table-1 The table shows tokens from a sentence about a chicken not crossing a road, with self-attention distribution layers listing each token."
+      },
+      {
+        "path": "tables/table-1 Causal Attention Mask.html",
+        "summary": "table-2 The table shows a causal attention mask where each query attends only to current and previous keys, with future positions masked as -∞."
+      },
+      {
+        "path": "tables/table-3 .html",
+        "summary": "table-3"
+      },
+      {
+        "path": "tables/table-4 .html",
+        "summary": "table-4"
+      }
+    ]
+  }
+}

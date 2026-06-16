@@ -1,0 +1,317 @@
+{
+  "version": "1.0",
+  "file_name": "NVDA Q1 FY27 Earnings Call Transcript.pdf",
+  "stats": {
+    "total_chunks": 44,
+    "text_chunks": 30,
+    "image_chunks": 14,
+    "table_chunks": 0,
+    "max_depth": 2
+  },
+  "sections": [
+    {
+      "title": "Root",
+      "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf",
+      "level": 1,
+      "summary": "20-May-2026",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "NVIDIA Corp. (NVDA)",
+      "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/NVIDIA Corp. (NVDA)",
+      "level": 1,
+      "summary": "Q1 2027 Earnings Call",
+      "chunk_count": 3,
+      "children": [
+        {
+          "title": "CORPORATE PARTICIPANTS",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/NVIDIA Corp. (NVDA)/CORPORATE PARTICIPANTS",
+          "level": 2,
+          "summary": "Toshiya Hari Vice President-Investor Relations & Strategic Finance, NVIDIA Corp. Colette M. Kress Chief Financial Officer & Executive Vice President, NVIDIA Corp. Jen Hsun Huang Co-Founder, President, Chief Executive Officer & Director, NVIDIA Corp.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "OTHER PARTICIPANTS",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/NVIDIA Corp. (NVDA)/OTHER PARTICIPANTS",
+          "level": 2,
+          "summary": "Joseph Moore Analyst, Morgan Stanley & Co. LLC Ben Reitzes Analyst, Melius Research LLC C.J. Muse Analyst, Cantor Fitzgerald & Co. Timothy Arcuri Analyst, UBS Securities LLC Vivek Arya Analyst, BofA Securities, Inc. Stacy A. Rasgon Analyst, Bernstein Research James Edward Schneider Analyst, Goldman Sachs & Co. LLC Joshua Buchalter Analyst, TD Cowen",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "MANAGEMENT DISCUSSION SECTION",
+      "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/MANAGEMENT DISCUSSION SECTION",
+      "level": 1,
+      "summary": "Operator: Good afternoon. My name is Sarah, and I will be your conference operator today. At this time, I would like to welcome everyone to NVIDIA's First Quarter Earnings Call. All lines have been placed on mute to prevent any background noise. After the speakers' remarks, there will be a question-and-answer session. [Operator Instructions] Thank you. Toshiya Hari, you may begin your conference.",
+      "chunk_count": 4,
+      "children": [
+        {
+          "title": "Toshiya Hari",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/MANAGEMENT DISCUSSION SECTION/Toshiya Hari",
+          "level": 2,
+          "summary": "NVIDIA held its Q1 fiscal 2027 earnings call on May 20, 2026, with CEO Jensen Huang and CFO Colette Kress. The call included forward-looking statements and discussion of non-GAAP financial measures. The webcast replay is available until the Q2 fiscal 2027 call.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Colette M. Kress",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/MANAGEMENT DISCUSSION SECTION/Colette M. Kress",
+          "level": 2,
+          "summary": "NVIDIA reported record Q1 revenue of $82 billion, up 85% year-over-year, driven by Data Center revenue of $75 billion (up 92% YoY) led by Blackwell architecture. The company highlighted strong demand for GB300 NVL72, rapid AI infrastructure build-out, and a transition to a new reporting framework with Hyperscale and ACIE sub-markets. Key drivers include CPU-to-GPU transition and AI native product adoption. Edge Computing generated $6.4 billion. Q2 revenue outlook is $91 billion. The company announced an $80 billion share repurchase authorization and increased dividend to $0.25 per share.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Toshiya Hari_2",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/MANAGEMENT DISCUSSION SECTION/Toshiya Hari_2",
+          "level": 2,
+          "summary": "Vice President-Investor Relations & Strategic Finance, NVIDIA Corp. Thanks, Colette. We will now transition to Q&A. Operator, please poll for questions.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "QUESTION AND ANSWER SECTION",
+      "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION",
+      "level": 1,
+      "summary": "Operator: Thank you. [Operator Instructions] Your first question comes from Joseph Moore with Morgan Stanley. Your lie is open.",
+      "chunk_count": 21,
+      "children": [
+        {
+          "title": "Joseph Moore",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Joseph Moore",
+          "level": 2,
+          "summary": "Analyst, Morgan Stanley & Co. LLC Thanks, Colette. We will now transition to Q&A. Operator, please poll for questions. Great. Thank you for letting me ask a question. I guess, I'd like to ask, what drove the change in segmentation? What's the philosophy behind giving us the numbers that way? And then, can you talk about any competitive differences between the two segments and this kind of surprising CPU number that you talked about, how do you see that across the two segments as well? Thank you.0 [images/image-1-Thanks, Co.jpg] Great. Thank you for letting me ask a question. I guess, I'd like to ask, what drove the change in segmentation? What's the philosophy behind giving us the numbers that way? And then, can you talk about any competitive differences between the two segments and this kind of surprising CPU number that you talked about, how do you see that across the two segments as well? Thank you.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang",
+          "level": 2,
+          "summary": "NVIDIA's CEO explains the company's new business segmentation into three categories: hyperscale clouds, AI natives/enterprise/industrial/sovereign AI, and robotic edge. He describes how AI is diverse across languages, industries, and applications, and how NVIDIA provides a full-stack, integrated platform that is still open. The segmentation helps investors understand NVIDIA's evolving business, which now serves a wide range of customers from a few hyperscalers to 250,000 companies worldwide.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Ben Reitzes",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Ben Reitzes",
+          "level": 2,
+          "summary": "Analyst, Melius Research LLC And as you know, NVIDIA has the largest suite of acceleration libraries in the world from computational lithography to fluid dynamics to particle physics to molecular dynamics to the list goes on. And all of those libraries are essential for us to engage the vertical industries that represents the second and the third category. Okay? Hey, guys. Thanks so much. I wanted to ask, Jensen, I want to ask you about your philosophy on growth. Your Data Center business ex-China grew about 120% in the quarter. And then, you're guiding about 100%. CapEx at the hyperscalers is forecast by many, including myself, to like grow 90% to 100% this year.0 [images/image-3-And as you.jpg] Hey, guys. Thanks so much. I wanted to ask, Jensen, I want to ask you about your philosophy on growth. Your Data Center business ex-China grew about 120% in the quarter. And then, you're guiding about 100%. CapEx at the hyperscalers is forecast by many, including myself, to like grow 90% to 100% this year. And you talked about Data Center still on track to be \\$3 trillion to \\$4 trillion by the end of the decade. I was just wondering, the goal for the company to grow faster than hyperscaler CapEx, are you comfortable in kind of endorsing that view? And do you still see hyperscaler CapEx kind of still growing after this year at a very rapid clip? Thanks a lot.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_2",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_2",
+          "level": 2,
+          "summary": "NVIDIA's CEO explains that the company's Data Center business should grow faster than hyperscale CapEx, which is at $1 trillion and expected to grow to $3-4 trillion. The business is divided into two segments: hyperscalers (large cloud providers) and a diverse second category including AI-native clouds, enterprise companies, industrial firms, and sovereign AI clouds. The second category, involving hundreds of thousands of companies, is growing rapidly and represents the future of AI impacting industries not previously transformed by IT. NVIDIA's vertically integrated platform uniquely serves this diverse market, with strong share in both segments.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "C.J. Muse",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/C.J. Muse",
+          "level": 2,
+          "summary": "The speaker discusses how physical AI is poised to impact the $100 trillion industry that has not been affected by IT in the last 30 years. This segment is growing rapidly, and the company has a large share due to its vertically integrated platform that can be disassembled for flexible configuration. In response to a question about Vera Rubin and extreme co-engineering, the speaker addresses how these advancements will affect the company's share in the inference market looking into late 2026 and 2027.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_3",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_3",
+          "level": 2,
+          "summary": "NVIDIA's Co-Founder and CEO discusses the company's rapid growth in AI inference market share. Key points include: the number of frontier model companies expanding (Cursor, Perplexity, TML, Reflection), new partnership with Anthropic providing computing capacity across Azure, AWS, and CoreWeave, and Vera Rubin expected to be more successful than Grace Blackwell. The CEO emphasizes NVIDIA's dominance in inference for hyperscale customers, unique position in fragmented AI data center segment, and leadership in physical AI.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Timothy Arcuri",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Timothy Arcuri",
+          "level": 2,
+          "summary": "Analyst, UBS Securities LLC Let me go back again to the question that Ben was asking. Remember, so far, everything that I've just explained in the inference question is really focused on hyperscale. Remember, there's a whole second category of AI data centers that we serve almost uniquely. This segment is very fragmented, requires a really well-integrated platform solution and a very large go-to-market, and that segment, all of the inference, 100% of that, the vast majority of that is NVIDIA. Thanks a lot. Jensen, I wanted to ask about the traction you're getting with some of these custom merchant things. You're doing stuff like CPX and LPX. And I just wanted to ask and see sort of you've talked before about [ph] SaaS LPX (00:37:50) being, I think, 20% of the market. So, I would imagine you're getting pretty good traction with LPX. So, can you just talk about that and maybe also how that fits into your broader platform strategy? Thanks.0 [images/image-6-Let me go .jpg] Thanks a lot. Jensen, I wanted to ask about the traction you're getting with some of these...of you've talked before about [ph] SaaS LPX (00:37:50) being, I think, 20% of the market. So, I would imagine you're getting pretty good traction with LPX. So, can you just talk about that and maybe also how that fits into your broader platform strategy? Thanks.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_4",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_4",
+          "level": 2,
+          "summary": "The speaker discusses the LPX accelerator, designed for low latency and high token rate but with low throughput and limited context processing. It is a niche product for premium token services with few customers. In contrast, Grace Blackwell and Vera Rubin support the full AI lifecycle. The speaker estimates LPX's market share is currently less than 20% but could grow to 20% in the future as AI develops.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Vivek Arya",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Vivek Arya",
+          "level": 2,
+          "summary": "Analyst, BofA Securities, Inc. Q Thanks for taking my question. Jensen, there's a lot of excitement around CPU for agentic applications and just a lot of noise around the number of CPUs actually exceeding the number of GPUs. And I was just hoping that you could kind of give your perspective that, first of all, is this an incremental workload? Is this kind of cannibalizing what the GPU would have done otherwise? And then, secondly, the \\$20 billion number that you gave, is that for standalone Vera CPUs, or is that kind of already included in that Vera as part of Vera Rubin? So just if you could educate us on the role of CPU versus GPU. Is it cannibalistic? Is it incremental? And then, the \\$20 billion number, how to kind of put that in context with what you sell, right, which is usually the CPU as part of the GPU. Thank you.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_5",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_5",
+          "level": 2,
+          "summary": "The speaker discusses NVIDIA's Vera CPU designed for AI agents, highlighting four use cases: with Vera Rubin GPUs, standalone, with CX9 for storage, and for security. They contrast past CPU economics (dollars per core) with future AI economics (dollars per token), emphasizing Vera's speed for token processing. Billions of future agents will use CPUs for orchestration and tools, while GPUs handle inference. NVIDIA is accelerating tools on CUDA and building complete AI infrastructure including GPUs, networking, storage, and security.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Stacy A. Rasgon",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Stacy A. Rasgon",
+          "level": 2,
+          "summary": "Analyst, Bernstein Research So, we're going to need a lot more CPUs, and Vera was designed to be an agentic CPU. The CPUs of the past were designed to have many cores, so that it could be easily rentable. People rented cores. Well, agents don't rent cores. They just want the work to be done fast. The economics of the past was dollars per core. That's the economics of cloud computing of the past. The economics of AI of the future is tokens per dollar or dollars per token. And so, what we need to do in the future is to generate tokens, process tokens as fast as possible. And that's what Vera does incredibly well. Hi, guys. Thanks for taking my question. I wanted to go back to the segmentation. So, first of all, I'm just curious, where do you put the neo clouds across those two segments? Are they in hyperscale or are they in the AI cloud?0 [images/image-7-So, we're .jpg] Hi, guys. Thanks for taking my question. I wanted to go back to the segmentation. So, first of all, I'm just curious, where do you put the neo clouds across those two segments? Are they in hyperscale or are they in the AI cloud? Part of me assumes the latter, but I'm not so sure. And then, by just looking...",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_6",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_6",
+          "level": 2,
+          "summary": "Co-Founder, President, Chief Executive Officer & Director, NVIDIA Corp. Hi, guys. Thanks for taking my question. I wanted to go back to the segmentation. So, first of all, I'm just curious, where do you put the neo clouds across those two segments? Are they in hyperscale or are they in the AI cloud? Correct.0 [images/image-8-Hi, guys. .jpg] Correct.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Stacy A. Rasgon_2",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Stacy A. Rasgon_2",
+          "level": 2,
+          "summary": "Analyst, Bernstein Research Co-Founder, President, Chief Executive Officer & Director, NVIDIA Corp. ...at the magnitude of them, I mean, they're both about the same magnitude now. It almost sounded to me like you were suggesting that you thought the latter, the AI cloud would grow faster, maybe going forward than hyperscale. Is that what you were trying to say? Or do you see like the same kind of growth coming from both segments?0 [images/image-9-Co-Founder.jpg] ...at the magnitude of them, I mean, they're both about the same magnitude now. It almost sounded to me like you were suggesting that you thought the latter, the AI cloud would grow faster, maybe going forward than hyperscale. Is that what you were trying to say? Or do you see like the same kind of growth coming from both segments?",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_7",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_7",
+          "level": 2,
+          "summary": "The speaker discusses how AI native clouds rely on NVIDIA's architecture because they don't design their own chips and need high performance, easy integration, and broad rentability. NVIDIA's platform is described as the most performant, rentable, and cost-effective for these clouds. The second category of customers (enterprises and industrial) is expected to grow slower than hyperscale but will become larger over time, representing significant economic value. The speaker predicts both segments will grow rapidly, with physical AI and robotics accelerating within five years.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "James Edward Schneider",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/James Edward Schneider",
+          "level": 2,
+          "summary": "An analyst from Goldman Sachs discusses NVIDIA's $1 trillion revenue visibility for Rubin and Blackwell platforms, excluding LPX, Rubin CPX, and Vera CPU racks. The question asks whether Vera CPUs will be the biggest upside beyond that $1 trillion and if other product combinations, including CPUs, could increase NVIDIA's share of the total addressable market.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_8",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_8",
+          "level": 2,
+          "summary": "The speaker discusses three incremental growth drivers above $1 trillion: gaining more share in frontier AI models, the Vera standalone CPU (not previously included), and LPX with its SRAM architecture for low latency. Vera is expected to be the second largest growth area, with strong customer excitement. LPX, while limited in throughput, complements Vera Rubin to address the full AI spectrum from pre-training to inference.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Joshua Buchalter",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Joshua Buchalter",
+          "level": 2,
+          "summary": "Analyst, TD Cowen In terms of incremental above the \\$1 trillion, I would say, one, the continued growing of share of the frontier AI models. I'm expecting to grow more share. And so I'm expecting that to grow. Number two, we didn't include any Vera CPU, standalone CPU in that number. And so I expect that to be the second largest. The TAM is, of course, quite large in agentic systems, and all of our customers are quite excited about Vera, and we're going to sell a whole bunch of Veras. Hey, guys. Thanks for taking my question, and congrats on the great results. Colette, I believe in your prepared remarks, you mentioned GB300 is sort of the fastest ramp in the company's history. How should we think about Vera Rubin against this benchmark? It's, obviously, a new architecture at the silicon level, but similar rack. Does that mean we should expect a similar slope to the Vera Rubin ramp as the GB300? Or should it be a bit more gradual given the new silicon? Thank you.0 [images/image-13-In terms o.jpg] Hey, guys. Thanks for taking my question...Vera Rubin against this benchmark? It's, obviously, a new architecture at the silicon level, but similar rack. Does that mean we should expect a similar slope to the Vera Rubin ramp as the GB300? Or should it be a bit more gradual given the new silicon? Thank you.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Colette M. Kress",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Colette M. Kress",
+          "level": 2,
+          "summary": "The CFO and EVP of NVIDIA discusses the upcoming launch of Vera Rubin in the second half of the year, starting in Q3 with initial pieces and continuing to ramp into Q4 and Q1 of next year. Demand is already planned with purchase orders from major customers, though the ramp speed is uncertain due to system complexity. Production timing is the key factor for market entry.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Toshiya Hari",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Toshiya Hari",
+          "level": 2,
+          "summary": "Vice President-Investor Relations & Strategic Finance, NVIDIA Corp. Thank you. Before I hand it over to Jensen, please note Jensen will be giving a keynote at GTC Taipei at COMPUTEX on June 1. We will also be participating at the TD Cowen TMT Conference on May 28, and the Bank of America Global Technology Conference on June 4. Our earnings call to discuss the results of our second quarter of fiscal 2027 is scheduled for August 26. With that, here's Jensen to close us out.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_9",
+          "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_9",
+          "level": 2,
+          "summary": "NVIDIA's CEO highlights an extraordinary quarter with parabolic demand driven by the arrival of Agentic AI, which makes tokens profitable. He lists five key points: NVIDIA runs every frontier AI model, is in every hyperscale cloud, offers full-stack AI factory solutions, extends CUDA to edge and physical AI, and introduces Vera, a CPU for agentic AI opening a $200 billion TAM. The world is rebuilding computing for agentic and physical AI, and NVIDIA is ready with its three-decade platform.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Disclaimer",
+      "path": "NVDA-Q1-2027-Earnings-Call-20-May-2026-5_00-PM-ET.pdf/Disclaimer",
+      "level": 1,
+      "summary": "This document is a legal disclaimer stating that the information provided is based on reliable sources but is not guaranteed for completeness, accuracy, or timeliness. It warns against using the information as a primary basis for investment decisions and disclaims all warranties and liability for damages. The content is copyrighted by FactSet CallStreet, LLC.",
+      "chunk_count": 1,
+      "children": []
+    }
+  ],
+  "resources": {
+    "images": [
+      {
+        "path": "images/image-1-Thanks, Co.jpg",
+        "summary": "image-1 Thanks, Colette. We will now transition to Q&A. Operator, please poll for questions. Great. Thank you for letting me ask a question. I guess, I'd like to ask, what drove the change in segmentation? What's the philosophy behind giving us the numbers that way? And then, can you talk about any competitive differences between the two segments and this kind of surprising CPU number that you talked about, how do you see that across the two segments as well? Thank you.0"
+      },
+      {
+        "path": "images/image-2-Analyst, M.jpg",
+        "summary": "image-2 Analyst, Morgan Stanley & Co. LLC Yeah. Thanks, Joe. First of all, Colette meant to say we're increasing our quarterly dividend from \\$0.01 to \\$0.25. I think that extra \\$0.05 would mean a lot to the large shareholders.0"
+      },
+      {
+        "path": "images/image-3-And as you.jpg",
+        "summary": "image-3 And as you know, NVIDIA has the largest suite of acceleration libraries in the world from computational lithography to fluid dynamics to particle physics to molecular dynamics to the list goes on. And all of those libraries are essential for us to engage the vertical industries that represents the second and the third category. Okay? Hey, guys. Thanks so much. I wanted to ask, Jensen, I want to ask you about your philosophy on growth. Your Data Center business ex-China grew about 120% in the quarter. And then, you're guiding about 100%. CapEx at the hyperscalers is forecast by many, including myself, to like grow 90% to 100% this year.0"
+      },
+      {
+        "path": "images/image-4-This secon.jpg",
+        "summary": "image-4 This second category, when I talk about physical AI and I talk about how the rest of the \\$100 trillion industry that has not been impacted by IT in the last 30 years, it's about to be impacted by AI, that is the segment that I'm talking about. The second cluster is growing incredibly fast. Our share of that, of course, is very, very large. We're fairly unique in our ability to be able to serve this industry. Our platform is built like it's vertically integrated, so that everything works. But when – then we disassemble it, so that people can build and buy it in the configuration they want and assemble it the way they like. Yeah. Good afternoon. Thank you for taking the question. You have Vera Rubin coming soon. And you, obviously, have great insight into coming updates to frontier models, new techniques to optimize around diverse AI workloads. With investors keenly focused on your market share in inference, how do you see Vera Rubin and your extreme co-engineering impacting your share of the inference market as we look into late 2026, 2027?0"
+      },
+      {
+        "path": "images/image-5-Analyst, C.jpg",
+        "summary": "image-5 Analyst, Cantor Fitzgerald & Co. Well, we are growing share in inference and we're growing share in inference very, very quickly. And the reason for that is, this year, the number of frontier model companies grew. And so there's Cursor and Perplexity, and there's some new model companies TML and Reflection and the list goes on. And so the number of frontier model companies has grown.0"
+      },
+      {
+        "path": "images/image-6-Let me go .jpg",
+        "summary": "image-6 Let me go back again to the question that Ben was asking. Remember, so far, everything that I've just explained in the inference question is really focused on hyperscale. Remember, there's a whole second category of AI data centers that we serve almost uniquely. This segment is very fragmented, requires a really well-integrated platform solution and a very large go-to-market, and that segment, all of the inference, 100% of that, the vast majority of that is NVIDIA. Thanks a lot. Jensen, I wanted to ask about the traction you're getting with some of these custom merchant things. You're doing stuff like CPX and LPX. And I just wanted to ask and see sort of you've talked before about [ph] SaaS LPX (00:37:50) being, I think, 20% of the market. So, I would imagine you're getting pretty good traction with LPX. So, can you just talk about that and maybe also how that fits into your broader platform strategy? Thanks.0"
+      },
+      {
+        "path": "images/image-7-So, we're .jpg",
+        "summary": "image-7 So, we're going to need a lot more CPUs, and Vera was designed to be an agentic CPU. The CPUs of the past were designed to have many cores, so that it could be easily rentable. People rented cores. Well, agents don't rent cores. They just want the work to be done fast. The economics of the past was dollars per core. That's the economics of cloud computing of the past. The economics of AI of the future is tokens per dollar or dollars per token. And so, what we need to do in the future is to generate tokens, process tokens as fast as possible. And that's what Vera does incredibly well. Hi, guys. Thanks for taking my question. I wanted to go back to the segmentation. So, first of all, I'm just curious, where do you put the neo clouds across those two segments? Are they in hyperscale or are they in the AI cloud?0"
+      },
+      {
+        "path": "images/image-8-Hi, guys. .jpg",
+        "summary": "image-8 Hi, guys. Thanks for taking my question. I wanted to go back to the segmentation. So, first of all, I'm just curious, where do you put the neo clouds across those two segments? Are they in hyperscale or are they in the AI cloud? Correct.0"
+      },
+      {
+        "path": "images/image-9-Co-Founder.jpg",
+        "summary": "image-9 Co-Founder, President, Chief Executive Officer & Director, NVIDIA Corp. ...at the magnitude of them, I mean, they're both about the same magnitude now. It almost sounded to me like you were suggesting that you thought the latter, the AI cloud would grow faster, maybe going forward than hyperscale. Is that what you were trying to say? Or do you see like the same kind of growth coming from both segments?0"
+      },
+      {
+        "path": "images/image-10-Analyst, B.jpg",
+        "summary": "image-10 Analyst, Bernstein Research First of all, you're correct that AI native clouds. AI native clouds don't build chips – don't design their own chips and they can't really assemble unrelated parts together into an AI factory. And their patience, their tolerance for time to first token is extremely low. And their need for an architecture that has a great deal of offtake, so that it runs every model has customers from everywhere, is incredibly high. And so that's the reason why NVIDIA's architecture is so perfect for them.0"
+      },
+      {
+        "path": "images/image-11-And so for.jpg",
+        "summary": "image-11 And so for many of the other applications, industrial applications, enterprise applications, until the AI is very capable and does really productive work and does it safely, and it could do it in a way that can actually generate impact and income, it doesn't really get used. And so you expect the second category to develop slower than hyperscale, and you could see that in the numbers. Good afternoon. Thanks for taking my question. Back at GTC, I believe you discussed \\$1 trillion visibility into both your Rubin and Blackwell platform revenue. But I believe that excluded things like LPX, Rubin CPX and the Vera CPU racks. Can you maybe give us a sense about whether the Vera CPUs are going to be the biggest source of upside above and beyond that \\$1 trillion? Are you contemplating other sort of combinations of products, including CPUs that would allow you to gain an even greater share of that total TAM? Thank you.0"
+      },
+      {
+        "path": "images/image-12-Analyst, G.jpg",
+        "summary": "image-12 Analyst, Goldman Sachs & Co. LLC In terms of incremental above the \\$1 trillion, I would say, one, the continued growing of share of the frontier AI models. I'm expecting to grow more share. And so I'm expecting that to grow. Number two, we didn't include any Vera CPU, standalone CPU in that number. And so I expect that to be the second largest. The TAM is, of course, quite large in agentic systems, and all of our customers are quite excited about Vera, and we're going to sell a whole bunch of Veras.0"
+      },
+      {
+        "path": "images/image-13-In terms o.jpg",
+        "summary": "image-13 In terms of incremental above the \\$1 trillion, I would say, one, the continued growing of share of the frontier AI models. I'm expecting to grow more share. And so I'm expecting that to grow. Number two, we didn't include any Vera CPU, standalone CPU in that number. And so I expect that to be the second largest. The TAM is, of course, quite large in agentic systems, and all of our customers are quite excited about Vera, and we're going to sell a whole bunch of Veras. Hey, guys. Thanks for taking my question, and congrats on the great results. Colette, I believe in your prepared remarks, you mentioned GB300 is sort of the fastest ramp in the company's history. How should we think about Vera Rubin against this benchmark? It's, obviously, a new architecture at the silicon level, but similar rack. Does that mean we should expect a similar slope to the Vera Rubin ramp as the GB300? Or should it be a bit more gradual given the new silicon? Thank you.0"
+      },
+      {
+        "path": "images/image-14-Analyst, T.jpg",
+        "summary": "image-14 Analyst, TD Cowen Yeah. Well, we have indicated for a while that we will be launching Vera Rubin in the second half. We will start in Q3. That will be our initial pieces together. And then once we get to Q4, we're probably going to start to see our ramping continue. It's hard to say at this point what will be a faster ramp. But again, we have demand already planned. We've got POs. We've got almost all of our major customers ready to go. And these are very complex systems that we need to put together. So I think it's just about the timing that it's going to take for us to get that into market.0"
+      }
+    ],
+    "tables": []
+  }
+}

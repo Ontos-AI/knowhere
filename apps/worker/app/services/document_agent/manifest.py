@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 
 PageKind = Literal["normal", "table_heavy", "image_heavy", "low_content", "landscape"]
+TocFailureKind = Literal["none", "confirm_failed", "rejected_all", "degraded"]
 
 ReflexionAction = Literal["tool_call", "verdict_now"]
 VerdictStatus = Literal["success", "abort"]
@@ -47,6 +48,7 @@ class PageLabel:
 class DocumentProfile:
     is_scanned: bool
     category: str
+    routing_category: str = "generic"
     category_rationale: str = ""
     language: str = "unknown"
     rationale: str = ""
@@ -107,15 +109,29 @@ class TocAnchorPage:
 
 
 @dataclass
+class TocEvidence:
+    page_index: int
+    source: str
+    confidence: float
+    reason: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class TocResult:
     toc_pages: list[int] = field(default_factory=list)
-    candidates: list[TocCandidate] = field(default_factory=list)
+    candidates: list[TocAnchorPage] = field(default_factory=list)
+    evidence: list[TocEvidence] = field(default_factory=list)
     method: Literal["toc_marker", "vlm_progressive", "vlm_batch", "visual_scan", "none"] = "none"
     notes: str = ""
+    failure_kind: TocFailureKind = "none"
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["candidates"] = [candidate.to_dict() for candidate in self.candidates]
+        data["evidence"] = [item.to_dict() for item in self.evidence]
         return data
 
 

@@ -290,6 +290,7 @@ class ContractDatabase:
         status: str = "active",
         current_job_result_id: str | None = None,
         source_file_name: str | None = None,
+        parse_track: str = "chunk",
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
         archived_at: datetime | None = None,
@@ -304,6 +305,7 @@ class ContractDatabase:
                 status,
                 current_job_result_id,
                 source_file_name,
+                parse_track,
                 created_at,
                 updated_at,
                 archived_at
@@ -314,6 +316,7 @@ class ContractDatabase:
                 :status,
                 :current_job_result_id,
                 :source_file_name,
+                :parse_track,
                 :created_at,
                 :updated_at,
                 :archived_at
@@ -326,6 +329,7 @@ class ContractDatabase:
                 "status": status,
                 "current_job_result_id": current_job_result_id,
                 "source_file_name": source_file_name or f"{document_id}.pdf",
+                "parse_track": parse_track,
                 "created_at": timestamp,
                 "updated_at": updated_at or timestamp,
                 "archived_at": archived_at,

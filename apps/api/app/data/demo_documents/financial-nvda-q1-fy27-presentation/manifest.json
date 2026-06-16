@@ -1,0 +1,65 @@
+{
+  "version": "2.0",
+  "job_id": "job_840184a62587",
+  "data_id": null,
+  "source_file_name": "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf",
+  "processing_date": "2026-06-16T03:25:59.990364Z",
+  "processing": {
+    "page_count": 17,
+    "billing_status": "charged",
+    "cost": {
+      "micro_dollars": 25500,
+      "credits": 0.0255
+    },
+    "timing": {
+      "started_at": "2026-06-16T03:24:55.507977+00:00",
+      "completed_at": "2026-06-16T03:25:59.984711+00:00",
+      "duration_ms": 64476
+    },
+    "stages": {
+      "timing_ms": {
+        "document.profile": 5113,
+        "pdf.extract.standard": 44922,
+        "toc.detect_range_llm": 991,
+        "md.detect_toc": 1020,
+        "heading.merge_pre_pass_llm": 1193,
+        "heading.hierarchy_llm_call": 2280,
+        "heading.hierarchy_llm": 2288,
+        "md.predict_headings": 3599,
+        "md.deferred_summaries": 8986,
+        "md.build_dataframe": 1,
+        "pdf.parse_md": 14089,
+        "document.cleanup_unreferenced_images": 0,
+        "document.compress_images": 291,
+        "worker.parse.document": 64423
+      },
+      "token_usage": {
+        "prompt_tokens": 4543,
+        "completion_tokens": 317,
+        "total_tokens": 4860
+      }
+    }
+  },
+  "statistics": {
+    "total_chunks": 39,
+    "text_chunks": 12,
+    "image_chunks": 11,
+    "table_chunks": 16,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "Investor Presentation Q1 FY27": {
+      "Revenue \\$ in billions": {},
+      "Gross Margin": {},
+      "Operating Expenses": {},
+      "Free Cash Flow and Capital Return": {},
+      "GAAP P&L Financial Measures \\$ in billions, except EPS": {},
+      "Non-GAAP P&L Financial Measures \\$ in billions, except EPS": {},
+      "Q2 FY27 Outlook – Non-GAAP": {},
+      "Reconciliation of Non-GAAP to GAAP Financial Measures": {},
+      "Reconciliation of Non-GAAP to GAAP Financial Measures_2": {},
+      "Reconciliation of Non-GAAP to GAAP Financial Measures (contd.)": {},
+      "Reconciliation of Non-GAAP to GAAP Financial Measures (contd.)_2": {}
+    }
+  }
+}

@@ -38,7 +38,7 @@ JsonValue: TypeAlias = Union[
     list["JsonValue"],
     dict[str, "JsonValue"],
 ]
-ChunkType: TypeAlias = Literal["text", "image", "table"]
+ChunkType: TypeAlias = Literal["text", "image", "table", "page"]
 
 
 class ChunkMetadata(TypedDict, total=False):
@@ -202,7 +202,48 @@ def _get_chunk_type(value: object) -> ChunkType:
         return "image"
     if normalized_type == "table":
         return "table"
+    if normalized_type == "page":
+        return "page"
     return "text"
+
+
+def _parse_extra_metadata(value: object) -> dict[str, JsonValue]:
+    if not value or _is_missing(value):
+        return {}
+    if isinstance(value, dict):
+        return cast(dict[str, JsonValue], value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(parsed, dict):
+            return cast(dict[str, JsonValue], parsed)
+    return {}
+
+
+_RESERVED_METADATA_KEYS = {
+    "keywords",
+    "summary",
+    "length",
+    "tokens",
+    "connect_to",
+    "_relationship_refs",
+    "page_nums",
+    "file_path",
+    "original_name",
+}
+
+
+def _merge_extra_metadata(
+    metadata: ChunkMetadata,
+    extra_metadata: dict[str, JsonValue],
+) -> None:
+    for key, value in extra_metadata.items():
+        if key in _RESERVED_METADATA_KEYS:
+            logger.warning("Ignoring extra_metadata reserved key: {}", key)
+            continue
+        metadata[key] = value
 
 
 def _get_relationship_refs(type_value: object, content: str) -> list[RelationshipRef]:
@@ -245,6 +286,7 @@ def dataframe_to_chunks(df: _ParserDataFrame | None) -> list[Dict[str, JsonValue
             "_relationship_refs": relationship_refs,
             "page_nums": _parse_page_numbers(row.get("page_nums", "")),
         }
+        _merge_extra_metadata(metadata, _parse_extra_metadata(row.get("extra_metadata")))
 
         if chunk_type == "image":
             embedded_image_path = _find_embedded_resource_path(

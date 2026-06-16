@@ -16,10 +16,10 @@ dependencies = [
     "alembic==1.13.1",
     "sqlalchemy-utils==0.41.1",
     "pgvector==0.2.4",
-    
+
     # Redis
     "redis==5.3.1",
-    
+
     # Celery task queue
     "celery==5.4.0",
     "kombu==5.4.0",
@@ -32,29 +32,32 @@ dependencies = [
     "pydantic-settings==2.14.1",
     "python-dotenv==1.2.2",
     "pydantic[email]==2.13.4",
-    
+
     # Auth and user model support
     "fastapi-users[sqlalchemy]==15.0.5",
     "authlib==1.6.11",
     "email-validator==2.2.0",
-    
+
     # HTTP clients
     "httpx==0.28.1",
     "requests==2.33.0",
     "aiohttp==3.13.4",
     "qstash==3.2.0",
 
+    # Product telemetry
+    "posthog==7.18.1",
+
     # OpenAI SDK
     "openai>=1.0.0",
-    
+
     # Cloud storage
     "boto3==1.38.46",
     "botocore==1.38.46",
-    
+
     # Logging
     "loguru==0.7.3",
     "psutil==5.9.8",
-    
+
     # Utilities
     "pytz==2025.2",
     "PyYAML==6.0.2",

@@ -1,0 +1,425 @@
+{
+  "version": "1.0",
+  "file_name": "NVDA Q4 FY26 Earnings Call Transcript.pdf",
+  "stats": {
+    "total_chunks": 63,
+    "text_chunks": 38,
+    "image_chunks": 25,
+    "table_chunks": 0,
+    "max_depth": 2
+  },
+  "sections": [
+    {
+      "title": "Root",
+      "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf",
+      "level": 1,
+      "summary": "25-Feb-2026",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "NVIDIA Corp. (NVDA)",
+      "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/NVIDIA Corp. (NVDA)",
+      "level": 1,
+      "summary": "Q4 2026 Earnings Call",
+      "chunk_count": 4,
+      "children": [
+        {
+          "title": "CORPORATE PARTICIPANTS",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/NVIDIA Corp. (NVDA)/CORPORATE PARTICIPANTS",
+          "level": 2,
+          "summary": "Toshiya Hari Vice President, Investor Relations & Strategic Finance, NVIDIA Corp. Colette M. Kress Chief Financial Officer & Executive Vice President, NVIDIA Corp. Jen Hsun Huang Co-Founder, President, Chief Executive Officer & Director, NVIDIA Corp.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "OTHER PARTICIPANTS",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/NVIDIA Corp. (NVDA)/OTHER PARTICIPANTS",
+          "level": 2,
+          "summary": "Vivek Arya Analyst, BofA Securities, Inc. Joe Moore Analyst, Morgan Stanley & Co. LLC Harlan Sur Analyst, JPMorgan Securities LLC",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "C.J. Muse",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/NVIDIA Corp. (NVDA)/C.J. Muse",
+          "level": 2,
+          "summary": "Analyst, Cantor Fitzgerald & Co. Stacy A. Rasgon Analyst, Bernstein Research Atif Malik Analyst, Citigroup Global Markets, Inc. Ben Reitzes Analyst, Melius Research LLC Antoine Chkaiban Analyst, New Street Research LLP Mark Lipacis Analyst, Evercore Group LLC Aaron Rakers Analyst, Wells Fargo Securities LLC Timothy Arcuri Analyst, UBS Securities LLC James Edward Schneider Analyst, Goldman Sachs & Co. LLC",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "MANAGEMENT DISCUSSION SECTION",
+      "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/MANAGEMENT DISCUSSION SECTION",
+      "level": 1,
+      "summary": "Operator: Good afternoon. My name is Sarah, and I will be your conference operator today. At this time, I would like to welcome everyone to NVIDIA's Fourth Quarter Earnings Call. All lines have been placed on mute to prevent any background noise. After the speakers' remarks, there will be a question-and-answer session. [Operator Instructions] Thank you. Toshiya Hari, you may begin your conference.",
+      "chunk_count": 5,
+      "children": [
+        {
+          "title": "Toshiya Hari",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/MANAGEMENT DISCUSSION SECTION/Toshiya Hari",
+          "level": 2,
+          "summary": "NVIDIA held its Q4 fiscal 2026 earnings call on February 25, 2026, with CEO Jensen Huang and CFO Colette Kress. The call included forward-looking statements, non-GAAP financial measures, and a replay available until the Q1 FY27 call. Content is proprietary and cannot be reproduced without permission.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Colette M. Kress",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/MANAGEMENT DISCUSSION SECTION/Colette M. Kress",
+          "level": 2,
+          "summary": "NVIDIA reported record Q4 revenue of $68 billion, up 73% year-over-year, driven by strong Data Center growth (up 75% to $62 billion) and Blackwell architecture demand. Full-year Data Center revenue reached $194 billion. Networking revenue hit $11 billion, up 3.5x. Gaming revenue rose 47% to $3.7 billion. Professional Visualization crossed $1 billion. Automotive revenue was $604 million. Q1 FY27 revenue outlook is $78 billion. The company highlighted AI infrastructure demand, sovereign AI, and the Rubin platform launch.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/MANAGEMENT DISCUSSION SECTION/Jen Hsun Huang",
+          "level": 2,
+          "summary": "NVIDIA's CEO highlights deepened partnerships with OpenAI, Meta, Anthropic, and xAI. OpenAI launched GPT-5.3-Codex on NVIDIA systems. Meta is deploying millions of Blackwell and Rubin GPUs. NVIDIA invested $10 billion in Anthropic, whose Claude Cowork platform drives enterprise AI adoption. A non-exclusive licensing agreement with Groq was also announced.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Toshiya Hari_2",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/MANAGEMENT DISCUSSION SECTION/Toshiya Hari_2",
+          "level": 2,
+          "summary": "Vice President, Investor Relations & Strategic Finance, NVIDIA Corp. We will now transition to Q&A. Operator, please poll for questions.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "QUESTION AND ANSWER SECTION",
+      "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION",
+      "level": 1,
+      "summary": "Operator: [Operator Instructions] Your first question comes from Vivek Arya with Bank of America Securities. Your line is open.",
+      "chunk_count": 27,
+      "children": [
+        {
+          "title": "Vivek Arya",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Vivek Arya",
+          "level": 2,
+          "summary": "An analyst questions NVIDIA's confidence in customer CapEx growth, noting cloud CapEx near $700 billion and compressed cash flow. Jensen is asked about growth visibility into 2027 and whether NVIDIA can grow if customer CapEx does not increase.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang",
+          "level": 2,
+          "summary": "The speaker, an analyst from BofA Securities, expresses strong confidence in cash flow growth driven by the inflection of agentic AI. They argue that in the new AI era, compute capacity directly equals revenues, as tokens require compute to generate. Citing productive use of tools like Codex and Claude Code, and enterprise ISVs building agentic systems, they assert we have reached an inflection point where tokens are profitable for both customers and cloud providers. The speaker notes that annual CapEx has shifted from $300-400 billion on traditional software to AI, where compute translates directly to growth and revenues.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Joe Moore",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Joe Moore",
+          "level": 2,
+          "summary": "The speaker expresses confidence in cash flow growth driven by the inflection of agentic AI and enterprise adoption. They argue that in the AI era, compute equals revenues, as generating tokens requires compute capacity. The discussion highlights strategic investments in companies like Anthropic and OpenAI, and views the balance sheet as a tool to strengthen NVIDIA's ecosystem position and participate in growth.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_2",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_2",
+          "level": 2,
+          "summary": "The speaker, a co-founder and CEO of NVIDIA, emphasizes the company's ecosystem as its core strength. They highlight that startups, clouds, data centers, and AI systems are built on NVIDIA's platform, starting from CUDA. The goal is to expand this ecosystem across AI domains like language, physics, biology, robotics, and manufacturing. NVIDIA has evolved from a GPU computing platform to an AI infrastructure company, with stacks for computing, AI models, networking, and DPUs. Investments focus on deepening ecosystem reach across enterprise, industrial, science, and robotics sectors.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Harlan Sur",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Harlan Sur",
+          "level": 2,
+          "summary": "The passage discusses the growth of networking revenues in NVIDIA's data center business, highlighting a 3.6x year-over-year increase in Q4 driven by the Spectrum-X Ethernet Switching platform. The annualized run rate for Spectrum-X is estimated to have risen from around $10 billion in the first half of last year to $11-12 billion in the second half. The speaker asks Jensen about the current trend of the Spectrum run rate, especially with upcoming products like Spectrum-XGS and the 102T Spectrum-6 Switching platform.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_3",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_3",
+          "level": 2,
+          "summary": "NVIDIA positions itself as an AI infrastructure company, with networking as a key growth area. The company invented NVLink for rack-scale computing and uses Spectrum-X and InfiniBand for scaling out. Networking revenue is accelerating, with Spectrum-X Ethernet being a major success. NVIDIA is now a leading networking company, and its AI infrastructure business is growing rapidly due to the significant value of network performance improvements in large AI factories.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "C.J. Muse",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/C.J. Muse",
+          "level": 2,
+          "summary": "The passage discusses NVIDIA's dominance in networking, highlighting their success with Spectrum-X Ethernet and continued support for InfiniBand. It also addresses a question about future roadmap, specifically regarding customized silicon for workloads or customers, leveraging a dielet architecture.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_4",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_4",
+          "level": 2,
+          "summary": "NVIDIA's CEO discusses the company's approach to dielet usage, preferring to minimize dielet crossings to reduce latency and power. He contrasts this with competitors, highlighting NVIDIA's architectural and software advantages through CUDA. The architecture compatibility across GPU generations (A100, Hopper, Blackwell) ensures software optimizations benefit the entire installed base, improving performance per dollar and per watt. He also hints at extending architecture with Groq as an accelerator, similar to the Mellanox integration.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Stacy A. Rasgon",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Stacy A. Rasgon",
+          "level": 2,
+          "summary": "The passage discusses NVIDIA's GPU architecture compatibility, emphasizing how CUDA enables infrastructure versatility. The speaker notes that architectural compatibility across GPU generations (Blackwell, Hopper, Ampere) allows software optimizations to benefit the entire installed base, keeping older GPUs like A100 performant. The second part addresses a question about sequential growth in data center revenue, noting a $10 billion quarterly increase and asking about similar acceleration for the upcoming Rubin architecture. A follow-up question asks about gaming revenue expectations for fiscal 2027 given memory constraints.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Colette M. Kress",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Colette M. Kress",
+          "level": 2,
+          "summary": "The CFO discusses sequential growth expectations for NVIDIA, noting a $10 billion sequential increase in data center revenue. Blackwell sales will continue alongside the ramp of Vera Rubin in the second half of the year, with strong customer demand expected. Gaming supply remains tight for a few quarters, with potential year-over-year growth later in the year.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Atif Malik",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Atif Malik",
+          "level": 2,
+          "summary": "Analyst, Citigroup Global Markets, Inc. It's too early yet to determine how much in terms of that Vera Rubin, that beginning ramp will start in the second half and we'll get through it. But no confusion in terms of the strong demand and the interest. We do expect pretty much every single customer to be purchasing Vera Rubin. The question is, are, how soon are we in market and how soon are they able to stand that up in terms of in their data centers? That was your first part. Thank you for taking my question. Jensen, I'm curious if you can touch on the importance of CUDA as now more of the investment dollars in AI are coming from inference workloads?0 [images/image-11-It's too e.jpg] Thank you for taking my question. Jensen, I'm curious if you can touch on the importance of CUDA as now more of the investment dollars in AI are coming from inference workloads?",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_5",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_5",
+          "level": 2,
+          "summary": "The speaker, a co-founder and CEO of NVIDIA, discusses the critical role of CUDA and NVLink 72 in AI inference. Without CUDA, inference would be impossible. NVLink 72 enables a 50x improvement in performance per watt and 35x in performance per dollar through new parallelization algorithms. Inference performance directly translates to revenue for customers, as token generation has become exponential. For data centers, inference tokens per watt equals dollars per watt, making architecture choice crucial for maximizing revenue under power constraints. The speaker emphasizes that compute equals revenue, and investing in the right architecture is strategic for earnings.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Ben Reitzes",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Ben Reitzes",
+          "level": 2,
+          "summary": "Analyst, Melius Research LLC For the Data Centers, inference tokens per watt translates directly to the revenues of the CSPs. And the reason for that is because everybody is power limited. And so, I mean, no matter how many data centers you have, each data center, 100 megawatts or 1 gigawatt has power limits. So the architecture that has the best performance per watt translates because each token, the performance tokens per watt, each token is dollarized, tokens per watt translates to dollars per watt, which translates in a gigawatt directly to revenues. Yeah. Hey, thanks. First, let me say kudos on including the stock-comp in non-GAAP. I think that's a great move, but that isn't my question. My question is around gross margins and the sustainability of the mid-70s long-term. Should we read into the visibility on supply being available into calendar 2027 that it's sustainable until then?0 [images/image-13-For the Da.jpg] Yeah. Hey, thanks. First, let me say kudos on including the stock-comp in non-GAAP. I think that's a great move, but that isn't my question. My question is around gross margins...the visibility on supply being available into calendar 2027 that it's sustainable until then? And then Jensen, what about after that? Are there innovations in memory consumption you can unveil that makes us feel better about the ability to keep margins at that level for a long time? Thanks.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_6",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_6",
+          "level": 2,
+          "summary": "The passage discusses NVIDIA's advancements in AI inference, highlighting the critical role of CUDA and the new NVLink 72 technology. NVLink 72 enables a 50x improvement in performance per watt and 35x in performance per dollar, representing a generational leap. The speaker, a co-founder and CEO, emphasizes that delivering such dramatic performance gains is the key driver of gross margins. The strategy involves releasing a new AI infrastructure annually, with six new chips this year and more planned for the next-generation Rubin, to meet exponentially growing compute demand for modern software.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Antoine Chkaiban",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Antoine Chkaiban",
+          "level": 2,
+          "summary": "Analyst, New Street Research LLP Every – the reason why we're moving so fast is because number one, the demand for tokens in the world as a result of the inflection points that we've gone through has now – has gone completely exponential. I think we're all seeing that, to the point where even our six-year old GPUs in the cloud are completely consumed, and the pricing is going up. Hi. Thanks a lot for taking my question. I'd like to ask about space data centers, which some of your customers are considering. How feasible do you think that is and what kind of horizon? And what do the economics look like today? And how do you think that could evolve over time? Thank you.0 [images/image-14-Every – th.jpg] Hi. Thanks a lot for taking my question. I'd like to ask about space data centers, which some of your customers are considering. How feasible do you think that is and what kind of horizon? And what do the economics look like today? And how do you think that could evolve over time? Thank you.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_7",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_7",
+          "level": 2,
+          "summary": "The passage discusses the economics and technical challenges of computing in space, highlighting NVIDIA's role with the first GPU in space (Hopper). It contrasts space conditions (abundance of energy, cold, no airflow) with Earth, noting heat dissipation via radiators and the impracticality of liquid cooling. Key applications include high-resolution imaging using AI for reprojection, upscaling, and noise reduction, processing data in space rather than sending petabytes to Earth.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Mark Lipacis",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Mark Lipacis",
+          "level": 2,
+          "summary": "An analyst asks about revenue diversification, noting that hyperscalers account for over 50% of revenues but growth is led by other data center customers. The question seeks clarification on whether non-hyperscale customers grew faster, what they are doing differently, and if this trend will continue, potentially making non-hyperscalers a larger part of the business.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Colette M. Kress_2",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Colette M. Kress_2",
+          "level": 2,
+          "summary": "The speaker discusses Nvidia's revenue composition, noting that its top five customers (CSPs and hyperscalers) account for about 50% of total revenue. The remaining revenue comes from a diverse range of customers including AI model makers, enterprises, supercomputing, and sovereign entities. This diversity is seen as a strength, with the company serving various cloud providers and customers globally.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_8",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_8",
+          "level": 2,
+          "summary": "The speaker, an NVIDIA executive, discusses the company's competitive advantages: its CUDA platform's ubiquity across clouds and devices, its cultivation of a diverse ecosystem spanning robotics, self-driving cars, and AI across multiple domains, and key partnerships with OpenAI, Anthropic, xAI, and Meta. They highlight that 1.5 million AI models on Hugging Face run on NVIDIA CUDA, making the platform safe and easy to invest in.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Aaron Rakers",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Aaron Rakers",
+          "level": 2,
+          "summary": "Analyst, Wells Fargo Securities LLC And then lastly, one of the things that's really important is the partnerships that we have with OpenAI and Anthropic, with xAI, with Meta now makes – and of course, just about every single open source in the world. There's 1.5 million AI models on Hugging Face, all of it runs on NVIDIA CUDA. And so an open source in totality probably represents the largest – the second largest model in the world, OpenAI is the largest, second largest, probably all the collection of all the open sources. Yeah. Thanks for taking the question. I guess, sticking with the idea as a platform and extreme co-design, some of the news over this last quarter has obviously been NVIDIA's ability or push to bring Vera CPUs to market on a standalone solution basis.0 [images/image-18-And then l.jpg] Yeah. Thanks for taking the question. I guess, sticking with the idea as a platform and extreme co-design, some of the news over this last quarter has obviously been NVIDIA's ability or push to bring Vera CPUs to market on a standalone solution basis. So, I guess, Jensen, I'm curious of what's the importance that Vera plays in this architecture evolution as we move forward? Is this being driven more by the proliferation or the heterogeneity of inference workloads? I'm just curious of how you see that evolving for NVIDIA, particularly on a standalone CPU basis? Thank you.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_9",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_9",
+          "level": 2,
+          "summary": "NVIDIA's co-founder discusses the Vera CPU's unique architecture, emphasizing its support for LPDDR5 and focus on high data processing capabilities for AI workloads. The CPU is designed for data processing, pre-training, and post-training phases, with exceptional single-threaded performance and bandwidth ratio, making it suitable for CPU-only or GPU-accelerated environments.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Timothy Arcuri",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Timothy Arcuri",
+          "level": 2,
+          "summary": "The passage discusses GPU use in space for high-resolution imaging via optics and AI, and a Q&A about revenue diversification at UBS Securities LLC. Colette notes hyperscalers are over 50% of revenues but growth is led by other data center customers, implying non-hyperscale customers grew faster. The question explores whether these customers do different things or the same on a different scale, and if this trend will continue. Another question addresses capital deployment, noting increased purchase commitments and potential $100 billion cash generation, suggesting a large share repurchase might be warranted given stagnant stock performance.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Colette M. Kress_3",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Colette M. Kress_3",
+          "level": 2,
+          "summary": "The Chief Financial Officer and Executive Vice President of NVIDIA Corp. discusses the company's revenue distribution, noting that top customers (CSPs and hyperscalers) account for about 50% of total revenue, with diverse other clients including AI model makers, enterprises, supercomputing, and sovereign entities. He emphasizes careful capital return management, prioritizing support for the AI ecosystem through supplier capacity and early developer investments, while continuing stock repurchases and dividends. The passage ends with an operator introducing the final question from Jim Schneider of Goldman Sachs.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "James Edward Schneider",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/James Edward Schneider",
+          "level": 2,
+          "summary": "Analyst, Goldman Sachs & Co. LLC So, thanks for the question. We look at our capital return, very, very carefully. And we do believe that one of the most important things that we can do is really supporting the extreme ecosystem that's in front of us. That stems from everywhere, from our suppliers and the work that we need to do to assure that we can have the supply that's needed and help them from a capacity, all the way that we are in terms of the early developers of the AI solutions, that will be on our platform. Thank you for taking my question. Jensen, you've previously outlined the potential to get to \\$3 trillion to \\$4 trillion of data center CapEx by 2030, which implies a potential acceleration in growth rates, which you sort of guided to this, at least this next quarter.0 [images/image-20-So, thanks.jpg] Thank you for taking my question. Jensen, you've previously outlined the potential to get to \\$3 trillion to \\$4 trillion of data center CapEx by 2030, which implies a potential acceleration in growth rates, which you sort of guided to this, at least this next quarter. The question is, what are some of the key application areas that you believe are most likely to drive that inflection? Is that physical AI, agentic or something else? And do you still feel good about that \\$3 trillion to \\$4 trillion envelope? Thank you.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Jen Hsun Huang_10",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Jen Hsun Huang_10",
+          "level": 2,
+          "summary": "The speaker argues that AI-driven token generation is the future of computing, requiring far more computation than classical methods. They note that data center CapEx could reach $3-4 trillion by 2030, as token generation drives revenue for cloud and enterprise companies. The rise of agentic AI and physical AI are key inflection points, with demand for compute growing exponentially. Inference is directly linked to revenue, making AI factories a new industrial revolution.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Toshiya Hari",
+          "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/QUESTION AND ANSWER SECTION/Toshiya Hari",
+          "level": 2,
+          "summary": "Vice President, Investor Relations & Strategic Finance, NVIDIA Corp. In closing, please note, Jensen will be participating in a fireside chat at the Morgan Stanley TMT Conference in San Francisco on March 4. He'll also be giving a keynote at GTC in San Jose on March 16. Our earnings call to discuss the results of our first quarter of fiscal 2027 is scheduled for May 20. Thank you for joining us today. Operator, please go ahead and close the call. Operator: Thank you. This concludes today's conference call. You may now disconnect.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Disclaimer",
+      "path": "NVDA-Q4-2026-Earnings-Call-25-February-2026-5_00-PM-ET.pdf/Disclaimer",
+      "level": 1,
+      "summary": "This document is a legal disclaimer stating that the information provided is based on reliable sources but is not guaranteed for completeness or accuracy. It disclaims all warranties and liability for any damages arising from its use, clarifies it is not investment advice, and notes copyright ownership by FactSet CallStreet, LLC.",
+      "chunk_count": 1,
+      "children": []
+    }
+  ],
+  "resources": {
+    "images": [
+      {
+        "path": "images/image-1-We will no.jpg",
+        "summary": "image-1 We will now transition to Q&A. Operator, please poll for questions. Thanks for taking my question. I think you mentioned that you now have growth visibility into calendar 2027 also, and I think your purchase commitments kind of reflect that confidence. But Jensen, I'm curious, when you look at your top cloud customers, cloud CapEx close to \\$700 billion this year, many investors are concerned that it would be harder for this level to grow into next year. And for several of them, their cash flow generation capability is also getting compressed. So I know you're very confident about your roadmap, right, and your purchase commitments and whatnot, but how confident are you about your customers' ability to continue to grow their CapEx? And if their CapEx doesn't grow, can NVIDIA still find a way to grow in that envelope? Thank you.0"
+      },
+      {
+        "path": "images/image-2-Analyst, B.jpg",
+        "summary": "image-2 Analyst, BofA Securities, Inc. I am confident in their cash flow growing. And the reason for that is very simple. We have now seen the inflection of agentic AI and the usefulness of agents across the world in enterprises everywhere. You're seeing incredible compute demand because of it. In this new world of AI, compute is revenues. Without compute, there's no way to generate tokens. Without tokens, there's no way to grow revenues. So in this new world of AI, compute equals revenues. And I am certain that at this point, with the productive use of Codex and Claude Code and the excitement around Claude Cowork and, just the incredible enthusiasm about OpenClaw and the enterprise versions of them. All of the enterprise ISVs who are now working on agentic systems on top of their tools platforms, I am certain at this point that we are at the inflection point. We've reached the inflection point, and we're generating profitable tokens that are productive for customers and profitable for the cloud service providers. And so the simple logic of it, the simple way to think about it is computing has changed. What used to be software running on computers, modest amount of computers, call it \\$300 billion or \\$400 billion worth of CapEx each year has now gone into AI and AI in order to have, in order to generate tokens, you need compute capacity. And that translates directly to growth and that translates directly to revenues.0"
+      },
+      {
+        "path": "images/image-3-I am confi.jpg",
+        "summary": "image-3 I am confident in their cash flow growing. And the reason for that is very simple. We have now seen the inflection of agentic AI and the usefulness of agents across the world in enterprises everywhere. You're seeing incredible compute demand because of it. In this new world of AI, compute is revenues. Without compute, there's no way to generate tokens. Without tokens, there's no way to grow revenues. So in this new world of AI, compute equals revenues. And I am certain that at this point, with the productive use of Codex and Claude Code and the excitement around Claude Cowork and, just the incredible enthusiasm about OpenClaw and the enterprise versions of them. All of the enterprise ISVs who are now working on agentic systems on top of their tools platforms, I am certain at this point that we are at the inflection point. We've reached the inflection point, and we're generating profitable tokens that are productive for customers and profitable for the cloud service providers. And so the simple logic of it, the simple way to think about it is computing has changed. What used to be software running on computers, modest amount of computers, call it \\$300 billion or \\$400 billion worth of CapEx each year has now gone into AI and AI in order to have, in order to generate tokens, you need compute capacity. And that translates directly to growth and that translates directly to revenues. Great. Thank you. And congratulations on the numbers. You talked about some of the strategic investments that you've made into Anthropic and potentially OpenAI [ph] Claude as well (26:23) but also partners Intel, Nokia. Synopsys. You're clearly at the center of everything. Can you talk about the role of those investments and kind of how do you view the balance sheet as a tool to kind of grow the NVIDIA's position, the ecosystem and, and participate in that growth.0"
+      },
+      {
+        "path": "images/image-4-Analyst, M.jpg",
+        "summary": "image-4 Analyst, Morgan Stanley & Co. LLC As you know, fundamentally, at the core of everything NVIDIA is our ecosystem. That's what everybody loves about our business. The richness of our ecosystem, just about every startup in the world is working on NVIDIA's platform, we are in every cloud, we're in every on-prem data center, we're all over the world's edge and robotic systems, thousands of AI natives are built on top of NVIDIA. We want to take the great opportunity that we have as we're in the beginning of this new computing era, this new computing platform shift to put everybody on NVIDIA. Everything is already built on CUDA and so we're starting from a really terrific starting point. But as we build out the entire AI ecosystem, whether it's in AI for language or physical AI or AI physics or biology or robotics or manufacturing, we want all of these ecosystems to be built on top of NVIDIA. And this is such a wonderful opportunity for us to invest into the ecosystem across the entire stack.0"
+      },
+      {
+        "path": "images/image-5-Our ecosys.jpg",
+        "summary": "image-5 Our ecosystem is also richer today than it used to be. We used to be largely a computing platform on GPUs, but now we're a computing AI infrastructure company, and we have computing platforms on, well, every aspect of that. Good afternoon. Thanks for taking my question. Networking continues to rise as a percentage of your overall data center profile, right. Through fiscal 2026, your networking revenues accelerated on a year-over-year basis every single quarter, right. With 3.6x growth, as you guys mentioned year-over-year growth in Q4, obviously, on the strength of your scale up and scale out networking product portfolio, I would seem to remember that first half of last year, your annualized run rate on your Spectrum-X Ethernet Switching platform was around \\$10 billion annualized. It looks like that may have stepped up to around \\$11 billion, \\$12 billion in the second half of last year.0"
+      },
+      {
+        "path": "images/image-6-Good after.jpg",
+        "summary": "image-6 Good afternoon. Thanks for taking my question. Networking continues to rise as a percentage of your overall data center profile, right. Through fiscal 2026, your networking revenues accelerated on a year-over-year basis every single quarter, right. With 3.6x growth, as you guys mentioned year-over-year growth in Q4, obviously, on the strength of your scale up and scale out networking product portfolio, I would seem to remember that first half of last year, your annualized run rate on your Spectrum-X Ethernet Switching platform was around \\$10 billion annualized. It looks like that may have stepped up to around \\$11 billion, \\$12 billion in the second half of last year. Yeah. As you know, we see ourselves as an AI infrastructure company and the AI computing infrastructure includes CPUs, GPUs, and we invented NVLink to scale up the one computing node into a giant computing rack.0"
+      },
+      {
+        "path": "images/image-7-We're also.jpg",
+        "summary": "image-7 We're also now the largest networking company in the world. And if you look at Ethernet, we came into the Ethernet market about a couple of years ago into Ethernet switching. And I think that we're probably the largest Ethernet networking company in the world today, and surely will be soon. And so Spectrum-X Ethernet has been a home run for us. But we're open to however people want to do networking. Some people just really love the low latency and the scale up capability of InfiniBand. And we will continue to support that, of course. And some people love to integrate their networking across their data center based on Ethernet. And we created an Ethernet capability that extends Ethernet with artificial intelligence, way of processing in the data center and we're incredibly good at that and our Spectrum-X performance really shows it. Yeah. Good afternoon. Thank you for taking the question. I guess with CPX for large context Windows and Groq likely adding a decode specific solution. Curious how we should think about your future roadmap. Should we be thinking about customized silicon either by workload or customer, as an increasing focus by NVIDIA, particularly helped by your move to a dielet architecture? Thanks so much.0"
+      },
+      {
+        "path": "images/image-8-Analyst, C.jpg",
+        "summary": "image-8 Analyst, Cantor Fitzgerald & Co. We don't use – we want to – everybody should want to extend, push out dielet as long as they can. And the reason for that is because every time you cross a dielet you have a dielet, you have to cross an interface. Every time you cross an interface, you add latency, you add power unnecessarily. We're not allergic to dielet. We use dielets already. But we try to use dielets only when we absolutely have no choice but to do so. And so we – if you look at the Grace Blackwell architecture and the Rubin architecture, we used two giant reticle limited dies [ph] and we abut them (33:53) and that reduces the amount of architecture crossing.0"
+      },
+      {
+        "path": "images/image-9-With respe.jpg",
+        "summary": "image-9 With respect to, how we think about Groq and the low latency decoder, I've got some great ideas that I'd like to share with you at GTC, but the simple idea is that our infrastructure is incredibly versatile because of CUDA. And we're going to continue to do that. All of our GPUs are architecturally compatible, which means that when I'm working on optimizing models today for Blackwell, all of that work and all of that dedication to optimizing software stacks and new models, also benefit Hopper and also benefit Ampere. It's the reason why A100 continues to feel fresh and continues to stay performant years after we've deployed it into the world. Architecture compatibility allows us to do that. It allows us to invest enormously in software engineering and optimization, knowing that our entire installed base in the cloud, on-prem, everywhere from generations of architectures of GPUs will all benefit. And so we'll continue to do that. Hi, guys. Thanks for taking my questions. Colette, I wanted to dig a little bit into the call for sequential growth through the year. So, I mean, you grew this quarter more than \\$10 billion sequentially in data center, and the guide seems to imply the bulk of the increase \\$10 billion sequential in data centers. So, how do you see that as we go through the year, especially as Rubin ramps into the back half? Blackwell has been a pretty massive acceleration with a sequential growth. Should we expect something similar as we get to Rubin?0"
+      },
+      {
+        "path": "images/image-10-Hi, guys. .jpg",
+        "summary": "image-10 Hi, guys. Thanks for taking my questions. Colette, I wanted to dig a little bit into the call for sequential growth through the year. So, I mean, you grew this quarter more than \\$10 billion sequentially in data center, and the guide seems to imply the bulk of the increase \\$10 billion sequential in data centers. So, how do you see that as we go through the year, especially as Rubin ramps into the back half? Blackwell has been a pretty massive acceleration with a sequential growth. Should we expect something similar as we get to Rubin? Thanks, Stacy. Let me start with the revenue going forward. Again, we're trying to look at revenue quarter-by-quarter. As you think about the full year, we are absolutely going to be still selling and providing Blackwell probably at the same time that we're also seeing Vera Rubin come to market.0"
+      },
+      {
+        "path": "images/image-11-It's too e.jpg",
+        "summary": "image-11 It's too early yet to determine how much in terms of that Vera Rubin, that beginning ramp will start in the second half and we'll get through it. But no confusion in terms of the strong demand and the interest. We do expect pretty much every single customer to be purchasing Vera Rubin. The question is, are, how soon are we in market and how soon are they able to stand that up in terms of in their data centers? That was your first part. Thank you for taking my question. Jensen, I'm curious if you can touch on the importance of CUDA as now more of the investment dollars in AI are coming from inference workloads?0"
+      },
+      {
+        "path": "images/image-12-Analyst, C.jpg",
+        "summary": "image-12 Analyst, Citigroup Global Markets, Inc. Without CUDA, we wouldn't know what to do with inference. The entire stack from TensorRT LLM that we introduced a few years ago, which is still the most performant inference stack in the world. Optimizing it for NVLink, requires us to discover and invent new parallelization algorithms that sits on top of CUDA, to distribute the workload and the inferencing to take advantage of the aggregate bandwidth across NVLink 72. NVLink 72 has enabled us to deliver generationally 50 times more performance per watt. It's just an incredible leap and it's sensible. NVLink 72 is a great invention. It was hard to do, the creation of the switching technology, disaggregating the switches, building the system racks, all of that. We did it all in plain sight and everybody knew how hard it was for us to do. And, but the results are incredible. So performance per watt is 50 times, performance per dollar, 35 times and so the leap in inference is incredible.0"
+      },
+      {
+        "path": "images/image-13-For the Da.jpg",
+        "summary": "image-13 For the Data Centers, inference tokens per watt translates directly to the revenues of the CSPs. And the reason for that is because everybody is power limited. And so, I mean, no matter how many data centers you have, each data center, 100 megawatts or 1 gigawatt has power limits. So the architecture that has the best performance per watt translates because each token, the performance tokens per watt, each token is dollarized, tokens per watt translates to dollars per watt, which translates in a gigawatt directly to revenues. Yeah. Hey, thanks. First, let me say kudos on including the stock-comp in non-GAAP. I think that's a great move, but that isn't my question. My question is around gross margins and the sustainability of the mid-70s long-term. Should we read into the visibility on supply being available into calendar 2027 that it's sustainable until then?0"
+      },
+      {
+        "path": "images/image-12-Analyst, C.jpg_2",
+        "summary": "image-12 Analyst, Citigroup Global Markets, Inc. Without CUDA, we wouldn't know what to do with inference. The entire stack from TensorRT LLM that we introduced a few years ago, which is still the most performant inference stack in the world. Optimizing it for NVLink, requires us to discover and invent new parallelization algorithms that sits on top of CUDA, to distribute the workload and the inferencing to take advantage of the aggregate bandwidth across NVLink 72. NVLink 72 has enabled us to deliver generationally 50 times more performance per watt. It's just an incredible leap and it's sensible. NVLink 72 is a great invention. It was hard to do, the creation of the switching technology, disaggregating the switches, building the system racks, all of that. We did it all in plain sight and everybody knew how hard it was for us to do. And, but the results are incredible. So performance per watt is 50 times, performance per dollar, 35 times and so the leap in inference is incredible.0"
+      },
+      {
+        "path": "images/image-14-Every – th.jpg",
+        "summary": "image-14 Every – the reason why we're moving so fast is because number one, the demand for tokens in the world as a result of the inflection points that we've gone through has now – has gone completely exponential. I think we're all seeing that, to the point where even our six-year old GPUs in the cloud are completely consumed, and the pricing is going up. Hi. Thanks a lot for taking my question. I'd like to ask about space data centers, which some of your customers are considering. How feasible do you think that is and what kind of horizon? And what do the economics look like today? And how do you think that could evolve over time? Thank you.0"
+      },
+      {
+        "path": "images/image-15-Analyst, N.jpg",
+        "summary": "image-15 Analyst, New Street Research LLP Well, the economics are poor today, but it's going to improve over time. As you know, the way that space works is radically different than how it works down here. There's an abundance of energy. But solar panels are large, but there's plenty of space in space.0"
+      },
+      {
+        "path": "images/image-16-And one of.jpg",
+        "summary": "image-16 And one of the best use cases of GPUs in space is imaging, to be able to image at extremely high resolutions using, of course, optics and artificial intelligence and to be able to do that computation of reprojection of different angles and be able to upres and do noise reduction and just be able to see, be able to image at very large, very high resolutions, extremely large scales, and very, very fast. It's hard to do that by sending petabytes and Hi. Thanks for taking my question. I want to pick up with the comment you made on the script about revenue diversification. I believe, Colette, you said that hyperscalers were over 50% of revenues, but growth was led by the rest of your Data Center customers. And as a clarification, I just want to make sure I understood that, does that imply your non-hyperscale customers grew faster. And if so, what are the – can you help us understand what are the non-hyperscalers doing different. Are they doing different things than the hyperscalers or the same things on a different scale and does this – do you expect this trend to continue? Would you expect your customer base to evolve to a point where non-hyperscalers are becoming a bigger part of your, the larger part of your business? Thank you.0"
+      },
+      {
+        "path": "images/image-17-Analyst, E.jpg",
+        "summary": "image-17 Analyst, Evercore Group LLC Yes. Let's see if we can help on this question. So when you think about our top five, as we articulated as being our CSPs, our hyperscalers, and they have right now, [ph] as I said (49:15) about 50% of our total revenue. There's a big organization, therefore, of diversity of all different other types of companies that we are working with. That it goes through our AI model makers, that goes through our enterprises, that goes to supercomputing, it goes to our sovereigns. There's a lot of other different facts on there. But you are correct, it's a very fast growing area as well.0"
+      },
+      {
+        "path": "images/image-15-Analyst, N.jpg_2",
+        "summary": "image-15 Analyst, New Street Research LLP Well, the economics are poor today, but it's going to improve over time. As you know, the way that space works is radically different than how it works down here. There's an abundance of energy. But solar panels are large, but there's plenty of space in space.0"
+      },
+      {
+        "path": "images/image-18-And then l.jpg",
+        "summary": "image-18 And then lastly, one of the things that's really important is the partnerships that we have with OpenAI and Anthropic, with xAI, with Meta now makes – and of course, just about every single open source in the world. There's 1.5 million AI models on Hugging Face, all of it runs on NVIDIA CUDA. And so an open source in totality probably represents the largest – the second largest model in the world, OpenAI is the largest, second largest, probably all the collection of all the open sources. Yeah. Thanks for taking the question. I guess, sticking with the idea as a platform and extreme co-design, some of the news over this last quarter has obviously been NVIDIA's ability or push to bring Vera CPUs to market on a standalone solution basis.0"
+      },
+      {
+        "path": "images/image-19-Yeah. Than.jpg",
+        "summary": "image-19 Yeah. Thanks for taking the question. I guess, sticking with the idea as a platform and extreme co-design, some of the news over this last quarter has obviously been NVIDIA's ability or push to bring Vera CPUs to market on a standalone solution basis. Yeah, thanks. And I'll tell you some more about it at GTC. But at the highest level, we made fundamentally different architecture decisions about our CPUs compared to the rest of the world's CPUs.0"
+      },
+      {
+        "path": "images/image-16-And one of.jpg_2",
+        "summary": "image-16 And one of the best use cases of GPUs in space is imaging, to be able to image at extremely high resolutions using, of course, optics and artificial intelligence and to be able to do that computation of reprojection of different angles and be able to upres and do noise reduction and just be able to see, be able to image at very large, very high resolutions, extremely large scales, and very, very fast. It's hard to do that by sending petabytes and Hi. Thanks for taking my question. I want to pick up with the comment you made on the script about revenue diversification. I believe, Colette, you said that hyperscalers were over 50% of revenues, but growth was led by the rest of your Data Center customers. And as a clarification, I just want to make sure I understood that, does that imply your non-hyperscale customers grew faster. And if so, what are the – can you help us understand what are the non-hyperscalers doing different. Are they doing different things than the hyperscalers or the same things on a different scale and does this – do you expect this trend to continue? Would you expect your customer base to evolve to a point where non-hyperscalers are becoming a bigger part of your, the larger part of your business? Thank you.0"
+      },
+      {
+        "path": "images/image-17-Analyst, E.jpg_2",
+        "summary": "image-17 Analyst, Evercore Group LLC Yes. Let's see if we can help on this question. So when you think about our top five, as we articulated as being our CSPs, our hyperscalers, and they have right now, [ph] as I said (49:15) about 50% of our total revenue. There's a big organization, therefore, of diversity of all different other types of companies that we are working with. That it goes through our AI model makers, that goes through our enterprises, that goes to supercomputing, it goes to our sovereigns. There's a lot of other different facts on there. But you are correct, it's a very fast growing area as well.0"
+      },
+      {
+        "path": "images/image-20-So, thanks.jpg",
+        "summary": "image-20 So, thanks for the question. We look at our capital return, very, very carefully. And we do believe that one of the most important things that we can do is really supporting the extreme ecosystem that's in front of us. That stems from everywhere, from our suppliers and the work that we need to do to assure that we can have the supply that's needed and help them from a capacity, all the way that we are in terms of the early developers of the AI solutions, that will be on our platform. Thank you for taking my question. Jensen, you've previously outlined the potential to get to \\$3 trillion to \\$4 trillion of data center CapEx by 2030, which implies a potential acceleration in growth rates, which you sort of guided to this, at least this next quarter.0"
+      },
+      {
+        "path": "images/image-21-Thank you .jpg",
+        "summary": "image-21 Thank you for taking my question. Jensen, you've previously outlined the potential to get to \\$3 trillion to \\$4 trillion of data center CapEx by 2030, which implies a potential acceleration in growth rates, which you sort of guided to this, at least this next quarter. Yeah. Let's back that up and just reason through it from a few different ways. So the first way is on first principles. The way that software is done in the future using AI is token driven. And I think everybody talks about tokenomics and, talks about data centers generating tokens and inference is about generating tokens. And, we generate0"
+      }
+    ],
+    "tables": []
+  }
+}

@@ -451,6 +451,7 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
                 temperature=0.0,
                 max_tokens=1600,
                 response_format={"type": "json_object"},
+                usage_task="document_agent.propose_shard_plan",
             )
             ctx.budget.commit("plan", actual=usage.get("total_tokens", prompt_tokens_est), est=prompt_tokens_est)
             enabled, cuts, reason, rationale = _parse_llm_plan(raw_response, page_count, min_pages, max_pages)

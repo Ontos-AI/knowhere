@@ -3,7 +3,7 @@ Billing calculator for per-page pricing in micro-credits.
 
 Per-page model: Each page costs a fixed amount in micro-credits.
 $1.00 = 1,000,000 micro-credits
-Default: $0.0015/page = 1,500 micro-credits/page
+Default: $0.015/page = 15,000 micro-credits/page
 """
 
 from shared.core.config import settings
@@ -21,7 +21,7 @@ class BillingCalculator:
     Example:
         calc = BillingCalculator()
         cost = calc.calculate_page_cost(10)  # Returns MicroDollar
-        print(cost.amount)  # 15,000 micro-credits
+        print(cost.amount)  # 150,000 micro-credits
     """
 
     def __init__(self, price_per_page_micros: int | None = None):
@@ -50,7 +50,7 @@ class BillingCalculator:
             MicroDollar representing total cost
 
         Example:
-            calc.calculate_page_cost(10)  # -> MicroDollar(15000)
+            calc.calculate_page_cost(10)  # -> MicroDollar(150000)
         """
         return MicroDollar(page_count * self._price_per_page)
 
@@ -66,7 +66,7 @@ class BillingCalculator:
             Human-readable description string
 
         Example:
-            "Document processing: report.pdf (10 pages @ $0.0015/page)"
+            "Document processing: report.pdf (10 pages @ $0.0150/page)"
         """
         price_dollars = self._price_per_page / 1_000_000
         file_name = filename or "file"

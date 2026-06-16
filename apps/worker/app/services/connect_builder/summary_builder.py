@@ -62,6 +62,7 @@ def _llm_summarize(snippets_text: str, node_name: str, max_tokens: int = 100) ->
             messages=messages,
             timeout=60,
             max_tokens=max_tokens,
+            usage_task="finalization.doc_nav_summary",
         )
         if resp is None:
             return ""

@@ -4,14 +4,10 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.document_parser.formats.atlas.classifier import classify_atlas_with_vlm
 from app.services.document_parser.orchestration.path_segment import (
     build_parser_path_segment,
 )
 from app.services.document_parser.orchestration.parse_input import ParseInput
-from app.services.document_parser.orchestration.oversized_pdf_policy import (
-    raise_if_oversized_pdf_not_supported,
-)
 from app.services.document_parser.profiling.doc_profiler import profile_document
 from app.services.document_parser.support.stage_profiler import stage_timer
 from loguru import logger
@@ -91,49 +87,11 @@ def build_parse_session(parse_input: ParseInput) -> ParseSession:
         profile = profile_document(
             parse_input.file_full_path,
             parse_input.internal_output_filename,
-        )
-    logger.info(f"📋 DocProfile: {profile.summary()}")
-    logger.debug(f"📋 Reasoning: {profile.reasoning}")
-
-    if profile.atlas_candidate and profile.doc_category not in ("atlas", "ppt_converted"):
-        logger.info(
-            f"🔍 Atlas candidate detected, running VLM visual check for {parse_input.filename}"
-        )
-        with stage_timer("document.atlas_vlm_check", filename=parse_input.filename):
-            vlm_is_atlas = classify_atlas_with_vlm(parse_input.file_full_path)
-        if vlm_is_atlas:
-            profile.doc_category = "atlas"
-            profile.reasoning += " | vlm_confirmed_atlas=True"
-            logger.info(f"✅ VLM confirmed atlas for {parse_input.filename}")
-        else:
-            profile.reasoning += " | vlm_confirmed_atlas=False"
-            logger.info(
-                f"ℹ️ VLM rejected atlas for {parse_input.filename}, routing as generic"
-            )
-
-    if profile.file_type == "pdf" and profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
-        raise_if_oversized_pdf_not_supported(page_count=profile.page_count)
-
-    if profile.doc_category == "atlas":
-        filename, internal_output_filename, relative_root, full_output_dir = (
-            _rename_atlas_output(
-                filename=parse_input.filename,
-                internal_output_filename=parse_input.internal_output_filename,
-                output_dir=parse_input.output_dir,
-            )
-        )
-        logger.info(f"📐 Atlas output renamed: {filename}")
-        parse_input = ParseInput(
-            file_full_path=parse_input.file_full_path,
-            filename=filename,
-            output_dir=parse_input.output_dir,
-            internal_output_filename=internal_output_filename,
             job_id=parse_input.job_id,
-            options=parse_input.options,
-            base_url=parse_input.base_url,
-            fragment_content=parse_input.fragment_content,
-            s3_key=parse_input.s3_key,
+            output_dir=full_output_dir,
         )
+    logger.info(f"📋 DOC_PROFILE: {profile.summary()}")
+    logger.debug(f"📋 Reasoning: {profile.reasoning}")
 
     return ParseSession.from_input(
         parse_input=parse_input,
@@ -141,25 +99,7 @@ def build_parse_session(parse_input: ParseInput) -> ParseSession:
         full_output_dir=full_output_dir,
         profile=profile,
         relative_root=relative_root,
-    )
-
-
-def _rename_atlas_output(
-    *,
-    filename: str,
-    internal_output_filename: str,
-    output_dir: str,
-) -> tuple[str, str, str, str]:
-    name_base, _ = os.path.splitext(filename)
-    internal_name_base, _ = os.path.splitext(internal_output_filename)
-    atlas_filename = name_base + ".atlas"
-    atlas_internal_filename = internal_name_base + ".atlas"
-    relative_root, full_output_dir = _resolve_output_paths(
-        filename=atlas_filename,
-        internal_output_filename=atlas_internal_filename,
-        output_dir=output_dir,
-    )
-    return atlas_filename, atlas_internal_filename, relative_root, full_output_dir
+)
 
 
 def _resolve_output_paths(

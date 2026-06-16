@@ -1,0 +1,64 @@
+{
+  "version": "2.0",
+  "job_id": "job_009c9fcfdf0b",
+  "data_id": null,
+  "source_file_name": "Q1FY27-CFO-Commentary.pdf",
+  "processing_date": "2026-06-16T03:20:39.687613Z",
+  "processing": {
+    "page_count": 8,
+    "billing_status": "charged",
+    "cost": {
+      "micro_dollars": 12000,
+      "credits": 0.012
+    },
+    "timing": {
+      "started_at": "2026-06-16T03:20:03.174662+00:00",
+      "completed_at": "2026-06-16T03:20:39.682343+00:00",
+      "duration_ms": 36507
+    },
+    "stages": {
+      "timing_ms": {
+        "document.profile": 3158,
+        "pdf.extract.standard": 24810,
+        "toc.detect_range_llm": 1033,
+        "md.detect_toc": 1047,
+        "heading.merge_pre_pass_llm": 1009,
+        "heading.hierarchy_llm_call": 2189,
+        "heading.hierarchy_llm": 2199,
+        "md.predict_headings": 3331,
+        "md.deferred_summaries": 3796,
+        "md.build_dataframe": 1,
+        "pdf.parse_md": 8257,
+        "document.cleanup_unreferenced_images": 0,
+        "document.compress_images": 0,
+        "worker.parse.document": 36232
+      },
+      "token_usage": {
+        "prompt_tokens": 3849,
+        "completion_tokens": 206,
+        "total_tokens": 4055
+      }
+    }
+  },
+  "statistics": {
+    "total_chunks": 19,
+    "text_chunks": 11,
+    "image_chunks": 0,
+    "table_chunks": 8,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "CFO Commentary on First Quarter Fiscal 2027 Results": {
+      "Q1 Fiscal 2027 Summary": {
+        "Revenue": {},
+        "Gross Margin": {},
+        "Expenses": {},
+        "Other Income & Expense and Income Tax": {},
+        "Balance Sheet and Cash Flow": {}
+      },
+      "Outlook": {},
+      "Non-GAAP Measures": {}
+    },
+    "NVIDIA CORPORATION": {}
+  }
+}

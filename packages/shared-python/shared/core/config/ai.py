@@ -29,12 +29,12 @@ class AIConfig(BaseModel):
         description="Heading and outline recognition model; falls back to NORMOL_MODEL when empty",
     )
     IMAGE_MODEL: str = Field(
-        default="qwen3.5-flash",
+        default="qwen3.6-flash",
         description="Image model for image summary, atlas, and OCR flows",
     )
 
     IMAGE_MODEL_MAX: str = Field(
-        default="qwen3.5-flash",
+        default="qwen3.6-flash",
         description="Higher-capability image model for OCR and image type classification",
     )
     RETRIEVAL_DECOMPOSITION_ENABLED: bool = Field(
@@ -77,6 +77,13 @@ class AIConfig(BaseModel):
     SUMMARY_LLM_MAX_CONCURRENT: int = Field(
         default=8,
         description="Max concurrent gevent greenlets for parallel post-heading summary LLM calls -- image/table/text (Dashscope).",
+    )
+    TOKEN_PRICING_TABLE_JSON: str = Field(
+        default="",
+        description=(
+            "JSON model pricing table for internal token cost estimates. "
+            "Rates are USD per 1M tokens, keyed by model name."
+        ),
     )
 
     # Compatibility fields retained during migration.

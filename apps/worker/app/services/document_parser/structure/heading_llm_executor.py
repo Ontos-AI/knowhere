@@ -194,6 +194,7 @@ def run_merge_pre_pass(
                 model=model_name,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                usage_task="parser.heading_merge_pre_pass",
             )
         result = eval_response(answer)
     except Exception as exc:

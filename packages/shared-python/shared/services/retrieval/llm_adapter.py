@@ -174,7 +174,7 @@ def create_retrieval_vlm_fn(
 ) -> LLMFn | None:
     """Create an async VLM callable for image-aware answer generation.
 
-    Uses the IMAGE_MODEL (e.g. qwen3.5-flash) for multimodal input.
+    Uses the IMAGE_MODEL (e.g. qwen3.6-flash) for multimodal input.
     Returns None when the image model is not configured.
 
     The returned function accepts the same ``LLMFnInput`` type as
@@ -183,7 +183,7 @@ def create_retrieval_vlm_fn(
     """
     from shared.core.config import settings
 
-    effective_model = model or getattr(settings, 'IMAGE_MODEL', '') or 'qwen3.5-flash'
+    effective_model = model or getattr(settings, 'IMAGE_MODEL', '') or 'qwen3.6-flash'
 
     if not _has_llm_credentials():
         logger.debug('retrieval: no LLM credentials for VLM, image-aware answering disabled')

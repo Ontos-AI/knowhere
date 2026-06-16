@@ -1,0 +1,2115 @@
+{
+  "chunks": [
+    {
+      "chunk_id": "1e8af615-ab47-50f6-999a-08bdb1d69c7b",
+      "type": "text",
+      "content": "",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026",
+      "metadata": {
+        "length": 0,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [],
+        "keywords": [],
+        "connect_to": []
+      }
+    },
+    {
+      "chunk_id": "9d9790c1-65a7-5b12-be61-31b87992d270",
+      "type": "image",
+      "content": "\n# Meta Earnings Presentation Q1 2026 <details>0\n[images/image-1-Revenue Forecast by Region.jpg]\n",
+      "path": "images/image-1-Revenue Forecast by Region.jpg",
+      "metadata": {
+        "length": 81,
+        "summary": "image-1\nQ1'24: $35,635 (US & Canada: $15,451; Europe: $8,327; Asia-Pacific: $7,338; Rest of World: $4,519)\nQ2'24: $38,329 (US & Canada: $16,593; Europe: $9,135; Asia-Pacific: $7,721; Rest of World: $4,880)\nQ3'24: $39,885 (US & Canada: $17,389; Europe: $9,358; Asia-Pacific: $8,050; Rest of World: $5,088)\nQ4'24: $46,783 (US & Canada: $20,982; Europe: $11,154; Asia-Pacific: $9,012; Rest of World: $5,635)\nQ1'25:",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-1-Revenue Forecast by Region.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "bcea04e7-bfc3-5817-b400-5f7991495f4b",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>US &amp; Canada</th>\n      <th>Europe</th>\n      <th>Asia-Pacific</th>\n      <th>Rest of World</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'24</td>\n      <td>$15,451</td>\n      <td>$8,327</td>\n      <td>$7,338</td>\n      <td>$4,519</td>\n    </tr>\n    <tr>\n      <td>Q2'24</td>\n      <td>$16,593</td>\n      <td>$9,135</td>\n      <td>$7,721</td>\n      <td>$4,880</td>\n    </tr>\n    <tr>\n      <td>Q3'24</td>\n      <td>$17,389</td>\n      <td>$9,358</td>\n      <td>$8,050</td>\n      <td>$5,088</td>\n    </tr>\n    <tr>\n      <td>Q4'24</td>\n      <td>$20,982</td>\n      <td>$11,154</td>\n      <td>$9,012</td>\n      <td>$5,635</td>\n    </tr>\n    <tr>\n      <td>Q1'25</td>\n      <td>$18,259</td>\n      <td>$9,527</td>\n      <td>$8,224</td>\n      <td>$5,382</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>$20,045</td>\n      <td>$11,366</td>\n      <td>$9,148</td>\n      <td>$6,004</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>$21,331</td>\n      <td>$12,072</td>\n      <td>$10,020</td>\n      <td>$6,659</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>$25,643</td>\n      <td>$14,198</td>\n      <td>$10,893</td>\n      <td>$7,403</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>$23,667</td>\n      <td>$13,296</td>\n      <td>$10,631</td>\n      <td>$7,430</td>\n    </tr>\n    <tr>\n      <td>Total</td>\n      <td>$35,635</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Q1'24</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Q2'24</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Q3'24</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Q4'24</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Q1'25</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Total</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Total</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Total</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Total</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Total</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Total</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n      <td>—</td>\n    </tr>\n    <tr>\n      <td>Total</td>\n      <td>— (additional values)</td>\n      <td>(continued)</td>\n      <td>(continued)</td>\n      <td>(continued)</td>\n    </tr>\n    <tr>\n      <td>Total</td>\n      <td>58,137</td>\n      <td>14,198</td>\n      <td>10,893</td>\n      <td>7,403</td>\n    </tr>\n    <tr>\n      <td>Total</td>\n      <td>55,024</td>\n      <td>13,296</td>\n      <td>10,631</td>\n      <td>7,430</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-0 Revenue by Region.html",
+      "metadata": {
+        "length": 3581,
+        "summary": "table-1\nThe table shows quarterly revenue data for US & Canada, Europe, Asia-Pacific, and Rest of World from Q1'24 to Q1'26, with totals.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-0 Revenue by Region.html",
+        "keywords": [
+          "Revenue",
+          "Quarterly",
+          "Region"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "72a039a1-a82b-5da5-a685-4891b6d0fd14",
+      "type": "text",
+      "content": "In Millions\n\n# Meta Earnings Presentation Q1 2026 <details>0\n[images/image-1-Revenue Forecast by Region.jpg]\n\n<details>\n<summary>stacked bar chart</summary>\n\n[tables/table-0 Revenue by Region.html]\n\n</details>\nOur revenue by user geography is geographically apportioned based on our estimation of the geographic location of our users when they perform a revenue-generating activity. This allocation differs from our revenue disaggregated by geography disclosure in our condensed consolidated financial statements where revenue is geographically apportioned based on the addresses of our customers.",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Advertising Revenue by User Geography",
+      "metadata": {
+        "length": 617,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [
+          "In",
+          "Millions",
+          "Meta",
+          "Earnings",
+          "Presentation",
+          "Q1",
+          "2026",
+          "details",
+          "summary",
+          "stacked",
+          "bar",
+          "chart",
+          "Our",
+          "revenue",
+          "user",
+          "geography",
+          "geographically",
+          "apportioned",
+          "based",
+          "estimation",
+          "geographic",
+          "location",
+          "users",
+          "perform",
+          "generating",
+          "activity",
+          "This",
+          "allocation",
+          "differs",
+          "disaggregated",
+          "disclosure",
+          "condensed",
+          "consolidated",
+          "financial",
+          "statements",
+          "addresses",
+          "customers"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "9d9790c1-65a7-5b12-be61-31b87992d270",
+            "relation": "embeds",
+            "ref": "[images/image-1-Revenue Forecast by Region.jpg]",
+            "position": {
+              "start": 61,
+              "end": 108
+            }
+          },
+          {
+            "target": "bcea04e7-bfc3-5817-b400-5f7991495f4b",
+            "relation": "embeds",
+            "ref": "[tables/table-0 Revenue by Region.html]",
+            "position": {
+              "start": 158,
+              "end": 197
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "2d71f6fe-2d26-5c37-b52d-2ec472072997",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-2-Revenue Breakdown by Region and Quarter.jpg]\n",
+      "path": "images/image-2-Revenue Breakdown by Region and Quarter.jpg",
+      "metadata": {
+        "length": 55,
+        "summary": "image-2\nChart Title: Not visible (Stacked Bar Chart)\nTime Range: Q1'24 to Q1'26\n\nLegend Categories:\n- US & Canada (Darkest Blue)\n- Europe (Medium Blue-Grey)\n- Asia-Pacific (Lighter Blue-Grey)\n- Rest of World (Lightest Grey)\n\nData Points (Total Revenue per Quarter):\n- Q1'24: $36,455\n- Q2'24: $39,071\n- Q3'24: $40,589\n- Q4'24: $48,385\n- Q1'25: $42,314\n- Q2'25: $47,516\n- Q3'25: $51,242\n- Q4'25: $59,893\n- Q1'26: $56,311\n\nDetailed Breakdown by Category (Bottom to Top):\n\nQ1'24:",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-2-Revenue Breakdown by Region and Quarter.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "df8a9368-8ea9-5791-b0ca-a11cb1d2b614",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>US &amp; Canada</th>\n      <th>Europe</th>\n      <th>Asia-Pacific</th>\n      <th>Rest of World</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'24</td>\n      <td>$15,824</td>\n      <td>$8,483</td>\n      <td>$7,481</td>\n      <td>$4,667</td>\n    </tr>\n    <tr>\n      <td>Q2'24</td>\n      <td>$16,847</td>\n      <td>$9,300</td>\n      <td>$7,888</td>\n      <td>$5,036</td>\n    </tr>\n    <tr>\n      <td>Q3'24</td>\n      <td>$17,609</td>\n      <td>$9,492</td>\n      <td>$8,220</td>\n      <td>$5,268</td>\n    </tr>\n    <tr>\n      <td>Q4'24</td>\n      <td>$21,783</td>\n      <td>$11,503</td>\n      <td>$9,245</td>\n      <td>$5,854</td>\n    </tr>\n    <tr>\n      <td>Q1'25</td>\n      <td>$18,605</td>\n      <td>$9,680</td>\n      <td>$8,439</td>\n      <td>$5,590</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>$20,371</td>\n      <td>$11,532</td>\n      <td>$9,366</td>\n      <td>$6,247</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>$21,751</td>\n      <td>$12,268</td>\n      <td>$10,272</td>\n      <td>$6,951</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>$26,472</td>\n      <td>$14,480</td>\n      <td>$11,182</td>\n      <td>$7,759</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>$24,079</td>\n      <td>$13,500</td>\n      <td>$10,914</td>\n      <td>$7,818</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-1 Quarterly Revenue.html",
+      "metadata": {
+        "length": 1435,
+        "summary": "table-2\nThe table shows quarterly revenue from Q1'24 to Q1'26 across US & Canada, Europe, Asia-Pacific, and Rest of World, with totals increasing over time.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-1 Quarterly Revenue.html",
+        "keywords": [
+          "Revenue",
+          "Regions",
+          "Quarters"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "72a039a1-a82b-5da5-a685-4891b6d0fd14",
+      "type": "text",
+      "content": "In Millions\n\n</details> <details>0\n[images/image-2-Revenue Breakdown by Region and Quarter.jpg]\n\n<details>\n<summary>stacked bar chart</summary>\n\n[tables/table-1 Quarterly Revenue.html]\n\n</details>\nOur revenue by user geography is geographically apportioned based on our estimation of the geographic location of our users when they perform a revenue-generating activity. This allocation differs from our revenue disaggregated by geography disclosure in our condensed consolidated financial statements where revenue is geographically apportioned based on the addresses of our customers.",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Revenue by User Geography",
+      "metadata": {
+        "length": 591,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [
+          "In",
+          "Millions",
+          "details",
+          "summary",
+          "stacked",
+          "bar",
+          "chart",
+          "Our",
+          "revenue",
+          "user",
+          "geography",
+          "geographically",
+          "apportioned",
+          "based",
+          "estimation",
+          "geographic",
+          "location",
+          "users",
+          "perform",
+          "generating",
+          "activity",
+          "This",
+          "allocation",
+          "differs",
+          "disaggregated",
+          "disclosure",
+          "condensed",
+          "consolidated",
+          "financial",
+          "statements",
+          "addresses",
+          "customers"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "2d71f6fe-2d26-5c37-b52d-2ec472072997",
+            "relation": "embeds",
+            "ref": "[images/image-2-Revenue Breakdown by Region and Quarter.jpg]",
+            "position": {
+              "start": 35,
+              "end": 95
+            }
+          },
+          {
+            "target": "df8a9368-8ea9-5791-b0ca-a11cb1d2b614",
+            "relation": "embeds",
+            "ref": "[tables/table-1 Quarterly Revenue.html]",
+            "position": {
+              "start": 145,
+              "end": 184
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "3601bb8f-ed16-5aa0-ace8-c84bbc142527",
+      "type": "table",
+      "content": "<table><tr><td></td><td>Q1&#x27;24</td><td>Q2&#x27;24</td><td>Q3&#x27;24</td><td>Q4&#x27;24</td><td>Q1&#x27;25</td><td>Q2&#x27;25</td><td>Q3&#x27;25</td><td>Q4&#x27;25</td><td>Q1&#x27;26</td></tr><tr><td>Advertising</td><td>$ 35,635</td><td>$ 38,329</td><td>$ 39,885</td><td>$ 46,783</td><td>$ 41,392</td><td>$ 46,563</td><td>$ 50,082</td><td>$ 58,137</td><td>$ 55,024</td></tr><tr><td>Other</td><td>380</td><td>389</td><td>434</td><td>519</td><td>510</td><td>583</td><td>690</td><td>801</td><td>885</td></tr><tr><td>Family of Apps Revenue</td><td>36,015</td><td>38,718</td><td>40,319</td><td>47,302</td><td>41,902</td><td>47,146</td><td>50,772</td><td>58,938</td><td>55,909</td></tr><tr><td>Reality Labs Revenue</td><td>440</td><td>353</td><td>270</td><td>1,083</td><td>412</td><td>370</td><td>470</td><td>955</td><td>402</td></tr><tr><td>Total Revenue</td><td>$ 36,455</td><td>$ 39,071</td><td>$ 40,589</td><td>$ 48,385</td><td>$ 42,314</td><td>$ 47,516</td><td>$ 51,242</td><td>$ 59,893</td><td>$ 56,311</td></tr><tr><td colspan=\"10\"></td></tr><tr><td>Family of Apps Operating Income</td><td>$ 17,664</td><td>$ 19,335</td><td>$ 21,778</td><td>$ 28,332</td><td>$ 21,765</td><td>$ 24,971</td><td>$ 24,967</td><td>$ 30,766</td><td>$ 26,900</td></tr><tr><td>Reality Labs Operating (Loss)</td><td>(3,846)</td><td>(4,488)</td><td>(4,428)</td><td>(4,967)</td><td>(4,210)</td><td>(4,530)</td><td>(4,432)</td><td>(6,021)</td><td>(4,028)</td></tr><tr><td>Total Income from Operations</td><td>$ 13,818</td><td>$ 14,847</td><td>$ 17,350</td><td>$ 23,365</td><td>$ 17,555</td><td>$ 20,441</td><td>$ 20,535</td><td>$ 24,745</td><td>$ 22,872</td></tr><tr><td>Operating Margin</td><td>38 %</td><td>38 %</td><td>43 %</td><td>48 %</td><td>41 %</td><td>43 %</td><td>40 %</td><td>41 %</td><td>41 %</td></tr></table>",
+      "path": "tables/table-2 Meta Revenue Data.html",
+      "metadata": {
+        "length": 1798,
+        "summary": "table-3\nThe table shows Meta's quarterly revenue from Q1'24 to Q1'26, including Advertising, Other, Family of Apps, Reality Labs, and total revenue, along with operating income and margins.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-2 Meta Revenue Data.html",
+        "keywords": [
+          "Revenue",
+          "Operating Income",
+          "Quarterly"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "ca5ccbff-1066-5fde-aca3-b6ba138b6c99",
+      "type": "text",
+      "content": "In Millions, Except Percentages\n\n[tables/table-2 Meta Revenue Data.html]\n\nWe report our financial results based on two reportable segments: Family of Apps (FoA) and Reality Labs (RL). FoA includes Facebook, Instagram, Messenger, WhatsApp, and other services. RL includes our virtual and augmented reality related consumer hardware, software, and content.",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results",
+      "metadata": {
+        "length": 390,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [
+          "In",
+          "Millions",
+          "Except",
+          "Percentages",
+          "We",
+          "report",
+          "financial",
+          "results",
+          "based",
+          "reportable",
+          "segments",
+          "Family",
+          "Apps",
+          "FoA",
+          "Reality",
+          "Labs",
+          "RL",
+          "includes",
+          "Facebook",
+          "Instagram",
+          "Messenger",
+          "WhatsApp",
+          "services",
+          "virtual",
+          "augmented",
+          "reality",
+          "related",
+          "consumer",
+          "hardware",
+          "software",
+          "content"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "3601bb8f-ed16-5aa0-ace8-c84bbc142527",
+            "relation": "embeds",
+            "ref": "[tables/table-2 Meta Revenue Data.html]",
+            "position": {
+              "start": 33,
+              "end": 72
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "dca8cc6c-9b0d-5666-968a-73413e158858",
+      "type": "image",
+      "content": "\n## Segment Results <details>0\n[images/image-3-Quarterly Percentage Breakdown.jpg]\n",
+      "path": "images/image-3-Quarterly Percentage Breakdown.jpg",
+      "metadata": {
+        "length": 63,
+        "summary": "image-3\nQ1'24: 18%, 27%, 7%, 9%\nQ2'24: 19%, 27%, 7%, 9%\nQ3'24: 18%, 28%, 7%, 5%\nQ4'24: 18%, 25%, 7%, 2%\nQ1'25: 18%, 29%, 7%, 5%\nQ2'25: 18%, 27%, 6%, 6%\nQ3'25: 18%, 30%, 6%, 7%\nQ4'25: 18%, 29%, 6%, 6%\nQ1'26: 18%, 31%, 5%, 5%",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-3-Quarterly Percentage Breakdown.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "d3ae4b0d-b92a-5856-8b16-0d428c30db36",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Bottom Segment (%)</th>\n      <th>Top Segment (%)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'24</td>\n      <td>18</td>\n      <td>27</td>\n    </tr>\n    <tr>\n      <td>Q2'24</td>\n      <td>19</td>\n      <td>27</td>\n    </tr>\n    <tr>\n      <td>Q3'24</td>\n      <td>18</td>\n      <td>28</td>\n    </tr>\n    <tr>\n      <td>Q4'24</td>\n      <td>18</td>\n      <td>25</td>\n    </tr>\n    <tr>\n      <td>Q1'25</td>\n      <td>18</td>\n      <td>29</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>18</td>\n      <td>27</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>18</td>\n      <td>30</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>18</td>\n      <td>29</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>18</td>\n      <td>31</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-3 Segment Margins.html",
+      "metadata": {
+        "length": 905,
+        "summary": "table-4\nThe table shows quarterly margins for bottom and top segments from Q1'24 to Q1'26. Bottom segment stays at 18-19%, while top segment fluctuates between 25-31%.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-3 Segment Margins.html",
+        "keywords": [
+          "Bottom Segment",
+          "Top Segment",
+          "Quarterly"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "d3424da5-a6d6-5f35-ab5c-8119d0b3d511",
+      "type": "text",
+      "content": "## Segment Results <details>0\n[images/image-3-Quarterly Percentage Breakdown.jpg]\n\n<details>\n<summary>stacked bar chart</summary>\n\n[tables/table-3 Segment Margins.html]\n\n</details>\nGeneral & Administrative\nMarketing & Sales\nResearch & Development\nCost of Revenue",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Expenses as a Percentage of Revenue",
+      "metadata": {
+        "length": 269,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [
+          "Segment",
+          "Results",
+          "details",
+          "summary",
+          "stacked",
+          "bar",
+          "chart",
+          "General",
+          "Administrative",
+          "Marketing",
+          "Sales",
+          "Research",
+          "Development",
+          "Cost",
+          "Revenue"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "dca8cc6c-9b0d-5666-968a-73413e158858",
+            "relation": "embeds",
+            "ref": "[images/image-3-Quarterly Percentage Breakdown.jpg]",
+            "position": {
+              "start": 30,
+              "end": 81
+            }
+          },
+          {
+            "target": "d3ae4b0d-b92a-5856-8b16-0d428c30db36",
+            "relation": "embeds",
+            "ref": "[tables/table-3 Segment Margins.html]",
+            "position": {
+              "start": 131,
+              "end": 168
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "f5aa0d1a-8149-53b3-b7fa-a7454585d964",
+      "type": "table",
+      "content": "<table><tr><td></td><td>Q1&#x27;24</td><td>Q2&#x27;24</td><td>Q3&#x27;24</td><td>Q4&#x27;24</td><td>Q1&#x27;25</td><td>Q2&#x27;25</td><td> $Q3'25^{(1)}$ </td><td>Q4&#x27;25</td><td> $Q1'26^{(2)}$ </td></tr><tr><td>Income before income taxes</td><td>$ 14,183</td><td>$ 15,106</td><td>$ 17,822</td><td>$ 23,553</td><td>$ 18,382</td><td>$ 20,534</td><td>$ 21,663</td><td>$ 25,354</td><td>$ 21,752</td></tr><tr><td>Provision (benefit) for income taxes</td><td>$ 1,814</td><td>$ 1,641</td><td>$ 2,134</td><td>$ 2,715</td><td>$ 1,738</td><td>$ 2,197</td><td>$ 18,954</td><td>$ 2,586</td><td>$ (5,021)</td></tr><tr><td>Effective Tax Rate</td><td>13 %</td><td>11 %</td><td>12 %</td><td>12 %</td><td>9 %</td><td>11 %</td><td>87 %</td><td>10 %</td><td>(23)%</td></tr></table>",
+      "path": "tables/table-4 Quarterly Tax Data.html",
+      "metadata": {
+        "length": 765,
+        "summary": "table-5\nThe table shows quarterly income before taxes, provision for income taxes, and effective tax rates from Q1'24 to Q1'26, with notable spikes in Q3'25 and negative rate in Q1'26.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-4 Quarterly Tax Data.html",
+        "keywords": [
+          "Income",
+          "Tax",
+          "Effective Rate"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "2b6e6995-508b-5a12-8b97-b1d3560d8aa9",
+      "type": "image",
+      "content": "\n### Effective Tax Rate <details>0\n[images/image-4-Quarterly Financial Performance.jpg]\n",
+      "path": "images/image-4-Quarterly Financial Performance.jpg",
+      "metadata": {
+        "length": 67,
+        "summary": "image-4\n- Q1'24: $12,369\n- Q2'24: $13,465\n- Q3'24: $15,688\n- Q4'24: $20,838\n- Q1'25: $16,644\n- Q2'25: $18,337\n- Q3'25 (1): $2,709\n- Q4'25: $22,768\n- Q1'26 (2): $26,773",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-4-Quarterly Financial Performance.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "21d81faf-1ff7-5aba-b902-161d97ffd732",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Value</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'24</td>\n      <td>$12,369</td>\n    </tr>\n    <tr>\n      <td>Q2'24</td>\n      <td>$13,465</td>\n    </tr>\n    <tr>\n      <td>Q3'24</td>\n      <td>$15,688</td>\n    </tr>\n    <tr>\n      <td>Q4'24</td>\n      <td>$20,838</td>\n    </tr>\n    <tr>\n      <td>Q1'25</td>\n      <td>$16,644</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>$18,337</td>\n    </tr>\n    <tr>\n      <td>Q3'25 (1)</td>\n      <td>$2,709</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>$22,768</td>\n    </tr>\n    <tr>\n      <td>Q1'26 (2)</td>\n      <td>$26,773</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-5 Quarterly Values.html",
+      "metadata": {
+        "length": 751,
+        "summary": "table-6\nThe table shows quarterly values from Q1'24 to Q1'26, with figures ranging from $2,709 to $26,773, peaking in Q1'26.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-5 Quarterly Values.html",
+        "keywords": [
+          "Quarter",
+          "Value",
+          "Revenue"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "ef8c8327-d540-5df5-804e-d5323c71e730",
+      "type": "text",
+      "content": "In Millions, Except Percentages\n\n[tables/table-4 Quarterly Tax Data.html]\n\n(1) Provision (benefit) for income taxes includes a one-time, non-cash income tax charge of \\$15.93 billion accrued in the third quarter of 2025, related to the implementation of the One Big Beautiful Bill Act. Excluding this one-time tax charge, our third quarter 2025 effective tax rate would have decreased by 73 percentage points to 14%, compared to the reported effective tax rate of 87%.\n(2) Provision (benefit) for income taxes includes an income tax benefit of \\$8.03 billion in the first quarter of 2026 related to the U.S. Corporate Alternative Minimum Tax transitional relief under Treasury Notice 2026-7. Excluding this tax benefit, the effective tax rate would have been 14%.\n\n### Effective Tax Rate <details>0\n[images/image-4-Quarterly Financial Performance.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-5 Quarterly Values.html]\n\n</details>\n(1) Includes a one-time, non-cash income tax charge to provision for income taxes of \\$15.93 billion accrued in the third quarter of 2025, related to the implementation of the One Big Beautiful Bill Act. Excluding this one-time tax charge, our third quarter 2025 net income would have increased by \\$15.93 billion to \\$18.64 billion, compared to the reported net income of \\$2.71 billion.\n(2) Includes an income tax benefit of \\$8.03 billion in the first quarter of 2026 related to the U.S. Corporate Alternative Minimum Tax transitional relief under Treasury Notice 2026-7. Excluding this tax benefit, net income would have been \\$18.74 billion, lower by \\$8.03 billion, compared to the reported net income of \\$26.77 billion.",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Effective Tax Rate",
+      "metadata": {
+        "length": 1698,
+        "summary": "The passage discusses the impact of one-time tax items on reported net income and effective tax rates. In Q3 2025, a $15.93 billion non-cash income tax charge related to the One Big Beautiful Bill Act increased the effective tax rate to 87%; excluding it, the rate would have been 14% and net income would have been $18.64 billion. In Q1 2026, an $8.03 billion tax benefit from U.S. Corporate Alternative Minimum Tax transitional relief reduced the effective tax rate; excluding it, the rate would have been 14% and net income would have been $18.74 billion. A bar chart showing effective tax rates by quarter is referenced.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [
+          "In",
+          "Millions",
+          "Except",
+          "Percentages",
+          "Provision",
+          "benefit",
+          "income",
+          "taxes",
+          "includes",
+          "time",
+          "cash",
+          "tax",
+          "charge",
+          "15.93",
+          "billion",
+          "accrued",
+          "quarter",
+          "2025",
+          "related",
+          "implementation",
+          "One",
+          "Big",
+          "Beautiful",
+          "Bill",
+          "Act",
+          "Excluding",
+          "effective",
+          "rate",
+          "decreased",
+          "73",
+          "percentage",
+          "points",
+          "14%",
+          "compared",
+          "reported",
+          "87%",
+          "8.03",
+          "2026",
+          "Corporate",
+          "Alternative",
+          "Minimum",
+          "Tax",
+          "transitional",
+          "relief",
+          "Treasury",
+          "Notice",
+          "Effective",
+          "Rate",
+          "details",
+          "summary",
+          "bar",
+          "chart",
+          "Includes",
+          "provision",
+          "net",
+          "increased",
+          "18.64",
+          "2.71",
+          "18.74",
+          "lower",
+          "26.77"
+        ],
+        "keywords": [
+          "tax charge",
+          "tax benefit",
+          "effective tax rate"
+        ],
+        "connect_to": [
+          {
+            "target": "f5aa0d1a-8149-53b3-b7fa-a7454585d964",
+            "relation": "embeds",
+            "ref": "[tables/table-4 Quarterly Tax Data.html]",
+            "position": {
+              "start": 33,
+              "end": 73
+            }
+          },
+          {
+            "target": "2b6e6995-508b-5a12-8b97-b1d3560d8aa9",
+            "relation": "embeds",
+            "ref": "[images/image-4-Quarterly Financial Performance.jpg]",
+            "position": {
+              "start": 799,
+              "end": 851
+            }
+          },
+          {
+            "target": "21d81faf-1ff7-5aba-b902-161d97ffd732",
+            "relation": "embeds",
+            "ref": "[tables/table-5 Quarterly Values.html]",
+            "position": {
+              "start": 893,
+              "end": 931
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "10241b1c-edf7-56d0-95de-3f8c79b67396",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-5-Quarterly Financial Growth.jpg]\n",
+      "path": "images/image-5-Quarterly Financial Growth.jpg",
+      "metadata": {
+        "length": 55,
+        "summary": "image-5\nChart Title: Quarterly Performance (Q1'24 - Q1'26)\n\nData Points by Quarter:\n- Q1'24: $4.71\n- Q2'24: $5.16\n- Q3'24: $6.03\n- Q4'24: $8.02\n- Q1'25: $6.43\n- Q2'25: $7.14\n- Q3'25: $1.05 (marked with footnote 1)\n- Q4'25: $8.88\n- Q1'26: $10.44 (marked with footnote 2)\n\nKey Trends:\n- Steady growth from Q1'24 to Q4'24 ($4.71 to $8.02).\n- A dip in Q1'25 followed by recovery in Q2'25.\n- Significant drop in Q3'25 ($1.05), the lowest value on the chart.\n- Strong",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-5-Quarterly Financial Growth.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "6522b598-11ed-5413-957c-9e3d99d36cc8",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Value</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'24</td>\n      <td>$4.71</td>\n    </tr>\n    <tr>\n      <td>Q2'24</td>\n      <td>$5.16</td>\n    </tr>\n    <tr>\n      <td>Q3'24</td>\n      <td>$6.03</td>\n    </tr>\n    <tr>\n      <td>Q4'24</td>\n      <td>$8.02</td>\n    </tr>\n    <tr>\n      <td>Q1'25</td>\n      <td>$6.43</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>$7.14</td>\n    </tr>\n    <tr>\n      <td>Q3'25 (1)</td>\n      <td>$1.05</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>$8.88</td>\n    </tr>\n    <tr>\n      <td>Q1'26 (2)</td>\n      <td>$10.44</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-6 Quarterly Values.html",
+      "metadata": {
+        "length": 735,
+        "summary": "table-7\nThe table shows quarterly values from Q1'24 to Q1'26, with figures ranging from $1.05 to $10.44, indicating an overall upward trend.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-6 Quarterly Values.html",
+        "keywords": [
+          "Quarter",
+          "Value",
+          "Trend"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "88ea2b15-d8ac-559d-8374-55f30e01732c",
+      "type": "text",
+      "content": "</details> <details>0\n[images/image-5-Quarterly Financial Growth.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-6 Quarterly Values.html]\n\n</details>\n(1) Net income includes a one-time, non-cash income tax charge to provision for income taxes of \\$15.93 billion accrued in the third quarter of 2025, related to the implementation of the One Big Beautiful Bill Act. Excluding this one-time tax charge, our third quarter 2025 diluted earnings per share would have increased by \\$6.20 to \\$7.25 compared to the reported diluted EPS of \\$1.05.\n(2) Net income includes an income tax benefit of \\$8.03 billion in the first quarter of 2026 related to the U.S. Corporate Alternative Minimum Tax transitional relief under Treasury Notice 2026-7. Excluding this tax benefit, diluted EPS would have been \\$7.31, lower by \\$3.13, compared to the reported diluted EPS of \\$10.44.",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Diluted Earnings Per Share",
+      "metadata": {
+        "length": 859,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [
+          "details",
+          "summary",
+          "bar",
+          "chart",
+          "Net",
+          "income",
+          "includes",
+          "time",
+          "cash",
+          "tax",
+          "charge",
+          "provision",
+          "taxes",
+          "15.93",
+          "billion",
+          "accrued",
+          "quarter",
+          "2025",
+          "related",
+          "implementation",
+          "One",
+          "Big",
+          "Beautiful",
+          "Bill",
+          "Act",
+          "Excluding",
+          "diluted",
+          "earnings",
+          "share",
+          "increased",
+          "6.20",
+          "7.25",
+          "compared",
+          "reported",
+          "EPS",
+          "1.05",
+          "benefit",
+          "8.03",
+          "2026",
+          "Corporate",
+          "Alternative",
+          "Minimum",
+          "Tax",
+          "transitional",
+          "relief",
+          "Treasury",
+          "Notice",
+          "7.31",
+          "lower",
+          "3.13",
+          "10.44"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "10241b1c-edf7-56d0-95de-3f8c79b67396",
+            "relation": "embeds",
+            "ref": "[images/image-5-Quarterly Financial Growth.jpg]",
+            "position": {
+              "start": 22,
+              "end": 69
+            }
+          },
+          {
+            "target": "6522b598-11ed-5413-957c-9e3d99d36cc8",
+            "relation": "embeds",
+            "ref": "[tables/table-6 Quarterly Values.html]",
+            "position": {
+              "start": 111,
+              "end": 149
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "af36b58e-2cee-5e6c-8ff4-c9fb50e97b81",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-6-Financial Growth Projection.jpg]\n",
+      "path": "images/image-6-Financial Growth Projection.jpg",
+      "metadata": {
+        "length": 55,
+        "summary": "image-6\nQuarterly Data:\n- Q1'25: $13,692\n- Q1'26: $19,840\n\nAnnual Data:\n- 2024: $39,225\n- 2025: $72,215",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-6-Financial Growth Projection.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "b88d2c70-ee9e-5b87-ab52-b0dca01f0c15",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Period</th>\n      <th>Value</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Quarterly</td>\n      <td>$13,692</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>$19,840</td>\n    </tr>\n    <tr>\n      <td>2024</td>\n      <td>$39,225</td>\n    </tr>\n    <tr>\n      <td>Annual</td>\n      <td>$72,215</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-7 Financial Data.html",
+      "metadata": {
+        "length": 432,
+        "summary": "table-8\nThe table shows financial values across different periods: Quarterly $13,692, Q1'26 $19,840, 2024 $39,225, and Annual $72,215.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-7 Financial Data.html",
+        "keywords": [
+          "Quarterly",
+          "Annual",
+          "Values"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "c75bd5ec-99c3-5021-8908-08e583d7f320",
+      "type": "text",
+      "content": "In Millions\n\n</details> <details>0\n[images/image-6-Financial Growth Projection.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-7 Financial Data.html]\n\n</details>\nCapital expenditures for periods presented were related to purchases of property and equipment and principal payments on finance leases.",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Capital Expenditures",
+      "metadata": {
+        "length": 291,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [
+          "In",
+          "Millions",
+          "details",
+          "summary",
+          "bar",
+          "chart",
+          "Capital",
+          "expenditures",
+          "periods",
+          "presented",
+          "related",
+          "purchases",
+          "property",
+          "equipment",
+          "principal",
+          "payments",
+          "finance",
+          "leases"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "af36b58e-2cee-5e6c-8ff4-c9fb50e97b81",
+            "relation": "embeds",
+            "ref": "[images/image-6-Financial Growth Projection.jpg]",
+            "position": {
+              "start": 35,
+              "end": 83
+            }
+          },
+          {
+            "target": "b88d2c70-ee9e-5b87-ab52-b0dca01f0c15",
+            "relation": "embeds",
+            "ref": "[tables/table-7 Financial Data.html]",
+            "position": {
+              "start": 125,
+              "end": 161
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "b715df54-7381-5136-b33f-9890f209b7c0",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-7-Quarterly Data Trend.jpg]\n",
+      "path": "images/image-7-Quarterly Data Trend.jpg",
+      "metadata": {
+        "length": 55,
+        "summary": "image-7\nQ1'24: 3.24\nQ2'24: 3.27\nQ3'24: 3.29\nQ4'24: 3.35\nQ1'25: 3.43\nQ2'25: 3.48\nQ3'25: 3.54\nQ4'25: 3.58\nQ1'26: 3.56",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-7-Quarterly Data Trend.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "77c244bd-8c3d-5f95-a585-d0d453340034",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Value</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'24</td>\n      <td>3.24</td>\n    </tr>\n    <tr>\n      <td>Q2'24</td>\n      <td>3.27</td>\n    </tr>\n    <tr>\n      <td>Q3'24</td>\n      <td>3.29</td>\n    </tr>\n    <tr>\n      <td>Q4'24</td>\n      <td>3.35</td>\n    </tr>\n    <tr>\n      <td>Q1'25</td>\n      <td>3.43</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>3.48</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>3.54</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>3.58</td>\n    </tr>\n    <tr>\n      <td>Q1'26 (1)</td>\n      <td>3.56</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-8 Quarterly Values.html",
+      "metadata": {
+        "length": 721,
+        "summary": "table-9\nThe table shows quarterly values from Q1'24 to Q1'26, increasing from 3.24 to 3.58, with a slight dip to 3.56 in Q1'26.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-8 Quarterly Values.html",
+        "keywords": [
+          "Quarter",
+          "Value",
+          "Trend"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "f73965b0-c0e9-5908-b23e-bd02d9259fd1",
+      "type": "text",
+      "content": "In Billions\n\n</details> <details>0\n[images/image-7-Quarterly Data Trend.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-8 Quarterly Values.html]\n\n</details>\n(1) The slight quarter-over-quarter decline in DAP in the first quarter of 2026 was driven by internet disruptions in Iran, as well as a restriction on access to WhatsApp in Russia.\nWe define a daily active person (DAP) as a registered and logged-in user of Facebook, Instagram, Messenger, and/or WhatsApp (collectively, our \"Family\" of products) who visited at least one of these Family products through a mobile device application or using a web or mobile browser on a given day. The numbers for DAP do not include users on our other products unless they would otherwise qualify as DAP based on their other activities on our Family products.\nWe do not require people to use a common identifier or link their accounts to use multiple products in our Family, and therefore must seek to attribute multiple user accounts within and across products to individual people. Our calculations of DAP rely upon complex techniques, algorithms, and machine learning models that seek to estimate the underlying number of unique people using one or more of these products, including by matching user accounts within an individual product and across multiple products when we believe they are attributable to a single person, and counting such group of accounts as one person. As these techniques and models require significant judgment, are developed based on internal reviews of limited samples of user accounts, and are calibrated against user survey data, there is necessarily some margin of error in our estimates. For additional information, see \"Limitations of Key Metrics and Other Data\" located in the Appendix of this presentation.",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Family Daily Active People (DAP)",
+      "metadata": {
+        "length": 1783,
+        "summary": "The passage discusses a slight quarter-over-quarter decline in Daily Active People (DAP) in Q1 2026, attributed to internet disruptions in Iran and a restriction on WhatsApp access in Russia. DAP is defined as registered and logged-in users of Facebook, Instagram, Messenger, and/or WhatsApp who visit at least one of these products daily. The calculation involves complex techniques and machine learning models to estimate unique individuals, with inherent margin of error.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [
+          "In",
+          "Billions",
+          "details",
+          "summary",
+          "bar",
+          "chart",
+          "The",
+          "slight",
+          "quarter",
+          "decline",
+          "DAP",
+          "2026",
+          "driven",
+          "internet",
+          "disruptions",
+          "Iran",
+          "restriction",
+          "access",
+          "WhatsApp",
+          "Russia",
+          "We",
+          "define",
+          "daily",
+          "active",
+          "person",
+          "registered",
+          "logged",
+          "user",
+          "Facebook",
+          "Instagram",
+          "Messenger",
+          "collectively",
+          "Family",
+          "products",
+          "visited",
+          "mobile",
+          "device",
+          "application",
+          "web",
+          "browser",
+          "day",
+          "numbers",
+          "include",
+          "users",
+          "qualify",
+          "based",
+          "activities",
+          "require",
+          "people",
+          "common",
+          "identifier",
+          "link",
+          "accounts",
+          "multiple",
+          "seek",
+          "attribute",
+          "individual",
+          "Our",
+          "calculations",
+          "rely",
+          "complex",
+          "techniques",
+          "algorithms",
+          "machine",
+          "learning",
+          "models",
+          "estimate",
+          "underlying",
+          "number",
+          "unique",
+          "including",
+          "matching",
+          "product",
+          "attributable",
+          "single",
+          "counting",
+          "group",
+          "As",
+          "significant",
+          "judgment",
+          "developed",
+          "internal",
+          "reviews",
+          "limited",
+          "samples",
+          "calibrated",
+          "survey",
+          "data",
+          "necessarily",
+          "margin",
+          "error",
+          "estimates",
+          "For",
+          "additional",
+          "information",
+          "Limitations",
+          "Key",
+          "Metrics",
+          "Other",
+          "Data",
+          "located",
+          "Appendix",
+          "presentation"
+        ],
+        "keywords": [
+          "DAP",
+          "quarter-over-quarter",
+          "internet disruptions"
+        ],
+        "connect_to": [
+          {
+            "target": "b715df54-7381-5136-b33f-9890f209b7c0",
+            "relation": "embeds",
+            "ref": "[images/image-7-Quarterly Data Trend.jpg]",
+            "position": {
+              "start": 35,
+              "end": 76
+            }
+          },
+          {
+            "target": "77c244bd-8c3d-5f95-a585-d0d453340034",
+            "relation": "embeds",
+            "ref": "[tables/table-8 Quarterly Values.html]",
+            "position": {
+              "start": 118,
+              "end": 156
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "aa5cb3b1-5f79-5129-8780-1c287ea081f9",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-8-Quarterly Financial Data.jpg]\n",
+      "path": "images/image-8-Quarterly Financial Data.jpg",
+      "metadata": {
+        "length": 55,
+        "summary": "image-8\nQ1'24: $11.20\nQ2'24: $11.89\nQ3'24: $12.29\nQ4'24: $14.25\nQ1'25: $12.36\nQ2'25: $13.65\nQ3'25: $14.46\nQ4'25: $16.56\nQ1'26: $15.66",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-8-Quarterly Financial Data.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "0310c851-f6a3-5e12-ae44-5ad8b06980d3",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Value ($)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'24</td>\n      <td>11.20</td>\n    </tr>\n    <tr>\n      <td>Q2'24</td>\n      <td>11.89</td>\n    </tr>\n    <tr>\n      <td>Q3'24</td>\n      <td>12.29</td>\n    </tr>\n    <tr>\n      <td>Q4'24</td>\n      <td>14.25</td>\n    </tr>\n    <tr>\n      <td>Q1'25</td>\n      <td>12.36</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>13.65</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>14.46</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>16.56</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>15.66</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-9 Quarterly Values.html",
+      "metadata": {
+        "length": 730,
+        "summary": "table-10\nThe table shows quarterly values from Q1'24 to Q1'26, starting at $11.20 and ending at $15.66, with a peak of $16.56 in Q4'25.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-9 Quarterly Values.html",
+        "keywords": [
+          "Quarter",
+          "Value",
+          "Trend"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "822fa03e-bd63-53fa-8c26-85d829b25c2f",
+      "type": "text",
+      "content": "</details> <details>0\n[images/image-8-Quarterly Financial Data.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-9 Quarterly Values.html]\n\n</details>\nWe define average revenue per person (ARPP) as our FoA revenue during a given quarter, divided by the average of the number of DAP at the beginning and end of the quarter.",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Family Average Revenue per Person (ARPP)",
+      "metadata": {
+        "length": 319,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [
+          "details",
+          "summary",
+          "bar",
+          "chart",
+          "We",
+          "define",
+          "average",
+          "revenue",
+          "person",
+          "ARPP",
+          "FoA",
+          "quarter",
+          "divided",
+          "number",
+          "DAP",
+          "beginning",
+          "end"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "aa5cb3b1-5f79-5129-8780-1c287ea081f9",
+            "relation": "embeds",
+            "ref": "[images/image-8-Quarterly Financial Data.jpg]",
+            "position": {
+              "start": 22,
+              "end": 67
+            }
+          },
+          {
+            "target": "0310c851-f6a3-5e12-ae44-5ad8b06980d3",
+            "relation": "embeds",
+            "ref": "[tables/table-9 Quarterly Values.html]",
+            "position": {
+              "start": 109,
+              "end": 147
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "b5f986d3-1c0d-52f0-841e-e7075c1fefa8",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-9-Quarterly Growth Trend.jpg]\n",
+      "path": "images/image-9-Quarterly Growth Trend.jpg",
+      "metadata": {
+        "length": 55,
+        "summary": "image-9\nQ1'25: 5%\nQ2'25: 11%\nQ3'25: 14%\nQ4'25: 18%\nQ1'26: 19%",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-9-Quarterly Growth Trend.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "4fa3c11a-07e2-59c2-a659-8a32de28b309",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Value (%)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'25</td>\n      <td>5</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>11</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>14</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>18</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>19</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-10 Quarterly Values.html",
+      "metadata": {
+        "length": 470,
+        "summary": "table-11\nThe table shows quarterly percentage values from Q1'25 (5%) to Q1'26 (19%), with a steady increase over five quarters.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-10 Quarterly Values.html",
+        "keywords": [
+          "Quarter",
+          "Value",
+          "Percentage"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "54e64331-f2e6-56b1-8811-82888a7d05d6",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-10-Quarterly Percentage Growth.jpg]\n",
+      "path": "images/image-10-Quarterly Percentage Growth.jpg",
+      "metadata": {
+        "length": 56,
+        "summary": "image-10\nQ1'25: 4%\nQ2'25: 9%\nQ3'25: 8%\nQ4'25: 13%\nQ1'26: 13%",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-10-Quarterly Percentage Growth.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "9f128ac9-4c37-56c7-a2f7-a7eff8bfbbfe",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Value (%)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'25</td>\n      <td>4</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>9</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>8</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>13</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>13</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-11 Quarterly Values.html",
+      "metadata": {
+        "length": 468,
+        "summary": "table-12\nThe table shows quarterly percentage values from Q1'25 to Q1'26, starting at 4%, rising to 9%, 8%, 13%, and ending at 13%.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-11 Quarterly Values.html",
+        "keywords": [
+          "Quarter",
+          "Value",
+          "Percentage"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "bf0afc23-5239-5463-bbf2-75433fc9bf91",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-11-Quarterly Growth Trend.jpg]\n",
+      "path": "images/image-11-Quarterly Growth Trend.jpg",
+      "metadata": {
+        "length": 56,
+        "summary": "image-11\nChart Title: Quarterly Growth Trend (implied)\nX-Axis Labels: Q1'25, Q2'25, Q3'25, Q4'25, Q1'26\nData Points:\n- Q1'25: 5%\n- Q2'25: 6%\n- Q3'25: 9%\n- Q4'25: 13%\n- Q1'26: 17%\nTrend: Consistent upward growth over the five quarters.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-11-Quarterly Growth Trend.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "a5d52424-7c11-543f-a11e-2b381a149fac",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Value (%)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'25</td>\n      <td>5</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>6</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>9</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>13</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>17</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-12 Quarterly Values.html",
+      "metadata": {
+        "length": 468,
+        "summary": "table-13\nThe table shows quarterly percentage values from Q1'25 (5%) to Q1'26 (17%), with a steady increase over five quarters.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-12 Quarterly Values.html",
+        "keywords": [
+          "Quarter",
+          "Value",
+          "Percentage"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "165cb9bd-677d-57b6-945d-25f2774911e5",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-12-Quarterly Growth Trend.jpg]\n",
+      "path": "images/image-12-Quarterly Growth Trend.jpg",
+      "metadata": {
+        "length": 56,
+        "summary": "image-12\n- Q1'25: 9%\n- Q2'25: 16%\n- Q3'25: 23%\n- Q4'25: 24%\n- Q1'26: 23%",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-12-Quarterly Growth Trend.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "cb760784-f96e-572b-bb7b-137a772b9672",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Value (%)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'25</td>\n      <td>9</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>16</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>23</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>24</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>23</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-13 Quarterly Values.html",
+      "metadata": {
+        "length": 470,
+        "summary": "table-14\nThe table shows quarterly percentage values from Q1'25 to Q1'26, starting at 9% and rising to a peak of 24% in Q4'25, then slightly decreasing to 23% in Q1'26.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-13 Quarterly Values.html",
+        "keywords": [
+          "Quarter",
+          "Value",
+          "Percentage"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "c31a8a40-eeed-52f0-b6c6-79ca910aac06",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-13-Growth Trend 2025-2026.jpg]\n",
+      "path": "images/image-13-Growth Trend 2025-2026.jpg",
+      "metadata": {
+        "length": 56,
+        "summary": "image-13\nChart Type: Vertical Bar Chart\nX-Axis Categories (Time Periods): Q1'25, Q2'25, Q3'25, Q4'25, Q1'26\nData Values:\n- Q1'25: 1%\n- Q2'25: 7%\n- Q3'25: 9%\n- Q4'25: 14%\n- Q1'26: 17%\nTrend: Consistent upward growth over the five quarters.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-13-Growth Trend 2025-2026.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "9ea8a6bd-70c5-5cd1-8a98-2d41db83c89d",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Value (%)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'25</td>\n      <td>1</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>7</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>9</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>14</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>17</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-14 Quarterly Values.html",
+      "metadata": {
+        "length": 468,
+        "summary": "table-15\nThe table shows quarterly percentage values from Q1'25 (1%) to Q1'26 (17%), with a steady increase over five quarters.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-14 Quarterly Values.html",
+        "keywords": [
+          "Quarter",
+          "Value",
+          "Percentage"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "946b1845-9da8-502b-8c22-bc890e9bd33a",
+      "type": "text",
+      "content": "</details> <details>0\n[images/image-9-Quarterly Growth Trend.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-10 Quarterly Values.html]\n\n</details>\nWorldwide\n\n</details> <details>0\n[images/image-10-Quarterly Percentage Growth.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-11 Quarterly Values.html]\n\n</details>\nUS & Canada\n\n</details> <details>0\n[images/image-11-Quarterly Growth Trend.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-12 Quarterly Values.html]\n\n</details>\nEurope\n\n</details> <details>0\n[images/image-12-Quarterly Growth Trend.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-13 Quarterly Values.html]\n\n</details>\nAsia-Pacific\n\n</details> <details>0\n[images/image-13-Growth Trend 2025-2026.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-14 Quarterly Values.html]\n\n</details>\nRest of World",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Ad Impressions Delivered YoY Percentage Change",
+      "metadata": {
+        "length": 803,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [
+          "details",
+          "summary",
+          "bar",
+          "chart",
+          "Worldwide",
+          "US",
+          "Canada",
+          "Europe",
+          "Asia",
+          "Pacific",
+          "Rest",
+          "World"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "b5f986d3-1c0d-52f0-841e-e7075c1fefa8",
+            "relation": "embeds",
+            "ref": "[images/image-9-Quarterly Growth Trend.jpg]",
+            "position": {
+              "start": 22,
+              "end": 65
+            }
+          },
+          {
+            "target": "4fa3c11a-07e2-59c2-a659-8a32de28b309",
+            "relation": "embeds",
+            "ref": "[tables/table-10 Quarterly Values.html]",
+            "position": {
+              "start": 107,
+              "end": 146
+            }
+          },
+          {
+            "target": "54e64331-f2e6-56b1-8811-82888a7d05d6",
+            "relation": "embeds",
+            "ref": "[images/image-10-Quarterly Percentage Growth.jpg]",
+            "position": {
+              "start": 192,
+              "end": 241
+            }
+          },
+          {
+            "target": "9f128ac9-4c37-56c7-a2f7-a7eff8bfbbfe",
+            "relation": "embeds",
+            "ref": "[tables/table-11 Quarterly Values.html]",
+            "position": {
+              "start": 283,
+              "end": 322
+            }
+          },
+          {
+            "target": "bf0afc23-5239-5463-bbf2-75433fc9bf91",
+            "relation": "embeds",
+            "ref": "[images/image-11-Quarterly Growth Trend.jpg]",
+            "position": {
+              "start": 370,
+              "end": 414
+            }
+          },
+          {
+            "target": "a5d52424-7c11-543f-a11e-2b381a149fac",
+            "relation": "embeds",
+            "ref": "[tables/table-12 Quarterly Values.html]",
+            "position": {
+              "start": 456,
+              "end": 495
+            }
+          },
+          {
+            "target": "165cb9bd-677d-57b6-945d-25f2774911e5",
+            "relation": "embeds",
+            "ref": "[images/image-12-Quarterly Growth Trend.jpg]",
+            "position": {
+              "start": 538,
+              "end": 582
+            }
+          },
+          {
+            "target": "cb760784-f96e-572b-bb7b-137a772b9672",
+            "relation": "embeds",
+            "ref": "[tables/table-13 Quarterly Values.html]",
+            "position": {
+              "start": 624,
+              "end": 663
+            }
+          },
+          {
+            "target": "c31a8a40-eeed-52f0-b6c6-79ca910aac06",
+            "relation": "embeds",
+            "ref": "[images/image-13-Growth Trend 2025-2026.jpg]",
+            "position": {
+              "start": 712,
+              "end": 756
+            }
+          },
+          {
+            "target": "9ea8a6bd-70c5-5cd1-8a98-2d41db83c89d",
+            "relation": "embeds",
+            "ref": "[tables/table-14 Quarterly Values.html]",
+            "position": {
+              "start": 798,
+              "end": 837
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "89b992d8-3719-5047-bd85-bf2049cb3b31",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-14-Quarterly Percentage Data (2025-2026).jpg]\n",
+      "path": "images/image-14-Quarterly Percentage Data (2025-2026).jpg",
+      "metadata": {
+        "length": 56,
+        "summary": "image-14\nChart Title: Not visible\nData Points by Quarter:\n- Q1'25: 10%\n- Q2'25: 9%\n- Q3'25: 10%\n- Q4'25: 6%\n- Q1'26: 12%",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-14-Quarterly Percentage Data (2025-2026).jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "5a9a3ff0-3766-5811-887b-a4c69a905b66",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Value (%)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'25</td>\n      <td>10</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>9</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>10</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>6</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>12</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-15 Quarterly Values.html",
+      "metadata": {
+        "length": 469,
+        "summary": "table-16\nThe table shows quarterly percentage values from Q1'25 to Q1'26, ranging from 6% to 12%, with Q4'25 having the lowest value.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-15 Quarterly Values.html",
+        "keywords": [
+          "Quarterly",
+          "Values",
+          "Percent"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "d30a3592-47ea-529b-940e-06e06192447d",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-15-Quarterly Percentage Data (2025-2026).jpg]\n",
+      "path": "images/image-15-Quarterly Percentage Data (2025-2026).jpg",
+      "metadata": {
+        "length": 56,
+        "summary": "image-15\nChart Title: Not visible\nData Points by Quarter:\n- Q1'25: 14%\n- Q2'25: 11%\n- Q3'25: 13%\n- Q4'25: 9%\n- Q1'26: 14%\n\nKey Trends:\n- Lowest value recorded in Q4'25 at 9%.\n- Highest values observed in Q1'25 and Q1'26 at 14%.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-15-Quarterly Percentage Data (2025-2026).jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "8683a3c7-6919-5b6d-9c2c-9a0eb6f0b6b6",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Value (%)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'25</td>\n      <td>14</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>11</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>13</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>9</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>14</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-16 Quarterly Values.html",
+      "metadata": {
+        "length": 470,
+        "summary": "table-17\nThe table shows quarterly percentage values from Q1'25 to Q1'26, with values ranging from 9% to 14%.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-16 Quarterly Values.html",
+        "keywords": [
+          "Quarter",
+          "Value",
+          "Percentage"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "762954c1-ba35-524d-80c0-f06075229c1d",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-16-Quarterly Percentage Trends.jpg]\n",
+      "path": "images/image-16-Quarterly Percentage Trends.jpg",
+      "metadata": {
+        "length": 56,
+        "summary": "image-16\nChart Title: Not visible\nX-Axis Labels (Time Periods): Q1'25, Q2'25, Q3'25, Q4'25, Q1'26\nData Points:\n- Q1'25: 9%\n- Q2'25: 17%\n- Q3'25: 19%\n- Q4'25: 12%\n- Q1'26: 19%",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-16-Quarterly Percentage Trends.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "5afee24d-42d3-5007-b886-b5d5ad63061e",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Value (%)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'25</td>\n      <td>9</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>17</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>19</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>12</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>19</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-17 Quarterly Values.html",
+      "metadata": {
+        "length": 470,
+        "summary": "table-18\nThe table shows quarterly percentage values from Q1'25 to Q1'26, ranging from 9% to 19%, with the highest in Q3'25 and Q1'26.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-17 Quarterly Values.html",
+        "keywords": [
+          "Quarter",
+          "Value",
+          "Percentage"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "00c61283-6184-5f21-b017-8a2071ef7eac",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-17-Quarterly Growth Trend.jpg]\n",
+      "path": "images/image-17-Quarterly Growth Trend.jpg",
+      "metadata": {
+        "length": 56,
+        "summary": "image-17\nQ1'25: 3%\nQ2'25: 2%\nQ3'25: 1%\nQ4'25: (2)%\nQ1'26: 5%",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-17-Quarterly Growth Trend.jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "b23a116d-5aea-54a3-bcce-5d8436f03562",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Value (%)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'25</td>\n      <td>3</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>2</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>1</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>-2</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>5</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-18 Quarterly Values.html",
+      "metadata": {
+        "length": 467,
+        "summary": "table-19\nThe table shows quarterly percentage values from Q1'25 to Q1'26, starting at 3%, decreasing to -2% in Q4'25, then rising to 5%.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-18 Quarterly Values.html",
+        "keywords": [
+          "Quarter",
+          "Value",
+          "Percentage"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "a7037604-0c50-57eb-94a4-42dfea6d1a37",
+      "type": "image",
+      "content": "\n</details> <details>0\n[images/image-18-Quarterly Percentage Data (2025-2026).jpg]\n",
+      "path": "images/image-18-Quarterly Percentage Data (2025-2026).jpg",
+      "metadata": {
+        "length": 56,
+        "summary": "image-18\nChart Title: Not visible\nX-Axis Labels: Q1'25, Q2'25, Q3'25, Q4'25, Q1'26\nData Points:\n- Q1'25: 17%\n- Q2'25: 15%\n- Q3'25: 20%\n- Q4'25: 15%\n- Q1'26: 18%",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "images/image-18-Quarterly Percentage Data (2025-2026).jpg",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "1283ccb7-06c4-547a-a21a-59fa0b3930c3",
+      "type": "table",
+      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Quarter</th>\n      <th>Value (%)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>Q1'25</td>\n      <td>17</td>\n    </tr>\n    <tr>\n      <td>Q2'25</td>\n      <td>15</td>\n    </tr>\n    <tr>\n      <td>Q3'25</td>\n      <td>20</td>\n    </tr>\n    <tr>\n      <td>Q4'25</td>\n      <td>15</td>\n    </tr>\n    <tr>\n      <td>Q1'26</td>\n      <td>18</td>\n    </tr>\n  </tbody>\n</table>",
+      "path": "tables/table-19 Quarterly Values.html",
+      "metadata": {
+        "length": 471,
+        "summary": "table-20\nThe table shows quarterly percentage values from Q1'25 to Q1'26, ranging from 15% to 20%, with Q3'25 having the highest value at 20%.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-19 Quarterly Values.html",
+        "keywords": [
+          "Quarter",
+          "Value",
+          "Percentage"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "946b1845-9da8-502b-8c22-bc890e9bd33a",
+      "type": "text",
+      "content": "</details> <details>0\n[images/image-14-Quarterly Percentage Data (2025-2026).jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-15 Quarterly Values.html]\n\n</details>\nWorldwide\n\n</details> <details>0\n[images/image-15-Quarterly Percentage Data (2025-2026).jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-16 Quarterly Values.html]\n\n</details>\nUS & Canada\n\n</details> <details>0\n[images/image-16-Quarterly Percentage Trends.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-17 Quarterly Values.html]\n\n</details>\nEurope\n\n</details> <details>0\n[images/image-17-Quarterly Growth Trend.jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-18 Quarterly Values.html]\n\n</details>\nAsia-Pacific\n\n</details> <details>0\n[images/image-18-Quarterly Percentage Data (2025-2026).jpg]\n\n<details>\n<summary>bar chart</summary>\n\n[tables/table-19 Quarterly Values.html]\n\n</details>\nRest of World",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Average Price Per Ad YoY Percentage Change",
+      "metadata": {
+        "length": 804,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [
+          "details",
+          "summary",
+          "bar",
+          "chart",
+          "Worldwide",
+          "US",
+          "Canada",
+          "Europe",
+          "Asia",
+          "Pacific",
+          "Rest",
+          "World"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "89b992d8-3719-5047-bd85-bf2049cb3b31",
+            "relation": "embeds",
+            "ref": "[images/image-14-Quarterly Percentage Data (2025-2026).jpg]",
+            "position": {
+              "start": 22,
+              "end": 81
+            }
+          },
+          {
+            "target": "5a9a3ff0-3766-5811-887b-a4c69a905b66",
+            "relation": "embeds",
+            "ref": "[tables/table-15 Quarterly Values.html]",
+            "position": {
+              "start": 123,
+              "end": 162
+            }
+          },
+          {
+            "target": "d30a3592-47ea-529b-940e-06e06192447d",
+            "relation": "embeds",
+            "ref": "[images/image-15-Quarterly Percentage Data (2025-2026).jpg]",
+            "position": {
+              "start": 208,
+              "end": 267
+            }
+          },
+          {
+            "target": "8683a3c7-6919-5b6d-9c2c-9a0eb6f0b6b6",
+            "relation": "embeds",
+            "ref": "[tables/table-16 Quarterly Values.html]",
+            "position": {
+              "start": 309,
+              "end": 348
+            }
+          },
+          {
+            "target": "762954c1-ba35-524d-80c0-f06075229c1d",
+            "relation": "embeds",
+            "ref": "[images/image-16-Quarterly Percentage Trends.jpg]",
+            "position": {
+              "start": 396,
+              "end": 445
+            }
+          },
+          {
+            "target": "5afee24d-42d3-5007-b886-b5d5ad63061e",
+            "relation": "embeds",
+            "ref": "[tables/table-17 Quarterly Values.html]",
+            "position": {
+              "start": 487,
+              "end": 526
+            }
+          },
+          {
+            "target": "00c61283-6184-5f21-b017-8a2071ef7eac",
+            "relation": "embeds",
+            "ref": "[images/image-17-Quarterly Growth Trend.jpg]",
+            "position": {
+              "start": 569,
+              "end": 613
+            }
+          },
+          {
+            "target": "b23a116d-5aea-54a3-bcce-5d8436f03562",
+            "relation": "embeds",
+            "ref": "[tables/table-18 Quarterly Values.html]",
+            "position": {
+              "start": 655,
+              "end": 694
+            }
+          },
+          {
+            "target": "a7037604-0c50-57eb-94a4-42dfea6d1a37",
+            "relation": "embeds",
+            "ref": "[images/image-18-Quarterly Percentage Data (2025-2026).jpg]",
+            "position": {
+              "start": 743,
+              "end": 802
+            }
+          },
+          {
+            "target": "1283ccb7-06c4-547a-a21a-59fa0b3930c3",
+            "relation": "embeds",
+            "ref": "[tables/table-19 Quarterly Values.html]",
+            "position": {
+              "start": 844,
+              "end": 883
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "84e9ab1c-4b57-5907-8a88-7b1464921a7d",
+      "type": "text",
+      "content": "",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Appendix",
+      "metadata": {
+        "length": 0,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [],
+        "keywords": [],
+        "connect_to": []
+      }
+    },
+    {
+      "chunk_id": "0de1bf51-3db0-563c-9a63-c49b71d6b225",
+      "type": "table",
+      "content": "<table><tr><td></td><td>Q1&#x27;24</td><td>Q2&#x27;24</td><td>Q3&#x27;24</td><td>Q4&#x27;24</td><td>Q1&#x27;25</td><td>Q2&#x27;25</td><td>Q3&#x27;25</td><td>Q4&#x27;25</td><td>Q1&#x27;26</td></tr><tr><td>Net cash provided by operating activities</td><td>$ 19,246</td><td>$ 19,370</td><td>$ 24,724</td><td>$ 27,988</td><td>$ 24,026</td><td>$ 25,561</td><td>$ 29,999</td><td>$ 36,214</td><td>$ 32,226</td></tr><tr><td>Less: Purchases of property and equipment</td><td>6,400</td><td>8,173</td><td>8,258</td><td>14,425</td><td>12,941</td><td>16,538</td><td>18,829</td><td>21,383</td><td>18,997</td></tr><tr><td>Less: Principal payments on finance leases</td><td>315</td><td>299</td><td>944</td><td>411</td><td>751</td><td>474</td><td>545</td><td>754</td><td>843</td></tr><tr><td>Free Cash Flow</td><td>$ 12,531</td><td>$ 10,898</td><td>$ 15,522</td><td>$ 13,152</td><td>$ 10,334</td><td>$ 8,549</td><td>$ 10,625</td><td>$ 14,077</td><td>$ 12,386</td></tr></table>",
+      "path": "tables/table-20 Free Cash Flow.html",
+      "metadata": {
+        "length": 959,
+        "summary": "table-21\nThe table shows net cash from operations, property purchases, finance lease payments, and free cash flow from Q1 2024 to Q1 2026, with free cash flow ranging from $8.5B to $15.5B.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "file_path": "tables/table-20 Free Cash Flow.html",
+        "keywords": [
+          "Free Cash Flow",
+          "Operating Activities",
+          "Capital Expenditures"
+        ],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "d7b5e91a-79c7-56d2-8e9e-d1f5e6f4df71",
+      "type": "text",
+      "content": "In Millions\n\n[tables/table-20 Free Cash Flow.html]\n\nFree cash flow (FCF) is a non-GAAP financial measure that has limitations as an analytical tool, and you should not consider it in isolation or as a substitute for analysis of other GAAP financial measures, such as net cash provided by operating activities. FCF is not intended to represent our residual cash flow available for discretionary expenses. Some of the limitations of FCF are: (i) FCF does not reflect our future contractual commitments, and (ii) other companies in our industry present similarly titled measures differently than we do, limiting their usefulness as comparative measures.",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Appendix/Free Cash Flow Reconciliation",
+      "metadata": {
+        "length": 689,
+        "summary": "",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [
+          "In",
+          "Millions",
+          "Free",
+          "cash",
+          "flow",
+          "FCF",
+          "GAAP",
+          "financial",
+          "measure",
+          "limitations",
+          "analytical",
+          "tool",
+          "isolation",
+          "substitute",
+          "analysis",
+          "measures",
+          "net",
+          "provided",
+          "operating",
+          "activities",
+          "intended",
+          "represent",
+          "residual",
+          "discretionary",
+          "expenses",
+          "Some",
+          "reflect",
+          "future",
+          "contractual",
+          "commitments",
+          "ii",
+          "companies",
+          "industry",
+          "present",
+          "similarly",
+          "titled",
+          "differently",
+          "limiting",
+          "usefulness",
+          "comparative"
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "0de1bf51-3db0-563c-9a63-c49b71d6b225",
+            "relation": "embeds",
+            "ref": "[tables/table-20 Free Cash Flow.html]",
+            "position": {
+              "start": 13,
+              "end": 50
+            }
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "8073d0e9-c154-5d30-a77c-64d8dca092e1",
+      "type": "text",
+      "content": "Family Metrics\nThe numbers for our key metrics are calculated using internal company data based on the activity of user accounts. We report our estimates of the numbers of our daily active people (DAP) and average revenue per person (ARPP) (collectively, our \"Family metrics\") based on the activity of users who visited at least one of Facebook, Instagram, Messenger, and WhatsApp (collectively, our \"Family\" of products) during the applicable period of measurement.\nWhile these numbers are based on what we believe to be reasonable estimates of our user base for the applicable period of measurement, there are inherent challenges in measuring usage of our products across large online and mobile populations around the world. The methodologies used to measure these metrics require significant judgment and are also susceptible to algorithm or other technical errors. In addition, we are continually seeking to improve our estimates of our user base, and such estimates may change due to improvements or changes in our methodology. We regularly review our processes for calculating these metrics, and from time to time we discover inaccuracies in our metrics or make adjustments to improve their accuracy, which can result in adjustments to our historical metrics. Our ability to recalculate our historical metrics may be impacted by data limitations or other factors that require us to apply different methodologies for such adjustments. We generally do not intend to update previously disclosed Family metrics for any such inaccuracies or adjustments that are within the error margins disclosed below.\nIn addition, our Family metrics estimates will differ from estimates published by third parties due to differences in methodology or other factors such as data limitations or other challenges in measuring large online and mobile populations. For example, our methodologies include measurements of our user base that have in some instances exceeded estimates of addressable online and mobile populations that are based on data published by third parties.\nMany people in our community have user accounts on more than one of our products, and some people have multiple user accounts within an individual product. Accordingly, for our Family metrics, we do not seek to count the total number of user accounts across our products because we believe that would not reflect the actual size of our community. Rather, our Family metrics represent our estimates of the number of unique people using at least one of Facebook, Instagram, Messenger, and WhatsApp. We do not require people to use a common identifier or link their accounts to use multiple products in our Family, and therefore must seek to attribute multiple user accounts within and across products to individual people. To calculate these metrics, we rely upon complex techniques, algorithms and machine learning models that seek to count the individual people behind user accounts, including by matching multiple user accounts within an individual product and across multiple products when we believe they are attributable to a single person, and counting such group of accounts as one person. These techniques and models require significant judgment, are subject to data and other limitations discussed below, and inherently are subject to statistical variances and uncertainties. We estimate the potential error in our Family metrics primarily based on user survey data as described further below, which itself is subject to error as well. While we expect the error margin for our Family metrics to vary from period to period, we estimate that such margin generally will be approximately 3% of our worldwide DAP. At our scale, it is very difficult to attribute multiple user accounts within and across products to individual people, and it is possible that the actual numbers of unique people using our products may vary significantly from our estimates, potentially beyond our estimated error margins. As a result, it is also possible that our Family metrics may indicate changes or trends in user numbers that do not match actual changes or trends.",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Appendix/Limitations of Key Metrics and Other Data",
+      "metadata": {
+        "length": 4114,
+        "summary": "The text describes how Family Metrics, including daily active people (DAP) and average revenue per person (ARPP), are calculated using internal data from Facebook, Instagram, Messenger, and WhatsApp. It highlights challenges in measuring unique users across multiple products, reliance on complex algorithms and machine learning to attribute accounts to individuals, and inherent statistical uncertainties. The estimated error margin is about 3% of worldwide DAP, but actual numbers may vary significantly.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [
+          "Family",
+          "Metrics",
+          "The",
+          "numbers",
+          "key",
+          "metrics",
+          "calculated",
+          "internal",
+          "company",
+          "data",
+          "based",
+          "activity",
+          "user",
+          "accounts",
+          "We",
+          "report",
+          "estimates",
+          "daily",
+          "active",
+          "people",
+          "DAP",
+          "average",
+          "revenue",
+          "person",
+          "ARPP",
+          "collectively",
+          "users",
+          "visited",
+          "Facebook",
+          "Instagram",
+          "Messenger",
+          "WhatsApp",
+          "products",
+          "applicable",
+          "period",
+          "measurement",
+          "While",
+          "reasonable",
+          "base",
+          "inherent",
+          "challenges",
+          "measuring",
+          "usage",
+          "large",
+          "online",
+          "mobile",
+          "populations",
+          "world",
+          "methodologies",
+          "measure",
+          "require",
+          "significant",
+          "judgment",
+          "susceptible",
+          "algorithm",
+          "technical",
+          "errors",
+          "In",
+          "addition",
+          "continually",
+          "seeking",
+          "improve",
+          "change",
+          "due",
+          "improvements",
+          "methodology",
+          "regularly",
+          "review",
+          "processes",
+          "calculating",
+          "time",
+          "discover",
+          "inaccuracies",
+          "make",
+          "adjustments",
+          "accuracy",
+          "result",
+          "historical",
+          "Our",
+          "ability",
+          "recalculate",
+          "impacted",
+          "limitations",
+          "factors",
+          "apply",
+          "generally",
+          "intend",
+          "update",
+          "previously",
+          "disclosed",
+          "error",
+          "margins",
+          "differ",
+          "published",
+          "parties",
+          "differences",
+          "For",
+          "include",
+          "measurements",
+          "instances",
+          "exceeded",
+          "addressable",
+          "Many",
+          "community",
+          "multiple",
+          "individual",
+          "product",
+          "Accordingly",
+          "seek",
+          "count",
+          "total",
+          "number",
+          "reflect",
+          "actual",
+          "size",
+          "Rather",
+          "represent",
+          "unique",
+          "common",
+          "identifier",
+          "link",
+          "attribute",
+          "To",
+          "calculate",
+          "rely",
+          "complex",
+          "techniques",
+          "algorithms",
+          "machine",
+          "learning",
+          "models",
+          "including",
+          "matching",
+          "attributable",
+          "single",
+          "counting",
+          "group",
+          "These",
+          "subject",
+          "discussed",
+          "inherently",
+          "statistical",
+          "variances",
+          "uncertainties",
+          "estimate",
+          "potential",
+          "primarily",
+          "survey",
+          "expect",
+          "margin",
+          "vary",
+          "approximately",
+          "3%",
+          "worldwide",
+          "At",
+          "scale",
+          "difficult",
+          "significantly",
+          "potentially",
+          "estimated",
+          "As",
+          "trends",
+          "match"
+        ],
+        "keywords": [
+          "DAP",
+          "ARPP",
+          "user estimation"
+        ],
+        "connect_to": []
+      }
+    },
+    {
+      "chunk_id": "dfe08e92-9dfe-52f0-8032-ef0cdcd5408f",
+      "type": "text",
+      "content": "To calculate our estimates of DAP, we currently use a series of machine learning models that are developed based on internal reviews of limited samples of user accounts and calibrated against user survey data. We apply significant judgment in designing these models and calculating these estimates. For example, to match user accounts within individual products and across multiple products, we use data signals such as similar device information, IP addresses, and user names. We also calibrate our models against data from periodic user surveys of varying sizes and frequency across our products, which survey questions are based on monthly usage, and which are inherently subject to error. The timing and results of such user surveys have in the past contributed, and may in the future contribute, to changes in our reported Family metrics from period to period. In addition, our data limitations may affect our understanding of certain details of our business and increase the risk of error for our Family metrics estimates. Our techniques and models rely on a variety of data signals from different products, and we rely on more limited data signals for some products compared to others. For example, as a result of limited visibility into encrypted products, we have fewer data signals from WhatsApp user accounts and primarily rely on phone numbers and device information to match WhatsApp user accounts with accounts on our other products. Any loss of access to data signals we use in our process for calculating Family metrics, whether as a result of our own product decisions, actions by third-party browser or mobile platforms, regulatory or legislative requirements, or other factors, also may impact the stability or accuracy of our reported Family metrics, as well as our ability to report these metrics at all. Our estimates of Family metrics also may change as our methodologies evolve, including through the application of new data signals or technologies, product changes, or other improvements in our user surveys, algorithms, or machine learning that may improve our ability to match accounts within and across our products or otherwise evaluate the broad population of our users. In addition, such evolution may allow us to identify previously undetected violating accounts (as defined below).\nWe regularly evaluate our Family metrics to estimate the percentage of our DAP consisting solely of \"violating\" accounts. We define \"violating\" accounts as accounts which we believe are intended to be used for purposes that violate our terms of service, including bots and spam. Our violating accounts estimation is based on an internal review of a limited sample of accounts, and we apply significant judgment in making this determination. For example, we look for account information and behaviors associated with Facebook and Instagram accounts that appear to be inauthentic to the reviewers, but we have less visibility into WhatsApp user activity due to encryption. In addition, if we believe an individual person has one or more violating accounts, we do not include such person in our violating accounts estimation as long as we believe they have one active account that does not constitute a violating account. In the fourth quarter of 2025, we made certain updates to the methodology we use for this estimation, including to incorporate updated data signals as a result of improvements in our ability to identify activity we believe to be violating our policies, as well as to focus on the most recent account activity when determining whether to include a person in our violating accounts estimation. Accordingly, in the fourth quarter of 2025, we estimated that less than $5\\%$ of our worldwide DAP consisted solely of violating accounts. We believe the increase compared to our prior estimation was a result of the methodology update described above. From time to time, we disable certain user accounts, make product changes, or take other actions to reduce the number of violating accounts among our users, which may also reduce our DAP estimates in a particular period. We intend to continue to disclose our estimates of the percentage of our DAP consisting solely of violating accounts on an annual basis. Violating accounts are very difficult to measure at our scale, and it is possible that the actual number of violating accounts may vary significantly from our estimates.\nUser Geography\nOur estimates for revenue by user location, as well as year-over-year percentage changes in ad impressions delivered and the average price per ad by user location, are also affected by data limitations and other challenges in measuring user geography. Our data regarding the geographic location of our users is estimated based on a number of factors, such as the user's IP address and self-disclosed location. These factors may not always accurately reflect the user's actual location. For example, a user may appear to be accessing our products from the location of the proxy server that the user connects to rather than from the user's actual location. The methodologies used to measure our metrics are also susceptible to algorithm or other technical errors.",
+      "path": "Earnings-Presentation-Q1-2026.pdf/Appendix/Limitations of Key Metrics and Other Data_2",
+      "metadata": {
+        "length": 5182,
+        "summary": "The passage describes the methodology for estimating Daily Active People (DAP) using machine learning models, data signals, and user surveys. It highlights challenges like limited data for encrypted products (e.g., WhatsApp) and reliance on IP addresses and device info. It also covers the estimation of violating accounts (bots/spam), which is difficult at scale, and notes a methodology update in Q4 2025 that increased the estimated percentage of violating accounts to less than 5%. Additionally, it discusses limitations in measuring user geography due to factors like proxy servers.",
+        "page_nums": [],
+        "document_top_summary": "This document includes: Meta Earnings Presentation Q1 2026, Appendix",
+        "tokens": [
+          "To",
+          "calculate",
+          "estimates",
+          "DAP",
+          "series",
+          "machine",
+          "learning",
+          "models",
+          "developed",
+          "based",
+          "internal",
+          "reviews",
+          "limited",
+          "samples",
+          "user",
+          "accounts",
+          "calibrated",
+          "survey",
+          "data",
+          "We",
+          "apply",
+          "significant",
+          "judgment",
+          "designing",
+          "calculating",
+          "For",
+          "match",
+          "individual",
+          "products",
+          "multiple",
+          "signals",
+          "similar",
+          "device",
+          "information",
+          "IP",
+          "addresses",
+          "names",
+          "calibrate",
+          "periodic",
+          "surveys",
+          "varying",
+          "sizes",
+          "frequency",
+          "questions",
+          "monthly",
+          "usage",
+          "inherently",
+          "subject",
+          "error",
+          "The",
+          "timing",
+          "results",
+          "past",
+          "contributed",
+          "future",
+          "contribute",
+          "reported",
+          "Family",
+          "metrics",
+          "period",
+          "In",
+          "addition",
+          "limitations",
+          "affect",
+          "understanding",
+          "details",
+          "business",
+          "increase",
+          "risk",
+          "Our",
+          "techniques",
+          "rely",
+          "variety",
+          "compared",
+          "result",
+          "visibility",
+          "encrypted",
+          "fewer",
+          "WhatsApp",
+          "primarily",
+          "phone",
+          "numbers",
+          "Any",
+          "loss",
+          "access",
+          "process",
+          "product",
+          "decisions",
+          "actions",
+          "party",
+          "browser",
+          "mobile",
+          "platforms",
+          "regulatory",
+          "legislative",
+          "requirements",
+          "factors",
+          "impact",
+          "stability",
+          "accuracy",
+          "ability",
+          "report",
+          "change",
+          "methodologies",
+          "evolve",
+          "including",
+          "application",
+          "technologies",
+          "improvements",
+          "algorithms",
+          "improve",
+          "evaluate",
+          "broad",
+          "population",
+          "users",
+          "evolution",
+          "identify",
+          "previously",
+          "undetected",
+          "violating",
+          "defined",
+          "regularly",
+          "estimate",
+          "percentage",
+          "consisting",
+          "solely",
+          "define",
+          "intended",
+          "purposes",
+          "violate",
+          "terms",
+          "service",
+          "bots",
+          "spam",
+          "estimation",
+          "review",
+          "sample",
+          "making",
+          "determination",
+          "account",
+          "behaviors",
+          "Facebook",
+          "Instagram",
+          "inauthentic",
+          "reviewers",
+          "activity",
+          "due",
+          "encryption",
+          "person",
+          "include",
+          "long",
+          "active",
+          "constitute",
+          "fourth",
+          "quarter",
+          "2025",
+          "made",
+          "updates",
+          "methodology",
+          "incorporate",
+          "updated",
+          "policies",
+          "focus",
+          "recent",
+          "determining",
+          "Accordingly",
+          "estimated",
+          "worldwide",
+          "consisted",
+          "prior",
+          "update",
+          "From",
+          "time",
+          "disable",
+          "make",
+          "reduce",
+          "number",
+          "intend",
+          "continue",
+          "disclose",
+          "annual",
+          "basis",
+          "Violating",
+          "difficult",
+          "measure",
+          "scale",
+          "actual",
+          "vary",
+          "significantly",
+          "User",
+          "Geography",
+          "revenue",
+          "location",
+          "year",
+          "ad",
+          "impressions",
+          "delivered",
+          "average",
+          "price",
+          "affected",
+          "challenges",
+          "measuring",
+          "geography",
+          "geographic",
+          "address",
+          "disclosed",
+          "These",
+          "accurately",
+          "reflect",
+          "accessing",
+          "proxy",
+          "server",
+          "connects",
+          "susceptible",
+          "algorithm",
+          "technical",
+          "errors"
+        ],
+        "keywords": [
+          "DAP",
+          "violating accounts",
+          "methodology"
+        ],
+        "connect_to": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "version": "2.0",
+  "job_id": "job_b7df53fb0c31",
+  "data_id": null,
+  "source_file_name": "lec1.pdf",
+  "processing_date": "2026-06-16T03:43:13.444399Z",
+  "processing": {
+    "page_count": 43,
+    "billing_status": "charged",
+    "cost": {
+      "micro_dollars": 64500,
+      "credits": 0.0645
+    },
+    "timing": {
+      "started_at": "2026-06-16T03:42:23.200783+00:00",
+      "completed_at": "2026-06-16T03:43:13.436355+00:00",
+      "duration_ms": 50235
+    },
+    "stages": {
+      "timing_ms": {
+        "document.profile": 2779,
+        "pdf.extract.standard": 34500,
+        "toc.detect_range_llm": 1236,
+        "md.detect_toc": 1255,
+        "heading.merge_pre_pass_llm": 1426,
+        "heading.hierarchy_llm_call": 4878,
+        "heading.hierarchy_llm": 4891,
+        "md.predict_headings": 6790,
+        "md.deferred_summaries": 4632,
+        "md.build_dataframe": 1,
+        "pdf.parse_md": 12877,
+        "document.cleanup_unreferenced_images": 2,
+        "document.compress_images": 0,
+        "worker.parse.document": 50165
+      },
+      "token_usage": {
+        "prompt_tokens": 5628,
+        "completion_tokens": 718,
+        "total_tokens": 6346
+      }
+    }
+  },
+  "statistics": {
+    "total_chunks": 62,
+    "text_chunks": 43,
+    "image_chunks": 15,
+    "table_chunks": 4,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "Class 1 Introduction to Statistical Learning Theory": {
+      "Administrative Info": {},
+      "Course Material": {},
+      "Prerequisites": {},
+      "Statistical Learning Theory (SLT)": {
+        "Motivations and Examples: Regression": {},
+        "Motivations and Examples: Binary Classification": {},
+        "Motivations and Examples: Multi-class Classification": {},
+        "Motivations and Examples: Multi-class Classification_2": {},
+        "Motivations and Examples: Structured Prediction Image Captioning": {}
+      },
+      "Formulating The Learning Problem": {
+        "Formulating the Learning Problem": {
+          "Main ingredients:": {},
+          "Input Space Linear Spaces": {},
+          "Output Space": {},
+          "Probability Distribution": {},
+          "Conditional Distribution": {},
+          "Loss Functions": {
+            "Loss Functions for Regression": {},
+            "Loss Functions for Classification": {}
+          }
+        },
+        "Formulating the Learning Problem_2": {},
+        "Defining Learning Algorithms": {},
+        "Formulating the Learning Problem_3": {}
+      },
+      "The Elements of Learning Theory": {
+        "Consistency": {},
+        "Convergence of Random Variables": {},
+        "Consistency vs Convergence of the Estimator": {},
+        "Existence of a Minimizer for the Risk": {},
+        "Measuring the “Quality” of a Learning Algorithm": {},
+        "Sample Complexity, Error Bounds and Tail Bounds": {},
+        "Empirical Risk as a Proxy": {},
+        "Empirical Vs Expected": {},
+        "Empirical Vs Expected Risk": {},
+        "Empirical Vs Expected_2": {},
+        "Empirical Risk Minimization": {},
+        "Generalization Error": {}
+      },
+      "A Taxonomy of Supervised Learning Problems": {
+        "A Taxonomy of Supervised Learning Problems": {
+          "Parametric Vs Non-parametric": {},
+          "Fixed Design Vs Random Design": {},
+          "Inductive Vs Transductive Learning": {},
+          "Offline∕Batch Vs Online∕Adversarial Learning": {}
+        }
+      },
+      "Wrapping up This class:": {}
+    }
+  }
+}

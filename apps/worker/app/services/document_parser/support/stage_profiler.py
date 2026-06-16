@@ -60,6 +60,14 @@ def init_stage_tracker() -> dict[str, int]:
     return tracker
 
 
+def get_current_stage_tracker() -> dict[str, int] | None:
+    """Return the active stage timing accumulator for this task, if any."""
+    root = _find_root_id()
+    if root is None:
+        return None
+    return _trackers.get(root)
+
+
 def cleanup_stage_tracker() -> None:
     """Remove the stage tracker for the current greenlet."""
     gid = _current_greenlet_id()

@@ -21,6 +21,8 @@ from app.services.document_ingestion.processing_context import ParseJobContext
 from loguru import logger
 
 from shared.models.schemas.job_metadata import JobMetadataHelper
+from shared.services.ai.token_tracking import get_current_token_tracker
+from app.services.document_parser.support.stage_profiler import get_current_stage_tracker
 from shared.services.storage.result_storage import ResultStorage, get_result_storage
 from shared.services.storage.zip_result_service import ZipResultService
 
@@ -46,6 +48,7 @@ def finalize_parse_success(
         source_file_name=source_file_name,
     )
     _attach_document_top_summary(result_package.chunks, document_top_summary)
+    _refresh_processing_stages(job_context)
 
     lifecycle_service.update_progress(
         job_id,
@@ -57,6 +60,7 @@ def finalize_parse_success(
         job_context=job_context,
         processing_started_at=processing_started_at,
     )
+    _refresh_processing_stages(job_context)
     generated_package = _generate_result_package(
         result_package=result_package,
         job_context=job_context,
@@ -160,6 +164,21 @@ def _enrich_document_navigation(
     return document_top_summary, section_summaries
 
 
+def _refresh_processing_stages(job_context: ParseJobContext) -> None:
+    token_usage = get_current_token_tracker()
+    timing_ms = get_current_stage_tracker()
+    if token_usage is None and timing_ms is None:
+        return
+
+    current_stages = job_context.job_metadata.get("stages")
+    stages = dict(current_stages) if isinstance(current_stages, dict) else {}
+    if token_usage is not None:
+        stages["token_usage"] = dict(token_usage)
+    if timing_ms is not None:
+        stages["timing_ms"] = dict(timing_ms)
+    job_context.job_metadata["stages"] = stages
+
+
 def _attach_document_top_summary(
     chunks: list[dict[str, Any]],
     document_top_summary: str,
@@ -189,6 +208,9 @@ def _record_processing_completion(
             int((processing_completed_at - processing_started_at).total_seconds() * 1000),
         ),
     }
+    _refresh_processing_stages(job_context)
+    if "stages" in job_context.job_metadata:
+        processing_timing_updates["stages"] = job_context.job_metadata["stages"]
     job_context.metadata_service.update_metadata(job_id, processing_timing_updates)
     job_context.job_metadata.update(processing_timing_updates)
 

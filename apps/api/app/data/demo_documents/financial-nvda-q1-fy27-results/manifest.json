@@ -1,0 +1,142 @@
+{
+  "version": "2.0",
+  "job_id": "job_58112accb346",
+  "data_id": null,
+  "source_file_name": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf",
+  "processing_date": "2026-06-16T03:24:45.225219Z",
+  "processing": {
+    "page_count": 45,
+    "billing_status": "charged",
+    "cost": {
+      "micro_dollars": 67500,
+      "credits": 0.0675
+    },
+    "timing": {
+      "started_at": "2026-06-16T03:21:39.093490+00:00",
+      "completed_at": "2026-06-16T03:24:45.205058+00:00",
+      "duration_ms": 186111
+    },
+    "stages": {
+      "timing_ms": {
+        "document.profile": 12761,
+        "pdf.extract.standard": 147250,
+        "toc.detect_range_llm": 1363,
+        "heading.hierarchy_llm_call": 7403,
+        "toc.parse_hierarchy_llm": 996,
+        "md.detect_toc": 2395,
+        "heading.merge_pre_pass_llm": 1861,
+        "heading.hierarchy_llm": 6431,
+        "md.predict_headings": 8982,
+        "md.deferred_summaries": 14231,
+        "md.build_dataframe": 1,
+        "pdf.parse_md": 26003,
+        "document.cleanup_unreferenced_images": 1,
+        "document.compress_images": 0,
+        "worker.parse.document": 186022
+      },
+      "token_usage": {
+        "prompt_tokens": 8743,
+        "completion_tokens": 1228,
+        "total_tokens": 9971
+      }
+    }
+  },
+  "statistics": {
+    "total_chunks": 120,
+    "text_chunks": 72,
+    "image_chunks": 6,
+    "table_chunks": 42,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "Root": {},
+    "Where You Can Find More Information": {},
+    "Part I. Financial Information": {
+      "Item 1. Financial Statements (Unaudited)": {},
+      "Note 1 - Summary of Significant Accounting Policies": {
+        "Basis of Presentation": {},
+        "Significant Accounting Policies": {
+          "Fiscal Year": {},
+          "Principles of Consolidation": {},
+          "Use of Estimates": {}
+        },
+        "Recently Issued Accounting Pronouncements": {}
+      },
+      "Note 2 - Stock-Based Compensation": {},
+      "Note 3 - Net Income Per Share": {},
+      "Note 4 - Amortizable Intangible Assets and Goodwill": {},
+      "Note 5 - Cash Equivalents and Marketable Securities": {},
+      "Note 6 - Non-marketable Securities": {
+        "Non-marketable Equity Securities": {},
+        "Equity Method Investments": {},
+        "Investment Commitments": {}
+      },
+      "Note 7 - Balance Sheet Components": {
+        "Property and Equipment:": {},
+        "Deferred Revenue": {}
+      },
+      "Note 8 - Derivative Financial Instruments": {
+        "Foreign Currency Derivatives": {},
+        "Facility Lease Guarantee": {}
+      },
+      "Note 10 - Commitments and Contingencies": {
+        "Commitments": {},
+        "Accrual for Product Warranty Liabilities": {},
+        "Litigation": {
+          "Securities Class Action and Derivative Lawsuits": {},
+          "Accounting for Loss Contingencies": {}
+        }
+      },
+      "Note 11 - Income Taxes": {},
+      "Note 12 - Shareholders' Equity": {},
+      "Note 13 - Segment Information": {},
+      "Note 14 - Leases": {}
+    },
+    "Forward-Looking Statements": {
+      "Overview": {
+        "Our Company and Our Businesses": {},
+        "Recent Developments, Future Objectives and Challenges": {},
+        "Financial Information by Business Segment and Geographic Data": {}
+      },
+      "Critical Accounting Policies and Estimates": {},
+      "Results of Operations": {
+        "Reportable Segments": {
+          "Revenue by Reportable Segments": {},
+          "Operating Income by Reportable Segments": {},
+          "Concentration of Revenue": {}
+        },
+        "Gross Profit and Gross Margin": {},
+        "Income Taxes": {},
+        "Liquidity": {
+          "Capital Return to Shareholders": {},
+          "Outstanding Indebtedness and Commercial Paper Program": {},
+          "Material Cash Requirements and Other Obligations": {}
+        }
+      },
+      "Adoption of New and Recently Issued Accounting Pronouncements": {}
+    },
+    "Item 3. Quantitative and Qualitative Disclosures About Market Risk": {
+      "Investment and Interest Rate Risk": {},
+      "Foreign Exchange Rate Risk": {}
+    },
+    "Item 4. Controls and Procedures": {
+      "Controls and Procedures": {
+        "Disclosure Controls and Procedures": {},
+        "Changes in Internal Control Over Financial Reporting": {},
+        "Inherent Limitations on Effectiveness of Controls": {}
+      }
+    },
+    "Part II. Other Information": {
+      "Item 1. Legal Proceedings": {},
+      "Item 1A. Risk Factors": {},
+      "Issuer Purchases of Equity Securities": {},
+      "Recent Sales of Unregistered Securities and Use of Proceeds": {},
+      "Item 5. Other Information": {}
+    },
+    "Signature": {},
+    "CERTIFICATION": {},
+    "CERTIFICATION_2": {},
+    "CERTIFICATION_3": {},
+    "CERTIFICATION_4": {}
+  }
+}

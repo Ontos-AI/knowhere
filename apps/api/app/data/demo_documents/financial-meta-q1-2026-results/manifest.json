@@ -1,0 +1,63 @@
+{
+  "version": "2.0",
+  "job_id": "job_d669d759ca88",
+  "data_id": null,
+  "source_file_name": "Meta-03-31-2026-Exhibit-99-1_final.pdf",
+  "processing_date": "2026-06-16T03:32:14.805330Z",
+  "processing": {
+    "page_count": 9,
+    "billing_status": "charged",
+    "cost": {
+      "micro_dollars": 13500,
+      "credits": 0.0135
+    },
+    "timing": {
+      "started_at": "2026-06-16T03:31:40.786174+00:00",
+      "completed_at": "2026-06-16T03:32:14.798647+00:00",
+      "duration_ms": 34012
+    },
+    "stages": {
+      "timing_ms": {
+        "document.profile": 3561,
+        "pdf.extract.standard": 24962,
+        "toc.detect_range_llm": 1075,
+        "md.detect_toc": 1089,
+        "heading.hierarchy_llm_call": 1847,
+        "heading.hierarchy_llm": 1854,
+        "md.predict_headings": 1958,
+        "md.deferred_summaries": 2335,
+        "md.build_dataframe": 1,
+        "pdf.parse_md": 5430,
+        "document.cleanup_unreferenced_images": 0,
+        "document.compress_images": 0,
+        "worker.parse.document": 33959
+      },
+      "token_usage": {
+        "prompt_tokens": 3363,
+        "completion_tokens": 170,
+        "total_tokens": 3533
+      }
+    }
+  },
+  "statistics": {
+    "total_chunks": 17,
+    "text_chunks": 11,
+    "image_chunks": 0,
+    "table_chunks": 6,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "Meta Reports First Quarter 2026 Results": {
+      "First Quarter 2026 Operational and Other Financial Highlights": {},
+      "CFO Outlook Commentary": {},
+      "Webcast and Conference Call Information": {},
+      "Disclosure Information": {},
+      "About Meta": {},
+      "Contacts": {},
+      "Forward-Looking Statements": {},
+      "Non-GAAP Financial Measures": {},
+      "Segment Results": {},
+      "Reconciliation of GAAP to Non-GAAP Results": {}
+    }
+  }
+}

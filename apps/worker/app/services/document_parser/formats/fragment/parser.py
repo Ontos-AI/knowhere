@@ -43,6 +43,7 @@ def generate_fragment_title(content: str, max_tokens: int = 30) -> Optional[str]
             messages=messages,
             max_tokens=max_tokens,
             timeout=30,
+            usage_task="parser.fragment_title",
         )
         if generated_title:
             return str(generated_title).strip()[:50]

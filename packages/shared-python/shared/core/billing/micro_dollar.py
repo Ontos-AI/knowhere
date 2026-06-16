@@ -2,14 +2,14 @@
 MicroDollar value object for type-safe integer-based currency operations.
 
 Standard: $1.00 = 1,000,000 micro-credits
-This allows representing prices like $0.0015 as 1,500 integers.
+This allows representing prices like $0.015 as 15,000 integers.
 
 Usage:
     # Create from int (e.g., from database value)
     balance = MicroDollar(user.credits_balance)
 
     # Calculations
-    cost = MicroDollar(1500) * 10  # 10 pages @ $0.0015/page
+    cost = MicroDollar(15000) * 10  # 10 pages @ $0.015/page
 
     # Get raw int value (e.g., for database storage)
     user.credits_balance = cost.amount
@@ -26,8 +26,8 @@ class MicroDollar:
     All arithmetic is integer-based to prevent floating-point errors in billing.
 
     Example:
-        price = MicroDollar(1_500)  # $0.0015
-        total = price * 10          # 10 pages -> 15,000 micros ($0.015)
+        price = MicroDollar(15_000)  # $0.015
+        total = price * 10           # 10 pages -> 150,000 micros ($0.15)
     """
 
     SCALE = 1_000_000  # $1.00 = 1,000,000 micros
@@ -99,7 +99,7 @@ class MicroDollar:
         """
         Multiply by a scalar quantity (integer only).
 
-        Example: 10 pages * $0.0015/page = $0.015
+        Example: 10 pages * $0.015/page = $0.15
         """
         if not isinstance(quantity, int):
             raise TypeError(

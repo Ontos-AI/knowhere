@@ -5,6 +5,20 @@ from __future__ import annotations
 from typing import Any, Protocol
 from urllib.parse import quote
 
+_SOURCE_FILE_EXTENSIONS = (
+    ".csv",
+    ".doc",
+    ".docx",
+    ".html",
+    ".md",
+    ".pdf",
+    ".ppt",
+    ".pptx",
+    ".txt",
+    ".xls",
+    ".xlsx",
+)
+
 
 class _DemoCitationDefinition(Protocol):
     @property
@@ -129,10 +143,7 @@ class DemoSourceProjection:
         source: _DemoSourceDefinition,
         chunks: tuple[dict[str, Any], ...],
     ) -> list[dict[str, Any]]:
-        return [
-            _publication_chunk(source=source, chunk=chunk)
-            for chunk in chunks
-        ]
+        return [_publication_chunk(source=source, chunk=chunk) for chunk in chunks]
 
     def canonical_chunk_id(
         self,
@@ -243,7 +254,15 @@ def _publication_path(
     if len(parts) >= 2 and parts[0] == "Default_Root":
         section_parts = parts[2:] if parts[1] == source.title else parts[1:]
         return "/".join([prefix, *section_parts]) if section_parts else prefix
+    if parts and _is_source_file_root(parts[0]):
+        section_parts = parts[1:]
+        return "/".join([prefix, *section_parts]) if section_parts else prefix
     return prefix
+
+
+def _is_source_file_root(value: str) -> bool:
+    normalized = value.strip().lower()
+    return normalized.endswith(_SOURCE_FILE_EXTENSIONS)
 
 
 def _resolve_citation_chunk(
