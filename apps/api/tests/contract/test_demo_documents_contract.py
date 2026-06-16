@@ -11,11 +11,14 @@ import pytest
 from httpx import AsyncClient
 from pytest import MonkeyPatch
 
+from app.services.demo import source_catalog as source_catalog_module
+from app.services.demo.source_catalog import DemoSourceCatalog, DemoSourceDefinition
 from tests.support.contract_database import ContractDatabase
 
 
 DEMO_SOURCE_ID = "demo-tsla-q4-2025"
 SPACEX_DEMO_SOURCE_ID = "demo-spacex-s1"
+NVDA_EARNINGS_CALL_DEMO_SOURCE_ID = "demo-financial-nvda-q1-fy27-earnings-call"
 
 
 class FakeResultStorage:
@@ -67,6 +70,47 @@ class FakeResultStorage:
         if normalized not in self.raw_files_by_job_id.get(job_id, set()):
             return None
         return f"https://assets.example.test/{job_id}/{normalized}"
+
+
+def test_should_keep_demo_catalog_metadata_light_for_sources_without_examples(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    loaded_demo_source_ids: list[str] = []
+    original_load_source_chunks = source_catalog_module._load_source_chunks
+
+    def load_source_chunks(
+        source: DemoSourceDefinition,
+    ) -> tuple[dict[str, Any], ...]:
+        loaded_demo_source_ids.append(source.demo_source_id)
+        return original_load_source_chunks(source)
+
+    monkeypatch.setattr(
+        source_catalog_module,
+        "_load_source_chunks",
+        load_source_chunks,
+    )
+
+    catalog = DemoSourceCatalog().get_catalog()
+
+    assert catalog["sources"]
+    assert DEMO_SOURCE_ID in loaded_demo_source_ids
+    assert SPACEX_DEMO_SOURCE_ID in loaded_demo_source_ids
+    assert NVDA_EARNINGS_CALL_DEMO_SOURCE_ID not in loaded_demo_source_ids
+
+
+def test_should_preserve_filename_rooted_sections_when_publishing_demo_chunks() -> None:
+    catalog = DemoSourceCatalog()
+    source = catalog.require_source(NVDA_EARNINGS_CALL_DEMO_SOURCE_ID)
+    publication_chunks = catalog.publication_chunks(source)
+    publication_paths = {
+        str(chunk.get("path") or "")
+        for chunk in publication_chunks
+        if chunk.get("type") == "text"
+    }
+
+    assert source.title in publication_paths
+    assert f"{source.title}/NVIDIA Corp. (NVDA)" in publication_paths
+    assert f"{source.title}/MANAGEMENT DISCUSSION SECTION" in publication_paths
 
 
 @pytest.mark.asyncio
@@ -123,24 +167,27 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
         "demo-stem-statistical-learning"
     )
     assert library_sources_by_id["stem-statistical-learning"]["chunk_count"] == 71
-    assert library_sources_by_id["financial-nvda-q1-fy27-earnings-call"][
-        "demo_source_id"
-    ] == "demo-financial-nvda-q1-fy27-earnings-call"
+    assert (
+        library_sources_by_id["financial-nvda-q1-fy27-earnings-call"]["demo_source_id"]
+        == "demo-financial-nvda-q1-fy27-earnings-call"
+    )
     assert library_sources_by_id["financial-micron-report-530bd7ed"]["status"] == (
         "ready"
     )
-    assert library_sources_by_id["financial-micron-report-530bd7ed"][
-        "demo_source_id"
-    ] == "demo-financial-micron-report-530bd7ed"
-    assert library_sources_by_id["financial-micron-report-530bd7ed"][
-        "chunk_count"
-    ] == 82
-    assert library_sources_by_id["financial-micron-report-9c0becf5"][
-        "demo_source_id"
-    ] == "demo-financial-micron-report-9c0becf5"
-    assert library_sources_by_id["financial-micron-report-9c0becf5"][
-        "chunk_count"
-    ] == 87
+    assert (
+        library_sources_by_id["financial-micron-report-530bd7ed"]["demo_source_id"]
+        == "demo-financial-micron-report-530bd7ed"
+    )
+    assert (
+        library_sources_by_id["financial-micron-report-530bd7ed"]["chunk_count"] == 82
+    )
+    assert (
+        library_sources_by_id["financial-micron-report-9c0becf5"]["demo_source_id"]
+        == "demo-financial-micron-report-9c0becf5"
+    )
+    assert (
+        library_sources_by_id["financial-micron-report-9c0becf5"]["chunk_count"] == 87
+    )
     assert library_sources_by_id["stem-transformers-tutorial"]["demo_source_id"] == (
         "demo-stem-transformers-tutorial"
     )

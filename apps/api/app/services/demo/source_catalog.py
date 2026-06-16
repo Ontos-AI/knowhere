@@ -69,9 +69,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 ),
                 citations=(
                     DemoCitationDefinition(
-                        section_path=(
-                            "TSLA-Q4-2025-Update.pdf-->OTHER UPDATES"
-                        ),
+                        section_path=("TSLA-Q4-2025-Update.pdf-->OTHER UPDATES"),
                         description="xAI investment",
                         content=(
                             "On January 16, 2026, Tesla entered into an agreement "
@@ -117,10 +115,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 ),
                 citations=(
                     DemoCitationDefinition(
-                        section_path=(
-                            "TSLA-Q4-2025-Update.pdf-->OUTLOOK-->"
-                            "Product"
-                        ),
+                        section_path=("TSLA-Q4-2025-Update.pdf-->OUTLOOK-->Product"),
                         description="2026 production plans",
                         content=(
                             "Cybercab, Tesla Semi and Megapack 3 are on schedule "
@@ -346,8 +341,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         canonical_document_id="demo-doc-financial-microsoft-2025-annual-report",
         title="Microsoft 2025 Annual Report.docx",
         mime_type=(
-            "application/vnd.openxmlformats-officedocument."
-            "wordprocessingml.document"
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         ),
         size_bytes=1_044_155,
         asset_directory="financial-microsoft-2025-annual-report",
@@ -446,7 +440,7 @@ class DemoSourceCatalog:
         source_payloads = [
             self._projection.source_catalog_payload(
                 source=source,
-                chunks=_load_source_chunks(source),
+                chunks=_load_source_chunks(source) if source.examples else (),
             )
             for source in _DEMO_SOURCE_DEFINITIONS
         ]
@@ -464,10 +458,7 @@ class DemoSourceCatalog:
         return {
             "sources": source_payloads,
             "official_library": get_official_library_catalog(
-                {
-                    str(payload["demo_source_id"]): payload
-                    for payload in source_payloads
-                }
+                {str(payload["demo_source_id"]): payload for payload in source_payloads}
             ),
         }
 
