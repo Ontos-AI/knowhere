@@ -1,0 +1,80 @@
+{
+  "version": "2.0",
+  "job_id": "job_0e0ec2025607",
+  "data_id": null,
+  "source_file_name": "8.pdf",
+  "processing_date": "2026-06-16T03:39:28.853867Z",
+  "processing": {
+    "page_count": 27,
+    "billing_status": "charged",
+    "cost": {
+      "micro_dollars": 40500,
+      "credits": 0.0405
+    },
+    "timing": {
+      "started_at": "2026-06-16T03:37:55.446046+00:00",
+      "completed_at": "2026-06-16T03:39:28.840141+00:00",
+      "duration_ms": 93394
+    },
+    "stages": {
+      "timing_ms": {
+        "document.profile": 8189,
+        "pdf.extract.standard": 65917,
+        "toc.detect_range_llm": 1402,
+        "md.detect_toc": 1427,
+        "heading.merge_pre_pass_llm": 1162,
+        "heading.hierarchy_llm_call": 3194,
+        "heading.hierarchy_llm": 3203,
+        "md.predict_headings": 5078,
+        "md.deferred_summaries": 12336,
+        "md.build_dataframe": 1,
+        "pdf.parse_md": 19209,
+        "document.cleanup_unreferenced_images": 1,
+        "document.compress_images": 0,
+        "worker.parse.document": 93322
+      },
+      "token_usage": {
+        "prompt_tokens": 5575,
+        "completion_tokens": 409,
+        "total_tokens": 5984
+      }
+    }
+  },
+  "statistics": {
+    "total_chunks": 46,
+    "text_chunks": 23,
+    "image_chunks": 19,
+    "table_chunks": 4,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "CHAPTER 8 Transformers": {
+      "8.1 Attention": {},
+      "(8.3) The chicken didn't cross the road because it": {},
+      "8.2 Transformer Blocks": {},
+      "8.3 Parallelizing computation using a single matrix X": {},
+      "8.4 The input: embeddings for token and position": {},
+      "8.5 The Language Modeling Head": {},
+      "8.6 More on Sampling": {
+        "8.6.1 Top-k sampling": {},
+        "8.6.2 Nucleus or top-p sampling": {}
+      },
+      "8.7 Training": {},
+      "8.8 Dealing with Scale": {
+        "8.8.1 Scaling laws": {},
+        "8.8.2 KV Cache": {
+          "1 x dk": {},
+          "1 x N": {},
+          "1 x dv": {}
+        },
+        "8.8.3 Parameter Efficient Fine Tuning": {}
+      },
+      "8.9 Interpreting the Transformer": {
+        "8.9.1 In-Context Learning and Induction Heads": {},
+        "8.9.2 Logit Lens": {}
+      },
+      "8.10 Summary": {},
+      "Historical Notes": {}
+    }
+  }
+}

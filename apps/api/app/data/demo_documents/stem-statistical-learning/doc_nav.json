@@ -1,0 +1,559 @@
+{
+  "version": "1.0",
+  "file_name": "Statistical Learning Notes.pdf",
+  "stats": {
+    "total_chunks": 71,
+    "text_chunks": 60,
+    "image_chunks": 11,
+    "table_chunks": 0,
+    "max_depth": 4
+  },
+  "sections": [
+    {
+      "title": "Root",
+      "path": "notes.pdf",
+      "level": 1,
+      "summary": "This course covers modern statistical methods for high-dimensional data, where variables exceed observations. It introduces ridge regression, kernel machines, the Lasso for regression with more parameters than observations, graphical modeling for causal inference, and uncertainty quantification. It also reviews classical methods like ordinary least squares and maximum likelihood estimation.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Chapter 1 Kernel machines",
+      "path": "notes.pdf/Chapter 1 Kernel machines",
+      "level": 1,
+      "summary": "The passage discusses linear models and compares unbiased estimators with biased ones. It shows that the mean squared error of an estimator can be decomposed into variance plus squared bias. While OLS and MLEs are unbiased, biased methods can have lower variance, leading to better prediction error, especially when the number of parameters is large relative to observations. The text introduces penalisation techniques that shrink estimates toward zero, enabling reliable estimation when classical MLEs fail and often outperforming traditional approaches.",
+      "chunk_count": 14,
+      "children": [
+        {
+          "title": "1.1 Ridge regression",
+          "path": "notes.pdf/Chapter 1 Kernel machines/1.1 Ridge regression",
+          "level": 2,
+          "summary": "The passage introduces ridge regression as a method to reduce the variance of OLS estimates by shrinking coefficients towards zero via a penalty term λ||β||₂². It explains the optimization problem, the closed-form solution after centering and scaling, and the bias-variance trade-off. A theorem states that for sufficiently small λ, ridge regression outperforms OLS in terms of mean squared error. The singular value decomposition (SVD) is used to show that ridge regression shrinks coordinates of Y by factors D_jj²/(D_jj²+λ), with more shrinkage on smaller principal components. This makes ridge effective when signal is concentrated in large principal components. The passage also discusses the need for selecting λ and the connection to principal components analysis.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "1.2 v-fold cross-validation",
+          "path": "notes.pdf/Chapter 1 Kernel machines/1.2 v-fold cross-validation",
+          "level": 2,
+          "summary": "The text discusses cross-validation as a technique for selecting a regression method, using ridge regression as an example. It explains the goal of minimizing expected prediction error for new observations, introduces v-fold cross-validation to estimate this error, and describes how to choose the optimal λ by minimizing the CV(λ) criterion. It also notes that cross-validation provides a biased estimate of prediction error, with bias depending on fold size, and mentions stacking as an alternative that finds optimal weighted combinations of regression procedures.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "1.3 The kernel trick",
+          "path": "notes.pdf/Chapter 1 Kernel machines/1.3 The kernel trick",
+          "level": 2,
+          "summary": "The passage discusses ridge regression, presenting the fitted values formula and an alternative computation using XX^T instead of X^TX to reduce complexity when p >> n. It introduces a quadratic signal model, showing how to compute the kernel matrix K directly using (1 + x_i^T x_j)^2, which requires O(n^2 p) operations instead of O(n^2 p^2 + n^3). This illustrates the kernel trick: ridge regression depends only on inner products, so non-linear feature maps can be handled by directly computing similarity measures k(x_i, x_j).",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "1.4 Kernels",
+          "path": "notes.pdf/Chapter 1 Kernel machines/1.4 Kernels",
+          "level": 2,
+          "summary": "The passage discusses how non-linear models can be efficiently fitted by replacing the Gram matrix with a kernel matrix. It introduces the concept of a positive definite kernel as a symmetric map that yields positive semi-definite matrices. It shows that any inner product of feature maps defines a kernel, and notes that the converse also holds. A Cauchy-Schwarz inequality for kernels is proved via the determinant of a 2x2 kernel matrix.",
+          "chunk_count": 5,
+          "children": [
+            {
+              "title": "1.4.1 Examples of kernels",
+              "path": "notes.pdf/Chapter 1 Kernel machines/1.4 Kernels/1.4.1 Examples of kernels",
+              "level": 3,
+              "summary": "The passage defines several kernels: linear, polynomial, Gaussian, Sobolev, and Jaccard similarity. It explains how to prove they are valid kernels using properties like sum, product, and limit of kernels. The Gaussian kernel is shown to be a kernel by decomposing it into a product of two kernels. The Sobolev kernel is the covariance of Brownian motion. The Jaccard kernel is defined for sets.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "1.4.2 Reproducing kernel Hilbert spaces",
+              "path": "notes.pdf/Chapter 1 Kernel machines/1.4 Kernels/1.4.2 Reproducing kernel Hilbert spaces",
+              "level": 3,
+              "summary": "Theorem 5 proves that for every kernel k, there exists a feature map φ into an inner product space H such that k(x,x') = ⟨φ(x), φ(x')⟩. The proof constructs H as the vector space of functions of the form f(·)=∑α_i k(·,x_i), with φ(x)=k(·,x). An inner product is defined on H, and its well-definedness is shown using the kernel's properties. Positive definiteness is established by noting that ⟨f,f⟩≥0 due to the kernel's positive definiteness, and Cauchy-Schwarz inequality is derived by treating the inner product as a kernel itself. The space H can be completed to a Hilbert space, specifically a reproducing kernel Hilbert space (RKHS), where the reproducing property f(x)=⟨k_x,f⟩ holds. The reproducing kernel of an RKHS is a positive definite kernel, and every kernel corresponds to a unique RKHS.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Examples",
+              "path": "notes.pdf/Chapter 1 Kernel machines/1.4 Kernels/Examples",
+              "level": 3,
+              "summary": "Linear kernel. Here $\\mathcal{H}=\\{f:f(x)=\\beta^{T}x,\\beta\\in\\mathbb{R}^{p}\\}$ and if $f(x)=\\beta^{T}x$ then $\\|f\\|_{H}^{2}=||\\beta||_{2}^{2}$ . Sobolev kernel. It can be shown that $\\mathcal{H}$ is roughly the space of continuous functions $f:[0,1]\\to \\mathbb{R}$ with $f(0) = 0$ that are differentiable almost everywhere, and for which $\\int_0^1 f'(x)^2 dx < \\infty$ . It contains the class of Lipschitz functions (functions $f:[0,1]\\to \\mathbb{R}$ for which there exists some $L$ with $|f(x) - f(y)|\\leq L|x - y|$ for all $x,y\\in [0,1]$ ) that are 0 at the origin. The norm is $$ \\left(\\int_ {0} ^ {1} f ^ {\\prime} (x) ^ {2} d x\\right) ^ {1 / 2}. $$ Though the construction of the RKHS from a kernel is explicit, it can be challenging to understand precisely the space and the form of the norm.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "1.4.3 The representer theorem",
+              "path": "notes.pdf/Chapter 1 Kernel machines/1.4 Kernels/1.4.3 The representer theorem",
+              "level": 3,
+              "summary": "The passage explains the Representer Theorem, which shows that the minimizer of a regularized empirical risk functional in a Reproducing Kernel Hilbert Space (RKHS) can be expressed as a linear combination of kernel evaluations at the training points. This result is key to kernel ridge regression, where the optimization problem reduces to finding coefficients α that minimize ||Y - Kα||² + λαᵀKα, leading to predictions f̂(x) = Σ αᵢ k(x, xᵢ). The theorem bridges infinite-dimensional optimization to a finite-dimensional problem.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "1.5 Kernel ridge regression",
+          "path": "notes.pdf/Chapter 1 Kernel machines/1.5 Kernel ridge regression",
+          "level": 2,
+          "summary": "The text discusses kernel ridge regression, focusing on its predictive performance. It presents Theorem 7, which bounds the mean squared prediction error (MSPE) in terms of kernel matrix eigenvalues and regularization parameter λ. The proof uses the representer theorem, eigendecomposition, and a trace trick. The bound is expressed as δ_n(λ_n) = σ²/(λ_n) * (1/n) Σ min(μ̂_i/4, λ_n) + λ_n/4. Using Mercer's theorem, the bound is related to kernel eigenvalues μ_j. For the Sobolev kernel, eigenvalues decay as 1/(π²(2j-1)²), leading to an optimal λ_n ~ (σ²/n)^{2/3} and error rate O((σ²/n)^{2/3}). The text concludes that kernel ridge regression is optimal up to a constant factor for MSPE when the true function lies in the RKHS.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "1.6 Other kernel machines",
+          "path": "notes.pdf/Chapter 1 Kernel machines/1.6 Other kernel machines",
+          "level": 2,
+          "summary": "Thus far we have we have only considered applying the kernel trick to ridge regression, which as we have seen has attractive theoretical properties as a regression method. However the kernel trick and the representer theorem are much more generally applicable. In settings where the $Y_{i}$ are not continuous but are in $\\{-1,1\\}$ (e.g. labels for spam and ham, fraud and not fraud etc.), popular approaches include kernel logistic regression and the support vector machine (SVM) [Cortes and Vapnik, 1995].",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "1.6.1 The support vector machine",
+              "path": "notes.pdf/Chapter 1 Kernel machines/1.6 Other kernel machines/1.6.1 The support vector machine",
+              "level": 3,
+              "summary": "The text derives the support vector classifier from the separable hyperplane case to the non-separable case using hinge loss and L2 regularization. It starts with maximizing the margin M subject to constraints, then introduces a penalty for misclassification, leading to the primal objective with hinge loss and ridge penalty. It extends to include an intercept term and generalizes to reproducing kernel Hilbert spaces (RKHS) via the representer theorem, resulting in the kernel SVM formulation with predictions based on kernel evaluations.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "1.6.2 Logistic regression",
+              "path": "notes.pdf/Chapter 1 Kernel machines/1.6 Other kernel machines/1.6.2 Logistic regression",
+              "level": 3,
+              "summary": "Recall that standard logistic regression may be motivated by assuming $$ \\log \\left(\\frac {\\mathbb {P} (Y _ {i} = 1)}{\\mathbb {P} (Y _ {i} = - 1)}\\right) = x _ {i} ^ {T} \\beta^ {0} $$ and picking $\\hat{\\beta}$ to maximise the log-likelihood. This leads to (see example sheet) the following optimisation problem: $$ \\underset {\\beta \\in \\mathbb {R} ^ {p}} {\\arg \\min} \\sum_ {i = 1} ^ {n} \\log \\{1 + \\exp (- Y _ {i} x _ {i} ^ {T} \\beta) \\}. $$ The ‘kernelised’ version is given by $$ \\underset {f \\in \\mathcal {H}} {\\arg \\min} \\left\\{\\sum_ {i = 1} ^ {n} \\log [ 1 + \\exp \\{- Y _ {i} f (x _ {i}) \\} ] + \\lambda \\| f \\| _ {\\mathcal {H}} ^ {2} \\right\\}, $$ where H is an RKHS. As in the case of the SVM, the representer theorem gives a finite-dimensional optimisation that is equivalent to the above.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "1.7 Large-scale kernel machines",
+          "path": "notes.pdf/Chapter 1 Kernel machines/1.7 Large-scale kernel machines",
+          "level": 2,
+          "summary": "The passage discusses the computational challenges of kernel methods for large datasets, particularly the O(n^3) cost of inverting the kernel matrix and O(n) prediction cost. It introduces random feature expansions as a solution, approximating shift-invariant kernels via random mappings based on Bochner's theorem. The approach uses random cosine features to achieve linear-time computation in n, with applications to kernel ridge regression.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Chapter 2",
+      "path": "notes.pdf/Chapter 2",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 8,
+      "children": [
+        {
+          "title": "Introduction to the Lasso",
+          "path": "notes.pdf/Chapter 2/Introduction to the Lasso",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 7,
+          "children": [
+            {
+              "title": "2.1 Model selection",
+              "path": "notes.pdf/Chapter 2/Introduction to the Lasso/2.1 Model selection",
+              "level": 3,
+              "summary": "The passage revisits the linear model Y = Xβ⁰ + ε with E(ε)=0 and Var(ε)=σ²I. It introduces the concept of sparsity, where the true set S of nonzero coefficients has size s much smaller than the total number of variables p. The mean squared prediction error (MSPE) of ordinary least squares (OLS) is derived as (p/n)σ². If the relevant variables in S were known and used in a reduced model, the MSPE would be (s/n)σ², which can be much smaller. Additionally, parameter estimates from the reduced model are more accurate and easier to interpret. The passage then mentions that classical model selection strategies will be reviewed.",
+              "chunk_count": 3,
+              "children": [
+                {
+                  "title": "Best subset regression",
+                  "path": "notes.pdf/Chapter 2/Introduction to the Lasso/2.1 Model selection/Best subset regression",
+                  "level": 4,
+                  "summary": "A natural approach to finding S is to consider all $2^{p}$ possible regression procedures each involving regressing the response on a different sets of explanatory variables $X_{M}$ where M is a subset of $\\{1,\\ldots,p\\}$ . We can then pick the best regression procedure using cross-validation (say). For general design matrices, this involves an exhaustive search over all subsets, so this is not really feasible for p > 50.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Forward selection",
+                  "path": "notes.pdf/Chapter 2/Introduction to the Lasso/2.1 Model selection/Forward selection",
+                  "level": 4,
+                  "summary": "This can be seen as a greedy way of performing best subsets regression. Given a target model size m (the tuning parameter), this works as follows. 1. Start by fitting an intercept only model. 2. Add to the current model the predictor variable that reduces the residual sum of squares the most. 3. Continue step 2 until m predictor variables have been selected.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "title": "2.2 The Lasso estimator",
+              "path": "notes.pdf/Chapter 2/Introduction to the Lasso/2.2 The Lasso estimator",
+              "level": 3,
+              "summary": "The passage introduces the Least absolute shrinkage and selection operator (Lasso), which estimates coefficients by minimizing a penalized least squares objective with an ℓ1 penalty. This penalty shrinks estimates toward zero and can force some coefficients to exactly zero, enabling simultaneous variable selection and parameter estimation. The Lasso's ℓ1 constraint creates a diamond-shaped feasible region with corners at axes, making it likely that the OLS solution contours intersect at these corners, leading to sparse solutions. This contrasts with ridge regression's ℓ2 penalty, which yields spherical constraints and non-zero shrinkage.",
+              "chunk_count": 3,
+              "children": [
+                {
+                  "title": "2.2.1 Convexity and the Lasso",
+                  "path": "notes.pdf/Chapter 2/Introduction to the Lasso/2.2 The Lasso estimator/2.2.1 Convexity and the Lasso",
+                  "level": 4,
+                  "summary": "The passage discusses key properties of the Lasso regression method. It contrasts Lasso with Best Subset Regression, noting Lasso's convex optimization makes it computationally tractable for large-scale problems. It defines convex sets and functions, and provides Proposition 9 on convex function properties. The text addresses Lasso solution uniqueness, stating fitted values are unique (Proposition 10) even if coefficient estimates may not be. Section 2.2.2 covers prediction error of Lasso with no design assumptions, presenting Theorem 11 which gives a bound on prediction error with high probability when lambda is chosen appropriately, assuming a normal linear model with centered and scaled columns.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "2.2.3 Concentration inequalities I",
+                  "path": "notes.pdf/Chapter 2/Introduction to the Lasso/2.2 The Lasso estimator/2.2.3 Concentration inequalities I",
+                  "level": 4,
+                  "summary": "The text discusses concentration inequalities, starting with Markov's inequality and the Chernoff bound, then introduces sub-Gaussian random variables. It defines sub-Gaussian variables, provides a tail bound (Proposition 12), and shows that bounded variables are sub-Gaussian (Hoeffding's lemma). Proposition 14 states that linear combinations of independent sub-Gaussian variables remain sub-Gaussian. Lemma 15 applies these results to bound the probability that the Lasso's regularization parameter exceeds a threshold, assuming sub-Gaussian errors, yielding a high-probability bound for the event that the Lasso's condition holds.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Chapter 3 The Lasso and beyond",
+      "path": "notes.pdf/Chapter 3 The Lasso and beyond",
+      "level": 1,
+      "summary": "The Lasso and beyond In this chapter, we will study the Lasso in more depth and present more precise theory about its behaviour. We will first study the variable selection properties of the Lasso, which will require some basic results in convex analysis that we present below.",
+      "chunk_count": 16,
+      "children": [
+        {
+          "title": "3.1 Some facts from optimisation theory and convex analysis",
+          "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.1 Some facts from optimisation theory and convex analysis",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "3.1.1 Subgradients",
+              "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.1 Some facts from optimisation theory and convex analysis/3.1.1 Subgradients",
+              "level": 3,
+              "summary": "The passage defines subgradients and subdifferentials for convex functions, states basic properties (differentiability, scaling, sum rules), and presents the KKT condition for optimality. It then computes the subdifferential of the ℓ1-norm, showing it consists of vectors with infinity-norm ≤1 and whose nonzero entries equal the sign of the corresponding coordinate.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "3.1.2 The Lagrangian method",
+              "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.1 Some facts from optimisation theory and convex analysis/3.1.2 The Lagrangian method",
+              "level": 3,
+              "summary": "Consider an optimisation problem of the form $$ \\text { minimise } f (x), \\text { subject to } g (x) = 0 \\tag {3.1.2} $$ where $g : R^{d} \\to R^{b}$ . Suppose the optimal value is $c^{*} \\in R$ . The Lagrangian for this problem is defined as $$ L (x, \\theta) = f (x) + \\theta^ {T} g (x) $$ where $\\theta \\in \\mathbb{R}^b$ . Note that $$ \\inf _ {x \\in \\mathbb {R} ^ {d}} L (x, \\theta) \\leq \\inf _ {x \\in \\mathbb {R} ^ {d}: g (x) = 0} L (x, \\theta) = c ^ {*} $$ for all $\\theta$ . The Lagrangian method involves finding a $\\theta^{*}$ such that the minimising $x^{*}$ on the LHS satisfies $g(x^{*}) = 0$ . This $x^{*}$ must then be a minimiser in the original problem (3.1.2).",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "3.2 Lasso solutions",
+          "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.2 Lasso solutions",
+          "level": 2,
+          "summary": "Equipped with these tools from convex analysis, we can now fully characterise the solutions to the Lasso. We have that $\\hat{\\beta}_{\\lambda}^{L}$ is a Lasso solution if and only if $0 \\in \\partial Q_{\\lambda}(\\hat{\\beta}_{\\lambda}^{L})$ , which is equivalent to $$ \\frac {1}{n} X ^ {T} (Y - X \\hat {\\beta} _ {\\lambda} ^ {\\mathrm{L}}) = \\lambda \\hat {\\nu}, $$ for $\\hat{\\nu}$ with $\\| \\hat{\\nu}\\|_{\\infty}\\leq 1$ and writing $\\hat{S}_{\\lambda} = \\{k:\\hat{\\beta}_{\\lambda ,k}^{\\mathrm{L}}\\neq 0\\}$ , $\\hat{\\nu}_{\\hat{S}_{\\lambda}} = \\mathrm{sgn}(\\hat{\\beta}_{\\lambda ,\\hat{S}_{\\lambda}}^{\\mathrm{L}})$ . These are known as the KKT conditions for the Lasso.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "3.3 Variable selection",
+          "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.3 Variable selection",
+          "level": 2,
+          "summary": "Theorem 20 provides conditions for Lasso to recover the true sign pattern in a noiseless high-dimensional linear model. The irrepresentable condition requires that the maximum absolute dot product between the sign vector and regression coefficients of inactive variables on active ones is at most 1. Additionally, the true coefficients must exceed a threshold involving the inverse Gram matrix. Under these conditions, a Lasso solution exists with the correct sign pattern. The converse also holds: if a Lasso solution recovers the true signs, the irrepresentable condition must be satisfied.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "3.4 Prediction and estimation",
+          "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.4 Prediction and estimation",
+          "level": 2,
+          "summary": "The text discusses the compatibility condition for the Lasso estimator in high-dimensional linear regression. It defines the compatibility constant φ², which measures the restricted eigenvalue of the design matrix. Under this condition, the Lasso with tuning parameter λ = Aσ√(log(p)/n) achieves an MSPE bound of O(σ²s log(p)/(n φ²)) with high probability. The proof uses the basic inequality, Hölder's inequality, and the compatibility condition to derive the oracle-like bound.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "3.5 The compatibility condition",
+          "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.5 The compatibility condition",
+          "level": 2,
+          "summary": "The passage discusses the compatibility condition for a covariance matrix in high-dimensional statistics. It defines a quantity φ²(S) that measures compatibility, and presents Lemma 22 showing that if an estimated covariance matrix Σ̂ is close to a matrix Σ̃ with positive φ²(S), then Σ̂ also has positive φ²(S). The proof uses Hölder's inequality and bounds on the difference between matrices. The goal is to apply this with Σ̃ = Σ⁰ (population covariance) and use concentration inequalities to show that Σ̂ satisfies the compatibility condition with high probability when Σ⁰ does.",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "3.5.1 Concentration inequalities II",
+              "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.5 The compatibility condition/3.5.1 Concentration inequalities II",
+              "level": 3,
+              "summary": "The text introduces Bernstein's inequality for independent random variables satisfying Bernstein's condition with parameters (σ, b). It provides the moment condition, the moment generating function bound, and the tail probability bound. A lemma shows that the product of two mean-zero sub-Gaussian random variables satisfies Bernstein's condition with parameters (8σ_Wσ_Z, 4σ_Wσ_Z), enabling concentration results for such products.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "3.5.2 The compatibility condition and random design",
+              "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.5 The compatibility condition/3.5.2 The compatibility condition and random design",
+              "level": 3,
+              "summary": "The text presents Theorem 25 and Corollary 26 on the compatibility condition for sparse estimation. Theorem 25 shows that under i.i.d. sub-Gaussian rows with certain growth conditions, the empirical compatibility constant is at least half the population version with probability tending to 1. Corollary 26 extends this to normal distributions with bounded eigenvalues. The proof uses concentration inequalities and union bounds.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "3.6 Computation",
+          "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.6 Computation",
+          "level": 2,
+          "summary": "The text describes coordinate descent as an efficient optimization technique for Lasso solutions, minimizing functions of the form f(x)=g(x)+Σh_j(x_j) where g is convex and differentiable and each h_j is convex. It iteratively updates each coordinate by minimizing f with respect to that coordinate while holding others fixed. Tseng [2001] proves convergence to a minimizer under compactness of the sublevel set. Corollary 27 states existence of a minimizer and convergence of function values, with uniqueness ensuring convergence of iterates. The text also discusses solving Lasso over a grid of λ values using warm starts and an active set strategy: initializing active set A with non-zero coefficients from previous λ, performing coordinate descent only on A, checking KKT violations, and expanding A if violations exist.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "3.7 Extensions of the Lasso",
+          "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.7 Extensions of the Lasso",
+          "level": 2,
+          "summary": "We can add an $\\ell_{1}$ penalty to many other log-likelihoods, or more generally other loss functions besides the squared-error loss that arises from the normal linear model. For Lasso-penalised generalised linear models, such as logistic regression, similar theoretical results to those we have obtained are available and computations can proceed in a similar fashion to above.",
+          "chunk_count": 5,
+          "children": [
+            {
+              "title": "3.7.1 Structural penalties",
+              "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.7 Extensions of the Lasso/3.7.1 Structural penalties",
+              "level": 3,
+              "summary": "The Lasso penalty encourages the estimated coefficients to be shrunk towards 0 and sometimes exactly to 0. Other penalty functions can be constructed to encourage different types of sparsity.",
+              "chunk_count": 3,
+              "children": [
+                {
+                  "title": "Group Lasso",
+                  "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.7 Extensions of the Lasso/3.7.1 Structural penalties/Group Lasso",
+                  "level": 4,
+                  "summary": "Suppose we have a partition $G_{1},\\ldots ,G_{q}$ of $\\{1,\\dots ,p\\}$ (so $\\cup_{k = 1}^{q}G_{k} = \\{1,\\dots ,p\\}$ , $G_{j}\\cap G_{k} = \\emptyset$ for $j\\neq k$ ). The group Lasso penalty [Yuan and Lin, 2006] is given by $$ \\lambda \\sum_ {j = 1} ^ {q} m _ {j} \\| \\beta_ {G _ {j}} \\| _ {2}. $$ The multipliers $m_{j} > 0$ serve to balance cases where the groups are of very different sizes; typically we choose $m_{j} = \\sqrt{|G_{j}|}$ . This penalty encourages either an entire group G to have $\\hat{\\beta}_{G} = 0$ or $\\hat{\\beta}_{k} \\neq 0$ for all $k \\in G$ . Such a property is useful when groups occur through coding for categorical predictors or when expanding predictors using basis functions.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Fused Lasso",
+                  "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.7 Extensions of the Lasso/3.7.1 Structural penalties/Fused Lasso",
+                  "level": 4,
+                  "summary": "If there is a sense in which the coefficients are ordered, so $\\beta_{j}^{0}$ is expected to be close to $\\beta_{j+1}^{0}$ , a fused Lasso penalty [Tibshirani et al., 2005] may be appropriate. This takes the form $$ \\lambda_ {1} \\sum_ {j = 1} ^ {p - 1} | \\beta_ {j} - \\beta_ {j + 1} | + \\lambda_ {2} \\| \\beta \\| _ {1}, $$ where the second term may be omitted depending on whether shrinkage towards 0 is desired. As an example, consider the simple setting where $Y_{i} = \\mu_{i}^{0} + \\varepsilon_{i}$ , and it is thought that the $(\\mu_{i}^{0})_{i=1}^{n}$ form a piecewise constant sequence. Then one option is to minimise over $\\mu \\in R^{n}$ , the following objective $$ \\frac {1}{n} \\| Y - \\mu \\| _ {2} ^ {2} + \\lambda \\sum_ {i = 1} ^ {n - 1} | \\mu_ {i} - \\mu_ {i + 1} |. $$",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "title": "3.7.2 Reducing the bias of the Lasso",
+              "path": "notes.pdf/Chapter 3 The Lasso and beyond/3.7 Extensions of the Lasso/3.7.2 Reducing the bias of the Lasso",
+              "level": 3,
+              "summary": "The passage discusses drawbacks of the Lasso, which shrinks non-zero coefficients toward zero. Solutions include re-estimating non-zero coefficients via OLS or the relaxed Lasso, using the adaptive Lasso with weighted penalties, and employing non-convex penalties like MCP. Non-convex penalties may cause multiple local minima, but coordinate descent can work if non-convexity is mild.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Chapter 4 Graphical modelling and causal inference",
+      "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference",
+      "level": 1,
+      "summary": "Graphical modelling and causal inference So far we have considered the problem of relating a particular response to a large collection of explanatory variables. In some settings however, we do not have a distinguished response variable and instead we would like to better understand relationships between all the variables. In other situations, rather than being able to predict variables, we would like to understand causal relationships between them. Representing relationships between random variables through graphs will be an important tool in tackling these problems.",
+      "chunk_count": 19,
+      "children": [
+        {
+          "title": "4.1 Graphs",
+          "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.1 Graphs",
+          "level": 2,
+          "summary": "The text defines fundamental graph concepts including directed/undirected edges, subgraphs, parents/children, v-structures, skeletons, paths, directed cycles, DAGs, d-separation, and moralised graphs. It also defines topological ordering and proves every DAG has one via induction and source node removal.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "4.2 Conditional independence graphs",
+          "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.2 Conditional independence graphs",
+          "level": 2,
+          "summary": "We would like to understand which variables may be ‘related’ to each other. Trying to find pairs of variables that are independent and so unlikely to be related to each other is not necessarily a good way to proceed as each variable may be correlated with a large number of variables without being directly related to them. A better approach is to use conditional independence. Definition 9. If X, Y and Z are random vectors with a joint density $f_{XYZ}$ (w.r.t. a product measure $\\mu$ ) then we say X is conditionally independent of Y given Z, and write $$ X \\perp Y | Z $$ if $$ f _ {X Y | Z} (x, y | z) = f _ {X | Z} (x | z) f _ {Y | Z} (y | z). $$ Equivalently $$ X \\perp \\perp Y | Z \\Longleftrightarrow f _ {X | Y Z} (x | y, z) = f _ {X | Z} (x | z). $$ We will first look at how undirected graphs can be used to visualise conditional independencies between random variables; thus in the next few subsections by graph we will mean undirected graph. Definition 10. Let $Z = (Z_{1}, \\ldots, Z_{p})^{T}$ be a collection of random variables with joint law P. The conditional independence graph (CIG) for P is the graph with $V = \\{1, \\ldots, p\\}$ and an edge $\\{j, k\\}$ between j and k if and only if $$ Z _ {j} \\nparallel Z _ {k} \\mid Z _ {- j k}. $$",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "4.3 Gaussian graphical models",
+          "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.3 Gaussian graphical models",
+          "level": 2,
+          "summary": "Estimating the CIG given samples from P is a difficult task in general. However, in the case where P is multivariate Gaussian, things simplify considerably as we shall see. We begin with some notation. For a matrix $M \\in R^{p \\times p}$ , and sets $A, B \\subseteq \\{1, \\ldots, p\\}$ , let $M_{A,B}$ be the $|A| \\times |B|$ submatrix of M consisting of those rows and columns of M indexed by the sets A and B respectively. The submatrix extraction operation is always performed first (so e.g. $M_{k,-k}^{T} = (M_{k,-k})^{T}$ ).",
+          "chunk_count": 5,
+          "children": [
+            {
+              "title": "4.3.1 Normal conditionals",
+              "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.3 Gaussian graphical models/4.3.1 Normal conditionals",
+              "level": 3,
+              "summary": "Now let $Z \\sim N_p(\\mu, \\Sigma)$ with $\\Sigma$ positive definite. Note $\\Sigma_{A,A}$ is also positive definite for any $A$ . Proposition 29. $$ Z _ {A} | Z _ {B} = z _ {B} \\sim N _ {| A |} (\\mu_ {A} + \\Sigma_ {A, B} \\Sigma_ {B, B} ^ {- 1} (z _ {B} - \\mu_ {B}), \\Sigma_ {A, A} - \\Sigma_ {A, B} \\Sigma_ {B, B} ^ {- 1} \\Sigma_ {B, A}) $$ Proof. Idea: write $Z_{A}=MZ_{B}+(Z_{A}-MZ_{B})$ with matrix $M\\in R^{|A|\\times|B|}$ such that $Z_{A}-MZ_{B}$ and $Z_{B}$ are independent, i.e. such that $$ \\operatorname{Cov} (Z _ {B}, Z _ {A} - M Z _ {B}) = \\Sigma_ {B, A} - \\Sigma_ {B, B} M ^ {T} = 0. $$ This occurs when we take $M^{T} = \\Sigma_{B,B}^{-1}\\Sigma_{B,A}$ . Because $Z_{A} - MZ_{B}$ and $Z_{B}$ are independent, the distribution of $Z_{A} - MZ_{B}$ conditional on $Z_{B} = z_{B}$ is equal to its unconditional distribution. Now $$ \\begin{array}{l} \\mathbb {E} (Z _ {A} - M Z _ {B}) = \\mu_ {A} - \\Sigma_ {A, B} \\Sigma_ {B, B} ^ {- 1} \\mu_ {B} \\\\ \\mathrm{Var} (Z _ {A} - M Z _ {B}) = \\Sigma_ {A, A} + \\Sigma_ {A, B} \\Sigma_ {B, B} ^ {- 1} \\Sigma_ {B, B} \\Sigma_ {B, B...Sigma_ {B, A} - 2 \\Sigma_ {A, B} \\Sigma_ {B, B} ^ {- 1} \\Sigma_ {B, A} \\\\ = \\Sigma_ {A, A} - \\Sigma_ {A, B} \\Sigma_ {B, B} ^ {- 1} \\Sigma_ {B, A}. \\\\ \\end{array} $$ Since $MZ_{B}$ is a function of $Z_{B}$ and $Z_{A}-MZ_{B}$ is normally distributed, we have the result. ☐",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "4.3.2 Nodewise regression",
+              "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.3 Gaussian graphical models/4.3.2 Nodewise regression",
+              "level": 3,
+              "summary": "The passage discusses neighborhood selection for estimating a conditional independence graph (CIG). It derives the conditional distribution of Z_k given Z_{-k} in a Gaussian setting, showing that zero coefficients in the regression imply conditional independence. It then describes using Lasso regression of each variable on all others to select neighbors, with OR and AND rules for edge inclusion. Finally, it mentions an alternative approach of directly estimating the precision matrix Omega.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "4.3.3 The precision matrix and conditional independence",
+              "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.3 Gaussian graphical models/4.3.3 The precision matrix and conditional independence",
+              "level": 3,
+              "summary": "The following facts about blockwise inversion of matrices will help us to interpret the mean and variance in Proposition 29. Proposition 30. Let $M \\in R^{p \\times p}$ be a symmetric positive definite matrix and suppose $$ M = \\left( \\begin{array}{c c} P & Q ^ {T} \\\\ Q & R \\end{array} \\right) $$ with P and R square matrices. The Schur complement of R is $P - Q^{T}R^{-1}Q =: S$ . We have that S is positive definite and $$ M ^ {- 1} = \\left( \\begin{array}{c c} S ^ {- 1} & - S ^ {- 1} Q ^ {T} R ^ {- 1} \\\\ - R ^ {- 1} Q S ^ {- 1} & R ^ {- 1} + R ^ {- 1} Q S ^ {- 1} Q ^ {T} R ^ {- 1} \\end{array} \\right). $$ Furthermore $\\det(M) = \\det(S)\\det(R)$ . Let $\\Omega = \\Sigma^{-1}$ be the precision matrix. Note that $\\Sigma_{k,k} - \\Sigma_{k,-k}\\Sigma_{-k,-k}^{-1}\\Sigma_{-k,k} = \\Omega_{kk}^{-1}$ , and more generally that $\\mathrm{Var}(Z_A|Z_{A^c}) = \\Omega_{A,A}^{-1}$ . Also, we see that $\\Sigma_{-k,-k}^{-1}\\Sigma_{-k,k} = -\\Omega_{kk}^{-1}\\Omega_{-k,k}$ , so $$ (\\Sigma_ {- k, - k} ^ {- 1} \\Sigma_ {- k, k}) _ {j} = 0 \\Leftrightarrow \\left\\{ \\begin{array}{l l} \\Omega_ {j, k} = 0 \\text {for} j < k \\\\ \\Omega_ {j + 1, k} = 0 \\text {for} j \\geq k. \\end{array} \\right. $$ Thus $$ Z _ {k} \\perp \\perp Z _ {j} | Z _ {- j k} \\Leftrightarrow \\Omega_ {j k} = 0. $$ This motivates another approach to estimating the CIG.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "4.3.4 The Graphical Lasso",
+              "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.3 Gaussian graphical models/4.3.4 The Graphical Lasso",
+              "level": 3,
+              "summary": "The passage derives the maximum likelihood estimate of the precision matrix Ω for a multivariate normal distribution, showing that the unpenalized estimate is S^{-1} when S is positive definite. It then introduces the graphical Lasso, which adds an L1 penalty λ‖Ω‖₁ to the negative log-likelihood to promote sparsity in Ω, enabling estimation of a conditional independence graph. The objective is convex, and diagonal elements are often not penalized.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "4.4 Structural equation models",
+          "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.4 Structural equation models",
+          "level": 2,
+          "summary": "The passage introduces structural equation models (SEMs) as a way to represent data generating processes, going beyond conditional independence graphs to answer interventional questions. It defines an SEM as a collection of equations where each variable is a function of its parents and independent noise, with the graph being a DAG. An artificial example illustrates how variables like course attendance depend on other factors. The SEM determines the joint distribution and allows querying distributions after setting variables to specific values.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "4.5 Interventions",
+          "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.5 Interventions",
+          "level": 2,
+          "summary": "The text explains how replacing a structural equation in an SEM creates a new model, with a perfect intervention setting a variable to a constant (e.g., do(Z_k=a)). It contrasts interventional expectations (e.g., E(Z_j|do(Z_k=a))) with conditional expectations, using an example where do(Z_2=1) yields P(Z_1=1|do(Z_2=1))=9/16, while P(Z_1=1|Z_2=1)=7/12, showing they differ.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "4.6 The Markov properties on DAGs",
+          "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.6 The Markov properties on DAGs",
+          "level": 2,
+          "summary": "The DAG of an SEM can encode a number of conditional independencies present in the law of the random vector Z. To understand this, we first introduce some so-called Markov properties on DAGs. Let $P$ be the joint law of $Z$ and suppose it has a density $f$ . Definition 12. Given a DAG G, we say P satisfies the (i) Markov factorisation property w.r.t. the DAG $\\mathcal{G}$ if $$ f (z _ {1}, \\ldots , z _ {p}) = \\prod_ {k = 1} ^ {p} f (z _ {k} | z _ {\\mathrm{pa} (k)}). $$ (ii) global Markov property w.r.t. the DAG G if for all disjoint A, B, S ⊆ {1, . . . , p}, $$ A, B d \\text {-separated by} S \\Rightarrow Z _ {A} \\perp \\perp Z _ {B} | Z _ {S}. $$ Theorem 31. If P has a density f (with respect to a product measure), then all Markov properties in definition 12 are equivalent. In view of this, we will henceforth use the term Markov to mean global Markov. Proposition 32. Let P be the law of an SEM with DAG G. Then P obeys the Markov factorisation property w.r.t. G. Thus we can read off from the DAG of an SEM a great deal...properties of the joint distribution, but also to determine the effects of certain perturbations to the system. In many settings, we may not have a prespecified SEM to work with, but instead we would like to learn the DAG from observational data. This is the problem we turn to next.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "4.7 Causal structure learning",
+          "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.7 Causal structure learning",
+          "level": 2,
+          "summary": "Given a sample of observations from P, we would like to determine the DAG which generated it. We can think of this task in terms of two subtasks: firstly we need to understand how to extract information concerning P from a sample, which is a traditional statistical question of the sort we are used to; secondly, given P itself, we need to relate this to the DAG which generated it. The latter problem is unique to casual inference and we discuss this first.",
+          "chunk_count": 8,
+          "children": [
+            {
+              "title": "4.7.1 Three obstacles",
+              "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.7 Causal structure learning/4.7.1 Three obstacles",
+              "level": 3,
+              "summary": "There are three obstacles to causal structure learning. The first two are more immediate but the last is somewhat subtle.",
+              "chunk_count": 4,
+              "children": [
+                {
+                  "title": "Causal minimality",
+                  "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.7 Causal structure learning/4.7.1 Three obstacles/Causal minimality",
+                  "level": 4,
+                  "summary": "We know that if P is generated by an SEM with DAG G, then P will be Markov w.r.t. G. Conversely, one can show that if P is Markov w.r.t. a DAG G, then there is also an SEM with DAG G that could have generated P. But P will be Markov w.r.t. a great number of DAGs, e.g. $Z_{1}$ and $Z_{2}$ being independent can be represented by $$ Z _ {1} = 0 \\times Z _ {2} + \\varepsilon_ {1} = \\varepsilon_ {1}, \\qquad Z _ {2} = \\varepsilon_ {2}. $$ This motivates the following definition. Definition 13. P satisfies causal minimality with respect to G if it is (global) Markov w.r.t. G but not to a proper subgraph of G with the same nodes.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Markov equivalent DAGs",
+                  "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.7 Causal structure learning/4.7.1 Three obstacles/Markov equivalent DAGs",
+                  "level": 4,
+                  "summary": "It is possible for two different DAGs to satisfy the same collection of d-separations e.g. $$ For a DAG $\\mathcal{G}$ , let0 [images/image-9-$$ For a D.jpg] This motivates the following definition. For a DAG $\\mathcal{G}$ , let0 [images/image-10-This motiv.jpg] For a DAG $\\mathcal{G}$ , let $\\mathcal{M}(\\mathcal{G}) = \\{\\text{distributions } P : P \\text{ satisfies the global Markov property w.r.t. } \\mathcal{G}\\}$ . Definition 14. We say two DAGs $\\mathcal{G}_1$ and $\\mathcal{G}_2$ are Markov equivalent if $\\mathcal{M}(\\mathcal{G}_1) = \\mathcal{M}(\\mathcal{G}_2)$ . Proposition 33. Two DAGs are Markov equivalent if and only if they have the same skeleton and v-structures. The set of all DAGs that are Markov equivalent to a DAG can be represented by a completed PDAG (CPDAG) which contains an edge $(j,k)$ if and only if one member of the Markov equivalence class does. We can only ever hope to obtain the Markov equivalence class i.e. the CPDAG of a DAG with which P satisfies causal minimality (unless we place restrictions on the functional forms of the SEM equations).",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Faithfulness",
+                  "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.7 Causal structure learning/4.7.1 Three obstacles/Faithfulness",
+                  "level": 4,
+                  "summary": "The text discusses two structural equation models (SEMs) generating the same multivariate normal distribution P^0. The first SEM has variables Z1, Z2, Z3 with parameters α, β, γ, and under the condition β+αγ=0 (e.g., β=-1, α=γ=1), Z1 is independent of Z3. A second SEM with different structure and error distributions also generates P^0. The concept of faithfulness is introduced: a distribution is faithful to a DAG if all conditional independencies are represented in the DAG. P^0 is not faithful to the first DAG (G) but is faithful to the second (tilde G).",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "title": "4.7.2 The PC algorithm",
+              "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.7 Causal structure learning/4.7.2 The PC algorithm",
+              "level": 3,
+              "summary": "The text presents two propositions about d-separation in directed acyclic graphs (DAGs). Proposition 34 states that adjacent nodes in a DAG cannot be d-separated by any set, while non-adjacent nodes can be d-separated by the parent set of the later node in a topological order. This allows recovery of the DAG's skeleton by testing conditional independence. Proposition 35 addresses v-structures: in a triple where only j and k are non-adjacent, if they are in a v-structure (j→l←k), no d-separating set for j and k can contain l; conversely, if a d-separating set exists without l, the structure must be a v-structure. These results help identify v-structures from the skeleton and d-separating sets.",
+              "chunk_count": 3,
+              "children": [
+                {
+                  "title": "Population version",
+                  "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.7 Causal structure learning/4.7.2 The PC algorithm/Population version",
+                  "level": 4,
+                  "summary": "The text describes the PC-algorithm for causal structure learning, which efficiently finds the skeleton of a directed acyclic graph (DAG) by testing conditional independencies. Algorithm 1 iteratively removes edges between nodes if they are conditionally independent given some subset of neighbors, assuming faithfulness to the true DAG. Algorithm 2 then orients v-structures for non-adjacent nodes sharing a common neighbor, using stored separating sets.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Sample version",
+                  "path": "notes.pdf/Chapter 4 Graphical modelling and causal inference/4.7 Causal structure learning/4.7.2 The PC algorithm/Sample version",
+                  "level": 4,
+                  "summary": "The sample version of the PC algorithm replaces the querying of conditional independence with a conditional independence test applied to data $x_{1},\\ldots,x_{n}$ . The level of the test $\\alpha$ will be a tuning parameter of the method. If the data are assumed to be multivariate normal, the (sample) partial correlation can be used to test conditional independence since if $Z_{j} \\perp \\perp Z_{k}|Z_{S}$ then $$ \\mathrm{Corr} (Z _ {j}, Z _ {k} | Z _ {S}) := \\rho_ {j k \\cdot S} = 0. $$ To compute the sample partial correlation, we regress $X_{j}$ and $X_{k}$ on $X_{S}$ and compute the correlation between the resulting residuals.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Chapter 5 High-dimensional inference",
+      "path": "notes.pdf/Chapter 5 High-dimensional inference",
+      "level": 1,
+      "summary": "The text discusses high-dimensional inference using the debiased Lasso. It explains how to form confidence intervals for regression coefficients when p >> n by constructing an approximate inverse of the sample covariance matrix. The key idea is to debias the Lasso estimator so that its distribution is approximately normal, enabling inference. The method relies on sparsity conditions and uses node-wise Lasso regressions to estimate the inverse covariance matrix. Theorem 36 provides asymptotic normality results, showing that the debiased estimator's error term is small under certain conditions. Practical construction of confidence intervals uses the estimated variance from the debiased Lasso.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Bibliography",
+      "path": "notes.pdf/Bibliography",
+      "level": 1,
+      "summary": "This passage is a bibliography of 22 references on regression methods, including stacked regressions, support-vector networks, ridge regression, lasso, relaxed lasso, fused lasso, adaptive lasso, scaled sparse linear regression, grouped variables, Gaussian graphical models, minimax concave penalty, kernel methods, random features, representer theorem, and related topics in high-dimensional statistics and machine learning.",
+      "chunk_count": 1,
+      "children": []
+    }
+  ],
+  "resources": {
+    "images": [
+      {
+        "path": "images/image-1-Support Vector Margin Visualization.jpg",
+        "summary": "image-1 - Diagram illustrating the geometric margin in a Support Vector Machine (SVM) classification problem. - Two classes of data points are plotted: red circles ($y_i = 1$) and blue crosses ($y_i = -1$). - A solid line represents the decision boundary (hyperplane), and dashed lines represent the margins. - An arrow labeled $\\beta$ indicates the normal vector to the hyperplane. - The distance from a point $x_i$ to the hyperplane is annotated as $\\frac{y_i x_i^T \\beta}{\\|\\beta\\|_2}$. - The total margin width between the two dashed lines is labeled $M$."
+      },
+      {
+        "path": "images/image-2-Propositio.jpg",
+        "summary": "image-2 Proposition 14. Let $(W_{i})_{i=1}^{n}$ be a sequence of independent mean-zero sub-Gaussian random variables with parameters $(\\sigma_{i})_{i=1}^{n}$ and let $\\gamma \\in R^{n}$ . Then $\\gamma^{T}W$ is sub-Gaussian with parameter $\\left(\\sum_{i}\\gamma_{i}^{2}\\sigma_{i}^{2}\\right)^{1/2}$ . We can now prove a more general version of the probability bound required for Theorem 11.0"
+      },
+      {
+        "path": "images/image-3-$$ # Chapt.jpg",
+        "summary": "image-3 $$ # Chapter 3 The Lasso and beyond0"
+      },
+      {
+        "path": "images/image-4-From this .jpg",
+        "summary": "image-4 From this we get ## 3.5 The compatibility condition0"
+      },
+      {
+        "path": "images/image-5-$$ We woul.jpg",
+        "summary": "image-5 $$ We would like to apply the result above with $\\check{\\Sigma} = \\Sigma^{0}$ , and use to argue that if $\\Sigma^{0}$ satisfies the compatibility condition, then so will $\\hat{\\Sigma}$ with high probability. In order to do this, we need to argue that the event that $\\max_{jk} |\\hat{\\Sigma}_{jk} - \\Sigma_{jk}^{0}|$ is small occurs with high probability. We can obtain such a result with the aid of concentration inequalities.0"
+      },
+      {
+        "path": "images/image-6-Let $Z = (.jpg",
+        "summary": "image-6 Let $Z = (Z_{1},\\ldots ,Z_{p})^{T}$ be a collection of random variables. The graphs we will consider will always have $V = \\{1,\\dots ,p\\}$ so $V$ indexes the random variables. <details>0"
+      },
+      {
+        "path": "images/image-7-Z2 --_ Z3 .jpg",
+        "summary": "image-7 Z2 --> Z3 <details>0"
+      },
+      {
+        "path": "images/image-8-Example 4..jpg",
+        "summary": "image-8 Example 4.4.1. Consider the following (totally artificial) SEM which has whether you are taking this course $(Z_{1}=1)$ depending on whether you went to the statistical modelling course $(Z_{2}=1)$ and whether you have heard about machine learning $(Z_{3}=1)$ . Suppose <details>0"
+      },
+      {
+        "path": "images/image-9-$$ For a D.jpg",
+        "summary": "image-9 $$ For a DAG $\\mathcal{G}$ , let0"
+      },
+      {
+        "path": "images/image-10-This motiv.jpg",
+        "summary": "image-10 This motivates the following definition. For a DAG $\\mathcal{G}$ , let0"
+      },
+      {
+        "path": "images/image-11-$$ 5.1 Usi.jpg",
+        "summary": "image-11 $$ 5.1 Using the debiased Lasso in practice0"
+      }
+    ],
+    "tables": []
+  }
+}

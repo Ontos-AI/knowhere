@@ -1,0 +1,54 @@
+[
+  {
+    "toc_range": [
+      2,
+      56
+    ],
+    "scan_range": [
+      2,
+      228
+    ],
+    "toc_with_level": "| id | heading                                                   | level |\n|----|-----------------------------------------------------------|-------|\n| 1  | ## Chapter 1. Combinatorics 5                             | 1     |\n| 2  | 1.1. Counting Principle 5                                 | 2     |\n| 3  | 1.2. Permutations 6                                       | 2     |\n| 4  | 1.3. Combinations 7                                       | 2     |\n| 5  | 1.4. Multinomial Coefficients 9                           | 2     |\n| 6  | ## Chapter 2. Axioms of Probability 10                    | 1     |\n| 7  | 2.1. Sample Space and Events 10                           | 2     |\n| 8  | 2.2. Axioms of Probability 12                             | 2     |\n| 9  | 2.3. Equally Likely Outcomes 15                           | 2     |\n| 10 | ## Chapter 3. Independence 18                             | 1     |\n| 11 | 3.1. Independent Events 18                                | 2     |\n| 12 | ## Chapter 4. Conditional Probability and Independence 22 | 1     |\n| 13 | 4.1. Conditional Probabilities 22                         | 2     |\n| 14 | 4.2. Bayes's Formula 26                                   | 2     |\n| 15 | ## Chapter 5. Random Variables 29                         | 1     |\n| 16 | 5.1. Random Variables 29                                  | 2     |\n| 17 | 5.2. Discrete Random Variables 31                         | 2     |\n| 18 | 5.3. Expected Value 32                                    | 2     |\n| 19 | 5.4. The C.D.F. 34                                        | 2     |\n| 20 | 5.5. Expected Value of Sums of Random Variables 37        | 2     |\n| 21 | 5.6. Expectation of a Function of a Random Variable 39    | 2     |\n| 22 | 5.7. Variance 41                                          | 2     |\n| 23 | ## Chapter 6. Some Discrete Distributions 43              | 1     |\n| 24 | 6.1. Bernouli and Binomial Random Variables 43            | 2     |\n| 25 | 6.2. The Poisson Distribution 46                          | 2     |\n| 26 | 6.3. Other Discrete Distributions 49                      | 2     |\n| 27 | ## Chapter 7. Continuous Random Variables 53              | 1     |\n| 28 | 7.1. Intro to continuous R.V 53                           | 2     |\n| 29 | 7.2. Expectation and Variance 55                          | 2     |\n| 30 | 7.3. The uniform Random Variable 58                       | 2     |\n| 31 | 7.4. More practice 59                                     | 2     |\n| 32 | ## Chapter 8. Normal Distributions 60                     | 1     |",
+    "toc_tree": {
+      "## Chapter 1. Combinatorics 5": {
+        "1.1. Counting Principle 5": {},
+        "1.2. Permutations 6": {},
+        "1.3. Combinations 7": {},
+        "1.4. Multinomial Coefficients 9": {}
+      },
+      "## Chapter 2. Axioms of Probability 10": {
+        "2.1. Sample Space and Events 10": {},
+        "2.2. Axioms of Probability 12": {},
+        "2.3. Equally Likely Outcomes 15": {}
+      },
+      "## Chapter 3. Independence 18": {
+        "3.1. Independent Events 18": {}
+      },
+      "## Chapter 4. Conditional Probability and Independence 22": {
+        "4.1. Conditional Probabilities 22": {},
+        "4.2. Bayes's Formula 26": {}
+      },
+      "## Chapter 5. Random Variables 29": {
+        "5.1. Random Variables 29": {},
+        "5.2. Discrete Random Variables 31": {},
+        "5.3. Expected Value 32": {},
+        "5.4. The C.D.F. 34": {},
+        "5.5. Expected Value of Sums of Random Variables 37": {},
+        "5.6. Expectation of a Function of a Random Variable 39": {},
+        "5.7. Variance 41": {}
+      },
+      "## Chapter 6. Some Discrete Distributions 43": {
+        "6.1. Bernouli and Binomial Random Variables 43": {},
+        "6.2. The Poisson Distribution 46": {},
+        "6.3. Other Discrete Distributions 49": {}
+      },
+      "## Chapter 7. Continuous Random Variables 53": {
+        "7.1. Intro to continuous R.V 53": {},
+        "7.2. Expectation and Variance 55": {},
+        "7.3. The uniform Random Variable 58": {},
+        "7.4. More practice 59": {}
+      },
+      "## Chapter 8. Normal Distributions 60": {}
+    }
+  }
+]

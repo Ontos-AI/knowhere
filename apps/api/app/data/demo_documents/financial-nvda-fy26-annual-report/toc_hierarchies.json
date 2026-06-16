@@ -1,0 +1,64 @@
+[
+  {
+    "toc_range": [
+      370,
+      416
+    ],
+    "scan_range": [
+      370,
+      531
+    ],
+    "toc_with_level": "| id | heading                                                                                                      | level |\n|----|--------------------------------------------------------------------------------------------------------------|-------|\n| 1  | Page                                                                                                         | 1     |\n| 2  | DEFINITIONS 3                                                                                                | 1     |\n| 3  | BUSINESS OVERVIEW 4                                                                                          | 1     |\n| 4  | PROXY SUMMARY 6                                                                                              | 1     |\n| 5  | PROXY STATEMENT 10                                                                                           | 1     |\n| 6  | Information About the 2026 Meeting 10                                                                        | 2     |\n| 7  | Proposal 1—Election of Directors 14                                                                          | 2     |\n| 8  | Director Qualifications and Nomination of Directors 15                                                       | 2     |\n| 9  | Our Director Nominees 17                                                                                     | 2     |\n| 10 | Information About the Board of Directors and Corporate Governance 23                                         | 1     |\n| 11 | Independence of the Members of the Board of Directors 23                                                     | 2     |\n| 12 | Board Leadership Structure 23                                                                                | 2     |\n| 13 | Committees of the Board of Directors 25                                                                      | 2     |\n| 14 | Compensation Committee Interlocks and Insider Participation 26                                               | 2     |\n| 15 | Role of the Board in Risk Oversight 27                                                                       | 2     |\n| 16 | Corporate Governance 28                                                                                      | 2     |\n| 17 | Stockholder Communications with the Board of Directors 30                                                    | 2     |\n| 18 | Majority Vote Standard 30                                                                                    | 2     |\n| 19 | Stockholder Special Meeting Right 31                                                                         | 2     |\n| 20 | Board Meeting Information 31                                                                                 | 2     |\n| 21 | Corporate Sustainability 31                                                                                  | 2     |\n| 22 | Public Policy Engagement and Accountability 31                                                               | 2     |\n| 23 | Director Compensation 32                                                                                     | 2     |\n| 24 | Review of Transactions with Related Persons 34                                                               | 2     |\n| 25 | Security Ownership of Certain Beneficial Owners and Management 35                                            | 2     |\n| 26 | Proposal 2—Advisory Approval of Executive Compensation 37                                                    | 2     |\n| 27 | Executive Compensation 38                                                                                    | 1     |\n| 28 | Compensation Discussion and Analysis 38                                                                      | 2     |\n| 29 | Compensation Committee Report 49                                                                             | 2     |\n| 30 | Risk Analysis of Our Compensation Plans 49                                                                   | 2     |\n| 31 | Summary Compensation Table for Fiscal 2026, 2025, and 2024 50                                                | 2     |\n| 32 | Grants of Plan-Based Awards for Fiscal 2026 51                                                               | 2     |\n| 33 | Outstanding Equity Awards as of January 25, 2026 52                                                          | 2     |\n| 34 | Option Exercises and Stock Vested in Fiscal 2026 53                                                          | 2     |\n| 35 | Employment, Severance, and Change-in-Control Arrangements 53                                                 | 2     |\n| 36 | Potential Payments Upon Termination or Change-in-Control 54                                                  | 2     |\n| 37 | Pay Ratio 54                                                                                                 | 2     |\n| 38 | Pay Versus Performance 55                                                                                    | 2     |\n| 39 | Proposal 3—Ratification of the Selection of Independent Registered Public Accounting Firm for Fiscal 2027 58 | 2     |\n| 40 | Fees Billed by the Independent Registered Public Accounting Firm 59                                          | 2     |\n| 41 | Report of the Audit Committee of the Board of Directors 60                                                   | 2     |\n| 42 | Stockholder Proposals 61                                                                                     | 2     |\n| 43 | Equity Compensation Plan Information 69                                                                      | 2     |\n| 44 | Additional Information 69                                                                                    | 2     |\n| 45 | Delinquent Section 16(a) Reports 69                                                                          | 2     |\n| 46 | Other Matters 69                                                                                             | 2     |",
+    "toc_tree": {
+      "Page": {},
+      "DEFINITIONS 3": {},
+      "BUSINESS OVERVIEW 4": {},
+      "PROXY SUMMARY 6": {},
+      "PROXY STATEMENT 10": {
+        "Information About the 2026 Meeting 10": {},
+        "Proposal 1—Election of Directors 14": {},
+        "Director Qualifications and Nomination of Directors 15": {},
+        "Our Director Nominees 17": {}
+      },
+      "Information About the Board of Directors and Corporate Governance 23": {
+        "Independence of the Members of the Board of Directors 23": {},
+        "Board Leadership Structure 23": {},
+        "Committees of the Board of Directors 25": {},
+        "Compensation Committee Interlocks and Insider Participation 26": {},
+        "Role of the Board in Risk Oversight 27": {},
+        "Corporate Governance 28": {},
+        "Stockholder Communications with the Board of Directors 30": {},
+        "Majority Vote Standard 30": {},
+        "Stockholder Special Meeting Right 31": {},
+        "Board Meeting Information 31": {},
+        "Corporate Sustainability 31": {},
+        "Public Policy Engagement and Accountability 31": {},
+        "Director Compensation 32": {},
+        "Review of Transactions with Related Persons 34": {},
+        "Security Ownership of Certain Beneficial Owners and Management 35": {},
+        "Proposal 2—Advisory Approval of Executive Compensation 37": {}
+      },
+      "Executive Compensation 38": {
+        "Compensation Discussion and Analysis 38": {},
+        "Compensation Committee Report 49": {},
+        "Risk Analysis of Our Compensation Plans 49": {},
+        "Summary Compensation Table for Fiscal 2026, 2025, and 2024 50": {},
+        "Grants of Plan-Based Awards for Fiscal 2026 51": {},
+        "Outstanding Equity Awards as of January 25, 2026 52": {},
+        "Option Exercises and Stock Vested in Fiscal 2026 53": {},
+        "Employment, Severance, and Change-in-Control Arrangements 53": {},
+        "Potential Payments Upon Termination or Change-in-Control 54": {},
+        "Pay Ratio 54": {},
+        "Pay Versus Performance 55": {},
+        "Proposal 3—Ratification of the Selection of Independent Registered Public Accounting Firm for Fiscal 2027 58": {},
+        "Fees Billed by the Independent Registered Public Accounting Firm 59": {},
+        "Report of the Audit Committee of the Board of Directors 60": {},
+        "Stockholder Proposals 61": {},
+        "Equity Compensation Plan Information 69": {},
+        "Additional Information 69": {},
+        "Delinquent Section 16(a) Reports 69": {},
+        "Other Matters 69": {}
+      }
+    }
+  }
+]

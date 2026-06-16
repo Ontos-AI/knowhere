@@ -1,0 +1,146 @@
+{
+  "version": "2.0",
+  "job_id": "job_78a787d29920",
+  "data_id": null,
+  "source_file_name": "Notes.pdf",
+  "processing_date": "2026-06-16T03:46:38.981591Z",
+  "processing": {
+    "page_count": 98,
+    "billing_status": "charged",
+    "cost": {
+      "micro_dollars": 147000,
+      "credits": 0.147
+    },
+    "timing": {
+      "started_at": "2026-06-16T03:41:20.623929+00:00",
+      "completed_at": "2026-06-16T03:46:38.938512+00:00",
+      "duration_ms": 318314
+    },
+    "stages": {
+      "timing_ms": {
+        "document.profile": 3615,
+        "pdf.extract.standard": 279850,
+        "heading.hierarchy_llm_call": 10545,
+        "toc.parse_hierarchy_llm": 3255,
+        "md.detect_toc": 4740,
+        "heading.merge_pre_pass_llm": 2238,
+        "heading.hierarchy_llm": 7313,
+        "md.predict_headings": 12515,
+        "md.deferred_summaries": 16962,
+        "md.build_dataframe": 6,
+        "pdf.parse_md": 34713,
+        "document.cleanup_unreferenced_images": 23,
+        "document.compress_images": 0,
+        "worker.parse.document": 318208
+      },
+      "token_usage": {
+        "prompt_tokens": 5855,
+        "completion_tokens": 1685,
+        "total_tokens": 7540
+      }
+    }
+  },
+  "statistics": {
+    "total_chunks": 109,
+    "text_chunks": 69,
+    "image_chunks": 28,
+    "table_chunks": 12,
+    "total_pages": null
+  },
+  "HIERARCHY": {
+    "Root": {},
+    "CHAPTER 1": {
+      "Combinatorics": {
+        "1.1. Counting Principle": {},
+        "1.2. PERMUTATIONS": {},
+        "1.3. Combinations": {},
+        "1.4. Multinomial Coefficients": {}
+      }
+    },
+    "CHAPTER 2": {
+      "Axioms of Probability": {
+        "2.1. Sample Space and Events": {
+          "- Example1:": {},
+          "- Example 2:": {},
+          "- Example3:": {},
+          "- Others:": {}
+        },
+        "2.2. Axioms of Probability": {},
+        "2.3. Equally Likely Outcomes": {}
+      }
+    },
+    "CHAPTER 3": {
+      "Independence": {}
+    },
+    "CHAPTER 4": {
+      "Conditional Probability and Independence": {
+        "4.1. Conditional Probabilities": {},
+        "4.2. Bayes's Formula": {}
+      }
+    },
+    "CHAPTER 5": {
+      "Random Variables": {
+        "5.1. Random Variables": {},
+        "5.2. Discrete Random Variables": {},
+        "5.3. Expected Value": {},
+        "5.5. Expected Value of Sums of Random Variables": {},
+        "5.6. Expectation of a Function of a Random Variable": {},
+        "5.7. Variance": {}
+      }
+    },
+    "CHAPTER 6": {
+      "Some Discrete Distributions": {
+        "6.1. Bernouli and Binomial Random Variables": {
+          "• Bernoulli Distribution": {},
+          "• Binomial Distribution:": {},
+          "• Properties of the Binomial": {}
+        },
+        "6.2. The Poisson Distribution": {},
+        "6.3. Other Discrete Distributions": {
+          "• Uniform Distribution:": {},
+          "- Geometric Distribution:": {}
+        }
+      }
+    },
+    "CHAPTER 7": {
+      "Continuous Random Variables": {
+        "7.1. Intro to continuous R.V": {},
+        "7.2. Expectation and Variance": {},
+        "7.3. The uniform Random Variable": {},
+        "7.4. More practice": {}
+      }
+    },
+    "CHAPTER 8": {
+      "Normal Distributions": {}
+    },
+    "CHAPTER 9": {
+      "Normal approximations to the binomial": {}
+    },
+    "CHAPTER 10": {
+      "Some continuous distributions": {
+        "10.1. Exponential Random Variables": {},
+        "10.2. Other Continuous Distributions": {
+          "• Gamma Distribution:": {},
+          "• Weibull Distribution:": {},
+          "• Cauchy Distribution:": {}
+        },
+        "10.3. The distribution function of a Random variable": {}
+      }
+    },
+    "CHAPTER 11": {
+      "Multivariate distributions": {
+        "11.1. Joint distribution functions": {},
+        "11.2. Independent Random Variables": {},
+        "11.4. Conditional Distributions- Discrete(★)": {},
+        "11.6. Joint PDF of functions": {}
+      }
+    },
+    "CHAPTER 12": {},
+    "CHAPTER 13": {
+      "Moment generating functions": {}
+    },
+    "CHAPTER 14": {
+      "Limit Laws": {}
+    }
+  }
+}
