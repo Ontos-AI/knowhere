@@ -2,10 +2,12 @@ import re
 from typing import List
 
 
+IMAGE_RESOURCE_PATH_REF_PATTERN = r"\[images/[^\]\n]+\]"
 RESOURCE_PATH_REF_PATTERN = r"\[(?:images|tables)/[^\]\n]+\]"
 CHUNK_REF_PATTERN = RESOURCE_PATH_REF_PATTERN
 REFERENCE_LABEL_PATTERN = r"^\s*(?:image|table)-\d+\s*$"
 
+IMAGE_RESOURCE_PATH_REF_RE = re.compile(IMAGE_RESOURCE_PATH_REF_PATTERN, re.IGNORECASE)
 RESOURCE_PATH_REF_RE = re.compile(RESOURCE_PATH_REF_PATTERN, re.IGNORECASE)
 CHUNK_REF_RE = re.compile(CHUNK_REF_PATTERN, re.IGNORECASE)
 REFERENCE_LABEL_RE = re.compile(REFERENCE_LABEL_PATTERN, re.IGNORECASE)
@@ -15,6 +17,28 @@ def build_chunk_ref(resource_path: str) -> str:
     """Format a chunk reference as a readable path token."""
     normalized_path = str(resource_path or "").strip()
     return f"[{normalized_path}]" if normalized_path else ""
+
+
+def build_legacy_image_chunk_ref(chunk_id: str) -> str:
+    """Format an image chunk reference for legacy consumers."""
+    normalized_chunk_id = str(chunk_id or "").strip()
+    return f"IMAGE_{normalized_chunk_id}_IMAGE" if normalized_chunk_id else ""
+
+
+def render_legacy_image_chunk_content(content: str, chunk_id: str) -> str:
+    """Render image chunk content with the legacy IMAGE_<chunk_id>_IMAGE marker."""
+    original_content = str(content or "")
+    legacy_ref = build_legacy_image_chunk_ref(chunk_id)
+    if not legacy_ref:
+        return original_content
+
+    if IMAGE_RESOURCE_PATH_REF_RE.search(original_content):
+        return IMAGE_RESOURCE_PATH_REF_RE.sub(legacy_ref, original_content)
+
+    if not original_content.strip():
+        return legacy_ref
+
+    return f"{legacy_ref}\n{original_content}"
 
 
 def extract_chunk_refs(content: str) -> List[str]:

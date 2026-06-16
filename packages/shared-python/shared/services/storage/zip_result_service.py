@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from loguru import logger
 from PIL import Image
-from shared.utils.chunk_refs import extract_chunk_refs
+from shared.utils.chunk_refs import extract_chunk_refs, render_legacy_image_chunk_content
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -404,6 +404,7 @@ class ZipResultService:
             elif chunk_type == "image":
                 if img_info:
                     metadata["file_path"] = img_info["file_path"]
+                content = render_legacy_image_chunk_content(str(content or ""), chunk_id)
                 # Unified schema: include keywords and tokens for all chunk types
                 metadata["keywords"] = existing_metadata.get("keywords") or chunk.get("keywords", [])
                 metadata["tokens"] = []

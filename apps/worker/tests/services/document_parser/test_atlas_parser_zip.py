@@ -95,3 +95,6 @@ def test_parse_atlas_packages_unique_images_for_duplicate_page_titles(
         "images/Mock atlas page info_2.jpg",
     ]
     assert [chunk["metadata"]["file_path"] for chunk in chunk_payload] == zip_image_entries
+    assert [chunk["content"].splitlines()[1] for chunk in chunk_payload] == [
+        f"IMAGE_{chunk['chunk_id']}_IMAGE" for chunk in chunk_payload
+    ]

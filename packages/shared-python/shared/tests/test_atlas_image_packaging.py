@@ -140,6 +140,7 @@ def test_generate_zip_package_preserves_actual_extension_for_vector_images(tmp_p
         chunk_payload = json.loads(zip_file.read("chunks.json"))["chunks"]
 
     assert zip_image_entries == [f"images/{vector_filename}"]
+    assert chunk_payload[0]["content"].startswith("IMAGE_table-27-image-16_IMAGE")
     assert chunk_payload[0]["metadata"]["file_path"] == f"images/{vector_filename}"
 
 
