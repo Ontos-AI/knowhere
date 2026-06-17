@@ -228,6 +228,56 @@ _OFFICIAL_LIBRARY_SOURCES: tuple[OfficialLibrarySourceDefinition, ...] = (
         demo_source_id="demo-financial-alibaba-fy2026-interim-report",
     ),
     OfficialLibrarySourceDefinition(
+        library_source_id="research-attention-is-all-you-need",
+        category_id="research-papers",
+        title="Attention Is All You Need.pdf",
+        source_url="https://arxiv.org/pdf/1706.03762",
+        mime_type="application/pdf",
+        status="ready",
+        demo_source_id="demo-research-attention-is-all-you-need",
+    ),
+    OfficialLibrarySourceDefinition(
+        library_source_id="research-rag-survey",
+        category_id="research-papers",
+        title="Retrieval-Augmented Generation for Large Language Models: A Survey.pdf",
+        source_url="https://arxiv.org/pdf/2312.10997",
+        mime_type="application/pdf",
+        status="ready",
+        demo_source_id="demo-research-rag-survey",
+    ),
+    OfficialLibrarySourceDefinition(
+        library_source_id="research-rag-realized",
+        category_id="research-papers",
+        title="Retrieval-Augmented Generation Realized.pdf",
+        source_url=(
+            "https://www.appliedai.de/uploads/files/"
+            "retrieval-augmented-generation-realized/"
+            "AppliedAI_White_Paper_Retrieval-augmented-Generation-"
+            "Realized_FINAL_20240618.pdf"
+        ),
+        mime_type="application/pdf",
+        status="ready",
+        demo_source_id="demo-research-rag-realized",
+    ),
+    OfficialLibrarySourceDefinition(
+        library_source_id="research-toolformer",
+        category_id="research-papers",
+        title="Toolformer: Language Models Can Teach Themselves to Use Tools.pdf",
+        source_url="https://arxiv.org/pdf/2302.04761",
+        mime_type="application/pdf",
+        status="ready",
+        demo_source_id="demo-research-toolformer",
+    ),
+    OfficialLibrarySourceDefinition(
+        library_source_id="research-ai-agents-overview",
+        category_id="research-papers",
+        title="AI Agents Overview.pdf",
+        source_url="https://cseweb.ucsd.edu/~yiying/cse291a-fall25/reading/ai-agents.pdf",
+        mime_type="application/pdf",
+        status="ready",
+        demo_source_id="demo-research-ai-agents-overview",
+    ),
+    OfficialLibrarySourceDefinition(
         library_source_id="stem-jurafsky-transformers",
         category_id="stem-books",
         title="Speech and Language Processing, Chapter 8: Transformers.pdf",
