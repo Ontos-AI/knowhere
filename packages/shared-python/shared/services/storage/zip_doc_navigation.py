@@ -47,6 +47,7 @@ class ZipDocNavigationBuilder:
             "text_chunks": 0,
             "image_chunks": 0,
             "table_chunks": 0,
+            "page_chunks": 0,
             "max_depth": 0,
         }
 
@@ -71,6 +72,15 @@ class ZipDocNavigationBuilder:
             elif chunk_type == "table":
                 stats["table_chunks"] += 1
                 table_resources.append(
+                    {
+                        "path": path,
+                        "summary": summary or content_preview,
+                    }
+                )
+            elif chunk_type == "page":
+                stats["page_chunks"] += 1
+                # Page chunks participate in section tree like text chunks
+                text_chunks.append(
                     {
                         "path": path,
                         "summary": summary or content_preview,

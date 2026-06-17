@@ -35,6 +35,9 @@ class ZipChunkSchemaBuilder:
             "text_chunks": text_chunks,
             "image_chunks": image_chunks,
             "table_chunks": table_chunks,
+            "page_chunks": sum(
+                1 for c in chunks if _normalize_chunk_type(c.get("type", "")) == "page"
+            ),
             "total_pages": None,
         }
 
@@ -61,6 +64,8 @@ class ZipChunkSchemaBuilder:
                 chunk_type = "image"
             elif normalized_type == "table":
                 chunk_type = "table"
+            elif normalized_type == "page":
+                chunk_type = "page"
             else:
                 chunk_type = "text"
 
@@ -97,6 +102,11 @@ class ZipChunkSchemaBuilder:
                 metadata["keywords"] = existing_metadata.get("keywords") or chunk.get(
                     "keywords", []
                 )
+                metadata["tokens"] = []
+            elif chunk_type == "page":
+                # Page chunks carry page_image_uri and section_roles in
+                # extra_metadata; minimal metadata here.
+                metadata["keywords"] = existing_metadata.get("keywords") or []
                 metadata["tokens"] = []
 
             formatted.append(
