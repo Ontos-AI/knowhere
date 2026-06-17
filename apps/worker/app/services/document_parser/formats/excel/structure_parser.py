@@ -82,6 +82,14 @@ def parse_excel_structure(
                     )
                     dataframe = result["df"]
                     dataframe.attrs["row_header_cols"] = len(result["header_cols"])
+                    dataframe.attrs["sheet_name"] = selected_sheet_name
+                    dataframe.attrs["subtable_index"] = index + 1
+                    dataframe.attrs["subtable_count"] = len(subtable_regions)
+                    dataframe.attrs["subtable_title"] = (
+                        f"子表 {index + 1}" if len(subtable_regions) > 1 else ""
+                    )
+                    dataframe.attrs["subtable_row_range"] = row_range
+                    dataframe.attrs["subtable_col_range"] = col_range
                     key = selected_sheet_name if index == 0 else f"{selected_sheet_name}_{index + 1}"
                     logger.debug(
                         f"Subtable '{key}': rows={row_range}, cols={col_range}, "
@@ -94,6 +102,12 @@ def parse_excel_structure(
                 result = _parse_subtable(worksheet, row_range, col_range, merged_ranges)
                 dataframe = result["df"]
                 dataframe.attrs["row_header_cols"] = len(result["header_cols"])
+                dataframe.attrs["sheet_name"] = selected_sheet_name
+                dataframe.attrs["subtable_index"] = 1
+                dataframe.attrs["subtable_count"] = 1
+                dataframe.attrs["subtable_title"] = ""
+                dataframe.attrs["subtable_row_range"] = row_range
+                dataframe.attrs["subtable_col_range"] = col_range
                 logger.debug(
                     f"Sheet '{selected_sheet_name}': header_rows={result['header_rows']}, "
                     f"header_cols={result['header_cols']}, "

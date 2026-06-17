@@ -10,6 +10,7 @@ BudgetStage = Literal[
     "toc_confirm",
     "coarse_planner",
     "structural_react",
+    "page_locate",
     "page_tagging",
 ]
 

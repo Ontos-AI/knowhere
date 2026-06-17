@@ -16,11 +16,7 @@ from app.services.document_parser.support.identifiers import gen_str_codes, get_
 from app.services.document_parser.support.parser_rows import PARSER_ROW_COLUMNS
 from app.services.page_memory.normalizer import normalize_to_pdf
 
-from shared.core.exceptions.domain_exceptions import ValidationException
-
-
-_SUPPORTED_GRANULARITY = "whole_doc"
-_UNSUPPORTED_GRANULARITY_REASON = "PAGE_MEMORY_GRANULARITY_NOT_IMPLEMENTED"
+from loguru import logger
 
 
 @dataclass(frozen=True)
@@ -36,8 +32,9 @@ class PageMemoryInput:
 def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
     """Run the page-memory track.
 
-    PR3 intentionally implements only the whole_doc skeleton. Full page mode,
-    tagging, and section mapping land in PR4.
+    Supports three granularity verdicts:
+    - ``whole_doc`` (≤6 pages, no TOC) → single whole-document chunk
+    - ``page`` / ``shard_page`` → per-page chunks via the full C1-C7 pipeline
     """
     full_output_dir = _resolve_output_dir(request)
     os.makedirs(full_output_dir, exist_ok=True)
@@ -54,13 +51,22 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
         output_dir=full_output_dir,
     )
     verdict = _decide_granularity(profile)
-    if verdict != _SUPPORTED_GRANULARITY:
-        _raise_unsupported_granularity(verdict)
-    return full_output_dir, _build_whole_doc_dataframe(
+
+    if verdict == "whole_doc":
+        return full_output_dir, _build_whole_doc_dataframe(
+            pdf_path=pdf_path,
+            filename=request.filename,
+            output_dir=full_output_dir,
+            page_count=max(int(profile.page_count or 0), 0),
+            verdict=verdict,
+        )
+
+    # page / shard_page → unified per-page pipeline
+    return full_output_dir, _build_page_dataframe(
         pdf_path=pdf_path,
         filename=request.filename,
         output_dir=full_output_dir,
-        page_count=max(int(profile.page_count or 0), 0),
+        profile=profile,
         verdict=verdict,
     )
 
@@ -81,27 +87,221 @@ def _decide_granularity(profile: Any) -> str:
     return "page"
 
 
-def _raise_unsupported_granularity(verdict: str) -> None:
-    raise ValidationException(
-        user_message=(
-            "page_memory is enabled, but this PR only supports whole-document "
-            "page memory. Per-page and shard-page modes are intentionally gated "
-            "until the page renderer, tagger, and section mapper land."
-        ),
-        violations=[
-            {
-                "field": "parse_track",
-                "description": (
-                    f"{_UNSUPPORTED_GRANULARITY_REASON}: "
-                    f"granularity={verdict}; supported={_SUPPORTED_GRANULARITY}"
-                ),
-            }
-        ],
-        internal_message=(
-            f"{_UNSUPPORTED_GRANULARITY_REASON}: granularity={verdict}; "
-            f"supported={_SUPPORTED_GRANULARITY}"
-        ),
+# ── page builder (C1→C2→C3→C4→C6→C7) ────────────────────────────────
+
+
+def _build_page_dataframe(
+    *,
+    pdf_path: str,
+    filename: str,
+    output_dir: str,
+    profile: Any,
+    verdict: str,
+) -> pd.DataFrame:
+    """Build per-page DataFrame via the full C1-C7 pipeline.
+
+    Steps:
+      C4  skeleton_extractor  → SectionSkeleton[]
+      C1  page_renderer       → PageRenderResult[]
+      C2  page_plan           → PagePlan[]
+      C3  page_tagger         → PageTagResult[]
+      C6  page_section_mapper → PageSectionMapping[]
+      C7  assemble DataFrame
+    """
+    from app.services.document_agent.budget import BudgetTracker, StageEnvelope
+    from app.services.page_memory.page_plan import derive_page_processing_plan
+    from app.services.page_memory.page_renderer import render_document_pages
+    from app.services.page_memory.page_section_mapper import map_pages_to_sections
+    from app.services.page_memory.page_tagger import tag_pages
+    from app.services.page_memory.skeleton_extractor import extract_section_skeletons
+
+    anatomy = getattr(profile, "anatomy", None)
+    page_count = max(int(profile.page_count or 0), 0)
+    if page_count <= 0:
+        return pd.DataFrame(columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
+
+    # ── unified budget (page_locate + page_tagging share one tracker) ──
+    page_tagging_budget = int(
+        os.environ.get("PAGE_MEMORY_TAG_BUDGET", str(page_count * 1200))
     )
+    page_locate_budget = int(
+        os.environ.get("PAGE_MEMORY_LOCATE_BUDGET", str(min(page_count * 1600, 2_000_000)))
+    )
+    budget = BudgetTracker(
+        plan_budget=0,
+        visual_budget=page_tagging_budget + page_locate_budget,
+        visual_stage_envelopes={
+            "page_locate": StageEnvelope(
+                min_guarantee=page_locate_budget,
+                cap=None,
+            ),
+            "page_tagging": StageEnvelope(
+                min_guarantee=page_tagging_budget,
+                cap=None,
+            ),
+        },
+    )
+
+    # ── build ToolContext for sub-agent VLM calls ─────────────────────
+    ctx = _build_page_ctx(
+        pdf_path=pdf_path,
+        job_id=filename,
+        output_dir=output_dir,
+        page_count=page_count,
+        budget=budget,
+    )
+
+    # ── C4: skeleton (from profile anatomy) ───────────────────────────
+    page_texts = read_page_texts(
+        pdf_path, list(range(1, page_count + 1)), timeout=300,
+    )
+    if anatomy is not None:
+        skeletons = extract_section_skeletons(
+            anatomy=anatomy,
+            filename=filename,
+            page_texts=page_texts,
+            ctx=ctx,
+        )
+    else:
+        skeletons = []
+    logger.info(
+        "[page_memory] C4 skeleton: {} sections from anatomy",
+        len(skeletons),
+    )
+
+    # ── C1: render pages ──────────────────────────────────────────────
+    page_features = anatomy.page_features if anatomy else []
+    rendered = render_document_pages(
+        pdf_path=pdf_path,
+        page_count=page_count,
+        output_dir=output_dir,
+        page_features=page_features,
+        page_texts=page_texts,
+    )
+
+    # ── C2: page plan ─────────────────────────────────────────────────
+    page_labels = anatomy.page_labels if anatomy else []
+    plans = derive_page_processing_plan(
+        page_count=page_count,
+        page_labels=page_labels,
+        page_features=page_features,
+    )
+
+    # ── C3: page tagger ──────────────────────────────────────────────
+    vlm_model = os.environ.get("IMAGE_MODEL")
+    tags = tag_pages(
+        pages=rendered,
+        plans=plans,
+        budget=budget,
+        vlm_model=vlm_model,
+    )
+
+    # ── C6: page → section mapping ───────────────────────────────────
+    mappings = map_pages_to_sections(
+        page_count=page_count,
+        skeletons=skeletons,
+        filename=filename,
+    )
+
+    # ── C7: assemble DataFrame rows ──────────────────────────────────
+    tag_map = {t.page_index: t for t in tags}
+    render_map = {r.page_index: r for r in rendered}
+
+    # Build page → PageLabel.kind lookup
+    label_map: dict[int, str] = {}
+    if page_labels:
+        for lbl in page_labels:
+            label_map[lbl.page] = lbl.kind
+
+    # Build page → observed_titles from C4 skeleton (primary sections)
+    skeleton_titles: dict[int, list[str]] = {}
+    for skel in skeletons:
+        titles = skeleton_titles.setdefault(skel.start_page, [])
+        if skel.title and skel.title not in titles:
+            titles.append(skel.title)
+
+    rows: list[dict[str, Any]] = []
+    for mapping in mappings:
+        page = mapping.page_index
+        tag = tag_map.get(page)
+        rend = render_map.get(page)
+
+        raw_text = rend.raw_text if rend else page_texts.get(page, "")
+        content = raw_text.strip()
+        summary = tag.summary if tag else ""
+        keywords_list = tag.keywords if tag else []
+        keywords_str = ";".join(keywords_list)
+
+        doc_hash = gen_str_codes(f"{filename}::{page}")
+        know_id = f"page_{doc_hash}"
+
+        image_uri = ""
+        if rend and rend.image_path and os.path.exists(rend.image_path):
+            image_uri = str(
+                Path(rend.image_path).relative_to(output_dir)
+            )
+
+        rows.append({
+            "content": content,
+            "path": mapping.section_path,
+            "type": "page",
+            "length": len(content),
+            "keywords": keywords_str,
+            "summary": summary,
+            "know_id": know_id,
+            "tokens": "",
+            "connectto": "",
+            "addtime": get_str_time(),
+            "page_nums": str(page),
+            "extra_metadata": {
+                "granularity": "page",
+                "page_index": page,
+                "page_image_uri": image_uri,
+                "strategy_used": tag.strategy_used if tag else "",
+                "kind": label_map.get(page, "normal"),
+                "observed_titles": skeleton_titles.get(page, []),
+                "section_roles": mapping.section_roles,
+                "source_verdict": verdict,
+            },
+        })
+
+    logger.info(
+        "[page_memory] C7 assembled {} page rows (verdict={})",
+        len(rows), verdict,
+    )
+    return pd.DataFrame(rows, columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
+
+
+def _build_page_ctx(
+    *,
+    pdf_path: str,
+    job_id: str,
+    output_dir: str,
+    page_count: int,
+    budget: Any,
+) -> ToolContext:
+    """Construct a ToolContext for C4 sub-agent and C3 tagger VLM calls."""
+    blackboard = AgentBlackboard()
+    blackboard.page_count = page_count
+    vlm_model = os.environ.get("IMAGE_MODEL")
+    reason_model = (
+        os.environ.get("PAGE_LOCATE_REASON_MODEL")
+        or os.environ.get("NORMOL_MODEL")
+    )
+    return ToolContext(
+        pdf_path=pdf_path,
+        job_id=job_id,
+        blackboard=blackboard,
+        budget=budget,
+        trace=None,
+        output_dir=output_dir,
+        settings={
+            "vlm_model": vlm_model,
+            "model": reason_model,
+        },
+    )
+
+# ── whole_doc builder (PR3, unchanged) ────────────────────────────────
 
 
 def _build_whole_doc_dataframe(
@@ -180,3 +380,4 @@ def _render_page_images(
         for item in rendered
         if item.get("png_path")
     ]
+
