@@ -89,7 +89,6 @@ class PageLocateResidualAgent:
         actual_max_depth = max_title_depth(nodes)
         emit_depth = min(actual_max_depth, self.config.max_emit_depth)
         emit_depth = max(emit_depth, self.config.min_emit_depth)
-        selected_nodes = nodes
         direct_matches: dict[tuple[str, ...], TitleMatch] = {}
         residuals: list[ResidualRequest] = []
 
