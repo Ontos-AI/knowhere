@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import socket
 from typing import cast
@@ -410,11 +411,11 @@ async def test_should_reject_a_malformed_authorization_header_when_creating_a_jo
 
 
 @pytest.mark.asyncio
-async def test_should_reject_authenticated_user_id_missing_from_user_table(
+async def test_should_create_user_reference_for_dashboard_authenticated_user(
     api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
     monkeypatch: MonkeyPatch,
 ) -> None:
-    user_id = f"contract-missing-user-{uuid4().hex[:12]}"
+    user_id = f"contract-dashboard-user-{uuid4().hex[:12]}"
     jwt_secret = f"contract-jwt-secret-{uuid4().hex[:12]}"
     token = jwt.encode(
         {
@@ -428,7 +429,7 @@ async def test_should_reject_authenticated_user_id_missing_from_user_table(
         "namespace": "contract-jobs",
         "source_type": "file",
         "file_name": "contract-upload.pdf",
-        "data_id": "contract-job-missing-user",
+        "data_id": "contract-job-dashboard-user",
     }
 
     async with api_client_factory() as api_client:
@@ -445,17 +446,52 @@ async def test_should_reject_authenticated_user_id_missing_from_user_table(
         api_client.headers.update({"Authorization": f"Bearer {token}"})
         response = await api_client.post("/api/v1/jobs", json=payload)
 
-    assert response.status_code == 401
+    assert response.status_code == 200
     assert response.headers["x-request-id"]
 
     response_json: dict[str, object] = response.json()
-    error = cast(dict[str, object], response_json["error"])
+    job_id = cast(str, response_json["job_id"])
 
-    assert response_json["success"] is False
-    assert error["code"] == "UNAUTHENTICATED"
-    assert error["message"] == "Invalid authentication credentials"
-    assert "details" not in error
-    assert await _count_jobs() == 0
+    assert job_id.startswith("job_")
+    assert response_json["status"] == "waiting-file"
+    assert response_json["source_type"] == "file"
+    assert response_json["namespace"] == payload["namespace"]
+    assert response_json["data_id"] == payload["data_id"]
+
+    engine = await _create_contract_engine()
+    try:
+        async with engine.begin() as connection:
+            user_row = (
+                await connection.execute(
+                    text(
+                        """
+                        SELECT
+                            id,
+                            name,
+                            email
+                        FROM "user"
+                        WHERE id = :user_id
+                        """
+                    ),
+                    {"user_id": user_id},
+                )
+            ).mappings().one()
+    finally:
+        await engine.dispose()
+
+    job_record = await _load_job_record(job_id)
+
+    assert dict(user_row) == {
+        "id": user_id,
+        "name": "Dashboard User",
+        "email": (
+            "dashboard-user-"
+            f"{hashlib.sha256(user_id.encode('utf-8')).hexdigest()}"
+            "@reference.knowhere.local"
+        ),
+    }
+    assert job_record["user_id"] == user_id
+    assert await _count_jobs() == 1
 
 
 @pytest.mark.asyncio

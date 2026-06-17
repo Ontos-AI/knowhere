@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from app.services.auth.api_key_authentication_service import (
     APIKeyAuthenticationService,
 )
@@ -9,9 +11,12 @@ from app.services.auth.dashboard_jwt_authentication_service import (
     DashboardJWTAuthenticationService,
     get_dashboard_jwt_authentication_service,
 )
+from loguru import logger
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.core.database import get_db_context
 from shared.core.exceptions.domain_exceptions import AuthException
 from shared.models.database.user import User
 from shared.utils.api_keys import is_api_key_token
@@ -79,13 +84,30 @@ class CurrentUserAuthenticationService:
         if result.scalar_one_or_none() is not None:
             return
 
-        raise AuthException(
-            user_message="Invalid authentication credentials",
-            internal_message=(
-                "Authenticated user id is not present in the user table: "
-                f"user_id={user_id}"
-            ),
+        await _provision_dashboard_user_reference(user_id)
+
+
+async def _provision_dashboard_user_reference(user_id: str) -> None:
+    async with get_db_context() as session:
+        await session.execute(
+            postgres_insert(User)
+            .values(
+                id=user_id,
+                name="Dashboard User",
+                email=_build_dashboard_user_reference_email(user_id),
+            )
+            .on_conflict_do_nothing(index_elements=[User.id])
         )
+        await session.flush()
+        logger.info(
+            "Provisioned Dashboard-authenticated API user reference: user_id={}",
+            user_id,
+        )
+
+
+def _build_dashboard_user_reference_email(user_id: str) -> str:
+    user_id_hash = hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+    return f"dashboard-user-{user_id_hash}@reference.knowhere.local"
 
 
 _current_user_authentication_service = CurrentUserAuthenticationService()

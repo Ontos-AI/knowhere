@@ -208,7 +208,10 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
         "demo-stem-transformers-tutorial"
     )
     assert library_sources_by_id["stem-transformers-tutorial"]["chunk_count"] == 519
-    assert library_sources_by_id["stem-information-theory"]["status"] == "planned"
+    assert "stem-information-theory" not in library_sources_by_id
+    assert {str(library_source["status"]) for library_source in library_sources} == {
+        "ready"
+    }
 
     async with api_client_factory() as api_client:
         chunks_response = await api_client.get(

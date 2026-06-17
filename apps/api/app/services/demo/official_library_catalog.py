@@ -313,6 +313,10 @@ def get_official_library_catalog(
                 source_payload_by_demo_source_id=source_payload_by_demo_source_id,
             )
             for source in _OFFICIAL_LIBRARY_SOURCES
+            if _is_publishable_ready_source(
+                source=source,
+                source_payload_by_demo_source_id=source_payload_by_demo_source_id,
+            )
         ],
     }
 
@@ -335,6 +339,16 @@ def iter_official_library_sources() -> tuple[OfficialLibrarySourceDefinition, ..
 
 def iter_official_library_categories() -> tuple[OfficialLibraryCategoryDefinition, ...]:
     return _OFFICIAL_LIBRARY_CATEGORIES
+
+
+def _is_publishable_ready_source(
+    *,
+    source: OfficialLibrarySourceDefinition,
+    source_payload_by_demo_source_id: dict[str, dict[str, Any]],
+) -> bool:
+    if source.status != "ready" or source.demo_source_id is None:
+        return False
+    return source.demo_source_id in source_payload_by_demo_source_id
 
 
 def _source_payload(
