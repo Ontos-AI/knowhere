@@ -121,14 +121,21 @@ def _build_page_dataframe(
     if page_count <= 0:
         return pd.DataFrame(columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
 
-    # ── budget (page_tagging envelope for VLM calls) ──────────────────
+    # ── unified budget (page_locate + page_tagging share one tracker) ──
     page_tagging_budget = int(
         os.environ.get("PAGE_MEMORY_TAG_BUDGET", str(page_count * 1200))
     )
+    page_locate_budget = int(
+        os.environ.get("PAGE_MEMORY_LOCATE_BUDGET", str(min(page_count * 1600, 2_000_000)))
+    )
     budget = BudgetTracker(
         plan_budget=0,
-        visual_budget=page_tagging_budget,
+        visual_budget=page_tagging_budget + page_locate_budget,
         visual_stage_envelopes={
+            "page_locate": StageEnvelope(
+                min_guarantee=page_locate_budget,
+                cap=None,
+            ),
             "page_tagging": StageEnvelope(
                 min_guarantee=page_tagging_budget,
                 cap=None,
@@ -136,22 +143,28 @@ def _build_page_dataframe(
         },
     )
 
+    # ── build ToolContext for sub-agent VLM calls ─────────────────────
+    ctx = _build_page_ctx(
+        pdf_path=pdf_path,
+        job_id=filename,
+        output_dir=output_dir,
+        page_count=page_count,
+        budget=budget,
+    )
+
     # ── C4: skeleton (from profile anatomy) ───────────────────────────
+    page_texts = read_page_texts(
+        pdf_path, list(range(1, page_count + 1)), timeout=300,
+    )
     if anatomy is not None:
-        page_texts = read_page_texts(
-            pdf_path, list(range(1, page_count + 1)), timeout=300,
-        )
         skeletons = extract_section_skeletons(
             anatomy=anatomy,
             filename=filename,
             page_texts=page_texts,
-            ctx=None,  # no VLM for skeleton in page mode
+            ctx=ctx,
         )
     else:
         skeletons = []
-        page_texts = read_page_texts(
-            pdf_path, list(range(1, page_count + 1)), timeout=300,
-        )
     logger.info(
         "[page_memory] C4 skeleton: {} sections from anatomy",
         len(skeletons),
@@ -164,6 +177,7 @@ def _build_page_dataframe(
         page_count=page_count,
         output_dir=output_dir,
         page_features=page_features,
+        page_texts=page_texts,
     )
 
     # ── C2: page plan ─────────────────────────────────────────────────
@@ -259,6 +273,35 @@ def _build_page_dataframe(
     )
     return pd.DataFrame(rows, columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
 
+
+def _build_page_ctx(
+    *,
+    pdf_path: str,
+    job_id: str,
+    output_dir: str,
+    page_count: int,
+    budget: Any,
+) -> ToolContext:
+    """Construct a ToolContext for C4 sub-agent and C3 tagger VLM calls."""
+    blackboard = AgentBlackboard()
+    blackboard.page_count = page_count
+    vlm_model = os.environ.get("IMAGE_MODEL")
+    reason_model = (
+        os.environ.get("PAGE_LOCATE_REASON_MODEL")
+        or os.environ.get("NORMOL_MODEL")
+    )
+    return ToolContext(
+        pdf_path=pdf_path,
+        job_id=job_id,
+        blackboard=blackboard,
+        budget=budget,
+        trace=None,
+        output_dir=output_dir,
+        settings={
+            "vlm_model": vlm_model,
+            "model": reason_model,
+        },
+    )
 
 # ── whole_doc builder (PR3, unchanged) ────────────────────────────────
 

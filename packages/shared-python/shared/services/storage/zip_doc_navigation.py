@@ -39,6 +39,7 @@ class ZipDocNavigationBuilder:
         source_file_name: str,
     ) -> dict[str, Any]:
         text_chunks: list[dict[str, Any]] = []
+        table_section_candidates: list[dict[str, Any]] = []
         image_resources: list[dict[str, Any]] = []
         table_resources: list[dict[str, Any]] = []
 
@@ -77,6 +78,12 @@ class ZipDocNavigationBuilder:
                         "summary": summary or content_preview,
                     }
                 )
+                table_section_candidates.append(
+                    {
+                        "path": path,
+                        "summary": summary or content_preview,
+                    }
+                )
             elif chunk_type == "page":
                 stats["page_chunks"] += 1
                 # Page chunks participate in section tree like text chunks
@@ -95,8 +102,9 @@ class ZipDocNavigationBuilder:
                     }
                 )
 
+        section_chunks = text_chunks or table_section_candidates
         sections = self._build_section_tree(
-            text_chunks,
+            section_chunks,
             source_file_name=source_file_name,
         )
         stats["max_depth"] = _max_depth(sections)

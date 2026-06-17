@@ -47,6 +47,7 @@ def render_document_pages(
     page_count: int,
     output_dir: str,
     page_features: list[PageFeature] | None = None,
+    page_texts: dict[int, str] | None = None,
     ctx: ToolContext | None = None,
     dpi: int = 144,
     timeout: int = 300,
@@ -64,6 +65,10 @@ def render_document_pages(
     page_features:
         If available, dimensions are read from here (avoiding a second
         PyMuPDF open).  Otherwise falls back to 0/0/False.
+    page_texts:
+        Pre-read page texts ``{page_index: text}``.  If provided, skips
+        the internal ``read_page_texts`` call (avoids a redundant
+        PyMuPDF subprocess).
     ctx:
         An optional ``ToolContext`` forwarded to ``render_pages``.  If
         *None*, a lightweight context is constructed internally.
@@ -81,8 +86,9 @@ def render_document_pages(
     if not pages:
         return []
 
-    # ── raw text ──────────────────────────────────────────────────────
-    page_texts = read_page_texts(pdf_path, pages, timeout=timeout)
+    # ── raw text (reuse caller's data if provided) ────────────────────
+    if page_texts is None:
+        page_texts = read_page_texts(pdf_path, pages, timeout=timeout)
 
     # ── full-resolution PNGs ──────────────────────────────────────────
     if ctx is not None:

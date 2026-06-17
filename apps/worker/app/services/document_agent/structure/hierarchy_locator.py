@@ -18,7 +18,6 @@ from app.services.document_parser.structure.body_boundary import (
 )
 
 TitleMatchSource = Literal[
-    "exact",
     "anchored",
     "page_compact",
     "normalized",
@@ -554,32 +553,6 @@ def _allowed_pages_between(start: int, end: int, allowed_pages: set[int]) -> lis
     return [page for page in range(start, end + 1) if page in allowed_pages]
 
 
-def _find_exact_hits(
-    title: str,
-    scope_pages: list[int],
-    page_texts: dict[int, str],
-) -> list[_LineHit]:
-    hits: list[_LineHit] = []
-    needle = normalize_heading_text(title).casefold()
-    for page, line_index, line in _iter_lines(scope_pages, page_texts):
-        normalized_line = normalize_heading_text(line).casefold()
-        if needle and needle in normalized_line:
-            base = 1.0
-            cleaned_line = normalize_heading_text(clean_toc_title(line)).casefold()
-            if normalized_line == needle or cleaned_line == needle:
-                base = 1.18
-            hits.append(
-                _LineHit(
-                    page=page,
-                    line_index=line_index,
-                    line=line.strip(),
-                    source="exact",
-                    score=_line_score(line=line, line_index=line_index, base=base),
-                )
-            )
-    return hits
-
-
 def _find_anchored_hits(
     title: str,
     scope_pages: list[int],
@@ -715,7 +688,6 @@ def _choose_best_hit(
     best = ordered[0]
     pages = sorted({hit.page for hit in ordered})
     confidence_by_source = {
-        "exact": 0.95,
         "anchored": 0.92,
         "page_compact": 0.9,
         "normalized": 0.84,
@@ -747,7 +719,6 @@ def _preferred_source(hits: list[_LineHit]) -> TitleMatchSource:
         "normalized": 30,
         "token": 20,
         "printed_prior": 10,
-        "exact": 5,
         "h1_result": 60,
         "agent_vlm": 70,
         "agent_heuristic": 15,

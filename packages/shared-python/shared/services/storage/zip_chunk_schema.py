@@ -20,6 +20,8 @@ class ZipChunkSchemaBuilder:
         image_chunks = 0
         table_chunks = 0
 
+        page_chunks = 0
+
         for chunk in chunks:
             chunk_type = chunk.get("type", "")
             normalized_type = _normalize_chunk_type(chunk_type)
@@ -27,6 +29,8 @@ class ZipChunkSchemaBuilder:
                 image_chunks += 1
             elif normalized_type == "table":
                 table_chunks += 1
+            elif normalized_type == "page":
+                page_chunks += 1
             else:
                 text_chunks += 1
 
@@ -35,9 +39,7 @@ class ZipChunkSchemaBuilder:
             "text_chunks": text_chunks,
             "image_chunks": image_chunks,
             "table_chunks": table_chunks,
-            "page_chunks": sum(
-                1 for c in chunks if _normalize_chunk_type(c.get("type", "")) == "page"
-            ),
+            "page_chunks": page_chunks,
             "total_pages": None,
         }
 

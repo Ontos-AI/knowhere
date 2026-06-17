@@ -65,6 +65,13 @@ class AIConfig(BaseModel):
         default=3,
         description="Maximum concurrent workflow steps in the same DAG batch.",
     )
+    RETRIEVAL_AGENTIC_INLINE_TABLE_CHAR_LIMIT: int = Field(
+        default=10000,
+        description=(
+            "Maximum table HTML characters inlined into agentic evidence_text. "
+            "Larger tables are represented by asset URL, path, summary, and keywords."
+        ),
+    )
 
     # Runtime LLM controls.
     LLM_MOCK_ENABLED: bool = Field(
