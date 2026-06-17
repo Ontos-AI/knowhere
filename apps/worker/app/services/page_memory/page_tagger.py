@@ -160,7 +160,7 @@ def _tag_text_only(page: PageRenderResult) -> PageTagResult:
         from shared.services.ai.prompt_service import build_prompt
         from shared.services.ai.openai_compatible_client_sync import get_openai_client
 
-        text_model = os.environ.get("NORMOL_MODEL", "deepseek-chat")
+        text_model = os.environ.get("NORMOL_MODEL", "deepseek-v4-flash")
         prompt, temperature, top_p, max_tokens = build_prompt(
             "summary-full",
             raw[:3000],  # limit input to avoid token overflow

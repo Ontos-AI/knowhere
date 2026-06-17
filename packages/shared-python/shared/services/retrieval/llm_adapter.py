@@ -45,14 +45,14 @@ def _has_llm_credentials() -> bool:
 def _resolve_default_model() -> str:
     """Pick a model name that matches the configured LLM provider."""
     if getattr(settings, 'DS_KEY', ''):
-        return 'deepseek-chat'
+        return 'deepseek-v4-flash'
     if getattr(settings, 'ALI_API_KEYS', ''):
         return 'qwen-plus'
     if getattr(settings, 'GLM_API_KEY', ''):
         return 'glm-4-flash'
     if getattr(settings, 'GPT_API_KEY', ''):
         return getattr(settings, 'NORMOL_MODEL', None) or 'gpt-4o-mini'
-    return getattr(settings, 'NORMOL_MODEL', None) or 'deepseek-chat'
+    return getattr(settings, 'NORMOL_MODEL', None) or 'deepseek-v4-flash'
 
 
 def _resolve_planner_model(*, thinking: bool) -> str:
@@ -60,14 +60,14 @@ def _resolve_planner_model(*, thinking: bool) -> str:
     if configured:
         return configured
     if getattr(settings, 'DS_KEY', ''):
-        return 'deepseek-reasoner' if thinking else 'deepseek-chat'
+        return 'deepseek-reasoner' if thinking else 'deepseek-v4-flash'
     if getattr(settings, 'ALI_API_KEYS', ''):
         return 'qwq-32b-preview' if thinking else 'qwen-plus'
     if getattr(settings, 'GLM_API_KEY', ''):
         return 'glm-4-plus' if thinking else 'glm-4-flash'
     if getattr(settings, 'GPT_API_KEY', ''):
         return 'o3-mini' if thinking else 'gpt-4o-mini'
-    return getattr(settings, 'NORMOL_MODEL', None) or 'deepseek-chat'
+    return getattr(settings, 'NORMOL_MODEL', None) or 'deepseek-v4-flash'
 
 
 def create_retrieval_llm_fn(
