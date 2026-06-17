@@ -1,0 +1,391 @@
+{
+  "version": "1.0",
+  "file_name": "Retrieval-Augmented Generation Realized.pdf",
+  "stats": {
+    "total_chunks": 41,
+    "text_chunks": 41,
+    "image_chunks": 0,
+    "table_chunks": 0,
+    "page_chunks": 0,
+    "max_depth": 2
+  },
+  "sections": [
+    {
+      "title": "Page 1",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 1",
+      "level": 1,
+      "summary": "June 2024 Retrieval-augmented Generation Realized: Strategic & T echnical Insights for Industrial Applications",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 2",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 2",
+      "level": 1,
+      "summary": "appliedAI 2 Contents Contents 2 About This White Paper 4 Key T akeaways 5 Section 1: RAG Industrialization - Landscape & Strategy 6 Let's Start with a Crash Course of RAG 7 Wait! Naive RAG Doesn't Work Well! 9 So, What Are Some T echniques to Enhance RAG? 10 And What T ools Can I Use to Develop a RAG System? 12 Alright, How Can I Strategically Prioritize My Development Focus to Industrialize a RAG Project? 13 Section 2: RAG Recipes for Real-World Challenges 14 The Cold Start Recipe: Data-Driven Chunking & Embedding Strategy Without Evaluation Dataset 15 The Virtual Havruta Recipe: Optimizing Queries for Multifaceted Contexts & Precise Citations 17 The Deepset Recipe: Unlocking the Mastery...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 3",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 3",
+      "level": 1,
+      "summary": "RAG: Strategic & T echnical Insights 3 Section 3: A Deep Dive into RAG Evaluation & Metrics 24 Now, how do we assess RAG systems? 25 A Further Look into Existing RAG Evaluation Frameworks 26 Unveiling the Mechanisms Behind These Metrics 28 Reflections and Future Opportunities in RAG T echnology 29 References 30 Authors 32 Contributors 33 Contributing Companies 33 About appliedAI Initiative GmbH 34 Acknowledgement 35",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 4",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 4",
+      "level": 1,
+      "summary": "appliedAI 4 Managers, strategists, and technical leaders may use this section to: • Quickly grasp fundamental RAG concepts. • Understand the importance of RAG for the industry and the RAG technical landscape. • Gain strategic insights on prioritizing RAG enhancement methods. • Navigate through different stages of RAG industrialization. RAG developers, engineers, and practitioners may use this section to: • Explore enhancement and optimization strategies through five real-world use cases. • Consider engineering recipes to address challenges such as precise citation based on lessons learned in these cases. RAG developers, engineers, and practitioners may use this section to: • Understand...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 5",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 5",
+      "level": 1,
+      "summary": "RAG: Strategic & T echnical Insights 5 Key Takeaways RAG Industrialization - Landscape & Strategy For sustainable industrial knowledge retrieval and question-answering, RAG solutions are essential due to their trustworthiness, consistency, controllability, cost efficiency, etc. Exploring advanced techniques like HyDE and adaptive retrieval can enhance quality, though resource constraints must be considered. Recognizing challenges early in the RAG industrialization journey is crucial for effectively prioritizing development tasks and reducing potential risks related to quality, robustness and costs in productionizing RAG solutions. RAG Recipes for Real-World Challenges We present five...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 6",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 6",
+      "level": 1,
+      "summary": "appliedAI 6 Section 1: RAG Industrialization - Landscape & Strategy",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 7",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 7",
+      "level": 1,
+      "summary": "RAG: Strategic & T echnical Insights 7 In the era of Generative AI, Large Language Models (LLMs) are transforming information processing and question answering across industries. A typical LLM-only pipeline looks like this: Let's Start with a Crash Course of RAG What LLM Hallucination Looks Like Ground Truth Data Question Answering with LLM Three Major Challenges Encountered by LLM-Only Approach H allucinations LLMs can generate inaccurate or nonsensical information. K nowledge Cut-off LLMs' knowledge are limited to the information available in their training dataset up to their last update. No Access to Private Enterprise Data LLMs cannot access or utilize private, proprietary data. User...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 8",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 8",
+      "level": 1,
+      "summary": "appliedAI 8 ...I am unable to provide comments on future events. Currently, I do not have any information regarding the debate between Elon Musk and Yann LeCun in May 2024... How would you evaluate the recent debate between Elon Musk and Yann LeCun regarding what science is around the end of May 2024? Question : How would you evaluate the recent debate ...? Please answer the above questions based on the following information : Chunk 1 : Chunk 2 : Chunk 3 : Chunk 1: The debate started on May 27 after Musk advocated for a rigorous pursuit of truth, disregarding popularity or political correctness, on the platform X. Chunk 2: LeCun criticized Musk for spreading conspiracy theories and...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 9",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 9",
+      "level": 1,
+      "summary": "RAG: Strategic & T echnical Insights 9 Wait! Naive RAG Doesn't Work Well! Naive RAG systems face inherent limitations of information retrieval and dependence on LLMs, such as those typical failure points reported in Barnett et al. [3], and more. ● In response to the challenges of naive RAG, Gao et al. [2] introduced the concepts of advanced RAG and modular RAG to describe the evolution of RAG paradigms during development. ● Advanced RAG: Enhances Naive RAG by improving retrieval quality with pre- and post-retrieval strategies and refining indexing, e.g., through metadata filtering. ● Modular RAG: Introduces modularity for greater flexibility, featuring enhanced functional modules and...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 10",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 10",
+      "level": 1,
+      "summary": "appliedAI 10 So, What Are Some T echniques to Enhance RAG? We identified 12 advanced or modular RAG techniques that can enhance different RAG components and estimated their overall complexity in terms of resource consumption, cost, latency, duration of development cycle, and maintenance, along with their projected contribution to overall quality and trustworthiness. This serves as a starting point to assess which techniques to prioritize in a project, considering different levels of resource constraints, especially after identifying weak points in a RAG system. Advanced RAG T echniques and Modules Metadata Filtering Search Module & Hybrid Search T ask Adapter Multiple Indexing Structures...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 11",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 11",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 2,
+      "children": [
+        {
+          "title": "Part 1",
+          "path": "Retrieval-Augmented Generation Realized.pdf/Page 11/Part 1",
+          "level": 2,
+          "summary": "RAG: Strategic & T echnical Insights 11 So, What Are Some T echniques to Enhance RAG? Metadata Filtering Main Improvement Areas: Retrieval Augmentation What & How: • Automatically recognizing scope of retrieval and filtering the documents using their metadata. • Attaching metadata like dates, purpose, chapter summaries, etc., to chunks. Memory Main Improvement Areas: Retrieval Generation What & How: • Identifying LLM memories most similar to the current input. • Utilizing a retrieval-enhanced generator for iterative memory creation and self-improvement. • Aligning the output with the target data distribution during this reasoning process. Routing Main Improvement Areas: Pre-retrieval...",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Part 2",
+          "path": "Retrieval-Augmented Generation Realized.pdf/Page 11/Part 2",
+          "level": 2,
+          "summary": "Generation What & How: • Condensing and compressing a vast amount of relevant information extracted from extensive knowledge bases. • Filtering the contents and keeping only the most relevant points before passing to LLM. Multiple Indexing Structures Main Improvement Areas: Pre-retrieval Data Indexing Retrieval What & How: • Introducing graph structures to enhance retrieval by leveraging nodes and their relationships. • Creating multi-index paths to increase efficiency. Adaptive Retrieval & Self-RAG Main Improvement Areas: Retrieval Augmentation Generation What & How: • Enabling LLMs to determine when to search for necessary information, similar to how an agent uses tools. • Evaluating...",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Page 12",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 12",
+      "level": 1,
+      "summary": "appliedAI 12 And What T ools Can I Use to Develop a RAG System? Frequently Used T ools for RAG Solutions: A Quick Glance at Common and Distinct Features Unstructured Data Formats: Plain T ext (HTML, MARKDOWN, TXT), Image (JPEG, PNG), Document (CSV, PDF) Dense Retrieval: T op-k Listing, Similarity Threshold Listing Generators: OpenAI, Cohere, AWS, Hugging Face Models Cross-encoder Reranker: Hugging Face Sentence Transformer Unstructured Data Formats: JSON Chunking Strategies: Header-based Chunking, Semantic Chunking Time-weighted Search Generator: Anthropic Cross-encoder Reranker: Flashrank Self-querying/Auto-retrieval Generator: Google Generator: Google Generator: Ollama Generator: Azure...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 13",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 13",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 2,
+      "children": [
+        {
+          "title": "Part 1",
+          "path": "Retrieval-Augmented Generation Realized.pdf/Page 13/Part 1",
+          "level": 2,
+          "summary": "RAG: Strategic & T echnical Insights 13 Alright, How Can I Strategically Prioritize My Development Focus to Industrialize a RAG Project? The RAG Industrialization Journey Use case identification & pre- evaluation (User requirments, budget, infrastructure, critical level definition, etc.) Choosing the right technologies according to company requirements and existing infrastructure Ability for fast technique assessment Pairwise statistics Data & metadata preparation Sketching the overall scaffold to enhance scalable development Proficiency in designing scalable, extensible, and maintainable system architectures Human feedback (e.g., binary likes/dislikes or A/B tests) Use case data...",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Part 2",
+          "path": "Retrieval-Augmented Generation Realized.pdf/Page 13/Part 2",
+          "level": 2,
+          "summary": "monitoring Managing updates, patches, upgrades without disrupting operations Retrieval optimization (e.g., different retrieval methods, additional hybrid search or metadata filtering modules) Handling noises and inconsistencies in the data Enhancing system robustness & reliability Collaborating with cross- functional teams, including operations, security, compliance etc, to drive improvement Resource & cost monitoring, avoiding over-provisioning. Response quality optimization (e.g., iterative response generation) Addressing security, privacy, ethical, & legal concerns Enhancing data privacy protection Continual quality, performance, & cost optimization DIalogue flow and orchestration...",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Page 14",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 14",
+      "level": 1,
+      "summary": "appliedAI 14 Section 2: RAG Recipes for Real-World Challenges",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 15",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 15",
+      "level": 1,
+      "summary": "RAG: Strategic & T echnical Insights 15 RAG Cold Start Analytics: Exploiting the Potential of Pairwise Cosine Similarities The Underlying Idea ● Nguyen et al. [6] assessed the quality of embeddings from a general LLM (GPT-3) and a finetuned LLM specific to astronomy (AstroLLaMA) by examining the distribution of pairwise cosine similarity scores (see right, divided into 10 equal bins based on similarity levels from GPT-3). ● Given this set of domain-specific documents, embeddings by GPT-3 are overly generic with similarities clustering around 0.7–0.9, suggesting a lack of discriminative power. ● Embeddings generated by the finetuned model exhibits a much higher variance within each decile,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 16",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 16",
+      "level": 1,
+      "summary": "appliedAI 16 ● Based on this idea, appliedAI Initiative developed a prototype RAG cold start analytic app that allows: ȃ Grid search over different embedding models, chunking methods, chunk sizes, chunk overlaps, retriever search types, and number of top-K chunks. ȃ Automatic QA generation and evaluation using RAGAS metrics. ȃ Exploratory data analysis (EDA) on pair-wise cosine similarity score distributions the such as descriptive univariate statistics. ȃ Comparative analysis of pair-wise cosine similarity score distributions by decile between any two grid points. ● Compared to other approaches that project embeddings into 2D spaces for visual inspection of embedding quality, this...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 17",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 17",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 2,
+      "children": [
+        {
+          "title": "Part 1",
+          "path": "Retrieval-Augmented Generation Realized.pdf/Page 17/Part 1",
+          "level": 2,
+          "summary": "RAG: Strategic & T echnical Insights 17 Challenges Addressed ● Incomplete Queries: User queries don’t always contain critical information for semantic search. ● Implicit Assumptions: User queries may be short or fragile but carry rich implicit background knowledge and assumptions. ● Non-Aligned Reranking: Similarity scores or reranking may not always align with domain-specific conventions, user habits, concepts, or expectations about the best references, e.g., when primary sources (e.g., T anakh, T almud) are preferred over secondary sources (e.g., liturgy, commentary). ● Precision Demands: Highly precise citations among similar, neighboring chunks may be required. Metadata Filtering &...",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Part 2",
+          "path": "Retrieval-Augmented Generation Realized.pdf/Page 17/Part 2",
+          "level": 2,
+          "summary": "19:2:4. Version Title: T orah Commentary by Rabbi Bachya ben Asher, trans. Eliyahu Munk, 1998.. Document Category: Commentary URL: https://www.sefaria.org/Rabbeinu_Bahya,_ Bamidbar.19.2.4. “Can you explain the concept of דרכי שלום” Primary sources (e.g., T anakh, T almud), not commentaries, should be the top-ranking sources. Primary Source Metadata Filtering Similarity LLM Rating Authoritative Score : & * * Secondary Source Metadata Filtering Similarity LLM Rating : & * * User Query Screening LLM Translation Secondary Source Query (Liturgy, Commentary ) Primary Source Query (Tanakh, Talmud )Key Concepts Elaboration Quotation Challenge Directions Reformed Query Editing Adapting Multi-...",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Page 18",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 18",
+      "level": 1,
+      "summary": "appliedAI 18 The Deepset Recipe: Unlocking the Mastery of Metadata for Filtering, Searching, and Reranking Background & Goals of this Recipe ● This recipe aims at enhancing document retrieval and answer quality by leveraging metadata to preserve contextual understanding across the pipeline of a RAG- based question answering system. ● This recipe has been applied in several use cases, expanding the functionality of RAG-based systems within legal, academic, and media domains, particularly in developing RAG-enabled chatbots for efficiently answering queries within large legal and newspaper corpora. Metadata for Hybrid Search ● Metadata can be utilized as strict filters that refine the scope...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 19",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 19",
+      "level": 1,
+      "summary": "RAG: Strategic & T echnical Insights 19 Agent-Driven SQL Scoping ● LLM-agents are implemented to actively identify appropriate response scopes as well as document filtering criteria. ● The agents then construct corresponding SQL queries from natural language inputs, incorporating the suitable filters. ● The generated SQL queries are enhanced using LLM through multiple iterations, leading to improved retrieval result quality. T ask-specific Finetuning ● T ask-specific finetuning focuses on learning private company knowledge, while domain-specific finetuning is broader, optimizing the model with public data within a professional field. ● Triplets of [query, true answer, hard negative...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 20",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 20",
+      "level": 1,
+      "summary": "appliedAI 20 The RAGAR Recipe: Multimodal RAG-augmented Reasoning for Fact-checking Background & Goals of this Recipe ● The increasing prevalence of misinformation, particularly in the context of political discourse, necessitates advanced solutions for fact-checking. ● This recipe introduces RAG-augmented reasoning (RAGAR) approaches, in particular Chain of RAG (CoRAG) and Tree of RAG (T oRAG) in combination with Chain of Verification to achieve evidence-based verification of open-ended multimodal claims [5] . ● Originally designed for political fact-checking, RAGAR can be repurposed for various industry applications and is ideal for situations requiring thorough verification, complex...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 21",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 21",
+      "level": 1,
+      "summary": "RAG: Strategic & T echnical Insights 21 The RAGAR Recipe: Multimodal RAG-augmented Reasoning for Fact-checking Claim: The man next to Mike Pompeo in a November 2020 photo “is the guy the Trump administration helped get out of jail in 2018 and who is now the ‘president’ of Afghanistan” Image context: The image shows Mike Pompeo standing next to a man wearing traditional Afghan attire and a face mask. The setting appears to be a formal meeting room with a painting on the wall, two gold-colored chairs, and a table with water bottles. Both individuals are standing apart, likely adhering to social distancing guidelines prevalent during the COVID-19 pandemic. The background and attire suggest...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 22",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 22",
+      "level": 1,
+      "summary": "appliedAI 22 Chain of RAG & Tree of RAG ● Chain of RAG (CoRAG): ȃ Uses sequential follow-up questions augmented from the RAG response to retrieve further evidence. ȃ An early termination check step takes as input the generated claim and question-answer pair(s) and checks whether enough information to answer the claim has been gathered. ● Tree of RAG (T oRAG): ȃ Creates question branches at each step of the reasoning. ȃ In each step, the question-answer pairs are eliminated and only the best question-answer branch is chosen as the candidate evidence, based on the criteria of relevance, detail, additional information, and answer confidence. RAG-enhanced Agents for Enterprises ● Unfolding...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 23",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 23",
+      "level": 1,
+      "summary": "RAG: Strategic & T echnical Insights 23 “The AI shouldn’t just answer; it should do research first to determine which of the answers are the best.” Jenson Huang CEO, NVIDIA",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 24",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 24",
+      "level": 1,
+      "summary": "appliedAI 24 Section 3: A Deep Dive into RAG Evaluation & Metrics",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 25",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 25",
+      "level": 1,
+      "summary": "RAG: Strategic & T echnical Insights 25 Now, how do we assess RAG systems? A Mind Map of RAG Metrics: What do they Measure? ● Overall, assessing the quality of a RAG system output requires consideration of 4 types of contents: questions (user queries), contexts (retrieved relevant references), ground truth (golden answers), and responses (final system output). ● In the contexts of RAG, besides assessment of a single type of contents, it is particularly important to consider the relationship (relevance, coherence, etc.) between (1) questions and contexts; (2) contexts and ground truth; (3) contexts and responses; (4) responses and ground truth; (5) questions and responses. ● Below is a...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 26",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 26",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 3,
+      "children": [
+        {
+          "title": "Part 1",
+          "path": "Retrieval-Augmented Generation Realized.pdf/Page 26/Part 1",
+          "level": 2,
+          "summary": "RAG: Strategic & T echnical InsightsappliedAI 26 27 Frameworks Version License Integration: Compatibile Frameworks Integration: Models Metrics: Questions-Contexts Metrics: Questions-Responses (given contexts) Metrics: Contexts-Responses (given questions) Metrics: Contexts- Ground Truth (given questions and/or responses) Metrics: Responses-Ground Truth (given questions) Metrics: Responses (given questions and/or contexts) Metrics: GroundTruth Metrics: Questions Metrics: Conversation Customized Metrics Performance Metrics Human Feedback A/B T ests LLM Vulnerability Scan ML Vulnerability Scan Model/Pipeline Comparison Prompt Playground UI Manual T est Set Creation UI Automatic T est Set...",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Part 2",
+          "path": "Retrieval-Augmented Generation Realized.pdf/Page 26/Part 2",
+          "level": 2,
+          "summary": "Feedback Functions] comprehensiveness [Stock Feedback Functions] HF PII detection, HF positive sentiment, HF toxic, OpenAI moderation_harassment [Generation-based Stock Feedback Functions] coherence, conciseness, correctness, helpfulness Combinators: Ground Truth Agreement (agreement_ measure, bert_score, bleu, mae, rouge) • Latency • Cost • T oken Counts [Classification-based Stock Feedback Functions] HF toxic, OpenAI moderation_harassment, OpenAI moderation_harassment_threatening, OpenAI moderation_hate, OpenAI moderation_ hatethreatening, OpenAI moderation_selfharm, OpenAI moderation_sexual, OpenAI moderation_ sexualminors, OpenAI moderation_violence, OpenAI moderation_violencegraphic...",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Part 3",
+          "path": "Retrieval-Augmented Generation Realized.pdf/Page 26/Part 3",
+          "level": 2,
+          "summary": "ASPECT_ CRITIQUE[UpTrainEvaluator] • RESPONSE_CONCISENESS • CRITIQUE_LANGUAGE • CRITIQUE_TONE- GUIDELINE_ ADHERENCE Deepset Cloud 0.041 Closed source Haystack integrated frameworks Haystack models Reference analysis (top-k optimization) Groundedness Latency UpTrain 0.6.12 Apache-2.0 OpenAI Evals, LlamaIndex, Replicate, Hugging Face, Langfuse, Helicone, Zeno, and others OpenAI models, Azure OpenAI models, Claude models, Mistral models, Ollama models, T ogether AI models, Anyscale models • Context Relevance • Response Relevance • Context Utilization • Factual Accuracy • Context Conciseness • Context Reranking • Response Matching • Response Completeness • Response Conciseness • Response...",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Page 27",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 27",
+      "level": 1,
+      "summary": "appliedAI 28 Unveiling the Mechanisms Behind These Metrics An Intuitive View of Key RAG Metrics in Common Practice Metric Context Relevance Context Entities Recall Answer Correctness Context Recall Mean Reciprocal Rank (MMR) Answer Relevance Precision@k Mean Average Precision (mAP) Answer Completeness Context Precision@k Answer Semantic Similarity Faithfulness Groundedness What Does It Measure? Relevance of retrieved contexts given the questions Alignment between retrieved contexts and ground truth in terms entities Accuracy of answers when compared to the ground truth How much ground truth appear in retrieved contexts An average of effectiveness of ranking the first ground-truth relevant...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 28",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 28",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 2,
+      "children": [
+        {
+          "title": "Part 1",
+          "path": "Retrieval-Augmented Generation Realized.pdf/Page 28/Part 1",
+          "level": 2,
+          "summary": "RAG: Strategic & T echnical Insights 29 Reflections and Future Opportunities in RAG T echnology Reflections Future Opportunities in RAG T echnology Seamless Integration The future of RAG holds the potential for seamless integration into a wide array of knowledge retrieval and question answering applications, such as search engines, customer service platforms, in-car assistants, social media, and knowledge management systems, enhancing user experiences with context-aware responses. Coordinated Modules Currently, LLM modules for retrieval may not interpret user intent in the same way as those for generation, leading to inconsistencies. Hence, there is potential for these modules to achieve...",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Part 2",
+          "path": "Retrieval-Augmented Generation Realized.pdf/Page 28/Part 2",
+          "level": 2,
+          "summary": "answer semantic similarity, correctness, relevance, faithfulness, etc. • We're observing a trend of growing LLM frameworks tailored for various aspects of RAG evaluation. However, while the metrics in these frameworks align with the mind map presented at the outset of Section 3, there isn't a single framework that fully encompasses every aspect of RAG evaluation to date. • While these metrics capture specific facets of RAG, it's important to acknowledge their occasional insufficiency. For instance, evaluating the quality of open-ended questions can pose challenges as there's no fixed set of golden references for such queries. Section 1: RAG Industrialization - Landscape & Strategy Section...",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Page 29",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 29",
+      "level": 1,
+      "summary": "appliedAI 30 References [1] H. Y e, T. Liu, A. Zhang, W. Hua, and W. Jia, “Cognitive Mirage: A Review of Hallucinations in Large Language Models.” arXiv, Sep. 13, 2023. Accessed: Sep. 19, 2023. [Online]. Available: http://arxiv.org/ abs/2309.06794. [2] Y. Gao et al., “Retrieval-Augmented Generation for Large Language Models: A Survey.” arXiv, Jan. 03, 2024. Accessed: Jan. 06, 2024. [Online]. Available: http://arxiv.org/abs/2312.10997. [3] S. Barnett, S. Kurniawan, S. Thudumu, Z. Brannelly, and M. Abdelrazek, “Seven Failure Points When Engineering a Retrieval Augmented Generation System.” arXiv, Jan. 11, 2024. Accessed: Feb. 21, 2024. [Online]. Available: http://arxiv.org/abs/2401.05856....",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 30",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 30",
+      "level": 1,
+      "summary": "RAG: Strategic & T echnical Insights 31 “Generative AI's impressive natural-language processing, combined with RAG's capabilities, revolutionizes knowledge management and decision-making by allowing employees to retrieve stored internal knowledge and manage information about products or processes swiftly and effectively, just as they would when asking a human.” Bernhard Pflugfelder Head of Innovation Lab (GenAI), applied AI initiative",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 31",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 31",
+      "level": 1,
+      "summary": "appliedAI 32 Dr. Paul Yu-Chun Chang Senior AI Expert: Foundation Models - LLMs, appliedAI Initiative GmbH p.chang@appliedai.de Bernhard Pflugfelder works as Head of Innovation Lab (GenAI) at the appliedAI Initiative GmbH. Bernhard has 15 years of experience in the fields of Data Science, Natural Language Processing (NLP), as well as data and AI across different companies such as BMW Group or Volkswagen Group. He is renowned for his expertise especially in the field of AI in general, NLP and Generative AI in particular. Bernhard Pflugfelder Head of Innovation Lab (GenAI), appliedAI Initiative GmbH b.pflugfelder@appliedai.de Paul Yu-Chun Chang works as an Senior AI Expert specializing in...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 32",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 32",
+      "level": 1,
+      "summary": "RAG: Strategic & T echnical Insights 33 Contributors Contributing Companies Johannes Birk Generative AI Engineer, appliedAI Initiative GmbH j.birk@appliedai.de Hadara Steinberg Associate Director, Engineering T eam, Sefaria hadara@sefaria.org Emre Demirci Jun. AI Engineering LLM, appliedAI Initiative GmbH e.demirci@appliedai.de Dr. Sebastian Husch Lee Solution Engineering T ech Lead, deepset GmbH sebastian.huschlee@deepset.ai Antoine Leboyer Managing Director, TUM Venture Labs antoine.leboyer@ unternehmertum.de Dr. Saahil Ognawala Head of Product, Jina AI GmbH saahil.ognawala@jina.ai Lev Eliezer Israel Chief Product Officer, Sefaria lev@sefaria.org Maximilian Werk Head of Engineering,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 33",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 33",
+      "level": 1,
+      "summary": "appliedAI 34 About appliedAI Initiative GmbH appliedAI is Europe's largest initiative for the application of trusted AI technology. It aims to advance Europe's industry to stay competitive in the Age of AI. The initiative was established in 2017 by Dr. Andreas Liebl as a division of UnternehmerTUM in Munich and transferred to a joint venture with Innovation Park Artificial Intelligence (IPAI) in Heilbronn in 2022. At appliedAI, more than 160 employees work together with >20 companies in our Partnership to create best practices on how to apply AI, in Professional Services and Accelerator Programs to engineer AI powered solutions, develop AI strategies and operating models as well as...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 34",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 34",
+      "level": 1,
+      "summary": "RAG: Strategic & T echnical Insights 35 Acknowledgement We express our sincere appreciation for the remarkable work carried out by the authors, reviewers, and designer of this white paper. Their great expertise, motivation and dedication to every detail made this white paper an exceptional contribution to the AI Community. Furthermore, we extend our gratitude to the contributors from Deepset, Jina.ai, Sefaria, and TUM Venture Labs for their valuable contributions. Their profound expertise and commitment have played a pivotal role in shaping the ideas and knowledge presented in this paper. We would also like to thank all the appliedAI partner companies that actively participated in the...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "Page 35",
+      "path": "Retrieval-Augmented Generation Realized.pdf/Page 35",
+      "level": 1,
+      "summary": "Retrieval-augmented Generation Realized: Strategic & T echnical Insights for Industrial Applications appliedAI Initiative GmbH August-Everding-Straße 25 81671 München Germany www.appliedai.de",
+      "chunk_count": 1,
+      "children": []
+    }
+  ],
+  "resources": {
+    "images": [],
+    "tables": []
+  }
+}

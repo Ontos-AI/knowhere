@@ -1,0 +1,31 @@
+{
+  "version": "2.0",
+  "job_id": "job_demo_research_toolformer",
+  "data_id": null,
+  "source_file_name": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf",
+  "processing_date": "2026-06-17T11:37:41.873051Z",
+  "processing": {
+    "page_count": null,
+    "billing_status": null,
+    "cost": {
+      "micro_dollars": null,
+      "credits": null
+    },
+    "cost_estimate": {},
+    "timing": {
+      "started_at": null,
+      "completed_at": null,
+      "duration_ms": null
+    },
+    "stages": {}
+  },
+  "statistics": {
+    "total_chunks": 27,
+    "text_chunks": 27,
+    "image_chunks": 0,
+    "table_chunks": 0,
+    "page_chunks": 0,
+    "total_pages": null
+  },
+  "HIERARCHY": {}
+}

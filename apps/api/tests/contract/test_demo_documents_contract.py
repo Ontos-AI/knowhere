@@ -183,6 +183,29 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
         "demo-stem-statistical-learning"
     )
     assert library_sources_by_id["stem-statistical-learning"]["chunk_count"] == 71
+    research_demo_sources = {
+        "research-attention-is-all-you-need": (
+            "demo-research-attention-is-all-you-need",
+            16,
+        ),
+        "research-rag-survey": ("demo-research-rag-survey", 37),
+        "research-rag-realized": ("demo-research-rag-realized", 41),
+        "research-toolformer": ("demo-research-toolformer", 27),
+        "research-ai-agents-overview": ("demo-research-ai-agents-overview", 33),
+    }
+    for library_source_id, (
+        expected_demo_source_id,
+        expected_chunk_count,
+    ) in research_demo_sources.items():
+        assert library_sources_by_id[library_source_id]["status"] == "ready"
+        assert (
+            library_sources_by_id[library_source_id]["demo_source_id"]
+            == expected_demo_source_id
+        )
+        assert (
+            library_sources_by_id[library_source_id]["chunk_count"]
+            == expected_chunk_count
+        )
     assert (
         library_sources_by_id["financial-nvda-q1-fy27-earnings-call"]["demo_source_id"]
         == "demo-financial-nvda-q1-fy27-earnings-call"
