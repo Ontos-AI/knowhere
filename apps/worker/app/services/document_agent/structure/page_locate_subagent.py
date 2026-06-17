@@ -20,7 +20,6 @@ grep/VLM primitives the rest of the profile agent uses.
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, cast
 
@@ -183,6 +182,7 @@ class PageLocateSubAgent:
         return SubAgentResult(None, transcript, len(transcript), "exhausted")
 
     def _dispatch(self, name: str, args: dict[str, Any]):
+        assert self.ctx is not None, "dispatch requires a non-None ToolContext"
         return REGISTRY.dispatch(name, self.ctx, args)
 
     def _coerce_pages(self, raw: Any) -> list[int]:
@@ -211,6 +211,7 @@ class PageLocateSubAgent:
         grep_hit = seen_grep.get(page) or {}
         vlm_confirmed = bool(last_verify and last_verify.get("selected_page") == page)
         if vlm_confirmed:
+            assert last_verify is not None  # guaranteed by vlm_confirmed check
             source = cast(Any, last_verify.get("source") or "agent_vlm")
             confidence = float(last_verify.get("confidence") or 0.7)
             reason = last_verify.get("reason")

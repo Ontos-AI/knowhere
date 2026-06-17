@@ -17,7 +17,6 @@ from app.services.document_parser.support.parser_rows import PARSER_ROW_COLUMNS
 from app.services.page_memory.normalizer import normalize_to_pdf
 
 from loguru import logger
-from shared.core.exceptions.domain_exceptions import ValidationException
 
 
 @dataclass(frozen=True)
@@ -207,7 +206,6 @@ def _build_page_dataframe(
     # ── C7: assemble DataFrame rows ──────────────────────────────────
     tag_map = {t.page_index: t for t in tags}
     render_map = {r.page_index: r for r in rendered}
-    plan_map = {p.page_index: p for p in plans}
 
     # Build page → PageLabel.kind lookup
     label_map: dict[int, str] = {}

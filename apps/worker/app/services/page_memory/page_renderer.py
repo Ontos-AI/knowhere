@@ -7,9 +7,7 @@ landscape detection from page_features.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-from typing import Any
 
 from loguru import logger
 

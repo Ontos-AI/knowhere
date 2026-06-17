@@ -15,7 +15,7 @@ import base64
 import json
 import os
 from dataclasses import dataclass, field
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from loguru import logger
 
