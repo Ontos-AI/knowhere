@@ -26,6 +26,12 @@ from app.services.document_agent.structure.page_locate_subagent import (
     SubAgentConfig,
 )
 
+VLM_CONFIRMED_DEFAULT_CONFIDENCE = 0.75
+GREP_ONLY_CONFIDENCE_CAP = 0.62
+RENDER_FAILED_GREP_CONFIDENCE_CAP = 0.58
+BUDGET_EXHAUSTED_GREP_CONFIDENCE_CAP = 0.56
+VLM_FAILED_GREP_CONFIDENCE_CAP = 0.54
+
 
 @dataclass(frozen=True)
 class PageLocateConfig:
@@ -248,7 +254,7 @@ def verify_section_page_choice(
         best = candidates[0]
         return {
             "selected_page": best.page,
-            "confidence": min(best.confidence, 0.62),
+            "confidence": min(best.confidence, GREP_ONLY_CONFIDENCE_CAP),
             "source": "agent_heuristic",
             "reason": "VLM unavailable; selected top grep candidate",
         }
@@ -267,7 +273,7 @@ def verify_section_page_choice(
         best = candidates[0]
         return {
             "selected_page": best.page,
-            "confidence": min(best.confidence, 0.58),
+            "confidence": min(best.confidence, RENDER_FAILED_GREP_CONFIDENCE_CAP),
             "source": "agent_heuristic",
             "reason": "render failed; selected top grep candidate",
         }
@@ -279,7 +285,7 @@ def verify_section_page_choice(
         best = candidates[0]
         return {
             "selected_page": best.page,
-            "confidence": min(best.confidence, 0.56),
+            "confidence": min(best.confidence, BUDGET_EXHAUSTED_GREP_CONFIDENCE_CAP),
             "source": "agent_heuristic",
             "reason": "page_locate visual budget exhausted; selected top grep candidate",
         }
@@ -323,7 +329,7 @@ def verify_section_page_choice(
             selected_page = None
         return {
             "selected_page": selected_page,
-            "confidence": float(payload.get("confidence") or 0.75),
+            "confidence": float(payload.get("confidence") or VLM_CONFIRMED_DEFAULT_CONFIDENCE),
             "source": "agent_vlm",
             "reason": str(payload.get("reason") or ""),
             "latency_ms": int((time.monotonic() - start) * 1000),
@@ -335,7 +341,7 @@ def verify_section_page_choice(
         logger.warning("[page_locate.agent] VLM failed for title={!r}: {}", title, exc)
         return {
             "selected_page": best.page,
-            "confidence": min(best.confidence, 0.54),
+            "confidence": min(best.confidence, VLM_FAILED_GREP_CONFIDENCE_CAP),
             "source": "agent_heuristic",
             "reason": f"VLM failed ({type(exc).__name__}); selected top grep candidate",
         }

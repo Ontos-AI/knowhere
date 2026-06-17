@@ -69,6 +69,15 @@ async def assemble_retrieval_results(
                     connected_targets.append((sort_key, target_content))
             connected_targets.sort(key=lambda item: item[0])
             related_parts = [content for _, content in connected_targets]
+
+            # TODO: Oversized Table Protection for results[].content
+            # Currently, if a text chunk connects to a large table (e.g., 50K chars), 
+            # the full table HTML is appended here without any truncation.
+            # We should consider whether to truncate this and only leave the asset URL.
+            #
+            # TODO: Dedicated Large Table Agent
+            # For the Notebook/Agent environment, consider introducing a dedicated 
+            # "Large Table Agent" that can fetch and query oversized tables via URL.
             if base_content and related_parts:
                 assembled_row['content'] = '\n\n'.join([base_content, *related_parts])
             else:
