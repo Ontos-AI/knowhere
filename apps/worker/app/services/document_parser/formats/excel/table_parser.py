@@ -273,7 +273,6 @@ def _subtable_title_from_attrs(attrs: dict[str, Any]) -> str:
         subtable_index = int(attrs.get("subtable_index") or 1)
     except (TypeError, ValueError):
         subtable_count = 1
-        subtable_index = 1
     if subtable_count <= 1:
         return ""
     title = str(attrs.get("subtable_title") or "").strip()
