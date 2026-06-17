@@ -76,7 +76,10 @@ def test_parse_task_should_process_uploaded_file_through_real_contract_boundarie
     assert len(document_chunks) == len(job_chunks)
     assert observed["document_sections_count"] > 0
     assert all(row["chunk_type"] == "table" for row in job_chunks)
-    assert any("tables/" in str(row["path"]) for row in job_chunks)
+    assert any(
+        str((row["chunk_metadata"] or {}).get("file_path", "")).startswith("tables/")
+        for row in job_chunks
+    )
 
     assert contract.get_task_status(job["job_id"]) == "done"
     task_progress = contract.get_task_progress(job["job_id"])
@@ -100,7 +103,12 @@ def test_parse_task_should_process_uploaded_file_through_real_contract_boundarie
     assert len(chunks_payload["chunks"]) == len(job_chunks)
     assert all(chunk["type"] == "table" for chunk in chunks_payload["chunks"])
     assert any(
-        "Table summary:" in chunk["content"] for chunk in chunks_payload["chunks"]
+        chunk["content"].lstrip().startswith("<table")
+        for chunk in chunks_payload["chunks"]
+    )
+    assert any(
+        str(chunk["metadata"].get("summary", "")).startswith("table-")
+        for chunk in chunks_payload["chunks"]
     )
 
     manifest_payload = result_zip["manifest"]
