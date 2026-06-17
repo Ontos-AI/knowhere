@@ -17,7 +17,7 @@ from shared.services.ai.response_process_service import process_llm_history
 # ──────────────────────────────────────────────────────────────────────────────
 # Language detection & directive injection
 # ──────────────────────────────────────────────────────────────────────────────
-# Rationale: LLMs such as deepseek-chat have a strong prior toward Chinese when
+# Rationale: LLMs such as deepseek-v4-flash have a strong prior toward Chinese when
 # summarizing numeric / structured input (financial tables, GAAP terms, etc.),
 # and a soft "same language as the input" instruction is often ignored. We
 # therefore detect the input language deterministically at the caller site and

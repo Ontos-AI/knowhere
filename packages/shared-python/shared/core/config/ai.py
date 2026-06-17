@@ -16,12 +16,12 @@ class AIConfig(BaseModel):
         default="https://api.deepseek.com/v1", description="DeepSeek API URL"
     )
     GPT_API_KEY: str = Field(default="", description="OpenAI API key")
-    # Default behavior: text/table summaries use deepseek-chat. Hierarchy parsing
+    # Default behavior: text/table summaries use deepseek-v4-flash. Hierarchy parsing
     # can be overridden independently with HIERARCHY_LLM_MODEL. Existing
     # environment overrides for NORMOL_MODEL / HIERARCHY_LLM_MODEL /
     # IMAGE_MODEL / IMAGE_MODEL_MAX remain supported.
     NORMOL_MODEL: str = Field(
-        default="deepseek-chat",
+        default="deepseek-v4-flash",
         description="Default text model for summaries and general text LLM calls",
     )
     HIERARCHY_LLM_MODEL: str = Field(
