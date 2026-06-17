@@ -27,7 +27,6 @@ from loguru import logger
 
 from shared.core.exceptions.domain_exceptions import TableParsingException
 from shared.core.exceptions.knowhere_exception import KnowhereException
-from shared.utils.chunk_refs import build_chunk_ref
 from app.services.common.file_loading import load_file_bytes
 from app.services.common.file_utils import path_handle
 from shared.utils.text_utils import tokenize2stw_remove
@@ -150,6 +149,7 @@ def _parse_excel_sheet(
     time_stamp: str,
 ) -> list[ParsedRow]:
     parsed_rows: list[ParsedRow] = []
+    sheet_attrs = dict(sheet_frame.attrs)
 
     try:
         table_frame = postprocess_tb(sheet_frame, drop=True)
@@ -161,19 +161,22 @@ def _parse_excel_sheet(
 
         table_frame = _drop_source_row_columns(table_frame)
         row_header_cols = int(table_frame.attrs.get("row_header_cols", 0))
+        logical_sheet_name = _sheet_name_from_attrs(sheet_attrs, fallback=sheet_name)
+        subtable_title = _subtable_title_from_attrs(sheet_attrs)
 
         _table_paths, table_html = parse_tb_contents(
             table_frame,
-            parent_dic={request.file_name: {sheet_name: {}}},
+            parent_dic={request.file_name: {logical_sheet_name: {}}},
             file_name=request.file_name,
-            sheet_name=sheet_name,
+            sheet_name=logical_sheet_name,
             row_header_cols=row_header_cols,
         )
 
         parsed_rows.append(
             _write_excel_table_asset(
                 request=request,
-                sheet_name=sheet_name,
+                sheet_name=logical_sheet_name,
+                subtable_title=subtable_title,
                 table_frame=table_frame,
                 table_html=table_html,
                 time_stamp=time_stamp,
@@ -208,6 +211,7 @@ def _write_excel_table_asset(
     *,
     request: ExcelWorkbookParseRequest,
     sheet_name: str,
+    subtable_title: str,
     table_frame: pd.DataFrame,
     table_html: str,
     time_stamp: str,
@@ -218,9 +222,10 @@ def _write_excel_table_asset(
         sheet_name=sheet_name,
         llm_parameters=request.base_llm_paras,
     )
-    table_index = f"table-{sheet_name}"
+    table_label = _table_label(sheet_name=sheet_name, subtable_title=subtable_title)
+    table_index = f"table-{table_label}"
     table_summary = f"{table_index}\n{summary}" if summary else table_index
-    effective_name = title or sheet_name
+    effective_name = title or table_label
     table_stem = path_handle(
         remove_spaces("table-" + effective_name),
         mode="clean_single",
@@ -229,13 +234,9 @@ def _write_excel_table_asset(
         raise ValueError(f"Failed to sanitize Excel table name: {effective_name}")
     table_name = table_stem + ".html"
     table_html_string = BeautifulSoup(table_html, features="html.parser").prettify()
-    know_id = gen_str_codes(table_html + str(sheet_name))
-    table_ref = build_chunk_ref(f"tables/{table_name}")
-    table_content = (
-        f"{table_ref}\nTable summary:\n{table_summary}\nMain columns:\n{keywords}"
-    )
+    know_id = gen_str_codes(table_html + str(table_label))
     table_tokens = tokenize2stw_remove(
-        [table_content],
+        [table_summary, keywords],
         request.base_llm_paras["stopwords"],
     )
 
@@ -248,11 +249,58 @@ def _write_excel_table_asset(
             keywords=keywords,
             know_id=know_id,
             addtime=time_stamp,
-            content=table_content,
+            content=table_html_string,
             tokens=table_tokens,
-            length=len(table_html),
+            length=len(table_html_string),
+            path=_build_excel_table_path(
+                request=request,
+                sheet_name=sheet_name,
+                subtable_title=subtable_title,
+            ),
+            asset_path=f"tables/{table_name}",
         )
     )
+
+
+def _sheet_name_from_attrs(attrs: dict[str, Any], *, fallback: str) -> str:
+    sheet_name = str(attrs.get("sheet_name") or fallback).strip()
+    return sheet_name or fallback
+
+
+def _subtable_title_from_attrs(attrs: dict[str, Any]) -> str:
+    try:
+        subtable_count = int(attrs.get("subtable_count") or 1)
+        subtable_index = int(attrs.get("subtable_index") or 1)
+    except (TypeError, ValueError):
+        subtable_count = 1
+    if subtable_count <= 1:
+        return ""
+    title = str(attrs.get("subtable_title") or "").strip()
+    return title or f"子表 {subtable_index}"
+
+
+def _table_label(*, sheet_name: str, subtable_title: str) -> str:
+    return f"{sheet_name}-{subtable_title}" if subtable_title else sheet_name
+
+
+def _build_excel_table_path(
+    *,
+    request: ExcelWorkbookParseRequest,
+    sheet_name: str,
+    subtable_title: str,
+) -> str:
+    document_root = str(request.relative_root or request.file_name).strip()
+    parts = [
+        _clean_path_segment(document_root),
+        _clean_path_segment(sheet_name),
+    ]
+    if subtable_title:
+        parts.append(_clean_path_segment(subtable_title))
+    return "/".join(part for part in parts if part)
+
+
+def _clean_path_segment(value: str) -> str:
+    return str(value).strip().replace("/", "_").replace("\\", "_")
 
 
 def _summarize_excel_table(

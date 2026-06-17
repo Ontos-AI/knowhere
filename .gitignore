@@ -123,3 +123,4 @@ TODO.md
 doc-deploy/
 todos/
 *.egg-info/
+*.rdb

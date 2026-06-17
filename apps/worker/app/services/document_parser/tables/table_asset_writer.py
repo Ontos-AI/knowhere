@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 
 from app.services.document_parser.support.parser_rows import ParsedRow
+from shared.utils.chunk_refs import build_chunk_ref
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,8 @@ class TableAssetInput:
     content: str | None = None
     tokens: str = ""
     length: int | None = None
+    path: str | None = None
+    asset_path: str | None = None
 
 
 def write_table_asset(table_input: TableAssetInput) -> ParsedRow:
@@ -28,10 +31,13 @@ def write_table_asset(table_input: TableAssetInput) -> ParsedRow:
     with open(table_path, "w", encoding="utf-8") as table_file:
         table_file.write(table_input.html)
     row_content = table_input.content if table_input.content is not None else table_input.html
+    row_type = "table"
+    if table_input.asset_path:
+        row_type = f"table\n{build_chunk_ref(table_input.asset_path)}"
     return ParsedRow(
         content=row_content,
-        path=f"tables/{table_filename}",
-        type="table",
+        path=table_input.path or f"tables/{table_filename}",
+        type=row_type,
         keywords=table_input.keywords,
         summary=table_input.summary,
         know_id=table_input.know_id,

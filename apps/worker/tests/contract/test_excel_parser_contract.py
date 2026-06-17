@@ -51,9 +51,12 @@ def test_xlsx_parser_contract_uses_stable_entrypoint_and_ignores_hidden_sheets(
     parsed_df = parse_output.parsed_df
     assert full_output_dir.endswith("budget.xlsx")
     assert parsed_df is not None
-    assert parsed_df["type"].tolist() == ["table"]
-    assert parsed_df["path"].tolist() == ["tables/table-Visible.html"]
+    assert parsed_df["type"].iloc[0].startswith("table")
+    assert "[tables/table-Visible.html]" in parsed_df["type"].iloc[0]
+    assert parsed_df["path"].tolist() == ["budget.xlsx/Visible"]
     assert parsed_df["summary"].tolist() == ["table-Visible"]
+    assert parsed_df["content"].iloc[0].lstrip().startswith("<table")
+    assert "[tables/" not in parsed_df["content"].iloc[0]
     assert "Region" in parsed_df["keywords"].iloc[0]
     assert "Value" in parsed_df["keywords"].iloc[0]
 
@@ -96,4 +99,4 @@ def test_parser_maps_document_name_to_task_local_path_segment(
     )
     assert full_output_dir.endswith("images.xlsx")
     assert parsed_df is not None
-    assert parsed_df["path"].tolist() == ["tables/table-Visible.html"]
+    assert parsed_df["path"].tolist() == ["images.xlsx/Visible"]

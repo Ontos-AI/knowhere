@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
@@ -11,11 +12,9 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 from app.services.document_agent.budget import BudgetTracker, StageEnvelope
 from app.services.page_memory import memory_service
-from shared.core.exceptions.domain_exceptions import ValidationException
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 
 import pandas as pd
-import pytest
 
 
 def test_visual_stage_envelope_preserves_other_stage_guarantee() -> None:
@@ -90,12 +89,22 @@ def test_dataframe_converter_accepts_page_chunks_with_extra_metadata() -> None:
     assert chunks[0]["metadata"]["page_nums"] == [1, 2]
 
 
-def test_page_memory_unsupported_granularity_is_explicit() -> None:
-    with pytest.raises(ValidationException) as exc_info:
-        memory_service._raise_unsupported_granularity("page")  # noqa: SLF001
-
-    error = exc_info.value
-    assert "whole-document page memory" in error.user_message
-    assert "PAGE_MEMORY_GRANULARITY_NOT_IMPLEMENTED" in error.internal_message
-    assert error.violations[0]["field"] == "parse_track"
-    assert "granularity=page" in error.violations[0]["description"]
+def test_page_memory_granularity_routes_supported_page_modes() -> None:
+    assert (
+        memory_service._decide_granularity(  # noqa: SLF001
+            SimpleNamespace(page_count=6, toc=SimpleNamespace(has_toc=False))
+        )
+        == "whole_doc"
+    )
+    assert (
+        memory_service._decide_granularity(  # noqa: SLF001
+            SimpleNamespace(page_count=7, toc=SimpleNamespace(has_toc=False))
+        )
+        == "page"
+    )
+    assert (
+        memory_service._decide_granularity(  # noqa: SLF001
+            SimpleNamespace(page_count=201, toc=SimpleNamespace(has_toc=False))
+        )
+        == "shard_page"
+    )

@@ -1,9 +1,13 @@
 """Render agentic document trees into evidence text."""
 from __future__ import annotations
 
+import os
 from typing import Any, cast
 
 from shared.services.retrieval.agentic.core.types import DocTreeNode
+
+INLINE_TABLE_CHAR_LIMIT_ENV = "RETRIEVAL_AGENTIC_INLINE_TABLE_CHAR_LIMIT"
+DEFAULT_INLINE_TABLE_CHAR_LIMIT = 10000
 
 
 def render_unified_doc_tree(
@@ -153,7 +157,15 @@ def render_leaf_chunks(
 
             if target_type == "table":
                 table_html = str(target.get("content", "")).strip()
-                content = content.replace(ref_str, f"\n[Table]\n{table_html}\n")
+                file_path = target.get("file_path") or ""
+                asset_url = (asset_lookup or {}).get(target_id, "") if target_id else ""
+                display_ref = asset_url or file_path
+                table_lines = render_table_chunk_lines(
+                    target,
+                    table_html=table_html,
+                    display_ref=display_ref,
+                )
+                content = content.replace(ref_str, "\n" + "\n".join(table_lines) + "\n")
             elif target_type == "image":
                 file_path = target.get("file_path") or ""
                 image_description = str(target.get("content", "")).strip()
@@ -191,11 +203,57 @@ def render_leaf_chunks(
                         parts.append(f"{indent}┈ {line}")
         elif chunk_type == "table":
             table_html = str(chunk.get("content", "")).strip()
-            parts.append(f"{indent}┈ [Table]")
-            if table_html:
-                for line in table_html.split("\n"):
-                    if line.strip():
-                        parts.append(f"{indent}┈ {line}")
+            file_path = chunk.get("file_path") or ""
+            asset_url = (asset_lookup or {}).get(chunk_id, "") if chunk_id else ""
+            display_ref = asset_url or file_path
+            for line in render_table_chunk_lines(
+                chunk,
+                table_html=table_html,
+                display_ref=display_ref,
+            ):
+                if line.strip():
+                    parts.append(f"{indent}┈ {line}")
+
+
+def render_table_chunk_lines(
+    chunk: dict[str, Any],
+    *,
+    table_html: str,
+    display_ref: str,
+) -> list[str]:
+    header = f"[Table: {display_ref}]" if display_ref else "[Table]"
+    if len(table_html) <= _inline_table_char_limit():
+        return [header, *[line for line in table_html.split("\n") if line.strip()]]
+
+    lines = [header]
+    table_path = chunk.get("source_chunk_path") or chunk.get("section_path")
+    if table_path:
+        lines.append(f"Table path: {table_path}")
+    file_path = chunk.get("file_path")
+    if file_path:
+        lines.append(f"Table asset: {file_path}")
+    lines.append(
+        f"Large table omitted from evidence_text: {len(table_html)} chars "
+        f"(inline limit {_inline_table_char_limit()} chars)."
+    )
+
+    metadata = chunk.get("chunk_metadata") or chunk.get("metadata") or {}
+    summary = metadata.get("summary") if isinstance(metadata, dict) else ""
+    if summary:
+        lines.append("Table summary:")
+        lines.extend(str(summary).split("\n"))
+
+    keywords = metadata.get("keywords") if isinstance(metadata, dict) else []
+    if isinstance(keywords, list) and keywords:
+        keyword_text = ";".join(str(keyword) for keyword in keywords if str(keyword).strip())
+        if keyword_text:
+            lines.append("Main columns:")
+            lines.append(keyword_text)
+    return lines
+
+
+def _inline_table_char_limit() -> int:
+    return int(os.getenv(INLINE_TABLE_CHAR_LIMIT_ENV, str(DEFAULT_INLINE_TABLE_CHAR_LIMIT)))
 
 
 def _infer_child_sort_order(child: DocTreeNode) -> float:
@@ -215,4 +273,3 @@ def _infer_child_sort_order(child: DocTreeNode) -> float:
         grandchild_order = _infer_child_sort_order(grandchild)
         min_order = min(min_order, grandchild_order)
     return min_order
-
