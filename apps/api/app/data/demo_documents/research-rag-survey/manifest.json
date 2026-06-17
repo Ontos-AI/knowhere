@@ -1,0 +1,31 @@
+{
+  "version": "2.0",
+  "job_id": "job_demo_research_rag_survey",
+  "data_id": null,
+  "source_file_name": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf",
+  "processing_date": "2026-06-17T11:37:38.200203Z",
+  "processing": {
+    "page_count": null,
+    "billing_status": null,
+    "cost": {
+      "micro_dollars": null,
+      "credits": null
+    },
+    "cost_estimate": {},
+    "timing": {
+      "started_at": null,
+      "completed_at": null,
+      "duration_ms": null
+    },
+    "stages": {}
+  },
+  "statistics": {
+    "total_chunks": 37,
+    "text_chunks": 37,
+    "image_chunks": 0,
+    "table_chunks": 0,
+    "page_chunks": 0,
+    "total_pages": null
+  },
+  "HIERARCHY": {}
+}
