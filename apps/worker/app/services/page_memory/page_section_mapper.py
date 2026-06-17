@@ -1,7 +1,7 @@
 """Page-to-section mapper: assigns each page a section_path and role.
 
-Given ``SectionSkeleton`` (from C4) and ``PageTagResult`` (from C3),
-maps every page to one or more section paths with roles:
+Given ``SectionSkeleton`` (from C4), maps every page to one or more
+section paths with roles:
 
 - ``primary``   — page is the *start page* of this section
 - ``spans``     — page falls within the section range but is not the start
@@ -19,7 +19,6 @@ from typing import Any
 
 from loguru import logger
 
-from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
 
 
@@ -45,7 +44,6 @@ def map_pages_to_sections(
     *,
     page_count: int,
     skeletons: list[SectionSkeleton],
-    tag_results: list[PageTagResult] | None = None,
     filename: str = "",
 ) -> list[PageSectionMapping]:
     """Map every page (1..page_count) to a section_path.
@@ -57,9 +55,6 @@ def map_pages_to_sections(
     skeletons:
         Leaf skeletons from ``skeleton_extractor``.  Each has
         ``section_path``, ``start_page``, ``end_page``.
-    tag_results:
-        Optional tagger output; ``observed_titles`` can refine primary
-        detection (future use — currently unused).
     filename:
         Source filename for the fallback root path.
 

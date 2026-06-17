@@ -1,15 +1,14 @@
-"""Page renderer: produce PNG, thumbnail, and raw text for each page.
+"""Page renderer: produce PNG and raw text for each page.
 
 Wraps the existing ``document_agent/visual.render_pages`` and
-``pdf_text.read_page_texts`` utilities, adding thumbnail generation
-(72 dpi), dimensions, and landscape detection.
+``pdf_text.read_page_texts`` utilities, adding dimensions and
+landscape detection from page_features.
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -28,9 +27,6 @@ class PageRenderResult:
 
     image_path: str
     """Absolute path to full-resolution PNG (``pages/page-N.png``)."""
-
-    thumb_path: str
-    """Absolute path to thumbnail JPEG (``pages/thumb-N.jpg``)."""
 
     raw_text: str
     """PyMuPDF extracted text for this page."""
@@ -53,10 +49,9 @@ def render_document_pages(
     page_features: list[PageFeature] | None = None,
     ctx: ToolContext | None = None,
     dpi: int = 144,
-    thumb_dpi: int = 72,
     timeout: int = 300,
 ) -> list[PageRenderResult]:
-    """Render every page in *pdf_path* as PNG + thumb + raw text.
+    """Render every page in *pdf_path* as PNG + raw text.
 
     Parameters
     ----------
@@ -74,8 +69,6 @@ def render_document_pages(
         *None*, a lightweight context is constructed internally.
     dpi:
         Full-resolution DPI (default 144).
-    thumb_dpi:
-        Thumbnail DPI (default 72).
     timeout:
         PyMuPDF subprocess timeout in seconds.
 
@@ -128,11 +121,6 @@ def render_document_pages(
         item["page"]: item["png_path"] for item in pngs if item.get("png_path")
     }
 
-    # ── thumbnails (downsample PNG → JPEG at thumb_dpi) ───────────────
-    thumb_map = _generate_thumbnails(
-        png_map, output_dir=output_dir, dpi=dpi, thumb_dpi=thumb_dpi,
-    )
-
     # ── page dimensions from page_features ────────────────────────────
     feature_map: dict[int, PageFeature] = {}
     if page_features:
@@ -147,7 +135,6 @@ def render_document_pages(
             PageRenderResult(
                 page_index=page,
                 image_path=png_map.get(page, ""),
-                thumb_path=thumb_map.get(page, ""),
                 raw_text=page_texts.get(page, ""),
                 width=feat.width if feat else 0.0,
                 height=feat.height if feat else 0.0,
@@ -158,53 +145,8 @@ def render_document_pages(
         )
 
     logger.info(
-        "[page_renderer] rendered {} pages ({} PNGs, {} thumbs)",
+        "[page_renderer] rendered {} pages ({} PNGs)",
         len(results),
         len(png_map),
-        len(thumb_map),
     )
     return results
-
-
-def _generate_thumbnails(
-    png_map: dict[int, str],
-    *,
-    output_dir: str,
-    dpi: int,
-    thumb_dpi: int,
-) -> dict[int, str]:
-    """Downsample full-resolution PNGs to JPEG thumbnails."""
-    thumb_dir = os.path.join(output_dir, "pages")
-    os.makedirs(thumb_dir, exist_ok=True)
-
-    try:
-        from PIL import Image  # type: ignore[import-untyped]
-    except ImportError:
-        logger.warning(
-            "[page_renderer] Pillow not available; skipping thumbnail generation"
-        )
-        return {}
-
-    scale = thumb_dpi / max(dpi, 1)
-    thumb_map: dict[int, str] = {}
-
-    for page, png_path in png_map.items():
-        if not os.path.exists(png_path):
-            continue
-        try:
-            with Image.open(png_path) as img:
-                new_size = (
-                    max(int(img.width * scale), 1),
-                    max(int(img.height * scale), 1),
-                )
-                thumb = img.resize(new_size, Image.LANCZOS)
-                thumb_name = f"thumb_{page}.jpg"
-                thumb_path = os.path.join(thumb_dir, thumb_name)
-                thumb.convert("RGB").save(thumb_path, "JPEG", quality=75)
-                thumb_map[page] = thumb_path
-        except Exception as exc:
-            logger.warning(
-                "[page_renderer] thumbnail failed for page {}: {}", page, exc,
-            )
-
-    return thumb_map

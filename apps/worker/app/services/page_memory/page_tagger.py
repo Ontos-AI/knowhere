@@ -1,8 +1,10 @@
-"""Page tagger: VLM per-page annotation for summary/status/observed_titles.
+"""Page tagger: VLM per-page annotation for summary and keywords.
 
 For ``vlm_lite`` pages, sends the page PNG to the VLM and expects a JSON
-response.  ``text_only`` pages get a rules-based summary from raw text.
-``skip_tagging`` pages are left empty.
+response with ``summary`` and ``keywords``.
+For ``text_only`` pages, calls the existing ``summary-full`` LLM prompt
+to extract summary + keywords from raw text.
+For ``skip_tagging`` pages, content is preserved but summary is omitted.
 
 Budget is drawn from the ``page_tagging`` stage envelope.
 """
@@ -23,21 +25,17 @@ from app.services.page_memory.page_renderer import PageRenderResult
 from shared.utils.token_estimate import estimate_tokens
 
 
-PageStatus = Literal["clear", "blurry", "skipped"]
-
-
 @dataclass
 class PageTagResult:
     """Tagging output for a single page."""
 
     page_index: int
     summary: str = ""
-    status: PageStatus = "clear"
-    observed_titles: list[str] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
     strategy_used: str = ""
 
 
-# ── prompt placeholder — NEEDS USER CONFIRMATION ─────────────────────
+# ── VLM prompt: outputs summary + keywords only ─────────────────────
 
 _VLM_TAG_PROMPT = """\
 You are annotating a single PDF page screenshot for a document memory system.
@@ -45,16 +43,16 @@ Return strict JSON with exactly these keys:
 
 {
   "summary": "<1-3 sentence summary of the page content>",
-  "status": "clear" | "blurry",
-  "observed_titles": ["<heading or section title visible on this page>", ...]
+  "keywords": "<keyword_1>;<keyword_2>;<keyword_3>"
 }
 
 Rules:
-- "summary" should describe the main content visible on the page.
-- "status" should be "clear" if the page is legible, "blurry" if the text is
-  unreadable or the image is too low quality to summarize.
-- "observed_titles" should list any headings, section titles, or chapter titles
-  visible on the page.  Return an empty array if none are visible.
+- "summary": describe the main content visible on the page in 1-3 sentences.
+  If the page contains tables, mention the table topic and key columns.
+  If the page contains figures or charts, describe what they depict.
+- "keywords": extract the most important thematic keywords (up to 5),
+  separated by semicolons ";". Keywords must be in the same language as
+  the visible page content.
 - Return ONLY the JSON object, no markdown fences or extra text.
 """
 
@@ -99,13 +97,7 @@ def tag_pages(
         strategy = plan.strategy if plan else PageProcessingStrategy.VLM_LITE
 
         if strategy == PageProcessingStrategy.SKIP_TAGGING:
-            results.append(
-                PageTagResult(
-                    page_index=page.page_index,
-                    status="skipped",
-                    strategy_used="skip_tagging",
-                )
-            )
+            results.append(_tag_skip(page))
             continue
 
         if strategy == PageProcessingStrategy.TEXT_ONLY:
@@ -130,38 +122,85 @@ def tag_pages(
         len(results),
         vlm_calls,
         sum(1 for r in results if r.strategy_used == "text_only"),
-        sum(1 for r in results if r.status == "skipped"),
+        sum(1 for r in results if r.strategy_used == "skip_tagging"),
     )
     return results
 
 
-def _tag_text_only(page: PageRenderResult) -> PageTagResult:
-    """Rules-based tag from raw text (no VLM)."""
-    raw = page.raw_text.strip()
-    summary = " ".join(raw.split())[:_RAW_TEXT_SUMMARY_LIMIT]
-    if not summary:
-        summary = f"Page {page.page_index} (no extractable text)"
+def _tag_skip(page: PageRenderResult) -> PageTagResult:
+    """Skip-tagging: preserve raw_text but no summary.
 
-    # Simple heuristic: lines that look like headings (short, no trailing punct)
-    observed: list[str] = []
-    for line in raw.splitlines()[:30]:
-        stripped = line.strip()
-        if (
-            stripped
-            and 3 < len(stripped) < 100
-            and not stripped.endswith((".", "。", ",", "，", ";", "；"))
-            and not stripped[0].isdigit()
-            and stripped[0].isupper() or not stripped[0].isascii()
-        ):
-            # Very rough heuristic; the real heading detection is in skeleton
-            pass
-    # For text_only mode, we don't attempt heading detection
+    If the page has no extractable text, mark as EMPTY.
+    """
+    raw = page.raw_text.strip()
+    return PageTagResult(
+        page_index=page.page_index,
+        summary="" if raw else "EMPTY",
+        keywords=[],
+        strategy_used="skip_tagging",
+    )
+
+
+def _tag_text_only(page: PageRenderResult) -> PageTagResult:
+    """Use existing ``summary-full`` LLM prompt to extract summary + keywords.
+
+    Falls back to raw text truncation if LLM is not available or fails.
+    """
+    raw = page.raw_text.strip()
+    if not raw:
+        return PageTagResult(
+            page_index=page.page_index,
+            summary="EMPTY",
+            keywords=[],
+            strategy_used="text_only",
+        )
+
+    # Try the existing summary-full LLM call (same as text chunk pipeline)
+    try:
+        from shared.services.ai.prompt_service import build_prompt
+        from shared.services.ai.openai_compatible_client_sync import get_openai_client
+
+        text_model = os.environ.get("NORMOL_MODEL", "deepseek-chat")
+        prompt, temperature, top_p, max_tokens = build_prompt(
+            "summary-full",
+            raw[:3000],  # limit input to avoid token overflow
+            "",
+            paras={"max_tokens": 200, "kw_num": 5},
+        )
+        client = get_openai_client(model=text_model)
+        raw_response, _ = client.chat_completion_with_usage(
+            messages=[{"role": "user", "content": prompt}],
+            model=text_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            usage_task="page_memory.text_only_summary",
+        )
+
+        if raw_response and raw_response.strip().lower() != "null":
+            data = json.loads(raw_response)
+            summary = str(data.get("summary", ""))
+            kw_str = str(data.get("keywords", ""))
+            keywords = [k.strip() for k in kw_str.split(";") if k.strip()]
+            return PageTagResult(
+                page_index=page.page_index,
+                summary=summary,
+                keywords=keywords,
+                strategy_used="text_only",
+            )
+    except Exception as exc:
+        logger.warning(
+            "[page_tagger] summary-full LLM failed for page {}: {}; "
+            "falling back to raw text truncation",
+            page.page_index, exc,
+        )
+
+    # Fallback: raw text truncation
+    summary = " ".join(raw.split())[:_RAW_TEXT_SUMMARY_LIMIT]
     return PageTagResult(
         page_index=page.page_index,
         summary=summary,
-        status="clear",
-        observed_titles=observed,
-        strategy_used="text_only",
+        keywords=[],
+        strategy_used="text_only_fallback",
     )
 
 
@@ -184,8 +223,7 @@ def _tag_vlm_lite(
             result = PageTagResult(
                 page_index=result.page_index,
                 summary=result.summary,
-                status=result.status,
-                observed_titles=result.observed_titles,
+                keywords=result.keywords,
                 strategy_used="text_only_budget_fallback",
             )
             return result
@@ -242,11 +280,12 @@ def _tag_vlm_lite(
                 )
 
             data = json.loads(raw_response)
+            kw_str = str(data.get("keywords", ""))
+            keywords = [k.strip() for k in kw_str.split(";") if k.strip()]
             return PageTagResult(
                 page_index=page.page_index,
                 summary=str(data.get("summary", "")),
-                status="clear" if data.get("status") != "blurry" else "blurry",
-                observed_titles=list(data.get("observed_titles") or []),
+                keywords=keywords,
                 strategy_used="vlm_lite",
             )
         except json.JSONDecodeError:
@@ -256,19 +295,19 @@ def _tag_vlm_lite(
                     page.page_index, attempt + 1, _MAX_JSON_RETRIES + 1,
                 )
                 continue
-            # Final attempt failed: blurry degradation
+            # Final attempt failed: fallback to text_only
             logger.warning(
-                "[page_tagger] JSON retry exhausted for page {}; blurry fallback",
+                "[page_tagger] JSON retry exhausted for page {}; text_only fallback",
                 page.page_index,
             )
-            raw_summary = " ".join(page.raw_text.split())[:_RAW_TEXT_SUMMARY_LIMIT]
-            return PageTagResult(
-                page_index=page.page_index,
-                summary=raw_summary or f"Page {page.page_index} (VLM parse failed)",
-                status="blurry",
-                observed_titles=[],
-                strategy_used="vlm_lite_blurry_fallback",
+            result = _tag_text_only(page)
+            result = PageTagResult(
+                page_index=result.page_index,
+                summary=result.summary,
+                keywords=result.keywords,
+                strategy_used="vlm_lite_json_fallback",
             )
+            return result
         except Exception as exc:
             logger.warning(
                 "[page_tagger] VLM call failed for page {}: {}",

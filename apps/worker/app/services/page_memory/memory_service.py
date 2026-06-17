@@ -187,7 +187,6 @@ def _build_page_dataframe(
     mappings = map_pages_to_sections(
         page_count=page_count,
         skeletons=skeletons,
-        tag_results=tags,
         filename=filename,
     )
 
@@ -196,38 +195,46 @@ def _build_page_dataframe(
     render_map = {r.page_index: r for r in rendered}
     plan_map = {p.page_index: p for p in plans}
 
+    # Build page → PageLabel.kind lookup
+    label_map: dict[int, str] = {}
+    if page_labels:
+        for lbl in page_labels:
+            label_map[lbl.page] = lbl.kind
+
+    # Build page → observed_titles from C4 skeleton (primary sections)
+    skeleton_titles: dict[int, list[str]] = {}
+    for skel in skeletons:
+        titles = skeleton_titles.setdefault(skel.start_page, [])
+        if skel.title and skel.title not in titles:
+            titles.append(skel.title)
+
     rows: list[dict[str, Any]] = []
     for mapping in mappings:
         page = mapping.page_index
         tag = tag_map.get(page)
         rend = render_map.get(page)
-        plan = plan_map.get(page)
 
         raw_text = rend.raw_text if rend else page_texts.get(page, "")
+        content = raw_text.strip()
         summary = tag.summary if tag else ""
-        content = f"[SUMMARY]\n{summary}\n\n[RAW]\n{raw_text}".strip()
+        keywords_list = tag.keywords if tag else []
+        keywords_str = ";".join(keywords_list)
 
         doc_hash = gen_str_codes(f"{filename}::{page}")
         know_id = f"page_{doc_hash}"
 
         image_uri = ""
-        thumb_uri = ""
-        if rend:
-            if rend.image_path and os.path.exists(rend.image_path):
-                image_uri = str(
-                    Path(rend.image_path).relative_to(output_dir)
-                )
-            if rend.thumb_path and os.path.exists(rend.thumb_path):
-                thumb_uri = str(
-                    Path(rend.thumb_path).relative_to(output_dir)
-                )
+        if rend and rend.image_path and os.path.exists(rend.image_path):
+            image_uri = str(
+                Path(rend.image_path).relative_to(output_dir)
+            )
 
         rows.append({
             "content": content,
             "path": mapping.section_path,
             "type": "page",
             "length": len(content),
-            "keywords": "",
+            "keywords": keywords_str,
             "summary": summary,
             "know_id": know_id,
             "tokens": "",
@@ -236,15 +243,13 @@ def _build_page_dataframe(
             "page_nums": str(page),
             "extra_metadata": {
                 "granularity": "page",
-                "strategy_used": tag.strategy_used if tag else "",
-                "source_verdict": verdict,
                 "page_index": page,
                 "page_image_uri": image_uri,
-                "thumb_uri": thumb_uri,
-                "status": tag.status if tag else "clear",
-                "kind": plan.reason if plan else "",
-                "observed_titles": tag.observed_titles if tag else [],
+                "strategy_used": tag.strategy_used if tag else "",
+                "kind": label_map.get(page, "normal"),
+                "observed_titles": skeleton_titles.get(page, []),
                 "section_roles": mapping.section_roles,
+                "source_verdict": verdict,
             },
         })
 
