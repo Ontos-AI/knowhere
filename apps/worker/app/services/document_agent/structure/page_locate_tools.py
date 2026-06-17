@@ -16,6 +16,8 @@ from app.services.document_agent.registry import register_tool
 from app.services.document_agent.structure import page_locate_agent as _pla
 from app.services.document_agent.structure.hierarchy_locator import TitleMatch
 
+SYNTHETIC_CANDIDATE_CONFIDENCE = 0.4
+
 
 @register_tool(
     name="grep.title_pages",
@@ -100,10 +102,10 @@ def verify_section_page(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         grep_by_page.get(page)
         or TitleMatch(
             page=page,
-            confidence=0.4,
+            confidence=SYNTHETIC_CANDIDATE_CONFIDENCE,
             source="agent_heuristic",
             matched_line="",
-            score=0.4,
+            score=SYNTHETIC_CANDIDATE_CONFIDENCE,
             candidates=[page],
             evidence={"synthesized": True},
         )

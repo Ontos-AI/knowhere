@@ -137,6 +137,28 @@ def format_toc_context_for_llm(toc_context) -> str:
     return "\n".join(formatted_blocks)
 
 
+def _format_preceding_context_for_llm(chain) -> str:
+    """Render the carried open-ancestor chain (shallow→deep) for the prompt.
+
+    ``chain`` is a list of ``{"heading": str, "level": int}`` produced by
+    ``extract_active_ancestors`` for the PREVIOUS chunk of the same document.
+    Returns "" when there is no preceding context (i.e. the first chunk).
+    """
+    if not chain:
+        return ""
+    lines = []
+    for item in chain:
+        try:
+            level = int(item.get("level"))
+        except (TypeError, ValueError):
+            continue
+        heading = str(item.get("heading", "")).strip()
+        if not heading:
+            continue
+        lines.append(f"  level {level}: {heading}")
+    return "\n".join(lines)
+
+
 def hiearchy_llm(
     df,
     model_name=None,
@@ -144,6 +166,7 @@ def hiearchy_llm(
     toc_context=None,
     max_len=8192,
     task="eval-headings",
+    preceding_context=None,
 ):
     """Apply LLM to analyze the hierarchy of headings
 
@@ -182,11 +205,13 @@ def hiearchy_llm(
     ot_limit = max(512, n_candidates * 25 + 200)
     ot_limit = min(ot_limit, max_len)
     formatted_toc_context = format_toc_context_for_llm(toc_context)
+    formatted_preceding_context = _format_preceding_context_for_llm(preceding_context)
 
     paras = {
         "max_tokens": ot_limit,
         "max_depth": max_depth,
         "toc_context": formatted_toc_context,
+        "preceding_context": formatted_preceding_context,
     }
     prompt, temperature, top_p, max_tokens = build_prompt(
         task=task, texts=level_md, query="", paras=paras

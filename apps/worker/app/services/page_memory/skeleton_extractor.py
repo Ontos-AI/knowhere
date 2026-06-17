@@ -49,6 +49,7 @@ def extract_section_skeletons(
     filename: str,
     page_texts: dict[int, str],
     ctx: ToolContext | None = None,
+    hierarchy_nodes: list[TitleNode] | None = None,
 ) -> list[SectionSkeleton]:
     """Convert PageAnatomyMap hierarchy evidence into leaf section skeletons."""
     page_count = _page_count(anatomy)
@@ -56,12 +57,16 @@ def extract_section_skeletons(
     if page_count <= 0:
         return [_root_skeleton(root_path=root_path, filename=filename, page_count=0)]
 
-    toc_hierarchies, toc_selection = _select_global_toc_hierarchies(
-        anatomy=anatomy,
-        filename=filename,
-    )
-    toc_nodes = extract_toc_nodes(toc_hierarchies)
-    nodes = toc_nodes or _h1_nodes(anatomy)
+    toc_selection: dict[str, Any] = {}
+    if hierarchy_nodes:
+        nodes = hierarchy_nodes
+    else:
+        toc_hierarchies, toc_selection = _select_global_toc_hierarchies(
+            anatomy=anatomy,
+            filename=filename,
+        )
+        toc_nodes = extract_toc_nodes(toc_hierarchies)
+        nodes = toc_nodes or _h1_nodes(anatomy)
     if not nodes:
         return [
             _root_skeleton(
