@@ -71,6 +71,7 @@ class ZipResultService:
             doc_nav, hierarchy = self._build_navigation_outputs(
                 formatted_chunks=formatted_chunks,
                 source_file_name=source_file_name,
+                parsed_df=parsed_df,
             )
             manifest = self._schema.generate_manifest(
                 job_id=job_id,
@@ -121,11 +122,33 @@ class ZipResultService:
         *,
         formatted_chunks: list[dict[str, Any]],
         source_file_name: str,
+        parsed_df: pd.DataFrame | None = None,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         try:
-            doc_nav = self._schema.build_doc_nav(formatted_chunks, source_file_name)
+            skeletons = _get_page_memory_skeletons(parsed_df)
+            if skeletons:
+                doc_nav = self._schema.build_doc_nav_from_skeletons(
+                    skeletons,
+                    formatted_chunks,
+                    source_file_name,
+                )
+            else:
+                doc_nav = self._schema.build_doc_nav(formatted_chunks, source_file_name)
             hierarchy = self._schema.build_hierarchy_dict(doc_nav.get("sections", []))
             return doc_nav, hierarchy
         except Exception as exc:
             logger.warning(f"generate doc_nav.json fail {exc}")
             return None, {}
+
+
+def _get_page_memory_skeletons(
+    parsed_df: pd.DataFrame | None,
+) -> list[dict[str, Any]]:
+    if parsed_df is None:
+        return []
+
+    raw_skeletons = parsed_df.attrs.get("page_memory_skeletons")
+    if not isinstance(raw_skeletons, list):
+        return []
+
+    return [skel for skel in raw_skeletons if isinstance(skel, dict)]

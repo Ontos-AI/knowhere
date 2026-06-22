@@ -32,9 +32,9 @@ class PageMemoryInput:
 def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
     """Run the page-memory track.
 
-    Supports three granularity verdicts:
+    Supports two granularity verdicts:
     - ``whole_doc`` (≤6 pages, no TOC) → single whole-document chunk
-    - ``page`` / ``shard_page`` → per-page chunks via the full C1-C7 pipeline
+    - ``page`` → per-page chunks via the full C1-C7 pipeline
     """
     full_output_dir = _resolve_output_dir(request)
     os.makedirs(full_output_dir, exist_ok=True)
@@ -61,7 +61,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
             verdict=verdict,
         )
 
-    # page / shard_page → unified per-page pipeline
+    # page → per-page pipeline
     return full_output_dir, _build_page_dataframe(
         pdf_path=pdf_path,
         filename=request.filename,
@@ -77,11 +77,17 @@ def _resolve_output_dir(request: PageMemoryInput) -> str:
 
 
 def _decide_granularity(profile: Any) -> str:
+    """Decide granularity for a page-memory document.
+
+    Page-based track processes pages individually via VLM — no physical
+    document splitting is needed regardless of page count.  The old
+    ``shard_page`` verdict (>200 pages) was only meaningful for the
+    MinerU batch API pipeline (``_parse_pdf_via_shards``) which splits
+    long PDFs into physical sub-documents.
+    """
     page_count = int(getattr(profile, "page_count", 0) or 0)
     toc = getattr(profile, "toc", None)
     has_toc = bool(getattr(toc, "has_toc", False))
-    if page_count > 200:
-        return "shard_page"
     if page_count <= 6 and not has_toc:
         return "whole_doc"
     return "page"
@@ -105,6 +111,8 @@ def _build_page_dataframe(
       C1  page_renderer       → PageRenderResult[]
       C2  page_plan           → PagePlan[]
       C3  page_tagger         → PageTagResult[]
+      C3b title detection     → observed_titles (native hierarchy only)
+      C4b fine_hierarchy      → refined SectionSkeleton[] (native hierarchy only)
       C6  page_section_mapper → PageSectionMapping[]
       C7  assemble DataFrame
     """
@@ -115,31 +123,58 @@ def _build_page_dataframe(
     from app.services.page_memory.page_tagger import tag_pages
     from app.services.page_memory.skeleton_extractor import extract_section_skeletons
 
+    # ── Native hierarchy flag (Step 3) ────────────────────────────────
+    # Page-memory handles PDF/PPT(→PDF) structure with its own page-native
+    # hierarchy. Chunk-track hierarchy detection remains isolated to non
+    # page-memory formats such as DOCX/MD.
+    native_hierarchy = os.environ.get(
+        "PAGE_MEMORY_NATIVE_HIERARCHY", "true"
+    ).strip().lower() in ("1", "true", "yes", "on")
+
     anatomy = getattr(profile, "anatomy", None)
     page_count = max(int(profile.page_count or 0), 0)
     if page_count <= 0:
         return pd.DataFrame(columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
 
-    # ── unified budget (page_locate + page_tagging share one tracker) ──
+    # ── unified budget (page_locate + page_tagging + title_detection) ──
     page_tagging_budget = int(
         os.environ.get("PAGE_MEMORY_TAG_BUDGET", str(page_count * 1200))
     )
     page_locate_budget = int(
         os.environ.get("PAGE_MEMORY_LOCATE_BUDGET", str(min(page_count * 1600, 2_000_000)))
     )
+    title_detection_budget = int(
+        os.environ.get("PAGE_MEMORY_TITLE_BUDGET", str(page_count * 800))
+    ) if native_hierarchy else 0
+    total_visual = page_tagging_budget + page_locate_budget + title_detection_budget
+
+    # plan_budget powers the LLM decision loop inside PageLocateSubAgent.
+    # Without it the sub-agent falls back to a deterministic path that
+    # cannot rewrite queries (e.g. drop trailing doc-reference codes),
+    # causing grep to miss titles whose TOC text differs from body text.
+    plan_budget = int(
+        os.environ.get("PAGE_MEMORY_PLAN_BUDGET", str(min(page_count * 800, 2_000_000)))
+    )
+
+    stage_envelopes = {
+        "page_locate": StageEnvelope(
+            min_guarantee=page_locate_budget,
+            cap=None,
+        ),
+        "page_tagging": StageEnvelope(
+            min_guarantee=page_tagging_budget,
+            cap=None,
+        ),
+    }
+    if native_hierarchy:
+        stage_envelopes["page_title_detection"] = StageEnvelope(
+            min_guarantee=title_detection_budget,
+            cap=None,
+        )
     budget = BudgetTracker(
-        plan_budget=0,
-        visual_budget=page_tagging_budget + page_locate_budget,
-        visual_stage_envelopes={
-            "page_locate": StageEnvelope(
-                min_guarantee=page_locate_budget,
-                cap=None,
-            ),
-            "page_tagging": StageEnvelope(
-                min_guarantee=page_tagging_budget,
-                cap=None,
-            ),
-        },
+        plan_budget=plan_budget,
+        visual_budget=total_visual,
+        visual_stage_envelopes=stage_envelopes,
     )
 
     # ── build ToolContext for sub-agent VLM calls ─────────────────────
@@ -196,6 +231,53 @@ def _build_page_dataframe(
         vlm_model=vlm_model,
     )
 
+    # ── C3b + C4b: Native hierarchy (Step 2 + Step 3) ────────────────
+    if native_hierarchy and skeletons:
+        from app.services.page_memory.fine_hierarchy import (
+            compute_fat_leaf_pages,
+            refine_fat_leaf_skeletons,
+        )
+        from app.services.page_memory.page_tagger import (
+            get_fine_min_pages,
+            tag_page_titles,
+        )
+
+        fine_min = get_fine_min_pages()
+        fat_leaf_pages = compute_fat_leaf_pages(skeletons, min_pages=fine_min)
+        logger.info(
+            "[page_memory] native hierarchy: {} fat-leaf pages (min={})",
+            len(fat_leaf_pages), fine_min,
+        )
+
+        # Step 2: VLM title detection on fat-leaf pages
+        if fat_leaf_pages:
+            tags = tag_page_titles(
+                pages=rendered,
+                tag_results=tags,
+                fat_leaf_pages=fat_leaf_pages,
+                budget=budget,
+                vlm_model=vlm_model,
+            )
+
+            # Step 3: Refine coarse skeletons with LLM hierarchy
+            skeletons = refine_fat_leaf_skeletons(
+                coarse_skeletons=skeletons,
+                tag_results=tags,
+                fat_leaf_pages=fat_leaf_pages,
+                model_name=os.environ.get(
+                    "PAGE_MEMORY_HIERARCHY_MODEL",
+                    os.environ.get(
+                        "HIERARCHY_LLM_MODEL",
+                        os.environ.get("NORMOL_MODEL"),
+                    ),
+                ),
+                output_dir=output_dir,
+            )
+            logger.info(
+                "[page_memory] C4b refined: {} sections after fine hierarchy",
+                len(skeletons),
+            )
+
     # ── C6: page → section mapping ───────────────────────────────────
     mappings = map_pages_to_sections(
         page_count=page_count,
@@ -213,33 +295,100 @@ def _build_page_dataframe(
         for lbl in page_labels:
             label_map[lbl.page] = lbl.kind
 
-    # Build page → observed_titles from C4 skeleton (primary sections)
-    skeleton_titles: dict[int, list[str]] = {}
-    for skel in skeletons:
-        titles = skeleton_titles.setdefault(skel.start_page, [])
-        if skel.title and skel.title not in titles:
-            titles.append(skel.title)
+    # Build page → observed_titles. Native hierarchy uses only true VLM
+    # observations; the skeleton-title fallback is kept only for legacy mode.
+    observed_titles_map: dict[int, list[str]] = {}
+    if native_hierarchy:
+        for tag in tags:
+            if tag.observed_titles:
+                observed_titles_map[tag.page_index] = [
+                    t["text"] for t in tag.observed_titles if t.get("text")
+                ]
+    else:
+        # Legacy: map skeleton titles to start pages
+        for skel in skeletons:
+            titles = observed_titles_map.setdefault(skel.start_page, [])
+            if skel.title and skel.title not in titles:
+                titles.append(skel.title)
 
+    # Shared per-page lookups for node-granularity assembly.
+    raw_text_by_page: dict[int, str] = {}
+    image_uri_by_page: dict[int, str] = {}
+    image_path_by_page: dict[int, str] = {}
+    for page in range(1, page_count + 1):
+        rend = render_map.get(page)
+        raw_text_by_page[page] = (rend.raw_text if rend else page_texts.get(page, "")) or ""
+        if rend and rend.image_path and os.path.exists(rend.image_path):
+            image_path_by_page[page] = rend.image_path
+            image_uri_by_page[page] = str(
+                Path(rend.image_path).relative_to(output_dir)
+            )
+
+    if native_hierarchy and skeletons:
+        from app.services.page_memory.node_assembler import build_node_rows
+
+        rows = build_node_rows(
+            skeletons=skeletons,
+            raw_text_by_page=raw_text_by_page,
+            image_uri_by_page=image_uri_by_page,
+            image_path_by_page=image_path_by_page,
+            kind_by_page=label_map,
+            tag_by_page=tag_map,
+            filename=filename,
+            verdict=verdict,
+            native_hierarchy=native_hierarchy,
+            budget=budget,
+            vlm_model=vlm_model,
+        )
+        logger.info(
+            "[page_memory] C7 assembled {} node rows (verdict={})",
+            len(rows), verdict,
+        )
+    else:
+        rows = _build_legacy_page_rows(
+            mappings=mappings,
+            tag_map=tag_map,
+            raw_text_by_page=raw_text_by_page,
+            image_uri_by_page=image_uri_by_page,
+            label_map=label_map,
+            observed_titles_map=observed_titles_map,
+            filename=filename,
+            verdict=verdict,
+            native_hierarchy=native_hierarchy,
+        )
+        logger.info(
+            "[page_memory] C7 assembled {} page rows (verdict={})",
+            len(rows), verdict,
+        )
+    df = pd.DataFrame(rows, columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
+    df.attrs["page_memory_skeletons"] = [skel.to_dict() for skel in skeletons]
+    df.attrs["page_memory_native_hierarchy"] = native_hierarchy
+    return df
+
+
+def _build_legacy_page_rows(
+    *,
+    mappings: Any,
+    tag_map: dict[int, Any],
+    raw_text_by_page: dict[int, str],
+    image_uri_by_page: dict[int, str],
+    label_map: dict[int, str],
+    observed_titles_map: dict[int, list[str]],
+    filename: str,
+    verdict: str,
+    native_hierarchy: bool,
+) -> list[dict[str, Any]]:
+    """Legacy per-page rows (one ``type=page`` chunk per physical page)."""
     rows: list[dict[str, Any]] = []
     for mapping in mappings:
         page = mapping.page_index
         tag = tag_map.get(page)
-        rend = render_map.get(page)
 
-        raw_text = rend.raw_text if rend else page_texts.get(page, "")
-        content = raw_text.strip()
+        content = (raw_text_by_page.get(page, "") or "").strip()
         summary = tag.summary if tag else ""
-        keywords_list = tag.keywords if tag else []
-        keywords_str = ";".join(keywords_list)
+        keywords_str = ";".join(tag.keywords) if tag else ""
 
-        doc_hash = gen_str_codes(f"{filename}::{page}")
-        know_id = f"page_{doc_hash}"
-
-        image_uri = ""
-        if rend and rend.image_path and os.path.exists(rend.image_path):
-            image_uri = str(
-                Path(rend.image_path).relative_to(output_dir)
-            )
+        know_id = f"page_{gen_str_codes(f'{filename}::{page}')}"
 
         rows.append({
             "content": content,
@@ -256,20 +405,16 @@ def _build_page_dataframe(
             "extra_metadata": {
                 "granularity": "page",
                 "page_index": page,
-                "page_image_uri": image_uri,
+                "page_image_uri": image_uri_by_page.get(page, ""),
                 "strategy_used": tag.strategy_used if tag else "",
                 "kind": label_map.get(page, "normal"),
-                "observed_titles": skeleton_titles.get(page, []),
+                "observed_titles": observed_titles_map.get(page, []),
                 "section_roles": mapping.section_roles,
                 "source_verdict": verdict,
+                "native_hierarchy": native_hierarchy,
             },
         })
-
-    logger.info(
-        "[page_memory] C7 assembled {} page rows (verdict={})",
-        len(rows), verdict,
-    )
-    return pd.DataFrame(rows, columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
+    return rows
 
 
 def _build_page_ctx(

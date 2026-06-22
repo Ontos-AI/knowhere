@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from shared.services.storage.zip_chunk_schema import ZipChunkSchemaBuilder
-from shared.services.storage.zip_doc_navigation import ZipDocNavigationBuilder
+from shared.services.storage.zip_doc_navigation import (
+    ZipDocNavigationBuilder,
+    build_doc_nav_from_skeletons,
+)
 from shared.services.storage.zip_manifest_schema import ZipManifestBuilder
 
 
@@ -67,6 +70,18 @@ class ZipResultSchemaBuilder:
         source_file_name: str,
     ) -> dict[str, Any]:
         return self._doc_navigation.build_doc_nav(
+            formatted_chunks,
+            source_file_name,
+        )
+
+    def build_doc_nav_from_skeletons(
+        self,
+        skeletons: list[dict[str, Any]],
+        formatted_chunks: list[dict[str, Any]],
+        source_file_name: str,
+    ) -> dict[str, Any]:
+        return build_doc_nav_from_skeletons(
+            skeletons,
             formatted_chunks,
             source_file_name,
         )

@@ -107,7 +107,8 @@ class ZipChunkSchemaBuilder:
                 metadata["tokens"] = []
             elif chunk_type == "page":
                 # Page chunks carry page_image_uri and section_roles in
-                # extra_metadata; minimal metadata here.
+                # extra_metadata; preserve them for page-memory navigation.
+                _merge_page_chunk_metadata(metadata, existing_metadata)
                 metadata["keywords"] = existing_metadata.get("keywords") or []
                 metadata["tokens"] = []
 
@@ -127,6 +128,34 @@ class ZipChunkSchemaBuilder:
 def _normalize_chunk_type(value: Any) -> str:
     raw_type = str(value).strip()
     return raw_type.split("\n", 1)[0].lower()
+
+
+_PAGE_CHUNK_METADATA_KEYS = (
+    "granularity",
+    "page_index",
+    "page_indices",
+    "owned_pages",
+    "section_path",
+    "section_level",
+    "page_image_uri",
+    "page_image_uris",
+    "strategy_used",
+    "kind",
+    "status",
+    "observed_titles",
+    "section_roles",
+    "source_verdict",
+    "native_hierarchy",
+)
+
+
+def _merge_page_chunk_metadata(
+    metadata: dict[str, Any],
+    existing_metadata: dict[str, Any],
+) -> None:
+    for key in _PAGE_CHUNK_METADATA_KEYS:
+        if key in existing_metadata:
+            metadata[key] = existing_metadata[key]
 
 
 def _base_chunk_metadata(

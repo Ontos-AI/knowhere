@@ -1,4 +1,16 @@
-"""Build page-memory section skeletons from profile-time anatomy."""
+"""Build page-memory section skeletons from profile-time anatomy.
+
+Step 1 of the page-memory native hierarchy plan:
+- Full TOC-depth grep anchoring + on-demand VLM confirmation
+- Section boundaries come purely from TOC anchoring
+
+Page-based track processes pages individually via VLM, so no physical
+document splitting (shard windowing) is needed.  The ``shard_plan``
+concept only exists to support the MinerU batch API pipeline
+(``_parse_pdf_via_shards``), which requires splitting long PDFs into
+physical sub-documents before sending them to MinerU.  Chunk-track's
+native text formats (DOCX/MD) don't use shards either.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +20,6 @@ from typing import Any
 from app.services.document_agent.manifest import (
     H1Candidate,
     PageAnatomyMap,
-    Shard,
     ToolContext,
 )
 from app.services.document_agent.structure.page_locate_agent import (
@@ -51,7 +62,11 @@ def extract_section_skeletons(
     ctx: ToolContext | None = None,
     hierarchy_nodes: list[TitleNode] | None = None,
 ) -> list[SectionSkeleton]:
-    """Convert PageAnatomyMap hierarchy evidence into leaf section skeletons."""
+    """Convert PageAnatomyMap hierarchy evidence into section skeletons.
+
+    Section page ranges are anchored purely from the TOC hierarchy (every
+    level, every document).
+    """
     page_count = _page_count(anatomy)
     root_path = f"{filename}/Root"
     if page_count <= 0:
@@ -109,7 +124,6 @@ def extract_section_skeletons(
             item,
             filename=filename,
             page_count=page_count,
-            shards=_shards(anatomy),
             locate_summary=locate_result.summary,
             toc_selection=toc_selection,
         )
@@ -124,16 +138,11 @@ def _range_to_skeleton(
     *,
     filename: str,
     page_count: int,
-    shards: list[Shard],
     locate_summary: dict[str, Any],
     toc_selection: dict[str, Any],
 ) -> SectionSkeleton:
     start_page = _clamp_page(item.start_page, page_count)
-    end_page = _clamp_to_shard(
-        start_page=start_page,
-        end_page=_clamp_page(item.end_page, page_count),
-        shards=shards,
-    )
+    end_page = _clamp_page(item.end_page, page_count)
     path_titles = [clean_toc_title(title) or title for title in item.path_titles]
     section_path = "/".join([filename, *path_titles])
     parent_path = "/".join([filename, *path_titles[:-1]]) if len(path_titles) > 1 else filename
@@ -145,8 +154,6 @@ def _range_to_skeleton(
     }
     if toc_selection:
         evidence["toc_selection"] = toc_selection
-    if end_page != item.end_page:
-        evidence["shard_clamped"] = True
     return SectionSkeleton(
         section_path=section_path,
         level=item.level,
@@ -326,18 +333,6 @@ def _walk_nodes(nodes: list[TitleNode]) -> list[TitleNode]:
 
 def _title_key(title: str) -> str:
     return normalize_heading_text(clean_toc_title(title) or title).casefold()
-
-
-def _shards(anatomy: Any | None) -> list[Shard]:
-    shard_plan = getattr(anatomy, "shard_plan", None)
-    return list(getattr(shard_plan, "shards", []) or [])
-
-
-def _clamp_to_shard(*, start_page: int, end_page: int, shards: list[Shard]) -> int:
-    for shard in shards:
-        if shard.page_start <= start_page <= shard.page_end:
-            return min(end_page, shard.page_end)
-    return end_page
 
 
 def _clamp_page(page: int, page_count: int) -> int:

@@ -195,149 +195,6 @@ def build_prompt(task, texts, query, **kwargs):
         """
 
     # ==================== Heading/Structure Prompts ====================
-
-    # ---------------------------------------------------------------------
-    # LEGACY `eval-headings` prompt — designed for FULL-TEXT input, before
-    # `_compact_for_llm` collapses consecutive body rows into placeholders.
-    # Kept as reference; DO NOT delete.  The live prompt below targets the
-    # COMPACT input shape used when `KB_LAYOUT_LLM_COMPACT_INPUT` is on
-    # (default). The live prompt below is the publication baseline.
-    # ---------------------------------------------------------------------
-    #     elif task == 'eval-headings':
-    #         temperature = 0
-    #         top_p = 0.01
-    #         max_depth = kwargs['paras']['max_depth']
-    #         max_tokens = kwargs['paras']['max_tokens']
-    #         toc_context = kwargs['paras'].get('toc_context', '')
-    #
-    #         # developing toc context (if any)
-    #         if toc_context:
-    #             toc_section = f"""
-    #         ***Important Reference: Table of Contents (TOC)***
-    #         The following is the document's table of contents with predefined levels. Use this as a reference when assigning levels:
-    #
-    #         '''
-    #         {toc_context}
-    #         '''
-    #
-    #         - If a row's heading matches a TOC entry, use the TOC's predefined level
-    #         - If a row appears to be a sub-section of a TOC entry, assign a deeper level
-    #         - IMPORTANT: If a row does NOT appear in the TOC, it CAN ONLY be set as either a body text (level = -1) or sub-section with a deeper level than the nearest TOC heading above it
-    #         """
-    #         else:
-    #             toc_section = ""
-    #
-    #         prompt = f"""
-    #         You are a document structure auditing expert. You will receive a Markdown table with text rows, where each row may be a heading or body text, including:
-    #         1. id column: line number
-    #         2. heading column: text content
-    #         3. level column: preliminary estimated level (may be inaccurate or missing), where:
-    #             1 represents `<h1>` (highest), 2 represents `<h2>`, and so on
-    #             -1 indicates the text is estimated as body text (not a heading)
-    #             "Not Sure" indicates the level is undetermined
-    #
-    #         Data to be adjusted:
-    #         '''
-    #         {texts}
-    #         '''
-    #
-    #         {toc_section}
-    #
-    #         ***Placeholder Rows***
-    #         Some rows may appear as "[N BODY LINES]" with an id like "55-63" (a range) or
-    #         "56" (a single line), and level column rendered as "-".  These are NOT real
-    #         candidates — they are compact markers representing N consecutive body-text
-    #         lines that have been collapsed to save space.  Treat them only as positional
-    #         context (they tell you how many body lines sit between two adjacent heading
-    #         candidates).
-    #         - You MUST NOT emit placeholder rows in your output.
-    #         - The output id field MUST be a single integer; never return an id containing
-    #           a hyphen ("-") or the level placeholder "-".
-    #         - Only evaluate rows whose id is a single integer.
-    #
-    #         ***Process in THREE steps:***
-    #
-    #         **STEP 1 — Global Pattern Scan (before assigning any levels)**
-    #         Scan ALL candidate heading rows across the entire input.
-    #         Identify every distinct structural/numbering pattern that signals hierarchy depth, for example:
-    #         - Decimal numbering: "1", "1.1", "1.1.1" → depth increases with dot count
-    #         - Enumeration styles such as Chinese numerals, numbered bullets,
-    #           or circled digits map from shallower to deeper levels
-    #         - Chapter/section keywords: "Chapter X", "Part X", and Chinese
-    #           chapter/section markers
-    #         - Indentation or formatting cues visible in the text prefix
-    #         Rank these patterns from shallowest to deepest to form a pattern → level mapping.
-    #
-    #         **STEP 2 — Assign levels using the following rules (in priority order)**
-    #         Rows marked as "Not Sure" should be treated like any other candidate row:
-    #         use the same rules below to decide whether they are true headings (level >= 1)
-    #         or body text (level = -1).
-    #
-    #         Rule 0 — Figure/Image rows are always body text (highest priority, no exceptions):
-    #             Any row whose heading text is exactly "Figure/Image" MUST be assigned level = -1.
-    #             These represent embedded images, figures, or inline resource references in the document.
-    #             Do NOT include these rows in the output (they are automatically treated as level = -1).
-    #         Rule 1 — Normalize to start at level 1:
-    #             The shallowest heading pattern found in this document MUST be assigned level 1.
-    #             Do NOT preserve preliminary estimates that start at level 2, 3, or deeper
-    #             if those headings are actually the top-level headings of the document.
-    #         Rule 2 — Global consistency (highest priority among content rules):
-    #             Headings that share the same structural pattern SHOULD receive the SAME level
-    #             throughout the ENTIRE document, regardless of their position or textual content.
-    #             (e.g., all "X.Y" two-part numbers must have the same level; all "X.Y.Z"
-    #             three-part numbers must share a different, deeper level.)
-    #         Rule 3 — Pattern over semantics:
-    #             When determining a heading's level, its numbering/structural pattern takes
-    #             precedence over its text length or semantic meaning.
-    #             Parenthetical annotations or long descriptions inside a heading text do NOT
-    #             indicate a different hierarchy level.
-    #         Rule 4 — Parent-child continuity and no level skipping:
-    #             Each heading must be consistent with adjacent headings.
-    #             A heading may stay at the same level, return to an ancestor level,
-    #             or go only ONE level deeper than its nearest valid ancestor heading.
-    #             Level jumps such as level 1 directly to level 3 are invalid.
-    #         Rule 5 — Body text demotion:
-    #             If a row does not truly serve as a section title in the document outline,
-    #             set its level to -1.
-    #             Strong body-text cues include:
-    #             - a full sentence or clause ending with sentence punctuation
-    #             - an isolated broken word, broken phrase, label fragment, data value, or body continuation
-    #             - a single Chinese character, digit, or very short fragment that clearly combines
-    #               with the next row to form one continuous phrase rather than a standalone heading
-    #         Rule 6 — Semantic heading promotion:
-    #             A row with NO obvious numbering or structural-format markers can still
-    #             be a heading, but ONLY when ALL of the following conditions are met:
-    #             (a) The text is short and title-like (not a full sentence with punctuation).
-    #             (b) It is NOT a broken fragment that simply continues into the next row
-    #                 (those belong to Rule 5 body-text demotion).
-    #             (c) Multiple longer body-text rows follow it, and the row clearly
-    #                 organizes, summarizes, or introduces the topic of those rows —
-    #                 i.e., removing it would leave the following rows without a
-    #                 meaningful section label.
-    #             Being short alone is NOT sufficient; the row must demonstrably serve
-    #             as a section boundary that groups the content below it.
-    #             When promoting, assign a level consistent with the surrounding
-    #             hierarchy — typically one level deeper than the nearest heading above.
-    #
-    #         **STEP 3 — Consistency check (one pass) before writing output**
-    #         Scan the level assignments you are about to output and confirm:
-    #         - All headings sharing the same structural or semantic pattern have been assigned the same level.
-    #         If any inconsistency is found, normalise to the most representative level for that pattern.
-    #
-    #         ***Output requirements***
-    #         - Output must be a [JSON array] only
-    #         - **Only include rows that you judge to be headings** (level >= 1). Do NOT include body text rows (level = -1) in the output
-    #         - Any row not present in your output will be automatically treated as body text (level = -1)
-    #         - Each element must contain the following fields in order:
-    #             - "id": original line number (integer)
-    #             - "level": the corrected heading level (integer from 1 to {max_depth})
-    #
-    #         ***Format requirements***
-    #         - Output only valid JSON — do not add markdown fences (no ```json)
-    #         - Do not add escaped newlines or other control characters
-    #         - Do not add any explanations, comments, or descriptive text
-    #         """
-
     elif task == "eval-headings":
         # COMPACT-input variant.  Input is pre-compressed by `compact_for_llm`
         # so that consecutive body-text rows are folded into a single
@@ -587,6 +444,228 @@ def build_prompt(task, texts, query, **kwargs):
         - No escaped newlines or control characters
         - No explanations, comments, or descriptive text
         """
+
+    # ==================== Page-Memory Native Hierarchy Prompts ====================
+
+    elif task == "page-memory-vlm-tag":
+        temperature = 0
+        top_p = 0.01
+        max_tokens = kwargs.get("paras", {}).get("max_tokens", 600)
+        prompt = """\
+You are annotating a single PDF page screenshot for a document memory system.
+Return strict JSON with exactly these keys:
+
+{
+  "summary": "<1-3 sentence summary of the page content>",
+  "keywords": "<keyword_1>;<keyword_2>;<keyword_3>"
+}
+
+Rules:
+- "summary": describe the main content visible on the page in 1-3 sentences.
+  If the page contains tables, mention the table topic and key columns.
+  If the page contains figures or charts, describe what they depict.
+- "keywords": extract the most important thematic keywords (up to 5),
+  separated by semicolons ";". Keywords must be in the same language as
+  the visible page content.
+- Return ONLY the JSON object, no markdown fences or extra text.
+"""
+
+    elif task == "page-memory-vlm-title":
+        temperature = 0
+        top_p = 0.01
+        max_tokens = kwargs.get("paras", {}).get("max_tokens", 300)
+        prompt = """\
+You are extracting document-outline-level headings from a PDF page screenshot.
+Your goal is to find ONLY the headings that would appear in a Table of Contents.
+Most pages will have ZERO such headings — returning an empty list is expected
+and correct for the majority of pages.
+
+Return strict JSON:
+{
+  "titles": [
+    {
+      "text": "<exact verbatim heading>",
+      "prominence": <0.0-1.0>,
+      "is_in_table": <boolean>,
+      "is_in_header_footer": <boolean>
+    }
+  ]
+}
+
+═══ MANDATORY BOOLEAN FLAGS (CRITICAL) ═══
+For EVERY extracted heading, you MUST accurately evaluate these two flags:
+1. is_in_table (boolean): Set to `true` if the text is ANYWHERE inside a table.
+2. is_in_header_footer (boolean): Set to `true` if the text is located in the top margin (header) or bottom margin (footer) of the page.
+
+═══ WHAT TO EXTRACT ═══
+
+Only extract text that satisfies ALL three criteria:
+
+1. HEADING FUNCTION (primary — must be true):
+   The text serves as a TITLE for the body content that follows it.
+   It introduces or labels a block of subsequent paragraphs, clauses,
+   or sub-sections. If you removed this text, the following body content
+   would lose its topic label.
+
+2. STANDALONE LINE (must be true):
+   The text occupies its own line, clearly separated from surrounding
+   body paragraphs. It is NOT inside a table, NOT part of a list,
+   and NOT embedded within a sentence.
+
+3. VISUAL DISTINCTION (supporting):
+   The text is visually set apart from body text — larger font, bold,
+   centered, or has extra vertical spacing.
+
+"prominence": 1.0 = most prominent; 0.5 = medium; 0.1 = minor.
+Return titles in TOP-TO-BOTTOM order. Text must be EXACT verbatim.
+
+═══ WHAT TO EXCLUDE (critical — read carefully) ═══
+
+1. TABLE CONTENT — Any text that is part of a table. If the
+   text is surrounded by grid lines, borders, or cell boundaries, or if
+   its neighboring content is arranged in rows and columns, it is table
+   content and MUST BE EXCLUDED. This applies even when the text is bold,
+   large, or spans a merged cell. Specifically exclude:
+   - Column headers, row category labels, merged-cell group labels
+   - Any label inside a tabular layout, regardless of visual prominence
+
+2. PAGE PERIPHERY — Text in margins or corners of the page:
+   organization/document names repeated as running headers, page numbers,
+   book/volume titles used as running headers or footers.
+
+3. BODY TEXT — Numbered clauses, list items, paragraphs, or running
+   prose, even if bold or indented.
+
+4. CAPTIONS — Figure/table captions, footnotes.
+
+5. TOC ENTRIES — If the page is itself a Table of Contents or index,
+   do NOT extract its listed entries. A TOC page lists other sections
+   with page numbers — those entries are references, not headings.
+
+═══ IMPORTANT ═══
+Many pages consist entirely of tables, body text, or appendix forms.
+These pages have NO qualifying headings. Return {"titles": []} for them.
+Do NOT force-extract table labels or body text as headings.
+
+Return ONLY the JSON object, no markdown fences.
+"""
+
+    elif task == "page-memory-hierarchy":
+        temperature = 0
+        top_p = 0.01
+        max_depth = kwargs["paras"].get("max_depth", 6)
+        max_tokens = kwargs["paras"].get("max_tokens", 2000)
+        coarse_context = kwargs["paras"].get("coarse_context", "")
+        coarse_section = f"""
+Confirmed coarse parent section:
+'''
+{coarse_context}
+'''
+""" if coarse_context else ""
+        prompt = f"""
+You are constructing a fine-grained document hierarchy for ONE already-bounded
+PDF segment. The input rows are NOT raw body text. They are clean title
+candidates observed directly from page screenshots by a VLM.
+
+Your task:
+- Assign a relative hierarchy level to each real section/table/form heading.
+- Level 1 means top-level inside this segment, level 2 is its child, etc.
+- Preserve all legitimate sibling headings. Consecutive same-level headings are
+  normal and MUST NOT be demoted just because no body text appears between rows.
+- Use page order as reading order. The "prominence" value is visual strength,
+  but numbering and structural pattern are more important.
+
+{coarse_section}
+
+Input rows:
+'''
+{texts}
+'''
+
+Rules:
+1. Trust structural numbering patterns first:
+   - "1", "2", "3" style headings at the same granularity are siblings.
+   - "3.1" is a child of "3"; "3.2.1" is a child of "3.2".
+   - "附录 A/B/C" are top-level siblings inside the segment unless the parent
+     context says otherwise.
+   - "表/附表" entries under an appendix are usually children of that appendix.
+2. Do not skip levels. A child can be at most one level deeper than its nearest
+   valid parent.
+3. Filter only obvious noise:
+   - duplicate/repeated variants of the same heading on adjacent rows;
+   - TOC/index headings such as "Contents", "目录", "目次";
+   - front matter such as "前言" when it is outside the segment's body outline.
+4. When two rows are near-duplicates, keep the clearer/more complete one and
+   omit the duplicate from output.
+5. Do not invent headings. Only return ids that exist in the input.
+
+Output requirements:
+- Output ONLY a valid JSON array. No markdown fences, no explanations.
+- Include each retained heading as:
+  {{"id": <integer>, "level": <integer from 1 to {max_depth}>}}
+- Omitted ids are treated as filtered noise.
+"""
+
+    elif task == "page-memory-node-summary":
+        temperature = 0
+        top_p = 0.01
+        max_tokens = kwargs.get("paras", {}).get("max_tokens", 400)
+        node_title = kwargs.get("paras", {}).get("node_title", "")
+        next_title = kwargs.get("paras", {}).get("next_title", "")
+        kw_num = kwargs.get("paras", {}).get("kw_num", 5)
+        if next_title:
+            scope = (
+                f"Summarize ONLY the content that belongs to the section titled "
+                f"\"{node_title}\". The section ends where the next section "
+                f"\"{next_title}\" begins on the page(s). Ignore everything that "
+                f"belongs to \"{next_title}\" or to other sections."
+            )
+        else:
+            scope = (
+                f"Summarize the content of the section titled \"{node_title}\" "
+                f"across the provided page image(s) as a single coherent section."
+            )
+        prompt = f"""\
+You are summarizing one section of a document for a navigation/memory system.
+You are given the page screenshot(s) that this section spans.
+
+{scope}
+
+Return strict JSON with exactly these keys:
+{{
+  "summary": "<1-4 sentence summary of THIS section's content>",
+  "keywords": "<keyword_1>;<keyword_2>;..."
+}}
+
+Rules:
+- "summary": describe what this section is about, in the same language as the
+  visible page content. If the section is mostly a table, describe the table's
+  topic and key columns. Do not summarize content that belongs to other
+  sections on the same page.
+- "keywords": up to {kw_num} thematic keywords separated by ";".
+- Return ONLY the JSON object, no markdown fences or extra text.
+"""
+
+    elif task == "page-memory-vlm-ocr":
+        temperature = 0
+        top_p = 0.01
+        max_tokens = kwargs.get("paras", {}).get("max_tokens", 1500)
+        prompt = """\
+You are transcribing a single scanned PDF page screenshot for a document
+memory system. Extract the page's body text as faithfully as possible.
+
+Return strict JSON with exactly this key:
+{
+  "text": "<verbatim body text of the page>"
+}
+
+Rules:
+- Preserve the reading order (top-to-bottom, left-to-right).
+- Transcribe tables row by row using a simple readable layout.
+- Do NOT add commentary, translation, or summary — transcription only.
+- Omit pure decorative running headers/footers and page numbers.
+- Return ONLY the JSON object, no markdown fences or extra text.
+"""
 
     # ==================== Image Processing Prompts ====================
 
