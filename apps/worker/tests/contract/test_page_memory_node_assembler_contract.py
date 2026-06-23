@@ -103,7 +103,6 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
         },
         filename="demo.pdf",
         verdict="page",
-        native_hierarchy=True,
         budget=None,
         vlm_model=None,
     )
@@ -129,6 +128,53 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
         "pages/page-232.png",
     ]
     assert leaf_b["extra_metadata"]["owned_pages"] == [232]
+
+
+def test_build_node_rows_keeps_internal_section_body_pages() -> None:
+    parent = SectionSkeleton(
+        section_path="demo.pdf/4 风险辨识与分级管控",
+        level=1,
+        start_page=233,
+        end_page=234,
+        title="4 风险辨识与分级管控",
+        parent_path="demo.pdf",
+    )
+    child = SectionSkeleton(
+        section_path="demo.pdf/4 风险辨识与分级管控/4.1 风险评价方法",
+        level=2,
+        start_page=234,
+        end_page=234,
+        title="4.1 风险评价方法",
+        parent_path="demo.pdf/4 风险辨识与分级管控",
+    )
+
+    rows = build_node_rows(
+        skeletons=[parent, child],
+        raw_text_by_page={233: "parent body", 234: "child body"},
+        image_uri_by_page={233: "pages/page-233.png", 234: "pages/page-234.png"},
+        image_path_by_page={},
+        kind_by_page={},
+        tag_by_page={
+            233: PageTagResult(page_index=233, summary="s233", keywords=["parent"]),
+            234: PageTagResult(page_index=234, summary="s234", keywords=["child"]),
+        },
+        filename="demo.pdf",
+        verdict="page",
+        budget=None,
+        vlm_model=None,
+    )
+
+    by_path = {row["path"]: row for row in rows}
+    assert by_path["demo.pdf/4 风险辨识与分级管控"]["page_nums"] == "233"
+    assert by_path["demo.pdf/4 风险辨识与分级管控"]["content"] == "parent body"
+    assert (
+        by_path["demo.pdf/4 风险辨识与分级管控/4.1 风险评价方法"]["page_nums"]
+        == "234"
+    )
+    assert (
+        by_path["demo.pdf/4 风险辨识与分级管控/4.1 风险评价方法"]["content"]
+        == "child body"
+    )
 
 
 def test_build_node_rows_uses_vlm_node_summary_with_boundary(
@@ -167,7 +213,6 @@ def test_build_node_rows_uses_vlm_node_summary_with_boundary(
         },
         filename="demo.pdf",
         verdict="page",
-        native_hierarchy=True,
         budget=None,
         vlm_model="fake-vlm",
     )
@@ -210,7 +255,6 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
         },
         filename="demo.pdf",
         verdict="page",
-        native_hierarchy=True,
         budget=None,
         vlm_model=None,
         page_assets_by_page={231: [asset]},
@@ -224,7 +268,7 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
     owner = by_path["demo.pdf/3 基本规定/3.1 职责"]
     shared = by_path["demo.pdf/3 基本规定/3.2 管理规定"]
     assert '"relation": "embeds"' in owner["connectto"]
-    assert '"target": "[tables/table_page_231_1.html]"' in owner["connectto"]
+    assert '"target": "tables/table_page_231_1.html"' in owner["connectto"]
     assert '"relation": "related"' in shared["connectto"]
     assert '"same_as_owner": "demo.pdf/3 基本规定/3.1 职责"' in shared["connectto"]
 
@@ -254,7 +298,7 @@ def test_page_connectto_normalizes_to_asset_chunk_id() -> None:
             "summary": "",
             "know_id": "page_1",
             "tokens": "",
-            "connectto": '[{"target":"[tables/table_page_1_1.html]","relation":"embeds","ref":"[tables/table_page_1_1.html]"}]',
+            "connectto": '[{"target":"tables/table_page_1_1.html","relation":"embeds","ref":"[tables/table_page_1_1.html]"}]',
             "addtime": "",
             "page_nums": "1",
             "extra_metadata": {},

@@ -14,7 +14,7 @@ from typing import Any, cast
 
 import pandas as pd
 from loguru import logger
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from app.services.document_agent.budget import BudgetTracker
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
@@ -25,6 +25,8 @@ from shared.utils.token_estimate import estimate_tokens
 _BUDGET_STAGE = "page_asset_extraction"
 _GRID_SIZE = 1000
 _VALID_KINDS = {"table", "chart", "figure"}
+_DEFAULT_ASSET_MODEL = "qwen3-vl-32b-instruct"
+_ASSET_ANNOTATE_DIR = "asset_annotate"
 
 
 @dataclass
@@ -63,11 +65,18 @@ def get_asset_confidence_threshold() -> float:
         return 0.3
 
 
+def get_asset_model() -> str | None:
+    model = os.environ.get("PAGE_MEMORY_ASSET_MODEL", "").strip()
+    if model:
+        return model
+    return _DEFAULT_ASSET_MODEL
+
+
 def get_asset_max_pages(page_count: int) -> int:
     try:
-        value = int(os.environ.get("PAGE_MEMORY_ASSET_MAX_PAGES", "50"))
+        value = int(os.environ.get("PAGE_MEMORY_ASSET_MAX_PAGES", str(page_count)))
     except ValueError:
-        value = 50
+        value = page_count
     return max(0, min(page_count, value))
 
 
@@ -366,12 +375,63 @@ def extract_page_assets_from_renders(
                 page_assets.append(asset)
         if page_assets:
             assets_by_page[page.page_index] = page_assets
+            annotate_page_assets(
+                page=page,
+                assets=page_assets,
+                output_dir=output_dir,
+            )
     logger.info(
         "[page_assets] extracted {} assets across {} pages",
         sum(len(items) for items in assets_by_page.values()),
         len(assets_by_page),
     )
     return assets_by_page
+
+
+def annotate_page_assets(
+    *,
+    page: PageRenderResult,
+    assets: list[PageAsset],
+    output_dir: str,
+) -> str:
+    if not assets or not page.image_path or not os.path.exists(page.image_path):
+        return ""
+    annotate_dir = Path(output_dir) / _ASSET_ANNOTATE_DIR
+    annotate_dir.mkdir(parents=True, exist_ok=True)
+    output_path = annotate_dir / f"page_{page.page_index}.png"
+    try:
+        with Image.open(page.image_path) as image:
+            canvas = image.convert("RGB").copy()
+        draw = ImageDraw.Draw(canvas)
+        try:
+            font = ImageFont.truetype(
+                "/System/Library/Fonts/Supplemental/Arial.ttf", 22
+            )
+        except Exception:
+            font = ImageFont.load_default()
+        for asset in assets:
+            x1, y1, x2, y2 = asset.bbox_px
+            color = _asset_box_color(asset.kind)
+            draw.rectangle([x1, y1, x2, y2], outline=color, width=4)
+            label = f"{asset.kind} {asset.confidence:.2f}"
+            draw.text((x1 + 2, max(0, y1 - 24)), label, fill=color, font=font)
+        canvas.save(output_path)
+    except Exception as exc:
+        logger.warning(
+            "[page_assets] failed to write asset annotation for page {}: {}",
+            page.page_index,
+            exc,
+        )
+        return ""
+    return str(output_path)
+
+
+def _asset_box_color(kind: str) -> tuple[int, int, int]:
+    if kind == "table":
+        return (220, 0, 0)
+    if kind == "chart":
+        return (0, 90, 220)
+    return (0, 150, 0)
 
 
 def build_asset_rows(
@@ -486,11 +546,50 @@ def _bbox_px_to_area_pt(
 
 
 def _has_working_java() -> bool:
-    if shutil.which("java") is None:
+    java_path = _resolve_working_java()
+    if java_path is None:
         return False
+    java_bin = str(java_path.parent)
+    path_parts = os.environ.get("PATH", "").split(os.pathsep)
+    if java_bin not in path_parts:
+        os.environ["PATH"] = os.pathsep.join([java_bin, *path_parts])
+    os.environ.setdefault("JAVA_HOME", str(java_path.parent.parent))
+    return True
+
+
+def _resolve_working_java() -> Path | None:
+    candidates: list[Path] = []
+    java_home = os.environ.get("JAVA_HOME")
+    if java_home:
+        candidates.append(Path(java_home) / "bin" / "java")
+
+    which_java = shutil.which("java")
+    if which_java:
+        candidates.append(Path(which_java))
+
+    candidates.extend(
+        [
+            Path("/opt/homebrew/opt/java/bin/java"),
+            Path("/usr/local/opt/java/bin/java"),
+        ]
+    )
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if not candidate.exists():
+            continue
+        if _java_version_ok(candidate):
+            return candidate
+    return None
+
+
+def _java_version_ok(java_path: Path) -> bool:
     try:
         result = subprocess.run(
-            ["java", "-version"],
+            [str(java_path), "-version"],
             check=False,
             capture_output=True,
             text=True,
@@ -527,11 +626,13 @@ def _safe_float(value: object, *, default: float) -> float:
 
 __all__ = [
     "PageAsset",
+    "annotate_page_assets",
     "asset_reference",
     "build_asset_rows",
     "extract_page_assets_from_renders",
     "get_asset_budget",
     "get_asset_confidence_threshold",
     "get_asset_max_pages",
+    "get_asset_model",
     "page_asset_extraction_enabled",
 ]

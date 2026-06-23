@@ -49,6 +49,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
         pdf_filename,
         job_id=request.job_id,
         output_dir=full_output_dir,
+        skip_shard_plan=True,
     )
     verdict = _decide_granularity(profile)
 
@@ -111,32 +112,26 @@ def _build_page_dataframe(
       C1  page_renderer       → PageRenderResult[]
       C2  page_plan           → PagePlan[]
       C3  page_tagger         → PageTagResult[]
-      C3b title detection     → observed_titles (native hierarchy only)
-      C4b fine_hierarchy      → refined SectionSkeleton[] (native hierarchy only)
-      C6  page_section_mapper → PageSectionMapping[]
-      C7  assemble DataFrame
+      C3b title detection     → observed_titles
+      C4b fine_hierarchy      → refined SectionSkeleton[]
+      C7  assemble node-granularity DataFrame
     """
     from app.services.document_agent.budget import BudgetTracker, StageEnvelope
     from app.services.page_memory.page_plan import derive_page_processing_plan
     from app.services.page_memory.page_renderer import render_document_pages
-    from app.services.page_memory.page_section_mapper import map_pages_to_sections
     from app.services.page_memory.page_tagger import tag_pages
-    from app.services.page_memory.skeleton_extractor import extract_section_skeletons
+    from app.services.page_memory.skeleton_extractor import (
+        SectionSkeleton,
+        extract_section_skeletons,
+    )
     from app.services.page_memory.page_assets import (
         extract_page_assets_from_renders,
         get_asset_budget,
         get_asset_confidence_threshold,
         get_asset_max_pages,
+        get_asset_model,
         page_asset_extraction_enabled,
     )
-
-    # ── Native hierarchy flag (Step 3) ────────────────────────────────
-    # Page-memory handles PDF/PPT(→PDF) structure with its own page-native
-    # hierarchy. Chunk-track hierarchy detection remains isolated to non
-    # page-memory formats such as DOCX/MD.
-    native_hierarchy = os.environ.get(
-        "PAGE_MEMORY_NATIVE_HIERARCHY", "true"
-    ).strip().lower() in ("1", "true", "yes", "on")
 
     anatomy = getattr(profile, "anatomy", None)
     page_count = max(int(profile.page_count or 0), 0)
@@ -150,10 +145,8 @@ def _build_page_dataframe(
     page_locate_budget = int(
         os.environ.get("PAGE_MEMORY_LOCATE_BUDGET", str(min(page_count * 1600, 2_000_000)))
     )
-    title_detection_budget = (
-        int(os.environ.get("PAGE_MEMORY_TITLE_BUDGET", str(page_count * 800)))
-        if native_hierarchy
-        else 0
+    title_detection_budget = int(
+        os.environ.get("PAGE_MEMORY_TITLE_BUDGET", str(page_count * 800))
     )
     asset_extraction_enabled = page_asset_extraction_enabled()
     asset_extraction_budget = (
@@ -184,11 +177,10 @@ def _build_page_dataframe(
             cap=None,
         ),
     }
-    if native_hierarchy:
-        stage_envelopes["page_title_detection"] = StageEnvelope(
-            min_guarantee=title_detection_budget,
-            cap=None,
-        )
+    stage_envelopes["page_title_detection"] = StageEnvelope(
+        min_guarantee=title_detection_budget,
+        cap=None,
+    )
     if asset_extraction_enabled:
         stage_envelopes["page_asset_extraction"] = StageEnvelope(
             min_guarantee=asset_extraction_budget,
@@ -239,14 +231,11 @@ def _build_page_dataframe(
 
     page_assets_by_page: dict[int, list[Any]] = {}
     if asset_extraction_enabled:
-        asset_model = os.environ.get("PAGE_MEMORY_ASSET_MODEL") or os.environ.get(
-            "IMAGE_MODEL"
-        )
         page_assets_by_page = extract_page_assets_from_renders(
             pdf_path=pdf_path,
             rendered_pages=rendered,
             output_dir=output_dir,
-            model_name=asset_model,
+            model_name=get_asset_model(),
             budget=budget,
             max_pages=get_asset_max_pages(page_count),
             confidence_threshold=get_asset_confidence_threshold(),
@@ -269,8 +258,8 @@ def _build_page_dataframe(
         vlm_model=vlm_model,
     )
 
-    # ── C3b + C4b: Native hierarchy (Step 2 + Step 3) ────────────────
-    if native_hierarchy and skeletons:
+    # ── C3b + C4b: page-native hierarchy refinement ─────────────────
+    if skeletons:
         from app.services.page_memory.fine_hierarchy import (
             compute_fat_leaf_pages,
             refine_fat_leaf_skeletons,
@@ -316,12 +305,17 @@ def _build_page_dataframe(
                 len(skeletons),
             )
 
-    # ── C6: page → section mapping ───────────────────────────────────
-    mappings = map_pages_to_sections(
-        page_count=page_count,
-        skeletons=skeletons,
-        filename=filename,
-    )
+    if not skeletons:
+        skeletons = [
+            SectionSkeleton(
+                section_path=f"{filename}/Root",
+                level=1,
+                start_page=1,
+                end_page=page_count,
+                title="Root",
+                parent_path=filename,
+            )
+        ]
 
     # ── C7: assemble DataFrame rows ──────────────────────────────────
     tag_map = {t.page_index: t for t in tags}
@@ -332,22 +326,6 @@ def _build_page_dataframe(
     if page_labels:
         for lbl in page_labels:
             label_map[lbl.page] = lbl.kind
-
-    # Build page → observed_titles. Native hierarchy uses only true VLM
-    # observations; the skeleton-title fallback is kept only for legacy mode.
-    observed_titles_map: dict[int, list[str]] = {}
-    if native_hierarchy:
-        for tag in tags:
-            if tag.observed_titles:
-                observed_titles_map[tag.page_index] = [
-                    t["text"] for t in tag.observed_titles if t.get("text")
-                ]
-    else:
-        # Legacy: map skeleton titles to start pages
-        for skel in skeletons:
-            titles = observed_titles_map.setdefault(skel.start_page, [])
-            if skel.title and skel.title not in titles:
-                titles.append(skel.title)
 
     # Shared per-page lookups for node-granularity assembly.
     raw_text_by_page: dict[int, str] = {}
@@ -362,98 +340,28 @@ def _build_page_dataframe(
                 Path(rend.image_path).relative_to(output_dir)
             )
 
-    if native_hierarchy and skeletons:
-        from app.services.page_memory.node_assembler import build_node_rows
+    from app.services.page_memory.node_assembler import build_node_rows
 
-        rows = build_node_rows(
-            skeletons=skeletons,
-            raw_text_by_page=raw_text_by_page,
-            image_uri_by_page=image_uri_by_page,
-            image_path_by_page=image_path_by_page,
-            kind_by_page=label_map,
-            tag_by_page=tag_map,
-            filename=filename,
-            verdict=verdict,
-            native_hierarchy=native_hierarchy,
-            budget=budget,
-            vlm_model=vlm_model,
-            page_assets_by_page=page_assets_by_page,
-        )
-        logger.info(
-            "[page_memory] C7 assembled {} node rows (verdict={})",
-            len(rows), verdict,
-        )
-    else:
-        rows = _build_legacy_page_rows(
-            mappings=mappings,
-            tag_map=tag_map,
-            raw_text_by_page=raw_text_by_page,
-            image_uri_by_page=image_uri_by_page,
-            label_map=label_map,
-            observed_titles_map=observed_titles_map,
-            filename=filename,
-            verdict=verdict,
-            native_hierarchy=native_hierarchy,
-        )
-        logger.info(
-            "[page_memory] C7 assembled {} page rows (verdict={})",
-            len(rows), verdict,
-        )
+    rows = build_node_rows(
+        skeletons=skeletons,
+        raw_text_by_page=raw_text_by_page,
+        image_uri_by_page=image_uri_by_page,
+        image_path_by_page=image_path_by_page,
+        kind_by_page=label_map,
+        tag_by_page=tag_map,
+        filename=filename,
+        verdict=verdict,
+        budget=budget,
+        vlm_model=vlm_model,
+        page_assets_by_page=page_assets_by_page,
+    )
+    logger.info(
+        "[page_memory] C7 assembled {} node rows (verdict={})",
+        len(rows), verdict,
+    )
     df = pd.DataFrame(rows, columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
     df.attrs["page_memory_skeletons"] = [skel.to_dict() for skel in skeletons]
-    df.attrs["page_memory_native_hierarchy"] = native_hierarchy
     return df
-
-
-def _build_legacy_page_rows(
-    *,
-    mappings: Any,
-    tag_map: dict[int, Any],
-    raw_text_by_page: dict[int, str],
-    image_uri_by_page: dict[int, str],
-    label_map: dict[int, str],
-    observed_titles_map: dict[int, list[str]],
-    filename: str,
-    verdict: str,
-    native_hierarchy: bool,
-) -> list[dict[str, Any]]:
-    """Legacy per-page rows (one ``type=page`` chunk per physical page)."""
-    rows: list[dict[str, Any]] = []
-    for mapping in mappings:
-        page = mapping.page_index
-        tag = tag_map.get(page)
-
-        content = (raw_text_by_page.get(page, "") or "").strip()
-        summary = tag.summary if tag else ""
-        keywords_str = ";".join(tag.keywords) if tag else ""
-
-        know_id = f"page_{gen_str_codes(f'{filename}::{page}')}"
-
-        rows.append({
-            "content": content,
-            "path": mapping.section_path,
-            "type": "page",
-            "length": len(content),
-            "keywords": keywords_str,
-            "summary": summary,
-            "know_id": know_id,
-            "tokens": "",
-            "connectto": "",
-            "addtime": get_str_time(),
-            "page_nums": str(page),
-            "extra_metadata": {
-                "granularity": "page",
-                "page_index": page,
-                "page_image_uri": image_uri_by_page.get(page, ""),
-                "strategy_used": tag.strategy_used if tag else "",
-                "kind": label_map.get(page, "normal"),
-                "observed_titles": observed_titles_map.get(page, []),
-                "section_roles": mapping.section_roles,
-                "source_verdict": verdict,
-                "native_hierarchy": native_hierarchy,
-            },
-        })
-    return rows
 
 
 def _build_page_ctx(

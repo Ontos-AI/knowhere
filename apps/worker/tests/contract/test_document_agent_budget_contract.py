@@ -90,7 +90,7 @@ def test_dataframe_converter_accepts_page_chunks_with_extra_metadata() -> None:
     assert chunks[0]["metadata"]["page_nums"] == [1, 2]
 
 
-def test_zip_chunk_schema_preserves_page_memory_section_roles() -> None:
+def test_zip_chunk_schema_preserves_page_memory_node_metadata() -> None:
     chunks = [
         {
             "chunk_id": "page-231",
@@ -100,21 +100,14 @@ def test_zip_chunk_schema_preserves_page_memory_section_roles() -> None:
             "metadata": {
                 "summary": "page summary",
                 "page_nums": [231],
-                "page_index": 231,
-                "section_roles": [
-                    {
-                        "section_path": "demo.pdf/3 基本规定",
-                        "role": "primary",
-                    },
-                    {
-                        "section_path": "demo.pdf/3 基本规定/3.1 职责",
-                        "role": "primary",
-                    },
-                    {
-                        "section_path": "demo.pdf/3 基本规定/3.2 管理规定",
-                        "role": "primary",
-                    },
-                ],
+                "granularity": "node",
+                "page_indices": [231, 232],
+                "owned_pages": [232],
+                "section_path": "demo.pdf/3 基本规定/3.2 管理规定",
+                "section_level": 2,
+                "page_image_uris": ["pages/page-231.png", "pages/page-232.png"],
+                "kind": "normal",
+                "source_verdict": "page",
             },
         }
     ]
@@ -127,8 +120,13 @@ def test_zip_chunk_schema_preserves_page_memory_section_roles() -> None:
 
     metadata = formatted[0]["metadata"]
     assert metadata["page_nums"] == [231]
-    assert metadata["page_index"] == 231
-    assert metadata["section_roles"] == chunks[0]["metadata"]["section_roles"]
+    assert metadata["granularity"] == "node"
+    assert metadata["page_indices"] == [231, 232]
+    assert metadata["owned_pages"] == [232]
+    assert metadata["section_path"] == "demo.pdf/3 基本规定/3.2 管理规定"
+    assert metadata["section_level"] == 2
+    assert metadata["page_image_uris"] == ["pages/page-231.png", "pages/page-232.png"]
+    assert metadata["source_verdict"] == "page"
 
 
 def test_page_memory_granularity_routes_supported_page_modes() -> None:

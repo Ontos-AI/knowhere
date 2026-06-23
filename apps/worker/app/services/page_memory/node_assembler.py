@@ -33,7 +33,6 @@ from app.services.document_agent.budget import BudgetTracker
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.page_memory.page_assets import (
     PageAsset,
-    asset_reference,
     build_asset_rows,
 )
 from app.services.page_memory.page_tagger import PageTagResult
@@ -57,6 +56,7 @@ class LeafNode:
     start_page: int
     end_page: int
     parent_path: str | None = None
+    body_pages: tuple[int, ...] | None = None
 
 
 @dataclass
@@ -72,20 +72,31 @@ class NodePageView:
 
 
 def identify_leaf_nodes(skeletons: list[SectionSkeleton]) -> list[LeafNode]:
-    """Return leaf skeletons in reading order.
+    """Return body-bearing skeleton nodes in reading order.
 
-    A skeleton is a leaf when no other skeleton declares it as ``parent_path``.
-    Reading order = ``(start_page, original index)`` so that siblings sharing a
-    start page keep the top-to-bottom order produced by fine hierarchy.
+    A skeleton is included when either:
+    - no other skeleton declares it as ``parent_path``; or
+    - it is an internal section with pages not covered by descendant sections.
+
+    The second case preserves parent-section body pages, such as the first page
+    of a section before the first child heading. Internal nodes remain
+    structural unless they carry such own body pages.
     """
     parent_paths = {skel.parent_path for skel in skeletons if skel.parent_path}
     leaves: list[tuple[int, int, LeafNode]] = []
     for index, skel in enumerate(skeletons):
-        if skel.section_path in parent_paths:
-            continue
+        is_internal = skel.section_path in parent_paths
+        body_pages: tuple[int, ...] | None = None
+        if is_internal:
+            body_page_list = _internal_body_pages(skel, skeletons)
+            if not body_page_list:
+                continue
+            body_pages = tuple(body_page_list)
+
+        sort_page = body_pages[0] if body_pages else skel.start_page
         leaves.append(
             (
-                skel.start_page,
+                sort_page,
                 index,
                 LeafNode(
                     section_path=skel.section_path,
@@ -94,11 +105,28 @@ def identify_leaf_nodes(skeletons: list[SectionSkeleton]) -> list[LeafNode]:
                     start_page=skel.start_page,
                     end_page=skel.end_page,
                     parent_path=skel.parent_path,
+                    body_pages=body_pages,
                 ),
             )
         )
     leaves.sort(key=lambda item: (item[0], item[1]))
     return [leaf for _, _, leaf in leaves]
+
+
+def _internal_body_pages(
+    skel: SectionSkeleton,
+    skeletons: list[SectionSkeleton],
+) -> list[int]:
+    """Pages owned by an internal section itself, excluding descendants."""
+    pages = set(range(skel.start_page, skel.end_page + 1))
+    descendant_prefix = f"{skel.section_path}/"
+    for other in skeletons:
+        if other.section_path == skel.section_path:
+            continue
+        if not other.section_path.startswith(descendant_prefix):
+            continue
+        pages.difference_update(range(other.start_page, other.end_page + 1))
+    return sorted(pages)
 
 
 def assign_pages_to_leaves(
@@ -126,11 +154,12 @@ def assign_pages_to_leaves(
     page_owner: dict[int, LeafNode] = {}
     views: list[NodePageView] = []
     for leaf in leaves:
-        pages = [
-            page
-            for page in range(leaf.start_page, leaf.end_page + 1)
-            if page in available_pages
-        ]
+        source_pages = (
+            list(leaf.body_pages)
+            if leaf.body_pages is not None
+            else list(range(leaf.start_page, leaf.end_page + 1))
+        )
+        pages = [page for page in source_pages if page in available_pages]
         owned: list[int] = []
         for page in pages:
             if page not in page_owner:
@@ -455,7 +484,6 @@ def build_node_rows(
     tag_by_page: dict[int, PageTagResult],
     filename: str,
     verdict: str,
-    native_hierarchy: bool,
     budget: BudgetTracker | None = None,
     vlm_model: str | None = None,
     page_assets_by_page: dict[int, list[PageAsset]] | None = None,
@@ -522,7 +550,6 @@ def build_node_rows(
                 "page_image_uris": page_image_uris,
                 "kind": kind_by_page.get(leaf.start_page, "normal"),
                 "source_verdict": verdict,
-                "native_hierarchy": native_hierarchy,
             },
         }
         rows.append(row)
@@ -559,16 +586,23 @@ def _attach_asset_connections(
         owner_leaf = page_owner.get(page_index)
         leaves_on_page = page_to_leaves.get(page_index, [])
         for asset in assets:
-            ref = asset_reference(asset)
-            if not ref:
+            # target = bare URI path (resolvable via target_map → chunk_id)
+            # ref = bracketed display reference (matches chunk-track convention)
+            uri = (
+                asset.html_uri
+                if asset.kind == "table" and asset.html_uri
+                else asset.image_uri
+            )
+            if not uri:
                 continue
+            ref = f"[{uri}]"
             if owner_leaf is not None:
                 owner_row = rows_by_path.get(owner_leaf.section_path)
                 if owner_row is not None:
                     _append_connect_to(
                         owner_row,
                         {
-                            "target": ref,
+                            "target": uri,
                             "relation": "embeds",
                             "ref": ref,
                         },
@@ -583,7 +617,7 @@ def _attach_asset_connections(
                 if row is None:
                     continue
                 connection: dict[str, Any] = {
-                    "target": ref,
+                    "target": uri,
                     "relation": "related",
                     "ref": ref,
                 }

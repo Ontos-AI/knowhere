@@ -22,7 +22,7 @@ Outputs (under --out):
     pages/page-N.png                full page render
     crops/page-N_vlm-K_<type>.png   VLM crops
     crops/page-N_base-K_<kind>.png  baseline crops
-    annotated/page-N.png            page with VLM(red) + baseline(green) boxes
+    asset_annotate/page_N.png       page with VLM(red) + baseline(green) boxes
     results.json                    all regions + metadata
     report.md                       human-readable summary
 
@@ -338,7 +338,7 @@ def main() -> int:
     )
     (out_dir / "pages").mkdir(parents=True, exist_ok=True)
     (out_dir / "crops").mkdir(parents=True, exist_ok=True)
-    (out_dir / "annotated").mkdir(parents=True, exist_ok=True)
+    (out_dir / "asset_annotate").mkdir(parents=True, exist_ok=True)
 
     doc = fitz.open(str(pdf_path))
     page_nums = parse_pages(args.pages, doc.page_count)
@@ -395,7 +395,7 @@ def main() -> int:
                 crop_region(im, r, args.margin,
                             out_dir / "crops" / f"page-{pno}_base-{k}_{r.kind}.png")
             if pr.vlm_regions or pr.baseline_regions:
-                draw_overlay(im, pr, out_dir / "annotated" / f"page-{pno}.png")
+                draw_overlay(im, pr, out_dir / "asset_annotate" / f"page_{pno}.png")
         results.append(pr)
 
     doc.close()
@@ -409,9 +409,9 @@ def main() -> int:
     # report.md
     _write_report(out_dir, pdf_path, args, results, total_tokens)
     print(f"\nDone. Output: {out_dir}")
-    print(f"  - annotated overlays: {out_dir/'annotated'}")
+    print(f"  - annotated overlays: {out_dir/'asset_annotate'}")
     print(f"  - crops:              {out_dir/'crops'}")
-    print(f"  - results.json / report.md")
+    print("  - results.json / report.md")
     return 0
 
 
@@ -440,7 +440,7 @@ def _write_report(out_dir: Path, pdf_path: Path, args: Any,
     lines += [
         "",
         "## How to read",
-        "- `annotated/page-N.png`: red = VLM boxes, green = PyMuPDF baseline.",
+        "- `asset_annotate/page_N.png`: red = VLM boxes, green = PyMuPDF baseline.",
         "- Judge VLM by: does the red box tightly enclose the table/chart "
         "(incl. caption, excl. body text)? Compare against green baseline.",
         "- `crops/`: the actual extracted assets to feed a table model next.",

@@ -592,7 +592,7 @@ def test_standard_pdf_profile_builds_page_toc_and_lightweight_anatomy_by_default
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
-        def run_lightweight_anatomy(self):
+        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
             self.calls.append("run_lightweight_anatomy")
             return fake_anatomy
 
@@ -644,7 +644,7 @@ def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
         def run_toc(self) -> TocResult:
             raise AssertionError("kill switch should not call TOC profiling")
 
-        def run_lightweight_anatomy(self):
+        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
             self.calls.append("run_lightweight_anatomy")
             self.blackboard.toc_result = TocResult(
                 method="none",
@@ -716,7 +716,7 @@ def test_standard_pdf_profile_maps_page_toc_evidence(
             self.calls.append("run_toc")
             raise AssertionError("run_toc should be no-op after TOC-before-coarse")
 
-        def run_lightweight_anatomy(self):
+        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
             self.calls.append("run_lightweight_anatomy")
             return fake_anatomy
 

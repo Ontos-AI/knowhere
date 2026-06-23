@@ -29,6 +29,7 @@ def profile_document(
     *,
     job_id: str | None = None,
     output_dir: str | None = None,
+    skip_shard_plan: bool = False,
 ) -> ParserDocumentProfile:
     """
     General document profiling entry point.
@@ -38,6 +39,10 @@ def profile_document(
         filename: File name (used to infer type)
         job_id: Parse job id for profile trace artifacts
         output_dir: Parser output directory
+        skip_shard_plan: When True, the lightweight anatomy stage skips the
+            LLM shard decision (+ H2 refinement) and populates a single-shard
+            placeholder instead. Used by the page-memory track, which never
+            consumes the shard plan. Chunk-track keeps the default (False).
 
     Returns:
         ParserDocumentProfile
@@ -47,7 +52,13 @@ def profile_document(
 
     ext = os.path.splitext(filename)[1].lower()
     if ext == ".pdf":
-        return _profile_pdf(file_path, filename, job_id=job_id, output_dir=output_dir)
+        return _profile_pdf(
+            file_path,
+            filename,
+            job_id=job_id,
+            output_dir=output_dir,
+            skip_shard_plan=skip_shard_plan,
+        )
 
     return ParserDocumentProfile(
         file_type=ext.lstrip("."),
@@ -63,6 +74,7 @@ def _profile_pdf(
     *,
     job_id: str | None,
     output_dir: str | None,
+    skip_shard_plan: bool = False,
 ) -> ParserDocumentProfile:
     with _profile_db_context(enabled=bool(job_id)) as db:
         return _profile_pdf_with_db(
@@ -71,6 +83,7 @@ def _profile_pdf(
             job_id=job_id,
             output_dir=output_dir,
             db=db,
+            skip_shard_plan=skip_shard_plan,
         )
 
 
@@ -81,6 +94,7 @@ def _profile_pdf_with_db(
     job_id: str | None,
     output_dir: str | None,
     db: Any | None,
+    skip_shard_plan: bool = False,
 ) -> ParserDocumentProfile:
     profile_job_id = job_id or filename
     agent_output_dir = os.path.join(output_dir, "_doc_agent") if output_dir else None
@@ -134,7 +148,9 @@ def _profile_pdf_with_db(
             profile.toc = _map_toc_profile(coordinator)
     else:
         if not profile.is_atlas:
-            profile.anatomy = coordinator.run_lightweight_anatomy()
+            profile.anatomy = coordinator.run_lightweight_anatomy(
+                skip_shard_plan=skip_shard_plan
+            )
         profile.toc = _map_toc_profile(coordinator)
 
     if trace := getattr(coordinator, "trace", None):

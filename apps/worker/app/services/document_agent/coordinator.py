@@ -27,6 +27,7 @@ from app.services.document_agent.registry import REGISTRY
 from app.services.document_agent.state import AgentBlackboard, DocumentAgentState
 from app.services.document_agent import tools as _registered_tools  # noqa: F401
 from app.services.document_agent.trace import ParseRunRecorder
+from app.services.document_agent.validators import single_shard_plan
 
 
 class ProfileCoordinator:
@@ -132,9 +133,11 @@ class ProfileCoordinator:
             self.blackboard.toc_hierarchies = None
             return self.blackboard.toc_result
 
-    def run_lightweight_anatomy(self) -> PageAnatomyMap:
+    def run_lightweight_anatomy(
+        self, *, skip_shard_plan: bool = False
+    ) -> PageAnatomyMap:
         try:
-            return self._run_lightweight_anatomy()
+            return self._run_lightweight_anatomy(skip_shard_plan=skip_shard_plan)
         except Exception as exc:
             self._record_failure(exc)
             raise
@@ -192,7 +195,9 @@ class ProfileCoordinator:
             )
         return self.blackboard.toc_result
 
-    def _run_lightweight_anatomy(self) -> PageAnatomyMap:
+    def _run_lightweight_anatomy(
+        self, *, skip_shard_plan: bool = False
+    ) -> PageAnatomyMap:
         self.state = DocumentAgentState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
@@ -205,18 +210,28 @@ class ProfileCoordinator:
             else:
                 self._ensure_disabled_toc_placeholder()
         self._run_h1_boundary_pipeline()
-        result = REGISTRY.dispatch("propose.shard_plan", self.ctx, {})
-        self.trace.record_step(
-            round_index=self.round_index,
-            actor="anatomy:propose.shard_plan",
-            action_type="anatomy",
-            result=result,
-            tool_name="propose.shard_plan",
-            tool_args={},
-        )
-        if result.status not in {"ok", "invalid"}:
-            raise RuntimeError(result.error or "propose.shard_plan failed")
-        self.round_index += 1
+        if skip_shard_plan:
+            # Page-based track processes pages individually via VLM and never
+            # consumes the shard plan; only build_anatomy_map's invariant needs
+            # it. Populate a single-shard placeholder to skip the LLM shard
+            # decision + H2 refinement (kept global for chunk-track oversized
+            # MinerU sharding).
+            self.blackboard.shard_plan = single_shard_plan(
+                self.blackboard.page_count
+            )
+        else:
+            result = REGISTRY.dispatch("propose.shard_plan", self.ctx, {})
+            self.trace.record_step(
+                round_index=self.round_index,
+                actor="anatomy:propose.shard_plan",
+                action_type="anatomy",
+                result=result,
+                tool_name="propose.shard_plan",
+                tool_args={},
+            )
+            if result.status not in {"ok", "invalid"}:
+                raise RuntimeError(result.error or "propose.shard_plan failed")
+            self.round_index += 1
         anatomy = build_anatomy_map(self.ctx)
         self._persist_ready_anatomy(anatomy)
         return anatomy

@@ -49,7 +49,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-calc \
     libreoffice-impress \
     libreoffice-writer \
+    openjdk-17-jre-headless \
     && rm -rf /var/lib/apt/lists/*
+
+# tabula-py shells out to Java for page-memory table HTML extraction.
+RUN java -version
 
 # Copy the virtualenv from the builder stage
 COPY --from=builder /app/venv /app/venv
