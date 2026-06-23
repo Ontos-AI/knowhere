@@ -108,6 +108,7 @@ async def test_document_inspection_should_outline_active_revision_only(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     document_id = f"doc_{uuid4().hex[:12]}"
 
@@ -116,6 +117,15 @@ async def test_document_inspection_should_outline_active_revision_only(
 
         await _insert_document_revision_fixture(document_id=document_id)
         service = DocumentInspectionService()
+
+        async def fail_chunk_scan(*args: object, **kwargs: object) -> object:
+            raise AssertionError("outline should not load inspection chunk rows")
+
+        monkeypatch.setattr(
+            service._repository,
+            "list_current_document_chunks_for_inspection",
+            fail_chunk_scan,
+        )
         async with get_db_context() as db:
             response = await service.get_document_outline(
                 db,
@@ -168,7 +178,6 @@ async def test_document_inspection_should_read_by_range_section_and_ids(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     document_id = f"doc_{uuid4().hex[:12]}"
 
@@ -176,7 +185,6 @@ async def test_document_inspection_should_read_by_range_section_and_ids(
         from shared.core.database import get_db_context
 
         fixture = await _insert_document_revision_fixture(document_id=document_id)
-        monkeypatch.setattr(inspection_module, "INSPECTION_INDEX_CHUNK_LIMIT", 2)
         service = DocumentInspectionService()
         async with get_db_context() as db:
             range_response = await service.read_chunks(

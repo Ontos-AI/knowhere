@@ -8,7 +8,11 @@ from datetime import datetime
 from typing import Any
 
 import regex as regex_engine
-from app.repositories.document_repository import DocumentRepository
+from app.repositories.document_repository import (
+    DocumentOutlineChunkStats,
+    DocumentRepository,
+    DocumentSectionChunkStats,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +23,6 @@ MAX_READ_CHUNK_LIMIT = 40
 DEFAULT_GREP_RESULT_LIMIT = 20
 MAX_GREP_RESULT_LIMIT = 50
 GREP_SNIPPET_CONTEXT_CHARS = 80
-INSPECTION_INDEX_CHUNK_LIMIT = 10_000
 MAX_REGEX_PATTERN_LENGTH = 256
 REGEX_SEARCH_TIMEOUT_SECONDS = 0.01
 REGEX_GREP_STATEMENT_TIMEOUT_MS = 250
@@ -160,23 +163,21 @@ class DocumentInspectionService:
             document_id=document_id,
             job_result_id=job_result_id,
         )
-        rows = await self._repository.list_current_document_chunks_for_inspection(
+        chunk_stats = await self._repository.get_current_document_outline_chunk_stats(
             db,
             document_id=document_id,
             job_result_id=job_result_id,
-            limit=INSPECTION_INDEX_CHUNK_LIMIT,
         )
-        indexed_chunks = _index_chunk_rows(rows)
         return DocumentOutlineResponse(
             namespace=namespace,
             document=_to_document_summary(document),
             job_result_id=job_result_id,
-            job_id=_read_job_id(rows),
-            total_chunks=len(indexed_chunks),
-            type_counts=_count_chunk_types(indexed_chunks),
-            sections=_create_section_outlines(
+            job_id=chunk_stats.job_id,
+            total_chunks=chunk_stats.total_chunks,
+            type_counts=chunk_stats.type_counts,
+            sections=_create_section_outlines_from_stats(
                 sections=sections,
-                chunks=indexed_chunks,
+                chunk_stats=chunk_stats,
             ),
         )
 
@@ -406,20 +407,14 @@ def _unpack_chunk_row(row: object) -> tuple[object, object, object, int | None] 
     return row[0], row[1], row[2], ordinal
 
 
-def _create_section_outlines(
+def _create_section_outlines_from_stats(
     *,
     sections: Sequence[DocumentSection],
-    chunks: list[DocumentReadChunk],
+    chunk_stats: DocumentOutlineChunkStats,
 ) -> list[DocumentSectionOutline]:
-    chunks_by_section_id: dict[str, list[DocumentReadChunk]] = {}
-    for chunk in chunks:
-        if chunk.section_id is None:
-            continue
-        chunks_by_section_id.setdefault(chunk.section_id, []).append(chunk)
-
     outlines: list[DocumentSectionOutline] = []
     for section in sections:
-        section_chunks = chunks_by_section_id.get(section.section_id, [])
+        stats = chunk_stats.section_stats_by_id.get(section.section_id)
         outlines.append(
             DocumentSectionOutline(
                 section_id=section.section_id,
@@ -427,34 +422,51 @@ def _create_section_outlines(
                 section_title=section.section_title,
                 section_level=section.section_level,
                 summary=section.summary,
-                start_chunk=section_chunks[0].ordinal if section_chunks else None,
-                end_chunk=section_chunks[-1].ordinal if section_chunks else None,
-                chunk_count=len(section_chunks),
-                type_counts=_count_chunk_types(section_chunks),
+                start_chunk=stats.start_chunk if stats else None,
+                end_chunk=stats.end_chunk if stats else None,
+                chunk_count=stats.chunk_count if stats else 0,
+                type_counts=stats.type_counts if stats else {},
             )
         )
     if outlines:
         return outlines
 
+    root_stats = _merge_section_chunk_stats(
+        list(chunk_stats.section_stats_by_id.values())
+    )
     return [
         DocumentSectionOutline(
             section_id="root",
             section_path="(root)",
             section_title="(root)",
             section_level=0,
-            start_chunk=chunks[0].ordinal if chunks else None,
-            end_chunk=chunks[-1].ordinal if chunks else None,
-            chunk_count=len(chunks),
-            type_counts=_count_chunk_types(chunks),
+            start_chunk=root_stats.start_chunk if root_stats else None,
+            end_chunk=root_stats.end_chunk if root_stats else None,
+            chunk_count=root_stats.chunk_count if root_stats else 0,
+            type_counts=root_stats.type_counts if root_stats else {},
         )
     ]
 
 
-def _count_chunk_types(chunks: list[DocumentReadChunk]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for chunk in chunks:
-        counts[chunk.chunk_type] = counts.get(chunk.chunk_type, 0) + 1
-    return counts
+def _merge_section_chunk_stats(
+    stats_values: Sequence[DocumentSectionChunkStats],
+) -> DocumentSectionChunkStats | None:
+    values = list(stats_values)
+    if not values:
+        return None
+    type_counts: dict[str, int] = {}
+    for stats in values:
+        for chunk_type, count in stats.type_counts.items():
+            type_counts[chunk_type] = type_counts.get(chunk_type, 0) + count
+    return DocumentSectionChunkStats(
+        section_id=None,
+        start_chunk=min(
+            stats.start_chunk for stats in values if stats.start_chunk is not None
+        ),
+        end_chunk=max(stats.end_chunk for stats in values if stats.end_chunk is not None),
+        chunk_count=sum(stats.chunk_count for stats in values),
+        type_counts=type_counts,
+    )
 
 
 async def _read_chunk_range_rows(

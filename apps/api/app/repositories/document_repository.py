@@ -36,6 +36,23 @@ class DocumentChunkGrepRow:
     content: str | None = None
 
 
+@dataclass(frozen=True)
+class DocumentSectionChunkStats:
+    section_id: str | None
+    start_chunk: int | None
+    end_chunk: int | None
+    chunk_count: int
+    type_counts: dict[str, int]
+
+
+@dataclass(frozen=True)
+class DocumentOutlineChunkStats:
+    job_id: str | None
+    total_chunks: int
+    type_counts: dict[str, int]
+    section_stats_by_id: dict[str | None, DocumentSectionChunkStats]
+
+
 class DocumentRepository:
     async def list_by_user_namespace(
         self,
@@ -164,6 +181,103 @@ class DocumentRepository:
             )
         )
         return result.scalars().all()
+
+    async def get_current_document_outline_chunk_stats(
+        self,
+        db: AsyncSession,
+        *,
+        document_id: str,
+        job_result_id: str,
+    ) -> DocumentOutlineChunkStats:
+        sql = """
+        WITH ordinals AS (
+            SELECT
+                id AS document_chunk_id,
+                row_number() OVER (
+                    ORDER BY sort_order ASC, created_at ASC, id ASC
+                ) AS ordinal
+            FROM document_chunks
+            WHERE document_id = :document_id
+                AND job_result_id = :job_result_id
+        )
+        SELECT
+            dc.section_id,
+            lower(dc.chunk_type) AS chunk_type,
+            count(*)::integer AS chunk_count,
+            min(ordinals.ordinal)::integer AS start_chunk,
+            max(ordinals.ordinal)::integer AS end_chunk,
+            max(jr.job_id) AS job_id
+        FROM document_chunks dc
+        JOIN ordinals
+            ON ordinals.document_chunk_id = dc.id
+        JOIN job_results jr
+            ON jr.id = dc.job_result_id
+        WHERE dc.document_id = :document_id
+            AND dc.job_result_id = :job_result_id
+        GROUP BY dc.section_id, lower(dc.chunk_type)
+        ORDER BY min(ordinals.ordinal) ASC
+        """
+        result = await db.execute(
+            text(sql),
+            {
+                "document_id": document_id,
+                "job_result_id": job_result_id,
+            },
+        )
+        section_stats_by_id: dict[str | None, DocumentSectionChunkStats] = {}
+        type_counts: dict[str, int] = {}
+        total_chunks = 0
+        job_id: str | None = None
+
+        for row in result.mappings().all():
+            section_id = cast(str | None, row["section_id"])
+            chunk_type = str(row["chunk_type"] or "").strip().lower()
+            chunk_count = int(row["chunk_count"])
+            start_chunk = int(row["start_chunk"])
+            end_chunk = int(row["end_chunk"])
+            row_job_id = cast(str | None, row["job_id"])
+            if row_job_id and job_id is None:
+                job_id = row_job_id
+            total_chunks += chunk_count
+            type_counts[chunk_type] = type_counts.get(chunk_type, 0) + chunk_count
+
+            current_stats = section_stats_by_id.get(section_id)
+            if current_stats is None:
+                section_stats_by_id[section_id] = DocumentSectionChunkStats(
+                    section_id=section_id,
+                    start_chunk=start_chunk,
+                    end_chunk=end_chunk,
+                    chunk_count=chunk_count,
+                    type_counts={chunk_type: chunk_count},
+                )
+                continue
+
+            merged_type_counts = dict(current_stats.type_counts)
+            merged_type_counts[chunk_type] = (
+                merged_type_counts.get(chunk_type, 0) + chunk_count
+            )
+            section_stats_by_id[section_id] = DocumentSectionChunkStats(
+                section_id=section_id,
+                start_chunk=(
+                    min(current_stats.start_chunk, start_chunk)
+                    if current_stats.start_chunk is not None
+                    else start_chunk
+                ),
+                end_chunk=(
+                    max(current_stats.end_chunk, end_chunk)
+                    if current_stats.end_chunk is not None
+                    else end_chunk
+                ),
+                chunk_count=current_stats.chunk_count + chunk_count,
+                type_counts=merged_type_counts,
+            )
+
+        return DocumentOutlineChunkStats(
+            job_id=job_id,
+            total_chunks=total_chunks,
+            type_counts=type_counts,
+            section_stats_by_id=section_stats_by_id,
+        )
 
     async def list_current_document_chunks_for_inspection(
         self,
