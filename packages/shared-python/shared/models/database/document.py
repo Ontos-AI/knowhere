@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -217,6 +218,26 @@ class DocumentChunk(Base):
             "idx_chunk_path_search_tsv",
             "path_search_tsv",
             postgresql_using="gin",
+        ),
+        Index(
+            "idx_document_chunks_content_trgm",
+            "content",
+            postgresql_using="gin",
+            postgresql_ops={"content": "gin_trgm_ops"},
+            postgresql_where=(
+                (content.is_not(None))
+                & (content != "")
+            ),
+        ),
+        Index(
+            "idx_document_chunks_lower_content_trgm",
+            func.lower(content).label("lower_content"),
+            postgresql_using="gin",
+            postgresql_ops={"lower_content": "gin_trgm_ops"},
+            postgresql_where=(
+                (content.is_not(None))
+                & (content != "")
+            ),
         ),
     )
 

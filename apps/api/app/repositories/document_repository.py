@@ -343,6 +343,7 @@ class DocumentRepository:
             "document_id": document_id,
             "job_result_id": job_result_id,
             "pattern": pattern,
+            "like_pattern": _build_contains_like_pattern(pattern),
             "limit": limit,
             "snippet_context_chars": snippet_context_chars,
             **filter_params,
@@ -400,11 +401,39 @@ class DocumentRepository:
         job_result_id: str,
         section_path: str | None = None,
     ) -> DocumentChunkScopeBounds | None:
+        first_ordinal = await self._get_current_document_boundary_ordinal(
+            db,
+            document_id=document_id,
+            job_result_id=job_result_id,
+            section_path=section_path,
+            descending=False,
+        )
+        if first_ordinal is None:
+            return None
+
+        last_ordinal = await self._get_current_document_boundary_ordinal(
+            db,
+            document_id=document_id,
+            job_result_id=job_result_id,
+            section_path=section_path,
+            descending=True,
+        )
+        if last_ordinal is None:
+            return None
+        return first_ordinal, last_ordinal
+
+    async def _get_current_document_boundary_ordinal(
+        self,
+        db: AsyncSession,
+        *,
+        document_id: str,
+        job_result_id: str,
+        section_path: str | None,
+        descending: bool,
+    ) -> int | None:
+        order_by = DocumentChunk.ordinal.desc() if descending else DocumentChunk.ordinal.asc()
         stmt = (
-            select(
-                func.min(DocumentChunk.ordinal),
-                func.max(DocumentChunk.ordinal),
-            )
+            select(DocumentChunk.ordinal)
             .select_from(DocumentChunk)
             .outerjoin(
                 DocumentSection,
@@ -412,6 +441,8 @@ class DocumentRepository:
             )
             .where(DocumentChunk.document_id == document_id)
             .where(DocumentChunk.job_result_id == job_result_id)
+            .order_by(order_by)
+            .limit(1)
         )
         stmt = _apply_section_filters(
             stmt,
@@ -420,10 +451,8 @@ class DocumentRepository:
         )
 
         result = await db.execute(stmt)
-        minimum_ordinal, maximum_ordinal = result.one()
-        if minimum_ordinal is None or maximum_ordinal is None:
-            return None
-        return int(minimum_ordinal), int(maximum_ordinal)
+        ordinal = result.scalar_one_or_none()
+        return int(ordinal) if ordinal is not None else None
 
     async def get_current_document_chunk(
         self,
@@ -483,6 +512,10 @@ def _escape_like_pattern(value: str) -> str:
         .replace("%", "\\%")
         .replace("_", "\\_")
     )
+
+
+def _build_contains_like_pattern(value: str) -> str:
+    return f"%{_escape_like_pattern(value)}%"
 
 
 def _build_grep_scope_filters(
@@ -551,13 +584,18 @@ def _build_literal_grep_sql(
         if is_case_sensitive
         else "strpos(lower(sc.content), lower(:pattern))"
     )
+    match_filter_expr = (
+        "sc.content LIKE :like_pattern ESCAPE E'\\\\'"
+        if is_case_sensitive
+        else "lower(sc.content) LIKE lower(:like_pattern) ESCAPE E'\\\\'"
+    )
     return _build_grep_base_cte(filter_sql) + f"""
     , matched AS (
         SELECT
             sc.*,
             {match_position_expr} AS match_position
         FROM scoped sc
-        WHERE {match_position_expr} > 0
+        WHERE {match_filter_expr}
     )
     SELECT
         matched.ordinal,
