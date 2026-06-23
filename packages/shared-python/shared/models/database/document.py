@@ -183,6 +183,7 @@ class DocumentChunk(Base):
         JSON, nullable=True
     )
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, nullable=False
     )
@@ -199,6 +200,13 @@ class DocumentChunk(Base):
         Index("idx_document_chunks_scope", "user_id", "namespace"),
         Index("idx_document_chunks_chunk_id", "chunk_id"),
         Index("idx_document_chunks_doc_revision", "document_id", "job_result_id"),
+        Index(
+            "uq_document_chunks_revision_ordinal",
+            "document_id",
+            "job_result_id",
+            "ordinal",
+            unique=True,
+        ),
         Index("idx_document_chunks_section", "section_id"),
         Index(
             "idx_chunk_content_search_tsv",

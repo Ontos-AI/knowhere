@@ -190,32 +190,20 @@ class DocumentRepository:
         job_result_id: str,
     ) -> DocumentOutlineChunkStats:
         sql = """
-        WITH ordinals AS (
-            SELECT
-                id AS document_chunk_id,
-                row_number() OVER (
-                    ORDER BY sort_order ASC, created_at ASC, id ASC
-                ) AS ordinal
-            FROM document_chunks
-            WHERE document_id = :document_id
-                AND job_result_id = :job_result_id
-        )
         SELECT
             dc.section_id,
             lower(dc.chunk_type) AS chunk_type,
             count(*)::integer AS chunk_count,
-            min(ordinals.ordinal)::integer AS start_chunk,
-            max(ordinals.ordinal)::integer AS end_chunk,
+            min(dc.ordinal)::integer AS start_chunk,
+            max(dc.ordinal)::integer AS end_chunk,
             max(jr.job_id) AS job_id
         FROM document_chunks dc
-        JOIN ordinals
-            ON ordinals.document_chunk_id = dc.id
         JOIN job_results jr
             ON jr.id = dc.job_result_id
         WHERE dc.document_id = :document_id
             AND dc.job_result_id = :job_result_id
         GROUP BY dc.section_id, lower(dc.chunk_type)
-        ORDER BY min(ordinals.ordinal) ASC
+        ORDER BY min(dc.ordinal) ASC
         """
         result = await db.execute(
             text(sql),
@@ -295,20 +283,12 @@ class DocumentRepository:
         section_path: str | None = None,
         section_path_prefix: str | None = None,
     ) -> Sequence[DocumentChunkInspectionRow]:
-        ordinal_subquery = _create_chunk_ordinal_subquery(
-            document_id=document_id,
-            job_result_id=job_result_id,
-        )
         stmt = (
             select(
                 DocumentChunk,
                 DocumentSection,
                 JobResult,
-                ordinal_subquery.c.ordinal,
-            )
-            .join(
-                ordinal_subquery,
-                ordinal_subquery.c.document_chunk_id == DocumentChunk.id,
+                DocumentChunk.ordinal,
             )
             .outerjoin(
                 DocumentSection,
@@ -317,16 +297,16 @@ class DocumentRepository:
             .join(JobResult, JobResult.id == DocumentChunk.job_result_id)
             .where(DocumentChunk.document_id == document_id)
             .where(DocumentChunk.job_result_id == job_result_id)
-            .order_by(ordinal_subquery.c.ordinal.asc())
+            .order_by(DocumentChunk.ordinal.asc())
             .limit(limit)
             .offset(offset)
         )
         if chunk_type is not None:
             stmt = stmt.where(func.lower(DocumentChunk.chunk_type) == chunk_type)
         if minimum_ordinal is not None:
-            stmt = stmt.where(ordinal_subquery.c.ordinal >= minimum_ordinal)
+            stmt = stmt.where(DocumentChunk.ordinal >= minimum_ordinal)
         if maximum_ordinal is not None:
-            stmt = stmt.where(ordinal_subquery.c.ordinal <= maximum_ordinal)
+            stmt = stmt.where(DocumentChunk.ordinal <= maximum_ordinal)
         if document_chunk_id is not None:
             stmt = stmt.where(DocumentChunk.id == document_chunk_id)
         if chunk_id is not None:
@@ -420,20 +400,12 @@ class DocumentRepository:
         job_result_id: str,
         section_path: str | None = None,
     ) -> DocumentChunkScopeBounds | None:
-        ordinal_subquery = _create_chunk_ordinal_subquery(
-            document_id=document_id,
-            job_result_id=job_result_id,
-        )
         stmt = (
             select(
-                func.min(ordinal_subquery.c.ordinal),
-                func.max(ordinal_subquery.c.ordinal),
+                func.min(DocumentChunk.ordinal),
+                func.max(DocumentChunk.ordinal),
             )
             .select_from(DocumentChunk)
-            .join(
-                ordinal_subquery,
-                ordinal_subquery.c.document_chunk_id == DocumentChunk.id,
-            )
             .outerjoin(
                 DocumentSection,
                 DocumentSection.section_id == DocumentChunk.section_id,
@@ -477,30 +449,6 @@ class DocumentRepository:
         result = await db.execute(stmt)
         row = result.first()
         return cast(DocumentChunkRow | None, row)
-
-
-def _create_chunk_ordinal_subquery(
-    *,
-    document_id: str,
-    job_result_id: str,
-):
-    return (
-        select(
-            DocumentChunk.id.label("document_chunk_id"),
-            func.row_number()
-            .over(
-                order_by=(
-                    DocumentChunk.sort_order.asc(),
-                    DocumentChunk.created_at.asc(),
-                    DocumentChunk.id.asc(),
-                )
-            )
-            .label("ordinal"),
-        )
-        .where(DocumentChunk.document_id == document_id)
-        .where(DocumentChunk.job_result_id == job_result_id)
-        .subquery()
-    )
 
 
 def _apply_section_filters(
@@ -567,17 +515,7 @@ def _build_grep_scope_filters(
 
 def _build_grep_base_cte(filter_sql: str) -> str:
     return f"""
-    WITH ordinals AS (
-        SELECT
-            id AS document_chunk_id,
-            row_number() OVER (
-                ORDER BY sort_order ASC, created_at ASC, id ASC
-            ) AS ordinal
-        FROM document_chunks
-        WHERE document_id = :document_id
-            AND job_result_id = :job_result_id
-    ),
-    scoped AS (
+    WITH scoped AS (
         SELECT
             dc.id AS document_chunk_id,
             dc.chunk_id,
@@ -588,10 +526,8 @@ def _build_grep_base_cte(filter_sql: str) -> str:
             dc.file_path,
             ds.section_path,
             jr.job_id,
-            ordinals.ordinal
+            dc.ordinal
         FROM document_chunks dc
-        JOIN ordinals
-            ON ordinals.document_chunk_id = dc.id
         LEFT JOIN document_sections ds
             ON ds.section_id = dc.section_id
         JOIN job_results jr

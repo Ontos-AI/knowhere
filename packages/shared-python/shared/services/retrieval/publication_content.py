@@ -43,6 +43,7 @@ def replace_document_revision_content(
                 section=section,
                 scope=scope,
                 fallback_sort_order=index,
+                ordinal=index + 1,
             )
         )
 
@@ -119,6 +120,7 @@ def _build_document_chunk(
     section: DocumentSection,
     scope: DocumentPublicationScope,
     fallback_sort_order: int,
+    ordinal: int,
 ) -> DocumentChunk:
     section_summary = section.summary
     section_path = section.section_path
@@ -154,6 +156,7 @@ def _build_document_chunk(
         file_path=chunk_metadata.get("file_path") or chunk.get("file_path"),
         chunk_metadata=chunk_metadata,
         sort_order=_get_sort_order(chunk, fallback_sort_order),
+        ordinal=ordinal,
     )
 
 

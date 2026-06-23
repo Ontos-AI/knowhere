@@ -434,6 +434,7 @@ async def _insert_document_revision_with_chunks(
                             file_path,
                             chunk_metadata,
                             sort_order,
+                            ordinal,
                             created_at
                         ) VALUES (
                             :id,
@@ -454,6 +455,7 @@ async def _insert_document_revision_with_chunks(
                             :file_path,
                             CAST(:chunk_metadata AS JSON),
                             :sort_order,
+                            :ordinal,
                             :created_at
                         )
                         """),
@@ -472,6 +474,7 @@ async def _insert_document_revision_with_chunks(
                         "file_path": chunk.get("file_path"),
                         "chunk_metadata": json.dumps(chunk.get("metadata", {})),
                         "sort_order": sort_order,
+                        "ordinal": sort_order + 1,
                         "created_at": timestamp,
                     },
                 )
