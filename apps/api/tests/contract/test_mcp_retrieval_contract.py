@@ -1,0 +1,736 @@
+import json
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
+from datetime import datetime, timezone
+from uuid import uuid4
+
+import pytest
+from httpx import AsyncClient
+
+from app.mcp.retrieval_server import (
+    create_retrieval_mcp_server,
+    to_mcp_search_response,
+)
+from app.services.documents import inspection_service as inspection_module
+from app.services.documents.inspection_service import DocumentInspectionService
+from tests.support.contract_database import ContractDatabase
+
+
+@pytest.mark.asyncio
+async def test_mcp_should_register_knowhere_tools_with_structured_outputs() -> None:
+    server = create_retrieval_mcp_server()
+
+    tools = await server.list_tools()
+    tools_by_name = {tool.name: tool for tool in tools}
+
+    assert set(tools_by_name) == {
+        "knowhere_search",
+        "knowhere_list_documents",
+        "knowhere_get_document_outline",
+        "knowhere_read_chunks",
+        "knowhere_grep_chunks",
+    }
+    assert "retrieval.query" not in tools_by_name
+    assert all(tool.outputSchema for tool in tools)
+    assert set(tools_by_name["knowhere_search"].inputSchema["properties"]) == {
+        "query",
+        "namespace",
+        "top_k",
+        "target_content",
+        "signal_paths",
+        "filter_mode",
+        "threshold",
+        "exclude_document_ids",
+        "exclude_sections",
+    }
+    assert set(tools_by_name["knowhere_search"].outputSchema["properties"]) == {
+        "namespace",
+        "query",
+        "evidence_text",
+        "referenced_chunks",
+        "decision_trace",
+        "results",
+        "stop_reason",
+        "failure_reason",
+    }
+
+
+def test_search_projection_should_preserve_structured_retrieval_fields() -> None:
+    response = to_mcp_search_response(
+        {
+            "namespace": "contract-documents",
+            "query": "revenue",
+            "evidence_text": "Body > Revenue was $42M.",
+            "referenced_chunks": [
+                {
+                    "document_id": "doc_contract",
+                    "chunk_id": "semantic-1",
+                    "chunk_type": "text",
+                    "section_path": "Body",
+                    "file_path": "source.md",
+                    "job_id": "job_1",
+                    "score": "0.91",
+                }
+            ],
+            "decision_trace": [{"phase": "terminal", "result": {"status": "ok"}}],
+            "results": [
+                {
+                    "chunk_type": "text",
+                    "content": "Revenue was $42M.",
+                    "score": 0.91,
+                    "source": {
+                        "document_id": "doc_contract",
+                        "source_file_name": "report.md",
+                        "section_path": "Body",
+                    },
+                }
+            ],
+            "stop_reason": "complete",
+        },
+        namespace="fallback",
+        query="fallback",
+    )
+
+    assert response.namespace == "contract-documents"
+    assert response.query == "revenue"
+    assert response.referenced_chunks[0].document_id == "doc_contract"
+    assert response.referenced_chunks[0].score == 0.91
+    assert response.results[0].source.source_file_name == "report.md"
+    assert response.decision_trace == [
+        {"phase": "terminal", "result": {"status": "ok"}}
+    ]
+    assert response.stop_reason == "complete"
+    assert response.failure_reason is None
+
+
+@pytest.mark.asyncio
+async def test_document_inspection_should_outline_active_revision_only(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory():
+        from shared.core.database import get_db_context
+
+        await _insert_document_revision_fixture(document_id=document_id)
+        service = DocumentInspectionService()
+        async with get_db_context() as db:
+            response = await service.get_document_outline(
+                db,
+                user_id="local-dev-user",
+                namespace="contract-documents",
+                document_id=document_id,
+            )
+
+    assert response is not None
+    assert response.namespace == "contract-documents"
+    assert response.document.document_id == document_id
+    assert response.total_chunks == 4
+    assert response.type_counts == {"text": 3, "table": 1}
+    assert [
+        {
+            "path": section.section_path,
+            "start": section.start_chunk,
+            "end": section.end_chunk,
+            "count": section.chunk_count,
+            "types": section.type_counts,
+        }
+        for section in response.sections
+    ] == [
+        {
+            "path": "Intro",
+            "start": 1,
+            "end": 1,
+            "count": 1,
+            "types": {"text": 1},
+        },
+        {
+            "path": "Body",
+            "start": 2,
+            "end": 2,
+            "count": 1,
+            "types": {"text": 1},
+        },
+        {
+            "path": "Body / Finance",
+            "start": 3,
+            "end": 4,
+            "count": 2,
+            "types": {"table": 1, "text": 1},
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_document_inspection_should_read_by_range_section_and_ids(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory():
+        from shared.core.database import get_db_context
+
+        fixture = await _insert_document_revision_fixture(document_id=document_id)
+        monkeypatch.setattr(inspection_module, "INSPECTION_INDEX_CHUNK_LIMIT", 2)
+        service = DocumentInspectionService()
+        async with get_db_context() as db:
+            range_response = await service.read_chunks(
+                db,
+                user_id="local-dev-user",
+                namespace="contract-documents",
+                document_id=document_id,
+                start_chunk=2,
+                end_chunk=3,
+            )
+            section_response = await service.read_chunks(
+                db,
+                user_id="local-dev-user",
+                namespace="contract-documents",
+                document_id=document_id,
+                section_path="Body / Finance",
+            )
+            id_response = await service.read_chunks(
+                db,
+                user_id="local-dev-user",
+                namespace="contract-documents",
+                document_id=document_id,
+                document_chunk_id=fixture["finance_table_chunk_id"],
+            )
+            semantic_id_response = await service.read_chunks(
+                db,
+                user_id="local-dev-user",
+                namespace="contract-documents",
+                document_id=document_id,
+                chunk_id="semantic-body-text",
+            )
+
+    assert range_response is not None
+    assert [chunk.ordinal for chunk in range_response.chunks] == [2, 3]
+    assert range_response.next_chunk == 4
+
+    assert section_response is not None
+    assert [chunk.ordinal for chunk in section_response.chunks] == [3, 4]
+    assert section_response.next_chunk is None
+
+    assert id_response is not None
+    assert [chunk.document_chunk_id for chunk in id_response.chunks] == [
+        fixture["finance_table_chunk_id"]
+    ]
+    assert id_response.next_chunk is None
+
+    assert semantic_id_response is not None
+    assert [chunk.chunk_id for chunk in semantic_id_response.chunks] == [
+        "semantic-body-text"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_document_inspection_should_scope_duplicate_chunk_id_reads(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory():
+        from shared.core.database import get_db_context
+
+        fixture = await _insert_document_revision_fixture(document_id=document_id)
+        await _insert_chunk(
+            document_chunk_id=f"dchk_{uuid4().hex[:12]}",
+            semantic_chunk_id="semantic-body-text",
+            document_id=document_id,
+            job_result_id=fixture["job_result_id"],
+            section_id=fixture["finance_section_id"],
+            section_path="Body / Finance",
+            chunk_type="text",
+            content="Duplicate semantic id in the finance section.",
+            source_chunk_path="Body / Finance/Duplicate",
+            file_path=None,
+            sort_order=4,
+        )
+        service = DocumentInspectionService()
+        async with get_db_context() as db:
+            scoped_response = await service.read_chunks(
+                db,
+                user_id="local-dev-user",
+                namespace="contract-documents",
+                document_id=document_id,
+                chunk_id="semantic-body-text",
+                section_path="Body / Finance",
+            )
+
+    assert scoped_response is not None
+    assert [chunk.section_path for chunk in scoped_response.chunks] == [
+        "Body / Finance"
+    ]
+    assert scoped_response.chunks[0].content == (
+        "Duplicate semantic id in the finance section."
+    )
+
+
+@pytest.mark.asyncio
+async def test_document_inspection_should_grep_literal_regex_filters_and_caps(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory():
+        from shared.core.database import get_db_context
+
+        await _insert_document_revision_fixture(document_id=document_id)
+        service = DocumentInspectionService()
+        async with get_db_context() as db:
+            literal_response = await service.grep_chunks(
+                db,
+                user_id="local-dev-user",
+                namespace="contract-documents",
+                document_id=document_id,
+                pattern="revenue",
+                max_results=1,
+            )
+            monkeypatch.setattr(inspection_module, "GREP_SCAN_CHUNK_LIMIT", 1)
+            regex_response = await service.grep_chunks(
+                db,
+                user_id="local-dev-user",
+                namespace="contract-documents",
+                document_id=document_id,
+                pattern="Revenue|Margin",
+                is_regex=True,
+                is_case_sensitive=True,
+                section_path_prefix="Body / Finance",
+                chunk_type="text",
+            )
+            wrong_namespace_response = await service.grep_chunks(
+                db,
+                user_id="local-dev-user",
+                namespace="other-namespace",
+                document_id=document_id,
+                pattern="revenue",
+            )
+
+    assert literal_response is not None
+    assert len(literal_response.matches) == 1
+    assert literal_response.matches[0].ordinal == 2
+    assert literal_response.matches[0].snippet == "Revenue was $42M in 2026."
+    assert literal_response.truncated is True
+
+    assert regex_response is not None
+    assert [match.ordinal for match in regex_response.matches] == [4]
+    assert regex_response.matches[0].section_path == "Body / Finance"
+    assert regex_response.truncated is False
+
+    assert wrong_namespace_response is None
+
+
+def test_document_inspection_should_timeout_catastrophic_regex() -> None:
+    matcher = inspection_module._create_chunk_matcher(
+        pattern="(a+)+$",
+        is_regex=True,
+        is_case_sensitive=True,
+    )
+
+    with pytest.raises(ValueError, match="Regex grep timed out"):
+        matcher(("a" * 10_000) + "!")
+
+
+async def _insert_document_revision_fixture(*, document_id: str) -> dict[str, str]:
+    timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+    previous_job_id = str(uuid4())
+    previous_job_result_id = str(uuid4())
+    current_job_id = str(uuid4())
+    current_job_result_id = str(uuid4())
+    intro_section_id = f"sec_{uuid4().hex[:12]}"
+    body_section_id = f"sec_{uuid4().hex[:12]}"
+    finance_section_id = f"sec_{uuid4().hex[:12]}"
+    finance_table_chunk_id = f"dchk_{uuid4().hex[:12]}"
+
+    await ContractDatabase.execute(
+        """
+        INSERT INTO documents (
+            document_id,
+            user_id,
+            namespace,
+            status,
+            current_job_result_id,
+            source_file_name,
+            parse_track,
+            created_at,
+            updated_at,
+            archived_at
+        ) VALUES (
+            :document_id,
+            'local-dev-user',
+            'contract-documents',
+            'active',
+            NULL,
+            'contract-report.md',
+            'chunk',
+            :created_at,
+            :updated_at,
+            NULL
+        )
+        """,
+        {
+            "document_id": document_id,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        },
+    )
+    await _insert_job(job_id=previous_job_id, document_id=document_id)
+    await _insert_job_result(
+        job_result_id=previous_job_result_id,
+        job_id=previous_job_id,
+        document_id=document_id,
+    )
+    await _insert_section(
+        section_id=f"sec_{uuid4().hex[:12]}",
+        document_id=document_id,
+        job_result_id=previous_job_result_id,
+        section_path="Old Revision",
+        section_title="Old Revision",
+        parent_section_id=None,
+        sort_order=0,
+    )
+    await _insert_chunk(
+        document_chunk_id=f"dchk_{uuid4().hex[:12]}",
+        semantic_chunk_id="semantic-old",
+        document_id=document_id,
+        job_result_id=previous_job_result_id,
+        section_id=None,
+        section_path="Old Revision",
+        chunk_type="text",
+        content="Old revision must not appear.",
+        source_chunk_path="Old Revision",
+        file_path=None,
+        sort_order=0,
+    )
+
+    await _insert_job(job_id=current_job_id, document_id=document_id)
+    await _insert_job_result(
+        job_result_id=current_job_result_id,
+        job_id=current_job_id,
+        document_id=document_id,
+    )
+    await _insert_section(
+        section_id=intro_section_id,
+        document_id=document_id,
+        job_result_id=current_job_result_id,
+        section_path="Intro",
+        section_title="Intro",
+        parent_section_id=None,
+        sort_order=0,
+    )
+    await _insert_section(
+        section_id=body_section_id,
+        document_id=document_id,
+        job_result_id=current_job_result_id,
+        section_path="Body",
+        section_title="Body",
+        parent_section_id=None,
+        sort_order=1,
+    )
+    await _insert_section(
+        section_id=finance_section_id,
+        document_id=document_id,
+        job_result_id=current_job_result_id,
+        section_path="Body / Finance",
+        section_title="Finance",
+        parent_section_id=body_section_id,
+        sort_order=2,
+    )
+    await _insert_chunk(
+        document_chunk_id=f"dchk_{uuid4().hex[:12]}",
+        semantic_chunk_id="semantic-intro",
+        document_id=document_id,
+        job_result_id=current_job_result_id,
+        section_id=intro_section_id,
+        section_path="Intro",
+        chunk_type="text",
+        content="Alpha introduction.",
+        source_chunk_path="Intro",
+        file_path=None,
+        sort_order=0,
+    )
+    await _insert_chunk(
+        document_chunk_id=f"dchk_{uuid4().hex[:12]}",
+        semantic_chunk_id="semantic-body-text",
+        document_id=document_id,
+        job_result_id=current_job_result_id,
+        section_id=body_section_id,
+        section_path="Body",
+        chunk_type="text",
+        content="Revenue was $42M in 2026.",
+        source_chunk_path="Body",
+        file_path=None,
+        sort_order=1,
+    )
+    await _insert_chunk(
+        document_chunk_id=finance_table_chunk_id,
+        semantic_chunk_id="semantic-finance-table",
+        document_id=document_id,
+        job_result_id=current_job_result_id,
+        section_id=finance_section_id,
+        section_path="Body / Finance",
+        chunk_type="table",
+        content="<table><tr><td>Revenue</td></tr></table>",
+        source_chunk_path="Body / Finance/Table",
+        file_path="tables/revenue.html",
+        sort_order=2,
+    )
+    await _insert_chunk(
+        document_chunk_id=f"dchk_{uuid4().hex[:12]}",
+        semantic_chunk_id="semantic-finance-text",
+        document_id=document_id,
+        job_result_id=current_job_result_id,
+        section_id=finance_section_id,
+        section_path="Body / Finance",
+        chunk_type="text",
+        content="Margin guidance improved.",
+        source_chunk_path="Body / Finance/Text",
+        file_path=None,
+        sort_order=3,
+    )
+    await ContractDatabase.execute(
+        """
+        UPDATE documents
+        SET current_job_result_id = :job_result_id
+        WHERE document_id = :document_id
+        """,
+        {"document_id": document_id, "job_result_id": current_job_result_id},
+    )
+
+    return {
+        "job_id": current_job_id,
+        "job_result_id": current_job_result_id,
+        "finance_section_id": finance_section_id,
+        "finance_table_chunk_id": finance_table_chunk_id,
+    }
+
+
+async def _insert_job(*, job_id: str, document_id: str) -> None:
+    timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+    await ContractDatabase.execute(
+        """
+        INSERT INTO jobs (
+            job_id,
+            user_id,
+            job_type,
+            status,
+            source_type,
+            webhook_enabled,
+            job_metadata,
+            version,
+            created_at,
+            updated_at,
+            credits_charged,
+            billing_status
+        ) VALUES (
+            :job_id,
+            'local-dev-user',
+            'document_ingestion',
+            'done',
+            'url',
+            FALSE,
+            CAST(:job_metadata AS JSON),
+            0,
+            :created_at,
+            :updated_at,
+            0,
+            'pending'
+        )
+        """,
+        {
+            "job_id": job_id,
+            "job_metadata": json.dumps({"document_id": document_id}),
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        },
+    )
+
+
+async def _insert_job_result(
+    *,
+    job_result_id: str,
+    job_id: str,
+    document_id: str,
+) -> None:
+    timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+    await ContractDatabase.execute(
+        """
+        INSERT INTO job_results (
+            id,
+            job_id,
+            document_id,
+            delivery_mode,
+            document_metadata,
+            inline_payload,
+            result_s3_key,
+            result_size,
+            created_at,
+            updated_at
+        ) VALUES (
+            :job_result_id,
+            :job_id,
+            :document_id,
+            'url',
+            CAST('{}' AS JSON),
+            CAST('{}' AS JSON),
+            :result_s3_key,
+            0,
+            :created_at,
+            :updated_at
+        )
+        """,
+        {
+            "job_result_id": job_result_id,
+            "job_id": job_id,
+            "document_id": document_id,
+            "result_s3_key": f"results/{job_id}.zip",
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        },
+    )
+
+
+async def _insert_section(
+    *,
+    section_id: str,
+    document_id: str,
+    job_result_id: str,
+    section_path: str,
+    section_title: str,
+    parent_section_id: str | None,
+    sort_order: int,
+) -> None:
+    timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+    await ContractDatabase.execute(
+        """
+        INSERT INTO document_sections (
+            section_id,
+            user_id,
+            namespace,
+            document_id,
+            job_result_id,
+            parent_section_id,
+            section_path,
+            section_title,
+            section_level,
+            summary,
+            section_metadata,
+            sort_order,
+            created_at
+        ) VALUES (
+            :section_id,
+            'local-dev-user',
+            'contract-documents',
+            :document_id,
+            :job_result_id,
+            :parent_section_id,
+            :section_path,
+            :section_title,
+            :section_level,
+            :summary,
+            CAST('{}' AS JSON),
+            :sort_order,
+            :created_at
+        )
+        """,
+        {
+            "section_id": section_id,
+            "document_id": document_id,
+            "job_result_id": job_result_id,
+            "parent_section_id": parent_section_id,
+            "section_path": section_path,
+            "section_title": section_title,
+            "section_level": section_path.count(" / ") + 1,
+            "summary": f"Summary for {section_title}",
+            "sort_order": sort_order,
+            "created_at": timestamp,
+        },
+    )
+
+
+async def _insert_chunk(
+    *,
+    document_chunk_id: str,
+    semantic_chunk_id: str,
+    document_id: str,
+    job_result_id: str,
+    section_id: str | None,
+    section_path: str,
+    chunk_type: str,
+    content: str,
+    source_chunk_path: str,
+    file_path: str | None,
+    sort_order: int,
+) -> None:
+    timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+    await ContractDatabase.execute(
+        """
+        INSERT INTO document_chunks (
+            id,
+            chunk_id,
+            user_id,
+            namespace,
+            document_id,
+            job_result_id,
+            section_id,
+            chunk_type,
+            content,
+            content_lexical_text,
+            path_lexical_text,
+            content_search_text,
+            path_search_text,
+            term_search_text,
+            source_chunk_path,
+            file_path,
+            chunk_metadata,
+            sort_order,
+            created_at
+        ) VALUES (
+            :id,
+            :chunk_id,
+            'local-dev-user',
+            'contract-documents',
+            :document_id,
+            :job_result_id,
+            :section_id,
+            :chunk_type,
+            :content,
+            :content,
+            :section_path,
+            :content,
+            :section_path,
+            :content,
+            :source_chunk_path,
+            :file_path,
+            CAST(:chunk_metadata AS JSON),
+            :sort_order,
+            :created_at
+        )
+        """,
+        {
+            "id": document_chunk_id,
+            "chunk_id": semantic_chunk_id,
+            "document_id": document_id,
+            "job_result_id": job_result_id,
+            "section_id": section_id,
+            "chunk_type": chunk_type,
+            "content": content,
+            "section_path": section_path,
+            "source_chunk_path": source_chunk_path,
+            "file_path": file_path,
+            "chunk_metadata": json.dumps({"summary": source_chunk_path}),
+            "sort_order": sort_order,
+            "created_at": timestamp,
+        },
+    )
