@@ -8,12 +8,18 @@ import pytest
 from httpx import AsyncClient
 
 from app.mcp.retrieval_server import (
+    are_mcp_timing_logs_enabled,
     create_retrieval_mcp_server,
     to_mcp_search_response,
 )
 from app.services.documents import inspection_service as inspection_module
 from app.services.documents.inspection_service import DocumentInspectionService
 from tests.support.contract_database import ContractDatabase
+
+from shared.services.retrieval.outline_snapshot import (
+    MCP_OUTLINE_SNAPSHOT_METADATA_KEY,
+    MCP_OUTLINE_SNAPSHOT_SCHEMA_VERSION,
+)
 
 
 @pytest.mark.asyncio
@@ -43,6 +49,7 @@ async def test_mcp_should_register_knowhere_tools_with_structured_outputs() -> N
         "exclude_document_ids",
         "exclude_sections",
     }
+    assert tools_by_name["knowhere_search"].outputSchema is not None
     assert set(tools_by_name["knowhere_search"].outputSchema["properties"]) == {
         "namespace",
         "query",
@@ -101,6 +108,14 @@ def test_search_projection_should_preserve_structured_retrieval_fields() -> None
     ]
     assert response.stop_reason == "complete"
     assert response.failure_reason is None
+
+
+def test_mcp_timing_logs_should_be_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MCP_TIMING_LOGS_ENABLED", raising=False)
+    assert are_mcp_timing_logs_enabled() is False
+
+    monkeypatch.setenv("MCP_TIMING_LOGS_ENABLED", "true")
+    assert are_mcp_timing_logs_enabled() is True
 
 
 @pytest.mark.asyncio
@@ -170,6 +185,193 @@ async def test_document_inspection_should_outline_active_revision_only(
             "count": 2,
             "types": {"table": 1, "text": 1},
         },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_document_inspection_should_use_persisted_outline_snapshot(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory():
+        from shared.core.database import get_db_context
+
+        fixture = await _insert_document_revision_fixture(document_id=document_id)
+        await _update_job_result_metadata(
+            job_result_id=fixture["job_result_id"],
+            document_metadata={
+                MCP_OUTLINE_SNAPSHOT_METADATA_KEY: {
+                    "schema_version": MCP_OUTLINE_SNAPSHOT_SCHEMA_VERSION,
+                    "job_result_id": fixture["job_result_id"],
+                    "job_id": fixture["job_id"],
+                    "total_chunks": 99,
+                    "type_counts": {"text": 98, "table": 1},
+                    "sections": [
+                        {
+                            "section_id": "snapshot-section",
+                            "section_path": "Snapshot",
+                            "section_title": "Snapshot",
+                            "section_level": 1,
+                            "summary": "Precomputed outline section.",
+                            "start_chunk": 10,
+                            "end_chunk": 20,
+                            "chunk_count": 11,
+                            "type_counts": {"text": 11},
+                        }
+                    ],
+                }
+            },
+        )
+        service = DocumentInspectionService()
+
+        async def fail_live_stats(*args: object, **kwargs: object) -> object:
+            raise AssertionError("outline snapshot should bypass live stats")
+
+        monkeypatch.setattr(
+            service._repository,
+            "get_current_document_outline_chunk_stats",
+            fail_live_stats,
+        )
+        async with get_db_context() as db:
+            response = await service.get_document_outline(
+                db,
+                user_id="local-dev-user",
+                namespace="contract-documents",
+                document_id=document_id,
+            )
+
+    assert response is not None
+    assert response.job_result_id == fixture["job_result_id"]
+    assert response.job_id == fixture["job_id"]
+    assert response.total_chunks == 99
+    assert response.type_counts == {"text": 98, "table": 1}
+    assert [section.section_path for section in response.sections] == ["Snapshot"]
+    assert response.sections[0].chunk_count == 11
+
+
+@pytest.mark.asyncio
+async def test_document_inspection_should_fallback_when_outline_snapshot_is_invalid(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory():
+        from shared.core.database import get_db_context
+
+        fixture = await _insert_document_revision_fixture(document_id=document_id)
+        await _update_job_result_metadata(
+            job_result_id=fixture["job_result_id"],
+            document_metadata={
+                MCP_OUTLINE_SNAPSHOT_METADATA_KEY: {
+                    "schema_version": MCP_OUTLINE_SNAPSHOT_SCHEMA_VERSION,
+                    "job_result_id": "old-job-result",
+                    "job_id": "old-job",
+                    "total_chunks": 1,
+                    "type_counts": {"text": 1},
+                    "sections": [],
+                }
+            },
+        )
+        service = DocumentInspectionService()
+        async with get_db_context() as db:
+            response = await service.get_document_outline(
+                db,
+                user_id="local-dev-user",
+                namespace="contract-documents",
+                document_id=document_id,
+            )
+
+    assert response is not None
+    assert response.job_result_id == fixture["job_result_id"]
+    assert response.total_chunks == 4
+    assert [section.section_path for section in response.sections] == [
+        "Intro",
+        "Body",
+        "Body / Finance",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_publication_should_store_outline_snapshot_in_job_result_metadata(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+    job_id = str(uuid4())
+    job_result_id = str(uuid4())
+
+    async with developer_api_client_factory():
+        from shared.core.database_sync import get_sync_db_context
+        from shared.services.retrieval.publication_service import (
+            RetrievalPublicationService,
+        )
+
+        await _insert_job(job_id=job_id, document_id=document_id)
+        await _insert_job_result(
+            job_result_id=job_result_id,
+            job_id=job_id,
+            document_id=None,
+            document_metadata={"existing": "kept"},
+        )
+        with get_sync_db_context() as db:
+            published = RetrievalPublicationService().publish_document_state(
+                db,
+                job_id=job_id,
+                job_result_id=job_result_id,
+                chunks=[
+                    {
+                        "chunk_id": "semantic-intro",
+                        "type": "text",
+                        "content": "Alpha introduction.",
+                        "path": "contract-report.md/Intro",
+                    },
+                    {
+                        "chunk_id": "semantic-finance-table",
+                        "type": "table",
+                        "content": "<table><tr><td>Revenue</td></tr></table>",
+                        "path": "contract-report.md/Body/Finance",
+                    },
+                ],
+            )
+
+        metadata_row = await ContractDatabase.fetch_one(
+            """
+            SELECT document_metadata
+            FROM job_results
+            WHERE id = :job_result_id
+            """,
+            {"job_result_id": job_result_id},
+        )
+
+    assert published is not None
+    assert published.document_id is not None
+    assert metadata_row is not None
+    metadata = metadata_row["document_metadata"]
+    snapshot = metadata[MCP_OUTLINE_SNAPSHOT_METADATA_KEY]
+    assert metadata["existing"] == "kept"
+    assert snapshot["schema_version"] == MCP_OUTLINE_SNAPSHOT_SCHEMA_VERSION
+    assert snapshot["job_result_id"] == job_result_id
+    assert snapshot["job_id"] == job_id
+    assert snapshot["total_chunks"] == 2
+    assert snapshot["type_counts"] == {"table": 1, "text": 1}
+    assert [
+        {
+            "path": section["section_path"],
+            "count": section["chunk_count"],
+            "types": section["type_counts"],
+        }
+        for section in snapshot["sections"]
+    ] == [
+        {"path": "Intro", "count": 1, "types": {"text": 1}},
+        {"path": "Body", "count": 0, "types": {}},
+        {"path": "Body / Finance", "count": 1, "types": {"table": 1}},
     ]
 
 
@@ -579,7 +781,8 @@ async def _insert_job_result(
     *,
     job_result_id: str,
     job_id: str,
-    document_id: str,
+    document_id: str | None,
+    document_metadata: dict[str, object] | None = None,
 ) -> None:
     timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
     await ContractDatabase.execute(
@@ -600,7 +803,7 @@ async def _insert_job_result(
             :job_id,
             :document_id,
             'url',
-            CAST('{}' AS JSON),
+            CAST(:document_metadata AS JSON),
             CAST('{}' AS JSON),
             :result_s3_key,
             0,
@@ -612,9 +815,28 @@ async def _insert_job_result(
             "job_result_id": job_result_id,
             "job_id": job_id,
             "document_id": document_id,
+            "document_metadata": json.dumps(document_metadata or {}),
             "result_s3_key": f"results/{job_id}.zip",
             "created_at": timestamp,
             "updated_at": timestamp,
+        },
+    )
+
+
+async def _update_job_result_metadata(
+    *,
+    job_result_id: str,
+    document_metadata: dict[str, object],
+) -> None:
+    await ContractDatabase.execute(
+        """
+        UPDATE job_results
+        SET document_metadata = CAST(:document_metadata AS JSON)
+        WHERE id = :job_result_id
+        """,
+        {
+            "job_result_id": job_result_id,
+            "document_metadata": json.dumps(document_metadata),
         },
     )
 

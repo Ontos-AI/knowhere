@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
@@ -14,9 +14,11 @@ from app.repositories.document_repository import (
     DocumentSectionChunkStats,
 )
 from pydantic import BaseModel, Field
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
+from shared.services.retrieval.outline_snapshot import get_valid_mcp_outline_snapshot
 
 DEFAULT_READ_CHUNK_LIMIT = 12
 MAX_READ_CHUNK_LIMIT = 40
@@ -157,6 +159,23 @@ class DocumentInspectionService:
                 document=_to_document_summary(document),
                 total_chunks=0,
             )
+
+        job_result = await self._repository.get_job_result(
+            db,
+            job_result_id=job_result_id,
+        )
+        if job_result is not None:
+            outline_snapshot = get_valid_mcp_outline_snapshot(
+                job_result.document_metadata,
+                expected_job_result_id=job_result_id,
+            )
+            snapshot_response = _create_outline_response_from_snapshot(
+                outline_snapshot,
+                namespace=namespace,
+                document=document,
+            )
+            if snapshot_response is not None:
+                return snapshot_response
 
         sections = await self._repository.list_current_document_sections(
             db,
@@ -467,6 +486,89 @@ def _merge_section_chunk_stats(
         chunk_count=sum(stats.chunk_count for stats in values),
         type_counts=type_counts,
     )
+
+
+def _create_outline_response_from_snapshot(
+    snapshot: Mapping[str, Any] | None,
+    *,
+    namespace: str,
+    document: Document,
+) -> DocumentOutlineResponse | None:
+    if snapshot is None:
+        return None
+    try:
+        raw_sections = snapshot.get("sections")
+        if not isinstance(raw_sections, list):
+            return None
+        return DocumentOutlineResponse(
+            namespace=namespace,
+            document=_to_document_summary(document),
+            job_result_id=_read_optional_snapshot_string(snapshot.get("job_result_id")),
+            job_id=_read_optional_snapshot_string(snapshot.get("job_id")),
+            total_chunks=_read_required_snapshot_int(snapshot.get("total_chunks")),
+            type_counts=_read_snapshot_type_counts(snapshot.get("type_counts")),
+            sections=[
+                _create_section_outline_from_snapshot(raw_section)
+                for raw_section in raw_sections
+            ],
+        )
+    except (TypeError, ValueError, ValidationError):
+        return None
+
+
+def _create_section_outline_from_snapshot(raw_section: object) -> DocumentSectionOutline:
+    if not isinstance(raw_section, Mapping):
+        raise ValueError("Outline snapshot section must be an object.")
+    return DocumentSectionOutline(
+        section_id=_read_required_snapshot_string(raw_section.get("section_id")),
+        section_path=_read_required_snapshot_string(raw_section.get("section_path")),
+        section_title=_read_optional_snapshot_string(raw_section.get("section_title")),
+        section_level=_read_required_snapshot_int(raw_section.get("section_level")),
+        summary=_read_optional_snapshot_string(raw_section.get("summary")),
+        start_chunk=_read_optional_snapshot_int(raw_section.get("start_chunk")),
+        end_chunk=_read_optional_snapshot_int(raw_section.get("end_chunk")),
+        chunk_count=_read_required_snapshot_int(raw_section.get("chunk_count")),
+        type_counts=_read_snapshot_type_counts(raw_section.get("type_counts")),
+    )
+
+
+def _read_required_snapshot_string(value: object) -> str:
+    result = _read_optional_snapshot_string(value)
+    if result is None:
+        raise ValueError("Required outline snapshot string is missing.")
+    return result
+
+
+def _read_optional_snapshot_string(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _read_required_snapshot_int(value: object) -> int:
+    result = _read_optional_snapshot_int(value)
+    if result is None:
+        raise ValueError("Required outline snapshot integer is missing.")
+    return result
+
+
+def _read_optional_snapshot_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if not isinstance(value, int | float | str):
+        raise ValueError("Outline snapshot integer is invalid.")
+    return int(value)
+
+
+def _read_snapshot_type_counts(value: object) -> dict[str, int]:
+    if not isinstance(value, Mapping):
+        raise ValueError("Outline snapshot type_counts must be an object.")
+    type_counts: dict[str, int] = {}
+    for chunk_type, count in value.items():
+        if not isinstance(count, int | float | str):
+            raise ValueError("Outline snapshot type count is invalid.")
+        type_counts[str(chunk_type)] = int(count)
+    return type_counts
 
 
 async def _read_chunk_range_rows(

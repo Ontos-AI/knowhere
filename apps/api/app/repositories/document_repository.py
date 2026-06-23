@@ -101,6 +101,17 @@ class DocumentRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_job_result(
+        self,
+        db: AsyncSession,
+        *,
+        job_result_id: str,
+    ) -> JobResult | None:
+        result = await db.execute(
+            select(JobResult).where(JobResult.id == job_result_id)
+        )
+        return result.scalar_one_or_none()
+
     async def archive_document(
         self,
         db: AsyncSession,

@@ -21,6 +21,10 @@ from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
+from shared.services.retrieval.outline_snapshot import (
+    MCP_OUTLINE_SNAPSHOT_METADATA_KEY,
+    build_mcp_outline_snapshot,
+)
 from shared.services.retrieval.publication_content import (
     replace_document_revision_content,
 )
@@ -128,7 +132,7 @@ class RetrievalPublicationService:
         if document is None:
             return None
 
-        self._bind_job_result_document(
+        job_result = self._bind_job_result_document(
             db,
             job_result_id=job_result_id,
             document_id=document.document_id,
@@ -148,6 +152,16 @@ class RetrievalPublicationService:
         )
 
         db.flush()
+        if job_result is not None:
+            self._store_mcp_outline_snapshot(
+                db,
+                job_result=job_result,
+                document_id=document.document_id,
+                job_result_id=job_result_id,
+                job_id=job.job_id,
+            )
+            db.flush()
+
         return PublishedDocumentState(
             user_id=str(job.user_id),
             namespace=namespace,
@@ -214,11 +228,30 @@ class RetrievalPublicationService:
         *,
         job_result_id: str,
         document_id: str,
-    ) -> None:
+    ) -> JobResult | None:
         result = db.execute(select(JobResult).where(JobResult.id == job_result_id))
         job_result = result.scalar_one_or_none()
         if job_result:
             job_result.document_id = document_id
+        return job_result
+
+    def _store_mcp_outline_snapshot(
+        self,
+        db: Session,
+        *,
+        job_result: JobResult,
+        document_id: str,
+        job_result_id: str,
+        job_id: str,
+    ) -> None:
+        metadata = dict(job_result.document_metadata or {})
+        metadata[MCP_OUTLINE_SNAPSHOT_METADATA_KEY] = build_mcp_outline_snapshot(
+            db,
+            document_id=document_id,
+            job_result_id=job_result_id,
+            job_id=job_id,
+        )
+        job_result.document_metadata = metadata
 
     def publish_document_graph(
         self,

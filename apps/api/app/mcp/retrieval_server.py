@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from time import perf_counter
 from typing import Annotated, Any, AsyncContextManager, Callable, Literal
 
 from app.services.auth.current_user_authentication_service import (
@@ -14,6 +16,7 @@ from app.services.documents.inspection_service import (
     DocumentOutlineResponse,
     DocumentReadChunksResponse,
 )
+from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field
@@ -34,6 +37,8 @@ KnowhereTargetContent = Literal[
 ]
 KnowhereFilterMode = Literal["delete", "keep"]
 KNOWHERE_NAMESPACE_HEADER = "x-knowhere-namespace"
+MCP_TIMING_LOGS_ENABLED_ENV = "MCP_TIMING_LOGS_ENABLED"
+MCP_TIMING_LOG_TRUE_VALUES = {"1", "true", "yes", "on"}
 
 TARGET_CONTENT_TO_DATA_TYPE: dict[str, int] = {
     "all": 1,
@@ -164,6 +169,43 @@ def create_db_context() -> AsyncContextManager[AsyncSession]:
     return get_db_context()
 
 
+def are_mcp_timing_logs_enabled() -> bool:
+    raw_value = os.getenv(MCP_TIMING_LOGS_ENABLED_ENV, "false")
+    return raw_value.strip().lower() in MCP_TIMING_LOG_TRUE_VALUES
+
+
+def _elapsed_ms(started_at: float) -> float:
+    return round((perf_counter() - started_at) * 1000, 3)
+
+
+def _log_mcp_tool_timing(
+    *,
+    tool_name: str,
+    namespace: str | None,
+    total_started_at: float,
+    namespace_ms: float | None = None,
+    auth_ms: float | None = None,
+    service_ms: float | None = None,
+    result_counts: dict[str, int | float | str | None] | None = None,
+    error: BaseException | None = None,
+) -> None:
+    if not are_mcp_timing_logs_enabled():
+        return
+
+    logger.bind(
+        event="mcp_tool_timing",
+        tool_name=tool_name,
+        namespace=namespace,
+        total_ms=_elapsed_ms(total_started_at),
+        namespace_ms=namespace_ms,
+        auth_ms=auth_ms,
+        service_ms=service_ms,
+        status="error" if error is not None else "ok",
+        error_type=type(error).__name__ if error is not None else None,
+        **(result_counts or {}),
+    ).info("mcp tool timing")
+
+
 def create_retrieval_mcp_server(
     *,
     db_factory: DbFactory | None = None,
@@ -243,30 +285,66 @@ def create_retrieval_mcp_server(
         ] = None,
         ctx: Context | None = None,
     ) -> KnowhereSearchResponse:
+        total_started_at = perf_counter()
+        effective_namespace: str | None = None
+        namespace_ms: float | None = None
+        auth_ms: float | None = None
+        service_ms: float | None = None
         effective_namespace = resolve_mcp_namespace(ctx=ctx, namespace=namespace)
-        async with effective_db_factory() as db:
-            user_id = await resolve_mcp_user_id(ctx=ctx, db=db)
-            response = await run_retrieval_query(
-                db=db,
-                user_id=user_id,
+        namespace_ms = _elapsed_ms(total_started_at)
+        try:
+            async with effective_db_factory() as db:
+                auth_started_at = perf_counter()
+                user_id = await resolve_mcp_user_id(ctx=ctx, db=db)
+                auth_ms = _elapsed_ms(auth_started_at)
+
+                service_started_at = perf_counter()
+                response = await run_retrieval_query(
+                    db=db,
+                    user_id=user_id,
+                    namespace=effective_namespace,
+                    query=query,
+                    top_k=top_k,
+                    exclude_document_ids=exclude_document_ids or [],
+                    exclude_sections=[
+                        item.model_dump() for item in exclude_sections or []
+                    ],
+                    data_type=TARGET_CONTENT_TO_DATA_TYPE[target_content],
+                    signal_paths=_normalize_string_list(signal_paths),
+                    filter_mode=filter_mode,
+                    threshold=threshold,
+                    use_agentic=True,
+                )
+                service_ms = _elapsed_ms(service_started_at)
+                mcp_response = to_mcp_search_response(
+                    response,
+                    namespace=effective_namespace,
+                    query=query,
+                )
+                _log_mcp_tool_timing(
+                    tool_name="knowhere_search",
+                    namespace=effective_namespace,
+                    total_started_at=total_started_at,
+                    namespace_ms=namespace_ms,
+                    auth_ms=auth_ms,
+                    service_ms=service_ms,
+                    result_counts={
+                        "referenced_chunk_count": len(mcp_response.referenced_chunks),
+                        "result_count": len(mcp_response.results),
+                    },
+                )
+                return mcp_response
+        except Exception as exc:
+            _log_mcp_tool_timing(
+                tool_name="knowhere_search",
                 namespace=effective_namespace,
-                query=query,
-                top_k=top_k,
-                exclude_document_ids=exclude_document_ids or [],
-                exclude_sections=[
-                    item.model_dump() for item in exclude_sections or []
-                ],
-                data_type=TARGET_CONTENT_TO_DATA_TYPE[target_content],
-                signal_paths=_normalize_string_list(signal_paths),
-                filter_mode=filter_mode,
-                threshold=threshold,
-                use_agentic=True,
+                total_started_at=total_started_at,
+                namespace_ms=namespace_ms,
+                auth_ms=auth_ms,
+                service_ms=service_ms,
+                error=exc,
             )
-            return to_mcp_search_response(
-                response,
-                namespace=effective_namespace,
-                query=query,
-            )
+            raise
 
     @server.tool(
         name="knowhere_list_documents",
@@ -283,14 +361,46 @@ def create_retrieval_mcp_server(
         ] = None,
         ctx: Context | None = None,
     ) -> DocumentListResponse:
+        total_started_at = perf_counter()
+        namespace_started_at = perf_counter()
         effective_namespace = resolve_mcp_namespace(ctx=ctx, namespace=namespace)
-        async with effective_db_factory() as db:
-            user_id = await resolve_mcp_user_id(ctx=ctx, db=db)
-            return await inspection_service.list_documents(
-                db,
-                user_id=user_id,
+        namespace_ms = _elapsed_ms(namespace_started_at)
+        auth_ms: float | None = None
+        service_ms: float | None = None
+        try:
+            async with effective_db_factory() as db:
+                auth_started_at = perf_counter()
+                user_id = await resolve_mcp_user_id(ctx=ctx, db=db)
+                auth_ms = _elapsed_ms(auth_started_at)
+
+                service_started_at = perf_counter()
+                response = await inspection_service.list_documents(
+                    db,
+                    user_id=user_id,
+                    namespace=effective_namespace,
+                )
+                service_ms = _elapsed_ms(service_started_at)
+                _log_mcp_tool_timing(
+                    tool_name="knowhere_list_documents",
+                    namespace=effective_namespace,
+                    total_started_at=total_started_at,
+                    namespace_ms=namespace_ms,
+                    auth_ms=auth_ms,
+                    service_ms=service_ms,
+                    result_counts={"document_count": len(response.documents)},
+                )
+                return response
+        except Exception as exc:
+            _log_mcp_tool_timing(
+                tool_name="knowhere_list_documents",
                 namespace=effective_namespace,
+                total_started_at=total_started_at,
+                namespace_ms=namespace_ms,
+                auth_ms=auth_ms,
+                service_ms=service_ms,
+                error=exc,
             )
+            raise
 
     @server.tool(
         name="knowhere_get_document_outline",
@@ -311,18 +421,52 @@ def create_retrieval_mcp_server(
         ] = None,
         ctx: Context | None = None,
     ) -> DocumentOutlineResponse:
+        total_started_at = perf_counter()
+        namespace_started_at = perf_counter()
         effective_namespace = resolve_mcp_namespace(ctx=ctx, namespace=namespace)
-        async with effective_db_factory() as db:
-            user_id = await resolve_mcp_user_id(ctx=ctx, db=db)
-            response = await inspection_service.get_document_outline(
-                db,
-                user_id=user_id,
+        namespace_ms = _elapsed_ms(namespace_started_at)
+        auth_ms: float | None = None
+        service_ms: float | None = None
+        try:
+            async with effective_db_factory() as db:
+                auth_started_at = perf_counter()
+                user_id = await resolve_mcp_user_id(ctx=ctx, db=db)
+                auth_ms = _elapsed_ms(auth_started_at)
+
+                service_started_at = perf_counter()
+                response = await inspection_service.get_document_outline(
+                    db,
+                    user_id=user_id,
+                    namespace=effective_namespace,
+                    document_id=document_id,
+                )
+                service_ms = _elapsed_ms(service_started_at)
+                if response is None:
+                    raise ValueError("Document not found or not active in namespace.")
+                _log_mcp_tool_timing(
+                    tool_name="knowhere_get_document_outline",
+                    namespace=effective_namespace,
+                    total_started_at=total_started_at,
+                    namespace_ms=namespace_ms,
+                    auth_ms=auth_ms,
+                    service_ms=service_ms,
+                    result_counts={
+                        "section_count": len(response.sections),
+                        "total_chunks": response.total_chunks,
+                    },
+                )
+                return response
+        except Exception as exc:
+            _log_mcp_tool_timing(
+                tool_name="knowhere_get_document_outline",
                 namespace=effective_namespace,
-                document_id=document_id,
+                total_started_at=total_started_at,
+                namespace_ms=namespace_ms,
+                auth_ms=auth_ms,
+                service_ms=service_ms,
+                error=exc,
             )
-            if response is None:
-                raise ValueError("Document not found or not active in namespace.")
-            return response
+            raise
 
     @server.tool(
         name="knowhere_read_chunks",
@@ -363,23 +507,54 @@ def create_retrieval_mcp_server(
         ] = None,
         ctx: Context | None = None,
     ) -> DocumentReadChunksResponse:
+        total_started_at = perf_counter()
+        namespace_started_at = perf_counter()
         effective_namespace = resolve_mcp_namespace(ctx=ctx, namespace=namespace)
-        async with effective_db_factory() as db:
-            user_id = await resolve_mcp_user_id(ctx=ctx, db=db)
-            response = await inspection_service.read_chunks(
-                db,
-                user_id=user_id,
+        namespace_ms = _elapsed_ms(namespace_started_at)
+        auth_ms: float | None = None
+        service_ms: float | None = None
+        try:
+            async with effective_db_factory() as db:
+                auth_started_at = perf_counter()
+                user_id = await resolve_mcp_user_id(ctx=ctx, db=db)
+                auth_ms = _elapsed_ms(auth_started_at)
+
+                service_started_at = perf_counter()
+                response = await inspection_service.read_chunks(
+                    db,
+                    user_id=user_id,
+                    namespace=effective_namespace,
+                    document_id=document_id,
+                    section_path=section_path,
+                    start_chunk=start_chunk,
+                    end_chunk=end_chunk,
+                    document_chunk_id=document_chunk_id,
+                    chunk_id=chunk_id,
+                )
+                service_ms = _elapsed_ms(service_started_at)
+                if response is None:
+                    raise ValueError("Document not found or not active in namespace.")
+                _log_mcp_tool_timing(
+                    tool_name="knowhere_read_chunks",
+                    namespace=effective_namespace,
+                    total_started_at=total_started_at,
+                    namespace_ms=namespace_ms,
+                    auth_ms=auth_ms,
+                    service_ms=service_ms,
+                    result_counts={"chunk_count": len(response.chunks)},
+                )
+                return response
+        except Exception as exc:
+            _log_mcp_tool_timing(
+                tool_name="knowhere_read_chunks",
                 namespace=effective_namespace,
-                document_id=document_id,
-                section_path=section_path,
-                start_chunk=start_chunk,
-                end_chunk=end_chunk,
-                document_chunk_id=document_chunk_id,
-                chunk_id=chunk_id,
+                total_started_at=total_started_at,
+                namespace_ms=namespace_ms,
+                auth_ms=auth_ms,
+                service_ms=service_ms,
+                error=exc,
             )
-            if response is None:
-                raise ValueError("Document not found or not active in namespace.")
-            return response
+            raise
 
     @server.tool(
         name="knowhere_grep_chunks",
@@ -430,24 +605,58 @@ def create_retrieval_mcp_server(
         ] = None,
         ctx: Context | None = None,
     ) -> DocumentGrepChunksResponse:
+        total_started_at = perf_counter()
+        namespace_started_at = perf_counter()
         effective_namespace = resolve_mcp_namespace(ctx=ctx, namespace=namespace)
-        async with effective_db_factory() as db:
-            user_id = await resolve_mcp_user_id(ctx=ctx, db=db)
-            response = await inspection_service.grep_chunks(
-                db,
-                user_id=user_id,
+        namespace_ms = _elapsed_ms(namespace_started_at)
+        auth_ms: float | None = None
+        service_ms: float | None = None
+        try:
+            async with effective_db_factory() as db:
+                auth_started_at = perf_counter()
+                user_id = await resolve_mcp_user_id(ctx=ctx, db=db)
+                auth_ms = _elapsed_ms(auth_started_at)
+
+                service_started_at = perf_counter()
+                response = await inspection_service.grep_chunks(
+                    db,
+                    user_id=user_id,
+                    namespace=effective_namespace,
+                    document_id=document_id,
+                    pattern=pattern,
+                    is_regex=is_regex,
+                    is_case_sensitive=is_case_sensitive,
+                    max_results=max_results,
+                    chunk_type=chunk_type,
+                    section_path_prefix=section_path_prefix,
+                )
+                service_ms = _elapsed_ms(service_started_at)
+                if response is None:
+                    raise ValueError("Document not found or not active in namespace.")
+                _log_mcp_tool_timing(
+                    tool_name="knowhere_grep_chunks",
+                    namespace=effective_namespace,
+                    total_started_at=total_started_at,
+                    namespace_ms=namespace_ms,
+                    auth_ms=auth_ms,
+                    service_ms=service_ms,
+                    result_counts={
+                        "match_count": len(response.matches),
+                        "scanned_chunks": response.scanned_chunks,
+                    },
+                )
+                return response
+        except Exception as exc:
+            _log_mcp_tool_timing(
+                tool_name="knowhere_grep_chunks",
                 namespace=effective_namespace,
-                document_id=document_id,
-                pattern=pattern,
-                is_regex=is_regex,
-                is_case_sensitive=is_case_sensitive,
-                max_results=max_results,
-                chunk_type=chunk_type,
-                section_path_prefix=section_path_prefix,
+                total_started_at=total_started_at,
+                namespace_ms=namespace_ms,
+                auth_ms=auth_ms,
+                service_ms=service_ms,
+                error=exc,
             )
-            if response is None:
-                raise ValueError("Document not found or not active in namespace.")
-            return response
+            raise
 
     return server
 
