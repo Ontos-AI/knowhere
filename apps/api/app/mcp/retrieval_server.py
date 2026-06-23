@@ -407,7 +407,7 @@ def create_retrieval_mcp_server(
         ] = None,
         is_regex: Annotated[
             bool,
-            Field(description="Treat pattern as a Python regular expression."),
+            Field(description="Treat pattern as a regular expression."),
         ] = False,
         is_case_sensitive: Annotated[
             bool,

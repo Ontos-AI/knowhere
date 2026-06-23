@@ -4,10 +4,12 @@ Document data access for retrieval document lifecycle flows.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Sequence, cast
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
@@ -16,6 +18,22 @@ from shared.models.database.job_result import JobResult
 DocumentChunkRow = tuple[DocumentChunk, DocumentSection | None, JobResult]
 DocumentChunkInspectionRow = tuple[DocumentChunk, DocumentSection | None, JobResult, int]
 DocumentChunkScopeBounds = tuple[int, int]
+
+
+@dataclass(frozen=True)
+class DocumentChunkGrepRow:
+    ordinal: int
+    document_chunk_id: str
+    chunk_id: str
+    chunk_type: str
+    section_path: str | None
+    source_chunk_path: str | None
+    file_path: str | None
+    job_id: str | None
+    start_offset: int | None
+    end_offset: int | None
+    snippet: str | None
+    content: str | None = None
 
 
 class DocumentRepository:
@@ -208,6 +226,78 @@ class DocumentRepository:
         result = await db.execute(stmt)
         return cast(Sequence[DocumentChunkInspectionRow], result.all())
 
+    async def grep_current_document_chunks_for_inspection(
+        self,
+        db: AsyncSession,
+        *,
+        document_id: str,
+        job_result_id: str,
+        pattern: str,
+        is_regex: bool,
+        is_case_sensitive: bool,
+        limit: int,
+        chunk_type: str | None = None,
+        section_path_prefix: str | None = None,
+        snippet_context_chars: int = 80,
+        regex_statement_timeout_ms: int = 250,
+    ) -> Sequence[DocumentChunkGrepRow]:
+        filter_sql, filter_params = _build_grep_scope_filters(
+            chunk_type=chunk_type,
+            section_path_prefix=section_path_prefix,
+        )
+        params: dict[str, object] = {
+            "document_id": document_id,
+            "job_result_id": job_result_id,
+            "pattern": pattern,
+            "limit": limit,
+            "snippet_context_chars": snippet_context_chars,
+            **filter_params,
+        }
+        sql = (
+            _build_regex_grep_sql(filter_sql, is_case_sensitive=is_case_sensitive)
+            if is_regex
+            else _build_literal_grep_sql(filter_sql, is_case_sensitive=is_case_sensitive)
+        )
+
+        try:
+            if is_regex:
+                await db.execute(
+                    text(
+                        "SET LOCAL statement_timeout = "
+                        f"{int(regex_statement_timeout_ms)}"
+                    )
+                )
+            result = await db.execute(text(sql), params)
+        except DBAPIError as exc:
+            if is_regex:
+                raise ValueError(
+                    "Regex grep failed or timed out; use a narrower section, "
+                    "a simpler regex, or literal search."
+                ) from exc
+            raise
+
+        return [
+            DocumentChunkGrepRow(
+                ordinal=int(row["ordinal"]),
+                document_chunk_id=str(row["document_chunk_id"]),
+                chunk_id=str(row["chunk_id"]),
+                chunk_type=str(row["chunk_type"]),
+                section_path=cast(str | None, row["section_path"]),
+                source_chunk_path=cast(str | None, row["source_chunk_path"]),
+                file_path=cast(str | None, row["file_path"]),
+                job_id=cast(str | None, row["job_id"]),
+                start_offset=(
+                    int(row["start_offset"]) if row["start_offset"] is not None else None
+                ),
+                end_offset=(
+                    int(row["end_offset"]) if row["end_offset"] is not None else None
+                ),
+                snippet=cast(str | None, row["snippet"]),
+                content=cast(str | None, row["content"]),
+            )
+            for row in result.mappings().all()
+        ]
+
     async def get_current_document_chunk_scope_bounds(
         self,
         db: AsyncSession,
@@ -331,3 +421,157 @@ def _escape_like_pattern(value: str) -> str:
         .replace("%", "\\%")
         .replace("_", "\\_")
     )
+
+
+def _build_grep_scope_filters(
+    *,
+    chunk_type: str | None,
+    section_path_prefix: str | None,
+) -> tuple[str, dict[str, object]]:
+    filters: list[str] = []
+    params: dict[str, object] = {}
+    if chunk_type is not None:
+        filters.append("AND LOWER(dc.chunk_type) = :chunk_type")
+        params["chunk_type"] = chunk_type
+    if section_path_prefix is not None:
+        if section_path_prefix == "(root)":
+            filters.append("AND dc.section_id IS NULL")
+        else:
+            escaped_prefix = _escape_like_pattern(section_path_prefix)
+            filters.append(
+                """
+                AND (
+                    ds.section_path = :section_path_prefix
+                    OR ds.section_path LIKE :section_path_like ESCAPE '\\'
+                )
+                """
+            )
+            params["section_path_prefix"] = section_path_prefix
+            params["section_path_like"] = f"{escaped_prefix} /%"
+    return "\n        ".join(filters), params
+
+
+def _build_grep_base_cte(filter_sql: str) -> str:
+    return f"""
+    WITH ordinals AS (
+        SELECT
+            id AS document_chunk_id,
+            row_number() OVER (
+                ORDER BY sort_order ASC, created_at ASC, id ASC
+            ) AS ordinal
+        FROM document_chunks
+        WHERE document_id = :document_id
+            AND job_result_id = :job_result_id
+    ),
+    scoped AS (
+        SELECT
+            dc.id AS document_chunk_id,
+            dc.chunk_id,
+            dc.section_id,
+            dc.chunk_type,
+            dc.content,
+            dc.source_chunk_path,
+            dc.file_path,
+            ds.section_path,
+            jr.job_id,
+            ordinals.ordinal
+        FROM document_chunks dc
+        JOIN ordinals
+            ON ordinals.document_chunk_id = dc.id
+        LEFT JOIN document_sections ds
+            ON ds.section_id = dc.section_id
+        JOIN job_results jr
+            ON jr.id = dc.job_result_id
+        WHERE dc.document_id = :document_id
+            AND dc.job_result_id = :job_result_id
+            AND dc.content IS NOT NULL
+            AND dc.content <> ''
+            {filter_sql}
+    )
+    """
+
+
+def _build_literal_grep_sql(
+    filter_sql: str,
+    *,
+    is_case_sensitive: bool,
+) -> str:
+    match_position_expr = (
+        "strpos(sc.content, :pattern)"
+        if is_case_sensitive
+        else "strpos(lower(sc.content), lower(:pattern))"
+    )
+    return _build_grep_base_cte(filter_sql) + f"""
+    , matched AS (
+        SELECT
+            sc.*,
+            {match_position_expr} AS match_position
+        FROM scoped sc
+        WHERE {match_position_expr} > 0
+    )
+    SELECT
+        matched.ordinal,
+        matched.document_chunk_id,
+        matched.chunk_id,
+        matched.chunk_type,
+        matched.section_path,
+        matched.source_chunk_path,
+        matched.file_path,
+        matched.job_id,
+        (matched.match_position - 1)::integer AS start_offset,
+        (matched.match_position - 1 + char_length(:pattern))::integer AS end_offset,
+        (
+            CASE
+                WHEN matched.match_position > (:snippet_context_chars + 1)
+                THEN '...'
+                ELSE ''
+            END
+            || btrim(regexp_replace(
+                substring(
+                    matched.content
+                    from greatest(matched.match_position - :snippet_context_chars, 1)
+                    for char_length(:pattern) + (:snippet_context_chars * 2)
+                ),
+                '\\s+',
+                ' ',
+                'g'
+            ))
+            || CASE
+                WHEN (
+                    matched.match_position
+                    + char_length(:pattern)
+                    + :snippet_context_chars
+                    - 1
+                ) < char_length(matched.content)
+                THEN '...'
+                ELSE ''
+            END
+        ) AS snippet,
+        NULL::text AS content
+    FROM matched
+    ORDER BY matched.ordinal ASC
+    LIMIT :limit
+    """
+
+
+def _build_regex_grep_sql(filter_sql: str, *, is_case_sensitive: bool) -> str:
+    regex_operator = "~" if is_case_sensitive else "~*"
+    return _build_grep_base_cte(filter_sql) + f"""
+    SELECT
+        sc.ordinal,
+        sc.document_chunk_id,
+        sc.chunk_id,
+        sc.chunk_type,
+        sc.section_path,
+        sc.source_chunk_path,
+        sc.file_path,
+        sc.job_id,
+        NULL::integer AS start_offset,
+        NULL::integer AS end_offset,
+        NULL::text AS snippet,
+        sc.content
+    FROM scoped sc
+    WHERE sc.content {regex_operator} :pattern
+    ORDER BY sc.ordinal ASC
+    LIMIT :limit
+    """

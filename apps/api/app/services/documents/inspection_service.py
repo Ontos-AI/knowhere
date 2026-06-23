@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 from collections.abc import Callable, Sequence
 from datetime import datetime
@@ -19,10 +18,11 @@ DEFAULT_READ_CHUNK_LIMIT = 12
 MAX_READ_CHUNK_LIMIT = 40
 DEFAULT_GREP_RESULT_LIMIT = 20
 MAX_GREP_RESULT_LIMIT = 50
-GREP_SCAN_CHUNK_LIMIT = 5_000
+GREP_SNIPPET_CONTEXT_CHARS = 80
 INSPECTION_INDEX_CHUNK_LIMIT = 10_000
 MAX_REGEX_PATTERN_LENGTH = 256
 REGEX_SEARCH_TIMEOUT_SECONDS = 0.01
+REGEX_GREP_STATEMENT_TIMEOUT_MS = 250
 
 
 class DocumentSummary(BaseModel):
@@ -283,47 +283,48 @@ class DocumentInspectionService:
 
         section_prefix = _normalize_optional_string(section_path_prefix)
         normalized_chunk_type = _normalize_chunk_type_filter(chunk_type)
-        rows = await self._repository.list_current_document_chunks_for_inspection(
-            db,
-            document_id=document_id,
-            job_result_id=job_result_id,
-            limit=GREP_SCAN_CHUNK_LIMIT + 1,
-            chunk_type=normalized_chunk_type,
-            section_path_prefix=section_prefix,
-        )
-        indexed_chunks = _index_chunk_rows(rows[:GREP_SCAN_CHUNK_LIMIT])
-        matcher = _create_chunk_matcher(
-            pattern=pattern,
-            is_regex=is_regex,
-            is_case_sensitive=is_case_sensitive,
-        )
         result_limit = _normalize_positive_integer(
             max_results,
             fallback=DEFAULT_GREP_RESULT_LIMIT,
             maximum=MAX_GREP_RESULT_LIMIT,
         )
-        if is_regex:
-            matches, scanned_chunks = await asyncio.to_thread(
-                _collect_grep_matches,
-                indexed_chunks,
-                matcher,
-                result_limit,
+        matcher = (
+            _create_chunk_matcher(
+                pattern=pattern,
+                is_regex=True,
+                is_case_sensitive=is_case_sensitive,
             )
-        else:
-            matches, scanned_chunks = _collect_grep_matches(
-                indexed_chunks,
-                matcher,
-                result_limit,
-            )
+            if is_regex
+            else None
+        )
+        if not is_regex:
+            _validate_literal_pattern(pattern)
+        rows = await self._repository.grep_current_document_chunks_for_inspection(
+            db,
+            document_id=document_id,
+            job_result_id=job_result_id,
+            pattern=pattern.strip(),
+            is_regex=is_regex,
+            is_case_sensitive=is_case_sensitive,
+            limit=result_limit + 1,
+            chunk_type=normalized_chunk_type,
+            section_path_prefix=section_prefix,
+            snippet_context_chars=GREP_SNIPPET_CONTEXT_CHARS,
+            regex_statement_timeout_ms=REGEX_GREP_STATEMENT_TIMEOUT_MS,
+        )
+        matches = _collect_grep_row_matches(
+            rows[:result_limit],
+            matcher=matcher,
+        )
 
         return DocumentGrepChunksResponse(
             namespace=namespace,
             document_id=document_id,
             job_result_id=job_result_id,
-            job_id=_read_job_id(rows),
+            job_id=_read_grep_job_id(rows),
             matches=matches,
-            truncated=len(matches) >= result_limit or len(rows) > GREP_SCAN_CHUNK_LIMIT,
-            scanned_chunks=scanned_chunks,
+            truncated=len(rows) > result_limit,
+            scanned_chunks=len(rows),
         )
 
     async def _get_active_document(
@@ -545,35 +546,53 @@ def _create_chunk_matcher(
     return match_literal
 
 
-def _collect_grep_matches(
-    chunks: list[DocumentReadChunk],
-    matcher: Callable[[str], tuple[int, int] | None],
-    result_limit: int,
-) -> tuple[list[DocumentGrepMatch], int]:
+def _validate_literal_pattern(pattern: str) -> None:
+    if not pattern.strip():
+        raise ValueError("Pattern must not be empty.")
+
+
+def _collect_grep_row_matches(
+    rows: Sequence[object],
+    *,
+    matcher: Callable[[str], tuple[int, int] | None] | None,
+) -> list[DocumentGrepMatch]:
     matches: list[DocumentGrepMatch] = []
-    scanned_chunks = 0
-    for chunk in chunks:
-        scanned_chunks += 1
-        match = matcher(chunk.content)
-        if match is None:
-            continue
+    for row in rows:
+        if matcher is None:
+            start_offset = getattr(row, "start_offset", None)
+            end_offset = getattr(row, "end_offset", None)
+            snippet = getattr(row, "snippet", None)
+            if start_offset is None or end_offset is None or snippet is None:
+                continue
+        else:
+            content = str(getattr(row, "content", "") or "")
+            match = matcher(content)
+            if match is None:
+                continue
+            start_offset, end_offset = match
+            snippet = _create_snippet(content, start_offset, end_offset)
         matches.append(
             DocumentGrepMatch(
-                ordinal=chunk.ordinal,
-                document_chunk_id=chunk.document_chunk_id,
-                chunk_id=chunk.chunk_id,
-                chunk_type=chunk.chunk_type,
-                section_path=chunk.section_path,
-                source_chunk_path=chunk.source_chunk_path,
-                file_path=chunk.file_path,
-                start_offset=match[0],
-                end_offset=match[1],
-                snippet=_create_snippet(chunk.content, match[0], match[1]),
+                ordinal=int(getattr(row, "ordinal")),
+                document_chunk_id=str(getattr(row, "document_chunk_id")),
+                chunk_id=str(getattr(row, "chunk_id")),
+                chunk_type=_normalize_chunk_type(getattr(row, "chunk_type")),
+                section_path=getattr(row, "section_path"),
+                source_chunk_path=getattr(row, "source_chunk_path"),
+                file_path=getattr(row, "file_path"),
+                start_offset=int(start_offset),
+                end_offset=int(end_offset),
+                snippet=str(snippet),
             )
         )
-        if len(matches) >= result_limit:
-            break
-    return matches, scanned_chunks
+    return matches
+
+
+def _read_grep_job_id(rows: Sequence[object]) -> str | None:
+    if not rows:
+        return None
+    job_id = getattr(rows[0], "job_id", None)
+    return str(job_id) if job_id else None
 
 
 def _create_snippet(content: str, start_offset: int, end_offset: int) -> str:

@@ -288,6 +288,15 @@ async def test_document_inspection_should_grep_literal_regex_filters_and_caps(
 
         await _insert_document_revision_fixture(document_id=document_id)
         service = DocumentInspectionService()
+
+        async def fail_chunk_scan(*args: object, **kwargs: object) -> object:
+            raise AssertionError("grep should not load inspection chunk rows")
+
+        monkeypatch.setattr(
+            service._repository,
+            "list_current_document_chunks_for_inspection",
+            fail_chunk_scan,
+        )
         async with get_db_context() as db:
             literal_response = await service.grep_chunks(
                 db,
@@ -297,7 +306,6 @@ async def test_document_inspection_should_grep_literal_regex_filters_and_caps(
                 pattern="revenue",
                 max_results=1,
             )
-            monkeypatch.setattr(inspection_module, "GREP_SCAN_CHUNK_LIMIT", 1)
             regex_response = await service.grep_chunks(
                 db,
                 user_id="local-dev-user",
@@ -322,11 +330,13 @@ async def test_document_inspection_should_grep_literal_regex_filters_and_caps(
     assert literal_response.matches[0].ordinal == 2
     assert literal_response.matches[0].snippet == "Revenue was $42M in 2026."
     assert literal_response.truncated is True
+    assert literal_response.scanned_chunks == 2
 
     assert regex_response is not None
     assert [match.ordinal for match in regex_response.matches] == [4]
     assert regex_response.matches[0].section_path == "Body / Finance"
     assert regex_response.truncated is False
+    assert regex_response.scanned_chunks == 1
 
     assert wrong_namespace_response is None
 
