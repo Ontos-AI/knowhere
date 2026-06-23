@@ -30,12 +30,19 @@ class AIConfig(BaseModel):
     )
     IMAGE_MODEL: str = Field(
         default="qwen3.6-flash",
-        description="Image model for image summary, atlas, and OCR flows",
+        description=(
+            "Default VLM for page tagging, OCR, atlas, and chart/table bbox "
+            "probes. Alternate: qwen3-vl-32b-instruct (open-weights, "
+            "self-hostable via vLLM/SGLang)."
+        ),
     )
 
     IMAGE_MODEL_MAX: str = Field(
         default="qwen3.6-flash",
-        description="Higher-capability image model for OCR and image type classification",
+        description=(
+            "Higher-capability VLM for OCR and image classification. "
+            "Same alternates as IMAGE_MODEL (e.g. qwen3-vl-32b-instruct)."
+        ),
     )
     RETRIEVAL_DECOMPOSITION_ENABLED: bool = Field(
         default=False,

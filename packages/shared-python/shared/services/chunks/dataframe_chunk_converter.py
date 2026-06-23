@@ -342,7 +342,7 @@ def dataframe_to_chunks(df: _ParserDataFrame | None) -> list[Dict[str, JsonValue
     for chunk in chunks:
         metadata = chunk["metadata"]
         relationship_refs = metadata.pop("_relationship_refs", [])
-        if chunk["type"] != "text":
+        if chunk["type"] not in {"text", "page"}:
             continue
         embed_connections = convert_refs_to_embed_connections(
             relationship_refs, resource_target_map

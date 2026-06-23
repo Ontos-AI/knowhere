@@ -122,6 +122,13 @@ def _build_page_dataframe(
     from app.services.page_memory.page_section_mapper import map_pages_to_sections
     from app.services.page_memory.page_tagger import tag_pages
     from app.services.page_memory.skeleton_extractor import extract_section_skeletons
+    from app.services.page_memory.page_assets import (
+        extract_page_assets_from_renders,
+        get_asset_budget,
+        get_asset_confidence_threshold,
+        get_asset_max_pages,
+        page_asset_extraction_enabled,
+    )
 
     # ── Native hierarchy flag (Step 3) ────────────────────────────────
     # Page-memory handles PDF/PPT(→PDF) structure with its own page-native
@@ -143,10 +150,21 @@ def _build_page_dataframe(
     page_locate_budget = int(
         os.environ.get("PAGE_MEMORY_LOCATE_BUDGET", str(min(page_count * 1600, 2_000_000)))
     )
-    title_detection_budget = int(
-        os.environ.get("PAGE_MEMORY_TITLE_BUDGET", str(page_count * 800))
-    ) if native_hierarchy else 0
-    total_visual = page_tagging_budget + page_locate_budget + title_detection_budget
+    title_detection_budget = (
+        int(os.environ.get("PAGE_MEMORY_TITLE_BUDGET", str(page_count * 800)))
+        if native_hierarchy
+        else 0
+    )
+    asset_extraction_enabled = page_asset_extraction_enabled()
+    asset_extraction_budget = (
+        get_asset_budget(page_count) if asset_extraction_enabled else 0
+    )
+    total_visual = (
+        page_tagging_budget
+        + page_locate_budget
+        + title_detection_budget
+        + asset_extraction_budget
+    )
 
     # plan_budget powers the LLM decision loop inside PageLocateSubAgent.
     # Without it the sub-agent falls back to a deterministic path that
@@ -169,6 +187,11 @@ def _build_page_dataframe(
     if native_hierarchy:
         stage_envelopes["page_title_detection"] = StageEnvelope(
             min_guarantee=title_detection_budget,
+            cap=None,
+        )
+    if asset_extraction_enabled:
+        stage_envelopes["page_asset_extraction"] = StageEnvelope(
+            min_guarantee=asset_extraction_budget,
             cap=None,
         )
     budget = BudgetTracker(
@@ -213,6 +236,21 @@ def _build_page_dataframe(
         page_features=page_features,
         page_texts=page_texts,
     )
+
+    page_assets_by_page: dict[int, list[Any]] = {}
+    if asset_extraction_enabled:
+        asset_model = os.environ.get("PAGE_MEMORY_ASSET_MODEL") or os.environ.get(
+            "IMAGE_MODEL"
+        )
+        page_assets_by_page = extract_page_assets_from_renders(
+            pdf_path=pdf_path,
+            rendered_pages=rendered,
+            output_dir=output_dir,
+            model_name=asset_model,
+            budget=budget,
+            max_pages=get_asset_max_pages(page_count),
+            confidence_threshold=get_asset_confidence_threshold(),
+        )
 
     # ── C2: page plan ─────────────────────────────────────────────────
     page_labels = anatomy.page_labels if anatomy else []
@@ -339,6 +377,7 @@ def _build_page_dataframe(
             native_hierarchy=native_hierarchy,
             budget=budget,
             vlm_model=vlm_model,
+            page_assets_by_page=page_assets_by_page,
         )
         logger.info(
             "[page_memory] C7 assembled {} node rows (verdict={})",
@@ -525,4 +564,3 @@ def _render_page_images(
         for item in rendered
         if item.get("png_path")
     ]
-

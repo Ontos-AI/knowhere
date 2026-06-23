@@ -667,6 +667,54 @@ Rules:
 - Return ONLY the JSON object, no markdown fences or extra text.
 """
 
+    elif task == "page-memory-asset-detect":
+        temperature = 0
+        top_p = 0.01
+        max_tokens = kwargs.get("paras", {}).get("max_tokens", 1200)
+        grid_size = kwargs.get("paras", {}).get("grid_size", 1000)
+        prompt = f"""\
+You are a precise document layout detector. The attached image is a single PDF
+page screenshot.
+
+Find visually distinct tables, charts, and figures that should become reusable
+document assets. Return strict JSON:
+{{
+  "regions": [
+    {{
+      "kind": "table|chart|figure",
+      "bbox": [x1, y1, x2, y2],
+      "caption": "<visible caption or nearby label, if any>",
+      "title": "<short asset title>",
+      "summary": "<1-3 sentence searchable summary>",
+      "keywords": ["<keyword_1>", "<keyword_2>"],
+      "confidence": 0.0
+    }}
+  ]
+}}
+
+Coordinate system:
+- Treat the page image as a {grid_size}x{grid_size} grid.
+- Origin is the top-left corner.
+- bbox values must be integers in [0, {grid_size}].
+- bbox must tightly include the whole asset: title, caption, legend, axes,
+  labels, table headers, and footnotes that are part of the asset.
+- Exclude surrounding body paragraphs, page headers, page footers, and page
+  numbers.
+
+Rules:
+- "table": rows/columns of data, forms, financial tables, appendix tables.
+- "chart": plotted data such as bar/line/pie/scatter charts.
+- "figure": diagrams, flowcharts, architecture drawings, embedded images, or
+  visual schematics that are not data charts.
+- Do not transcribe entire tables. Summarize their topic and visible columns or
+  row groups.
+- "keywords" must be an array of up to 8 strings in the same language as the
+  visible asset text.
+- Use confidence 0.0-1.0. Only include assets you can localize.
+- If there are no assets, return {{"regions":[]}}.
+- Return ONLY the JSON object, no markdown fences or explanations.
+"""
+
     # ==================== Image Processing Prompts ====================
 
     elif task == "summary-images":

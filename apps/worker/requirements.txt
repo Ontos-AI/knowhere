@@ -41,6 +41,8 @@ attrs==26.1.0
     # via aiohttp
 authlib==1.6.11
     # via knowhere-shared
+backoff==2.2.1
+    # via posthog
 bcrypt==4.3.0
     # via pwdlib
 beautifulsoup4==4.13.4
@@ -111,7 +113,10 @@ cryptography==46.0.7
 defusedxml==0.7.1
     # via markitdown
 distro==1.9.0
-    # via openai
+    # via
+    #   openai
+    #   posthog
+    #   tabula-py
 dnspython==2.8.0
     # via email-validator
 email-validator==2.2.0
@@ -226,6 +231,7 @@ numpy==2.2.6
     #   pymupdf-layout
     #   rank-bm25
     #   scipy
+    #   tabula-py
 onnxruntime==1.25.0
     # via
     #   magika
@@ -300,7 +306,9 @@ packaging==26.1
     #   opentelemetry-instrumentation-sqlalchemy
     #   pytest
 pandas==2.3.1
-    # via knowhere-worker-app
+    # via
+    #   knowhere-worker-app
+    #   tabula-py
 pgvector==0.2.4
     # via knowhere-shared
 pillow==12.2.0
@@ -311,6 +319,8 @@ pillow==12.2.0
     #   python-pptx
 pluggy==1.6.0
     # via pytest
+posthog==7.18.1
+    # via knowhere-shared
 pptx2md==2.0.6
     # via knowhere-worker-app
 prompt-toolkit==3.0.52
@@ -424,6 +434,7 @@ requests==2.33.0
     #   markitdown
     #   opentelemetry-exporter-otlp-proto-http
     #   oss2
+    #   posthog
 rich==15.0.0
     # via logfire
 s3transfer==0.13.1
@@ -451,6 +462,8 @@ starlette==0.52.1
     # via fastapi
 syntok==1.4.4
     # via knowhere-shared
+tabula-py==2.10.0
+    # via knowhere-worker-app
 tabulate==0.10.0
     # via pymupdf4llm
 tenacity==9.1.4
@@ -474,6 +487,7 @@ typing-extensions==4.14.1
     #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
+    #   posthog
     #   pydantic
     #   pydantic-core
     #   pytest-asyncio

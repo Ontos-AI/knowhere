@@ -31,6 +31,11 @@ from loguru import logger
 
 from app.services.document_agent.budget import BudgetTracker
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
+from app.services.page_memory.page_assets import (
+    PageAsset,
+    asset_reference,
+    build_asset_rows,
+)
 from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
 from shared.services.ai.prompt_service import build_prompt
@@ -73,11 +78,7 @@ def identify_leaf_nodes(skeletons: list[SectionSkeleton]) -> list[LeafNode]:
     Reading order = ``(start_page, original index)`` so that siblings sharing a
     start page keep the top-to-bottom order produced by fine hierarchy.
     """
-    parent_paths = {
-        skel.parent_path
-        for skel in skeletons
-        if skel.parent_path
-    }
+    parent_paths = {skel.parent_path for skel in skeletons if skel.parent_path}
     leaves: list[tuple[int, int, LeafNode]] = []
     for index, skel in enumerate(skeletons):
         if skel.section_path in parent_paths:
@@ -237,7 +238,9 @@ def resolve_page_text(
         "page-memory-vlm-ocr", "", "", paras={"max_tokens": 1500}
     )
     est = estimate_tokens(prompt) + 1000
-    if budget is not None and not budget.try_reserve("visual", est, stage=_BUDGET_STAGE):
+    if budget is not None and not budget.try_reserve(
+        "visual", est, stage=_BUDGET_STAGE
+    ):
         logger.debug("[node_assembler] OCR budget exhausted for page {}", page)
         return ""
 
@@ -267,8 +270,12 @@ def resolve_page_text(
                 est=est,
                 stage=_BUDGET_STAGE,
             )
-        data = json.loads(raw_response)
-        return str(data.get("text", "")).strip()
+        try:
+            data = json.loads(raw_response)
+            return str(data.get("text", "")).strip()
+        except (json.JSONDecodeError, TypeError):
+            # VLM returned non-JSON; use raw text directly
+            return raw_response.strip() if raw_response else ""
     except Exception as exc:
         logger.warning("[node_assembler] OCR failed for page {}: {}", page, exc)
         if budget is not None:
@@ -390,7 +397,9 @@ def _vlm_node_summary(
         },
     )
     est = estimate_tokens(prompt) + 800 * len(image_parts)
-    if budget is not None and not budget.try_reserve("visual", est, stage=_BUDGET_STAGE):
+    if budget is not None and not budget.try_reserve(
+        "visual", est, stage=_BUDGET_STAGE
+    ):
         logger.debug(
             "[node_assembler] node summary budget exhausted for {}",
             leaf.section_path,
@@ -449,6 +458,7 @@ def build_node_rows(
     native_hierarchy: bool,
     budget: BudgetTracker | None = None,
     vlm_model: str | None = None,
+    page_assets_by_page: dict[int, list[PageAsset]] | None = None,
 ) -> list[dict[str, Any]]:
     """Assemble one row per leaf section node (node-granularity chunks)."""
     available_pages = set(raw_text_by_page.keys())
@@ -469,6 +479,7 @@ def build_node_rows(
             )
 
     rows: list[dict[str, Any]] = []
+    rows_by_path: dict[str, dict[str, Any]] = {}
     for view in views:
         leaf = view.leaf
         content = build_node_content(
@@ -490,37 +501,107 @@ def build_node_rows(
             if image_uri_by_page.get(page)
         ]
         know_id = f"node_{gen_str_codes(f'{filename}::{leaf.section_path}')}"
-        rows.append(
-            {
-                "content": content,
-                "path": leaf.section_path,
-                "type": "page",
-                "length": len(content),
-                "keywords": ";".join(keywords),
-                "summary": summary,
-                "know_id": know_id,
-                "tokens": "",
-                "connectto": "",
-                "addtime": get_str_time(),
-                "page_nums": ",".join(str(page) for page in view.pages),
-                "extra_metadata": {
-                    "granularity": "node",
-                    "section_path": leaf.section_path,
-                    "section_level": leaf.level,
-                    "page_indices": list(view.pages),
-                    "owned_pages": list(view.owned_pages),
-                    "page_image_uris": page_image_uris,
-                    "kind": kind_by_page.get(leaf.start_page, "normal"),
-                    "source_verdict": verdict,
-                    "native_hierarchy": native_hierarchy,
-                },
-            }
+        row = {
+            "content": content,
+            "path": leaf.section_path,
+            "type": "page",
+            "length": len(content),
+            "keywords": ";".join(keywords),
+            "summary": summary,
+            "know_id": know_id,
+            "tokens": "",
+            "connectto": "",
+            "addtime": get_str_time(),
+            "page_nums": ",".join(str(page) for page in view.pages),
+            "extra_metadata": {
+                "granularity": "node",
+                "section_path": leaf.section_path,
+                "section_level": leaf.level,
+                "page_indices": list(view.pages),
+                "owned_pages": list(view.owned_pages),
+                "page_image_uris": page_image_uris,
+                "kind": kind_by_page.get(leaf.start_page, "normal"),
+                "source_verdict": verdict,
+                "native_hierarchy": native_hierarchy,
+            },
+        }
+        rows.append(row)
+        rows_by_path[leaf.section_path] = row
+
+    asset_rows: list[dict[str, Any]] = []
+    if page_assets_by_page:
+        asset_rows = build_asset_rows(page_assets_by_page)
+        _attach_asset_connections(
+            page_assets_by_page=page_assets_by_page,
+            page_owner=page_owner,
+            page_to_leaves=page_to_leaves,
+            rows_by_path=rows_by_path,
         )
 
     logger.info(
-        "[node_assembler] assembled {} node rows from {} leaves ({} pages)",
+        "[node_assembler] assembled {} asset rows + {} node rows from {} leaves ({} pages)",
+        len(asset_rows),
         len(rows),
         len(leaves),
         len(available_pages),
     )
-    return rows
+    return asset_rows + rows
+
+
+def _attach_asset_connections(
+    *,
+    page_assets_by_page: dict[int, list[PageAsset]],
+    page_owner: dict[int, LeafNode],
+    page_to_leaves: dict[int, list[LeafNode]],
+    rows_by_path: dict[str, dict[str, Any]],
+) -> None:
+    for page_index, assets in page_assets_by_page.items():
+        owner_leaf = page_owner.get(page_index)
+        leaves_on_page = page_to_leaves.get(page_index, [])
+        for asset in assets:
+            ref = asset_reference(asset)
+            if not ref:
+                continue
+            if owner_leaf is not None:
+                owner_row = rows_by_path.get(owner_leaf.section_path)
+                if owner_row is not None:
+                    _append_connect_to(
+                        owner_row,
+                        {
+                            "target": ref,
+                            "relation": "embeds",
+                            "ref": ref,
+                        },
+                    )
+            for leaf in leaves_on_page:
+                if (
+                    owner_leaf is not None
+                    and leaf.section_path == owner_leaf.section_path
+                ):
+                    continue
+                row = rows_by_path.get(leaf.section_path)
+                if row is None:
+                    continue
+                connection: dict[str, Any] = {
+                    "target": ref,
+                    "relation": "related",
+                    "ref": ref,
+                }
+                if owner_leaf is not None:
+                    connection["same_as_owner"] = owner_leaf.section_path
+                _append_connect_to(row, connection)
+
+
+def _append_connect_to(row: dict[str, Any], connection: dict[str, Any]) -> None:
+    existing = row.get("connectto")
+    if isinstance(existing, str) and existing.strip():
+        try:
+            connections = json.loads(existing)
+        except json.JSONDecodeError:
+            connections = []
+    elif isinstance(existing, list):
+        connections = list(existing)
+    else:
+        connections = []
+    connections.append(connection)
+    row["connectto"] = json.dumps(connections, ensure_ascii=False)
