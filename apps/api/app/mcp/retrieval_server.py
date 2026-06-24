@@ -492,11 +492,11 @@ def create_retrieval_mcp_server(
         ] = None,
         start_chunk: Annotated[
             int | None,
-            Field(description="Optional 1-based chunk ordinal to start reading."),
+            Field(description="Optional 1-based chunk position to start reading."),
         ] = None,
         end_chunk: Annotated[
             int | None,
-            Field(description="Optional 1-based chunk ordinal to stop reading."),
+            Field(description="Optional 1-based chunk position to stop reading."),
         ] = None,
         document_chunk_id: Annotated[
             str | None,
@@ -561,7 +561,7 @@ def create_retrieval_mcp_server(
         name="knowhere_grep_chunks",
         description=(
             "Search one active Knowhere document's chunks by literal text or "
-            "regular expression. Results are ordered by chunk sort_order and "
+            "regular expression. Results are ordered by chunk position and "
             "returned with exact IDs and snippets."
         ),
         structured_output=True,

@@ -73,6 +73,8 @@ async def test_mcp_should_register_knowhere_tools_with_structured_outputs() -> N
     read_chunk_properties = read_output_schema["$defs"]["DocumentReadChunk"][
         "properties"
     ]
+    assert "position" in read_chunk_properties
+    assert "ordinal" not in read_chunk_properties
     assert "asset_url" in read_chunk_properties
 
 
@@ -512,7 +514,7 @@ async def test_document_inspection_should_read_by_range_section_and_ids(
             )
 
     assert range_response is not None
-    assert [chunk.ordinal for chunk in range_response.chunks] == [2, 3]
+    assert [chunk.position for chunk in range_response.chunks] == [2, 3]
     assert range_response.chunks[0].asset_url is None
     assert range_response.chunks[1].asset_url == (
         f"https://assets.example.com/{fixture['job_id']}/tables/revenue.html?refresh=1"
@@ -520,7 +522,7 @@ async def test_document_inspection_should_read_by_range_section_and_ids(
     assert range_response.next_chunk == 4
 
     assert section_response is not None
-    assert [chunk.ordinal for chunk in section_response.chunks] == [3, 4]
+    assert [chunk.position for chunk in section_response.chunks] == [3, 4]
     assert section_response.chunks[0].asset_url == (
         f"https://assets.example.com/{fixture['job_id']}/tables/revenue.html?refresh=1"
     )
@@ -693,13 +695,13 @@ async def test_document_inspection_should_grep_literal_regex_filters_and_caps(
 
     assert literal_response is not None
     assert len(literal_response.matches) == 1
-    assert literal_response.matches[0].ordinal == 2
+    assert literal_response.matches[0].position == 2
     assert literal_response.matches[0].snippet == "Revenue was $42M in 2026."
     assert literal_response.truncated is True
     assert literal_response.scanned_chunks == 2
 
     assert regex_response is not None
-    assert [match.ordinal for match in regex_response.matches] == [4]
+    assert [match.position for match in regex_response.matches] == [4]
     assert regex_response.matches[0].section_path == "Body / Finance"
     assert regex_response.truncated is False
     assert regex_response.scanned_chunks == 1
@@ -1091,7 +1093,7 @@ async def _insert_chunk(
             file_path,
             chunk_metadata,
             sort_order,
-            ordinal,
+            position,
             created_at
         ) VALUES (
             :id,
@@ -1112,7 +1114,7 @@ async def _insert_chunk(
             :file_path,
             CAST(:chunk_metadata AS JSON),
             :sort_order,
-            :ordinal,
+            :position,
             :created_at
         )
         """,
@@ -1129,7 +1131,7 @@ async def _insert_chunk(
             "file_path": file_path,
             "chunk_metadata": json.dumps({"summary": source_chunk_path}),
             "sort_order": sort_order,
-            "ordinal": sort_order + 1,
+            "position": sort_order + 1,
             "created_at": timestamp,
         },
     )

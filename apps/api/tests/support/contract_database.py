@@ -619,7 +619,7 @@ class ContractDatabase:
                 file_path,
                 chunk_metadata,
                 sort_order,
-                ordinal,
+                position,
                 created_at
             ) VALUES (
                 :id,
@@ -640,7 +640,7 @@ class ContractDatabase:
                 :file_path,
                 CAST(:chunk_metadata AS JSON),
                 :sort_order,
-                :ordinal,
+                :position,
                 :created_at
             )
             """,
@@ -663,7 +663,7 @@ class ContractDatabase:
                 "file_path": file_path,
                 "chunk_metadata": json.dumps(chunk_metadata or {}),
                 "sort_order": sort_order,
-                "ordinal": sort_order + 1,
+                "position": sort_order + 1,
                 "created_at": _utc_now(),
             },
         )

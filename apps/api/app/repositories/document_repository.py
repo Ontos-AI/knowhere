@@ -22,7 +22,7 @@ DocumentChunkScopeBounds = tuple[int, int]
 
 @dataclass(frozen=True)
 class DocumentChunkGrepRow:
-    ordinal: int
+    position: int
     document_chunk_id: str
     chunk_id: str
     chunk_type: str
@@ -205,8 +205,8 @@ class DocumentRepository:
             dc.section_id,
             lower(dc.chunk_type) AS chunk_type,
             count(*)::integer AS chunk_count,
-            min(dc.ordinal)::integer AS start_chunk,
-            max(dc.ordinal)::integer AS end_chunk,
+            min(dc.position)::integer AS start_chunk,
+            max(dc.position)::integer AS end_chunk,
             max(jr.job_id) AS job_id
         FROM document_chunks dc
         JOIN job_results jr
@@ -214,7 +214,7 @@ class DocumentRepository:
         WHERE dc.document_id = :document_id
             AND dc.job_result_id = :job_result_id
         GROUP BY dc.section_id, lower(dc.chunk_type)
-        ORDER BY min(dc.ordinal) ASC
+        ORDER BY min(dc.position) ASC
         """
         result = await db.execute(
             text(sql),
@@ -287,8 +287,8 @@ class DocumentRepository:
         limit: int,
         offset: int = 0,
         chunk_type: str | None = None,
-        minimum_ordinal: int | None = None,
-        maximum_ordinal: int | None = None,
+        minimum_position: int | None = None,
+        maximum_position: int | None = None,
         document_chunk_id: str | None = None,
         chunk_id: str | None = None,
         section_path: str | None = None,
@@ -299,7 +299,7 @@ class DocumentRepository:
                 DocumentChunk,
                 DocumentSection,
                 JobResult,
-                DocumentChunk.ordinal,
+                DocumentChunk.position,
             )
             .outerjoin(
                 DocumentSection,
@@ -308,16 +308,16 @@ class DocumentRepository:
             .join(JobResult, JobResult.id == DocumentChunk.job_result_id)
             .where(DocumentChunk.document_id == document_id)
             .where(DocumentChunk.job_result_id == job_result_id)
-            .order_by(DocumentChunk.ordinal.asc())
+            .order_by(DocumentChunk.position.asc())
             .limit(limit)
             .offset(offset)
         )
         if chunk_type is not None:
             stmt = stmt.where(func.lower(DocumentChunk.chunk_type) == chunk_type)
-        if minimum_ordinal is not None:
-            stmt = stmt.where(DocumentChunk.ordinal >= minimum_ordinal)
-        if maximum_ordinal is not None:
-            stmt = stmt.where(DocumentChunk.ordinal <= maximum_ordinal)
+        if minimum_position is not None:
+            stmt = stmt.where(DocumentChunk.position >= minimum_position)
+        if maximum_position is not None:
+            stmt = stmt.where(DocumentChunk.position <= maximum_position)
         if document_chunk_id is not None:
             stmt = stmt.where(DocumentChunk.id == document_chunk_id)
         if chunk_id is not None:
@@ -384,7 +384,7 @@ class DocumentRepository:
 
         return [
             DocumentChunkGrepRow(
-                ordinal=int(row["ordinal"]),
+                position=int(row["position"]),
                 document_chunk_id=str(row["document_chunk_id"]),
                 chunk_id=str(row["chunk_id"]),
                 chunk_type=str(row["chunk_type"]),
@@ -412,28 +412,28 @@ class DocumentRepository:
         job_result_id: str,
         section_path: str | None = None,
     ) -> DocumentChunkScopeBounds | None:
-        first_ordinal = await self._get_current_document_boundary_ordinal(
+        first_position = await self._get_current_document_boundary_position(
             db,
             document_id=document_id,
             job_result_id=job_result_id,
             section_path=section_path,
             descending=False,
         )
-        if first_ordinal is None:
+        if first_position is None:
             return None
 
-        last_ordinal = await self._get_current_document_boundary_ordinal(
+        last_position = await self._get_current_document_boundary_position(
             db,
             document_id=document_id,
             job_result_id=job_result_id,
             section_path=section_path,
             descending=True,
         )
-        if last_ordinal is None:
+        if last_position is None:
             return None
-        return first_ordinal, last_ordinal
+        return first_position, last_position
 
-    async def _get_current_document_boundary_ordinal(
+    async def _get_current_document_boundary_position(
         self,
         db: AsyncSession,
         *,
@@ -442,9 +442,9 @@ class DocumentRepository:
         section_path: str | None,
         descending: bool,
     ) -> int | None:
-        order_by = DocumentChunk.ordinal.desc() if descending else DocumentChunk.ordinal.asc()
+        order_by = DocumentChunk.position.desc() if descending else DocumentChunk.position.asc()
         stmt = (
-            select(DocumentChunk.ordinal)
+            select(DocumentChunk.position)
             .select_from(DocumentChunk)
             .outerjoin(
                 DocumentSection,
@@ -462,8 +462,8 @@ class DocumentRepository:
         )
 
         result = await db.execute(stmt)
-        ordinal = result.scalar_one_or_none()
-        return int(ordinal) if ordinal is not None else None
+        position = result.scalar_one_or_none()
+        return int(position) if position is not None else None
 
     async def get_current_document_chunk(
         self,
@@ -570,7 +570,7 @@ def _build_grep_base_cte(filter_sql: str) -> str:
             dc.file_path,
             ds.section_path,
             jr.job_id,
-            dc.ordinal
+            dc.position
         FROM document_chunks dc
         LEFT JOIN document_sections ds
             ON ds.section_id = dc.section_id
@@ -609,7 +609,7 @@ def _build_literal_grep_sql(
         WHERE {match_filter_expr}
     )
     SELECT
-        matched.ordinal,
+        matched.position,
         matched.document_chunk_id,
         matched.chunk_id,
         matched.chunk_type,
@@ -648,7 +648,7 @@ def _build_literal_grep_sql(
         ) AS snippet,
         NULL::text AS content
     FROM matched
-    ORDER BY matched.ordinal ASC
+    ORDER BY matched.position ASC
     LIMIT :limit
     """
 
@@ -657,7 +657,7 @@ def _build_regex_grep_sql(filter_sql: str, *, is_case_sensitive: bool) -> str:
     regex_operator = "~" if is_case_sensitive else "~*"
     return _build_grep_base_cte(filter_sql) + f"""
     SELECT
-        sc.ordinal,
+        sc.position,
         sc.document_chunk_id,
         sc.chunk_id,
         sc.chunk_type,
@@ -671,6 +671,6 @@ def _build_regex_grep_sql(filter_sql: str, *, is_case_sensitive: bool) -> str:
         sc.content
     FROM scoped sc
     WHERE sc.content {regex_operator} :pattern
-    ORDER BY sc.ordinal ASC
+    ORDER BY sc.position ASC
     LIMIT :limit
     """

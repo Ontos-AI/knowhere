@@ -70,7 +70,7 @@ class DocumentOutlineResponse(BaseModel):
 
 
 class DocumentReadChunk(BaseModel):
-    ordinal: int
+    position: int
     document_chunk_id: str
     chunk_id: str
     chunk_type: str
@@ -94,7 +94,7 @@ class DocumentReadChunksResponse(BaseModel):
 
 
 class DocumentGrepMatch(BaseModel):
-    ordinal: int
+    position: int
     document_chunk_id: str
     chunk_id: str
     chunk_type: str
@@ -266,7 +266,7 @@ class DocumentInspectionService:
             job_result_id=job_result_id,
             job_id=_read_job_id(selected_rows) or _read_job_id(next_rows),
             chunks=selected_chunks,
-            next_chunk=_read_first_row_ordinal(next_rows),
+            next_chunk=_read_first_row_position(next_rows),
         )
 
     async def grep_chunks(
@@ -387,7 +387,7 @@ def _read_job_id(rows: Sequence[object]) -> str | None:
     row = _unpack_chunk_row(rows[0])
     if row is None:
         return None
-    _chunk, _section, job_result, _ordinal = row
+    _chunk, _section, job_result, _position = row
     job_id = getattr(job_result, "job_id", None)
     return str(job_id) if job_id else None
 
@@ -409,14 +409,14 @@ def _create_read_chunk_payloads(rows: Sequence[object]) -> list[dict[str, Any]]:
         unpacked_row = _unpack_chunk_row(row)
         if unpacked_row is None:
             continue
-        chunk, section, job_result, ordinal = unpacked_row
+        chunk, section, job_result, position = unpacked_row
         if not isinstance(chunk, DocumentChunk):
             continue
         section_payload = section if isinstance(section, DocumentSection) else None
         job_id = getattr(job_result, "job_id", None)
         payloads.append(
             {
-                "ordinal": ordinal or index + 1,
+                "position": position or index + 1,
                 "document_chunk_id": chunk.id,
                 "chunk_id": chunk.chunk_id,
                 "chunk_type": _normalize_chunk_type(chunk.chunk_type),
@@ -441,7 +441,7 @@ def _create_read_chunk_from_payload(payload: Mapping[str, Any]) -> DocumentReadC
         else {}
     )
     return DocumentReadChunk(
-        ordinal=int(payload["ordinal"]),
+        position=int(payload["position"]),
         document_chunk_id=str(payload["document_chunk_id"]),
         chunk_id=str(payload["chunk_id"]),
         chunk_type=_normalize_chunk_type(payload["chunk_type"]),
@@ -458,21 +458,21 @@ def _create_read_chunk_from_payload(payload: Mapping[str, Any]) -> DocumentReadC
     )
 
 
-def _read_first_row_ordinal(rows: Sequence[object]) -> int | None:
+def _read_first_row_position(rows: Sequence[object]) -> int | None:
     if not rows:
         return None
     unpacked_row = _unpack_chunk_row(rows[0])
     if unpacked_row is None:
         return None
-    _chunk, _section, _job_result, ordinal = unpacked_row
-    return ordinal
+    _chunk, _section, _job_result, position = unpacked_row
+    return position
 
 
 def _unpack_chunk_row(row: object) -> tuple[object, object, object, int | None] | None:
     if not isinstance(row, Sequence) or len(row) < 3:
         return None
-    ordinal = int(row[3]) if len(row) > 3 and row[3] is not None else None
-    return row[0], row[1], row[2], ordinal
+    position = int(row[3]) if len(row) > 3 and row[3] is not None else None
+    return row[0], row[1], row[2], position
 
 
 def _create_section_outlines_from_stats(
@@ -639,11 +639,11 @@ async def _read_chunk_range_rows(
     if bounds is None:
         return [], []
 
-    first_ordinal, last_ordinal = bounds
-    start = _clamp_integer(start_chunk, first_ordinal, last_ordinal, first_ordinal)
+    first_position, last_position = bounds
+    start = _clamp_integer(start_chunk, first_position, last_position, first_position)
     requested_end = end_chunk if end_chunk is not None else start + DEFAULT_READ_CHUNK_LIMIT - 1
     end = min(
-        _clamp_integer(requested_end, start, last_ordinal, start),
+        _clamp_integer(requested_end, start, last_position, start),
         start + MAX_READ_CHUNK_LIMIT - 1,
     )
     selected_rows = await repository.list_current_document_chunks_for_inspection(
@@ -651,8 +651,8 @@ async def _read_chunk_range_rows(
         document_id=document_id,
         job_result_id=job_result_id,
         section_path=section_path,
-        minimum_ordinal=start,
-        maximum_ordinal=end,
+        minimum_position=start,
+        maximum_position=end,
         limit=MAX_READ_CHUNK_LIMIT,
     )
     next_rows = await repository.list_current_document_chunks_for_inspection(
@@ -660,7 +660,7 @@ async def _read_chunk_range_rows(
         document_id=document_id,
         job_result_id=job_result_id,
         section_path=section_path,
-        minimum_ordinal=end + 1,
+        minimum_position=end + 1,
         limit=1,
     )
     return selected_rows, next_rows
@@ -736,7 +736,7 @@ def _collect_grep_row_matches(
             snippet = _create_snippet(content, start_offset, end_offset)
         matches.append(
             DocumentGrepMatch(
-                ordinal=int(getattr(row, "ordinal")),
+                position=int(getattr(row, "position")),
                 document_chunk_id=str(getattr(row, "document_chunk_id")),
                 chunk_id=str(getattr(row, "chunk_id")),
                 chunk_type=_normalize_chunk_type(getattr(row, "chunk_type")),

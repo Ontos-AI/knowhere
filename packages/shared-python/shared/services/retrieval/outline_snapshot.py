@@ -121,13 +121,13 @@ def _get_outline_chunk_stats(
                 dc.section_id,
                 lower(dc.chunk_type) AS chunk_type,
                 count(*)::integer AS chunk_count,
-                min(dc.ordinal)::integer AS start_chunk,
-                max(dc.ordinal)::integer AS end_chunk
+                min(dc.position)::integer AS start_chunk,
+                max(dc.position)::integer AS end_chunk
             FROM document_chunks dc
             WHERE dc.document_id = :document_id
                 AND dc.job_result_id = :job_result_id
             GROUP BY dc.section_id, lower(dc.chunk_type)
-            ORDER BY min(dc.ordinal) ASC
+            ORDER BY min(dc.position) ASC
             """
         ),
         {

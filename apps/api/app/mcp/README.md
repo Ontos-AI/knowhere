@@ -41,7 +41,7 @@ Read bounded exact chunks from one active document by:
 - canonical `document_chunk_id`
 - semantic parser `chunk_id`
 
-Reads use database ordinals and are hard-capped by the service. Media chunks
+Reads use database positions and are hard-capped by the service. Media chunks
 (`image` and `table`) include a fresh `asset_url` when the chunk has a valid
 `images/...` or `tables/...` artifact path. Result artifact URLs default to a
 7-day presigned lifetime, subject to the configured storage provider and signer
