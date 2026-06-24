@@ -16,11 +16,11 @@ from app.services.page_memory import page_assets
 from app.services.page_memory.page_renderer import PageRenderResult
 
 
-def test_page_assets_default_to_qwen32b_and_full_page_scan(monkeypatch) -> None:
+def test_page_assets_default_to_qwen_flash_and_full_page_scan(monkeypatch) -> None:
     monkeypatch.delenv("PAGE_MEMORY_ASSET_MODEL", raising=False)
     monkeypatch.delenv("PAGE_MEMORY_ASSET_MAX_PAGES", raising=False)
 
-    assert page_assets.get_asset_model() == "qwen3-vl-32b-instruct"
+    assert page_assets.get_asset_model() == "qwen3.6-flash"
     assert page_assets.get_asset_max_pages(301) == 301
 
 
@@ -37,10 +37,7 @@ def test_page_asset_detection_uses_lowest_temperature(monkeypatch, tmp_path) -> 
                             {
                                 "kind": "table",
                                 "bbox": [100, 100, 300, 300],
-                                "caption": "caption",
-                                "title": "title",
-                                "summary": "summary",
-                                "keywords": ["table"],
+                                "title": "table title",
                                 "confidence": 1.0,
                             }
                         ]
@@ -74,9 +71,17 @@ def test_page_asset_detection_uses_lowest_temperature(monkeypatch, tmp_path) -> 
         confidence_threshold=0.3,
     )
 
-    assert captured["model"] == "qwen3-vl-32b-instruct"
+    prompt = captured["messages"][0]["content"][0]["text"]  # type: ignore[index]
+    assert captured["model"] == "qwen3.6-flash"
     assert captured["temperature"] == 0
     assert assets[0].bbox_px == [10, 12, 30, 36]
+    assert assets[0].title == "table title"
+    assert assets[0].caption == ""
+    assert '"kind": "table|figure"' in prompt
+    assert '"caption"' not in prompt
+    assert '"summary"' not in prompt
+    assert '"keywords"' not in prompt
+    assert '"table|chart|figure"' not in prompt
 
 
 def test_page_asset_extraction_keeps_debug_output_minimal(

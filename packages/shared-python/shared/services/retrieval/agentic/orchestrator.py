@@ -361,7 +361,7 @@ class RetrievalAgent:
         )
 
         # Collect referenced chunk IDs from all doc trees
-        all_refs: list[dict[str, str]] = []
+        all_refs: list[dict[str, Any]] = []
         seen_ref_ids: set[str] = set()
         for doc_id, doc_tree in state.doc_trees.items():
             doc_name = state.doc_id_to_name.get(doc_id, doc_id)

@@ -36,8 +36,11 @@ class RetrievalQueryRequest(BaseModel):
     data_type: int = Field(
         1,
         ge=1,
-        le=6,
-        description="Chunk type filter: 1=all, 2=text, 3=image, 4=table, 5=text+image, 6=text+table",
+        le=8,
+        description=(
+            "Chunk type filter: 1=all, 2=text, 3=image, 4=table, "
+            "5=text+image, 6=text+table, 7=page, 8=text+image+table"
+        ),
     )
     signal_paths: list[str] = Field(
         default_factory=list, description="Path keywords for include/exclude filtering"

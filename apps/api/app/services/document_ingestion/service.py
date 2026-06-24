@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from typing import cast
+from typing import Literal, cast
 
 from app.services.document_ingestion.confirmation_service import (
     DocumentIngestionConfirmationService,
@@ -38,6 +38,8 @@ from shared.services.http.url_file_type import resolve_file_extension_async
 from shared.services.http.url_security import validate_http_url_and_resolve_ip_async
 
 JobMetadata = dict[str, object]
+ParseTrack = Literal["chunk", "page_memory"]
+_PAGE_MEMORY_PARSE_TRACK_EXTENSIONS = {".pdf", ".pptx"}
 
 
 class DocumentIngestionService:
@@ -196,13 +198,13 @@ class DocumentIngestionService:
                         }
                     ],
                 )
-            _validate_parse_track_for_extension(
-                parse_track=payload.parse_track,
+            _apply_effective_parse_track(
+                payload,
                 file_extension=file_extension,
             )
         elif payload.file_name:
-            _validate_parse_track_for_extension(
-                parse_track=payload.parse_track,
+            _apply_effective_parse_track(
+                payload,
                 file_extension=os.path.splitext(payload.file_name)[1].lower(),
             )
 
@@ -292,7 +294,7 @@ def _validate_parse_track_for_extension(*, parse_track: str, file_extension: str
                 }
             ],
         )
-    if file_extension.lower() not in {".pdf", ".pptx"}:
+    if file_extension.lower() not in _PAGE_MEMORY_PARSE_TRACK_EXTENSIONS:
         raise ValidationException(
             user_message="page_memory parse track only supports PDF and PPTX",
             violations=[
@@ -302,3 +304,50 @@ def _validate_parse_track_for_extension(*, parse_track: str, file_extension: str
                 }
             ],
         )
+
+
+def _apply_effective_parse_track(
+    payload: JobCreate,
+    *,
+    file_extension: str,
+) -> ParseTrack:
+    explicit = "parse_track" in payload.model_fields_set
+    effective_parse_track = _resolve_effective_parse_track(
+        parse_track=payload.parse_track,
+        file_extension=file_extension,
+        explicit=explicit,
+    )
+    payload.parse_track = effective_parse_track
+    return effective_parse_track
+
+
+def _resolve_effective_parse_track(
+    *,
+    parse_track: ParseTrack,
+    file_extension: str,
+    explicit: bool,
+) -> ParseTrack:
+    if parse_track == "chunk":
+        return "chunk"
+    if parse_track != "page_memory":
+        raise ValidationException(
+            user_message="Unsupported parse_track",
+            violations=[
+                {"field": "parse_track", "description": "Must be chunk or page_memory"}
+            ],
+        )
+
+    if (
+        not explicit
+        and (
+            not settings.RETRIEVAL_PAGE_MEMORY_ENABLED
+            or file_extension.lower() not in _PAGE_MEMORY_PARSE_TRACK_EXTENSIONS
+        )
+    ):
+        return "chunk"
+
+    _validate_parse_track_for_extension(
+        parse_track=parse_track,
+        file_extension=file_extension,
+    )
+    return parse_track

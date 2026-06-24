@@ -50,6 +50,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
         job_id=request.job_id,
         output_dir=full_output_dir,
         skip_shard_plan=True,
+        oversized_policy="page_memory",
     )
     verdict = _decide_granularity(profile)
 
@@ -359,9 +360,7 @@ def _build_page_dataframe(
         "[page_memory] C7 assembled {} node rows (verdict={})",
         len(rows), verdict,
     )
-    df = pd.DataFrame(rows, columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
-    df.attrs["page_memory_skeletons"] = [skel.to_dict() for skel in skeletons]
-    return df
+    return pd.DataFrame(rows, columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
 
 
 def _build_page_ctx(
@@ -429,12 +428,7 @@ def _build_whole_doc_dataframe(
         "addtime": get_str_time(),
         "page_nums": ",".join(str(page) for page in pages),
         "extra_metadata": {
-            "granularity": "whole_doc",
-            "strategy_used": "whole_doc" if verdict == "whole_doc" else "whole_doc_fallback",
-            "source_verdict": verdict,
-            "page_index": None,
             "page_image_uris": page_image_uris,
-            "status": "clear",
         },
     }
     return pd.DataFrame([row], columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))

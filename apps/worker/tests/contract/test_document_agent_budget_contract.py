@@ -75,9 +75,7 @@ def test_dataframe_converter_accepts_page_chunks_with_extra_metadata() -> None:
                 "addtime": "2026-06-11 00:00:00",
                 "page_nums": "1,2",
                 "extra_metadata": {
-                    "granularity": "whole_doc",
                     "page_image_uris": ["pages/page_page_1.png"],
-                    "page_nums": [99],
                 },
             }
         ]
@@ -86,8 +84,8 @@ def test_dataframe_converter_accepts_page_chunks_with_extra_metadata() -> None:
     chunks = dataframe_to_chunks(df)
 
     assert chunks[0]["type"] == "page"
-    assert chunks[0]["metadata"]["granularity"] == "whole_doc"
     assert chunks[0]["metadata"]["page_nums"] == [1, 2]
+    assert chunks[0]["metadata"]["page_image_uris"] == ["pages/page_page_1.png"]
 
 
 def test_zip_chunk_schema_preserves_page_memory_node_metadata() -> None:
@@ -100,14 +98,7 @@ def test_zip_chunk_schema_preserves_page_memory_node_metadata() -> None:
             "metadata": {
                 "summary": "page summary",
                 "page_nums": [231],
-                "granularity": "node",
-                "page_indices": [231, 232],
-                "owned_pages": [232],
-                "section_path": "demo.pdf/3 基本规定/3.2 管理规定",
-                "section_level": 2,
                 "page_image_uris": ["pages/page-231.png", "pages/page-232.png"],
-                "kind": "normal",
-                "source_verdict": "page",
             },
         }
     ]
@@ -120,13 +111,11 @@ def test_zip_chunk_schema_preserves_page_memory_node_metadata() -> None:
 
     metadata = formatted[0]["metadata"]
     assert metadata["page_nums"] == [231]
-    assert metadata["granularity"] == "node"
-    assert metadata["page_indices"] == [231, 232]
-    assert metadata["owned_pages"] == [232]
-    assert metadata["section_path"] == "demo.pdf/3 基本规定/3.2 管理规定"
-    assert metadata["section_level"] == 2
     assert metadata["page_image_uris"] == ["pages/page-231.png", "pages/page-232.png"]
-    assert metadata["source_verdict"] == "page"
+    assert "granularity" not in metadata
+    assert "page_indices" not in metadata
+    assert "owned_pages" not in metadata
+    assert "section_path" not in metadata
 
 
 def test_page_memory_granularity_routes_supported_page_modes() -> None:

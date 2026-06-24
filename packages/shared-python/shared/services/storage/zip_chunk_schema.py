@@ -130,17 +130,7 @@ def _normalize_chunk_type(value: Any) -> str:
     return raw_type.split("\n", 1)[0].lower()
 
 
-_PAGE_CHUNK_METADATA_KEYS = (
-    "granularity",
-    "page_indices",
-    "owned_pages",
-    "section_path",
-    "section_level",
-    "page_image_uris",
-    "kind",
-    "status",
-    "source_verdict",
-)
+_PAGE_CHUNK_METADATA_KEYS = ("page_image_uris",)
 
 
 def _merge_page_chunk_metadata(

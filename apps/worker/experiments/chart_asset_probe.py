@@ -1,8 +1,8 @@
-"""Experimental: VLM-driven chart/table region detection + cropping.
+"""Experimental: VLM-driven asset bbox detection + cropping.
 
 Goal of this experiment
 -----------------------
-Test whether a VLM can directly locate table/chart bounding boxes on a
+Test whether a VLM can directly locate table/chart/figure bounding boxes on a
 *rendered page image* (the same way PAGE-TRACK renders pages), so we can
 **crop** those regions out and later hand the crop to a dedicated table
 model (e.g. tabular / table-transformer) instead of asking the VLM to
@@ -12,17 +12,14 @@ This script does NOT touch production code.  It only:
 
   1. Renders selected PDF pages to PNG at a fixed DPI (mirrors PAGE-TRACK,
      default 144 DPI) so the pixel<->point mapping is fully controlled.
-  2. (VLM) Asks the model for table/chart regions as normalized [0,1000]
-     boxes, maps them to pixels, crops, and draws an annotated overlay.
-  3. (Baseline) Runs PyMuPDF's free, pixel-accurate detectors
-     (``find_tables`` + vector ``drawings`` rects + embedded ``images``)
-     so VLM output can be judged against a non-LLM reference.
+  2. (VLM) Asks the model only for table/chart/figure regions as normalized
+     [0,1000] boxes, maps them to pixels, crops, and draws an annotated overlay.
 
 Outputs (under --out):
     pages/page-N.png                full page render
     crops/page-N_vlm-K_<type>.png   VLM crops
-    crops/page-N_base-K_<kind>.png  baseline crops
-    asset_annotate/page_N.png       page with VLM(red) + baseline(green) boxes
+    crops/page-N_ref-K_<kind>.png   reference crops from existing chunks
+    asset_annotate/page_N.png       page with VLM(red) + reference(green) boxes
     results.json                    all regions + metadata
     report.md                       human-readable summary
 
@@ -30,11 +27,11 @@ Run:
     cd apps/worker
     uv run python experiments/chart_asset_probe.py \
         --pdf "/path/to/doc.pdf" \
-        --pages all --baseline
+        --pages all
     # Uses $IMAGE_MODEL (default qwen3.6-flash) unless --model is set.
     # Alternate: --model qwen3-vl-32b-instruct (open-weights, local-deployable).
 
-VLM model guidance (chart/table bbox grounding)
+VLM model guidance (bbox grounding)
 ------------------------------------------------
 * **Default (cloud):** ``qwen3.6-flash`` via ``$IMAGE_MODEL`` — cheapest,
   strong bbox quality on our probe PDFs.
@@ -67,34 +64,59 @@ from PIL import Image, ImageDraw, ImageFont
 # BOTH axes, with origin at the top-left of the page image. This is robust
 # to whatever internal resize the API performs.
 NORM = 1000
+_VALID_KINDS = {"table", "figure"}
 
 _PROMPT = (
-    "You are a precise document layout detector. The attached image is a "
-    "single rendered page.\n\n"
-    "Task: locate every TABLE and every FIGURE (bar/line/pie charts, "
-    "plots, diagrams, schematic images). Do NOT transcribe their content. "
-    "Only return their bounding boxes.\n\n"
-    "Coordinate system: treat the page image as a {n}x{n} grid. The "
-    "top-left corner is (0,0) and the bottom-right is ({n},{n}). For each "
-    "region return [x1,y1,x2,y2] integers in that 0-{n} space, where "
-    "(x1,y1) is the top-left and (x2,y2) the bottom-right of a box that "
-    "TIGHTLY encloses the region INCLUDING its title/caption and axis "
-    "labels but EXCLUDING surrounding body paragraphs.\n\n"
-    "Return STRICT JSON only, no prose:\n"
-    '{{"regions":[{{"type":"table|chart|figure","bbox":[x1,y1,x2,y2],'
-    '"caption":"short caption text if visible else empty",'
-    '"confidence":0.0}}]}}\n'
-    "If there are no tables/charts, return {{\"regions\":[]}}."
+    "You are a precise document layout detector. The attached image is a single "
+    "rendered PDF page.\n\n"
+    "Find visually distinct tables and figures that should become reusable "
+    "document assets. Locate them only — do NOT summarize, transcribe full "
+    "content, extract keywords, or read data values. Return strict JSON:\n"
+    "{{\n"
+    '  "regions": [\n'
+    "    {{\n"
+    '      "kind": "table|figure",\n'
+    '      "bbox": [x1, y1, x2, y2],\n'
+    '      "title": "<short asset title or its visible caption/label, '
+    'empty string if none>",\n'
+    '      "confidence": 0.0\n'
+    "    }}\n"
+    "  ]\n"
+    "}}\n\n"
+    "Coordinate system:\n"
+    "- Treat the page image as a {n}x{n} grid.\n"
+    "- Origin is the top-left corner.\n"
+    "- bbox values must be integers in [0, {n}].\n"
+    "- bbox must tightly include the whole asset: its title, caption, legend, "
+    "axes, labels, table headers, and footnotes that belong to that asset.\n"
+    "- Exclude surrounding body paragraphs, page headers, page footers, and "
+    "page numbers.\n\n"
+    "Rules:\n"
+    "- \"table\": data arranged in clear rows and columns — grid lines, cell "
+    "borders, or strongly aligned cells (data tables, forms, financial tables, "
+    "appendix tables).\n"
+    "- \"figure\": any non-table visual asset — bar/line/pie/scatter charts, "
+    "plots, diagrams, flowcharts, architecture drawings, schematics, or "
+    "embedded images.\n"
+    "- Do not mark ordinary paragraphs, bullet lists, title blocks, or loose "
+    "multi-line text as tables.\n"
+    "- Do not split a single coherent table or figure into sub-parts.\n"
+    "- \"title\" is one short label only (single line). Do not duplicate it into "
+    "other fields and do not write a summary. Use an empty string when there is "
+    "no visible title or caption.\n"
+    "- Use confidence 0.0-1.0. Only include assets you can localize.\n"
+    "- If there are no qualifying assets, return {{\"regions\":[]}}.\n"
+    "- Return ONLY the JSON object, no markdown fences or explanations."
 ).format(n=NORM)
 
 
 @dataclass
 class Region:
-    source: str  # "vlm" | "baseline"
+    source: str  # "vlm" | "reference"
     page: int
-    kind: str  # table | chart | figure | drawing | image
+    kind: str  # table | figure
     bbox_px: list[int]  # [x1,y1,x2,y2] in rendered-image pixels
-    caption: str = ""
+    title: str = ""  # short asset title / caption (single field, no duplication)
     confidence: float = 0.0
     crop_path: str = ""
 
@@ -108,7 +130,7 @@ class PageResult:
     height_pt: float
     image_path: str
     vlm_regions: list[Region] = field(default_factory=list)
-    baseline_regions: list[Region] = field(default_factory=list)
+    reference_regions: list[Region] = field(default_factory=list)
     vlm_error: str = ""
 
 
@@ -190,59 +212,42 @@ def norm_to_px(box: list[float], w: int, h: int) -> list[int]:
     return [x1, y1, x2, y2]
 
 
-# ── PyMuPDF baseline (free, pixel-accurate) ───────────────────────────
+def load_reference_regions(chunks_path: Path) -> dict[int, list[Region]]:
+    if not chunks_path.exists():
+        raise FileNotFoundError(f"reference chunks not found: {chunks_path}")
+    payload = json.loads(chunks_path.read_text(encoding="utf-8"))
+    chunks = payload.get("chunks") if isinstance(payload, dict) else None
+    if not isinstance(chunks, list):
+        raise ValueError(f"reference chunks must contain a chunks[] array: {chunks_path}")
 
-
-def baseline_regions(page: fitz.Page, dpi: int, w: int, h: int) -> list[Region]:
-    zoom = dpi / 72.0
-    regions: list[Region] = []
-
-    # 1) Native table finder
-    try:
-        tf = page.find_tables()
-        for t in tf.tables:
-            r = t.bbox  # (x0,y0,x1,y1) in points
-            regions.append(
-                Region(
-                    source="baseline",
-                    page=page.number + 1,
-                    kind="table",
-                    bbox_px=_pt_box_to_px(r, zoom, w, h),
-                    confidence=1.0,
-                )
+    by_page: dict[int, list[Region]] = {}
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+        metadata = chunk.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        bbox = metadata.get("bbox_px")
+        page_index = metadata.get("page_index")
+        if not isinstance(bbox, list) or len(bbox) != 4 or page_index is None:
+            continue
+        try:
+            page = int(page_index)
+            bbox_px = [int(round(float(item))) for item in bbox]
+        except (TypeError, ValueError):
+            continue
+        kind = str(metadata.get("asset_kind") or chunk.get("type") or "asset")
+        by_page.setdefault(page, []).append(
+            Region(
+                source="reference",
+                page=page,
+                kind=kind,
+                bbox_px=bbox_px,
+                title=str(metadata.get("title") or metadata.get("caption") or ""),
+                confidence=float(metadata.get("confidence") or 0.0),
             )
-    except Exception as exc:  # noqa: BLE001
-        print(f"  [baseline] find_tables failed: {exc}", file=sys.stderr)
-
-    # 2) Embedded raster images (charts often exported as images)
-    try:
-        for info in page.get_image_info():
-            bbox = info.get("bbox")
-            if bbox:
-                regions.append(
-                    Region(
-                        source="baseline",
-                        page=page.number + 1,
-                        kind="image",
-                        bbox_px=_pt_box_to_px(bbox, zoom, w, h),
-                        confidence=0.5,
-                    )
-                )
-    except Exception as exc:  # noqa: BLE001
-        print(f"  [baseline] get_image_info failed: {exc}", file=sys.stderr)
-
-    return regions
-
-
-def _pt_box_to_px(box: Any, zoom: float, w: int, h: int) -> list[int]:
-    x1, y1, x2, y2 = box
-    px = [int(round(x1 * zoom)), int(round(y1 * zoom)),
-          int(round(x2 * zoom)), int(round(y2 * zoom))]
-    px[0] = max(0, min(px[0], w))
-    px[2] = max(0, min(px[2], w))
-    px[1] = max(0, min(px[1], h))
-    px[3] = max(0, min(px[3], h))
-    return px
+        )
+    return by_page
 
 
 # ── cropping + overlay ────────────────────────────────────────────────
@@ -268,15 +273,17 @@ def draw_overlay(img: Image.Image, page_res: PageResult, out_path: Path) -> None
     except Exception:  # noqa: BLE001
         font = ImageFont.load_default()
 
-    for r in page_res.baseline_regions:
+    for r in page_res.reference_regions:
         x1, y1, x2, y2 = r.bbox_px
         draw.rectangle([x1, y1, x2, y2], outline=(0, 170, 0), width=3)
-        draw.text((x1 + 2, y1 + 2), f"base:{r.kind}", fill=(0, 120, 0), font=font)
+        draw.text((x1 + 2, y1 + 2), f"ref:{r.kind}", fill=(0, 120, 0), font=font)
 
     for i, r in enumerate(page_res.vlm_regions):
         x1, y1, x2, y2 = r.bbox_px
         draw.rectangle([x1, y1, x2, y2], outline=(220, 0, 0), width=3)
         label = f"vlm:{r.kind} {r.confidence:.2f}"
+        if r.title:
+            label += f" | {r.title[:24]}"
         draw.text((x1 + 2, max(0, y1 - 24)), label, fill=(200, 0, 0), font=font)
 
     canvas.save(out_path)
@@ -313,14 +320,18 @@ def main() -> int:
         "--model",
         default=os.environ.get("IMAGE_MODEL", ""),
         help=(
-            "VLM model for bbox detection. Defaults to $IMAGE_MODEL "
+            "VLM model for bbox-only detection. Defaults to $IMAGE_MODEL "
             "(qwen3.6-flash). Alternate: qwen3-vl-32b-instruct "
             "(open-weights, local-deployable; DashScope ¥2/¥8 per 1M in/out)."
         ),
     )
     ap.add_argument("--margin", type=int, default=8, help="crop padding px")
-    ap.add_argument("--baseline", action="store_true", help="also run PyMuPDF baseline")
-    ap.add_argument("--no-vlm", action="store_true", help="skip VLM (baseline only)")
+    ap.add_argument("--no-vlm", action="store_true", help="skip VLM (reference only)")
+    ap.add_argument(
+        "--reference-chunks",
+        default="",
+        help="existing chunks.json with old asset bbox metadata to overlay in green",
+    )
     ap.add_argument("--out", default="")
     args = ap.parse_args()
 
@@ -342,8 +353,14 @@ def main() -> int:
 
     doc = fitz.open(str(pdf_path))
     page_nums = parse_pages(args.pages, doc.page_count)
+    reference_by_page = (
+        load_reference_regions(Path(args.reference_chunks))
+        if args.reference_chunks
+        else {}
+    )
     print(f"PDF: {pdf_path.name} | {doc.page_count} pages | probing {len(page_nums)} "
-          f"| dpi={args.dpi} | model={args.model or '(none)'} | baseline={args.baseline}")
+          f"| dpi={args.dpi} | model={args.model or '(none)'} "
+          f"| reference={sum(len(items) for items in reference_by_page.values())}")
 
     results: list[PageResult] = []
     total_tokens = 0
@@ -357,6 +374,7 @@ def main() -> int:
             width_pt=page.rect.width, height_pt=page.rect.height,
             image_path=str(img_path),
         )
+        pr.reference_regions = list(reference_by_page.get(pno, []))
         print(f"\n[page {pno}] {w}x{h}px")
 
         if not args.no_vlm:
@@ -368,11 +386,14 @@ def main() -> int:
                     box = reg.get("bbox") or reg.get("bbox_norm")
                     if not box or len(box) != 4:
                         continue
+                    kind = str(reg.get("kind") or reg.get("type") or "").strip().lower()
+                    if kind not in _VALID_KINDS:
+                        continue
                     region = Region(
                         source="vlm", page=pno,
-                        kind=str(reg.get("type", "region")),
+                        kind=kind,
                         bbox_px=norm_to_px([float(v) for v in box], w, h),
-                        caption=str(reg.get("caption", "")),
+                        title=str(reg.get("title") or reg.get("caption") or ""),
                         confidence=float(reg.get("confidence", 0.0) or 0.0),
                     )
                     pr.vlm_regions.append(region)
@@ -382,19 +403,15 @@ def main() -> int:
                 pr.vlm_error = str(exc)
                 print(f"  [vlm] ERROR: {exc}", file=sys.stderr)
 
-        if args.baseline:
-            pr.baseline_regions = baseline_regions(page, args.dpi, w, h)
-            print(f"  [baseline] {len(pr.baseline_regions)} region(s)")
-
         # crops + overlay
         with Image.open(img_path) as im:
             for k, r in enumerate(pr.vlm_regions):
                 crop_region(im, r, args.margin,
                             out_dir / "crops" / f"page-{pno}_vlm-{k}_{r.kind}.png")
-            for k, r in enumerate(pr.baseline_regions):
+            for k, r in enumerate(pr.reference_regions):
                 crop_region(im, r, args.margin,
-                            out_dir / "crops" / f"page-{pno}_base-{k}_{r.kind}.png")
-            if pr.vlm_regions or pr.baseline_regions:
+                            out_dir / "crops" / f"page-{pno}_ref-{k}_{r.kind}.png")
+            if pr.vlm_regions or pr.reference_regions:
                 draw_overlay(im, pr, out_dir / "asset_annotate" / f"page_{pno}.png")
         results.append(pr)
 
@@ -418,31 +435,32 @@ def main() -> int:
 def _write_report(out_dir: Path, pdf_path: Path, args: Any,
                   results: list[PageResult], total_tokens: int) -> None:
     n_vlm = sum(len(r.vlm_regions) for r in results)
-    n_base = sum(len(r.baseline_regions) for r in results)
+    n_ref = sum(len(r.reference_regions) for r in results)
     lines = [
         f"# Chart/Table Asset Probe — {pdf_path.name}",
         "",
         f"- pages probed: **{len(results)}**",
         f"- dpi: **{args.dpi}**, model: **{args.model or '(no-vlm)'}**",
-        f"- VLM regions: **{n_vlm}**, baseline regions: **{n_base}**",
+        f"- VLM regions: **{n_vlm}**, reference regions: **{n_ref}**",
         f"- total VLM tokens: **{total_tokens}**",
         "",
-        "| page | px | vlm | base | vlm kinds | vlm error |",
-        "|-----:|----|----:|-----:|-----------|-----------|",
+        "| page | px | vlm | ref | vlm kinds | vlm titles | vlm error |",
+        "|-----:|----|----:|----:|-----------|------------|-----------|",
     ]
     for r in results:
         kinds = ",".join(sorted({x.kind for x in r.vlm_regions})) or "-"
+        titles = "; ".join(x.title for x in r.vlm_regions if x.title) or "-"
         err = (r.vlm_error[:40] + "…") if r.vlm_error else ""
         lines.append(
             f"| {r.page} | {r.width_px}x{r.height_px} | {len(r.vlm_regions)} "
-            f"| {len(r.baseline_regions)} | {kinds} | {err} |"
+            f"| {len(r.reference_regions)} | {kinds} | {titles} | {err} |"
         )
     lines += [
         "",
         "## How to read",
-        "- `asset_annotate/page_N.png`: red = VLM boxes, green = PyMuPDF baseline.",
+        "- `asset_annotate/page_N.png`: red = new VLM boxes, green = reference boxes from existing chunks.",
         "- Judge VLM by: does the red box tightly enclose the table/chart "
-        "(incl. caption, excl. body text)? Compare against green baseline.",
+        "(incl. caption, excl. body text)? Compare against the green reference.",
         "- `crops/`: the actual extracted assets to feed a table model next.",
     ]
     (out_dir / "report.md").write_text("\n".join(lines), encoding="utf-8")

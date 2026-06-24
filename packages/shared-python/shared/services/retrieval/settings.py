@@ -14,6 +14,8 @@ DATA_TYPE_ALLOWED_CHUNK_TYPES: dict[int, set[str] | None] = {
     4: {'table'},
     5: {'text', 'image'},
     6: {'text', 'table'},
+    7: {'page'},
+    8: {'text', 'image', 'table'},
 }
 
 

@@ -13,7 +13,7 @@ from shared.services.storage.storage_adapter import StorageAdapter
 
 _EXCLUDED_FILE_NAMES = {".DS_Store", "Thumbs.db"}
 _EXCLUDED_DIR_NAMES = {"tmp", "temp", "__pycache__"}
-_CLIENT_ARTIFACT_DIRS = {"images", "tables"}
+_CLIENT_ARTIFACT_DIRS = {"images", "tables", "pages"}
 
 
 @dataclass(frozen=True)
@@ -25,7 +25,12 @@ class UploadedResultBundle:
 
 class ResultStorage(Protocol):
     def upload(
-        self, *, job_id: str, result_dir: str, zip_file_path: str
+        self,
+        *,
+        job_id: str,
+        result_dir: str,
+        zip_file_path: str,
+        artifact_refs: set[str] | None = None,
     ) -> UploadedResultBundle:
         raise NotImplementedError
 
@@ -73,7 +78,12 @@ class JobResultStorage:
         return normalized
 
     def upload(
-        self, *, job_id: str, result_dir: str, zip_file_path: str
+        self,
+        *,
+        job_id: str,
+        result_dir: str,
+        zip_file_path: str,
+        artifact_refs: set[str] | None = None,
     ) -> UploadedResultBundle:
         result_path = Path(result_dir)
         if not result_path.is_dir():
@@ -91,8 +101,11 @@ class JobResultStorage:
         self._cleanup_file(zip_path)
 
         raw_files: dict[str, str] = {}
+        artifact_ref_filter = self._normalize_artifact_refs(artifact_refs)
         for file_path in self._iter_raw_files(result_path):
             relative_path = file_path.relative_to(result_path).as_posix()
+            if artifact_ref_filter is not None and relative_path not in artifact_ref_filter:
+                continue
             raw_key = self.build_raw_key(job_id=job_id, relative_path=relative_path)
             self._job_file_storage.upload_local_file(
                 str(file_path),
@@ -151,6 +164,16 @@ class JobResultStorage:
         if self._is_excluded_file(parts[-1]):
             return None
         return "/".join(parts)
+
+    def _normalize_artifact_refs(self, artifact_refs: set[str] | None) -> set[str] | None:
+        if artifact_refs is None:
+            return None
+        normalized_refs = {
+            normalized
+            for ref in artifact_refs
+            if (normalized := self.normalize_artifact_ref(ref)) is not None
+        }
+        return normalized_refs
 
     def _is_excluded_file(self, file_name: str) -> bool:
         return file_name in _EXCLUDED_FILE_NAMES or file_name.startswith(".")

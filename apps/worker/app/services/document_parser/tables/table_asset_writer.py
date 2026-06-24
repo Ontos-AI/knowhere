@@ -30,7 +30,8 @@ def write_table_asset(table_input: TableAssetInput) -> ParsedRow:
     table_path = os.path.join(table_dir, table_filename)
     with open(table_path, "w", encoding="utf-8") as table_file:
         table_file.write(table_input.html)
-    row_content = table_input.content if table_input.content is not None else table_input.html
+    asset_ref = table_input.asset_path or f"tables/{table_filename}"
+    row_content = asset_ref
     row_type = "table"
     if table_input.asset_path:
         row_type = f"table\n{build_chunk_ref(table_input.asset_path)}"
@@ -44,7 +45,7 @@ def write_table_asset(table_input: TableAssetInput) -> ParsedRow:
         tokens=table_input.tokens,
         connectto="",
         addtime=table_input.addtime,
-        length=table_input.length,
+        length=len(row_content),
     )
 
 

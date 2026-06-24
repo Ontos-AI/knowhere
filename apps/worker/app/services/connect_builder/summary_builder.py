@@ -114,7 +114,6 @@ def ensure_doc_nav_json(
     source_file_name: str = "",
     *,
     overwrite: bool = False,
-    skeletons: List[Dict[str, Any]] | None = None,
 ) -> str:
     """Materialize ``doc_nav.json`` from chunks when the parser did not emit one."""
     nav_path = os.path.join(file_dir, DOC_NAV_FILENAME)
@@ -124,14 +123,7 @@ def ensure_doc_nav_json(
     from shared.services.storage.zip_result_schema import ZipResultSchemaBuilder
 
     schema = ZipResultSchemaBuilder()
-    if skeletons:
-        doc_nav = schema.build_doc_nav_from_skeletons(
-            skeletons,
-            chunks,
-            source_file_name,
-        )
-    else:
-        doc_nav = schema.build_doc_nav(chunks, source_file_name)
+    doc_nav = schema.build_doc_nav(chunks, source_file_name)
 
     _save_doc_nav(file_dir, doc_nav)
     return nav_path

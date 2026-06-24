@@ -320,7 +320,7 @@ class AgenticResult:
     """
     evidence_text: str
     answer_text: str = ''
-    referenced_chunks: list[dict[str, str]] = field(default_factory=list)
+    referenced_chunks: list[dict[str, Any]] = field(default_factory=list)
     router_used: str = 'agentic_discovery_only'
     budget_snapshot: dict[str, Any] | None = None
     stop_reason: str = ''

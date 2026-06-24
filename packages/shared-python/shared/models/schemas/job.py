@@ -59,10 +59,10 @@ class JobCreate(BaseModel):
     )
     data_id: Optional[str] = Field(None, max_length=128, description="User-defined ID")
     parse_track: Literal["chunk", "page_memory"] = Field(
-        "chunk",
+        "page_memory",
         description=(
-            "Parser track. page_memory is feature-gated and currently only "
-            "supported for PDF/PPT/PPTX."
+            "Parser track. Defaults to page_memory for supported PDF/PPTX "
+            "uploads when enabled; unsupported formats fall back to chunk."
         ),
     )
     parsing_params: Optional[ParsingParams] = Field(

@@ -452,103 +452,103 @@ def build_prompt(task, texts, query, **kwargs):
         top_p = 0.01
         max_tokens = kwargs.get("paras", {}).get("max_tokens", 600)
         prompt = """\
-You are annotating a single PDF page screenshot for a document memory system.
-Return strict JSON with exactly these keys:
+        You are annotating a single PDF page screenshot for a document memory system.
+        Return strict JSON with exactly these keys:
 
-{
-  "summary": "<1-3 sentence summary of the page content>",
-  "keywords": "<keyword_1>;<keyword_2>;<keyword_3>"
-}
+        {
+        "summary": "<1-3 sentence summary of the page content>",
+        "keywords": "<keyword_1>;<keyword_2>;<keyword_3>"
+        }
 
-Rules:
-- "summary": describe the main content visible on the page in 1-3 sentences.
-  If the page contains tables, mention the table topic and key columns.
-  If the page contains figures or charts, describe what they depict.
-- "keywords": extract the most important thematic keywords (up to 5),
-  separated by semicolons ";". Keywords must be in the same language as
-  the visible page content.
-- Return ONLY the JSON object, no markdown fences or extra text.
-"""
+        Rules:
+        - "summary": describe the main content visible on the page in 1-3 sentences.
+        If the page contains tables, mention the table topic and key columns.
+        If the page contains figures or charts, describe what they depict.
+        - "keywords": extract the most important thematic keywords (up to 5),
+        separated by semicolons ";". Keywords must be in the same language as
+        the visible page content.
+        - Return ONLY the JSON object, no markdown fences or extra text.
+        """
 
     elif task == "page-memory-vlm-title":
         temperature = 0
         top_p = 0.01
         max_tokens = kwargs.get("paras", {}).get("max_tokens", 300)
         prompt = """\
-You are extracting document-outline-level headings from a PDF page screenshot.
-Your goal is to find ONLY the headings that would appear in a Table of Contents.
-Most pages will have ZERO such headings — returning an empty list is expected
-and correct for the majority of pages.
+        You are extracting document-outline-level headings from a PDF page screenshot.
+        Your goal is to find ONLY the headings that would appear in a Table of Contents.
+        Most pages will have ZERO such headings — returning an empty list is expected
+        and correct for the majority of pages.
 
-Return strict JSON:
-{
-  "titles": [
-    {
-      "text": "<exact verbatim heading>",
-      "prominence": <0.0-1.0>,
-      "is_in_table": <boolean>,
-      "is_in_header_footer": <boolean>
-    }
-  ]
-}
+        Return strict JSON:
+        {
+        "titles": [
+            {
+            "text": "<exact verbatim heading>",
+            "prominence": <0.0-1.0>,
+            "is_in_table": <boolean>,
+            "is_in_header_footer": <boolean>
+            }
+        ]
+        }
 
-═══ MANDATORY BOOLEAN FLAGS (CRITICAL) ═══
-For EVERY extracted heading, you MUST accurately evaluate these two flags:
-1. is_in_table (boolean): Set to `true` if the text is ANYWHERE inside a table.
-2. is_in_header_footer (boolean): Set to `true` if the text is located in the top margin (header) or bottom margin (footer) of the page.
+        ═══ MANDATORY BOOLEAN FLAGS (CRITICAL) ═══
+        For EVERY extracted heading, you MUST accurately evaluate these two flags:
+        1. is_in_table (boolean): Set to `true` if the text is ANYWHERE inside a table.
+        2. is_in_header_footer (boolean): Set to `true` if the text is located in the top margin (header) or bottom margin (footer) of the page.
 
-═══ WHAT TO EXTRACT ═══
+        ═══ WHAT TO EXTRACT ═══
 
-Only extract text that satisfies ALL three criteria:
+        Only extract text that satisfies ALL three criteria:
 
-1. HEADING FUNCTION (primary — must be true):
-   The text serves as a TITLE for the body content that follows it.
-   It introduces or labels a block of subsequent paragraphs, clauses,
-   or sub-sections. If you removed this text, the following body content
-   would lose its topic label.
+        1. HEADING FUNCTION (primary — must be true):
+        The text serves as a TITLE for the body content that follows it.
+        It introduces or labels a block of subsequent paragraphs, clauses,
+        or sub-sections. If you removed this text, the following body content
+        would lose its topic label.
 
-2. STANDALONE LINE (must be true):
-   The text occupies its own line, clearly separated from surrounding
-   body paragraphs. It is NOT inside a table, NOT part of a list,
-   and NOT embedded within a sentence.
+        2. STANDALONE LINE (must be true):
+        The text occupies its own line, clearly separated from surrounding
+        body paragraphs. It is NOT inside a table, NOT part of a list,
+        and NOT embedded within a sentence.
 
-3. VISUAL DISTINCTION (supporting):
-   The text is visually set apart from body text — larger font, bold,
-   centered, or has extra vertical spacing.
+        3. VISUAL DISTINCTION (supporting):
+        The text is visually set apart from body text — larger font, bold,
+        centered, or has extra vertical spacing.
 
-"prominence": 1.0 = most prominent; 0.5 = medium; 0.1 = minor.
-Return titles in TOP-TO-BOTTOM order. Text must be EXACT verbatim.
+        "prominence": 1.0 = most prominent; 0.5 = medium; 0.1 = minor.
+        Return titles in TOP-TO-BOTTOM order. Text must be EXACT verbatim.
 
-═══ WHAT TO EXCLUDE (critical — read carefully) ═══
+        ═══ WHAT TO EXCLUDE (critical — read carefully) ═══
 
-1. TABLE CONTENT — Any text that is part of a table. If the
-   text is surrounded by grid lines, borders, or cell boundaries, or if
-   its neighboring content is arranged in rows and columns, it is table
-   content and MUST BE EXCLUDED. This applies even when the text is bold,
-   large, or spans a merged cell. Specifically exclude:
-   - Column headers, row category labels, merged-cell group labels
-   - Any label inside a tabular layout, regardless of visual prominence
+        1. TABLE CONTENT — Any text that is part of a table. If the
+        text is surrounded by grid lines, borders, or cell boundaries, or if
+        its neighboring content is arranged in rows and columns, it is table
+        content and MUST BE EXCLUDED. This applies even when the text is bold,
+        large, or spans a merged cell. Specifically exclude:
+        - Column headers, row category labels, merged-cell group labels
+        - Any label inside a tabular layout, regardless of visual prominence
 
-2. PAGE PERIPHERY — Text in margins or corners of the page:
-   organization/document names repeated as running headers, page numbers,
-   book/volume titles used as running headers or footers.
+        2. PAGE PERIPHERY — Text in margins or corners of the page:
+        organization/document names repeated as running headers, page numbers,
+        book/volume titles used as running headers or footers.
 
-3. BODY TEXT — Numbered clauses, list items, paragraphs, or running
-   prose, even if bold or indented.
+        3. BODY TEXT — Numbered clauses, list items, paragraphs, or running
+        prose, even if bold or indented.
 
-4. CAPTIONS — Figure/table captions, footnotes.
+        4. CAPTIONS — Figure/table captions, footnotes.
 
-5. TOC ENTRIES — If the page is itself a Table of Contents or index,
-   do NOT extract its listed entries. A TOC page lists other sections
-   with page numbers — those entries are references, not headings.
+        5. TOC ENTRIES — If the page is itself a Table of Contents or index,
+        do NOT extract its listed entries. A TOC page lists other sections
+        with page numbers — those entries are references, not headings.
 
-═══ IMPORTANT ═══
-Many pages consist entirely of tables, body text, or appendix forms.
-These pages have NO qualifying headings. Return {"titles": []} for them.
-Do NOT force-extract table labels or body text as headings.
+        ═══ IMPORTANT ═══
+        Many pages consist entirely of tables, body text, or appendix forms.
+        These pages have NO qualifying headings. Return {"titles": []} for them.
+        Do NOT force-extract table labels or body text as headings.
 
-Return ONLY the JSON object, no markdown fences.
-"""
+        Return ONLY the JSON object, no markdown fences.
+        """
 
     elif task == "page-memory-hierarchy":
         temperature = 0
@@ -561,6 +561,7 @@ Confirmed coarse parent section:
 '''
 {coarse_context}
 '''
+
 """ if coarse_context else ""
         prompt = f"""
 You are constructing a fine-grained document hierarchy for ONE already-bounded
@@ -626,94 +627,137 @@ Output requirements:
                 f"across the provided page image(s) as a single coherent section."
             )
         prompt = f"""\
-You are summarizing one section of a document for a navigation/memory system.
-You are given the page screenshot(s) that this section spans.
+        You are summarizing one section of a document for a navigation/memory system.
+        You are given the page screenshot(s) that this section spans.
 
-{scope}
+        {scope}
 
-Return strict JSON with exactly these keys:
-{{
-  "summary": "<1-4 sentence summary of THIS section's content>",
-  "keywords": "<keyword_1>;<keyword_2>;..."
-}}
+        Return strict JSON with exactly these keys:
+        {{
+        "summary": "<less than 2 sentence summary of THIS section's content>",
+        "keywords": "<keyword_1>;<keyword_2>;..."
+        }}
 
-Rules:
-- "summary": describe what this section is about, in the same language as the
-  visible page content. If the section is mostly a table, describe the table's
-  topic and key columns. Do not summarize content that belongs to other
-  sections on the same page.
-- "keywords": up to {kw_num} thematic keywords separated by ";".
-- Return ONLY the JSON object, no markdown fences or extra text.
-"""
+        Rules:
+        - "summary": describe what this section is about, in the same language as the
+        visible page content. If the section is mostly a table, describe the table's
+        topic and key columns. Do not summarize content that belongs to other
+        sections on the same page.
+        - "keywords": up to {kw_num} thematic keywords separated by ";".
+        - Return ONLY the JSON object, no markdown fences or extra text.
+        """
 
     elif task == "page-memory-vlm-ocr":
         temperature = 0
         top_p = 0.01
         max_tokens = kwargs.get("paras", {}).get("max_tokens", 1500)
         prompt = """\
-You are transcribing a single scanned PDF page screenshot for a document
-memory system. Extract the page's body text as faithfully as possible.
+        You are transcribing a single scanned PDF page screenshot for a document
+        memory system. Extract the page's body text as faithfully as possible.
 
-Return strict JSON with exactly this key:
-{
-  "text": "<verbatim body text of the page>"
-}
+        Return strict JSON with exactly this key:
+        {
+        "text": "<verbatim body text of the page>"
+        }
 
-Rules:
-- Preserve the reading order (top-to-bottom, left-to-right).
-- Transcribe tables row by row using a simple readable layout.
-- Do NOT add commentary, translation, or summary — transcription only.
-- Omit pure decorative running headers/footers and page numbers.
-- Return ONLY the JSON object, no markdown fences or extra text.
-"""
+        Rules:
+        - Preserve the reading order (top-to-bottom, left-to-right).
+        - Transcribe tables row by row using a simple readable layout.
+        - Do NOT add commentary, translation, or summary — transcription only.
+        - Omit pure decorative running headers/footers and page numbers.
+        - Return ONLY the JSON object, no markdown fences or extra text.
+    """
 
     elif task == "page-memory-asset-detect":
         temperature = 0
         top_p = 0.01
         max_tokens = kwargs.get("paras", {}).get("max_tokens", 1200)
         grid_size = kwargs.get("paras", {}).get("grid_size", 1000)
+        # Previous production prompt kept for comparison:
+        # prompt = f"""\
+        # You are a precise document layout detector. The attached image is a single PDF
+        # page screenshot.
+        #
+        # Find visually distinct tables, charts, and figures that should become reusable
+        # document assets. Return strict JSON:
+        # {{
+        # "regions": [
+        #     {{
+        #     "kind": "table|chart|figure",
+        #     "bbox": [x1, y1, x2, y2],
+        #     "caption": "<visible caption or nearby label, if any>",
+        #     "title": "<short asset title>",
+        #     "summary": "<1 sentence searchable summary>",
+        #     "keywords": ["<keyword_1>", "<keyword_2>"],
+        #     "confidence": 0.0
+        #     }}
+        # ]
+        # }}
+        #
+        # Coordinate system:
+        # - Treat the page image as a {grid_size}x{grid_size} grid.
+        # - Origin is the top-left corner.
+        # - bbox values must be integers in [0, {grid_size}].
+        # - bbox must tightly include the whole asset: title, caption, legend, axes,
+        # labels, table headers, and footnotes that are part of the asset.
+        # - Exclude surrounding body paragraphs, page headers, page footers, and page
+        # numbers.
+        #
+        # Rules:
+        # - "table": rows/columns of data, forms, financial tables, appendix tables.
+        # - "chart": plotted data such as bar/line/pie/scatter charts.
+        # - "figure": distinct diagrams, flowcharts, architecture drawings, embedded images.
+        #
+        # - Do not transcribe entire tables. Summarize the topic and extreme values based on main columns or rows.
+        # - "keywords" must be an array of up to 5 strings in the same language as the visible asset text.
+        # - Use confidence 0.0-1.0. Only include assets you can localize.
+        # - If there are no assets, return {{"regions":[]}}.
+        # - Return ONLY the JSON object, no markdown fences or explanations.
+        # """
         prompt = f"""\
-You are a precise document layout detector. The attached image is a single PDF
-page screenshot.
+        You are a precise document layout detector. The attached image is a single
+        rendered PDF page.
 
-Find visually distinct tables, charts, and figures that should become reusable
-document assets. Return strict JSON:
-{{
-  "regions": [
-    {{
-      "kind": "table|chart|figure",
-      "bbox": [x1, y1, x2, y2],
-      "caption": "<visible caption or nearby label, if any>",
-      "title": "<short asset title>",
-      "summary": "<1-3 sentence searchable summary>",
-      "keywords": ["<keyword_1>", "<keyword_2>"],
-      "confidence": 0.0
-    }}
-  ]
-}}
+        Find visually distinct tables and figures that should become reusable
+        document assets. Locate them only - do NOT summarize, transcribe full
+        content, extract keywords, or read data values. Return strict JSON:
+        {{
+        "regions": [
+            {{
+            "kind": "table|figure",
+            "bbox": [x1, y1, x2, y2],
+            "title": "<short asset title or its visible caption/label, empty string if none>",
+            "confidence": 0.0
+            }}
+        ]
+        }}
 
-Coordinate system:
-- Treat the page image as a {grid_size}x{grid_size} grid.
-- Origin is the top-left corner.
-- bbox values must be integers in [0, {grid_size}].
-- bbox must tightly include the whole asset: title, caption, legend, axes,
-  labels, table headers, and footnotes that are part of the asset.
-- Exclude surrounding body paragraphs, page headers, page footers, and page
-  numbers.
+        Coordinate system:
+        - Treat the page image as a {grid_size}x{grid_size} grid.
+        - Origin is the top-left corner.
+        - bbox values must be integers in [0, {grid_size}].
+        - bbox must tightly include the whole asset: its title, caption, legend,
+        axes, labels, table headers, and footnotes that belong to that asset.
+        - Exclude surrounding body paragraphs, page headers, page footers, and page
+        numbers.
 
-Rules:
-- "table": rows/columns of data, forms, financial tables, appendix tables.
-- "chart": plotted data such as bar/line/pie/scatter charts.
-- "figure": diagrams, flowcharts, architecture drawings, embedded images, or
-  visual schematics that are not data charts.
-- Do not transcribe entire tables. Summarize their topic and visible columns or
-  row groups.
-- "keywords" must be an array of up to 8 strings in the same language as the
-  visible asset text.
-- Use confidence 0.0-1.0. Only include assets you can localize.
-- If there are no assets, return {{"regions":[]}}.
-- Return ONLY the JSON object, no markdown fences or explanations.
-"""
+        Rules:
+        - "table": data arranged in clear rows and columns - grid lines, cell
+        borders, or strongly aligned cells (data tables, forms, financial tables,
+        appendix tables).
+        - "figure": any non-table visual asset - bar/line/pie/scatter charts,
+        plots, diagrams, flowcharts, architecture drawings, schematics, or embedded
+        images.
+        - Do not mark ordinary paragraphs, bullet lists, title blocks, or loose
+        multi-line text as tables.
+        - Do not split a single coherent table or figure into sub-parts.
+        - "title" is one short label only (single line). Do not duplicate it into
+        other fields and do not write a summary. Use an empty string when there is
+        no visible title or caption.
+        - Use confidence 0.0-1.0. Only include assets you can localize.
+        - If there are no qualifying assets, return {{"regions":[]}}.
+        - Return ONLY the JSON object, no markdown fences or explanations.
+        """
 
     # ==================== Image Processing Prompts ====================
 
@@ -937,7 +981,6 @@ Rules:
 
     else:
         from loguru import logger
-
         logger.warning(f"Unknown task: {task}, returning empty prompt")
         prompt = ""
 

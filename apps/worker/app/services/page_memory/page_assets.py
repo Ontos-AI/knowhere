@@ -1,4 +1,4 @@
-"""Page-memory asset extraction for charts, figures, and tables."""
+"""Page-memory asset extraction for figures and tables."""
 
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ from shared.utils.token_estimate import estimate_tokens
 
 _BUDGET_STAGE = "page_asset_extraction"
 _GRID_SIZE = 1000
-_VALID_KINDS = {"table", "chart", "figure"}
-_DEFAULT_ASSET_MODEL = "qwen3-vl-32b-instruct"
+_VALID_KINDS = {"table", "figure"}
+_DEFAULT_ASSET_MODEL = "qwen3.6-flash"
 _ASSET_ANNOTATE_DIR = "asset_annotate"
 
 
@@ -192,11 +192,11 @@ def detect_page_assets(
         if bbox_px is None:
             continue
         asset_index = len(assets) + 1
+        title = str(region.get("title") or region.get("caption") or "").strip()
         asset_id = "asset_" + gen_str_codes(
             f"{source_name}::{page.page_index}::{asset_index}::{kind}::{bbox_px}::"
-            f"{region.get('title') or ''}::{region.get('summary') or ''}"
+            f"{title}"
         )
-        keywords = _normalize_keywords(region.get("keywords"))
         assets.append(
             PageAsset(
                 asset_id=asset_id,
@@ -208,11 +208,11 @@ def detect_page_assets(
                 height_px=height_px,
                 width_pt=float(page.width or 0.0),
                 height_pt=float(page.height or 0.0),
-                caption=str(region.get("caption") or "").strip(),
+                caption="",
                 confidence=confidence,
-                title=str(region.get("title") or "").strip(),
-                summary=str(region.get("summary") or "").strip(),
-                keywords=keywords,
+                title=title,
+                summary="",
+                keywords=[],
                 extraction_status="detected",
             )
         )
@@ -414,6 +414,8 @@ def annotate_page_assets(
             color = _asset_box_color(asset.kind)
             draw.rectangle([x1, y1, x2, y2], outline=color, width=4)
             label = f"{asset.kind} {asset.confidence:.2f}"
+            if asset.title:
+                label += f" | {asset.title[:24]}"
             draw.text((x1 + 2, max(0, y1 - 24)), label, fill=color, font=font)
         canvas.save(output_path)
     except Exception as exc:
@@ -429,8 +431,6 @@ def annotate_page_assets(
 def _asset_box_color(kind: str) -> tuple[int, int, int]:
     if kind == "table":
         return (220, 0, 0)
-    if kind == "chart":
-        return (0, 90, 220)
     return (0, 150, 0)
 
 
@@ -471,6 +471,7 @@ def build_asset_rows(
                         "asset_kind": asset.kind,
                         "bbox_px": asset.bbox_px,
                         "confidence": asset.confidence,
+                        "title": asset.title,
                         "caption": asset.caption,
                         "image_uri": asset.image_uri,
                         "html_uri": asset.html_uri,
@@ -490,13 +491,8 @@ def asset_reference(asset: PageAsset) -> str:
 
 
 def _asset_content(asset: PageAsset, *, row_type: str) -> str:
-    if row_type == "table" and asset.html_path:
-        try:
-            return Path(asset.html_path).read_text(encoding="utf-8")
-        except Exception as exc:
-            logger.warning(
-                "[page_assets] failed to read table HTML {}: {}", asset.html_path, exc
-            )
+    if row_type == "table" and asset.html_uri:
+        return asset.html_uri
     parts = [asset.title, asset.summary, asset.caption]
     if asset.image_uri:
         parts.append(f"[{asset.image_uri}]")

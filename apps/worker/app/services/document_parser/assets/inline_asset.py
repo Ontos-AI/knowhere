@@ -33,8 +33,10 @@ def build_table_asset_row(
     know_id: str,
     addtime: str,
 ) -> ParsedRow:
+    del content
+    row_content = relative_path
     return ParsedRow(
-        content=content,
+        content=row_content,
         path=relative_path,
         type="table",
         keywords=keywords,
@@ -43,5 +45,5 @@ def build_table_asset_row(
         tokens="",
         connectto="",
         addtime=addtime,
+        length=len(row_content),
     )
-

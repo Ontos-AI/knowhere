@@ -17,6 +17,7 @@ from app.services.document_ingestion.parse_result_package import (
     ParseResultPackage,
     build_generated_result_package,
 )
+from app.services.document_ingestion.artifact_refs import collect_referenced_artifact_refs
 from app.services.document_ingestion.processing_context import ParseJobContext
 from loguru import logger
 
@@ -138,14 +139,12 @@ def _enrich_document_navigation(
     section_summaries: dict[str, str] = {}
     add_dir = artifact.add_dir
     parsed_contents_df = artifact.dataframe
-    skeletons = _get_page_memory_skeletons(parsed_contents_df)
     if add_dir and source_file_name:
         if "path" in parsed_contents_df.columns:
             ensure_doc_nav_json(
                 str(add_dir),
                 chunks,
                 source_file_name=source_file_name,
-                skeletons=skeletons,
             )
         try:
             document_root_for_enrich = os.path.dirname(str(add_dir))
@@ -194,13 +193,6 @@ def _attach_document_top_summary(
             metadata = {}
             chunk["metadata"] = metadata
         metadata["document_top_summary"] = document_top_summary
-
-
-def _get_page_memory_skeletons(parsed_df: Any) -> list[dict[str, Any]]:
-    raw_skeletons = getattr(parsed_df, "attrs", {}).get("page_memory_skeletons")
-    if not isinstance(raw_skeletons, list):
-        return []
-    return [skel for skel in raw_skeletons if isinstance(skel, dict)]
 
 
 def _record_processing_completion(
@@ -263,5 +255,6 @@ def _upload_result_package(
         if result_package.artifact.add_dir
         else "",
         zip_file_path=generated_package.zip_file_path,
+        artifact_refs=collect_referenced_artifact_refs(result_package.chunks),
     )
     return result_bundle.zip_key

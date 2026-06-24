@@ -542,14 +542,7 @@ def build_node_rows(
             "addtime": get_str_time(),
             "page_nums": ",".join(str(page) for page in view.pages),
             "extra_metadata": {
-                "granularity": "node",
-                "section_path": leaf.section_path,
-                "section_level": leaf.level,
-                "page_indices": list(view.pages),
-                "owned_pages": list(view.owned_pages),
                 "page_image_uris": page_image_uris,
-                "kind": kind_by_page.get(leaf.start_page, "normal"),
-                "source_verdict": verdict,
             },
         }
         rows.append(row)

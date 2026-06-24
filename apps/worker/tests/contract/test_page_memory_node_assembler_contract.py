@@ -117,7 +117,7 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
     assert leaf_a["page_nums"] == "231"
     assert leaf_a["content"] == "text-231"
     assert leaf_a["extra_metadata"]["page_image_uris"] == ["pages/page-231.png"]
-    assert leaf_a["extra_metadata"]["granularity"] == "node"
+    assert set(leaf_a["extra_metadata"]) == {"page_image_uris"}
 
     leaf_b = by_path["demo.pdf/3 基本规定/3.2 管理规定"]
     assert leaf_b["page_nums"] == "231,232"
@@ -127,7 +127,7 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
         "pages/page-231.png",
         "pages/page-232.png",
     ]
-    assert leaf_b["extra_metadata"]["owned_pages"] == [232]
+    assert set(leaf_b["extra_metadata"]) == {"page_image_uris"}
 
 
 def test_build_node_rows_keeps_internal_section_body_pages() -> None:
@@ -262,6 +262,7 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
 
     assert [row["type"] for row in rows] == ["table", "page", "page"]
     assert rows[0]["path"] == "tables/table_page_231_1.html"
+    assert rows[0]["content"] == "tables/table_page_231_1.html"
     assert rows[0]["know_id"] == "asset_table_1"
 
     by_path = {row["path"]: row for row in rows}
@@ -276,10 +277,10 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
 def test_page_connectto_normalizes_to_asset_chunk_id() -> None:
     rows = [
         {
-            "content": "<table><tr><td>A</td></tr></table>",
+            "content": "tables/table_page_1_1.html",
             "path": "tables/table_page_1_1.html",
             "type": "table",
-            "length": 34,
+            "length": 26,
             "keywords": "asset",
             "summary": "asset summary",
             "know_id": "asset_table_1",

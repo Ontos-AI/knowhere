@@ -1,20 +1,18 @@
 """Render agentic document trees into evidence text."""
 from __future__ import annotations
 
-import os
 from typing import Any, cast
 
 from shared.services.retrieval.agentic.core.types import DocTreeNode
 
-INLINE_TABLE_CHAR_LIMIT_ENV = "RETRIEVAL_AGENTIC_INLINE_TABLE_CHAR_LIMIT"
-DEFAULT_INLINE_TABLE_CHAR_LIMIT = 10000
+AssetLookupValue = str | list[str]
 
 
 def render_unified_doc_tree(
     node: DocTreeNode,
     doc_name: str,
     depth: int = 0,
-    asset_lookup: dict[str, str] | None = None,
+    asset_lookup: dict[str, AssetLookupValue] | None = None,
 ) -> str:
     """Render a DocTreeNode as one coherent hierarchy."""
     parts: list[str] = []
@@ -120,7 +118,7 @@ def render_leaf_chunks(
     parts: list[str],
     chunks: list[dict[str, Any]],
     indent: str,
-    asset_lookup: dict[str, str] | None = None,
+    asset_lookup: dict[str, AssetLookupValue] | None = None,
 ) -> None:
     chunk_by_id = {
         chunk.get("chunk_id", ""): chunk
@@ -141,6 +139,10 @@ def render_leaf_chunks(
         if chunk_id:
             rendered_ids.add(chunk_id)
 
+        if chunk_type == "page":
+            render_page_chunk_lines(parts, chunk, indent, asset_lookup=asset_lookup)
+            continue
+
         content = str(chunk.get("content", "")).strip()
         for connection in (chunk.get("chunk_metadata") or {}).get("connect_to") or []:
             target = chunk_by_id.get(connection.get("target", ""))
@@ -158,7 +160,7 @@ def render_leaf_chunks(
             if target_type == "table":
                 table_html = str(target.get("content", "")).strip()
                 file_path = target.get("file_path") or ""
-                asset_url = (asset_lookup or {}).get(target_id, "") if target_id else ""
+                asset_url = _first_asset_url((asset_lookup or {}).get(target_id, "")) if target_id else ""
                 display_ref = asset_url or file_path
                 table_lines = render_table_chunk_lines(
                     target,
@@ -171,7 +173,7 @@ def render_leaf_chunks(
                 image_description = str(target.get("content", "")).strip()
                 if ref_str in image_description:
                     image_description = image_description.replace(ref_str, "").strip()
-                asset_url = (asset_lookup or {}).get(target_id, "") if target_id else ""
+                asset_url = _first_asset_url((asset_lookup or {}).get(target_id, "")) if target_id else ""
                 display_ref = asset_url or file_path
                 if display_ref:
                     content = content.replace(ref_str, f"\n[Image: {display_ref}]\n{image_description}\n")
@@ -193,7 +195,7 @@ def render_leaf_chunks(
         if chunk_type == "image":
             file_path = chunk.get("file_path") or ""
             image_description = str(chunk.get("content", "")).strip()
-            asset_url = (asset_lookup or {}).get(chunk_id, "") if chunk_id else ""
+            asset_url = _first_asset_url((asset_lookup or {}).get(chunk_id, "")) if chunk_id else ""
             display_ref = asset_url or file_path
             if display_ref:
                 parts.append(f"{indent}┈ [Image: {display_ref}]")
@@ -204,7 +206,7 @@ def render_leaf_chunks(
         elif chunk_type == "table":
             table_html = str(chunk.get("content", "")).strip()
             file_path = chunk.get("file_path") or ""
-            asset_url = (asset_lookup or {}).get(chunk_id, "") if chunk_id else ""
+            asset_url = _first_asset_url((asset_lookup or {}).get(chunk_id, "")) if chunk_id else ""
             display_ref = asset_url or file_path
             for line in render_table_chunk_lines(
                 chunk,
@@ -215,16 +217,44 @@ def render_leaf_chunks(
                     parts.append(f"{indent}┈ {line}")
 
 
+def render_page_chunk_lines(
+    parts: list[str],
+    chunk: dict[str, Any],
+    indent: str,
+    asset_lookup: dict[str, AssetLookupValue] | None = None,
+) -> None:
+    metadata = chunk.get("chunk_metadata") or chunk.get("metadata") or {}
+    summary = str(metadata.get("summary") or chunk.get("summary") or "").strip()
+    page_nums = _coerce_page_nums(
+        metadata.get("page_nums") or chunk.get("page_nums")
+    )
+    if page_nums:
+        page_label = ", ".join(str(page) for page in page_nums)
+        parts.append(f"{indent}┈ Pages: {page_label}")
+    if summary:
+        for line in summary.split("\n"):
+            if line.strip():
+                parts.append(f"{indent}┈ {line}")
+    elif not page_nums:
+        parts.append(f"{indent}┈ [Page]")
+
+    urls = _asset_urls_for_chunk(chunk, asset_lookup=asset_lookup)
+    if urls:
+        for index, url in enumerate(urls, start=1):
+            parts.append(f"{indent}┈ [Page image {index}: {url}]")
+    elif page_nums:
+        for page in page_nums:
+            parts.append(f"{indent}┈ [Page image: page {page}]")
+
+
 def render_table_chunk_lines(
     chunk: dict[str, Any],
     *,
     table_html: str,
     display_ref: str,
 ) -> list[str]:
+    del table_html
     header = f"[Table: {display_ref}]" if display_ref else "[Table]"
-    if len(table_html) <= _inline_table_char_limit():
-        return [header, *[line for line in table_html.split("\n") if line.strip()]]
-
     lines = [header]
     table_path = chunk.get("source_chunk_path") or chunk.get("section_path")
     if table_path:
@@ -232,10 +262,6 @@ def render_table_chunk_lines(
     file_path = chunk.get("file_path")
     if file_path:
         lines.append(f"Table asset: {file_path}")
-    lines.append(
-        f"Large table omitted from evidence_text: {len(table_html)} chars "
-        f"(inline limit {_inline_table_char_limit()} chars)."
-    )
 
     metadata = chunk.get("chunk_metadata") or chunk.get("metadata") or {}
     summary = metadata.get("summary") if isinstance(metadata, dict) else ""
@@ -249,11 +275,55 @@ def render_table_chunk_lines(
         if keyword_text:
             lines.append("Main columns:")
             lines.append(keyword_text)
+    elif isinstance(keywords, str) and keywords.strip():
+        lines.append("Main columns:")
+        lines.append(keywords.strip())
+
+    caption = metadata.get("caption") if isinstance(metadata, dict) else ""
+    if caption:
+        lines.append("Caption:")
+        lines.append(str(caption).strip())
     return lines
 
 
-def _inline_table_char_limit() -> int:
-    return int(os.getenv(INLINE_TABLE_CHAR_LIMIT_ENV, str(DEFAULT_INLINE_TABLE_CHAR_LIMIT)))
+def _asset_urls_for_chunk(
+    chunk: dict[str, Any],
+    *,
+    asset_lookup: dict[str, AssetLookupValue] | None,
+) -> list[str]:
+    chunk_id = str(chunk.get("chunk_id") or "").strip()
+    value = (asset_lookup or {}).get(chunk_id, "") if chunk_id else ""
+    if isinstance(value, list):
+        return [str(url).strip() for url in value if str(url).strip()]
+    url = str(value or "").strip()
+    return [url] if url else []
+
+
+def _first_asset_url(value: object) -> str:
+    if isinstance(value, list):
+        for item in value:
+            url = str(item or "").strip()
+            if url:
+                return url
+        return ""
+    return str(value or "").strip()
+
+
+def _coerce_page_nums(value: object) -> list[int]:
+    if isinstance(value, list):
+        raw_values = value
+    elif value is None:
+        raw_values = []
+    else:
+        raw_values = str(value).split(",")
+
+    pages: list[int] = []
+    for item in raw_values:
+        try:
+            pages.append(int(str(item).strip()))
+        except (TypeError, ValueError):
+            continue
+    return pages
 
 
 def _infer_child_sort_order(child: DocTreeNode) -> float:
