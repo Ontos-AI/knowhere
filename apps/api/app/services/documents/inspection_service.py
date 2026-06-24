@@ -59,6 +59,10 @@ class DocumentSectionOutline(BaseModel):
     type_counts: dict[str, int] = Field(default_factory=dict)
 
 
+class DocumentSectionTreeNode(DocumentSectionOutline):
+    children: list["DocumentSectionTreeNode"] = Field(default_factory=list)
+
+
 class DocumentOutlineResponse(BaseModel):
     namespace: str
     document: DocumentSummary
@@ -67,6 +71,7 @@ class DocumentOutlineResponse(BaseModel):
     total_chunks: int
     type_counts: dict[str, int] = Field(default_factory=dict)
     sections: list[DocumentSectionOutline] = Field(default_factory=list)
+    section_tree: list[DocumentSectionTreeNode] = Field(default_factory=list)
 
 
 class DocumentReadChunk(BaseModel):
@@ -189,6 +194,10 @@ class DocumentInspectionService:
             document_id=document_id,
             job_result_id=job_result_id,
         )
+        section_outlines = _create_section_outlines_from_stats(
+            sections=sections,
+            chunk_stats=chunk_stats,
+        )
         return DocumentOutlineResponse(
             namespace=namespace,
             document=_to_document_summary(document),
@@ -196,9 +205,10 @@ class DocumentInspectionService:
             job_id=chunk_stats.job_id,
             total_chunks=chunk_stats.total_chunks,
             type_counts=chunk_stats.type_counts,
-            sections=_create_section_outlines_from_stats(
+            sections=section_outlines,
+            section_tree=_create_section_tree_from_sections(
                 sections=sections,
-                chunk_stats=chunk_stats,
+                section_outlines=section_outlines,
             ),
         )
 
@@ -516,6 +526,75 @@ def _create_section_outlines_from_stats(
     ]
 
 
+def _create_section_tree_from_sections(
+    *,
+    sections: Sequence[DocumentSection],
+    section_outlines: Sequence[DocumentSectionOutline],
+) -> list[DocumentSectionTreeNode]:
+    raw_sections_by_id = {section.section_id: section for section in sections}
+    nodes_by_id: dict[str, DocumentSectionTreeNode] = {
+        outline.section_id: _create_section_tree_node_from_outline(outline)
+        for outline in section_outlines
+    }
+    roots: list[DocumentSectionTreeNode] = []
+
+    for outline in section_outlines:
+        raw_section = raw_sections_by_id.get(outline.section_id)
+        parent_section_id = raw_section.parent_section_id if raw_section else None
+        node = nodes_by_id[outline.section_id]
+        parent_node = nodes_by_id.get(parent_section_id or "")
+        if parent_node is None or parent_section_id == outline.section_id:
+            roots.append(node)
+            continue
+        parent_node.children.append(node)
+
+    return roots
+
+
+def _create_section_tree_node_from_outline(
+    section: DocumentSectionOutline,
+) -> DocumentSectionTreeNode:
+    return DocumentSectionTreeNode(
+        section_id=section.section_id,
+        section_path=section.section_path,
+        section_title=section.section_title,
+        section_level=section.section_level,
+        summary=section.summary,
+        start_chunk=section.start_chunk,
+        end_chunk=section.end_chunk,
+        chunk_count=section.chunk_count,
+        type_counts=section.type_counts,
+    )
+
+
+def _create_section_tree_from_flat_outlines(
+    sections: Sequence[DocumentSectionOutline],
+) -> list[DocumentSectionTreeNode]:
+    nodes_by_path: dict[str, DocumentSectionTreeNode] = {
+        section.section_path: _create_section_tree_node_from_outline(section)
+        for section in sections
+    }
+    roots: list[DocumentSectionTreeNode] = []
+
+    for section in sections:
+        node = nodes_by_path[section.section_path]
+        parent_path = _get_parent_section_path(section.section_path)
+        parent_node = nodes_by_path.get(parent_path or "")
+        if parent_node is None or parent_path == section.section_path:
+            roots.append(node)
+            continue
+        parent_node.children.append(node)
+
+    return roots
+
+
+def _get_parent_section_path(section_path: str) -> str | None:
+    parts = [part.strip() for part in section_path.split(" / ") if part.strip()]
+    if len(parts) <= 1:
+        return None
+    return " / ".join(parts[:-1])
+
+
 def _merge_section_chunk_stats(
     stats_values: Sequence[DocumentSectionChunkStats],
 ) -> DocumentSectionChunkStats | None:
@@ -537,6 +616,45 @@ def _merge_section_chunk_stats(
     )
 
 
+def _create_section_tree_from_snapshot(
+    raw_section_tree: object,
+    *,
+    fallback_sections: Sequence[DocumentSectionOutline],
+) -> list[DocumentSectionTreeNode]:
+    if raw_section_tree is None:
+        return _create_section_tree_from_flat_outlines(fallback_sections)
+    if not isinstance(raw_section_tree, list):
+        raise ValueError("Outline snapshot section_tree must be a list.")
+    return [
+        _create_section_tree_node_from_snapshot(raw_section)
+        for raw_section in raw_section_tree
+    ]
+
+
+def _create_section_tree_node_from_snapshot(raw_section: object) -> DocumentSectionTreeNode:
+    if not isinstance(raw_section, Mapping):
+        raise ValueError("Outline snapshot section tree node must be an object.")
+    children = raw_section.get("children", [])
+    if not isinstance(children, list):
+        raise ValueError("Outline snapshot section tree children must be a list.")
+    outline = _create_section_outline_from_snapshot(raw_section)
+    return DocumentSectionTreeNode(
+        section_id=outline.section_id,
+        section_path=outline.section_path,
+        section_title=outline.section_title,
+        section_level=outline.section_level,
+        summary=outline.summary,
+        start_chunk=outline.start_chunk,
+        end_chunk=outline.end_chunk,
+        chunk_count=outline.chunk_count,
+        type_counts=outline.type_counts,
+        children=[
+            _create_section_tree_node_from_snapshot(raw_child)
+            for raw_child in children
+        ],
+    )
+
+
 def _create_outline_response_from_snapshot(
     snapshot: Mapping[str, Any] | None,
     *,
@@ -549,6 +667,10 @@ def _create_outline_response_from_snapshot(
         raw_sections = snapshot.get("sections")
         if not isinstance(raw_sections, list):
             return None
+        sections = [
+            _create_section_outline_from_snapshot(raw_section)
+            for raw_section in raw_sections
+        ]
         return DocumentOutlineResponse(
             namespace=namespace,
             document=_to_document_summary(document),
@@ -556,10 +678,11 @@ def _create_outline_response_from_snapshot(
             job_id=_read_optional_snapshot_string(snapshot.get("job_id")),
             total_chunks=_read_required_snapshot_int(snapshot.get("total_chunks")),
             type_counts=_read_snapshot_type_counts(snapshot.get("type_counts")),
-            sections=[
-                _create_section_outline_from_snapshot(raw_section)
-                for raw_section in raw_sections
-            ],
+            sections=sections,
+            section_tree=_create_section_tree_from_snapshot(
+                snapshot.get("section_tree"),
+                fallback_sections=sections,
+            ),
         )
     except (TypeError, ValueError, ValidationError):
         return None

@@ -50,6 +50,10 @@ def build_mcp_outline_snapshot(
             sections=sections,
             section_stats_by_id=section_stats_by_id,
         ),
+        "section_tree": _create_section_tree_snapshots(
+            sections=sections,
+            section_stats_by_id=section_stats_by_id,
+        ),
     }
 
 
@@ -90,6 +94,7 @@ def _list_outline_sections(
             """
             SELECT
                 section_id,
+                parent_section_id,
                 section_path,
                 section_title,
                 section_level,
@@ -221,6 +226,46 @@ def _create_section_snapshots(
             "type_counts": root_stats.type_counts if root_stats else {},
         }
     ]
+
+
+def _create_section_tree_snapshots(
+    *,
+    sections: Sequence[Mapping[str, Any]],
+    section_stats_by_id: Mapping[str | None, OutlineSectionChunkStats],
+) -> list[dict[str, Any]]:
+    flat_sections = _create_section_snapshots(
+        sections=sections,
+        section_stats_by_id=section_stats_by_id,
+    )
+    raw_sections_by_id = {
+        _read_string(section.get("section_id")): section
+        for section in sections
+        if _read_string(section.get("section_id"))
+    }
+    nodes_by_id: dict[str, dict[str, Any]] = {
+        section["section_id"]: {**section, "children": []}
+        for section in flat_sections
+    }
+    roots: list[dict[str, Any]] = []
+
+    for section in flat_sections:
+        section_id = section["section_id"]
+        raw_section = raw_sections_by_id.get(section_id)
+        parent_section_id = (
+            _read_string(raw_section.get("parent_section_id"))
+            if raw_section is not None
+            else None
+        )
+        node = nodes_by_id[section_id]
+        parent_node = nodes_by_id.get(parent_section_id or "")
+        if parent_node is None or parent_section_id == section_id:
+            roots.append(node)
+            continue
+        children = parent_node["children"]
+        if isinstance(children, list):
+            children.append(node)
+
+    return roots
 
 
 def _merge_section_chunk_stats(

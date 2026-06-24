@@ -453,6 +453,17 @@ async def test_document_inspection_should_outline_active_revision_only(
             "types": {"table": 1, "text": 1},
         },
     ]
+    assert [
+        {
+            "path": section.section_path,
+            "children": [child.section_path for child in section.children],
+        }
+        for section in response.section_tree
+    ] == [
+        {"path": "Intro", "children": []},
+        {"path": "Body", "children": ["Body / Finance"]},
+    ]
+    assert response.section_tree[1].children[0].chunk_count == 2
 
 
 @pytest.mark.asyncio
@@ -479,16 +490,54 @@ async def test_document_inspection_should_use_persisted_outline_snapshot(
                     "type_counts": {"text": 98, "table": 1},
                     "sections": [
                         {
-                            "section_id": "snapshot-section",
+                            "section_id": "snapshot-parent",
                             "section_path": "Snapshot",
                             "section_title": "Snapshot",
                             "section_level": 1,
                             "summary": "Precomputed outline section.",
+                            "start_chunk": None,
+                            "end_chunk": None,
+                            "chunk_count": 0,
+                            "type_counts": {},
+                        },
+                        {
+                            "section_id": "snapshot-child",
+                            "section_path": "Snapshot / Child",
+                            "section_title": "Child",
+                            "section_level": 2,
+                            "summary": "Precomputed child section.",
                             "start_chunk": 10,
                             "end_chunk": 20,
                             "chunk_count": 11,
                             "type_counts": {"text": 11},
-                        }
+                        },
+                    ],
+                    "section_tree": [
+                        {
+                            "section_id": "snapshot-parent",
+                            "section_path": "Snapshot",
+                            "section_title": "Snapshot",
+                            "section_level": 1,
+                            "summary": "Precomputed outline section.",
+                            "start_chunk": None,
+                            "end_chunk": None,
+                            "chunk_count": 0,
+                            "type_counts": {},
+                            "children": [
+                                {
+                                    "section_id": "snapshot-child",
+                                    "section_path": "Snapshot / Child",
+                                    "section_title": "Child",
+                                    "section_level": 2,
+                                    "summary": "Precomputed child section.",
+                                    "start_chunk": 10,
+                                    "end_chunk": 20,
+                                    "chunk_count": 11,
+                                    "type_counts": {"text": 11},
+                                    "children": [],
+                                }
+                            ],
+                        },
                     ],
                 }
             },
@@ -516,8 +565,13 @@ async def test_document_inspection_should_use_persisted_outline_snapshot(
     assert response.job_id == fixture["job_id"]
     assert response.total_chunks == 99
     assert response.type_counts == {"text": 98, "table": 1}
-    assert [section.section_path for section in response.sections] == ["Snapshot"]
-    assert response.sections[0].chunk_count == 11
+    assert [section.section_path for section in response.sections] == [
+        "Snapshot",
+        "Snapshot / Child",
+    ]
+    assert response.sections[1].chunk_count == 11
+    assert [section.section_path for section in response.section_tree] == ["Snapshot"]
+    assert response.section_tree[0].children[0].section_path == "Snapshot / Child"
 
 
 @pytest.mark.asyncio
@@ -562,6 +616,7 @@ async def test_document_inspection_should_fallback_when_outline_snapshot_is_inva
         "Body",
         "Body / Finance",
     ]
+    assert response.section_tree[1].children[0].section_path == "Body / Finance"
 
 
 @pytest.mark.asyncio
@@ -639,6 +694,18 @@ async def test_publication_should_store_outline_snapshot_in_job_result_metadata(
         {"path": "Intro", "count": 1, "types": {"text": 1}},
         {"path": "Body", "count": 0, "types": {}},
         {"path": "Body / Finance", "count": 1, "types": {"table": 1}},
+    ]
+    assert [
+        {
+            "path": section["section_path"],
+            "children": [
+                child["section_path"] for child in section.get("children", [])
+            ],
+        }
+        for section in snapshot["section_tree"]
+    ] == [
+        {"path": "Intro", "children": []},
+        {"path": "Body", "children": ["Body / Finance"]},
     ]
 
 
