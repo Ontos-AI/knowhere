@@ -30,7 +30,7 @@ def _encode_callback_param(value: Dict[str, Any]) -> str:
     return base64.b64encode(raw_value.encode("utf-8")).decode("ascii")
 
 
-def _build_upload_callback_params() -> Dict[str, str]:
+def _build_upload_callback_headers() -> Dict[str, str]:
     callback_url = os.getenv("API_WEBHOOK_ENDPOINT", "").strip()
     if not callback_url:
         return {}
@@ -60,7 +60,7 @@ def _build_upload_callback_params() -> Dict[str, str]:
         ),
         "callbackBodyType": "application/json",
     }
-    return {"callback": _encode_callback_param(callback_config)}
+    return {"x-oss-callback": _encode_callback_param(callback_config)}
 
 
 class OSSStorageAdapter(StorageAdapter):
@@ -198,13 +198,13 @@ class OSSStorageAdapter(StorageAdapter):
         bucket_name = self._get_bucket_name(bucket)
         try:
             if method.upper() == "PUT":
-                callback_params = _build_upload_callback_params()
+                upload_headers = headers if headers is not None else {}
+                upload_headers.update(_build_upload_callback_headers())
                 url = self.bucket.sign_url(
                     'PUT',
                     key,
                     expiration,
-                    headers=headers,
-                    params=callback_params or None,
+                    headers=upload_headers or None,
                 )
             else:
                 url = self.bucket.sign_url('GET', key, expiration, headers=headers)

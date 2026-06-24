@@ -356,7 +356,7 @@ async def create_job(
             }
             await job_info_service.save_job_info(job_id, job_info)
 
-            logger.info(f"Job {job_id} upload_url returned to client: {upload_info['upload_url']}")
+            logger.info(f"Job {job_id} upload URL generated for client")
 
             # 构建响应
             response = create_job_response(
