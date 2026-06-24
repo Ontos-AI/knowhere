@@ -2,6 +2,7 @@ import json
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timezone
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -20,6 +21,11 @@ from shared.services.retrieval.outline_snapshot import (
     MCP_OUTLINE_SNAPSHOT_METADATA_KEY,
     MCP_OUTLINE_SNAPSHOT_SCHEMA_VERSION,
 )
+from shared.services.storage.result_storage import (
+    DEFAULT_RESULT_ARTIFACT_URL_EXPIRES_IN_SECONDS,
+    JobResultStorage,
+)
+from shared.services.storage.storage_adapter import StorageAdapter
 
 
 @pytest.mark.asyncio
@@ -124,6 +130,56 @@ def test_mcp_timing_logs_should_be_opt_in(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setenv("MCP_TIMING_LOGS_ENABLED", "true")
     assert are_mcp_timing_logs_enabled() is True
+
+
+def test_result_artifact_urls_should_default_to_seven_days() -> None:
+    class FakeStorageAdapter:
+        def __init__(self) -> None:
+            self.requests: list[dict[str, object]] = []
+
+        def generate_presigned_url(
+            self,
+            key: str,
+            expiration: int = 3600,
+            bucket: str | None = None,
+            method: str = "GET",
+            headers: dict[str, str] | None = None,
+        ) -> str:
+            self.requests.append(
+                {
+                    "key": key,
+                    "expiration": expiration,
+                    "bucket": bucket,
+                    "method": method,
+                    "headers": headers,
+                }
+            )
+            return f"https://assets.example.com/{key}?expires={expiration}"
+
+    fake_adapter = FakeStorageAdapter()
+    result_storage = JobResultStorage(
+        results_bucket="result-bucket",
+        storage_adapter=cast(StorageAdapter, fake_adapter),
+    )
+
+    asset_url = result_storage.generate_artifact_url(
+        job_id="job-1",
+        artifact_ref="images/chart.png",
+    )
+
+    assert asset_url == (
+        "https://assets.example.com/results/job-1/images/chart.png?expires="
+        f"{DEFAULT_RESULT_ARTIFACT_URL_EXPIRES_IN_SECONDS}"
+    )
+    assert fake_adapter.requests == [
+        {
+            "key": "results/job-1/images/chart.png",
+            "expiration": DEFAULT_RESULT_ARTIFACT_URL_EXPIRES_IN_SECONDS,
+            "bucket": "result-bucket",
+            "method": "GET",
+            "headers": None,
+        }
+    ]
 
 
 @pytest.mark.asyncio

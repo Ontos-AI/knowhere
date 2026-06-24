@@ -14,6 +14,7 @@ from shared.services.storage.storage_adapter import StorageAdapter
 _EXCLUDED_FILE_NAMES = {".DS_Store", "Thumbs.db"}
 _EXCLUDED_DIR_NAMES = {"tmp", "temp", "__pycache__"}
 _CLIENT_ARTIFACT_DIRS = {"images", "tables"}
+DEFAULT_RESULT_ARTIFACT_URL_EXPIRES_IN_SECONDS = 7 * 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -30,7 +31,11 @@ class ResultStorage(Protocol):
         raise NotImplementedError
 
     def generate_artifact_url(
-        self, *, job_id: str, artifact_ref: str, expires_in: int = 3600
+        self,
+        *,
+        job_id: str,
+        artifact_ref: str,
+        expires_in: int = DEFAULT_RESULT_ARTIFACT_URL_EXPIRES_IN_SECONDS,
     ) -> str | None:
         raise NotImplementedError
 
@@ -115,7 +120,11 @@ class JobResultStorage:
         )["download_url"]
 
     def generate_artifact_url(
-        self, *, job_id: str, artifact_ref: str, expires_in: int = 3600
+        self,
+        *,
+        job_id: str,
+        artifact_ref: str,
+        expires_in: int = DEFAULT_RESULT_ARTIFACT_URL_EXPIRES_IN_SECONDS,
     ) -> str | None:
         normalized_ref = self.normalize_artifact_ref(artifact_ref)
         if not normalized_ref:
