@@ -1,6 +1,9 @@
 """
 OSS存储适配器实现（阿里云对象存储）
 """
+import base64
+import json
+import os
 from typing import Any, BinaryIO, Dict, Iterator, Optional
 
 from loguru import logger
@@ -20,6 +23,44 @@ def _import_oss2():
         raise ImportError(
             "oss2 module not installed. When S3_TYPE=oss, please install oss2: pip install oss2>=2.18.0"
         ) from e
+
+
+def _encode_callback_param(value: Dict[str, Any]) -> str:
+    raw_value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return base64.b64encode(raw_value.encode("utf-8")).decode("ascii")
+
+
+def _build_upload_callback_params() -> Dict[str, str]:
+    callback_url = os.getenv("API_WEBHOOK_ENDPOINT", "").strip()
+    if not callback_url:
+        return {}
+
+    callback_body = {
+        "events": [
+            {
+                "eventName": "ObjectCreated:PutObject",
+                "eventSource": "acs:oss",
+                "eventTime": "",
+                "region": os.getenv("S3_REGION", ""),
+                "oss": {
+                    "bucket": {"name": "${bucket}"},
+                    "object": {
+                        "key": "${object}",
+                        "size": "${size}",
+                        "etag": "${etag}",
+                    },
+                },
+            }
+        ]
+    }
+    callback_config = {
+        "callbackUrl": callback_url,
+        "callbackBody": json.dumps(
+            callback_body, ensure_ascii=False, separators=(",", ":")
+        ),
+        "callbackBodyType": "application/json",
+    }
+    return {"callback": _encode_callback_param(callback_config)}
 
 
 class OSSStorageAdapter(StorageAdapter):
@@ -157,7 +198,14 @@ class OSSStorageAdapter(StorageAdapter):
         bucket_name = self._get_bucket_name(bucket)
         try:
             if method.upper() == "PUT":
-                url = self.bucket.sign_url('PUT', key, expiration, headers=headers)
+                callback_params = _build_upload_callback_params()
+                url = self.bucket.sign_url(
+                    'PUT',
+                    key,
+                    expiration,
+                    headers=headers,
+                    params=callback_params or None,
+                )
             else:
                 url = self.bucket.sign_url('GET', key, expiration, headers=headers)
             
