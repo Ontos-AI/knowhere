@@ -1,4 +1,4 @@
-"""Add persisted document chunk ordinals.
+"""Add persisted document chunk positions.
 
 Revision ID: f9d0e1f2a3b4
 Revises: f9c0d1e2f3a4
@@ -22,7 +22,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.add_column(
         "document_chunks",
-        sa.Column("ordinal", sa.Integer(), nullable=True),
+        sa.Column("position", sa.Integer(), nullable=True),
     )
     op.execute(
         """
@@ -32,24 +32,24 @@ def upgrade() -> None:
                 row_number() OVER (
                     PARTITION BY document_id, job_result_id
                     ORDER BY sort_order ASC, created_at ASC, id ASC
-                ) AS ordinal
+                ) AS position
             FROM document_chunks
         )
         UPDATE document_chunks dc
-        SET ordinal = ordered_chunks.ordinal
+        SET position = ordered_chunks.position
         FROM ordered_chunks
         WHERE ordered_chunks.id = dc.id
         """
     )
-    op.alter_column("document_chunks", "ordinal", nullable=False)
+    op.alter_column("document_chunks", "position", nullable=False)
     op.create_index(
-        "uq_document_chunks_revision_ordinal",
+        "uq_document_chunks_revision_position",
         "document_chunks",
-        ["document_id", "job_result_id", "ordinal"],
+        ["document_id", "job_result_id", "position"],
         unique=True,
     )
 
 
 def downgrade() -> None:
-    op.drop_index("uq_document_chunks_revision_ordinal", table_name="document_chunks")
-    op.drop_column("document_chunks", "ordinal")
+    op.drop_index("uq_document_chunks_revision_position", table_name="document_chunks")
+    op.drop_column("document_chunks", "position")
