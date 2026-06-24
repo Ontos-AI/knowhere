@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
+from shared.services.retrieval.hydration.assets import enrich_rows_with_retrieval_asset_urls
 from shared.services.retrieval.outline_snapshot import get_valid_mcp_outline_snapshot
 
 DEFAULT_READ_CHUNK_LIMIT = 12
@@ -78,6 +79,7 @@ class DocumentReadChunk(BaseModel):
     section_path: str | None = None
     source_chunk_path: str | None = None
     file_path: str | None = None
+    asset_url: str | None = None
     sort_order: int
     metadata: dict[str, object] = Field(default_factory=dict)
 
@@ -244,7 +246,7 @@ class DocumentInspectionService:
                 document_id=document_id,
                 job_result_id=job_result_id,
                 job_id=_read_job_id(rows),
-                chunks=_index_chunk_rows(rows),
+                chunks=await _create_read_chunks_from_rows(rows),
                 next_chunk=None,
             )
 
@@ -257,15 +259,14 @@ class DocumentInspectionService:
             start_chunk=start_chunk,
             end_chunk=end_chunk,
         )
-        selected_chunks = _index_chunk_rows(selected_rows)
-        next_chunks = _index_chunk_rows(next_rows)
+        selected_chunks = await _create_read_chunks_from_rows(selected_rows)
         return DocumentReadChunksResponse(
             namespace=namespace,
             document_id=document_id,
             job_result_id=job_result_id,
             job_id=_read_job_id(selected_rows) or _read_job_id(next_rows),
             chunks=selected_chunks,
-            next_chunk=next_chunks[0].ordinal if next_chunks else None,
+            next_chunk=_read_first_row_ordinal(next_rows),
         )
 
     async def grep_chunks(
@@ -391,32 +392,80 @@ def _read_job_id(rows: Sequence[object]) -> str | None:
     return str(job_id) if job_id else None
 
 
-def _index_chunk_rows(rows: Sequence[object]) -> list[DocumentReadChunk]:
-    indexed_chunks: list[DocumentReadChunk] = []
+async def _create_read_chunks_from_rows(
+    rows: Sequence[object],
+) -> list[DocumentReadChunk]:
+    payloads = _create_read_chunk_payloads(rows)
+    enriched_payloads = await enrich_rows_with_retrieval_asset_urls(
+        payloads,
+        log_context="MCP read chunk",
+    )
+    return [_create_read_chunk_from_payload(payload) for payload in enriched_payloads]
+
+
+def _create_read_chunk_payloads(rows: Sequence[object]) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
     for index, row in enumerate(rows):
         unpacked_row = _unpack_chunk_row(row)
         if unpacked_row is None:
             continue
-        chunk, section, _job_result, ordinal = unpacked_row
+        chunk, section, job_result, ordinal = unpacked_row
         if not isinstance(chunk, DocumentChunk):
             continue
         section_payload = section if isinstance(section, DocumentSection) else None
-        indexed_chunks.append(
-            DocumentReadChunk(
-                ordinal=ordinal or index + 1,
-                document_chunk_id=chunk.id,
-                chunk_id=chunk.chunk_id,
-                chunk_type=_normalize_chunk_type(chunk.chunk_type),
-                content=chunk.content or "",
-                section_id=chunk.section_id,
-                section_path=section_payload.section_path if section_payload else None,
-                source_chunk_path=chunk.source_chunk_path,
-                file_path=chunk.file_path,
-                sort_order=chunk.sort_order,
-                metadata=chunk.chunk_metadata or {},
-            )
+        job_id = getattr(job_result, "job_id", None)
+        payloads.append(
+            {
+                "ordinal": ordinal or index + 1,
+                "document_chunk_id": chunk.id,
+                "chunk_id": chunk.chunk_id,
+                "chunk_type": _normalize_chunk_type(chunk.chunk_type),
+                "content": chunk.content or "",
+                "section_id": chunk.section_id,
+                "section_path": section_payload.section_path if section_payload else None,
+                "source_chunk_path": chunk.source_chunk_path,
+                "file_path": chunk.file_path,
+                "sort_order": chunk.sort_order,
+                "metadata": chunk.chunk_metadata or {},
+                "job_id": str(job_id) if job_id else None,
+            }
         )
-    return indexed_chunks
+    return payloads
+
+
+def _create_read_chunk_from_payload(payload: Mapping[str, Any]) -> DocumentReadChunk:
+    metadata_value = payload.get("metadata")
+    metadata = (
+        {str(key): value for key, value in metadata_value.items()}
+        if isinstance(metadata_value, Mapping)
+        else {}
+    )
+    return DocumentReadChunk(
+        ordinal=int(payload["ordinal"]),
+        document_chunk_id=str(payload["document_chunk_id"]),
+        chunk_id=str(payload["chunk_id"]),
+        chunk_type=_normalize_chunk_type(payload["chunk_type"]),
+        content=str(payload.get("content") or ""),
+        section_id=_read_optional_payload_string(payload.get("section_id")),
+        section_path=_read_optional_payload_string(payload.get("section_path")),
+        source_chunk_path=_read_optional_payload_string(
+            payload.get("source_chunk_path")
+        ),
+        file_path=_read_optional_payload_string(payload.get("file_path")),
+        asset_url=_read_optional_payload_string(payload.get("asset_url")),
+        sort_order=int(payload["sort_order"]),
+        metadata=metadata,
+    )
+
+
+def _read_first_row_ordinal(rows: Sequence[object]) -> int | None:
+    if not rows:
+        return None
+    unpacked_row = _unpack_chunk_row(rows[0])
+    if unpacked_row is None:
+        return None
+    _chunk, _section, _job_result, ordinal = unpacked_row
+    return ordinal
 
 
 def _unpack_chunk_row(row: object) -> tuple[object, object, object, int | None] | None:
@@ -747,6 +796,13 @@ def _normalize_chunk_type(raw: object) -> str:
 def _normalize_chunk_type_filter(raw: str | None) -> str | None:
     normalized = _normalize_optional_string(raw)
     return _normalize_chunk_type(normalized) if normalized else None
+
+
+def _read_optional_payload_string(raw: object) -> str | None:
+    if raw is None:
+        return None
+    normalized = str(raw).strip()
+    return normalized or None
 
 
 def _normalize_optional_string(raw: str | None) -> str | None:

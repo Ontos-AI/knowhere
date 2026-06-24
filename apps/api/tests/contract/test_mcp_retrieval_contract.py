@@ -62,6 +62,12 @@ async def test_mcp_should_register_knowhere_tools_with_structured_outputs() -> N
         "stop_reason",
         "failure_reason",
     }
+    read_output_schema = tools_by_name["knowhere_read_chunks"].outputSchema
+    assert read_output_schema is not None
+    read_chunk_properties = read_output_schema["$defs"]["DocumentReadChunk"][
+        "properties"
+    ]
+    assert "asset_url" in read_chunk_properties
 
 
 def test_search_projection_should_preserve_structured_retrieval_fields() -> None:
@@ -382,12 +388,40 @@ async def test_document_inspection_should_read_by_range_section_and_ids(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     document_id = f"doc_{uuid4().hex[:12]}"
+
+    class FakeResultStorage:
+        def generate_artifact_url(
+            self,
+            *,
+            job_id: str,
+            artifact_ref: str,
+            expires_in: int = 3600,
+        ) -> str | None:
+            del expires_in
+            return f"https://assets.example.com/{job_id}/{artifact_ref}?refresh=1"
+
+        def normalize_artifact_ref(self, artifact_ref: str | None) -> str | None:
+            if not artifact_ref:
+                return None
+            normalized = artifact_ref.strip().replace("\\", "/").lstrip("/")
+            root_directory = normalized.split("/", 1)[0]
+            if root_directory not in {"images", "tables"}:
+                return None
+            return normalized
+
+    def fake_get_result_storage() -> FakeResultStorage:
+        return FakeResultStorage()
 
     async with developer_api_client_factory():
         from shared.core.database import get_db_context
 
+        monkeypatch.setattr(
+            "shared.services.retrieval.hydration.assets.get_result_storage",
+            fake_get_result_storage,
+        )
         fixture = await _insert_document_revision_fixture(document_id=document_id)
         service = DocumentInspectionService()
         async with get_db_context() as db:
@@ -423,22 +457,86 @@ async def test_document_inspection_should_read_by_range_section_and_ids(
 
     assert range_response is not None
     assert [chunk.ordinal for chunk in range_response.chunks] == [2, 3]
+    assert range_response.chunks[0].asset_url is None
+    assert range_response.chunks[1].asset_url == (
+        f"https://assets.example.com/{fixture['job_id']}/tables/revenue.html?refresh=1"
+    )
     assert range_response.next_chunk == 4
 
     assert section_response is not None
     assert [chunk.ordinal for chunk in section_response.chunks] == [3, 4]
+    assert section_response.chunks[0].asset_url == (
+        f"https://assets.example.com/{fixture['job_id']}/tables/revenue.html?refresh=1"
+    )
+    assert section_response.chunks[1].asset_url is None
     assert section_response.next_chunk is None
 
     assert id_response is not None
     assert [chunk.document_chunk_id for chunk in id_response.chunks] == [
         fixture["finance_table_chunk_id"]
     ]
+    assert id_response.chunks[0].asset_url == (
+        f"https://assets.example.com/{fixture['job_id']}/tables/revenue.html?refresh=1"
+    )
     assert id_response.next_chunk is None
 
     assert semantic_id_response is not None
     assert [chunk.chunk_id for chunk in semantic_id_response.chunks] == [
         "semantic-body-text"
     ]
+    assert semantic_id_response.chunks[0].asset_url is None
+
+
+@pytest.mark.asyncio
+async def test_document_inspection_should_ignore_read_asset_url_generation_failure(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    class FailingResultStorage:
+        def generate_artifact_url(
+            self,
+            *,
+            job_id: str,
+            artifact_ref: str,
+            expires_in: int = 3600,
+        ) -> str | None:
+            del job_id, artifact_ref, expires_in
+            raise RuntimeError("storage unavailable")
+
+        def normalize_artifact_ref(self, artifact_ref: str | None) -> str | None:
+            if not artifact_ref:
+                return None
+            return artifact_ref.strip().replace("\\", "/").lstrip("/") or None
+
+    def fake_get_result_storage() -> FailingResultStorage:
+        return FailingResultStorage()
+
+    async with developer_api_client_factory():
+        from shared.core.database import get_db_context
+
+        monkeypatch.setattr(
+            "shared.services.retrieval.hydration.assets.get_result_storage",
+            fake_get_result_storage,
+        )
+        fixture = await _insert_document_revision_fixture(document_id=document_id)
+        service = DocumentInspectionService()
+        async with get_db_context() as db:
+            response = await service.read_chunks(
+                db,
+                user_id="local-dev-user",
+                namespace="contract-documents",
+                document_id=document_id,
+                document_chunk_id=fixture["finance_table_chunk_id"],
+            )
+
+    assert response is not None
+    assert len(response.chunks) == 1
+    assert response.chunks[0].file_path == "tables/revenue.html"
+    assert response.chunks[0].asset_url is None
 
 
 @pytest.mark.asyncio
