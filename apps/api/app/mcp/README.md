@@ -1,8 +1,9 @@
 # Knowhere MCP Server
 
 This module exposes the server-side MCP surface for inspecting published Knowhere
-documents. The API app mounts the server at `/mcp`; the implementation lives in
-`retrieval_server.py`.
+documents and starting URL parse jobs. The API app mounts the server at `/mcp`;
+the tool registration lives in `retrieval_server.py`, with shared request/auth/DB
+runtime behavior in `tool_runtime.py`.
 
 ## Request Model
 
@@ -21,6 +22,23 @@ inspection. The response includes `evidence_text`, `referenced_chunks`,
 `decision_trace`, and ranked result previews.
 
 Use this first when the target document is unknown.
+
+### `knowhere_parse_url`
+
+Start parsing a remote document URL. This creates a background document-ingestion
+job through the same service layer as `POST /v1/jobs` and returns a job ID plus
+the effective namespace and document scope. Poll with `knowhere_get_job_status`.
+
+This server-side MCP tool accepts URLs only. It does not accept local file paths
+because a remote MCP server cannot read the client agent's filesystem.
+
+### `knowhere_get_job_status`
+
+Return structured status for one parsing job owned by the authenticated user.
+The response includes the job payload, terminal/success/failure booleans, and an
+interpretation string. Non-terminal jobs should be polled again later; do not
+treat slow or unchanged progress as failure unless Knowhere returns a terminal
+failure state.
 
 ### `knowhere_list_documents`
 
@@ -55,8 +73,10 @@ SQL before limiting, and returns ordered snippets plus exact follow-up IDs.
 
 ## Non-Goals
 
-This MCP surface is retrieval and inspection only. It does not expose ingestion,
-upload, job management, or upload confirmation tools.
+This MCP surface does not expose local-file upload plumbing or upload
+confirmation tools. Direct upload URLs and `confirm-upload` remain client/API
+plumbing. The model-facing server MCP ingestion path is URL parse creation plus
+job-status polling.
 
 ## Maintenance Notes
 

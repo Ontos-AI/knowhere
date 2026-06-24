@@ -2,7 +2,10 @@ import json
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timezone
-from typing import cast
+import importlib
+import socket
+from types import SimpleNamespace
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -13,6 +16,7 @@ from app.mcp.retrieval_server import (
     create_retrieval_mcp_server,
     to_mcp_search_response,
 )
+from app.mcp.tool_runtime import MCP_TIMING_LOGS_ENABLED_ENV
 from app.services.documents import inspection_service as inspection_module
 from app.services.documents.inspection_service import DocumentInspectionService
 from tests.support.contract_database import ContractDatabase
@@ -38,6 +42,8 @@ async def test_mcp_should_register_knowhere_tools_with_structured_outputs() -> N
     tools_by_name = {tool.name: tool for tool in tools}
 
     assert set(tools_by_name) == {
+        "knowhere_parse_url",
+        "knowhere_get_job_status",
         "knowhere_search",
         "knowhere_list_documents",
         "knowhere_get_document_outline",
@@ -67,6 +73,35 @@ async def test_mcp_should_register_knowhere_tools_with_structured_outputs() -> N
         "results",
         "stop_reason",
         "failure_reason",
+    }
+    assert set(tools_by_name["knowhere_parse_url"].inputSchema["properties"]) == {
+        "url",
+        "namespace",
+        "document_id",
+        "data_id",
+        "parse_track",
+        "parsing_params",
+    }
+    parse_url_output_schema = tools_by_name["knowhere_parse_url"].outputSchema
+    assert parse_url_output_schema is not None
+    assert set(parse_url_output_schema["properties"]) == {
+        "namespace",
+        "job",
+        "interpretation",
+    }
+    assert set(tools_by_name["knowhere_get_job_status"].inputSchema["properties"]) == {
+        "job_id",
+        "namespace",
+    }
+    job_status_output_schema = tools_by_name["knowhere_get_job_status"].outputSchema
+    assert job_status_output_schema is not None
+    assert set(job_status_output_schema["properties"]) == {
+        "namespace",
+        "job",
+        "is_terminal",
+        "is_success",
+        "is_failure",
+        "interpretation",
     }
     read_output_schema = tools_by_name["knowhere_read_chunks"].outputSchema
     assert read_output_schema is not None
@@ -127,10 +162,10 @@ def test_search_projection_should_preserve_structured_retrieval_fields() -> None
 
 
 def test_mcp_timing_logs_should_be_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MCP_TIMING_LOGS_ENABLED", raising=False)
+    monkeypatch.delenv(MCP_TIMING_LOGS_ENABLED_ENV, raising=False)
     assert are_mcp_timing_logs_enabled() is False
 
-    monkeypatch.setenv("MCP_TIMING_LOGS_ENABLED", "true")
+    monkeypatch.setenv(MCP_TIMING_LOGS_ENABLED_ENV, "true")
     assert are_mcp_timing_logs_enabled() is True
 
 
@@ -182,6 +217,172 @@ def test_result_artifact_urls_should_default_to_seven_days() -> None:
             "headers": None,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_mcp_should_create_url_parse_job_and_return_job_status(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_url = "https://example.com/contracts/knowhere-mcp.pdf"
+    api_key = ""
+
+    class FakeCeleryTask:
+        def __init__(self, task_name: str) -> None:
+            self.task_name = task_name
+
+        def apply_async(
+            self,
+            args: list[object] | None = None,
+            kwargs: dict[str, object] | None = None,
+        ) -> None:
+            scheduled_tasks.append(
+                {
+                    "task_name": self.task_name,
+                    "args": args or [],
+                    "kwargs": kwargs or {},
+                }
+            )
+
+    class FakeCeleryApp:
+        def signature(self, task_name: str) -> FakeCeleryTask:
+            return FakeCeleryTask(task_name)
+
+    def resolve_public_address(
+        host: str,
+        port: int | None,
+        *args: object,
+        **kwargs: object,
+    ) -> list[tuple[socket.AddressFamily, socket.SocketKind, int, str, tuple[str, int]]]:
+        del host, port, args, kwargs
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+
+    import shared.core.celery_app as celery_app_module
+    scheduled_tasks: list[dict[str, object]] = []
+    monkeypatch.setattr(socket, "getaddrinfo", resolve_public_address)
+    monkeypatch.setattr(
+        celery_app_module,
+        "get_celery_app",
+        lambda: FakeCeleryApp(),
+    )
+
+    async with developer_api_client_factory() as api_client:
+        from shared.services.redis import JobInfoRedisService, JobMetadataService
+        from shared.services.redis.redis_service_factory import RedisServiceFactory
+
+        authorization = api_client.headers["Authorization"]
+        api_key = authorization.removeprefix("Bearer ")
+        runtime_retrieval_server = importlib.import_module("app.mcp.retrieval_server")
+        server = runtime_retrieval_server.create_retrieval_mcp_server()
+        context = _make_mcp_context(
+            authorization=authorization,
+            namespace="header-namespace",
+        )
+
+        parse_response = await server._tool_manager.call_tool(
+            "knowhere_parse_url",
+            {
+                "url": source_url,
+                "namespace": "contract-mcp-parse",
+                "data_id": "mcp-parse-data",
+                "parsing_params": {
+                    "model": "base",
+                    "ocr_enabled": True,
+                    "smart_title_parse": False,
+                },
+            },
+            context=context,
+            convert_result=False,
+        )
+
+        assert parse_response.namespace == "contract-mcp-parse"
+        assert parse_response.job.status == "waiting-file"
+        assert parse_response.job.source_type == "url"
+        assert parse_response.job.data_id == "mcp-parse-data"
+        assert parse_response.job.upload_url is None
+        assert parse_response.job.upload_headers is None
+        assert parse_response.job.expires_in is None
+        assert "Poll knowhere_get_job_status" in parse_response.interpretation
+
+        job_id = parse_response.job.job_id
+        job_row = await ContractDatabase.fetch_one(
+            """
+            SELECT user_id, job_type, status, source_type, s3_key, job_metadata
+            FROM jobs
+            WHERE job_id = :job_id
+            """,
+            {"job_id": job_id},
+        )
+        assert job_row is not None
+        job_metadata = job_row["job_metadata"]
+        assert job_row["user_id"] == "local-dev-user"
+        assert job_row["job_type"] == "document_ingestion"
+        assert job_row["status"] == "waiting-file"
+        assert job_row["source_type"] == "url"
+        assert job_row["s3_key"] == f"uploads/{job_id}.pdf"
+        assert job_metadata["namespace"] == "contract-mcp-parse"
+        assert job_metadata["source_url"] == source_url
+        assert job_metadata["source_file_name"] == "knowhere-mcp.pdf"
+        assert job_metadata["data_id"] == "mcp-parse-data"
+        assert job_metadata["parsing_params"] == {
+            "model": "base",
+            "ocr_enabled": True,
+            "doc_type": "auto",
+            "smart_title_parse": False,
+            "summary_image": True,
+            "summary_table": True,
+            "summary_txt": True,
+            "add_frag_desc": "",
+            "summary_use_llm": False,
+        }
+
+        redis_service = RedisServiceFactory.get_service()
+        metadata_service = JobMetadataService(redis_service)
+        job_info_service = JobInfoRedisService(redis_service)
+        cached_metadata = await metadata_service.get_metadata(job_id)
+        cached_job_info = await job_info_service.get_job_info(job_id)
+
+        assert cached_metadata is not None
+        assert cached_metadata["namespace"] == "contract-mcp-parse"
+        assert cached_metadata["source_url"] == source_url
+        assert cached_job_info is not None
+        assert cached_job_info["job_id"] == job_id
+        assert cached_job_info["user_id"] == "local-dev-user"
+
+        status_response = await server._tool_manager.call_tool(
+            "knowhere_get_job_status",
+            {"job_id": job_id},
+            context=context,
+            convert_result=False,
+        )
+
+        explicit_namespace_status_response = await server._tool_manager.call_tool(
+            "knowhere_get_job_status",
+            {"job_id": job_id, "namespace": "explicit-status-namespace"},
+            context=context,
+            convert_result=False,
+        )
+        assert explicit_namespace_status_response.job.job_id == job_id
+
+    assert api_key
+    assert scheduled_tasks == [
+        {
+            "task_name": "app.core.tasks.document_ingestion_tasks.upload_url_file_task",
+            "args": [job_id, source_url, "local-dev-user"],
+            "kwargs": {"job_type": "document_ingestion"},
+        }
+    ]
+    assert status_response.namespace == "contract-mcp-parse"
+    assert status_response.job.job_id == job_id
+    assert status_response.job.status == "waiting-file"
+    assert status_response.job.file_name == "knowhere-mcp.pdf"
+    assert status_response.job.file_extension == "PDF"
+    assert status_response.is_terminal is False
+    assert status_response.is_success is False
+    assert status_response.is_failure is False
+    assert "still running" in status_response.interpretation
 
 
 @pytest.mark.asyncio
@@ -718,6 +919,17 @@ def test_document_inspection_should_timeout_catastrophic_regex() -> None:
 
     with pytest.raises(ValueError, match="Regex grep timed out"):
         matcher(("a" * 10_000) + "!")
+
+
+def _make_mcp_context(*, authorization: str, namespace: str | None = None) -> Any:
+    headers = {"authorization": authorization}
+    if namespace is not None:
+        headers["x-knowhere-namespace"] = namespace
+    return SimpleNamespace(
+        request_context=SimpleNamespace(
+            request=SimpleNamespace(headers=headers),
+        ),
+    )
 
 
 async def _insert_document_revision_fixture(*, document_id: str) -> dict[str, str]:

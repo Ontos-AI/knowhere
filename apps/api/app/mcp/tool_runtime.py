@@ -8,6 +8,8 @@ from typing import AsyncContextManager, TypeVar
 from app.services.auth.current_user_authentication_service import (
     get_current_user_authentication_service,
 )
+from app.services.rate_limit.data_structures import CurrentUser
+from app.services.rate_limit.tier_service import TierService
 from loguru import logger
 from mcp.server.fastmcp import Context
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +22,7 @@ MCP_TIMING_LOGS_ENABLED_ENV = "MCP_TIMING_LOGS_ENABLED"
 MCP_TIMING_LOG_TRUE_VALUES = {"1", "true", "yes", "on"}
 
 ResultT = TypeVar("ResultT")
-McpToolOperation = Callable[[AsyncSession, str, str], Awaitable[ResultT]]
+McpToolOperation = Callable[[AsyncSession, CurrentUser, str], Awaitable[ResultT]]
 McpToolResultCounter = Callable[[ResultT], Mapping[str, int | float | str | None]]
 DbFactory = Callable[[], AsyncContextManager[AsyncSession]]
 
@@ -52,11 +54,11 @@ class McpToolRuntime:
 
             async with self._db_factory() as db:
                 auth_started_at = perf_counter()
-                user_id = await _resolve_mcp_user_id(ctx=ctx, db=db)
+                current_user = await _resolve_mcp_current_user(ctx=ctx, db=db)
                 auth_ms = _elapsed_ms(auth_started_at)
 
                 service_started_at = perf_counter()
-                result = await operation(db, user_id, effective_namespace)
+                result = await operation(db, current_user, effective_namespace)
                 service_ms = _elapsed_ms(service_started_at)
                 _log_mcp_tool_timing(
                     tool_name=tool_name,
@@ -127,14 +129,16 @@ def _resolve_mcp_namespace(
     return normalize_retrieval_namespace(header_namespace)
 
 
-async def _resolve_mcp_user_id(*, ctx: Context | None, db: AsyncSession) -> str:
+async def _resolve_mcp_current_user(*, ctx: Context | None, db: AsyncSession) -> CurrentUser:
     request = _get_mcp_request(ctx)
     headers = getattr(request, "headers", None)
     authorization = _get_header(headers, "authorization")
-    return await get_current_user_authentication_service().authenticate_authorization_header(
+    user_id = await get_current_user_authentication_service().authenticate_authorization_header(
         db,
         authorization=authorization,
     )
+    user_tier = await TierService.get_tier_for_session(db, user_id)
+    return CurrentUser(user_id=user_id, user_tier=user_tier)
 
 
 def _elapsed_ms(started_at: float) -> float:

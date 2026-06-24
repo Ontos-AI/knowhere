@@ -55,6 +55,30 @@ class TierService:
         return user_tier
 
     @staticmethod
+    async def get_tier_for_session(session: AsyncSession, user_id: str) -> str:
+        """Return a user's tier using the caller-owned database session.
+
+        This keeps request runtimes that already own a transaction from opening a
+        second global DB context, while preserving the same cache and
+        first-use-initialization behavior as get_tier().
+        """
+        redis_service = redis_pool_manager.get_redis_service()
+        cached_tier = await TierService._get_cached_tier(redis_service, user_id)
+        if cached_tier is not None:
+            return cached_tier
+
+        try:
+            user_tier: str = await TierService._get_tier_from_db(session, user_id)
+        except NotFoundException:
+            user_tier = await TierService._initialize_missing_user_tier(
+                session,
+                user_id,
+            )
+
+        await TierService._set_cached_tier(redis_service, user_id, user_tier)
+        return user_tier
+
+    @staticmethod
     async def refresh_tier(user_id: str, session: AsyncSession) -> str:
         """Called on payment success.
 

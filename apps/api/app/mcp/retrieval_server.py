@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
+from app.mcp.job_tools import register_job_tools
 from app.mcp.tool_runtime import (
     DbFactory,
     McpToolRuntime,
     are_mcp_timing_logs_enabled as _are_mcp_timing_logs_enabled,
 )
+from app.services.document_ingestion import DocumentIngestionService
 from app.services.documents.inspection_service import (
     DEFAULT_GREP_RESULT_LIMIT,
     MAX_GREP_RESULT_LIMIT,
@@ -16,6 +18,7 @@ from app.services.documents.inspection_service import (
     DocumentOutlineResponse,
     DocumentReadChunksResponse,
 )
+from app.services.rate_limit.data_structures import CurrentUser
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field
@@ -123,22 +126,32 @@ def create_retrieval_mcp_server(
     db_factory: DbFactory | None = None,
     streamable_http_path: str = "/mcp",
     document_inspection_service: DocumentInspectionService | None = None,
+    document_ingestion_service: DocumentIngestionService | None = None,
 ):
     runtime = McpToolRuntime(db_factory=db_factory)
     inspection_service = document_inspection_service or DocumentInspectionService()
+    ingestion_service = document_ingestion_service or DocumentIngestionService()
     server = FastMCP(
         "knowhere-retrieval",
         instructions=(
             "Use this server to inspect and retrieve from published Knowhere "
-            "documents. Use knowhere_search for discovery first when the target "
-            "document is unknown, then use knowhere_get_document_outline, "
-            "knowhere_read_chunks, or knowhere_grep_chunks with exact document "
-            "and chunk identifiers for bounded follow-up."
+            "documents and to start URL parse jobs. Use knowhere_parse_url to "
+            "parse a remote document URL, then poll knowhere_get_job_status "
+            "until the job is done or failed. Use knowhere_search for discovery "
+            "when the target document is unknown, then use "
+            "knowhere_get_document_outline, knowhere_read_chunks, or "
+            "knowhere_grep_chunks with exact document and chunk identifiers for "
+            "bounded follow-up."
         ),
         streamable_http_path=streamable_http_path,
         json_response=True,
         stateless_http=True,
         transport_security=create_public_mcp_transport_security(),
+    )
+    register_job_tools(
+        server=server,
+        runtime=runtime,
+        document_ingestion_service=ingestion_service,
     )
 
     @server.tool(
@@ -200,12 +213,12 @@ def create_retrieval_mcp_server(
     ) -> KnowhereSearchResponse:
         async def run_search(
             db: AsyncSession,
-            user_id: str,
+            current_user: CurrentUser,
             effective_namespace: str,
         ) -> KnowhereSearchResponse:
             response = await run_retrieval_query(
                 db=db,
-                user_id=user_id,
+                user_id=current_user.user_id,
                 namespace=effective_namespace,
                 query=query,
                 top_k=top_k,
@@ -250,12 +263,12 @@ def create_retrieval_mcp_server(
     ) -> DocumentListResponse:
         async def list_documents(
             db: AsyncSession,
-            user_id: str,
+            current_user: CurrentUser,
             effective_namespace: str,
         ) -> DocumentListResponse:
             return await inspection_service.list_documents(
                 db,
-                user_id=user_id,
+                user_id=current_user.user_id,
                 namespace=effective_namespace,
             )
 
@@ -288,12 +301,12 @@ def create_retrieval_mcp_server(
     ) -> DocumentOutlineResponse:
         async def get_document_outline(
             db: AsyncSession,
-            user_id: str,
+            current_user: CurrentUser,
             effective_namespace: str,
         ) -> DocumentOutlineResponse:
             response = await inspection_service.get_document_outline(
                 db,
-                user_id=user_id,
+                user_id=current_user.user_id,
                 namespace=effective_namespace,
                 document_id=document_id,
             )
@@ -350,12 +363,12 @@ def create_retrieval_mcp_server(
     ) -> DocumentReadChunksResponse:
         async def read_chunks(
             db: AsyncSession,
-            user_id: str,
+            current_user: CurrentUser,
             effective_namespace: str,
         ) -> DocumentReadChunksResponse:
             response = await inspection_service.read_chunks(
                 db,
-                user_id=user_id,
+                user_id=current_user.user_id,
                 namespace=effective_namespace,
                 document_id=document_id,
                 section_path=section_path,
@@ -427,12 +440,12 @@ def create_retrieval_mcp_server(
     ) -> DocumentGrepChunksResponse:
         async def grep_chunks(
             db: AsyncSession,
-            user_id: str,
+            current_user: CurrentUser,
             effective_namespace: str,
         ) -> DocumentGrepChunksResponse:
             response = await inspection_service.grep_chunks(
                 db,
-                user_id=user_id,
+                user_id=current_user.user_id,
                 namespace=effective_namespace,
                 document_id=document_id,
                 pattern=pattern,
