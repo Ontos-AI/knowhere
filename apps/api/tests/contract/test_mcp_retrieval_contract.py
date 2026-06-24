@@ -26,6 +26,8 @@ from shared.services.retrieval.outline_snapshot import (
 async def test_mcp_should_register_knowhere_tools_with_structured_outputs() -> None:
     server = create_retrieval_mcp_server()
 
+    assert server.settings.json_response is True
+
     tools = await server.list_tools()
     tools_by_name = {tool.name: tool for tool in tools}
 

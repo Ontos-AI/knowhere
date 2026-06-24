@@ -224,6 +224,7 @@ def create_retrieval_mcp_server(
             "and chunk identifiers for bounded follow-up."
         ),
         streamable_http_path=streamable_http_path,
+        json_response=True,
         stateless_http=True,
         transport_security=create_public_mcp_transport_security(),
     )
