@@ -30,30 +30,27 @@ def _encode_callback_param(value: Dict[str, Any]) -> str:
     return base64.b64encode(raw_value.encode("utf-8")).decode("ascii")
 
 
+def _build_upload_callback_body() -> str:
+    region = json.dumps(os.getenv("S3_REGION", ""), ensure_ascii=False)
+    return (
+        '{"events":[{'
+        '"eventName":"ObjectCreated:PutObject",'
+        '"eventSource":"acs:oss",'
+        '"eventTime":"",'
+        f'"region":{region},'
+        '"oss":{"bucket":{"name":${bucket}},"object":{"key":${object}}}'
+        '}]}'
+    )
+
+
 def _build_upload_callback_headers() -> Dict[str, str]:
     callback_url = os.getenv("API_WEBHOOK_ENDPOINT", "").strip()
     if not callback_url:
         return {}
 
-    callback_body = {
-        "events": [
-            {
-                "eventName": "ObjectCreated:PutObject",
-                "eventSource": "acs:oss",
-                "eventTime": "",
-                "region": os.getenv("S3_REGION", ""),
-                "oss": {
-                    "bucket": {"name": "${bucket}"},
-                    "object": {"key": "${object}"},
-                },
-            }
-        ]
-    }
     callback_config = {
         "callbackUrl": callback_url,
-        "callbackBody": json.dumps(
-            callback_body, ensure_ascii=False, separators=(",", ":")
-        ),
+        "callbackBody": _build_upload_callback_body(),
         "callbackBodyType": "application/json",
     }
     return {"x-oss-callback": _encode_callback_param(callback_config)}

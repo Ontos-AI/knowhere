@@ -78,11 +78,18 @@ def test_generate_presigned_put_url_includes_oss_callback_headers(
     )
     assert callback_config["callbackBodyType"] == "application/json"
 
-    callback_body = json.loads(callback_config["callbackBody"])
+    raw_callback_body = callback_config["callbackBody"]
+    assert '"name":${bucket}' in raw_callback_body
+    assert '"key":${object}' in raw_callback_body
+
+    rendered_callback_body = raw_callback_body.replace(
+        "${bucket}", json.dumps("sjg-knowhere-storage-cn")
+    ).replace("${object}", json.dumps("uploads/job_123.pdf"))
+    callback_body = json.loads(rendered_callback_body)
     assert callback_body["events"][0]["eventName"] == "ObjectCreated:PutObject"
     assert callback_body["events"][0]["region"] == "cn-guangzhou"
-    assert callback_body["events"][0]["oss"]["bucket"]["name"] == "${bucket}"
-    assert callback_body["events"][0]["oss"]["object"]["key"] == "${object}"
+    assert callback_body["events"][0]["oss"]["bucket"]["name"] == "sjg-knowhere-storage-cn"
+    assert callback_body["events"][0]["oss"]["object"]["key"] == "uploads/job_123.pdf"
     assert "etag" not in callback_body["events"][0]["oss"]["object"]
 
 
