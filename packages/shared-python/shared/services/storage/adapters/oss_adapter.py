@@ -44,11 +44,7 @@ def _build_upload_callback_headers() -> Dict[str, str]:
                 "region": os.getenv("S3_REGION", ""),
                 "oss": {
                     "bucket": {"name": "${bucket}"},
-                    "object": {
-                        "key": "${object}",
-                        "size": "${size}",
-                        "etag": "${etag}",
-                    },
+                    "object": {"key": "${object}"},
                 },
             }
         ]

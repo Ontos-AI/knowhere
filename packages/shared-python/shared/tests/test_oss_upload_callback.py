@@ -83,6 +83,7 @@ def test_generate_presigned_put_url_includes_oss_callback_headers(
     assert callback_body["events"][0]["region"] == "cn-guangzhou"
     assert callback_body["events"][0]["oss"]["bucket"]["name"] == "${bucket}"
     assert callback_body["events"][0]["oss"]["object"]["key"] == "${object}"
+    assert "etag" not in callback_body["events"][0]["oss"]["object"]
 
 
 @pytest.mark.asyncio
