@@ -311,15 +311,19 @@ def _summarize_excel_table(
     mechanical_keywords = parse_tb_keywords(table_frame)
 
     if llm_parameters["summary_table"]:
-        from app.services.document_parser.formats.text.parser import (
-            extract_title_keywords_summary,
-        )
+        from shared.services.ai.summary.engine import summarize
 
-        title, keywords, summary = extract_title_keywords_summary(
-            table_html,
+        # Tables are Contract B assets: title + summary + keywords from HTML.
+        result = summarize(
+            mode="asset",
+            text=table_html,
             max_keywords=3,
         )
-        return title, keywords or mechanical_keywords, summary
+        return (
+            result.title or None,
+            result.keywords_str() or mechanical_keywords,
+            result.summary or None,
+        )
 
     return None, mechanical_keywords, None
 

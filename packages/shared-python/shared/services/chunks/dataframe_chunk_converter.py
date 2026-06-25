@@ -43,6 +43,8 @@ ChunkType: TypeAlias = Literal["text", "image", "table", "page"]
 
 class ChunkMetadata(TypedDict, total=False):
     keywords: list[str]
+    entities: list[dict[str, str]]
+    asset_title: str
     summary: str
     length: int
     tokens: list[str]
@@ -99,6 +101,39 @@ def _safe_split_keywords(value: object) -> list[str]:
     else:
         keywords = [keyword_text.strip()] if keyword_text.strip() else []
     return [keyword for keyword in keywords if len(keyword) > 1]
+
+
+def _safe_parse_entities(value: object) -> list[dict[str, str]]:
+    """Parse the row ``entities`` column (§4.4) into a list of typed dicts.
+
+    Accepts the JSON-string form written by the parser layer, an already-parsed
+    list, or empty. Each entity is normalized to ``{"text","type"}`` with a
+    non-empty ``text``. Returns ``[]`` for anything unrecognized — empty is valid.
+    """
+    if _is_missing(value) or not value:
+        return []
+    parsed: object = value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(parsed, list):
+        return []
+    entities: list[dict[str, str]] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        entity_text = str(item.get("text", "")).strip()
+        if not entity_text:
+            continue
+        entities.append(
+            {"text": entity_text, "type": str(item.get("type", "")).strip()}
+        )
+    return entities
 
 
 def _safe_parse_tokens(value: object) -> list[str]:
@@ -220,6 +255,8 @@ def _parse_extra_metadata(value: object) -> dict[str, JsonValue]:
 
 _RESERVED_METADATA_KEYS = {
     "keywords",
+    "entities",
+    "asset_title",
     "summary",
     "length",
     "tokens",
@@ -277,11 +314,18 @@ def dataframe_to_chunks(df: _ParserDataFrame | None) -> list[Dict[str, JsonValue
             "keywords": _safe_split_keywords(row.get("keywords")),
             "summary": str(row.get("summary", "")),
             "length": _safe_int(row.get("length")) or len(content),
-            "tokens": _safe_parse_tokens(row.get("tokens")),
             "connect_to": _parse_connect_to(row.get("connectto")),
             "_relationship_refs": relationship_refs,
             "page_nums": _parse_page_numbers(row.get("page_nums", "")),
         }
+        entities = _safe_parse_entities(row.get("entities"))
+        if entities:
+            metadata["entities"] = entities
+        asset_title = str(row.get("asset_title", "") or "").strip()
+        if asset_title:
+            metadata["asset_title"] = asset_title
+        if chunk_type != "page":
+            metadata["tokens"] = _safe_parse_tokens(row.get("tokens"))
         _merge_extra_metadata(metadata, _parse_extra_metadata(row.get("extra_metadata")))
 
         if chunk_type == "image":

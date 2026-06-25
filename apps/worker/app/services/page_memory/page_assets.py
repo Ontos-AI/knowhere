@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw, ImageFont
 from app.services.document_agent.budget import BudgetTracker
 from app.services.document_agent.visual import visual_debug_enabled
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
+from app.services.document_parser.support.parser_rows import serialize_entities
 from app.services.page_memory.page_renderer import PageRenderResult
 from shared.services.ai.prompt_service import build_prompt
 from shared.utils.token_estimate import estimate_tokens
@@ -46,6 +47,8 @@ class PageAsset:
     title: str = ""
     summary: str = ""
     keywords: list[str] = field(default_factory=list)
+    entities: list[dict[str, str]] = field(default_factory=list)
+    chart: dict[str, Any] | None = None
     image_uri: str = ""
     html_uri: str = ""
     image_path: str = ""
@@ -56,6 +59,17 @@ class PageAsset:
 def page_asset_extraction_enabled() -> bool:
     return os.environ.get(
         "PAGE_MEMORY_ASSET_EXTRACTION_ENABLED", "false"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def page_asset_summary_enabled() -> bool:
+    """Whether detected page assets are summarized via the engine (§4.3).
+
+    Gated separately from detection so the richer chart/figure summarization can
+    be rolled out independently. Defaults off.
+    """
+    return os.environ.get(
+        "PAGE_MEMORY_ASSET_SUMMARY_ENABLED", "false"
     ).strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -338,6 +352,67 @@ def extract_table_html(
     return asset
 
 
+def summarize_page_asset(
+    *,
+    asset: PageAsset,
+    model_name: str | None,
+    budget: BudgetTracker | None,
+) -> PageAsset:
+    """Summarize a cropped asset via the unified engine (§4.3).
+
+    Routes tables (with extracted HTML) through the text asset path and figures /
+    charts through the image asset path. Populates ``summary``, ``entities``,
+    ``chart`` (statistical content), and a ``title`` when the asset had none.
+    Numbers and entities come entirely from the model reading the asset; nothing
+    is hard-coded here.
+    """
+    from shared.services.ai.summary.engine import summarize
+
+    table_html = ""
+    if asset.kind == "table" and asset.html_path and os.path.exists(asset.html_path):
+        try:
+            table_html = Path(asset.html_path).read_text(encoding="utf-8")
+        except Exception as exc:
+            logger.warning("[page_assets] failed to read table html: {}", exc)
+
+    if table_html:
+        result = summarize(
+            mode="asset",
+            text=table_html,
+            model=model_name,
+            usage_task="page_memory.asset_summary",
+            budget=budget,
+            budget_stage=_BUDGET_STAGE,
+            asset_title_hint=asset.title,
+        )
+    elif asset.image_path and os.path.exists(asset.image_path):
+        result = summarize(
+            mode="asset",
+            image_paths=[asset.image_path],
+            text=asset.title,
+            model=model_name,
+            usage_task="page_memory.asset_summary",
+            budget=budget,
+            budget_stage=_BUDGET_STAGE,
+            asset_title_hint=asset.title,
+        )
+    else:
+        return asset
+
+    if result.title and not asset.title:
+        asset.title = result.title
+    if result.summary:
+        asset.summary = result.summary
+    if result.entities:
+        asset.entities = [e.to_dict() for e in result.entities]
+        asset.keywords = [e.text for e in result.entities if e.text]
+    if result.chart is not None:
+        asset.chart = result.chart.to_dict()
+    if result.summary or result.entities:
+        asset.extraction_status = "summarized"
+    return asset
+
+
 def extract_page_assets_from_renders(
     *,
     pdf_path: str,
@@ -360,6 +435,7 @@ def extract_page_assets_from_renders(
             confidence_threshold=confidence_threshold,
         )
         page_assets: list[PageAsset] = []
+        summary_enabled = page_asset_summary_enabled()
         for asset in detected:
             crop_page_asset(
                 asset=asset,
@@ -371,6 +447,12 @@ def extract_page_assets_from_renders(
                     asset=asset,
                     pdf_path=pdf_path,
                     output_dir=output_dir,
+                )
+            if summary_enabled and (asset.image_uri or asset.html_uri):
+                summarize_page_asset(
+                    asset=asset,
+                    model_name=model_name,
+                    budget=budget,
                 )
             if asset.image_uri or asset.html_uri:
                 page_assets.append(asset)
@@ -451,9 +533,6 @@ def build_asset_rows(
                 continue
             row_type = "table" if asset.kind == "table" and asset.html_uri else "image"
             content = _asset_content(asset, row_type=row_type)
-            summary = "\n".join(
-                part for part in [asset.title.strip(), asset.summary.strip()] if part
-            )
             rows.append(
                 {
                     "content": content,
@@ -461,24 +540,28 @@ def build_asset_rows(
                     "type": row_type,
                     "length": len(content),
                     "keywords": ";".join(asset.keywords),
-                    "summary": summary,
+                    "summary": asset.summary.strip(),
                     "know_id": asset.asset_id,
                     "tokens": "",
                     "connectto": "",
                     "addtime": get_str_time(),
                     "page_nums": str(asset.page_index),
-                    "extra_metadata": {
-                        "asset_index": asset.asset_index,
-                        "bbox_px": asset.bbox_px,
-                        "confidence": asset.confidence,
-                        "caption": asset.caption,
-                        "image_uri": asset.image_uri,
-                        "extraction_status": asset.extraction_status,
-                        "table_engine": "tabula" if asset.kind == "table" else "",
-                    },
+                    "entities": serialize_entities(asset.entities),
+                    "asset_title": asset.title.strip(),
+                    "extra_metadata": _asset_extra_metadata(asset),
                 }
             )
     return rows
+
+
+def _asset_extra_metadata(asset: PageAsset) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "caption": asset.caption,
+        "image_uri": asset.image_uri,
+    }
+    if asset.chart:
+        metadata["chart"] = asset.chart
+    return metadata
 
 
 def asset_reference(asset: PageAsset) -> str:
@@ -629,4 +712,6 @@ __all__ = [
     "get_asset_max_pages",
     "get_asset_model",
     "page_asset_extraction_enabled",
+    "page_asset_summary_enabled",
+    "summarize_page_asset",
 ]

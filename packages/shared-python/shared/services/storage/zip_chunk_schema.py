@@ -107,7 +107,7 @@ class ZipChunkSchemaBuilder:
                 metadata["tokens"] = []
             elif chunk_type == "page":
                 metadata["keywords"] = existing_metadata.get("keywords") or []
-                metadata["tokens"] = []
+                metadata["connect_to"] = existing_metadata.get("connect_to") or []
 
             formatted.append(
                 {

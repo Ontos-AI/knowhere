@@ -24,8 +24,6 @@ from app.services.document_parser.structure.heading_hierarchy import (
     predict_heading_hierarchy,
 )
 from app.services.document_parser.formats.image.parser import (
-    _get_vision_client,
-    ask_image,
     perceptual_hash,
 )
 from app.services.document_parser.tables.table_text_parser import sanitize_table_name_from_header
@@ -125,7 +123,6 @@ def handle_image(
         logger.debug(f"Skipped duplicate image (hash={img_hash[:12]}...)")
         return headings_stack, df_list, False  # False = cache hit, don't increment
 
-    client = _get_vision_client()
     last_context = _find_img_context(headings_stack)
 
     # Image index (always present)
@@ -141,18 +138,19 @@ def handle_image(
     llm_title = None
     llm_summary = None
     if smart_summary:
-        from app.services.document_parser.formats.text.parser import split_title_summary
+        from shared.services.ai.summary.engine import summarize
 
-        # TODO: Risk of missing text content if the image is a screenshot of pure text.
-        # Consider adding judge-image-type and OCR fallback as done in image_parser.parse_image.
-        llm_resp = ask_image(
-            client,
-            asset_store.image_dir,
-            [f"{raw_img_name}{img_ext}"],
-            title_text=last_context,
+        # Asset contract (§4.1): the engine's per-type image prompt covers
+        # charts/tables/diagrams and pure-text screenshots alike (§4.2).
+        image_path = os.path.join(asset_store.image_dir, f"{raw_img_name}{img_ext}")
+        result = summarize(
+            mode="asset",
+            image_paths=[image_path],
+            text=last_context,
+            usage_task="parser.docx.image",
         )
-        if llm_resp:
-            llm_title, llm_summary = split_title_summary(llm_resp)
+        llm_title = result.title or None
+        llm_summary = result.summary or None
 
     # Fallback: LLM summary -> last_context -> None
     img_summary = llm_summary or last_context or None
@@ -320,12 +318,19 @@ def handle_table(
                 img_summary = None
                 if summary_image:
                     try:
-                        client = _get_vision_client()
-                        img_summary = ask_image(
-                            client,
-                            asset_store.image_dir,
-                            [f"{img_name}{img_ext}"],
-                            title_text=current_heading,
+                        from shared.services.ai.summary.engine import summarize
+
+                        cell_image_path = os.path.join(
+                            asset_store.image_dir, f"{img_name}{img_ext}"
+                        )
+                        img_summary = (
+                            summarize(
+                                mode="asset",
+                                image_paths=[cell_image_path],
+                                text=current_heading,
+                                usage_task="parser.docx.table_image",
+                            ).summary
+                            or None
                         )
                     except Exception as e:
                         logger.warning(f"Failed to summarize table image: {e}")
@@ -392,13 +397,13 @@ def handle_table(
     llm_summary = None
     tb_keywords = ""
     if summary_table:
-        from app.services.document_parser.formats.text.parser import (
-            extract_title_keywords_summary,
-        )
+        from shared.services.ai.summary.engine import summarize
 
-        llm_title, tb_keywords, llm_summary = extract_title_keywords_summary(
-            tb_html_str, max_keywords=3
-        )
+        # Tables are Contract B assets: title + summary + keywords from HTML.
+        result = summarize(mode="asset", text=tb_html_str, max_keywords=3)
+        llm_title = result.title or None
+        tb_keywords = result.keywords_str()
+        llm_summary = result.summary or None
 
     # Build tb_summary for df_list: table-n + optional LLM summary
     if llm_summary:

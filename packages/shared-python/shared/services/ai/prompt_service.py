@@ -63,6 +63,81 @@ def _language_directive(lang) -> str:
     return ""
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Entity-extraction & chart-numeric directives (§4.3 / §4.4)
+# ──────────────────────────────────────────────────────────────────────────────
+# These build the shared, GENERAL-PURPOSE instructions injected into every
+# summary prompt. The type vocabulary is read from the ``ENTITY_TYPES`` config so
+# it can be extended without editing prompts, and the wording deliberately avoids
+# baked-in examples, sample values, or magic counts — extraction must generalize
+# across arbitrary documents, not fit any one corpus.
+
+
+def _entity_types() -> list[str]:
+    """The configured entity type vocabulary (lower-cased, de-duplicated)."""
+    from shared.core.config import settings
+
+    raw = getattr(settings, "ENTITY_TYPES", "") or ""
+    seen: dict[str, None] = {}
+    for part in raw.split(","):
+        label = part.strip().lower()
+        if label and label not in seen:
+            seen[label] = None
+    return list(seen.keys())
+
+
+def _entity_instruction() -> str:
+    """Build the ``entities`` field instruction from the configured vocabulary.
+
+    Returns a JSON-field directive that asks for typed entities and treats an
+    empty result as valid. No entity names or counts are hard-coded; the only
+    corpus-specific input is the configurable type list.
+    """
+    types = _entity_types()
+    if types:
+        type_clause = (
+            "Set \"type\" to the single best-fitting label from this allowed list: "
+            + ", ".join(types)
+            + ". If an entity fits none of them, omit that entity."
+        )
+    else:
+        type_clause = (
+            'Set "type" to a short lower-case category label you judge appropriate.'
+        )
+    return (
+        '- "entities": a JSON array of the salient named entities explicitly '
+        "present in the content. Each element is an object with keys \"text\" and "
+        '"type". Use the exact surface form from the content for "text". '
+        f"{type_clause} "
+        "Do not infer, translate, or invent entities. Return an empty array [] "
+        "when none are present — an empty result is valid and expected, so never "
+        "force extraction."
+    )
+
+
+def _chart_instruction() -> str:
+    """Build the optional ``chart`` numeric-extraction directive (§4.3).
+
+    General-purpose: it tells the model to read whatever quantitative extremes and
+    feature values are actually shown, without prescribing any specific metric,
+    unit, count, or example value.
+    """
+    return (
+        '- "chart": include this object ONLY when the content is a statistical '
+        "chart or a data table carrying quantitative values; otherwise omit the "
+        "key or set it to null. When present it has the shape "
+        '{"metric": <what is measured>, "extremes": [{"label": <point or '
+        'category>, "value": <number exactly as shown>, "kind": "max"|"min"|'
+        '"peak"}], "features": [{"label": <short description>, "value": <number '
+        'or trend direction>}], "period": <time range or null>, "units": '
+        "<measurement units or null>}. Read every value directly from the content "
+        "and preserve it exactly as displayed; capture the highest and lowest "
+        "points plus any notable totals, means, or trends. Never fabricate a "
+        "number that is not visible."
+    )
+
+
+
 def build_prompt(task, texts, query, **kwargs):
     from loguru import logger
 
@@ -101,67 +176,14 @@ def build_prompt(task, texts, query, **kwargs):
         - Do not add any format wrappers, prefixes, or explanations beyond the summary
         """
 
-    elif task == "summary-titled":
-        max_tokens = kwargs["paras"]["max_tokens"]
-        lang = kwargs["paras"].get("lang")
-        lang_directive = _language_directive(lang)
-        lang_rule = (
-            f"- **LANGUAGE (HARD CONSTRAINT)**: {lang_directive}"
-            if lang_directive
-            else "- Your response must be in the SAME LANGUAGE as the input text"
-        )
-        prompt = f"""
-        You will receive a text passage (which may include HTML tables or structured data):
-        '''
-        {texts}
-        '''
-        Your task:
-        {lang_rule}
-        - Line 1: Output a short title (no more than 15 characters) that captures the core topic
-        - Line 2 onward: Output a detailed summary, not exceeding {max_tokens} characters
-        - If the input is an HTML table, summarize its structure and key data points in natural language, do NOT return the HTML code itself
-        - If the input content is too short, mostly empty, or lacks meaningful text, return exactly: null
-        - Output DIRECTLY without any prefixes like "Title:" or "Summary:"
-        """
-
-    elif task == "summary-keywords":
-        max_tokens = kwargs["paras"]["max_tokens"]
-        kw_num = kwargs["paras"]["kw_num"]
-        lang = kwargs["paras"].get("lang")
-        lang_directive = _language_directive(lang)
-        lang_rule = (
-            f"- **LANGUAGE (HARD CONSTRAINT)**: {lang_directive}"
-            if lang_directive
-            else "- Keywords must be in the SAME LANGUAGE as the input text"
-        )
-
-        example = """
-         {"answer":"<keyword_1>;<keyword_2>;<keyword_3>"}
-        """
-
-        prompt = f"""
-        You will receive a text passage:
-        '''
-        {texts}
-        '''
-        Your task is to extract keywords, no more than [{kw_num}] keywords. Note:
-        {lang_rule}
-        - Your response must be in JSON dictionary format with key "answer" and value being the extracted keywords
-        - Keywords should reflect the text theme, separated by semicolons ";"
-        - Example format:
-        {example}
-        - Do not output any additional explanations or descriptions besides the keywords
-        """
-
     elif task == "summary-full":
         max_tokens = kwargs["paras"]["max_tokens"]
-        kw_num = kwargs["paras"].get("kw_num", 3)
         lang = kwargs["paras"].get("lang")
         lang_directive = _language_directive(lang)
         if lang_directive:
             lang_line = (
-                f"**LANGUAGE (HARD CONSTRAINT, applies to EVERY field — title, "
-                f"keywords, and summary)**: {lang_directive}"
+                "**LANGUAGE (HARD CONSTRAINT, applies to EVERY text field — "
+                f"title, summary, and entity text)**: {lang_directive}"
             )
         else:
             lang_line = (
@@ -169,29 +191,32 @@ def build_prompt(task, texts, query, **kwargs):
                 "**SAME LANGUAGE** as the input text"
             )
 
-        example = """
-         {"title":"<title>","keywords":"<keyword_1>;<keyword_2>;<keyword_3>","summary":"<summary>"}
-        """
+        entity_line = _entity_instruction()
+        chart_line = _chart_instruction()
 
         prompt = f"""
-        You will receive a text passage (which may include HTML tables or structured data):
+        You will receive a text passage (which may include HTML tables or
+        structured/quantitative data):
         '''
         {texts}
         '''
-        Your task is to extract a title, keywords, and summary from this content.
+        Extract a title, a summary, the salient entities, and — when the content
+        is statistical — its key numbers.
         {lang_line}
 
-        Other requirements:
-        - Your response must be in JSON format with exactly three keys: "title", "keywords", "summary"
-        - "title": a short title capturing the core topic, no more than 15 characters
-        - "keywords": the most important thematic keywords, no more than {kw_num}, separated by semicolons ";"
-        - "summary": a concise summary of the main content, not exceeding {max_tokens} characters
-        - If the input is an HTML table, summarize its structure and key data points in natural language
-        
-        - If the input content is too short, mostly empty, or lacks meaningful text, return exactly: null
-        - Example format:
-        {example}
-        - Do not output any additional explanations or descriptions
+        Output requirements:
+        - Respond with a single JSON object and nothing else.
+        - "title": a short, descriptive title capturing the core topic. Keep it
+          concise; use an empty string if the content has no clear title.
+        - "summary": a faithful summary of the main content within {max_tokens}
+          characters. If the input is an HTML table or other data, describe its
+          structure and report its key values and extremes rather than listing
+          every cell.
+        {entity_line}
+        {chart_line}
+        - If the input is too short, empty, or carries no meaningful text, return
+          exactly: null
+        - Do not output explanations, comments, or markdown fences.
         """
 
     # ==================== Heading/Structure Prompts ====================
@@ -451,23 +476,23 @@ def build_prompt(task, texts, query, **kwargs):
         temperature = 0
         top_p = 0.01
         max_tokens = kwargs.get("paras", {}).get("max_tokens", 600)
-        prompt = """\
-        You are annotating a single PDF page screenshot for a document memory system.
-        Return strict JSON with exactly these keys:
+        entity_line = _entity_instruction()
+        prompt = f"""\
+        You are annotating a single rendered document page for a document memory
+        system. Return one strict JSON object with exactly these keys:
 
-        {
-        "summary": "<1-3 sentence summary of the page content>",
-        "keywords": "<keyword_1>;<keyword_2>;<keyword_3>"
-        }
+        {{
+        "summary": "<concise summary of what this page contains>",
+        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
+        }}
 
         Rules:
-        - "summary": describe the main content visible on the page in 1-3 sentences.
-        If the page contains tables, mention the table topic and key columns.
-        If the page contains figures or charts, describe what they depict.
-        - "keywords": extract the most important thematic keywords (up to 5),
-        separated by semicolons ";". Keywords must be in the same language as
-        the visible page content.
-        - Return ONLY the JSON object, no markdown fences or extra text.
+        - "summary": describe the main content visible on the page in a few
+          sentences, in the same language as the page. If the page contains a
+          table, state its topic and key columns; if it contains a figure or
+          chart, describe what it depicts and any standout values.
+        {entity_line}
+        - Return ONLY the JSON object, with no markdown fences or extra text.
         """
 
     elif task == "page-memory-vlm-title":
@@ -613,7 +638,6 @@ Output requirements:
         max_tokens = kwargs.get("paras", {}).get("max_tokens", 400)
         node_title = kwargs.get("paras", {}).get("node_title", "")
         next_title = kwargs.get("paras", {}).get("next_title", "")
-        kw_num = kwargs.get("paras", {}).get("kw_num", 5)
         if next_title:
             scope = (
                 f"Summarize ONLY the content that belongs to the section titled "
@@ -626,45 +650,50 @@ Output requirements:
                 f"Summarize the content of the section titled \"{node_title}\" "
                 f"across the provided page image(s) as a single coherent section."
             )
+        entity_line = _entity_instruction()
         prompt = f"""\
-        You are summarizing one section of a document for a navigation/memory system.
-        You are given the page screenshot(s) that this section spans.
+        You are summarizing one section of a document for a navigation/memory
+        system. You are given the page image(s) that this section spans.
 
         {scope}
 
-        Return strict JSON with exactly these keys:
+        Return one strict JSON object with exactly these keys:
         {{
-        "summary": "<less than 2 sentence summary of THIS section's content>",
-        "keywords": "<keyword_1>;<keyword_2>;..."
+        "summary": "<concise summary of THIS section's content>",
+        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
         }}
 
         Rules:
-        - "summary": describe what this section is about, in the same language as the
-        visible page content. If the section is mostly a table, describe the table's
-        topic and key columns. Do not summarize content that belongs to other
-        sections on the same page.
-        - "keywords": up to {kw_num} thematic keywords separated by ";".
-        - Return ONLY the JSON object, no markdown fences or extra text.
+        - "summary": describe what this section is about, in the same language as
+          the visible page content. If the section is mostly a table, describe the
+          table's topic and key columns. Do not summarize content that belongs to
+          other sections on the same page.
+        {entity_line}
+        - Return ONLY the JSON object, with no markdown fences or extra text.
         """
 
-    elif task == "page-memory-vlm-ocr":
+    elif task == "transcribe":
+        # Unified OCR primitive (§4.2): replaces the former ``page-memory-vlm-ocr``
+        # and ``ocr-image`` prompts. Transcribes page/image body text verbatim.
         temperature = 0
         top_p = 0.01
         max_tokens = kwargs.get("paras", {}).get("max_tokens", 1500)
         prompt = """\
-        You are transcribing a single scanned PDF page screenshot for a document
-        memory system. Extract the page's body text as faithfully as possible.
+        You are transcribing a document page or image for a document memory
+        system. Extract the body text as faithfully as possible.
 
         Return strict JSON with exactly this key:
         {
-        "text": "<verbatim body text of the page>"
+        "text": "<verbatim body text>"
         }
 
         Rules:
+        - Preserve the ORIGINAL LANGUAGE of the text; do not translate.
         - Preserve the reading order (top-to-bottom, left-to-right).
         - Transcribe tables row by row using a simple readable layout.
         - Do NOT add commentary, translation, or summary — transcription only.
         - Omit pure decorative running headers/footers and page numbers.
+        - If there is no readable text, return {"text": ""}.
         - Return ONLY the JSON object, no markdown fences or extra text.
     """
 
@@ -765,82 +794,55 @@ Output requirements:
         temperature = 0.1
         max_tokens = int(kwargs["paras"]["max_tokens"] * 1.2)
         if texts.strip():
-            img_context = f"- Image context is [{texts}], you may reference the context for summarization"
+            img_context = (
+                f"- Context for this image: [{texts}]. You may use it to "
+                "disambiguate, but describe only what the image actually shows."
+            )
         else:
             img_context = ""
 
+        entity_line = _entity_instruction()
+        chart_line = _chart_instruction()
+
         prompt = f"""
-        You will receive an image from a document. Your task is to extract the most
-        USEFUL information from this image based on its type.
+        You will receive a single image extracted from a document (it may be a
+        chart, a table, a diagram, a credential/form, a technical drawing, a
+        photo, or any other visual asset). Extract the most useful information it
+        carries and return one strict JSON object with these keys:
 
-        **STEP 1: Identify the image type** (do NOT output this step, use it internally):
-        - Credential/ID: identity cards, passports, driver licenses, business licenses, certificates, permits
-        - Data Chart: bar charts, line charts, pie charts, scatter plots, heatmaps, gauge charts
-        - Table Screenshot: tabular data rendered as an image
-        - Diagram: flowcharts, org charts, architecture diagrams, mind maps, UML diagrams
-        - Engineering Drawing: architectural plans, circuit diagrams, CAD drawings, mechanical drawings
-        - Photo: real-world photographs of people, objects, scenes, products
-        - Other: anything not fitting the above categories
+        {{
+        "title": "<the asset's own caption or label>",
+        "summary": "<what the asset shows and its key information>",
+        "entities": [{{"text": "<surface form>", "type": "<type>"}}],
+        "chart": null
+        }}
 
-        **STEP 2: Extract information according to image type**:
+        How to summarize, by what the image actually is (decide internally; do not
+        output the type):
+        - Quantitative chart or data table: state what is measured, the categories
+          or time range covered, and the standout values — highs, lows, totals, and
+          trends. Populate the "chart" object (see below) with the numbers.
+        - Diagram / flow / architecture: name the main components and how they
+          relate, and the overall flow or hierarchy.
+        - Credential / form / technical drawing: report the visible fields and
+          their values exactly as shown (identifiers, dates, codes, dimensions,
+          specifications).
+        - Photo or other: describe the primary subject, any visible text or
+          signage, and contextual cues.
 
-        For Credential/ID images:
-        - Extract ALL visible fields: name, ID number, date of birth, expiry date,
-          issuing authority, company name, registration number, legal representative,
-          business scope, qualification level, etc.
-        - Preserve exact values as shown (numbers, dates, codes)
-
-        For Data Charts:
-        - Chart title, axis labels and units
-        - Key data points, trends, and notable patterns
-        - Time range or categories covered
-        - Data source if visible
-
-        For Table Screenshots:
-        - Table title and column headers
-        - Key data entries and notable values
-        - Number of rows/columns and what the table represents
-
-        For Diagrams (flow/architecture/org):
-        - All node names and their relationships
-        - Flow direction and process steps
-        - Hierarchy levels and key connections
-
-        For Engineering/Technical Drawings:
-        - Drawing title, drawing number, scale
-        - Key dimensions and annotations
-        - Component/part names, material specifications
-
-        For Photos:
-        - Primary subject and scene description
-        - Notable features, text, or signage visible
-        - Context clues about location or purpose
-
-        For Other:
-        - Describe the most important visual information
-
-        **Output format**:
-        - Line 1: A concise title (no more than 20 characters) capturing the core topic
-        - Line 2 onward: The extracted information following the type-specific guidelines above
-        - Your response **MUST BE in the SAME LANGUAGE** as any text visible in the image
-          (if no text, use English)
-        - If the image is blank, unreadable, or contains no meaningful content, return exactly: null
-
+        Field rules:
+        - "title": the asset's own visible caption or label. Use an empty string
+          when the asset has none — do not invent one.
+        - "summary": faithful to the image, within about {max_tokens} characters,
+          in the SAME LANGUAGE as any text visible in the image (use English when
+          the image has no text).
+        {entity_line}
+        {chart_line}
+        - If the image is blank, unreadable, or carries no meaningful content,
+          return exactly: null
         {img_context}
-        - Output DIRECTLY without any prefixes like "Title:" or "Summary:" or "This image shows"
-        - Do not add any format wrappers, prefixes, or explanations beyond the content
-        """
-
-    elif task == "ocr-image":
-        temperature = 0.1
-
-        prompt = """
-        You will receive an image, which may be a photo, chart, or an image requiring OCR.
-        Your task is to perform OCR operation, fully extract and return the image content. Note:
-        - **MUST Preserve the ORIGINAL LANGUAGE** of the text in the image
-        - If the image contains no readable text, return exactly: null
-        - Output the text content DIRECTLY, do not start with phrases like "The text reads"
-        - Do not add any format wrappers, prefixes, or explanations beyond the text content
+        - Return ONLY the JSON object, with no prefixes, markdown fences, or extra
+          commentary.
         """
 
     elif task == "judge-image-type":

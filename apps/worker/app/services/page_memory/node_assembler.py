@@ -20,24 +20,23 @@ summarized per node using a title boundary so the slices do not overlap.
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any
 
 from loguru import logger
 
 from app.services.document_agent.budget import BudgetTracker
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
+from app.services.document_parser.support.parser_rows import serialize_entities
 from app.services.page_memory.page_assets import (
     PageAsset,
     build_asset_rows,
 )
 from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
-from shared.services.ai.prompt_service import build_prompt
-from shared.utils.token_estimate import estimate_tokens
+from shared.services.ai.summary.engine import summarize, transcribe
 
 SAME_AS_PREFIX = "SAME-AS"
 
@@ -250,15 +249,6 @@ def _node_summary_max_pages() -> int:
     )
 
 
-def _read_image_b64(image_path: str) -> str | None:
-    try:
-        with open(image_path, "rb") as handle:
-            return base64.b64encode(handle.read()).decode()
-    except Exception as exc:  # pragma: no cover - filesystem edge
-        logger.warning("[node_assembler] failed to read image {}: {}", image_path, exc)
-        return None
-
-
 def resolve_page_text(
     *,
     page: int,
@@ -270,65 +260,21 @@ def resolve_page_text(
     """Body text for an owned page: PyMuPDF text, or VLM OCR for scanned pages.
 
     Electronic PDFs already have PyMuPDF text; scanned pages have (near) empty
-    text and fall back to a one-shot VLM OCR transcription.
+    text and fall back to the shared ``transcribe()`` OCR primitive (§4.2).
     """
     text = (raw_text or "").strip()
     if text:
         return text
     if not vlm_model or not image_path or not os.path.exists(image_path):
         return ""
-
-    img_b64 = _read_image_b64(image_path)
-    if img_b64 is None:
-        return ""
-
-    prompt, temperature, _top_p, max_tokens = build_prompt(
-        "page-memory-vlm-ocr", "", "", paras={"max_tokens": 1500}
+    return transcribe(
+        image_paths=[image_path],
+        model=vlm_model,
+        max_tokens=1500,
+        usage_task="page_memory.node_ocr",
+        budget=budget,
+        budget_stage=_BUDGET_STAGE,
     )
-    est = estimate_tokens(prompt) + 1000
-    if budget is not None and not budget.try_reserve(
-        "visual", est, stage=_BUDGET_STAGE
-    ):
-        logger.debug("[node_assembler] OCR budget exhausted for page {}", page)
-        return ""
-
-    try:
-        from shared.services.ai.openai_compatible_client_sync import get_openai_client
-
-        client = get_openai_client(model=vlm_model)
-        content_parts = [
-            {"type": "text", "text": prompt},
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{img_b64}"},
-            },
-        ]
-        raw_response, usage = client.chat_completion_with_usage(
-            messages=cast(Any, [{"role": "user", "content": content_parts}]),
-            model=vlm_model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},
-            usage_task="page_memory.node_ocr",
-        )
-        if budget is not None:
-            budget.commit(
-                "visual",
-                actual=usage.get("total_tokens", est),
-                est=est,
-                stage=_BUDGET_STAGE,
-            )
-        try:
-            data = json.loads(raw_response)
-            return str(data.get("text", "")).strip()
-        except (json.JSONDecodeError, TypeError):
-            # VLM returned non-JSON; use raw text directly
-            return raw_response.strip() if raw_response else ""
-    except Exception as exc:
-        logger.warning("[node_assembler] OCR failed for page {}: {}", page, exc)
-        if budget is not None:
-            budget.refund("visual", est=est, stage=_BUDGET_STAGE)
-        return ""
 
 
 def compute_node_summary(
@@ -339,17 +285,21 @@ def compute_node_summary(
     image_path_by_page: dict[int, str],
     vlm_model: str | None,
     budget: BudgetTracker | None,
-) -> tuple[str, list[str]]:
-    """Settle a node's summary/keywords.
+) -> tuple[str, list[str], list[dict[str, str]]]:
+    """Settle a node's summary, keywords, and typed entities (§4.4).
 
     Reuses the per-page tag when the node is a single page that no sibling leaf
     shares.  Otherwise asks the VLM to summarize the node as a whole, bounding
     the slice with the next sibling title when the page hosts multiple nodes.
     Falls back to combining per-page tags when the VLM is unavailable.
+
+    Returns ``(summary, keywords, entities)`` where ``keywords`` is the flattened
+    surface-form list (transitional) and ``entities`` is the typed
+    ``{"text","type"}`` list.
     """
     pages = view.pages
     if not pages:
-        return "", []
+        return "", [], []
 
     single_page = len(pages) == 1
     shared = any(len(page_to_leaves.get(page, [])) > 1 for page in pages)
@@ -357,8 +307,8 @@ def compute_node_summary(
     if single_page and not shared:
         tag = tag_by_page.get(pages[0])
         if tag is not None:
-            return tag.summary, list(tag.keywords)
-        return "", []
+            return tag.summary, list(tag.keywords), list(tag.entities)
+        return "", [], []
 
     if vlm_model:
         result = _vlm_node_summary(
@@ -378,10 +328,12 @@ def _combine_page_tags(
     *,
     pages: list[int],
     tag_by_page: dict[int, PageTagResult],
-) -> tuple[str, list[str]]:
+) -> tuple[str, list[str], list[dict[str, str]]]:
     summaries: list[str] = []
     keywords: list[str] = []
+    entities: list[dict[str, str]] = []
     seen: set[str] = set()
+    seen_entities: set[str] = set()
     for page in pages:
         tag = tag_by_page.get(page)
         if tag is None:
@@ -394,7 +346,17 @@ def _combine_page_tags(
             if key and key not in seen:
                 seen.add(key)
                 keywords.append(keyword.strip())
-    return " ".join(summaries).strip(), keywords
+        for entity in tag.entities:
+            entity_text = str(entity.get("text", "")).strip()
+            if not entity_text:
+                continue
+            entity_key = entity_text.casefold()
+            if entity_key not in seen_entities:
+                seen_entities.add(entity_key)
+                entities.append(
+                    {"text": entity_text, "type": str(entity.get("type", "")).strip()}
+                )
+    return " ".join(summaries).strip(), keywords, entities
 
 
 def _vlm_node_summary(
@@ -404,7 +366,7 @@ def _vlm_node_summary(
     image_path_by_page: dict[int, str],
     vlm_model: str,
     budget: BudgetTracker | None,
-) -> tuple[str, list[str]] | None:
+) -> tuple[str, list[str], list[dict[str, str]]] | None:
     leaf = view.leaf
     pages = view.pages[: _node_summary_max_pages()]
 
@@ -416,78 +378,36 @@ def _vlm_node_summary(
         leaves_on_page=page_to_leaves.get(leaf.start_page, []),
     )
 
-    image_parts: list[dict[str, Any]] = []
-    for page in pages:
-        path = image_path_by_page.get(page)
-        if not path or not os.path.exists(path):
-            continue
-        img_b64 = _read_image_b64(path)
-        if img_b64 is None:
-            continue
-        image_parts.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{img_b64}"},
-            }
-        )
-    if not image_parts:
+    image_paths = [
+        path
+        for page in pages
+        if (path := image_path_by_page.get(page)) and os.path.exists(path)
+    ]
+    if not image_paths:
         return None
 
-    prompt, temperature, _top_p, max_tokens = build_prompt(
-        "page-memory-node-summary",
-        "",
-        "",
-        paras={
+    result = summarize(
+        mode="page",
+        image_paths=image_paths,
+        model=vlm_model,
+        usage_task="page_memory.node_summary",
+        budget=budget,
+        budget_stage=_BUDGET_STAGE,
+        prompt_task="page-memory-node-summary",
+        prompt_paras={
             "max_tokens": 400,
             "node_title": leaf.title,
             "next_title": next_title or "",
             "kw_num": 5,
         },
     )
-    est = estimate_tokens(prompt) + 800 * len(image_parts)
-    if budget is not None and not budget.try_reserve(
-        "visual", est, stage=_BUDGET_STAGE
-    ):
-        logger.debug(
-            "[node_assembler] node summary budget exhausted for {}",
-            leaf.section_path,
-        )
+    if not result.summary and not result.entities:
         return None
-
-    try:
-        from shared.services.ai.openai_compatible_client_sync import get_openai_client
-
-        client = get_openai_client(model=vlm_model)
-        content_parts: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
-        content_parts.extend(image_parts)
-        raw_response, usage = client.chat_completion_with_usage(
-            messages=cast(Any, [{"role": "user", "content": content_parts}]),
-            model=vlm_model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},
-            usage_task="page_memory.node_summary",
-        )
-        if budget is not None:
-            budget.commit(
-                "visual",
-                actual=usage.get("total_tokens", est),
-                est=est,
-                stage=_BUDGET_STAGE,
-            )
-        data = json.loads(raw_response)
-        kw_str = str(data.get("keywords", ""))
-        keywords = [k.strip() for k in kw_str.split(";") if k.strip()]
-        return str(data.get("summary", "")).strip(), keywords
-    except Exception as exc:
-        logger.warning(
-            "[node_assembler] node summary VLM failed for {}: {}",
-            leaf.section_path,
-            exc,
-        )
-        if budget is not None:
-            budget.refund("visual", est=est, stage=_BUDGET_STAGE)
-        return None
+    return (
+        result.summary,
+        [e.text for e in result.entities],
+        [e.to_dict() for e in result.entities],
+    )
 
 
 # ── Orchestration ────────────────────────────────────────────────────
@@ -533,7 +453,7 @@ def build_node_rows(
             page_owner=page_owner,
             page_text=resolved_text,
         )
-        summary, keywords = compute_node_summary(
+        summary, keywords, entities = compute_node_summary(
             view=view,
             page_to_leaves=page_to_leaves,
             tag_by_page=tag_by_page,
@@ -554,6 +474,8 @@ def build_node_rows(
             "connectto": "",
             "addtime": get_str_time(),
             "page_nums": ",".join(str(page) for page in view.pages),
+            "entities": serialize_entities(entities),
+            "asset_title": "",
             "extra_metadata": {},
         }
         rows.append(row)

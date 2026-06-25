@@ -28,6 +28,7 @@ from app.services.document_agent.budget import BudgetTracker
 from app.services.page_memory.page_plan import PagePlan, PageProcessingStrategy
 from app.services.page_memory.page_renderer import PageRenderResult
 from shared.services.ai.prompt_service import build_prompt
+from shared.services.ai.summary.engine import summarize
 from shared.utils.token_estimate import estimate_tokens
 
 
@@ -39,6 +40,9 @@ class PageTagResult:
     summary: str = ""
     keywords: list[str] = field(default_factory=list)
     strategy_used: str = ""
+    entities: list[dict[str, str]] = field(default_factory=list)
+    """Typed entities (§4.4): ``{"text","type"}`` dicts. ``keywords`` is kept as
+    the flattened surface-form view for transitional keyword-overlap consumers."""
     observed_titles: list[dict[str, Any]] = field(default_factory=list)
     """Step 2: verbatim title candidates observed on this page.
 
@@ -50,7 +54,6 @@ class PageTagResult:
 _BUDGET_STAGE = "page_tagging"
 _BUDGET_STAGE_TITLES = "page_title_detection"
 _MAX_JSON_RETRIES = 1
-_RAW_TEXT_SUMMARY_LIMIT = 500
 _DEFAULT_FINE_MIN_PAGES = 4
 
 
@@ -135,9 +138,11 @@ def _tag_skip(page: PageRenderResult) -> PageTagResult:
 
 
 def _tag_text_only(page: PageRenderResult) -> PageTagResult:
-    """Use existing ``summary-full`` LLM prompt to extract summary + keywords.
+    """Extract summary + keywords from raw page text via the unified engine.
 
-    Falls back to raw text truncation if LLM is not available or fails.
+    Returns an EMPTY-marked result when the page has no extractable text. On LLM
+    failure the engine returns an empty summary; we surface that directly (no
+    raw-text truncation fallback — empty means the model could not summarize).
     """
     raw = page.raw_text.strip()
     if not raw:
@@ -148,51 +153,19 @@ def _tag_text_only(page: PageRenderResult) -> PageTagResult:
             strategy_used="text_only",
         )
 
-    # Try the existing summary-full LLM call (same as text chunk pipeline)
-    try:
-        from shared.services.ai.openai_compatible_client_sync import get_openai_client
-
-        text_model = os.environ.get("NORMOL_MODEL", "deepseek-v4-flash")
-        prompt, temperature, top_p, max_tokens = build_prompt(
-            "summary-full",
-            raw[:3000],  # limit input to avoid token overflow
-            "",
-            paras={"max_tokens": 200, "kw_num": 5},
-        )
-        client = get_openai_client(model=text_model)
-        raw_response, _ = client.chat_completion_with_usage(
-            messages=[{"role": "user", "content": prompt}],
-            model=text_model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            usage_task="page_memory.text_only_summary",
-        )
-
-        if raw_response and raw_response.strip().lower() != "null":
-            data = json.loads(raw_response)
-            summary = str(data.get("summary", ""))
-            kw_str = str(data.get("keywords", ""))
-            keywords = [k.strip() for k in kw_str.split(";") if k.strip()]
-            return PageTagResult(
-                page_index=page.page_index,
-                summary=summary,
-                keywords=keywords,
-                strategy_used="text_only",
-            )
-    except Exception as exc:
-        logger.warning(
-            "[page_tagger] summary-full LLM failed for page {}: {}; "
-            "falling back to raw text truncation",
-            page.page_index, exc,
-        )
-
-    # Fallback: raw text truncation
-    summary = " ".join(raw.split())[:_RAW_TEXT_SUMMARY_LIMIT]
+    result = summarize(
+        mode="text",
+        text=raw[:3000],  # limit input to avoid token overflow
+        summary_len=200,
+        max_keywords=5,
+        usage_task="page_memory.text_only_summary",
+    )
     return PageTagResult(
         page_index=page.page_index,
-        summary=summary,
-        keywords=[],
-        strategy_used="text_only_fallback",
+        summary=result.summary,
+        keywords=[e.text for e in result.entities],
+        entities=[e.to_dict() for e in result.entities],
+        strategy_used="text_only",
     )
 
 
@@ -202,121 +175,40 @@ def _tag_vlm_lite(
     model: str,
     budget: BudgetTracker | None,
 ) -> PageTagResult:
-    """Send page PNG to VLM and parse JSON response."""
-    prompt, temperature, _top_p, max_tokens = build_prompt(
-        "page-memory-vlm-tag",
-        "",
-        "",
-        paras={"max_tokens": 600},
-    )
-    est = estimate_tokens(prompt) + 800  # ~800 tokens for image
-
-    if budget is not None:
-        if not budget.try_reserve("visual", est, stage=_BUDGET_STAGE):
-            logger.warning(
-                "[page_tagger] insufficient budget for page {}; text_only fallback",
-                page.page_index,
-            )
-            result = _tag_text_only(page)
-            result = PageTagResult(
-                page_index=result.page_index,
-                summary=result.summary,
-                keywords=result.keywords,
-                strategy_used="text_only_budget_fallback",
-            )
-            return result
-
+    """Send page PNG to the VLM via the unified engine; text_only on miss."""
     if not page.image_path or not os.path.exists(page.image_path):
         logger.warning(
             "[page_tagger] no PNG for page {}; text_only fallback",
             page.page_index,
         )
-        if budget is not None:
-            budget.refund("visual", est=est, stage=_BUDGET_STAGE)
         return _tag_text_only(page)
 
-    try:
-        with open(page.image_path, "rb") as f:
-            img_b64 = base64.b64encode(f.read()).decode()
-    except Exception as exc:
-        logger.warning(
-            "[page_tagger] failed to read PNG for page {}: {}",
-            page.page_index, exc,
+    result = summarize(
+        mode="page",
+        image_paths=[page.image_path],
+        model=model,
+        usage_task="page_memory.tag",
+        budget=budget,
+        budget_stage=_BUDGET_STAGE,
+    )
+    if not result.summary and not result.entities:
+        # Engine returned empty (budget exhausted, image unreadable, or JSON
+        # miss). Fall back to text_only so the page still gets a summary.
+        fallback = _tag_text_only(page)
+        return PageTagResult(
+            page_index=fallback.page_index,
+            summary=fallback.summary,
+            keywords=fallback.keywords,
+            entities=fallback.entities,
+            strategy_used="vlm_lite_fallback",
         )
-        if budget is not None:
-            budget.refund("visual", est=est, stage=_BUDGET_STAGE)
-        return _tag_text_only(page)
-
-    content_parts: list[dict[str, Any]] = [
-        {"type": "text", "text": prompt},
-        {
-            "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{img_b64}"},
-        },
-    ]
-
-    from shared.services.ai.openai_compatible_client_sync import get_openai_client
-
-    client = get_openai_client(model=model)
-
-    for attempt in range(_MAX_JSON_RETRIES + 1):
-        try:
-            raw_response, usage = client.chat_completion_with_usage(
-                messages=cast(Any, [{"role": "user", "content": content_parts}]),
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                response_format={"type": "json_object"},
-                usage_task="page_memory.tag",
-            )
-            if budget is not None:
-                budget.commit(
-                    "visual",
-                    actual=usage.get("total_tokens", est),
-                    est=est,
-                    stage=_BUDGET_STAGE,
-                )
-
-            data = json.loads(raw_response)
-            kw_str = str(data.get("keywords", ""))
-            keywords = [k.strip() for k in kw_str.split(";") if k.strip()]
-            return PageTagResult(
-                page_index=page.page_index,
-                summary=str(data.get("summary", "")),
-                keywords=keywords,
-                strategy_used="vlm_lite",
-            )
-        except json.JSONDecodeError:
-            if attempt < _MAX_JSON_RETRIES:
-                logger.warning(
-                    "[page_tagger] JSON parse failed for page {} (attempt {}/{}), retrying",
-                    page.page_index, attempt + 1, _MAX_JSON_RETRIES + 1,
-                )
-                continue
-            # Final attempt failed: fallback to text_only
-            logger.warning(
-                "[page_tagger] JSON retry exhausted for page {}; text_only fallback",
-                page.page_index,
-            )
-            result = _tag_text_only(page)
-            result = PageTagResult(
-                page_index=result.page_index,
-                summary=result.summary,
-                keywords=result.keywords,
-                strategy_used="vlm_lite_json_fallback",
-            )
-            return result
-        except Exception as exc:
-            logger.warning(
-                "[page_tagger] VLM call failed for page {}: {}",
-                page.page_index, exc,
-            )
-            if budget is not None:
-                budget.refund("visual", est=est, stage=_BUDGET_STAGE)
-            return _tag_text_only(page)
-
-    # Should not reach here, but safety net
-    return _tag_text_only(page)
+    return PageTagResult(
+        page_index=page.page_index,
+        summary=result.summary,
+        keywords=[e.text for e in result.entities],
+        entities=[e.to_dict() for e in result.entities],
+        strategy_used="vlm_lite",
+    )
 
 
 # ── Step 2: Independent title candidate extraction ───────────────────

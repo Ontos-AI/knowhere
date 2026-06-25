@@ -163,6 +163,20 @@ class AIConfig(BaseModel):
     )
     SPLIT_CHAR: str = Field(default="/", description="Path separator")
     ALL_DF_COLS: str = Field(
-        default="content,path,type,length,keywords,summary,know_id,tokens,connectto,addtime,page_nums",
-        description="All dataframe columns (compatibility field)",
+        default="content,path,type,length,keywords,summary,know_id,tokens,connectto,addtime,page_nums,entities,asset_title",
+        description=(
+            "All dataframe columns. `entities` (JSON-encoded typed entities, §4.4) "
+            "and `asset_title` (asset caption/label, §4.5) are additive trailing "
+            "columns; legacy `keywords` is retained transitionally."
+        ),
+    )
+    ENTITY_TYPES: str = Field(
+        default="person,location,organization",
+        description=(
+            "Comma-separated seed list of entity types the summarizer may emit "
+            "(§4.4). Extend this to broaden extraction (e.g. product, date, money) "
+            "without code changes. Order is not significant; matching is "
+            "case-insensitive. An empty value disables type guidance and lets the "
+            "model choose, but the seed list keeps cross-document links consistent."
+        ),
     )

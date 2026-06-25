@@ -105,19 +105,50 @@ def build_content_search_text(
     *,
     section_summary: Optional[str] = None,
 ) -> Optional[str]:
-    """Pre-tokenized content field for retrieval BM25 scoring."""
+    """Pre-tokenized content field for retrieval BM25 scoring.
+
+    Includes the chunk's own node-level ``summary`` and flattened ``entities``
+    (§4.7) so the richer VLM/entity output is lexically searchable at build time —
+    not just the late-backfilled section rollup. This closes the long-standing
+    "VLM summary 未入 content_search_text" gap.
+    """
     if _is_table_chunk(chunk):
         content = _table_search_source_text(chunk)
     else:
         content = str(chunk.get("content") or chunk.get("text") or "").strip()
-    if not content:
+    chunk_summary = _chunk_summary_text(chunk)
+    entity_text = _chunk_entity_text(chunk)
+    if not content and not chunk_summary and not entity_text:
         return None
-    parts = [content]
+    parts = [part for part in [content, chunk_summary, entity_text] if part]
     if section_summary and str(section_summary).strip():
         parts.append(str(section_summary).strip())
     raw = " ".join(parts)
     tokens = tokenize_contents_for_retrieval([raw], stopwords=[], link_char=" ")
     return tokens[0] if tokens else raw
+
+
+def _chunk_summary_text(chunk: dict[str, Any]) -> str:
+    metadata = chunk.get("metadata") or chunk.get("chunk_metadata") or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    return str(metadata.get("summary") or chunk.get("summary") or "").strip()
+
+
+def _chunk_entity_text(chunk: dict[str, Any]) -> str:
+    """Flatten typed entities (§4.4) into a space-joined surface-form string."""
+    metadata = chunk.get("metadata") or chunk.get("chunk_metadata") or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    entities = metadata.get("entities")
+    if not isinstance(entities, list):
+        return ""
+    texts = [
+        str(item.get("text", "")).strip()
+        for item in entities
+        if isinstance(item, dict) and str(item.get("text", "")).strip()
+    ]
+    return " ".join(texts)
 
 
 def build_path_search_text(

@@ -1,6 +1,5 @@
 # pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportGeneralTypeIssues=false
 import re
-import uuid
 
 import gevent
 import pandas as pd
@@ -9,11 +8,8 @@ from gevent.pool import Pool as GeventPool
 from loguru import logger
 
 from shared.core.config import settings
-from shared.services.ai.prompt_service import build_prompt
-from shared.services.ai.response_process_service import eval_response
 from shared.utils.chunk_refs import CHUNK_REF_PATTERN
 from app.services.common.file_loading import load_file_bytes
-from shared.services.ai.openai_compatible_client_sync import get_openai_client
 
 
 def clean_texts_by_form(text, form="html"):
@@ -66,112 +62,39 @@ def divide_long_contents(texts, max_threshold=None, min_threshold=None):
     return sublists, len(sublists)
 
 
-def split_title_summary(text):
-    """Split a title+summary response into (title, summary).
-
-    Expected format: first line is title, remaining lines are summary.
-    Fallback: if only one line, it serves as both title and summary.
-
-    Returns:
-        tuple: (title, summary) — both may be None if input is empty
-    """
-    if not text or not text.strip():
-        return None, None
-    parts = text.strip().split("\n", 1)
-    title = parts[0].strip()
-    summary = parts[1].strip() if len(parts) > 1 else title
-    return title, summary
-
-
 def extract_title_keywords_summary(texts, max_keywords=3, summary_len=None):
-    """Extract title + keywords + summary in ONE LLM call.
+    """Extract keywords + summary for a text chunk via the unified engine (§4.1).
 
-    Uses the 'summary-full' prompt to get all three fields at once,
-    reducing LLM calls from 2-3 to 1.
+    Delegates to ``summarize(mode="text")``. The engine centralizes the
+    ``summary-full`` prompt, deterministic language locking, JSON parsing, and
+    retry. Title is no longer produced here — body content (Contract A) carries
+    only summary + entities; the section title already lives on the node path.
 
     Args:
         texts: Input text (may include HTML tables or structured data).
-        max_keywords: Maximum number of keywords to extract (default 3).
+        max_keywords: Maximum number of keywords to extract.
         summary_len: Maximum summary length in characters.
 
     Returns:
         tuple: (title, keywords_str, summary)
-            - title: short title (≤15 chars), or None
-            - keywords_str: semicolon-separated keywords, or ""
+            - title: always None (kept for signature compatibility; §4.5 removes it)
+            - keywords_str: semicolon-separated entity surface forms, or ""
             - summary: summary text, or ""
     """
     from shared.core.constants import ProcessingConstants
-    from shared.services.ai.prompt_service import _detect_text_language
+    from shared.services.ai.summary.engine import summarize
 
     if summary_len is None:
         summary_len = ProcessingConstants.SUMMARY_LEN
-    try:
-        # Deterministic language lock: LLMs (especially deepseek-v4-flash) often
-        # default to Chinese on numeric / structured inputs even when asked to
-        # match input language. We detect the input's dominant language here
-        # and pass it as a HARD constraint to the prompt.
-        detected_lang = _detect_text_language(texts)
-        prompt, temperature, top_p, max_tokens = build_prompt(
-            task="summary-full",
-            texts=texts,
-            query="",
-            paras={
-                "max_tokens": summary_len,
-                "kw_num": max_keywords,
-                "lang": detected_lang,
-            },
-        )
-        messages = [
-            {"role": "system", "content": "you are a helpful assistant"},
-            {"role": "user", "content": prompt},
-        ]
 
-        import os
-
-        if os.getenv("LOCAL_DEBUG", "0") != "1":
-            from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
-
-            redis_service = SyncRedisServiceFactory.get_service()
-            ctx_task_id = str(uuid.uuid4())
-            redis_service.set(f"task:{ctx_task_id}:status", "processing", ttl=7200)
-
-        resp = get_openai_client().chat_completion(
-            messages=messages,
-            timeout=90,
-            max_tokens=max_tokens,
-            usage_task="parser.text_summary",
-        )
-
-        # Handle null/none response
-        if resp is None:
-            return None, "", ""
-        if isinstance(resp, str):
-            resp_stripped = resp.strip().lower()
-            if resp_stripped in ("null", "none"):
-                return None, "", ""
-
-        # Parse JSON response
-        parsed = eval_response(resp)
-        if isinstance(parsed, dict):
-            title = parsed.get("title") or None
-            keywords = parsed.get("keywords", "")
-            summary = parsed.get("summary", "")
-            # Normalize title
-            if title and isinstance(title, str):
-                title = title.strip()
-                if title.lower() in ("null", "none", ""):
-                    title = None
-            return (
-                title,
-                keywords if isinstance(keywords, str) else "",
-                summary if isinstance(summary, str) else "",
-            )
-
-        return None, "", ""
-
-    except Exception as e:
-        print(f"❌ failed to extract title/keywords/summary: {e}")
-        return None, "", ""
+    result = summarize(
+        mode="text",
+        text=texts,
+        summary_len=summary_len,
+        max_keywords=max_keywords,
+        usage_task="parser.text_summary",
+    )
+    return None, result.keywords_str(), result.summary
 
 
 def postprocess_leaf_dics(

@@ -371,7 +371,7 @@ def parse_md(
         else:  # no path change, remain in the same hierarchy
             # a. handle lines containing images (LLM deferred to post-loop parallel batch)
             # Always skip inline LLM — vision calls are deferred to parallel batch
-            imgs = detect_summary_img_md(line, last_context, output_dir, mode=False)
+            imgs = detect_summary_img_md(line, last_context, output_dir)
             image_name = build_markdown_image_name(
                 image_count=parser_state.image_count,
                 last_context=last_context,
