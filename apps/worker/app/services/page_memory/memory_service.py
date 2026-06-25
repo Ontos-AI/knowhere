@@ -24,6 +24,9 @@ from app.services.page_memory.normalizer import normalize_to_pdf
 
 from loguru import logger
 
+from shared.core.config import settings
+from shared.core.exceptions.domain_exceptions import ValidationException
+
 
 @dataclass(frozen=True)
 class PageMemoryInput:
@@ -86,9 +89,21 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 oversized_policy="page_memory",
             )
         trace_recorder = getattr(profile, "trace_recorder", None)
+        page_count = max(int(profile.page_count or 0), 0)
+        if page_count > settings.PAGE_MEMORY_MAX_PAGES:
+            raise ValidationException(
+                user_message=(
+                    f"Document too large: {page_count} pages exceeds the "
+                    f"{settings.PAGE_MEMORY_MAX_PAGES}-page limit for page-based processing."
+                ),
+                violations=[{
+                    "field": "page_count",
+                    "description": f"PDF has {page_count} pages, limit is {settings.PAGE_MEMORY_MAX_PAGES}",
+                }],
+            )
         verdict = _decide_granularity(profile)
         trace_summary = {
-            "page_count": max(int(profile.page_count or 0), 0),
+            "page_count": page_count,
             "verdict": verdict,
         }
 
@@ -96,7 +111,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
             parsed_df = _build_whole_doc_dataframe(
                 pdf_path=pdf_path,
                 filename=request.filename,
-                page_count=max(int(profile.page_count or 0), 0),
+                page_count=page_count,
                 verdict=verdict,
                 trace_recorder=trace_recorder,
             )

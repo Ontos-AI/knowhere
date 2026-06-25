@@ -72,6 +72,7 @@ class RetrievalPublicationService:
         job_id: str,
         job_result_id: str,
         chunks: list[dict[str, Any]],
+        section_summaries: dict[str, str] | None = None,
     ) -> PublishedDocumentState | None:
         job = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
         if not job:
@@ -83,6 +84,7 @@ class RetrievalPublicationService:
             job=job,
             job_result_id=job_result_id,
             chunks=chunks,
+            section_summaries=section_summaries,
         )
 
     def _publish_document_state_for_job(
@@ -92,6 +94,7 @@ class RetrievalPublicationService:
         job: Job,
         job_result_id: str,
         chunks: list[dict[str, Any]],
+        section_summaries: dict[str, str] | None = None,
     ) -> PublishedDocumentState | None:
 
         job_metadata = job.job_metadata or {}
@@ -148,6 +151,7 @@ class RetrievalPublicationService:
             db,
             scope=scope,
             chunks=deduped_chunks,
+            section_summaries=section_summaries,
         )
 
         db.flush()
