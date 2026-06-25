@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.demo.document_service import DemoDocumentService
+from app.api.dependencies.auth import require_write_permission
 from app.api.dependencies.current_user import with_current_user
+from app.services.demo.document_service import DemoDocumentService
 from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
@@ -124,6 +125,7 @@ async def get_demo_source_asset(
 async def materialize_demo_sources(
     payload: DemoMaterializeRequest,
     current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Copy canonical demo sources into the authenticated user's namespace."""

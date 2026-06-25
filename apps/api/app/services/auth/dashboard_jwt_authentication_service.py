@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 
 import jwt
 from jwt import PyJWKClient
@@ -15,6 +16,15 @@ from shared.core.exceptions.domain_exceptions import AuthException
 
 JWKS_ENDPOINT_PATH = "/api/auth/jwks"
 JWKS_CACHE_TTL_SECONDS = 60 * 60
+READ_ONLY_PERMISSION: Literal["read_only"] = "read_only"
+FULL_ACCESS_PERMISSION: Literal["full_access"] = "full_access"
+Permission = Literal["read_only", "full_access"]
+
+
+@dataclass(frozen=True)
+class DashboardJWTIdentity:
+    user_id: str
+    permission: Permission
 
 
 class DashboardJWTAuthenticationService:
@@ -26,24 +36,34 @@ class DashboardJWTAuthenticationService:
 
     def decode_user_id(self, token: str) -> str:
         """Decode and validate a JWT, returning its authenticated user ID."""
+        return self.decode_identity(token).user_id
+
+    def decode_identity(self, token: str) -> DashboardJWTIdentity:
+        """Decode and validate a JWT, returning the user ID and permission."""
         try:
-            key = self._get_verification_key(token)
-            payload: dict[str, Any] = jwt.decode(
-                token,
-                key,
-                algorithms=["HS256", "RS256", "EdDSA"],
-                leeway=timedelta(seconds=30),
-                options={"verify_aud": False},
-            )
+            payload = self._decode_payload(token)
             user_id = payload.get("id")
             if not isinstance(user_id, str) or not user_id:
                 raise AuthException(user_message="Token missing 'id' claim")
-            return user_id
+
+            permission = _normalize_permission(payload.get("permission"))
+            return DashboardJWTIdentity(user_id=user_id, permission=permission)
         except jwt.ExpiredSignatureError:
             raise AuthException(user_message="Token has expired")
         except jwt.InvalidTokenError as exc:
             logger.warning(f"Invalid JWT token: {exc}")
             raise AuthException(user_message="Invalid token")
+
+    def _decode_payload(self, token: str) -> dict[str, Any]:
+        key = self._get_verification_key(token)
+        payload: dict[str, Any] = jwt.decode(
+            token,
+            key,
+            algorithms=["HS256", "RS256", "EdDSA"],
+            leeway=timedelta(seconds=30),
+            options={"verify_aud": False},
+        )
+        return payload
 
     def _get_verification_key(self, token: str) -> Any:
         """Resolve the JWT verification key from the Dashboard JWKS endpoint."""
@@ -55,8 +75,7 @@ class DashboardJWTAuthenticationService:
             logger.error(f"Failed to fetch JWKS: {exc}")
             raise AuthException(
                 internal_message=(
-                    "Failed to fetch verification key from JWKS endpoint: "
-                    f"{exc}"
+                    f"Failed to fetch verification key from JWKS endpoint: {exc}"
                 )
             )
         except jwt.PyJWKSetError as exc:
@@ -69,8 +88,7 @@ class DashboardJWTAuthenticationService:
             with self._jwks_client_lock:
                 if self._jwks_client is None:
                     jwks_url = (
-                        f"{settings.INTERNAL_DASHBOARD_ENDPOINT}"
-                        f"{JWKS_ENDPOINT_PATH}"
+                        f"{settings.INTERNAL_DASHBOARD_ENDPOINT}{JWKS_ENDPOINT_PATH}"
                     )
                     self._jwks_client = PyJWKClient(
                         jwks_url,
@@ -81,6 +99,13 @@ class DashboardJWTAuthenticationService:
                     logger.info(f"Initialized JWKS client with endpoint: {jwks_url}")
 
         return self._jwks_client
+
+
+def _normalize_permission(value: object) -> Permission:
+    if value == READ_ONLY_PERMISSION:
+        return READ_ONLY_PERMISSION
+
+    return FULL_ACCESS_PERMISSION
 
 
 _dashboard_jwt_authentication_service = DashboardJWTAuthenticationService()

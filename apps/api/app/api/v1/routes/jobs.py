@@ -7,13 +7,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
+from app.api.dependencies.auth import require_write_permission
+from app.api.dependencies.current_user import with_current_user
+from app.api.dependencies.job_admission import require_billing_limits
 from app.services.document_ingestion import DocumentIngestionService
 from app.services.jobs import (
     get_job_result_for_user,
     list_jobs_for_user,
 )
-from app.api.dependencies.current_user import with_current_user
-from app.api.dependencies.job_admission import require_billing_limits
 from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,6 +40,7 @@ _document_ingestion_service = DocumentIngestionService()
 async def create_job(  # pyright: ignore[reportGeneralTypeIssues]
     payload: JobCreate,
     current_user: CurrentUser = Depends(require_billing_limits),
+    _write_permission: None = Depends(require_write_permission),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -111,6 +113,7 @@ async def confirm_upload(
     job_id: str,
     request: Optional[ConfirmUploadRequest] = None,
     current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
     db: AsyncSession = Depends(get_db),
 ):
     """

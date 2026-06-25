@@ -2,11 +2,12 @@
 
 from typing import Optional
 
+from app.api.dependencies.auth import require_write_permission
+from app.api.dependencies.current_user import with_current_user
 from app.services.billing.billing_workflow_service import (
     BillingWorkflowService,
     ParseUsageResponse,
 )
-from app.api.dependencies.current_user import with_current_user
 from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,10 +26,13 @@ router = APIRouter(tags=["Billing"])
 _billing_workflow_service = BillingWorkflowService()
 
 
-@router.post("/buy-credits", summary="Buy Credits", response_model=PaymentIntentResponse)
+@router.post(
+    "/buy-credits", summary="Buy Credits", response_model=PaymentIntentResponse
+)
 async def buy_credits(
     request: BuyCreditsRequest,
     current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
     db: AsyncSession = Depends(get_db),
 ) -> PaymentIntentResponse:
     return await _billing_workflow_service.buy_credits(
@@ -119,6 +123,7 @@ async def get_price_configs(
 async def buy_credits_package(
     request: BuyCreditsPackageRequest,
     current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
     db: AsyncSession = Depends(get_db),
 ) -> CheckoutSessionResponse:
     return await _billing_workflow_service.buy_credits_package(

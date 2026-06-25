@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Literal
+
 from app.services.auth.api_key_authentication_service import (
     APIKeyAuthenticationService,
 )
 from app.services.auth.dashboard_jwt_authentication_service import (
     DashboardJWTAuthenticationService,
+    FULL_ACCESS_PERMISSION,
+    Permission,
     get_dashboard_jwt_authentication_service,
 )
 from sqlalchemy import select
@@ -15,6 +20,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.core.exceptions.domain_exceptions import AuthException
 from shared.models.database.user import User
 from shared.utils.api_keys import is_api_key_token
+
+AuthSource = Literal["api_key", "jwt"]
+
+
+@dataclass(frozen=True)
+class AuthenticatedIdentity:
+    user_id: str
+    permission: Permission
+    source: AuthSource
 
 
 class CurrentUserAuthenticationService:
@@ -42,6 +56,18 @@ class CurrentUserAuthenticationService:
         authorization: str | None,
     ) -> str:
         """Authenticate an Authorization header and return the owning user ID."""
+        identity = await self.authenticate_authorization_header_with_identity(
+            session,
+            authorization,
+        )
+        return identity.user_id
+
+    async def authenticate_authorization_header_with_identity(
+        self,
+        session: AsyncSession,
+        authorization: str | None,
+    ) -> AuthenticatedIdentity:
+        """Authenticate an Authorization header and return identity details."""
         token = self._extract_bearer_token(authorization)
 
         if is_api_key_token(token):
@@ -50,12 +76,20 @@ class CurrentUserAuthenticationService:
                 token,
             )
             if user_id:
-                return user_id
+                return AuthenticatedIdentity(
+                    user_id=user_id,
+                    permission=FULL_ACCESS_PERMISSION,
+                    source="api_key",
+                )
             raise AuthException(user_message="Invalid API Key")
 
-        user_id = self._dashboard_jwt_authentication_service.decode_user_id(token)
-        await self._ensure_authenticated_user_exists(session, user_id)
-        return user_id
+        identity = self._dashboard_jwt_authentication_service.decode_identity(token)
+        await self._ensure_authenticated_user_exists(session, identity.user_id)
+        return AuthenticatedIdentity(
+            user_id=identity.user_id,
+            permission=identity.permission,
+            source="jwt",
+        )
 
     @staticmethod
     def _extract_bearer_token(authorization: str | None) -> str:
@@ -75,7 +109,9 @@ class CurrentUserAuthenticationService:
         session: AsyncSession,
         user_id: str,
     ) -> None:
-        result = await session.execute(select(User.id).where(User.id == user_id).limit(1))
+        result = await session.execute(
+            select(User.id).where(User.id == user_id).limit(1)
+        )
         if result.scalar_one_or_none() is not None:
             return
 
