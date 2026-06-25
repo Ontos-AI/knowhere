@@ -7,7 +7,7 @@ from shared.services.retrieval.search.section_filters import is_excluded_section
 
 MEDIA_CHUNK_TYPES = {'image', 'table'}
 PUBLIC_RESULT_FIELDS = {
-    'chunk_type', 'content', 'score', 'asset_url', 'asset_urls',
+    'chunk_type', 'content', 'score', 'asset_url',
 }
 PUBLIC_SOURCE_FIELDS = {
     'document_id', 'source_file_name', 'section_path',
@@ -15,7 +15,7 @@ PUBLIC_SOURCE_FIELDS = {
 
 ReferenceLookupKey = tuple[str, str, str, str]
 
-_PATH_REF_RE = re.compile(r'\[(?:images|tables|pages)/[^\]\n]+\]')
+_PATH_REF_RE = re.compile(r'\[(?:images|tables)/[^\]\n]+\]')
 
 
 def clean_content(content: str) -> str:

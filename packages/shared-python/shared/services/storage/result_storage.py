@@ -13,7 +13,8 @@ from shared.services.storage.storage_adapter import StorageAdapter
 
 _EXCLUDED_FILE_NAMES = {".DS_Store", "Thumbs.db"}
 _EXCLUDED_DIR_NAMES = {"tmp", "temp", "__pycache__"}
-_CLIENT_ARTIFACT_DIRS = {"images", "tables", "pages"}
+_CLIENT_ARTIFACT_DIRS = {"images", "tables", "page_pdfs"}
+_INTERNAL_RAW_FILES = {"source.pdf"}
 
 
 @dataclass(frozen=True)
@@ -127,6 +128,39 @@ class JobResultStorage:
             expires_in=expires_in,
         )["download_url"]
 
+    def verify_raw_exists(self, *, job_id: str, relative_path: str) -> bool:
+        key = self.build_raw_key(job_id=job_id, relative_path=relative_path)
+        result = self._job_file_storage.verify_exists(key, bucket=self.results_bucket)
+        return bool(result.get("exists"))
+
+    def upload_raw_file(
+        self,
+        *,
+        job_id: str,
+        relative_path: str,
+        local_file_path: str,
+    ) -> None:
+        self._job_file_storage.upload_local_file(
+            local_file_path,
+            self.build_raw_key(job_id=job_id, relative_path=relative_path),
+            bucket=self.results_bucket,
+        )
+
+    def download_raw_to_temp(
+        self,
+        *,
+        job_id: str,
+        relative_path: str,
+        suffix: str,
+        temp_dir: str,
+    ) -> str:
+        return self._job_file_storage.download_to_temp(
+            self.build_raw_key(job_id=job_id, relative_path=relative_path),
+            suffix=suffix,
+            temp_dir=temp_dir,
+            bucket=self.results_bucket,
+        )
+
     def generate_artifact_url(
         self, *, job_id: str, artifact_ref: str, expires_in: int = 3600
     ) -> str | None:
@@ -171,9 +205,17 @@ class JobResultStorage:
         normalized_refs = {
             normalized
             for ref in artifact_refs
-            if (normalized := self.normalize_artifact_ref(ref)) is not None
+            if (normalized := self._normalize_upload_artifact_ref(ref)) is not None
         }
         return normalized_refs
+
+    def _normalize_upload_artifact_ref(self, artifact_ref: str | None) -> str | None:
+        normalized = self._normalize_raw_relative_path(artifact_ref)
+        if not normalized:
+            return None
+        if normalized in _INTERNAL_RAW_FILES:
+            return normalized
+        return self.normalize_artifact_ref(normalized)
 
     def _is_excluded_file(self, file_name: str) -> bool:
         return file_name in _EXCLUDED_FILE_NAMES or file_name.startswith(".")

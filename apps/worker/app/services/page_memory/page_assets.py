@@ -17,6 +17,7 @@ from loguru import logger
 from PIL import Image, ImageDraw, ImageFont
 
 from app.services.document_agent.budget import BudgetTracker
+from app.services.document_agent.visual import visual_debug_enabled
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.page_memory.page_renderer import PageRenderResult
 from shared.services.ai.prompt_service import build_prompt
@@ -375,11 +376,12 @@ def extract_page_assets_from_renders(
                 page_assets.append(asset)
         if page_assets:
             assets_by_page[page.page_index] = page_assets
-            annotate_page_assets(
-                page=page,
-                assets=page_assets,
-                output_dir=output_dir,
-            )
+            if visual_debug_enabled():
+                annotate_page_assets(
+                    page=page,
+                    assets=page_assets,
+                    output_dir=output_dir,
+                )
     logger.info(
         "[page_assets] extracted {} assets across {} pages",
         sum(len(items) for items in assets_by_page.values()),
@@ -466,15 +468,11 @@ def build_asset_rows(
                     "addtime": get_str_time(),
                     "page_nums": str(asset.page_index),
                     "extra_metadata": {
-                        "page_index": asset.page_index,
                         "asset_index": asset.asset_index,
-                        "asset_kind": asset.kind,
                         "bbox_px": asset.bbox_px,
                         "confidence": asset.confidence,
-                        "title": asset.title,
                         "caption": asset.caption,
                         "image_uri": asset.image_uri,
-                        "html_uri": asset.html_uri,
                         "extraction_status": asset.extraction_status,
                         "table_engine": "tabula" if asset.kind == "table" else "",
                     },

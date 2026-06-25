@@ -8,6 +8,7 @@ from typing import Any, Iterator, Literal
 
 from loguru import logger
 from app.services.document_agent.coordinator import ProfileCoordinator
+from app.services.document_agent.visual import purge_debug_visual_dirs, visual_debug_enabled
 from app.services.document_parser.orchestration.oversized_pdf_policy import (
     build_oversized_pdf_profile_failed_exception,
     build_oversized_pdf_processing_failed_exception,
@@ -57,14 +58,18 @@ def profile_document(
 
     ext = os.path.splitext(filename)[1].lower()
     if ext == ".pdf":
-        return _profile_pdf(
-            file_path,
-            filename,
-            job_id=job_id,
-            output_dir=output_dir,
-            skip_shard_plan=skip_shard_plan,
-            oversized_policy=oversized_policy,
-        )
+        try:
+            return _profile_pdf(
+                file_path,
+                filename,
+                job_id=job_id,
+                output_dir=output_dir,
+                skip_shard_plan=skip_shard_plan,
+                oversized_policy=oversized_policy,
+            )
+        finally:
+            if not visual_debug_enabled():
+                purge_debug_visual_dirs(output_dir)
 
     return ParserDocumentProfile(
         file_type=ext.lstrip("."),
@@ -170,6 +175,7 @@ def _profile_pdf_with_db(
 
     if trace := getattr(coordinator, "trace", None):
         trace.persist_doc_profile(profile)
+        setattr(profile, "trace_recorder", trace)
 
     return profile
 

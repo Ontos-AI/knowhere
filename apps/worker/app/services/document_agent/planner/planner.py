@@ -317,6 +317,7 @@ class ProfilePlanner:
                 output_summary={"profile": profile.to_dict(), "decision": decision.to_dict()},
                 debug={
                     "prompt_text": prompt_text,
+                    "sampled_pages": pages,
                     "sampled_pngs": pngs,
                     "raw_response": raw,
                 },

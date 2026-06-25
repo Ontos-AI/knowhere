@@ -94,7 +94,6 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
     rows = build_node_rows(
         skeletons=_same_page_sibling_skeletons(),
         raw_text_by_page={231: "text-231", 232: "text-232"},
-        image_uri_by_page={231: "pages/page-231.png", 232: "pages/page-232.png"},
         image_path_by_page={},
         kind_by_page={},
         tag_by_page={
@@ -116,18 +115,13 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
     leaf_a = by_path["demo.pdf/3 基本规定/3.1 职责"]
     assert leaf_a["page_nums"] == "231"
     assert leaf_a["content"] == "text-231"
-    assert leaf_a["extra_metadata"]["page_image_uris"] == ["pages/page-231.png"]
-    assert set(leaf_a["extra_metadata"]) == {"page_image_uris"}
+    assert leaf_a["extra_metadata"] == {}
 
     leaf_b = by_path["demo.pdf/3 基本规定/3.2 管理规定"]
     assert leaf_b["page_nums"] == "231,232"
     assert SAME_AS_PREFIX in leaf_b["content"]
     assert "text-232" in leaf_b["content"]
-    assert leaf_b["extra_metadata"]["page_image_uris"] == [
-        "pages/page-231.png",
-        "pages/page-232.png",
-    ]
-    assert set(leaf_b["extra_metadata"]) == {"page_image_uris"}
+    assert leaf_b["extra_metadata"] == {}
 
 
 def test_build_node_rows_keeps_internal_section_body_pages() -> None:
@@ -151,7 +145,6 @@ def test_build_node_rows_keeps_internal_section_body_pages() -> None:
     rows = build_node_rows(
         skeletons=[parent, child],
         raw_text_by_page={233: "parent body", 234: "child body"},
-        image_uri_by_page={233: "pages/page-233.png", 234: "pages/page-234.png"},
         image_path_by_page={},
         kind_by_page={},
         tag_by_page={
@@ -175,6 +168,37 @@ def test_build_node_rows_keeps_internal_section_body_pages() -> None:
         by_path["demo.pdf/4 风险辨识与分级管控/4.1 风险评价方法"]["content"]
         == "child body"
     )
+
+
+def test_boundary_page_belongs_to_next_sibling_start() -> None:
+    coarse = SectionSkeleton(
+        section_path="demo.pdf/安全类/风险标准",
+        level=3,
+        start_page=225,
+        end_page=302,
+        title="风险标准",
+        parent_path="demo.pdf/安全类",
+    )
+    next_sibling = SectionSkeleton(
+        section_path="demo.pdf/安全类/项目分类标准",
+        level=3,
+        start_page=302,
+        end_page=304,
+        title="项目分类标准",
+        parent_path="demo.pdf/安全类",
+    )
+
+    leaves = identify_leaf_nodes([coarse, next_sibling])
+    views, page_owner = assign_pages_to_leaves(
+        leaves,
+        available_pages={301, 302, 303},
+    )
+
+    by_title = {view.leaf.title: view for view in views}
+    assert by_title["风险标准"].pages == [301]
+    assert by_title["项目分类标准"].pages == [302, 303]
+    assert page_owner[301].title == "风险标准"
+    assert page_owner[302].title == "项目分类标准"
 
 
 def test_build_node_rows_uses_vlm_node_summary_with_boundary(
@@ -204,7 +228,6 @@ def test_build_node_rows_uses_vlm_node_summary_with_boundary(
     rows = build_node_rows(
         skeletons=_same_page_sibling_skeletons(),
         raw_text_by_page={231: "text-231", 232: "text-232"},
-        image_uri_by_page={231: "pages/page-231.png", 232: "pages/page-232.png"},
         image_path_by_page={231: str(img), 232: str(img)},
         kind_by_page={},
         tag_by_page={
@@ -246,7 +269,6 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
     rows = build_node_rows(
         skeletons=_same_page_sibling_skeletons(),
         raw_text_by_page={231: "text-231", 232: "text-232"},
-        image_uri_by_page={231: "pages/page-231.png", 232: "pages/page-232.png"},
         image_path_by_page={},
         kind_by_page={},
         tag_by_page={
@@ -264,6 +286,12 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
     assert rows[0]["path"] == "tables/table_page_231_1.html"
     assert rows[0]["content"] == "tables/table_page_231_1.html"
     assert rows[0]["know_id"] == "asset_table_1"
+    assert "owner_hierarchy_path" not in rows[0]["extra_metadata"]
+    assert "related_hierarchy_paths" not in rows[0]["extra_metadata"]
+    assert "page_index" not in rows[0]["extra_metadata"]
+    assert "asset_kind" not in rows[0]["extra_metadata"]
+    assert "title" not in rows[0]["extra_metadata"]
+    assert "html_uri" not in rows[0]["extra_metadata"]
 
     by_path = {row["path"]: row for row in rows}
     owner = by_path["demo.pdf/3 基本规定/3.1 职责"]
@@ -308,6 +336,13 @@ def test_page_connectto_normalizes_to_asset_chunk_id() -> None:
     df = pd.DataFrame(rows, columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
 
     chunks = dataframe_to_chunks(df)
+
+    asset_chunk = next(chunk for chunk in chunks if chunk["type"] == "table")
+    assert asset_chunk["chunk_id"] == "asset_table_1"
+    assert "know_id" not in asset_chunk
+    assert "keywords" not in asset_chunk
+    assert "summary" not in asset_chunk
+    assert "tokens" not in asset_chunk
 
     page_chunk = next(chunk for chunk in chunks if chunk["type"] == "page")
     assert page_chunk["metadata"]["connect_to"] == [

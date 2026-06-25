@@ -44,6 +44,7 @@ def render_document_pages(
     pdf_path: str,
     page_count: int,
     output_dir: str,
+    pages: list[int] | None = None,
     page_features: list[PageFeature] | None = None,
     page_texts: dict[int, str] | None = None,
     ctx: ToolContext | None = None,
@@ -58,6 +59,8 @@ def render_document_pages(
         Local filesystem path to the PDF.
     page_count:
         Total page count (avoids re-opening the PDF).
+    pages:
+        Optional 1-based page subset to render. Defaults to every page.
     output_dir:
         Root output directory; pages are written to ``output_dir/pages/``.
     page_features:
@@ -80,19 +83,23 @@ def render_document_pages(
     list[PageRenderResult]
         One entry per page, ordered by page_index.
     """
-    pages = list(range(1, page_count + 1))
-    if not pages:
+    requested_pages = (
+        sorted({page for page in pages if 1 <= page <= page_count})
+        if pages is not None
+        else list(range(1, page_count + 1))
+    )
+    if not requested_pages:
         return []
 
     # ── raw text (reuse caller's data if provided) ────────────────────
     if page_texts is None:
-        page_texts = read_page_texts(pdf_path, pages, timeout=timeout)
+        page_texts = read_page_texts(pdf_path, requested_pages, timeout=timeout)
 
     # ── full-resolution PNGs ──────────────────────────────────────────
     if ctx is not None:
         pngs = render_pages(
             ctx,
-            pages,
+            requested_pages,
             folder_name="pages",
             prefix="page",
             dpi=dpi,
@@ -114,7 +121,7 @@ def render_document_pages(
         )
         pngs = render_pages(
             tmp_ctx,
-            pages,
+            requested_pages,
             folder_name="pages",
             prefix="page",
             dpi=dpi,
@@ -133,7 +140,7 @@ def render_document_pages(
 
     # ── assemble results ──────────────────────────────────────────────
     results: list[PageRenderResult] = []
-    for page in pages:
+    for page in requested_pages:
         feat = feature_map.get(page)
         results.append(
             PageRenderResult(

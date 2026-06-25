@@ -423,7 +423,6 @@ def handle_table(
     headings_stack[-1]["content"].append(table_ref)
     df_list.append(
         build_table_asset_row(
-            content=tb_html_str,
             relative_path=table_asset.relative_path,
             summary=tb_summary,
             keywords=tb_keywords,

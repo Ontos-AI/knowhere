@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import os
 import re
-from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -30,7 +29,7 @@ def refine_fat_leaf_skeletons(
     tag_results: list[PageTagResult],
     fat_leaf_pages: set[int],
     model_name: str | None = None,
-    output_dir: str | None = None,
+    trace_recorder: Any | None = None,
 ) -> list[SectionSkeleton]:
     """Refine coarse TOC leaf skeletons using VLM-observed title candidates.
 
@@ -73,7 +72,7 @@ def refine_fat_leaf_skeletons(
             candidates=candidates,
             skeleton=skeleton,
             model_name=model_name,
-            output_dir=output_dir,
+            trace_recorder=trace_recorder,
         )
 
         if deeper:
@@ -170,7 +169,7 @@ def _run_hierarchy_on_candidates(
     candidates: list[dict[str, Any]],
     skeleton: SectionSkeleton,
     model_name: str | None,
-    output_dir: str | None,
+    trace_recorder: Any | None,
 ) -> list[SectionSkeleton] | None:
     """Run the page-memory hierarchy prompt and rebuild a nested skeleton tree.
 
@@ -316,8 +315,8 @@ def _run_hierarchy_on_candidates(
             },
         ))
 
-    _save_debug_hierarchy(
-        output_dir=output_dir,
+    _record_trace_hierarchy(
+        trace_recorder=trace_recorder,
         skeleton=skeleton,
         candidates=candidates,
         ordered=ordered,
@@ -365,28 +364,61 @@ def _parse_hierarchy_result(result: Any, *, max_depth: int) -> dict[int, int]:
     return parsed
 
 
-def _save_debug_hierarchy(
+def _record_trace_hierarchy(
     *,
-    output_dir: str | None,
+    trace_recorder: Any | None,
     skeleton: SectionSkeleton,
     candidates: list[dict[str, Any]],
     ordered: list[dict[str, Any]],
 ) -> None:
-    if not output_dir:
+    if trace_recorder is None or not hasattr(trace_recorder, "record_stage"):
         return
-    payload = {
-        "parent": skeleton.to_dict(),
-        "candidates": candidates,
-        "hierarchy": ordered,
-    }
     try:
-        debug_path = Path(output_dir) / "page_memory_fine_hierarchy.json"
-        debug_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
+        trace_recorder.record_stage(
+            "C4b.fine_hierarchy.scope",
+            page_info=_page_scope_info(
+                int(item.get("page") or 0) for item in candidates if item.get("page")
+            ),
+            variables={
+                "parent": skeleton.to_dict(),
+                "candidate_count": len(candidates),
+                "candidates": candidates,
+                "hierarchy": ordered,
+            },
         )
     except Exception as exc:
         logger.debug(
-            "[page_memory.fine_hierarchy] failed to save debug hierarchy: {}",
+            "[page_memory.fine_hierarchy] failed to record trace hierarchy: {}",
             exc,
         )
+
+
+def _page_scope_info(pages: Any) -> dict[str, Any]:
+    normalized: list[int] = []
+    for raw_page in pages or []:
+        try:
+            page = int(raw_page)
+        except (TypeError, ValueError):
+            continue
+        if page > 0:
+            normalized.append(page)
+    normalized = sorted(set(normalized))
+    return {
+        "page_count": len(normalized),
+        "page_ranges": _collapse_page_ranges(normalized),
+    }
+
+
+def _collapse_page_ranges(pages: list[int]) -> list[list[int]]:
+    if not pages:
+        return []
+    ranges: list[list[int]] = []
+    start = prev = pages[0]
+    for page in pages[1:]:
+        if page == prev + 1:
+            prev = page
+            continue
+        ranges.append([start, prev])
+        start = prev = page
+    ranges.append([start, prev])
+    return ranges

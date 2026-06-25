@@ -153,7 +153,7 @@ def test_page_asset_extraction_keeps_debug_output_minimal(
 
     assert sorted(assets_by_page) == [1]
     assert (tmp_path / "tables" / "table_page_1_1.html").exists()
-    assert (tmp_path / "asset_annotate" / "page_1.png").exists()
+    assert not (tmp_path / "asset_annotate" / "page_1.png").exists()
     assert not (tmp_path / "page_asset_bboxes.json").exists()
 
 

@@ -5,7 +5,7 @@ from typing import Any, cast
 
 from shared.services.retrieval.agentic.core.types import DocTreeNode
 
-AssetLookupValue = str | list[str]
+AssetLookupValue = str
 
 
 def render_unified_doc_tree(
@@ -158,13 +158,11 @@ def render_leaf_chunks(
                 rendered_ids.add(target_id)
 
             if target_type == "table":
-                table_html = str(target.get("content", "")).strip()
                 file_path = target.get("file_path") or ""
-                asset_url = _first_asset_url((asset_lookup or {}).get(target_id, "")) if target_id else ""
+                asset_url = _lookup_asset_url(asset_lookup, target_id)
                 display_ref = asset_url or file_path
                 table_lines = render_table_chunk_lines(
                     target,
-                    table_html=table_html,
                     display_ref=display_ref,
                 )
                 content = content.replace(ref_str, "\n" + "\n".join(table_lines) + "\n")
@@ -173,7 +171,7 @@ def render_leaf_chunks(
                 image_description = str(target.get("content", "")).strip()
                 if ref_str in image_description:
                     image_description = image_description.replace(ref_str, "").strip()
-                asset_url = _first_asset_url((asset_lookup or {}).get(target_id, "")) if target_id else ""
+                asset_url = _lookup_asset_url(asset_lookup, target_id)
                 display_ref = asset_url or file_path
                 if display_ref:
                     content = content.replace(ref_str, f"\n[Image: {display_ref}]\n{image_description}\n")
@@ -195,7 +193,7 @@ def render_leaf_chunks(
         if chunk_type == "image":
             file_path = chunk.get("file_path") or ""
             image_description = str(chunk.get("content", "")).strip()
-            asset_url = _first_asset_url((asset_lookup or {}).get(chunk_id, "")) if chunk_id else ""
+            asset_url = _lookup_asset_url(asset_lookup, chunk_id)
             display_ref = asset_url or file_path
             if display_ref:
                 parts.append(f"{indent}┈ [Image: {display_ref}]")
@@ -204,13 +202,11 @@ def render_leaf_chunks(
                     if line.strip():
                         parts.append(f"{indent}┈ {line}")
         elif chunk_type == "table":
-            table_html = str(chunk.get("content", "")).strip()
             file_path = chunk.get("file_path") or ""
-            asset_url = _first_asset_url((asset_lookup or {}).get(chunk_id, "")) if chunk_id else ""
+            asset_url = _lookup_asset_url(asset_lookup, chunk_id)
             display_ref = asset_url or file_path
             for line in render_table_chunk_lines(
                 chunk,
-                table_html=table_html,
                 display_ref=display_ref,
             ):
                 if line.strip():
@@ -238,22 +234,16 @@ def render_page_chunk_lines(
     elif not page_nums:
         parts.append(f"{indent}┈ [Page]")
 
-    urls = _asset_urls_for_chunk(chunk, asset_lookup=asset_lookup)
-    if urls:
-        for index, url in enumerate(urls, start=1):
-            parts.append(f"{indent}┈ [Page image {index}: {url}]")
-    elif page_nums:
-        for page in page_nums:
-            parts.append(f"{indent}┈ [Page image: page {page}]")
+    url = _asset_url_for_chunk(chunk, asset_lookup=asset_lookup)
+    if url:
+        parts.append(f"{indent}┈ [Page PDF ({_format_page_range(page_nums)}): {url}]")
 
 
 def render_table_chunk_lines(
     chunk: dict[str, Any],
     *,
-    table_html: str,
     display_ref: str,
 ) -> list[str]:
-    del table_html
     header = f"[Table: {display_ref}]" if display_ref else "[Table]"
     lines = [header]
     table_path = chunk.get("source_chunk_path") or chunk.get("section_path")
@@ -286,27 +276,42 @@ def render_table_chunk_lines(
     return lines
 
 
-def _asset_urls_for_chunk(
+def _asset_url_for_chunk(
     chunk: dict[str, Any],
     *,
     asset_lookup: dict[str, AssetLookupValue] | None,
-) -> list[str]:
+) -> str:
     chunk_id = str(chunk.get("chunk_id") or "").strip()
     value = (asset_lookup or {}).get(chunk_id, "") if chunk_id else ""
-    if isinstance(value, list):
-        return [str(url).strip() for url in value if str(url).strip()]
-    url = str(value or "").strip()
-    return [url] if url else []
-
-
-def _first_asset_url(value: object) -> str:
-    if isinstance(value, list):
-        for item in value:
-            url = str(item or "").strip()
-            if url:
-                return url
-        return ""
     return str(value or "").strip()
+
+
+def _lookup_asset_url(
+    asset_lookup: dict[str, AssetLookupValue] | None,
+    chunk_id: str,
+) -> str:
+    if not chunk_id:
+        return ""
+    return str((asset_lookup or {}).get(chunk_id, "") or "").strip()
+
+
+def _format_page_range(page_nums: list[int]) -> str:
+    pages = sorted(set(page_nums))
+    if not pages:
+        return "pages unknown"
+    if len(pages) == 1:
+        return f"page {pages[0]}"
+    ranges: list[str] = []
+    start = pages[0]
+    prev = pages[0]
+    for page in pages[1:]:
+        if page == prev + 1:
+            prev = page
+            continue
+        ranges.append(str(start) if start == prev else f"{start}-{prev}")
+        start = prev = page
+    ranges.append(str(start) if start == prev else f"{start}-{prev}")
+    return f"pages {', '.join(ranges)}"
 
 
 def _coerce_page_nums(value: object) -> list[int]:

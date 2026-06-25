@@ -16,9 +16,7 @@ class TableAssetInput:
     keywords: str
     know_id: str
     addtime: str
-    content: str | None = None
     tokens: str = ""
-    length: int | None = None
     path: str | None = None
     asset_path: str | None = None
 

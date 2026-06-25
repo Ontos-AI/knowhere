@@ -106,9 +106,6 @@ class ZipChunkSchemaBuilder:
                 )
                 metadata["tokens"] = []
             elif chunk_type == "page":
-                # Page-memory page chunks preserve node/whole-doc navigation
-                # metadata from extra_metadata.
-                _merge_page_chunk_metadata(metadata, existing_metadata)
                 metadata["keywords"] = existing_metadata.get("keywords") or []
                 metadata["tokens"] = []
 
@@ -128,18 +125,6 @@ class ZipChunkSchemaBuilder:
 def _normalize_chunk_type(value: Any) -> str:
     raw_type = str(value).strip()
     return raw_type.split("\n", 1)[0].lower()
-
-
-_PAGE_CHUNK_METADATA_KEYS = ("page_image_uris",)
-
-
-def _merge_page_chunk_metadata(
-    metadata: dict[str, Any],
-    existing_metadata: dict[str, Any],
-) -> None:
-    for key in _PAGE_CHUNK_METADATA_KEYS:
-        if key in existing_metadata:
-            metadata[key] = existing_metadata[key]
 
 
 def _base_chunk_metadata(

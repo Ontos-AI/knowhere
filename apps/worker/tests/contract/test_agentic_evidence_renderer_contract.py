@@ -9,7 +9,7 @@ def test_render_direct_table_chunk_uses_summary_and_asset_url() -> None:
             {
                 "chunk_id": "table-1",
                 "chunk_type": "table",
-                "content": "tables/table-企业入驻信息表.html",
+                "content": "<table><tr><td>SHOULD NOT LEAK</td></tr></table>",
                 "file_path": "tables/table-企业入驻信息表.html",
                 "chunk_metadata": {
                     "summary": "企业入驻信息登记模板",
@@ -25,6 +25,7 @@ def test_render_direct_table_chunk_uses_summary_and_asset_url() -> None:
     assert "[Table: http://localhost:4566/table.html?signature=test]" in rendered
     assert "企业入驻信息登记模板" in rendered
     assert "企业信息;入驻管理" in rendered
+    assert "SHOULD NOT LEAK" not in rendered
     assert "<table" not in rendered
 
 
@@ -36,7 +37,7 @@ def test_render_direct_table_chunk_does_not_inline_html() -> None:
             {
                 "chunk_id": "table-1",
                 "chunk_type": "table",
-                "content": "tables/table-企业入驻信息表.html",
+                "content": "<table><tr><td>企业名称</td></tr></table>",
                 "file_path": "tables/table-企业入驻信息表.html",
                 "source_chunk_path": "企业信息汇总260509 (1).xlsx/企业批量录入",
                 "chunk_metadata": {
@@ -80,7 +81,7 @@ def test_render_connected_table_chunk_includes_asset_url() -> None:
             {
                 "chunk_id": "table-1",
                 "chunk_type": "table",
-                "content": "tables/table-1.html",
+                "content": "<table><tr><td>SHOULD NOT LEAK</td></tr></table>",
                 "file_path": "tables/table-1.html",
                 "chunk_metadata": {"summary": "A 表摘要"},
             },
@@ -92,10 +93,11 @@ def test_render_connected_table_chunk_includes_asset_url() -> None:
     rendered = "\n".join(parts)
     assert "[Table: http://localhost:4566/table-1.html?signature=test]" in rendered
     assert "A 表摘要" in rendered
+    assert "SHOULD NOT LEAK" not in rendered
     assert "<table" not in rendered
 
 
-def test_render_page_chunk_uses_summary_page_nums_and_page_images() -> None:
+def test_render_page_chunk_uses_summary_page_nums_and_page_pdf() -> None:
     parts: list[str] = []
     render_leaf_chunks(
         parts,
@@ -107,22 +109,20 @@ def test_render_page_chunk_uses_summary_page_nums_and_page_images() -> None:
                 "chunk_metadata": {
                     "summary": "制度标准总则摘要",
                     "page_nums": [225, 226],
-                    "page_image_uris": ["pages/page-225.png", "pages/page-226.png"],
                 },
             }
         ],
         "    ",
         asset_lookup={
-            "page-node-1": [
-                "http://localhost:4566/page-225.png?signature=test",
-                "http://localhost:4566/page-226.png?signature=test",
-            ]
+            "page-node-1": "http://localhost:4566/page_pdfs/225-226.pdf?signature=test"
         },
     )
 
     rendered = "\n".join(parts)
     assert "Pages: 225, 226" in rendered
     assert "制度标准总则摘要" in rendered
-    assert "Page image 1: http://localhost:4566/page-225.png?signature=test" in rendered
-    assert "Page image 2: http://localhost:4566/page-226.png?signature=test" in rendered
+    assert (
+        "Page PDF (pages 225-226): "
+        "http://localhost:4566/page_pdfs/225-226.pdf?signature=test"
+    ) in rendered
     assert "RAW OCR SHOULD NOT LEAK" not in rendered

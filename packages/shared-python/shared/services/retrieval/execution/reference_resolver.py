@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.services.retrieval.hydration.reference import hydrate_referenced_chunk_rows
 from shared.services.retrieval.execution.response_projection import (
-    enrich_referenced_chunks_with_asset_urls,
+    enrich_referenced_chunks_with_asset_url,
 )
 from shared.services.retrieval.hydration.row_utils import build_reference_lookup_key
 
@@ -34,9 +34,9 @@ async def resolve_workflow_references(
         score_by_chunk_id=score_by_chunk_id,
     )
     resolved = _select_matching_references(refs, hydrated_rows)
-    enriched_rows = await enrich_referenced_chunks_with_asset_urls(resolved.rows)
+    enriched_rows = await enrich_referenced_chunks_with_asset_url(resolved.rows)
     return ResolvedWorkflowReferences(
-        refs=_merge_reference_asset_urls(resolved.refs, enriched_rows),
+        refs=_merge_reference_asset_url(resolved.refs, enriched_rows),
         rows=resolved.rows,
     )
 
@@ -95,7 +95,7 @@ def _row_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
     )
 
 
-def _merge_reference_asset_urls(
+def _merge_reference_asset_url(
     refs: list[dict[str, Any]],
     rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -114,9 +114,8 @@ def _merge_reference_asset_urls(
         if row is None:
             row = _find_matching_row_for_ref(ref, rows)
         if row is not None:
-            for field in ("asset_url", "asset_urls"):
-                if row.get(field):
-                    merged[field] = row[field]
+            if row.get("asset_url"):
+                merged["asset_url"] = row["asset_url"]
         merged_refs.append(merged)
     return merged_refs
 

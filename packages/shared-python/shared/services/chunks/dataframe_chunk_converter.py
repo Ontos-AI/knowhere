@@ -60,10 +60,6 @@ class ChunkPayload(TypedDict):
     path: str
     metadata: ChunkMetadata
     order: int
-    know_id: str
-    keywords: list[str]
-    summary: str
-    tokens: list[str]
 
 
 def _is_missing(value: object) -> bool:
@@ -331,10 +327,6 @@ def dataframe_to_chunks(df: _ParserDataFrame | None) -> list[Dict[str, JsonValue
                 "path": path,
                 "metadata": metadata,
                 "order": index,
-                "know_id": str(know_id),
-                "keywords": metadata["keywords"],
-                "summary": metadata["summary"],
-                "tokens": metadata["tokens"],
             }
         )
 

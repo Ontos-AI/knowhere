@@ -12,13 +12,6 @@ def collect_referenced_artifact_refs(chunks: list[dict[str, Any]]) -> set[str]:
         if not isinstance(metadata, dict):
             metadata = {}
 
-        if chunk_type == "page":
-            raw_page_refs = metadata.get("page_image_uris") or []
-            if isinstance(raw_page_refs, list):
-                for raw_ref in raw_page_refs:
-                    _add_artifact_ref(refs, raw_ref, allowed_roots={"pages"})
-            continue
-
         if chunk_type in {"image", "table"}:
             allowed_root = f"{chunk_type}s"
             _add_artifact_ref(
@@ -54,6 +47,6 @@ def _normalize_client_artifact_ref(raw_ref: object) -> str | None:
     ]
     if len(parts) < 2:
         return None
-    if parts[0] not in {"pages", "images", "tables"}:
+    if parts[0] not in {"images", "tables"}:
         return None
     return "/".join(parts)

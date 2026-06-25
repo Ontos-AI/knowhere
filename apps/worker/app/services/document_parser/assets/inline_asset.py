@@ -26,14 +26,12 @@ def build_image_asset_row(
 
 def build_table_asset_row(
     *,
-    content: str,
     relative_path: str,
     summary: str,
     keywords: str,
     know_id: str,
     addtime: str,
 ) -> ParsedRow:
-    del content
     row_content = relative_path
     return ParsedRow(
         content=row_content,

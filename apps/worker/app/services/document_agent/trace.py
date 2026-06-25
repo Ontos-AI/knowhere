@@ -20,6 +20,7 @@ class ParseRunRecorder:
         self._db = db
         self._started = time.monotonic()
         self._steps: list[dict[str, Any]] = []
+        self._stages: list[dict[str, Any]] = []
         self._anatomy: PageAnatomyMap | None = None
         self._doc_profile_source: Any | None = None
         self._artifact_path: str | None = None
@@ -54,6 +55,22 @@ class ParseRunRecorder:
                 },
                 "tokens_used": result.tokens_used,
                 "latency_ms": result.latency_ms,
+                "created_at": datetime.utcnow(),
+            }
+        )
+
+    def record_stage(
+        self,
+        stage: str,
+        *,
+        page_info: dict[str, Any] | None = None,
+        variables: dict[str, Any] | None = None,
+    ) -> None:
+        self._stages.append(
+            {
+                "stage": stage,
+                "page_info": page_info or {},
+                "variables": variables or {},
                 "created_at": datetime.utcnow(),
             }
         )
@@ -162,6 +179,13 @@ class ParseRunRecorder:
                 if created_at is not None and hasattr(created_at, "isoformat"):
                     item["created_at"] = created_at.isoformat()
                 serializable_steps.append(item)
+            serializable_stages = []
+            for stage in self._stages:
+                item = dict(stage)
+                created_at = item.get("created_at")
+                if created_at is not None and hasattr(created_at, "isoformat"):
+                    item["created_at"] = created_at.isoformat()
+                serializable_stages.append(item)
             Path(trace_path).write_text(
                 json.dumps(
                     {
@@ -171,6 +195,7 @@ class ParseRunRecorder:
                         "summary": summary,
                         "artifact_path": self._artifact_path,
                         "steps": serializable_steps,
+                        "stages": serializable_stages,
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -185,6 +210,7 @@ class ParseRunRecorder:
         return {
             "run_id": self.run_id,
             "step_count": len(self._steps),
+            "stage_count": len(self._stages),
             "artifact_path": self._artifact_path,
             "latency_ms": int((time.monotonic() - self._started) * 1000),
         }

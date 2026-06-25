@@ -55,7 +55,6 @@ def build_markdown_table_asset(
     _write_table_html(table_path=table_path, table_html=request.table_html)
 
     table_row = build_table_asset_row(
-        content=request.table_html,
         relative_path=relative_table_path,
         summary=table_index,
         keywords="",

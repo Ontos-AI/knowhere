@@ -74,9 +74,7 @@ def test_dataframe_converter_accepts_page_chunks_with_extra_metadata() -> None:
                 "connectto": "",
                 "addtime": "2026-06-11 00:00:00",
                 "page_nums": "1,2",
-                "extra_metadata": {
-                    "page_image_uris": ["pages/page_page_1.png"],
-                },
+                "extra_metadata": {},
             }
         ]
     )
@@ -85,7 +83,7 @@ def test_dataframe_converter_accepts_page_chunks_with_extra_metadata() -> None:
 
     assert chunks[0]["type"] == "page"
     assert chunks[0]["metadata"]["page_nums"] == [1, 2]
-    assert chunks[0]["metadata"]["page_image_uris"] == ["pages/page_page_1.png"]
+    assert "page_image_uris" not in chunks[0]["metadata"]
 
 
 def test_zip_chunk_schema_preserves_page_memory_node_metadata() -> None:
@@ -98,7 +96,6 @@ def test_zip_chunk_schema_preserves_page_memory_node_metadata() -> None:
             "metadata": {
                 "summary": "page summary",
                 "page_nums": [231],
-                "page_image_uris": ["pages/page-231.png", "pages/page-232.png"],
             },
         }
     ]
@@ -111,7 +108,7 @@ def test_zip_chunk_schema_preserves_page_memory_node_metadata() -> None:
 
     metadata = formatted[0]["metadata"]
     assert metadata["page_nums"] == [231]
-    assert metadata["page_image_uris"] == ["pages/page-231.png", "pages/page-232.png"]
+    assert "page_image_uris" not in metadata
     assert "granularity" not in metadata
     assert "page_indices" not in metadata
     assert "owned_pages" not in metadata

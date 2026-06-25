@@ -6,13 +6,12 @@ This module switches the unit of assembly to the **leaf section node**:
 
 - One chunk per leaf node (path).  Internal/structural nodes live in the
   navigation tree only (their summaries aggregate bottom-up).
-- A page that belongs to multiple nodes is *referenced* by each of them; the
-  page image is never duplicated (``page_image_uris`` is a list of shared
-  references).
+- A page that belongs to multiple nodes is *referenced* by each of them via
+  page numbers; retrieval resolves those pages to a cropped PDF on demand.
 - A page's body text is stored **once**, under the first leaf (in reading
   order) that covers it.  Other nodes that share the page emit a
   ``SAME-AS <owner path>`` marker instead of repeating the text.  Body text is
-  not a core asset in page-track — the page image is.
+  not duplicated across page-track nodes.
 
 Summary/keywords are settled per node (see ``node_summary``): a node covering
 multiple pages is summarized as a whole, and a page hosting multiple nodes is
@@ -85,10 +84,11 @@ def identify_leaf_nodes(skeletons: list[SectionSkeleton]) -> list[LeafNode]:
     parent_paths = {skel.parent_path for skel in skeletons if skel.parent_path}
     leaves: list[tuple[int, int, LeafNode]] = []
     for index, skel in enumerate(skeletons):
+        effective_end_page = _exclusive_end(skeletons, index)
         is_internal = skel.section_path in parent_paths
         body_pages: tuple[int, ...] | None = None
         if is_internal:
-            body_page_list = _internal_body_pages(skel, skeletons)
+            body_page_list = _internal_body_pages(skel, skeletons, index=index)
             if not body_page_list:
                 continue
             body_pages = tuple(body_page_list)
@@ -103,7 +103,7 @@ def identify_leaf_nodes(skeletons: list[SectionSkeleton]) -> list[LeafNode]:
                     title=skel.title,
                     level=skel.level,
                     start_page=skel.start_page,
-                    end_page=skel.end_page,
+                    end_page=effective_end_page,
                     parent_path=skel.parent_path,
                     body_pages=body_pages,
                 ),
@@ -116,17 +116,36 @@ def identify_leaf_nodes(skeletons: list[SectionSkeleton]) -> list[LeafNode]:
 def _internal_body_pages(
     skel: SectionSkeleton,
     skeletons: list[SectionSkeleton],
+    *,
+    index: int,
 ) -> list[int]:
     """Pages owned by an internal section itself, excluding descendants."""
-    pages = set(range(skel.start_page, skel.end_page + 1))
+    pages = set(range(skel.start_page, _exclusive_end(skeletons, index) + 1))
     descendant_prefix = f"{skel.section_path}/"
-    for other in skeletons:
+    for other_index, other in enumerate(skeletons):
         if other.section_path == skel.section_path:
             continue
         if not other.section_path.startswith(descendant_prefix):
             continue
-        pages.difference_update(range(other.start_page, other.end_page + 1))
+        pages.difference_update(
+            range(other.start_page, _exclusive_end(skeletons, other_index) + 1)
+        )
     return sorted(pages)
+
+
+def _exclusive_end(skeletons: list[SectionSkeleton], index: int) -> int:
+    """Return the last page owned by a skeleton before the next sibling starts.
+
+    The locator emits closed-closed section ranges, so adjacent sections can
+    overlap at the boundary page. Ownership is exclusive at the next start page.
+    """
+    skeleton = skeletons[index]
+    later_starts = [
+        skel.start_page for skel in skeletons if skel.start_page > skeleton.start_page
+    ]
+    if not later_starts:
+        return skeleton.end_page
+    return min(skeleton.end_page, min(later_starts) - 1)
 
 
 def assign_pages_to_leaves(
@@ -478,7 +497,6 @@ def build_node_rows(
     *,
     skeletons: list[SectionSkeleton],
     raw_text_by_page: dict[int, str],
-    image_uri_by_page: dict[int, str],
     image_path_by_page: dict[int, str],
     kind_by_page: dict[int, str],
     tag_by_page: dict[int, PageTagResult],
@@ -523,11 +541,6 @@ def build_node_rows(
             vlm_model=vlm_model,
             budget=budget,
         )
-        page_image_uris = [
-            image_uri_by_page[page]
-            for page in view.pages
-            if image_uri_by_page.get(page)
-        ]
         know_id = f"node_{gen_str_codes(f'{filename}::{leaf.section_path}')}"
         row = {
             "content": content,
@@ -541,9 +554,7 @@ def build_node_rows(
             "connectto": "",
             "addtime": get_str_time(),
             "page_nums": ",".join(str(page) for page in view.pages),
-            "extra_metadata": {
-                "page_image_uris": page_image_uris,
-            },
+            "extra_metadata": {},
         }
         rows.append(row)
         rows_by_path[leaf.section_path] = row

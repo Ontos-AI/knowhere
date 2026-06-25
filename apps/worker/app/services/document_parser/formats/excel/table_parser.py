@@ -249,9 +249,7 @@ def _write_excel_table_asset(
             keywords=keywords,
             know_id=know_id,
             addtime=time_stamp,
-            content=table_html_string,
             tokens=table_tokens,
-            length=len(table_html_string),
             path=_build_excel_table_path(
                 request=request,
                 sheet_name=sheet_name,

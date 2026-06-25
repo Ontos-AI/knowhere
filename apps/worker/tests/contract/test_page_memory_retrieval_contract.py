@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+from pathlib import Path
 
 import pytest
 
@@ -13,7 +15,7 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 from shared.services.retrieval.hydration.assets import (  # noqa: E402
     build_retrieval_asset_url_map,
-    enrich_rows_with_retrieval_asset_urls,
+    enrich_rows_with_retrieval_asset_url,
 )
 from shared.services.retrieval.hydration.result_assembly import (  # noqa: E402
     assemble_retrieval_results,
@@ -28,6 +30,7 @@ from shared.services.retrieval.execution.reference_resolver import (  # noqa: E4
     resolve_workflow_references,
 )
 from shared.services.storage.result_storage import JobResultStorage  # noqa: E402
+from shared.services.storage.page_pdf_crop import crop_source_pdf_pages  # noqa: E402
 
 
 def test_data_type_one_allows_page_and_page_content_enters_search_text() -> None:
@@ -71,6 +74,8 @@ def test_table_search_text_uses_summary_keywords_and_caption_not_content() -> No
     assert "批量录入表" in content_lexical_text
     assert "企业批量录入" in term_search_text
     assert "tables/table-1.html" not in content_search_text
+    assert "tables/table-1.html" not in content_lexical_text
+    assert "tables/table-1.html" not in term_search_text
 
 
 @pytest.mark.asyncio
@@ -82,7 +87,7 @@ async def test_page_result_assembly_uses_summary_not_raw_content() -> None:
             "content": "RAW OCR SHOULD NOT LEAK",
             "chunk_metadata": {
                 "summary": "制度标准总则摘要",
-                "page_image_uris": ["pages/page-225.png"],
+                "page_nums": [225],
             },
         }
     ]
@@ -142,30 +147,12 @@ async def test_table_result_assembly_uses_summary_not_html() -> None:
 
 
 @pytest.mark.asyncio
-async def test_page_asset_urls_are_generated_from_page_image_uris(monkeypatch) -> None:
-    class FakeResultStorage:
-        def normalize_artifact_ref(self, artifact_ref: str | None) -> str | None:
-            if not artifact_ref:
-                return None
-            normalized = artifact_ref.strip().replace("\\", "/").lstrip("/")
-            root = normalized.split("/", 1)[0]
-            if root not in {"images", "tables", "pages"}:
-                return None
-            return normalized
-
-        def generate_artifact_url(
-            self,
-            *,
-            job_id: str,
-            artifact_ref: str,
-            expires_in: int = 3600,
-        ) -> str | None:
-            del expires_in
-            return f"https://assets.example.com/{job_id}/{artifact_ref}"
-
+async def test_page_asset_url_is_generated_from_page_nums(monkeypatch) -> None:
     monkeypatch.setattr(
-        "shared.services.retrieval.hydration.assets.get_result_storage",
-        lambda: FakeResultStorage(),
+        "shared.services.retrieval.hydration.assets.crop_source_pdf_pages",
+        lambda *, job_id, pages: (
+            f"https://assets.example.com/{job_id}/page_pdfs/{'-'.join(map(str, pages))}.pdf"
+        ),
     )
 
     rows = [
@@ -174,34 +161,32 @@ async def test_page_asset_urls_are_generated_from_page_image_uris(monkeypatch) -
             "chunk_type": "page",
             "job_id": "job-1",
             "chunk_metadata": {
-                "page_image_uris": [
-                    "pages/page-225.png",
-                    "pages/page-226.png",
-                    "../images/not-allowed.png",
-                    "pages/page-225.png",
-                ]
+                "page_nums": [225, 226, 225],
             },
         }
     ]
 
-    enriched = await enrich_rows_with_retrieval_asset_urls(
+    enriched = await enrich_rows_with_retrieval_asset_url(
         rows,
         log_context="contract",
     )
     url_map = await build_retrieval_asset_url_map(rows, log_context="contract")
 
-    assert enriched[0]["asset_urls"] == [
-        "https://assets.example.com/job-1/pages/page-225.png",
-        "https://assets.example.com/job-1/pages/page-226.png",
-    ]
-    assert url_map["page-node-1"] == enriched[0]["asset_urls"]
+    assert enriched[0]["asset_url"] == (
+        "https://assets.example.com/job-1/page_pdfs/225-226.pdf"
+    )
+    assert "asset_urls" not in enriched[0]
+    assert url_map["page-node-1"] == enriched[0]["asset_url"]
 
 
-def test_result_storage_allows_pages_artifact_refs() -> None:
+def test_result_storage_allows_page_pdf_artifact_refs_not_page_pngs() -> None:
     storage = JobResultStorage(results_bucket="test-results")
 
-    assert storage.normalize_artifact_ref("pages/page-225.png") == "pages/page-225.png"
-    assert storage.normalize_artifact_ref("../pages/page-226.png") == "pages/page-226.png"
+    assert storage.normalize_artifact_ref("pages/page-225.png") is None
+    assert (
+        storage.normalize_artifact_ref("page_pdfs/page-225.pdf")
+        == "page_pdfs/page-225.pdf"
+    )
 
 
 def test_result_storage_upload_filters_to_referenced_artifacts(tmp_path) -> None:
@@ -221,6 +206,7 @@ def test_result_storage_upload_filters_to_referenced_artifacts(tmp_path) -> None
     result_dir = tmp_path / "result"
     (result_dir / "pages").mkdir(parents=True)
     (result_dir / "tables").mkdir()
+    (result_dir / "source.pdf").write_bytes(b"source")
     (result_dir / "pages" / "page-225.png").write_bytes(b"anchored")
     (result_dir / "pages" / "page-999.png").write_bytes(b"unanchored")
     (result_dir / "tables" / "table-1.html").write_text("<table></table>")
@@ -238,18 +224,130 @@ def test_result_storage_upload_filters_to_referenced_artifacts(tmp_path) -> None
         job_id="job-1",
         result_dir=str(result_dir),
         zip_file_path=str(zip_path),
-        artifact_refs={"pages/page-225.png", "tables/table-1.html"},
+        artifact_refs={"source.pdf", "pages/page-225.png", "tables/table-1.html"},
     )
 
-    assert set(bundle.raw_files) == {"pages/page-225.png", "tables/table-1.html"}
-    assert "results/job-1/pages/page-225.png" in adapter.uploaded_keys
+    assert set(bundle.raw_files) == {"source.pdf", "tables/table-1.html"}
+    assert "results/job-1/source.pdf" in adapter.uploaded_keys
     assert "results/job-1/tables/table-1.html" in adapter.uploaded_keys
+    assert "results/job-1/pages/page-225.png" not in adapter.uploaded_keys
     assert "results/job-1/pages/page-999.png" not in adapter.uploaded_keys
     assert "results/job-1/debug.csv" not in adapter.uploaded_keys
 
 
+def test_crop_source_pdf_pages_uploads_and_reuses_page_pdf_cache(tmp_path) -> None:
+    from pypdf import PdfReader, PdfWriter
+
+    source_pdf = tmp_path / "source.pdf"
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    writer.add_blank_page(width=72, height=72)
+    writer.add_blank_page(width=72, height=72)
+    with source_pdf.open("wb") as file_obj:
+        writer.write(file_obj)
+
+    class FakeResultStorage:
+        def __init__(self) -> None:
+            self.files: dict[str, Path] = {"source.pdf": source_pdf}
+            self.upload_count = 0
+
+        def verify_raw_exists(self, *, job_id: str, relative_path: str) -> bool:
+            del job_id
+            return relative_path in self.files
+
+        def download_raw_to_temp(
+            self,
+            *,
+            job_id: str,
+            relative_path: str,
+            suffix: str,
+            temp_dir: str,
+        ) -> str:
+            del job_id, suffix
+            target = Path(temp_dir) / Path(relative_path).name
+            shutil.copyfile(self.files[relative_path], target)
+            return str(target)
+
+        def upload_raw_file(
+            self,
+            *,
+            job_id: str,
+            relative_path: str,
+            local_file_path: str,
+        ) -> None:
+            del job_id
+            target = tmp_path / relative_path.replace("/", "_")
+            shutil.copyfile(local_file_path, target)
+            self.files[relative_path] = target
+            self.upload_count += 1
+
+        def generate_artifact_url(
+            self,
+            *,
+            job_id: str,
+            artifact_ref: str,
+            expires_in: int = 3600,
+        ) -> str:
+            del expires_in
+            return f"https://assets.example.com/{job_id}/{artifact_ref}"
+
+    storage = FakeResultStorage()
+
+    url = crop_source_pdf_pages(
+        job_id="job-1",
+        pages=[2, 1, 2],
+        storage=storage,  # type: ignore[arg-type]
+        temp_dir=str(tmp_path),
+    )
+    assert url and "/page_pdfs/" in url
+    page_pdf_refs = [ref for ref in storage.files if ref.startswith("page_pdfs/")]
+    assert len(page_pdf_refs) == 1
+    assert len(PdfReader(str(storage.files[page_pdf_refs[0]])).pages) == 2
+
+    cached_url = crop_source_pdf_pages(
+        job_id="job-1",
+        pages=[1, 2],
+        storage=storage,  # type: ignore[arg-type]
+        temp_dir=str(tmp_path),
+    )
+    assert cached_url == url
+    assert storage.upload_count == 1
+
+
+def test_crop_source_pdf_pages_returns_none_when_source_pdf_is_missing(tmp_path) -> None:
+    class FakeResultStorage:
+        def __init__(self) -> None:
+            self.upload_count = 0
+
+        def verify_raw_exists(self, *, job_id: str, relative_path: str) -> bool:
+            del job_id, relative_path
+            return False
+
+        def download_raw_to_temp(self, **_kwargs) -> str:
+            raise AssertionError("source download should not be attempted")
+
+        def upload_raw_file(self, **_kwargs) -> None:
+            self.upload_count += 1
+
+        def generate_artifact_url(self, **_kwargs) -> str:
+            raise AssertionError("URL generation should not be attempted")
+
+    storage = FakeResultStorage()
+
+    assert (
+        crop_source_pdf_pages(
+            job_id="job-missing-source",
+            pages=[1],
+            storage=storage,  # type: ignore[arg-type]
+            temp_dir=str(tmp_path),
+        )
+        is None
+    )
+    assert storage.upload_count == 0
+
+
 @pytest.mark.asyncio
-async def test_referenced_chunks_get_page_asset_urls_from_hydrated_rows(
+async def test_referenced_chunks_get_page_asset_url_from_hydrated_rows(
     monkeypatch,
 ) -> None:
     async def fake_hydrate_referenced_chunk_rows(**_kwargs):
@@ -260,20 +358,20 @@ async def test_referenced_chunks_get_page_asset_urls_from_hydrated_rows(
                 "chunk_type": "page",
                 "section_path": "安全类 / 1 总则",
                 "file_path": None,
-                "chunk_metadata": {"page_image_uris": ["pages/page-225.png"]},
+                "chunk_metadata": {"page_nums": [225]},
                 "job_id": "job-1",
             }
         ]
 
-    async def fake_enrich_referenced_chunks_with_asset_urls(rows):
+    async def fake_enrich_referenced_chunks_with_asset_url(rows):
         enriched = []
         for row in rows:
             enriched.append(
                 {
                     **row,
-                    "asset_urls": [
-                        "https://assets.example.com/job-1/pages/page-225.png"
-                    ],
+                    "asset_url": (
+                        "https://assets.example.com/job-1/page_pdfs/page-225.pdf"
+                    ),
                 }
             )
         return enriched
@@ -283,8 +381,8 @@ async def test_referenced_chunks_get_page_asset_urls_from_hydrated_rows(
         fake_hydrate_referenced_chunk_rows,
     )
     monkeypatch.setattr(
-        "shared.services.retrieval.execution.reference_resolver.enrich_referenced_chunks_with_asset_urls",
-        fake_enrich_referenced_chunks_with_asset_urls,
+        "shared.services.retrieval.execution.reference_resolver.enrich_referenced_chunks_with_asset_url",
+        fake_enrich_referenced_chunks_with_asset_url,
     )
 
     resolved = await resolve_workflow_references(
@@ -301,6 +399,7 @@ async def test_referenced_chunks_get_page_asset_urls_from_hydrated_rows(
         ],
     )
 
-    assert resolved.refs[0]["asset_urls"] == [
-        "https://assets.example.com/job-1/pages/page-225.png"
-    ]
+    assert resolved.refs[0]["asset_url"] == (
+        "https://assets.example.com/job-1/page_pdfs/page-225.pdf"
+    )
+    assert "asset_urls" not in resolved.refs[0]

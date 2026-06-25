@@ -57,6 +57,21 @@ class ZipPackageWriter:
                 "toc_hierarchies.json",
             ):
                 logger.info("Added toc_hierarchies.json to ZIP")
+            if self._write_optional_json_file(
+                zip_file,
+                request.add_dir,
+                "_doc_agent/trace.json",
+                "debug/trace.json",
+                compact_trace=True,
+            ):
+                logger.info("Added debug/trace.json to ZIP")
+            if self._write_optional_json_file(
+                zip_file,
+                request.add_dir,
+                "_doc_agent/anatomy_map.json",
+                "debug/anatomy_map.json",
+            ):
+                logger.info("Added debug/anatomy_map.json to ZIP")
 
             self._write_resource_files(zip_file, request.image_files, label="Image")
             self._write_resource_files(zip_file, request.table_files, label="Table")
@@ -89,6 +104,32 @@ class ZipPackageWriter:
         zip_file.write(file_path, filename)
         return True
 
+    def _write_optional_json_file(
+        self,
+        zip_file: zipfile.ZipFile,
+        add_dir: str,
+        source_name: str,
+        zip_name: str,
+        *,
+        compact_trace: bool = False,
+    ) -> bool:
+        file_path = os.path.join(add_dir, source_name)
+        if not os.path.exists(file_path):
+            return False
+        try:
+            with open(file_path, encoding="utf-8") as file_obj:
+                payload = json.load(file_obj)
+            if compact_trace:
+                payload = _compact_trace_payload(payload)
+            zip_file.writestr(
+                zip_name,
+                json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
+            )
+            return True
+        except Exception as exc:
+            logger.warning(f"Failed to add {source_name} to ZIP: {exc}")
+            return False
+
     def _write_resource_files(
         self,
         zip_file: zipfile.ZipFile,
@@ -110,3 +151,23 @@ def _calculate_zip_checksum(zip_file_path: str) -> str:
         for byte_block in iter(lambda: file_obj.read(4096), b""):
             sha256_hash.update(byte_block)
     return sha256_hash.hexdigest().lower()
+
+
+def _compact_trace_payload(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    compacted = dict(payload)
+    steps: list[Any] = []
+    for step in compacted.get("steps") or []:
+        if not isinstance(step, dict):
+            steps.append(step)
+            continue
+        item = dict(step)
+        observation = item.get("observation")
+        if isinstance(observation, dict):
+            compact_observation = dict(observation)
+            compact_observation.pop("payload", None)
+            item["observation"] = compact_observation
+        steps.append(item)
+    compacted["steps"] = steps
+    return compacted
