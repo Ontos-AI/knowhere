@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from app.api.dependencies.auth import require_write_permission
 from app.api.dependencies.current_user import with_current_user
 from app.services.documents.lifecycle_service import DocumentService
 from app.services.rate_limit.data_structures import CurrentUser
@@ -130,6 +131,7 @@ async def get_document_chunk(
 async def archive_document(
     document_id: str,
     current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
     db: AsyncSession = Depends(get_db),
 ):
     return await _archive_document_response(
@@ -143,6 +145,7 @@ async def archive_document(
 async def archive_document_legacy(
     document_id: str,
     current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
     db: AsyncSession = Depends(get_db),
 ):
     return await _archive_document_response(

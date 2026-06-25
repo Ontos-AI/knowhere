@@ -6,6 +6,7 @@ Endpoints for managing user webhook signing secrets.
 
 from typing import List, Optional
 
+from app.api.dependencies.auth import require_write_permission
 from app.api.dependencies.current_user import with_current_user
 from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends
@@ -131,6 +132,7 @@ async def list_secrets(
 async def create_secret(
     request: SecretCreateRequest,
     current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -159,6 +161,7 @@ async def create_secret(
 async def revoke_secret(
     secret_id: str,
     current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
     db: AsyncSession = Depends(get_db),
 ):
     """

@@ -106,7 +106,7 @@ def extract_title_keywords_summary(texts, max_keywords=3, summary_len=None):
     if summary_len is None:
         summary_len = ProcessingConstants.SUMMARY_LEN
     try:
-        # Deterministic language lock: LLMs (especially deepseek-chat) often
+        # Deterministic language lock: LLMs (especially deepseek-v4-flash) often
         # default to Chinese on numeric / structured inputs even when asked to
         # match input language. We detect the input's dominant language here
         # and pass it as a HARD constraint to the prompt.

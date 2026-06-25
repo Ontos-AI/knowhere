@@ -32,6 +32,8 @@ from app.services.document_agent.structure.hierarchy_locator import TitleMatch
 DecideFn = Callable[..., dict[str, Any] | None]
 
 _ALLOWED_ACTIONS = {"grep", "verify", "submit", "give_up"}
+VLM_MATCH_DEFAULT_CONFIDENCE = 0.7
+HEURISTIC_MATCH_DEFAULT_CONFIDENCE = 0.55
 
 
 @dataclass(frozen=True)
@@ -213,11 +215,15 @@ class PageLocateSubAgent:
         if vlm_confirmed:
             assert last_verify is not None  # guaranteed by vlm_confirmed check
             source = cast(Any, last_verify.get("source") or "agent_vlm")
-            confidence = float(last_verify.get("confidence") or 0.7)
+            confidence = float(last_verify.get("confidence") or VLM_MATCH_DEFAULT_CONFIDENCE)
             reason = last_verify.get("reason")
         else:
             source = cast(Any, "agent_heuristic")
-            confidence = float(decision.get("confidence") or grep_hit.get("confidence") or 0.55)
+            confidence = float(
+                decision.get("confidence")
+                or grep_hit.get("confidence")
+                or HEURISTIC_MATCH_DEFAULT_CONFIDENCE
+            )
             reason = decision.get("reason")
         return TitleMatch(
             page=page,
@@ -398,7 +404,6 @@ def _build_prompt(
         "   Searches body pages for the query (exact line, whitespace-insensitive "
         "compact text, and token overlap) and returns candidate pages with matched "
         "lines. IMPORTANT: the title may carry a trailing document-reference code "
-        "like （陕十一建[2022]30 号）, a 《》 wrapper, or a （试行）/（2020 版）note "
         "that never appears contiguously in the body, and the heading may be split "
         "across two lines. If a strict search of the full title returns nothing, "
         "retry grep with a shortened, distinctive CORE of the title (drop the "

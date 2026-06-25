@@ -2,8 +2,9 @@
 API key management endpoints.
 """
 
-from app.services.auth.api_key_management_service import APIKeyManagementService
+from app.api.dependencies.auth import require_write_permission
 from app.api.dependencies.current_user import with_current_user
+from app.services.auth.api_key_management_service import APIKeyManagementService
 from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +31,7 @@ _api_key_management_service = APIKeyManagementService()
 async def create_api_key(
     request: CreateAPIKeyRequest,
     current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
     db: AsyncSession = Depends(get_db),
 ):
     """Create an API key."""
@@ -97,6 +99,7 @@ async def list_api_keys(
 async def revoke_api_key(
     request: RevokeAPIKeyRequest,
     current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
     db: AsyncSession = Depends(get_db),
 ):
     """Revoke an API key."""
@@ -160,6 +163,7 @@ async def get_api_key(
 async def toggle_api_key(
     api_key_id: str,
     current_user: CurrentUser = Depends(with_current_user),
+    _write_permission: None = Depends(require_write_permission),
     db: AsyncSession = Depends(get_db),
 ):
     """Enable or disable an API key."""

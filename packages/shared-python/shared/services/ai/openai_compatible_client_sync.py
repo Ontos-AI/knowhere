@@ -78,7 +78,7 @@ class OpenAICompatibleClientSync:
         timeout: int = 300,
         max_retries: int = 2,
     ):
-        self.default_model = default_model or getattr(settings, "NORMOL_MODEL", "deepseek-chat")
+        self.default_model = default_model or getattr(settings, "NORMOL_MODEL", "deepseek-v4-flash")
         self._explicit_api_key = api_key
         self._explicit_api_url = api_url
         self._max_retries = max_retries
@@ -309,11 +309,15 @@ class OpenAICompatibleClientSync:
                 api_kwargs[key] = value
 
         if "extra_body" not in api_kwargs:
-            api_kwargs["extra_body"] = {"enable_thinking": False}
+            api_kwargs["extra_body"] = {
+                "enable_thinking": False,
+                "thinking": {"type": "disabled"},
+            }
         else:
             extra_body = api_kwargs["extra_body"]
             if isinstance(extra_body, dict):
                 extra_body.setdefault("enable_thinking", False)
+                extra_body.setdefault("thinking", {"type": "disabled"})
 
         effective_model = model or self.default_model
         if _should_mock_llm_calls():
@@ -407,11 +411,15 @@ class OpenAICompatibleClientSync:
         # Only inject the disable flag when the caller hasn't already set extra_body
         # (e.g. DeepSeek thinking mode explicitly passes its own extra_body).
         if "extra_body" not in api_kwargs:
-            api_kwargs["extra_body"] = {"enable_thinking": False}
+            api_kwargs["extra_body"] = {
+                "enable_thinking": False,
+                "thinking": {"type": "disabled"},
+            }
         else:
             extra_body = api_kwargs["extra_body"]
             if isinstance(extra_body, dict):
                 extra_body.setdefault("enable_thinking", False)
+                extra_body.setdefault("thinking", {"type": "disabled"})
 
         effective_model = model or self.default_model
         if _should_mock_llm_calls():

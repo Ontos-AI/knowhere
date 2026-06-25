@@ -17,7 +17,7 @@ from shared.services.ai.response_process_service import process_llm_history
 # ──────────────────────────────────────────────────────────────────────────────
 # Language detection & directive injection
 # ──────────────────────────────────────────────────────────────────────────────
-# Rationale: LLMs such as deepseek-chat have a strong prior toward Chinese when
+# Rationale: LLMs such as deepseek-v4-flash have a strong prior toward Chinese when
 # summarizing numeric / structured input (financial tables, GAAP terms, etc.),
 # and a soft "same language as the input" instruction is often ignored. We
 # therefore detect the input language deterministically at the caller site and
@@ -349,6 +349,7 @@ def build_prompt(task, texts, query, **kwargs):
         max_depth = kwargs["paras"]["max_depth"]
         max_tokens = kwargs["paras"]["max_tokens"]
         toc_context = kwargs["paras"].get("toc_context", "")
+        preceding_context = kwargs["paras"].get("preceding_context", "")
 
         if toc_context:
             toc_section = f"""
@@ -358,7 +359,7 @@ def build_prompt(task, texts, query, **kwargs):
         {toc_context}
         '''
 
-        RULES for using the TOC:
+        RULES for using the TOC (the SKELETON of the document):
         1. MUST TRUST the TOC levels as ground truth. If a candidate heading matches or
            closely corresponds to a TOC entry, you MUST assign it the same level as
            the TOC entry. Do NOT override or re-interpret the TOC's level assignment.
@@ -368,12 +369,44 @@ def build_prompt(task, texts, query, **kwargs):
         3. A candidate that does NOT correspond to any TOC entry can only be:
            - Body text (level = -1), OR
            - A sub-section with a level deeper than its nearest TOC heading above it.
-        4. The TOC provides the SKELETON of the document. Your job is to fill in the
-           gaps for candidates not covered by the TOC, while strictly preserving the
-           TOC's structure.
         """
         else:
             toc_section = ""
+
+        if preceding_context:
+            preceding_section = f"""
+        ***PRECEDING CONTEXT (already-decided ancestor headings before this slice)***
+
+        This slice is a CONTINUATION of the SAME document. The headings below were
+        assigned in the PREVIOUS slice and their sections are still "open" — they
+        flow into this slice. They are listed shallow→deep with their FINAL levels:
+
+        '''
+        {preceding_context}
+        '''
+
+        RULES for using the PRECEDING CONTEXT:
+        1. Do NOT restart numbering at level 1. Continue the SAME level scale shown above.
+        2. The FIRST heading you assign must be either a SIBLING of one of the open
+           ancestors (same level as that ancestor) or a CHILD of the DEEPEST open
+           ancestor (exactly one level deeper). It must NEVER be shallower than the
+           shallowest ancestor shown unless it clearly opens a new coarse section.
+        3. Apply the same parent-child continuity / no-skipping rules across the
+           boundary as if the preceding headings physically preceded this slice.
+        """
+        else:
+            preceding_section = ""
+
+        if preceding_context:
+            rule_5 = """Rule 5 — Continue the level scale from PRECEDING CONTEXT (do NOT reset to 1):
+            This slice continues an earlier slice of the same document, so the
+            shallowest heading here is NOT necessarily level 1. Align the first
+            heading with the open ancestor levels in PRECEDING CONTEXT (sibling =
+            same level, sub-section = one level deeper) and keep every level on
+            that same scale."""
+        else:
+            rule_5 = """Rule 5 — Normalise to start at level 1:
+            The shallowest (the most coarse granularity) heading found MUST be assigned level 1."""
 
         prompt = f"""
         You are a document structure auditing expert. The input you receive is a
@@ -395,11 +428,13 @@ def build_prompt(task, texts, query, **kwargs):
         '''
 
         {toc_section}
+        
+        {preceding_section}
 
         ***Hard rules about placeholders***
         - Placeholders are NEVER candidates. Do not output them.
         - Every ``id`` in your output MUST be a single integer; never emit an id containing a hyphen.
-        - Use N in ``[N BODY LINES]`` as a "section bulk" signal when applying rules below (Rule 2 in particular).
+        - Use N in ``[N BODY LINES]`` as a "section bulk" signal when applying rules below (Rules 2 and 3 in particular).
 
         ***Process in TWO steps:***
 
@@ -418,11 +453,6 @@ def build_prompt(task, texts, query, **kwargs):
         Your task is to determine each candidate's heading level from scratch
         based on its text, context, and the patterns discovered in STEP 1.
 
-        Rule 0 — Global consistency:
-            Candidates sharing the same structural pattern or semantic granularity SHOULD receive the
-            SAME level across the ENTIRE input. (e.g. every "X.Y" pattern
-            shares one level; every "X.Y.Z" shares a different, deeper level.)
-
         Rule 1 — Parent-child continuity and no level skipping:
             A heading, compared to candidates before it, may stay at the same level,
             or go ONE level deeper than its nearest valid ancestor heading.
@@ -435,7 +465,6 @@ def build_prompt(task, texts, query, **kwargs):
             b) In the input sequence it is IMMEDIATELY followed by a
                 placeholder ``[N BODY LINES]``, or by another candidate with finer granularity.
                 This is the "section bulk" signal — the row introduces a body block or a subsection group.
-            When Rule-2 is satisfied, pick a level consistent with Rule 1.
 
         Rule 3 — Body text demotion (candidate → -1):
             Demote a candidate to level = -1 when it clearly does NOT serve as a
@@ -443,8 +472,7 @@ def build_prompt(task, texts, query, **kwargs):
             - The text is an isolated fragment, data value, or caption-like snippet (e.g. "Table x", "Figure x", "Table/Figure").
             - The text has sentence-ending punctuation or is clearly prose.
 
-        Rule 4 — Normalise to start at level 1:
-            The shallowest (the most coarse granularity) heading found MUST be assigned level 1.
+        {rule_5}
 
         ***Output requirements***
         - Output MUST be a [JSON array] only.

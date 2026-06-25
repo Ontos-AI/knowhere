@@ -122,17 +122,22 @@ def run_merge_pre_pass(
     compact_df: pd.DataFrame,
     model_name: str | None = None,
 ) -> dict[int, str]:
-    """Focused pre-pass: decide merge/keep for consecutive heading candidate groups.
+    """DEPRECATED — no longer wired into the pipeline. Kept for reference only.
 
-    Runs BEFORE the main hierarchy LLM call. Scans ``compact_df`` (output of
-    ``compact_for_llm``) for rows whose ``note == "?"``, groups them together
-    with their preceding candidate, and sends all groups in a single focused
-    ``eval-merge-groups`` LLM call.
+    This focused "are these two consecutive lines one split heading?" pre-pass
+    proved unreliable: the LLM frequently merged real chapter headings (e.g.
+    ``第一章 总则``) into the preceding document title, irreversibly destroying
+    structure. The merge concern is now handled declaratively by Rule 2 of the
+    ``eval-headings`` prompt ("no body between two candidates ⇒ not same level").
 
-    Returns a dict ``{row_id: "<"}`` for every row the LLM decides to merge
-    into the previous heading.  The caller seeds ``llm_levels`` with these
-    decisions before running the main hierarchy LLM so that merge decisions
-    are final and the main LLM only handles level assignment.
+    DO NOT call this. Retained so the approach can be revisited if needed.
+
+    ---
+    Focused pre-pass: decide merge/keep for consecutive heading candidate groups.
+    Scans ``compact_df`` (output of ``compact_for_llm``) for rows whose
+    ``note == "?"``, groups them with their preceding candidate, and sends all
+    groups in a single ``eval-merge-groups`` LLM call. Returns ``{row_id: "<"}``
+    for every row the LLM decides to merge into the previous heading.
     """
     # ── 1. Collect consecutive groups ──
     groups: list[list[dict[str, Any]]] = []  # each element: list of {id, heading}
@@ -233,6 +238,108 @@ def run_merge_pre_pass(
     return merge_ids
 
 
+def _coerce_level(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return -1
+
+
+def demote_consecutive_same_level(
+    compact_df: pd.DataFrame,
+    llm_levels: dict[int, Any],
+) -> set[int]:
+    """Demote runs of consecutive same-level candidates to body text (-1).
+
+    A real heading owns the body block that follows it. So a run of two or more
+    candidates that are (a) directly adjacent with NO ``[N BODY LINES]``
+    placeholder between them and (b) assigned the SAME level > 0 by the LLM is
+    NOT a set of sibling headings — it is a flat enumeration / list that leaked
+    in as candidates. Every member of such a run is forced to level -1.
+
+    Operates on the COMPACT chunk frame (placeholders mark body blocks) and
+    mutates ``llm_levels`` in place. Returns the set of demoted row ids.
+
+    Note: a candidate the LLM already demoted to -1 naturally breaks the run,
+    because -1 never equals a positive level — it acts like a body separator.
+    """
+    demoted: set[int] = set()
+    run: list[tuple[int, int]] = []  # (row_id, level) for a no-body candidate run
+
+    def flush(current_run: list[tuple[int, int]]) -> None:
+        idx = 0
+        n = len(current_run)
+        while idx < n:
+            end = idx + 1
+            while end < n and current_run[end][1] == current_run[idx][1]:
+                end += 1
+            if current_run[idx][1] > 0 and (end - idx) >= 2:
+                for k in range(idx, end):
+                    rid = current_run[k][0]
+                    llm_levels[rid] = -1
+                    demoted.add(rid)
+            idx = end
+
+    for _, row in compact_df.iterrows():
+        if str(row.get("reason")) == PLACEHOLDER_REASON:
+            flush(run)
+            run = []
+            continue
+        try:
+            rid = int(row["id"])
+        except (TypeError, ValueError):
+            # Non-integer id (defensive) — treat like a body separator
+            flush(run)
+            run = []
+            continue
+        run.append((rid, _coerce_level(llm_levels.get(rid, -1))))
+
+    flush(run)
+
+    if demoted:
+        logger.info(
+            f"post-process => demoted {len(demoted)} row(s) from "
+            f"consecutive same-level runs: {sorted(demoted)}"
+        )
+    return demoted
+
+
+def extract_active_ancestors(
+    compact_df: pd.DataFrame,
+    llm_levels: dict[int, Any],
+    initial_stack: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Return the stack of still-open ancestor headings at the END of a chunk.
+
+    Walks the chunk's (post-processed) candidates in order, maintaining a
+    heading stack with the usual ``pop while top.level >= level`` rule. The
+    leftover stack is the set of headings whose sections continue past the chunk
+    boundary — this is fed to the NEXT chunk as ``preceding_context`` so the LLM
+    continues the same level scale instead of restarting at level 1.
+
+    ``initial_stack`` seeds the walk with the previous chunk's open ancestors so
+    a chunk that contains no shallow heading still carries earlier context.
+    Returned chain is ordered shallow→deep as ``[{"heading", "level"}, ...]``.
+    """
+    stack: list[dict[str, Any]] = [dict(item) for item in (initial_stack or [])]
+
+    for _, row in compact_df.iterrows():
+        if str(row.get("reason")) == PLACEHOLDER_REASON:
+            continue
+        try:
+            rid = int(row["id"])
+        except (TypeError, ValueError):
+            continue
+        level = _coerce_level(llm_levels.get(rid, -1))
+        if level <= 0:
+            continue
+        while stack and stack[-1]["level"] >= level:
+            stack.pop()
+        stack.append({"heading": str(row["heading"]).strip(), "level": level})
+
+    return stack
+
+
 def execute_llm_heading_hierarchy(
     raw_preds: pd.DataFrame,
     prompt_limt: int,
@@ -273,14 +380,9 @@ def execute_llm_heading_hierarchy(
         fallback["level"] = -1
         return fallback.sort_values("id").reset_index(drop=True)
 
-    # ── Merge pre-pass (always on when compact is enabled) ──
-    # Runs a focused LLM call BEFORE the main hierarchy call to resolve all
-    # consecutive-candidate groups. Main LLM receives clean [id, heading] only.
-    pre_pass_levels: dict[int, str] = {}
-    if compact_enabled:
-        pre_pass_levels = run_merge_pre_pass(
-            preds_for_llm, model_name=model_name
-        )
+    # NOTE: the legacy LLM "merge pre-pass" (run_merge_pre_pass) is deprecated and
+    # no longer wired in. The merge concern is now handled by Rule 2 of the
+    # eval-headings prompt. The main hierarchy LLM assigns every level directly.
 
     level_dfs, _raw_headings = split_heading_table(
         preds_for_llm, threshold=prompt_limt, max_start=max_len, max_end=5
@@ -300,9 +402,13 @@ def execute_llm_heading_hierarchy(
             source_row_count=len(raw_preds),
             model_name=model_name,
         ):
-            # ── Per-chunk independent LLM calls ──
-            # Seed with pre-pass merge decisions; main LLM cannot override them
-            llm_levels: dict[int, Any] = dict(pre_pass_levels)
+            # ── Per-chunk LLM calls with cross-chunk hierarchy continuity ──
+            # Each chunk's post-processed open-ancestor chain is fed to the next
+            # chunk so the LLM continues the same level scale instead of
+            # restarting at level 1 (which previously caused mid-section jumps,
+            # e.g. 5.2.3 collapsing to a top-level node at a chunk boundary).
+            llm_levels: dict[int, Any] = {}
+            active_ancestor_chain: list[dict[str, Any]] = []
 
             for chunk_idx, chunk_df in enumerate(level_dfs):
                 # Skip chunks that contain only placeholders
@@ -319,10 +425,16 @@ def execute_llm_heading_hierarchy(
 
                 logger.info(
                     f"smart parse => chunk {chunk_idx}/{len(level_dfs)}: "
-                    f"sending {len(df4llm)} rows to LLM"
+                    f"sending {len(df4llm)} rows to LLM "
+                    f"(preceding ancestors: {len(active_ancestor_chain)})"
                 )
                 chunk_result = hierarchy_judge(
-                    df4llm, model_name, max_depth, toc_hierarchies, task="eval-headings"
+                    df4llm,
+                    model_name,
+                    max_depth,
+                    toc_hierarchies,
+                    task="eval-headings",
+                    preceding_context=active_ancestor_chain,
                 )
 
                 if isinstance(chunk_result, list):
@@ -330,14 +442,14 @@ def execute_llm_heading_hierarchy(
                         if isinstance(item, dict) and "id" in item and "level" in item:
                             try:
                                 row_id = int(item["id"])
-                                # Pre-pass merge decisions take priority — never override
-                                if row_id in pre_pass_levels:
-                                    continue
                                 llm_levels[row_id] = item["level"]
                             except (TypeError, ValueError):
                                 pass
 
-                # Save per-chunk intermediate CSV
+                # Save per-chunk raw LLM prediction BEFORE deterministic
+                # post-processing. ``preds_llm_*`` is intentionally the model's
+                # direct judgment; ``preds_final`` is saved later after all
+                # post-processing and tree cleanup.
                 chunk_preds = (
                     chunk_df[["id", "heading", "reason"]].copy().reset_index(drop=True)
                 )
@@ -354,6 +466,14 @@ def execute_llm_heading_hierarchy(
                     f"preds_llm{csv_suffix}_{chunk_idx}"
                 )
 
+                # ── Post-process this chunk BEFORE it informs the next chunk ──
+                # Demote runs of consecutive same-level candidates (flat lists)
+                # to body text, then derive the open-ancestor chain to carry.
+                demote_consecutive_same_level(chunk_df, llm_levels)
+                active_ancestor_chain = extract_active_ancestors(
+                    chunk_df, llm_levels, initial_stack=active_ancestor_chain
+                )
+
             logger.info(
                 f"smart parse => per-chunk LLM produced {len(llm_levels)} "
                 f"id->level entries across {len(level_dfs)} chunks"
@@ -367,9 +487,6 @@ def execute_llm_heading_hierarchy(
                 except (TypeError, ValueError):
                     return -1
                 level = llm_levels.get(int_id, -1)
-                # Pre-pass merge decisions arrive as "<"; pass through for _apply_merge_signals
-                if level == "<":
-                    return "<"
                 try:
                     return int(level)
                 except (TypeError, ValueError):
