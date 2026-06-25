@@ -10,7 +10,11 @@ from pathlib import Path
 import pandas as pd
 from app.services.document_parser.tables.dataframe_helpers import process_dup_paths_df
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
-from app.services.document_parser.support.parser_rows import ParsedRow, ParsedRowsBuilder
+from app.services.document_parser.support.parser_rows import (
+    PARSER_ROW_COLUMNS,
+    ParsedRow,
+    ParsedRowsBuilder,
+)
 from loguru import logger
 from PIL import Image
 
@@ -237,7 +241,7 @@ def parse_image(
                 f"Skipping image {filename} (too small: {saved_size / 1024:.1f} KB)"
             )
             os.remove(img_path)
-            return pd.DataFrame(columns=settings.ALL_DF_COLS.split(","))
+            return pd.DataFrame(columns=list(PARSER_ROW_COLUMNS))
 
         # Extract image content
         client = _get_vision_client()

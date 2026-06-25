@@ -145,8 +145,6 @@ def _detect_mock_task(prompt_text: str) -> str:
 
     if "summaries of sub-sections from a document section" in normalized_prompt:
         return "file-summary"
-    if "extract the main content of the material" in normalized_prompt:
-        return "summary"
 
     return "default"
 
@@ -302,7 +300,6 @@ def _build_mock_response(task_name: str) -> str:
             '{"summary": "Mock section summary", "entities": []}'
         ),
         "file-summary": "Mock section summary",
-        "summary": "Mock summary",
         "default": "Mock LLM response",
     }
     return response_by_task.get(task_name, response_by_task["default"])

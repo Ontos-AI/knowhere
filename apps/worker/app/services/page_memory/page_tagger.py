@@ -82,43 +82,53 @@ def tag_pages(
     list[PageTagResult]
         One result per page, ordered by page_index.
     """
+    import gevent
+    from gevent.pool import Pool as GeventPool
+
+    from shared.core.config import settings
+
     plan_map = {plan.page_index: plan for plan in plans}
     model = vlm_model or os.environ.get("IMAGE_MODEL")
 
-    results: list[PageTagResult] = []
-    vlm_calls = 0
+    max_concurrent = int(
+        os.environ.get(
+            "PAGE_MEMORY_TAG_CONCURRENCY",
+            getattr(settings, "SUMMARY_LLM_MAX_CONCURRENT", 4),
+        )
+    )
 
-    for page in pages:
+    def _tag_one(page: PageRenderResult) -> PageTagResult:
         plan = plan_map.get(page.page_index)
         strategy = plan.strategy if plan else PageProcessingStrategy.VLM_LITE
 
         if strategy == PageProcessingStrategy.SKIP_TAGGING:
-            results.append(_tag_skip(page))
-            continue
+            return _tag_skip(page)
 
         if strategy == PageProcessingStrategy.TEXT_ONLY:
-            results.append(_tag_text_only(page))
-            continue
+            return _tag_text_only(page)
 
-        # vlm_lite
         if not model:
             logger.warning(
                 "[page_tagger] no VLM model for page {}; falling back to text_only",
                 page.page_index,
             )
-            results.append(_tag_text_only(page))
-            continue
+            return _tag_text_only(page)
 
-        tag = _tag_vlm_lite(page, model=model, budget=budget)
-        results.append(tag)
-        vlm_calls += 1
+        return _tag_vlm_lite(page, model=model, budget=budget)
 
+    pool = GeventPool(size=min(max_concurrent, len(pages)))
+    greenlets = [pool.spawn(_tag_one, page) for page in pages]
+    gevent.joinall(greenlets)
+
+    results = [g.value for g in greenlets]
+    vlm_calls = sum(1 for r in results if r and r.strategy_used == "vlm_lite")
     logger.info(
-        "[page_tagger] tagged {} pages ({} VLM calls, {} text_only, {} skipped)",
+        "[page_tagger] tagged {} pages ({} VLM calls, {} text_only, {} skipped) concurrency={}",
         len(results),
         vlm_calls,
-        sum(1 for r in results if r.strategy_used == "text_only"),
-        sum(1 for r in results if r.strategy_used == "skip_tagging"),
+        sum(1 for r in results if r and r.strategy_used == "text_only"),
+        sum(1 for r in results if r and r.strategy_used == "skip_tagging"),
+        max_concurrent,
     )
     return results
 

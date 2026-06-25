@@ -19,6 +19,8 @@ class TableAssetInput:
     tokens: str = ""
     path: str | None = None
     asset_path: str | None = None
+    entities: str = ""
+    asset_title: str = ""
 
 
 def write_table_asset(table_input: TableAssetInput) -> ParsedRow:
@@ -44,6 +46,8 @@ def write_table_asset(table_input: TableAssetInput) -> ParsedRow:
         connectto="",
         addtime=table_input.addtime,
         length=len(row_content),
+        entities=table_input.entities,
+        asset_title=table_input.asset_title,
     )
 
 

@@ -42,13 +42,11 @@ class PageAsset:
     height_px: int
     width_pt: float
     height_pt: float
-    caption: str = ""
     confidence: float = 0.0
     title: str = ""
     summary: str = ""
     keywords: list[str] = field(default_factory=list)
     entities: list[dict[str, str]] = field(default_factory=list)
-    chart: dict[str, Any] | None = None
     image_uri: str = ""
     html_uri: str = ""
     image_path: str = ""
@@ -207,7 +205,7 @@ def detect_page_assets(
         if bbox_px is None:
             continue
         asset_index = len(assets) + 1
-        title = str(region.get("title") or region.get("caption") or "").strip()
+        title = str(region.get("title") or "").strip()
         asset_id = "asset_" + gen_str_codes(
             f"{source_name}::{page.page_index}::{asset_index}::{kind}::{bbox_px}::"
             f"{title}"
@@ -223,7 +221,6 @@ def detect_page_assets(
                 height_px=height_px,
                 width_pt=float(page.width or 0.0),
                 height_pt=float(page.height or 0.0),
-                caption="",
                 confidence=confidence,
                 title=title,
                 summary="",
@@ -406,8 +403,6 @@ def summarize_page_asset(
     if result.entities:
         asset.entities = [e.to_dict() for e in result.entities]
         asset.keywords = [e.text for e in result.entities if e.text]
-    if result.chart is not None:
-        asset.chart = result.chart.to_dict()
     if result.summary or result.entities:
         asset.extraction_status = "summarized"
     return asset
@@ -426,6 +421,9 @@ def extract_page_assets_from_renders(
     pages = sorted(rendered_pages, key=lambda item: item.page_index)[:max_pages]
     source_name = Path(pdf_path).name
     assets_by_page: dict[int, list[PageAsset]] = {}
+    pending_summaries: list[PageAsset] = []
+    summary_enabled = page_asset_summary_enabled()
+
     for page in pages:
         detected = detect_page_assets(
             page=page,
@@ -434,8 +432,7 @@ def extract_page_assets_from_renders(
             budget=budget,
             confidence_threshold=confidence_threshold,
         )
-        page_assets: list[PageAsset] = []
-        summary_enabled = page_asset_summary_enabled()
+        page_assets_list: list[PageAsset] = []
         for asset in detected:
             crop_page_asset(
                 asset=asset,
@@ -448,28 +445,63 @@ def extract_page_assets_from_renders(
                     pdf_path=pdf_path,
                     output_dir=output_dir,
                 )
-            if summary_enabled and (asset.image_uri or asset.html_uri):
-                summarize_page_asset(
-                    asset=asset,
-                    model_name=model_name,
-                    budget=budget,
-                )
             if asset.image_uri or asset.html_uri:
-                page_assets.append(asset)
-        if page_assets:
-            assets_by_page[page.page_index] = page_assets
+                page_assets_list.append(asset)
+                if summary_enabled:
+                    pending_summaries.append(asset)
+        if page_assets_list:
+            assets_by_page[page.page_index] = page_assets_list
             if visual_debug_enabled():
                 annotate_page_assets(
                     page=page,
-                    assets=page_assets,
+                    assets=page_assets_list,
                     output_dir=output_dir,
                 )
+
+    if pending_summaries:
+        _batch_summarize_assets(
+            assets=pending_summaries,
+            model_name=model_name,
+            budget=budget,
+        )
+
     logger.info(
         "[page_assets] extracted {} assets across {} pages",
         sum(len(items) for items in assets_by_page.values()),
         len(assets_by_page),
     )
     return assets_by_page
+
+
+def _batch_summarize_assets(
+    *,
+    assets: list[PageAsset],
+    model_name: str | None,
+    budget: BudgetTracker | None,
+) -> None:
+    """Summarize assets in parallel using a gevent pool."""
+    import gevent
+    from gevent.pool import Pool as GeventPool
+
+    from shared.core.config import settings
+
+    max_concurrent = int(
+        os.environ.get(
+            "PAGE_MEMORY_ASSET_SUMMARY_CONCURRENCY",
+            getattr(settings, "SUMMARY_LLM_MAX_CONCURRENT", 4),
+        )
+    )
+    logger.info(
+        "[page_assets] batch-summarizing {} assets (concurrency={})",
+        len(assets),
+        max_concurrent,
+    )
+    pool = GeventPool(size=min(max_concurrent, len(assets)))
+    greenlets = [
+        pool.spawn(summarize_page_asset, asset=asset, model_name=model_name, budget=budget)
+        for asset in assets
+    ]
+    gevent.joinall(greenlets)
 
 
 def annotate_page_assets(
@@ -556,11 +588,8 @@ def build_asset_rows(
 
 def _asset_extra_metadata(asset: PageAsset) -> dict[str, Any]:
     metadata: dict[str, Any] = {
-        "caption": asset.caption,
         "image_uri": asset.image_uri,
     }
-    if asset.chart:
-        metadata["chart"] = asset.chart
     return metadata
 
 
@@ -574,7 +603,7 @@ def asset_reference(asset: PageAsset) -> str:
 def _asset_content(asset: PageAsset, *, row_type: str) -> str:
     if row_type == "table" and asset.html_uri:
         return asset.html_uri
-    parts = [asset.title, asset.summary, asset.caption]
+    parts = [asset.title, asset.summary]
     if asset.image_uri:
         parts.append(f"[{asset.image_uri}]")
     return "\n".join(part.strip() for part in parts if part and part.strip())

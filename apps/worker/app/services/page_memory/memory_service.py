@@ -19,6 +19,7 @@ from app.services.document_agent.state import AgentBlackboard
 from app.services.document_parser.profiling.doc_profiler import profile_document
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.support.parser_rows import PARSER_ROW_COLUMNS
+from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.page_memory.normalizer import normalize_to_pdf
 
 from loguru import logger
@@ -67,21 +68,23 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
     final_status = "failed"
     trace_summary: dict[str, Any] = {}
     try:
-        pdf_path, pdf_filename = normalize_to_pdf(
-            file_path=request.file_path,
-            filename=request.filename,
-            output_dir=full_output_dir,
-            base_url=request.base_url,
-        )
+        with stage_timer("page_memory.normalize_to_pdf", filename=request.filename):
+            pdf_path, pdf_filename = normalize_to_pdf(
+                file_path=request.file_path,
+                filename=request.filename,
+                output_dir=full_output_dir,
+                base_url=request.base_url,
+            )
         _persist_source_pdf(pdf_path=pdf_path, output_dir=full_output_dir)
-        profile = profile_document(
-            pdf_path,
-            pdf_filename,
-            job_id=request.job_id,
-            output_dir=full_output_dir,
-            skip_shard_plan=True,
-            oversized_policy="page_memory",
-        )
+        with stage_timer("page_memory.profile", filename=pdf_filename):
+            profile = profile_document(
+                pdf_path,
+                pdf_filename,
+                job_id=request.job_id,
+                output_dir=full_output_dir,
+                skip_shard_plan=True,
+                oversized_policy="page_memory",
+            )
         trace_recorder = getattr(profile, "trace_recorder", None)
         verdict = _decide_granularity(profile)
         trace_summary = {
@@ -258,18 +261,20 @@ def _build_page_dataframe(
     )
 
     # ── C4: skeleton (from profile anatomy) ───────────────────────────
-    page_texts = read_page_texts(
-        pdf_path, list(range(1, page_count + 1)), timeout=300,
-    )
-    if anatomy is not None:
-        skeletons = extract_section_skeletons(
-            anatomy=anatomy,
-            filename=filename,
-            page_texts=page_texts,
-            ctx=ctx,
+    with stage_timer("page_memory.read_page_texts", page_count=page_count):
+        page_texts = read_page_texts(
+            pdf_path, list(range(1, page_count + 1)), timeout=300,
         )
-    else:
-        skeletons = []
+    with stage_timer("page_memory.skeleton", page_count=page_count):
+        if anatomy is not None:
+            skeletons = extract_section_skeletons(
+                anatomy=anatomy,
+                filename=filename,
+                page_texts=page_texts,
+                ctx=ctx,
+            )
+        else:
+            skeletons = []
     logger.info(
         "[page_memory] C4 skeleton: {} sections from anatomy",
         len(skeletons),
@@ -404,18 +409,19 @@ def _build_page_dataframe(
 
     from app.services.page_memory.node_assembler import build_node_rows
 
-    rows = build_node_rows(
-        skeletons=skeletons,
-        raw_text_by_page=raw_text_by_page,
-        image_path_by_page=image_path_by_page,
-        kind_by_page=label_map,
-        tag_by_page=tag_map,
-        filename=filename,
-        verdict=verdict,
-        budget=budget,
-        vlm_model=vlm_model,
-        page_assets_by_page=page_assets_by_page,
-    )
+    with stage_timer("page_memory.node_assembly", page_count=len(final_pages_scope)):
+        rows = build_node_rows(
+            skeletons=skeletons,
+            raw_text_by_page=raw_text_by_page,
+            image_path_by_page=image_path_by_page,
+            kind_by_page=label_map,
+            tag_by_page=tag_map,
+            filename=filename,
+            verdict=verdict,
+            budget=budget,
+            vlm_model=vlm_model,
+            page_assets_by_page=page_assets_by_page,
+        )
     logger.info(
         "[page_memory] C7 assembled {} node rows (verdict={})",
         len(rows), verdict,
@@ -663,13 +669,14 @@ def _run_hierarchy_scope(
             )
             for page in title_pages
         ]
-        title_tags = tag_page_titles(
-            pages=title_rendered,
-            tag_results=title_tags,
-            fat_leaf_pages=fat_leaf_pages,
-            budget=budget,
-            vlm_model=vlm_model,
-        )
+        with stage_timer("page_memory.title_detection", page_count=len(title_pages)):
+            title_tags = tag_page_titles(
+                pages=title_rendered,
+                tag_results=title_tags,
+                fat_leaf_pages=fat_leaf_pages,
+                budget=budget,
+                vlm_model=vlm_model,
+            )
         _record_trace_stage(
             trace_recorder,
             "C3b.title_detection",
@@ -679,19 +686,20 @@ def _run_hierarchy_scope(
                 "tags": _summarize_tags(title_tags),
             },
         )
-        scope_skeletons = refine_fat_leaf_skeletons(
-            coarse_skeletons=scope_skeletons,
-            tag_results=title_tags,
-            fat_leaf_pages=fat_leaf_pages,
-            model_name=os.environ.get(
-                "PAGE_MEMORY_HIERARCHY_MODEL",
-                os.environ.get(
-                    "HIERARCHY_LLM_MODEL",
-                    os.environ.get("NORMOL_MODEL"),
+        with stage_timer("page_memory.fine_hierarchy", page_count=len(fat_leaf_pages)):
+            scope_skeletons = refine_fat_leaf_skeletons(
+                coarse_skeletons=scope_skeletons,
+                tag_results=title_tags,
+                fat_leaf_pages=fat_leaf_pages,
+                model_name=os.environ.get(
+                    "PAGE_MEMORY_HIERARCHY_MODEL",
+                    os.environ.get(
+                        "HIERARCHY_LLM_MODEL",
+                        os.environ.get("NORMOL_MODEL"),
+                    ),
                 ),
-            ),
-            trace_recorder=trace_recorder,
-        )
+                trace_recorder=trace_recorder,
+            )
     else:
         logger.info(
             "[page_memory] scope {} no fat leaves (min={}); skip fine hierarchy",
@@ -725,14 +733,15 @@ def _run_hierarchy_scope(
         page_count=page_count,
         pages=final_pages,
     )
-    rendered = render_document_pages(
-        pdf_path=pdf_path,
-        page_count=page_count,
-        output_dir=output_dir,
-        pages=final_pages,
-        page_features=page_features,
-        page_texts=page_texts,
-    )
+    with stage_timer("page_memory.render", page_count=len(final_pages)):
+        rendered = render_document_pages(
+            pdf_path=pdf_path,
+            page_count=page_count,
+            output_dir=output_dir,
+            pages=final_pages,
+            page_features=page_features,
+            page_texts=page_texts,
+        )
     _record_trace_stage(
         trace_recorder,
         "C1.render_pages",
@@ -758,12 +767,13 @@ def _run_hierarchy_scope(
         variables={"scope_id": scope.scope_id, "plan_count": len(plans)},
     )
 
-    tags = tag_pages(
-        pages=rendered,
-        plans=plans,
-        budget=budget,
-        vlm_model=vlm_model,
-    )
+    with stage_timer("page_memory.tag", page_count=len(rendered)):
+        tags = tag_pages(
+            pages=rendered,
+            plans=plans,
+            budget=budget,
+            vlm_model=vlm_model,
+        )
     _record_trace_stage(
         trace_recorder,
         "C3.page_tagger",
@@ -780,15 +790,16 @@ def _run_hierarchy_scope(
 
     assets_by_page: dict[int, list[Any]] = {}
     if asset_extraction_enabled and asset_max_pages > 0:
-        assets_by_page = extract_page_assets_from_renders(
-            pdf_path=pdf_path,
-            rendered_pages=rendered,
-            output_dir=output_dir,
-            model_name=get_asset_model(),
-            budget=budget,
-            max_pages=asset_max_pages,
-            confidence_threshold=get_asset_confidence_threshold(),
-        )
+        with stage_timer("page_memory.assets", page_count=asset_max_pages):
+            assets_by_page = extract_page_assets_from_renders(
+                pdf_path=pdf_path,
+                rendered_pages=rendered,
+                output_dir=output_dir,
+                model_name=get_asset_model(),
+                budget=budget,
+                max_pages=asset_max_pages,
+                confidence_threshold=get_asset_confidence_threshold(),
+            )
     _record_trace_stage(
         trace_recorder,
         "C5.page_assets",

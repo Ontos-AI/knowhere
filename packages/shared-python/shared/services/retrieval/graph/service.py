@@ -233,6 +233,12 @@ class DocumentGraphService:
                     }
 
         # ── Fallback: free-form keyword overlap ──
+        # TODO: Once single-doc entity extraction is stable, migrate this to
+        # typed-entity-only edges and remove the TF-IDF keyword overlap path.
+        # The current keyword overlap rarely produces meaningful cross-doc links
+        # now that entities have replaced free-form keywords in the extraction
+        # pipeline. This won't crash — just means fewer/no cross-doc links until
+        # the graph is upgraded to use entity-based matching exclusively.
         peer_kws: set[str] = set()
         for k in peer_keywords:
             normalized = normalize_keyword(str(k))

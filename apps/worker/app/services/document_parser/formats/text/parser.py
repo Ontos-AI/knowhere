@@ -62,24 +62,21 @@ def divide_long_contents(texts, max_threshold=None, min_threshold=None):
     return sublists, len(sublists)
 
 
-def extract_title_keywords_summary(texts, max_keywords=3, summary_len=None):
-    """Extract keywords + summary for a text chunk via the unified engine (§4.1).
+def summarize_text_body(texts, max_keywords=3, summary_len=None):
+    """Summarize a text chunk via the unified engine (Contract A, audit §4.1).
 
-    Delegates to ``summarize(mode="text")``. The engine centralizes the
+    Delegates to ``summarize(mode="text")``, which centralizes the
     ``summary-full`` prompt, deterministic language locking, JSON parsing, and
-    retry. Title is no longer produced here — body content (Contract A) carries
-    only summary + entities; the section title already lives on the node path.
+    retry. Body content carries ``summary`` + typed ``entities`` and **no
+    title** — the section title already lives on the node ``path``.
 
     Args:
         texts: Input text (may include HTML tables or structured data).
-        max_keywords: Maximum number of keywords to extract.
+        max_keywords: Maximum number of keywords/entities to extract.
         summary_len: Maximum summary length in characters.
 
     Returns:
-        tuple: (title, keywords_str, summary)
-            - title: always None (kept for signature compatibility; §4.5 removes it)
-            - keywords_str: semicolon-separated entity surface forms, or ""
-            - summary: summary text, or ""
+        BodySummary: ``summary`` + typed ``entities`` (Contract A).
     """
     from shared.core.constants import ProcessingConstants
     from shared.services.ai.summary.engine import summarize
@@ -87,14 +84,13 @@ def extract_title_keywords_summary(texts, max_keywords=3, summary_len=None):
     if summary_len is None:
         summary_len = ProcessingConstants.SUMMARY_LEN
 
-    result = summarize(
+    return summarize(
         mode="text",
         text=texts,
         summary_len=summary_len,
         max_keywords=max_keywords,
         usage_task="parser.text_summary",
     )
-    return None, result.keywords_str(), result.summary
 
 
 def postprocess_leaf_dics(
@@ -157,9 +153,16 @@ def postprocess_leaf_dics(
                     "path_identifier": sub_head,
                 }
 
-    # generate summary and keywords for bottom nodes — parallel via gevent
+    # generate summary + typed entities for bottom nodes — parallel via gevent
     df_with_labels = pd.DataFrame(
-        columns=["path", "content_lst", "path_identifier", "keywords", "local_summary"]
+        columns=[
+            "path",
+            "content_lst",
+            "path_identifier",
+            "keywords",
+            "local_summary",
+            "entities",
+        ]
     )
     pattern = re.compile(CHUNK_REF_PATTERN)
 
@@ -182,18 +185,25 @@ def postprocess_leaf_dics(
     if llm_tasks:
         max_concurrent = getattr(settings, "SUMMARY_LLM_MAX_CONCURRENT", 10)
 
+        from app.services.document_parser.support.parser_rows import serialize_entities
+
         def _summarize(task):
             row_idx, text = task
             try:
-                _title, kw, summary = extract_title_keywords_summary(
+                result = summarize_text_body(
                     text, max_keywords=3, summary_len=summary_len
                 )
-                return row_idx, kw, summary
+                return (
+                    row_idx,
+                    result.keywords_str(),
+                    result.summary,
+                    serialize_entities(result.entities),
+                )
             except Exception as e:
                 logger.warning(
                     f"postprocess_leaf_dics LLM failed for row {row_idx}: {e}"
                 )
-                return row_idx, "", ""
+                return row_idx, "", "", ""
 
         pool = GeventPool(size=min(max_concurrent, len(llm_tasks)))
         greenlets = [pool.spawn(_summarize, task) for task in llm_tasks]
@@ -201,17 +211,18 @@ def postprocess_leaf_dics(
 
         for g in greenlets:
             if g.value is not None:
-                row_idx, kw, summary = g.value
-                llm_results[row_idx] = (kw, summary)
+                row_idx, kw, summary, entities = g.value
+                llm_results[row_idx] = (kw, summary, entities)
 
     # Build the labeled DataFrame
     for row_idx, (row, contents4summary, needs_llm) in enumerate(rows_data):
-        keywords, summary = llm_results.get(row_idx, ("", ""))
+        keywords, summary, entities = llm_results.get(row_idx, ("", "", ""))
         df_with_labels.loc[len(df_with_labels)] = {
             "path": row["path"],
             "content_lst": row["content_lst"],
             "path_identifier": row["path_identifier"],
             "keywords": keywords,
             "local_summary": summary,
+            "entities": entities,
         }
     return df_with_labels

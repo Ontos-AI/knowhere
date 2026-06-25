@@ -115,28 +115,6 @@ def _entity_instruction() -> str:
     )
 
 
-def _chart_instruction() -> str:
-    """Build the optional ``chart`` numeric-extraction directive (§4.3).
-
-    General-purpose: it tells the model to read whatever quantitative extremes and
-    feature values are actually shown, without prescribing any specific metric,
-    unit, count, or example value.
-    """
-    return (
-        '- "chart": include this object ONLY when the content is a statistical '
-        "chart or a data table carrying quantitative values; otherwise omit the "
-        "key or set it to null. When present it has the shape "
-        '{"metric": <what is measured>, "extremes": [{"label": <point or '
-        'category>, "value": <number exactly as shown>, "kind": "max"|"min"|'
-        '"peak"}], "features": [{"label": <short description>, "value": <number '
-        'or trend direction>}], "period": <time range or null>, "units": '
-        "<measurement units or null>}. Read every value directly from the content "
-        "and preserve it exactly as displayed; capture the highest and lowest "
-        "points plus any notable totals, means, or trends. Never fabricate a "
-        "number that is not visible."
-    )
-
-
 
 def build_prompt(task, texts, query, **kwargs):
     from loguru import logger
@@ -153,30 +131,7 @@ def build_prompt(task, texts, query, **kwargs):
 
     # ==================== Text Processing Prompts ====================
 
-    if task == "summary":
-        max_tokens = kwargs["paras"]["max_tokens"]
-        lang = kwargs["paras"].get("lang")
-        lang_directive = _language_directive(lang)
-        lang_rule = (
-            f"- **LANGUAGE (HARD CONSTRAINT)**: {lang_directive}"
-            if lang_directive
-            else "- Your response must be in the SAME LANGUAGE as the input text"
-        )
-        prompt = f"""
-        You will receive a text passage (which may include HTML tables or structured data):
-        '''
-        {texts}
-        '''
-        Your task and requirements:
-        {lang_rule}
-        - Extract the main content of the material, not exceeding {max_tokens} characters
-        - If the input is an HTML table, summarize its structure and key data points in natural language, do NOT return the HTML code itself
-        - If the input content is too short, mostly empty, or lacks meaningful text to summarize, return exactly: null
-        - Output the summary content DIRECTLY, do not start with phrases like "Here is the summary"
-        - Do not add any format wrappers, prefixes, or explanations beyond the summary
-        """
-
-    elif task == "summary-full":
+    if task == "summary-full":
         max_tokens = kwargs["paras"]["max_tokens"]
         lang = kwargs["paras"].get("lang")
         lang_directive = _language_directive(lang)
@@ -192,7 +147,6 @@ def build_prompt(task, texts, query, **kwargs):
             )
 
         entity_line = _entity_instruction()
-        chart_line = _chart_instruction()
 
         prompt = f"""
         You will receive a text passage (which may include HTML tables or
@@ -200,8 +154,7 @@ def build_prompt(task, texts, query, **kwargs):
         '''
         {texts}
         '''
-        Extract a title, a summary, the salient entities, and — when the content
-        is statistical — its key numbers.
+        Extract a title, a summary, and the salient entities.
         {lang_line}
 
         Output requirements:
@@ -211,12 +164,47 @@ def build_prompt(task, texts, query, **kwargs):
         - "summary": a faithful summary of the main content within {max_tokens}
           characters. If the input is an HTML table or other data, describe its
           structure and report its key values and extremes rather than listing
-          every cell.
+          every cell. If the content represents statistical data (charts, data
+          tables, measurement results), incorporate the distinct numbers —
+          extremes, totals, key values — directly into the summary sentence.
         {entity_line}
-        {chart_line}
         - If the input is too short, empty, or carries no meaningful text, return
           exactly: null
         - Do not output explanations, comments, or markdown fences.
+        """
+
+    elif task == "summary-asset-linesplit":
+        max_tokens = kwargs["paras"]["max_tokens"]
+        lang = kwargs["paras"].get("lang")
+        lang_directive = _language_directive(lang)
+        if lang_directive:
+            lang_line = (
+                "**LANGUAGE (HARD CONSTRAINT, applies to EVERY field — "
+                f"title, summary, and entities)**: {lang_directive}"
+            )
+        else:
+            lang_line = (
+                "**First and most important**, all output must be in the "
+                "**SAME LANGUAGE** as the input text"
+            )
+
+        prompt = f"""
+        You will receive content from a document asset (table, figure, or chart):
+        '''
+        {texts}
+        '''
+        Extract a title, a summary, and named entities.
+        {lang_line}
+
+        Output exactly THREE lines (no extra lines, no blank lines, no fences):
+        Line 1: if the asset has an explicit caption or label, output it as-is; otherwise generate a short descriptive title without any punctuation
+        Line 2: a faithful summary within {max_tokens} characters. If the content
+        represents statistical data, incorporate the key numbers (extremes, totals,
+        notable values) directly into the summary.
+        Line 3: named entities (ONLY person names, organization names, or location names) as a semicolon-separated list. Leave empty if none present.
+
+        If the input is empty or unreadable, output exactly three empty lines.
+        Do not output JSON, markdown fences, labels, or explanations.
         """
 
     # ==================== Heading/Structure Prompts ====================
@@ -802,7 +790,6 @@ Output requirements:
             img_context = ""
 
         entity_line = _entity_instruction()
-        chart_line = _chart_instruction()
 
         prompt = f"""
         You will receive a single image extracted from a document (it may be a
@@ -813,15 +800,14 @@ Output requirements:
         {{
         "title": "<the asset's own caption or label>",
         "summary": "<what the asset shows and its key information>",
-        "entities": [{{"text": "<surface form>", "type": "<type>"}}],
-        "chart": null
+        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
         }}
 
         How to summarize, by what the image actually is (decide internally; do not
         output the type):
         - Quantitative chart or data table: state what is measured, the categories
           or time range covered, and the standout values — highs, lows, totals, and
-          trends. Populate the "chart" object (see below) with the numbers.
+          trends. Incorporate the distinct numbers directly into the summary.
         - Diagram / flow / architecture: name the main components and how they
           relate, and the overall flow or hierarchy.
         - Credential / form / technical drawing: report the visible fields and
@@ -835,9 +821,10 @@ Output requirements:
           when the asset has none — do not invent one.
         - "summary": faithful to the image, within about {max_tokens} characters,
           in the SAME LANGUAGE as any text visible in the image (use English when
-          the image has no text).
+          the image has no text). If the content represents statistical data,
+          incorporate the key numbers (extremes, totals, notable values) directly
+          into the summary sentence.
         {entity_line}
-        {chart_line}
         - If the image is blank, unreadable, or carries no meaningful content,
           return exactly: null
         {img_context}

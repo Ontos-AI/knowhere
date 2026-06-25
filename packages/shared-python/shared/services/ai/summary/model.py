@@ -8,18 +8,13 @@ ingestion tracks (see audit §4.1):
   its section title via the hierarchy (``path`` / ``section_title``), and the
   summary layer must never regenerate it.
 - ``AssetSummary`` (Contract B) — tables, images, figures, charts. Carries the
-  asset's *own* ``title`` (caption/label), a ``summary``, ``entities``, and a
-  ``chart`` block for statistical content.
-
-Entities (§4.4) and the ``chart`` numeric block (§4.3) are defined here for
-forward-compatibility. The engine populates whatever the active prompt produces
-today; phases 3/4 enrich them without changing this contract.
+  asset's *own* ``title`` (caption/label), a ``summary``, and ``entities``.
+  For statistical content the summary naturally incorporates key numbers.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass
@@ -43,31 +38,6 @@ class Entity:
             text=str(data.get("text", "")).strip(),
             type=str(data.get("type", "")).strip(),
         )
-
-
-@dataclass
-class ChartData:
-    """Numeric extraction for statistical charts / data tables (§4.3).
-
-    Populated only for assets whose content is statistical. ``extremes`` holds
-    max/min/peak points; ``features`` holds totals, means, notable deltas, and
-    trend direction.
-    """
-
-    metric: str = ""
-    extremes: list[dict[str, Any]] = field(default_factory=list)
-    features: list[dict[str, Any]] = field(default_factory=list)
-    period: str | None = None
-    units: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "metric": self.metric,
-            "extremes": self.extremes,
-            "features": self.features,
-            "period": self.period,
-            "units": self.units,
-        }
 
 
 @dataclass
@@ -102,8 +72,7 @@ class AssetSummary:
     title: str = ""
     summary: str = ""
     entities: list[Entity] = field(default_factory=list)
-    chart: ChartData | None = None
-    kind: str = "figure"  # table | image | figure | chart
+    kind: str = "figure"  # table | image | figure
 
     def keywords_str(self, sep: str = ";") -> str:
         return sep.join(e.text for e in self.entities if e.text)

@@ -216,7 +216,7 @@ def _write_excel_table_asset(
     table_html: str,
     time_stamp: str,
 ) -> ParsedRow:
-    title, keywords, summary = _summarize_excel_table(
+    title, keywords, summary, entities = _summarize_excel_table(
         table_frame=table_frame,
         table_html=table_html,
         sheet_name=sheet_name,
@@ -256,6 +256,8 @@ def _write_excel_table_asset(
                 subtable_title=subtable_title,
             ),
             asset_path=f"tables/{table_name}",
+            entities=entities,
+            asset_title=title or "",
         )
     )
 
@@ -307,13 +309,15 @@ def _summarize_excel_table(
     table_html: str,
     sheet_name: str,
     llm_parameters: dict[str, Any],
-) -> tuple[str | None, str, str | None]:
+) -> tuple[str | None, str, str | None, str]:
+    from app.services.document_parser.support.parser_rows import serialize_entities
+
     mechanical_keywords = parse_tb_keywords(table_frame)
 
     if llm_parameters["summary_table"]:
         from shared.services.ai.summary.engine import summarize
 
-        # Tables are Contract B assets: title + summary + keywords from HTML.
+        # Tables are Contract B assets: title + summary + entities from HTML.
         result = summarize(
             mode="asset",
             text=table_html,
@@ -323,9 +327,10 @@ def _summarize_excel_table(
             result.title or None,
             result.keywords_str() or mechanical_keywords,
             result.summary or None,
+            serialize_entities(result.entities),
         )
 
-    return None, mechanical_keywords, None
+    return None, mechanical_keywords, None, ""
 
 
 def _rows_to_dataframe(parsed_rows: list[ParsedRow]) -> pd.DataFrame:

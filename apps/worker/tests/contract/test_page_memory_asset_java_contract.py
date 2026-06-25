@@ -76,9 +76,7 @@ def test_page_asset_detection_uses_lowest_temperature(monkeypatch, tmp_path) -> 
     assert captured["temperature"] == 0
     assert assets[0].bbox_px == [10, 12, 30, 36]
     assert assets[0].title == "table title"
-    assert assets[0].caption == ""
     assert '"kind": "table|figure"' in prompt
-    assert '"caption"' not in prompt
     assert '"summary"' not in prompt
     assert '"keywords"' not in prompt
     assert '"table|chart|figure"' not in prompt

@@ -9,7 +9,22 @@ from pandas import Index
 
 from shared.core.config import settings
 
-PARSER_ROW_COLUMNS: tuple[str, ...] = tuple(settings.ALL_DF_COLS.split(","))
+# Trailing columns the parser layer hard-depends on (audit §4.4/§4.5). They are
+# additive, so we guarantee their presence even when a deployment's stale
+# ``ALL_DF_COLS`` env still lists only the legacy 11 columns — otherwise the
+# named-column writes below would raise ``ValueError`` at import time.
+_REQUIRED_TRAILING_COLUMNS: tuple[str, ...] = ("entities", "asset_title")
+
+
+def _resolve_parser_columns() -> tuple[str, ...]:
+    columns = [col.strip() for col in settings.ALL_DF_COLS.split(",") if col.strip()]
+    for required in _REQUIRED_TRAILING_COLUMNS:
+        if required not in columns:
+            columns.append(required)
+    return tuple(columns)
+
+
+PARSER_ROW_COLUMNS: tuple[str, ...] = _resolve_parser_columns()
 
 
 def serialize_entities(entities: Any) -> str:

@@ -17,7 +17,7 @@ Two public functions:
   former ``ocr-image`` and ``page-memory-vlm-ocr`` paths.
 
 The engine returns the typed contracts in ``model.py``; callers map those onto
-their rows. Entity/chart enrichment (§4.3/§4.4) plugs into the same parse step
+their rows. Entity enrichment (§4.4) plugs into the same parse step
 without changing call sites.
 """
 
@@ -35,7 +35,6 @@ from shared.services.ai.response_process_service import eval_response
 from shared.services.ai.summary.model import (
     AssetSummary,
     BodySummary,
-    ChartData,
     Entity,
 )
 from shared.utils.token_estimate import estimate_tokens
@@ -55,6 +54,21 @@ def _read_image_b64(image_path: str) -> str | None:
         return None
 
 
+def _parse_linesplit_asset(raw: str, title_hint: str) -> AssetSummary:
+    """Parse a line-split asset response: title\\nsummary\\nentities."""
+    lines = raw.strip().split("\n")
+    title = lines[0].strip() if len(lines) > 0 else ""
+    summary = lines[1].strip() if len(lines) > 1 else ""
+    entities_str = lines[2].strip() if len(lines) > 2 else ""
+    entities = _split_entities(entities_str)
+    return AssetSummary(
+        title=title or title_hint,
+        summary=summary,
+        entities=entities,
+        kind="table",
+    )
+
+
 def _split_entities(value: Any) -> list[Entity]:
     """Parse an entities payload (§4.4) into typed ``Entity`` objects.
 
@@ -71,26 +85,13 @@ def _split_entities(value: Any) -> list[Entity]:
                 out.append(Entity(text=item.strip()))
         return out
     if isinstance(value, str):
-        return [Entity(text=part.strip()) for part in value.split(";") if part.strip()]
+        normalized = value.replace("；", ";")
+        return [
+            Entity(text=part.strip())
+            for part in normalized.split(";")
+            if part.strip() and part.strip().lower() not in ("none", "null", "无", "empty")
+        ]
     return []
-
-
-def _parse_chart(value: Any) -> ChartData | None:
-    if not isinstance(value, dict):
-        return None
-    extremes = value.get("extremes")
-    features = value.get("features")
-    return ChartData(
-        metric=str(value.get("metric", "")).strip(),
-        extremes=[e for e in extremes if isinstance(e, dict)]
-        if isinstance(extremes, list)
-        else [],
-        features=[f for f in features if isinstance(f, dict)]
-        if isinstance(features, list)
-        else [],
-        period=(str(value["period"]).strip() if value.get("period") else None),
-        units=(str(value["units"]).strip() if value.get("units") else None),
-    )
 
 
 def _call_llm(
@@ -385,17 +386,17 @@ def _summarize_asset(
         return AssetSummary(title=asset_title_hint)
 
     if not image_paths:
-        # Text-based asset (e.g. an HTML table): the summary-full prompt yields
-        # title + summary + keywords and explicitly handles HTML tables.
+        # Text-based asset (e.g. an HTML table): use line-split format to avoid
+        # JSON parse failures with flash-tier models.
         detected_lang = _detect_text_language(text)
         prompt, temperature, top_p, max_tokens = build_prompt(
-            "summary-full",
+            "summary-asset-linesplit",
             text,
             "",
             paras={"max_tokens": summary_len, "kw_num": 5, "lang": detected_lang},
         )
         resolved_model = model or os.environ.get("NORMOL_MODEL", "deepseek-v4-flash")
-        parsed = _call_llm(
+        raw = _call_llm(
             prompt=prompt,
             model=resolved_model,
             temperature=temperature,
@@ -403,26 +404,17 @@ def _summarize_asset(
             max_tokens=max_tokens,
             image_paths=[],
             usage_task=usage_task,
-            expect_json=True,
+            expect_json=False,
             budget=budget,
             budget_pool="plan",
             budget_stage=None,
         )
-        if isinstance(parsed, dict):
-            return AssetSummary(
-                title=str(parsed.get("title", "")).strip() or asset_title_hint,
-                summary=str(parsed.get("summary", "")).strip(),
-                entities=_split_entities(
-                    parsed.get("entities") or parsed.get("keywords")
-                ),
-                chart=_parse_chart(parsed.get("chart")),
-                kind="table",
-            )
+        if isinstance(raw, str) and raw.strip():
+            return _parse_linesplit_asset(raw, asset_title_hint)
         return AssetSummary(title=asset_title_hint, kind="table")
 
     # Image-based asset: the shared per-type image prompt returns one strict JSON
-    # object (title + summary + entities + optional chart). The statistical-chart
-    # numeric block (§4.3) is parsed when the prompt provides it.
+    # object (title + summary + entities).
     prompt, temperature, top_p, max_tokens = build_prompt(
         "summary-images",
         text,
@@ -450,7 +442,6 @@ def _summarize_asset(
             title=str(parsed.get("title", "")).strip() or asset_title_hint,
             summary=str(parsed.get("summary", "")).strip(),
             entities=_split_entities(parsed.get("entities") or parsed.get("keywords")),
-            chart=_parse_chart(parsed.get("chart")),
             kind="figure",
         )
     return AssetSummary(title=asset_title_hint)
