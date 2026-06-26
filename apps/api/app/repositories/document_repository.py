@@ -11,12 +11,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
-from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 
 DocumentChunkRow = tuple[DocumentChunk, DocumentSection | None, JobResult]
-ACTIVE_DOCUMENT_JOB_STATUSES = ("waiting-file", "pending", "running", "converting")
-DOCUMENT_INGESTION_JOB_TYPE = "document_ingestion"
 
 
 class DocumentRepository:
@@ -49,29 +46,6 @@ class DocumentRepository:
             .where(Document.user_id == user_id)
         )
         return result.scalar_one_or_none()
-
-    async def list_active_jobs_by_user_namespace(
-        self,
-        db: AsyncSession,
-        *,
-        user_id: str,
-        namespace: str,
-    ) -> Sequence[Job]:
-        result = await db.execute(
-            select(Job)
-            .where(Job.user_id == user_id)
-            .where(Job.job_type == DOCUMENT_INGESTION_JOB_TYPE)
-            .where(Job.status.in_(ACTIVE_DOCUMENT_JOB_STATUSES))
-            .where(
-                func.coalesce(
-                    Job.job_metadata["namespace"].as_string(),
-                    "default",
-                )
-                == namespace
-            )
-            .order_by(Job.updated_at.desc(), Job.created_at.desc(), Job.job_id.asc())
-        )
-        return result.scalars().all()
 
     async def archive_document(
         self,

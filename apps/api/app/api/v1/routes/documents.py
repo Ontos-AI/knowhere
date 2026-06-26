@@ -44,10 +44,6 @@ async def _archive_document_response(
 @router.get("")
 async def list_documents(
     namespace: str | None = Query(None, max_length=255),
-    include_active_jobs: bool = Query(
-        False,
-        description="Include active document-ingestion jobs in this namespace",
-    ),
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -57,17 +53,10 @@ async def list_documents(
         user_id=current_user.user_id,
         namespace=effective_namespace,
     )
-    response = {
+    return {
         "namespace": effective_namespace,
         "documents": documents,
     }
-    if include_active_jobs:
-        response["active_jobs"] = await _document_service.list_active_document_jobs(
-            db,
-            user_id=current_user.user_id,
-            namespace=effective_namespace,
-        )
-    return response
 
 
 @router.get("/{document_id}")
