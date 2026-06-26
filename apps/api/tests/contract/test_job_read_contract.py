@@ -50,7 +50,7 @@ async def test_should_list_created_jobs_for_the_authenticated_developer(
     job = jobs[0]
     assert job["job_id"] == created_job["job_id"]
     assert job["namespace"] == "contract-jobs"
-    assert job["document_id"] is None
+    assert job["document_id"] == created_job["document_id"]
     assert job["status"] == "waiting-file"
     assert job["source_type"] == "file"
     assert job["data_id"] == created_job["data_id"]
@@ -114,7 +114,7 @@ async def test_should_return_job_details_for_an_existing_waiting_file_job(
 
     assert response_json["job_id"] == job_id
     assert response_json["namespace"] == "contract-jobs"
-    assert response_json["document_id"] is None
+    assert response_json["document_id"] == created_job["document_id"]
     assert response_json["status"] == "waiting-file"
     assert response_json["source_type"] == "file"
     assert response_json["data_id"] == created_job["data_id"]

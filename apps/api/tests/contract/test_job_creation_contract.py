@@ -188,11 +188,15 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         [], AbstractAsyncContextManager[AsyncClient]
     ],
 ) -> None:
-    payload: dict[str, str] = {
+    payload: dict[str, object] = {
         "namespace": "contract-jobs",
         "source_type": "file",
         "file_name": "contract-upload.pdf",
         "data_id": "contract-job-file-upload",
+        "document_metadata": {
+            "created_by_client": "cli",
+            "client_version": "0.2.0",
+        },
     }
 
     async with developer_api_client_factory() as api_client:
@@ -211,7 +215,8 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         assert response_json["source_type"] == "file"
         assert response_json["namespace"] == payload["namespace"]
         assert response_json["data_id"] == payload["data_id"]
-        assert response_json["document_id"] is None
+        response_document_id = cast(str, response_json["document_id"])
+        assert response_document_id.startswith("doc_")
         assert response_json["upload_url"]
         assert response_json["upload_headers"] == {"Content-Type": "application/pdf"}
         assert response_json["expires_in"]
@@ -246,6 +251,7 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         persisted_document_id = cast(str, job_metadata["document_id"])
         original_request = cast(dict[str, object], job_metadata["original_request"])
 
+        assert response_document_id == persisted_document_id
         assert job_row["user_id"] == "local-dev-user"
         assert job_row["job_type"] == "document_ingestion"
         assert job_row["status"] == "waiting-file"
@@ -257,8 +263,10 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         assert job_metadata["source_type"] == "file"
         assert job_metadata["source_file_name"] == payload["file_name"]
         assert job_metadata["data_id"] == payload["data_id"]
+        assert job_metadata["document_metadata"] == payload["document_metadata"]
         assert original_request["file_name"] == payload["file_name"]
         assert original_request["source_type"] == payload["source_type"]
+        assert original_request["document_metadata"] == payload["document_metadata"]
 
         redis_service = RedisServiceFactory.get_service()
         metadata_service = JobMetadataService(redis_service)
@@ -273,6 +281,7 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         assert cached_metadata["namespace"] == payload["namespace"]
         assert cached_metadata["source_type"] == "file"
         assert cached_metadata["source_file_name"] == payload["file_name"]
+        assert cached_metadata["document_metadata"] == payload["document_metadata"]
         assert cached_job_info["job_id"] == job_id
         assert cached_job_info["user_id"] == "local-dev-user"
         assert cached_job_info["job_type"] == "document_ingestion"
@@ -705,7 +714,8 @@ async def test_should_create_a_waiting_file_job_for_a_url_source_and_enqueue_the
         assert response_json["source_type"] == "url"
         assert response_json["namespace"] == payload["namespace"]
         assert response_json["data_id"] == payload["data_id"]
-        assert response_json["document_id"] is None
+        response_document_id = cast(str, response_json["document_id"])
+        assert response_document_id.startswith("doc_")
         assert response_json["upload_url"] is None
         assert response_json["upload_headers"] is None
         assert response_json["expires_in"] is None
@@ -715,6 +725,7 @@ async def test_should_create_a_waiting_file_job_for_a_url_source_and_enqueue_the
         persisted_document_id = cast(str, job_metadata["document_id"])
         original_request = cast(dict[str, object], job_metadata["original_request"])
 
+        assert response_document_id == persisted_document_id
         assert job_row["user_id"] == "local-dev-user"
         assert job_row["job_type"] == "document_ingestion"
         assert job_row["status"] == "waiting-file"
