@@ -1,14 +1,37 @@
 from __future__ import annotations
 
+import importlib.util
+import sys
+from pathlib import Path
+from types import ModuleType
 from typing import Any, cast
 
-from app.services.documents.namespace_migration import (
-    NAMESPACE_MODELS,
-    NamespaceMigrationConflictError,
-    migrate_namespace,
-)
 from shared.models.database.job import Job
 from sqlalchemy.orm import Session
+
+
+def load_namespace_migration_module() -> ModuleType:
+    module_path = (
+        Path(__file__).resolve().parents[2]
+        / "app"
+        / "services"
+        / "documents"
+        / "namespace_migration.py"
+    )
+    module_name = "api_document_namespace_migration"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load namespace migration module: {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+namespace_migration = load_namespace_migration_module()
+NAMESPACE_MODELS = namespace_migration.NAMESPACE_MODELS
+NamespaceMigrationConflictError = namespace_migration.NamespaceMigrationConflictError
+migrate_namespace = namespace_migration.migrate_namespace
 
 
 def do_nothing_cache_invalidator(
