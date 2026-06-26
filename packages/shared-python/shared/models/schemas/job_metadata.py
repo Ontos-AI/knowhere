@@ -19,6 +19,9 @@ class JobMetadataBase(BaseModel):
     )
     data_id: Optional[str] = Field(None, description="User-defined ID")
     webhook: Optional[Dict[str, Any]] = Field(None, description="Webhook configuration")
+    document_metadata: Optional[Dict[str, Any]] = Field(
+        None, description="Display metadata copied to the published document"
+    )
     # result_mode was removed and is no longer supported.
 
     # Source-file fields.
@@ -50,6 +53,7 @@ class JobMetadataHelper:
             "parsing_params": (
                 request.parsing_params.model_dump() if request.parsing_params else None
             ),
+            "document_metadata": request.document_metadata or {},
             "data_id": request.data_id,
             "webhook": request.webhook.model_dump() if request.webhook else None,
         }
@@ -131,6 +135,16 @@ class JobMetadataHelper:
     def get_parse_track(metadata: Optional[Dict[str, Any]]) -> str:
         """Return the parser track stored in metadata."""
         return JobMetadataHelper.get_string_field(metadata, "parse_track", "chunk") or "chunk"
+
+    @staticmethod
+    def get_document_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Return display metadata copied to the published document."""
+        document_metadata = JobMetadataHelper.get_field(
+            metadata,
+            "document_metadata",
+            {},
+        )
+        return document_metadata if isinstance(document_metadata, dict) else {}
 
     @staticmethod
     def get_data_id(metadata: Optional[Dict[str, Any]]) -> str | None:

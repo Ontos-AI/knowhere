@@ -11,6 +11,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import DocumentChunk, DocumentSection
+from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.retrieval.cache_service import (
     invalidate_retrieval_cache_namespaces,
 )
@@ -24,6 +25,7 @@ def document_payload(document) -> dict[str, Any]:
         "status": document.status,
         "current_job_result_id": document.current_job_result_id,
         "source_file_name": document.source_file_name,
+        "document_metadata": document.document_metadata or {},
         "created_at": document.created_at.isoformat() if document.created_at else None,
         "updated_at": document.updated_at.isoformat() if document.updated_at else None,
         "archived_at": (
@@ -34,6 +36,21 @@ def document_payload(document) -> dict[str, Any]:
 
 def _datetime_payload(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
+
+
+def active_job_payload(job) -> dict[str, Any]:
+    metadata = job.job_metadata or {}
+    return {
+        "job_id": job.job_id,
+        "document_id": JobMetadataHelper.get_document_id(metadata),
+        "namespace": JobMetadataHelper.get_namespace(metadata, "default") or "default",
+        "status": job.status,
+        "source_type": job.source_type,
+        "source_file_name": JobMetadataHelper.get_source_file_name(metadata),
+        "document_metadata": JobMetadataHelper.get_document_metadata(metadata),
+        "created_at": _datetime_payload(job.created_at),
+        "updated_at": _datetime_payload(job.updated_at),
+    }
 
 
 class DocumentService:
@@ -59,6 +76,20 @@ class DocumentService:
             namespace=namespace,
         )
         return [document_payload(document) for document in documents]
+
+    async def list_active_document_jobs(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: str,
+        namespace: str,
+    ) -> list[dict[str, Any]]:
+        jobs = await self._repository.list_active_jobs_by_user_namespace(
+            db,
+            user_id=user_id,
+            namespace=namespace,
+        )
+        return [active_job_payload(job) for job in jobs]
 
     async def list_document_chunks(
         self,

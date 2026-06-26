@@ -25,6 +25,7 @@ async def _insert_document(
     namespace: str = "contract-documents",
     status: str = "active",
     source_file_name: str | None = None,
+    document_metadata: dict[str, object] | None = None,
     updated_at: datetime | None = None,
 ) -> None:
     engine = await _create_contract_engine()
@@ -42,6 +43,7 @@ async def _insert_document(
                         status,
                         current_job_result_id,
                         source_file_name,
+                        document_metadata,
                         parse_track,
                         created_at,
                         updated_at,
@@ -53,6 +55,7 @@ async def _insert_document(
                         :status,
                         :current_job_result_id,
                         :source_file_name,
+                        CAST(:document_metadata AS JSON),
                         :parse_track,
                         :created_at,
                         :updated_at,
@@ -66,6 +69,7 @@ async def _insert_document(
                     "status": status,
                     "current_job_result_id": None,
                     "source_file_name": source_file_name or f"{document_id}.pdf",
+                    "document_metadata": json.dumps(document_metadata or {}),
                     "parse_track": "chunk",
                     "created_at": timestamp,
                     "updated_at": effective_updated_at,
@@ -93,6 +97,7 @@ async def _fetch_document(document_id: str) -> dict[str, object]:
                             status,
                             current_job_result_id,
                             source_file_name,
+                            document_metadata,
                             archived_at
                         FROM documents
                         WHERE document_id = :document_id
@@ -104,6 +109,75 @@ async def _fetch_document(document_id: str) -> dict[str, object]:
                 .one()
             )
             return dict(document_row)
+    finally:
+        await engine.dispose()
+
+
+async def _insert_document_job(
+    *,
+    job_id: str,
+    document_id: str,
+    user_id: str = "local-dev-user",
+    namespace: str = "contract-documents",
+    status: str = "running",
+    source_type: str = "file",
+    source_file_name: str = "contract-active.pdf",
+    document_metadata: dict[str, object] | None = None,
+    updated_at: datetime | None = None,
+) -> None:
+    engine = await _create_contract_engine()
+    timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+    effective_updated_at = updated_at or timestamp
+    job_metadata = {
+        "namespace": namespace,
+        "document_id": document_id,
+        "source_file_name": source_file_name,
+        "source_type": source_type,
+        "document_metadata": document_metadata or {},
+    }
+
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("""
+                    INSERT INTO jobs (
+                        job_id,
+                        user_id,
+                        job_type,
+                        status,
+                        source_type,
+                        webhook_enabled,
+                        job_metadata,
+                        version,
+                        created_at,
+                        updated_at,
+                        credits_charged,
+                        billing_status
+                    ) VALUES (
+                        :job_id,
+                        :user_id,
+                        'document_ingestion',
+                        :status,
+                        :source_type,
+                        FALSE,
+                        CAST(:job_metadata AS JSON),
+                        0,
+                        :created_at,
+                        :updated_at,
+                        0,
+                        'pending'
+                    )
+                    """),
+                {
+                    "job_id": job_id,
+                    "user_id": user_id,
+                    "status": status,
+                    "source_type": source_type,
+                    "job_metadata": json.dumps(job_metadata),
+                    "created_at": timestamp,
+                    "updated_at": effective_updated_at,
+                },
+            )
     finally:
         await engine.dispose()
 
@@ -554,6 +628,74 @@ async def test_should_list_only_the_authenticated_users_documents_for_the_effect
 
 
 @pytest.mark.asyncio
+async def test_should_list_active_document_jobs_when_requested(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    async with developer_api_client_factory() as api_client:
+        other_user_id = f"contract-user-{uuid4().hex[:12]}"
+        await ContractDatabase.insert_user(user_id=other_user_id)
+
+        job_id = f"job_{uuid4().hex[:12]}"
+        document_id = f"doc_{uuid4().hex[:12]}"
+        await _insert_document_job(
+            job_id=job_id,
+            document_id=document_id,
+            document_metadata={
+                "created_by_client": "cli",
+                "client_version": "0.2.0",
+            },
+        )
+        await _insert_document_job(
+            job_id=f"job_{uuid4().hex[:12]}",
+            document_id=f"doc_{uuid4().hex[:12]}",
+            namespace="other-namespace",
+        )
+        await _insert_document_job(
+            job_id=f"job_{uuid4().hex[:12]}",
+            document_id=f"doc_{uuid4().hex[:12]}",
+            user_id=other_user_id,
+        )
+        await _insert_document_job(
+            job_id=f"job_{uuid4().hex[:12]}",
+            document_id=f"doc_{uuid4().hex[:12]}",
+            status="done",
+        )
+
+        response = await api_client.get(
+            "/api/v1/documents",
+            params={
+                "namespace": "contract-documents",
+                "include_active_jobs": "true",
+            },
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    active_jobs = cast(list[dict[str, object]], response_json["active_jobs"])
+
+    assert response_json["namespace"] == "contract-documents"
+    assert response_json["documents"] == []
+    assert len(active_jobs) == 1
+    assert active_jobs[0] == {
+        "job_id": job_id,
+        "document_id": document_id,
+        "namespace": "contract-documents",
+        "status": "running",
+        "source_type": "file",
+        "source_file_name": "contract-active.pdf",
+        "document_metadata": {
+            "created_by_client": "cli",
+            "client_version": "0.2.0",
+        },
+        "created_at": active_jobs[0]["created_at"],
+        "updated_at": active_jobs[0]["updated_at"],
+    }
+
+
+@pytest.mark.asyncio
 async def test_should_return_document_details_for_an_owned_document(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
@@ -565,6 +707,10 @@ async def test_should_return_document_details_for_an_owned_document(
         await _insert_document(
             document_id=document_id,
             source_file_name="contract-detail.pdf",
+            document_metadata={
+                "created_by_client": "notebook",
+                "client_version": "2026.06.26",
+            },
         )
         response = await api_client.get(f"/api/v1/documents/{document_id}")
 
@@ -577,6 +723,10 @@ async def test_should_return_document_details_for_an_owned_document(
     assert response_json["status"] == "active"
     assert response_json["current_job_result_id"] is None
     assert response_json["source_file_name"] == "contract-detail.pdf"
+    assert response_json["document_metadata"] == {
+        "created_by_client": "notebook",
+        "client_version": "2026.06.26",
+    }
     assert response_json["created_at"]
     assert response_json["updated_at"]
     assert response_json["archived_at"] is None
