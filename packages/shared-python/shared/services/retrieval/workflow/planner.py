@@ -177,7 +177,8 @@ def _parse_plan_response(text: str, *, original_query: str, max_steps: int) -> Q
         if not isinstance(depends_on_raw, list):
             raise ValueError(f"step {step_id} depends_on must be a list")
         top_k = item.get("top_k")
-        data_type = item.get("data_type")
+        chunk_types_raw = item.get("chunk_types")
+        chunk_types = set(chunk_types_raw) if chunk_types_raw else None
         steps.append(
             PlannedStep(
                 id=step_id,
@@ -186,11 +187,11 @@ def _parse_plan_response(text: str, *, original_query: str, max_steps: int) -> Q
                 depends_on=[str(dep).strip() for dep in depends_on_raw if str(dep).strip()],
                 output_role=output_role,
                 top_k=int(top_k) if top_k is not None else None,
-                data_type=int(data_type) if data_type is not None else None,
+                chunk_types=chunk_types,
                 metadata={
                     key: value
                     for key, value in item.items()
-                    if key not in {"id", "sub_query", "step_kind", "depends_on", "output_role", "top_k", "data_type"}
+                    if key not in {"id", "sub_query", "step_kind", "depends_on", "output_role", "top_k", "chunk_types"}
                 },
             )
         )

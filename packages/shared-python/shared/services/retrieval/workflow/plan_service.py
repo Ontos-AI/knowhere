@@ -21,7 +21,7 @@ class WorkflowPlanService:
         namespace: str,
         query: str,
         top_k: int,
-        data_type: int = 1,
+        chunk_types: set[str] | None = None,
         exclude_document_ids: list[str] | None = None,
         planner_llm: LLMFn | None,
         planner_ledger: BudgetLedger,
@@ -37,7 +37,7 @@ class WorkflowPlanService:
                 namespace=namespace,
                 query=query,
                 top_k=top_k,
-                data_type=data_type,
+                chunk_types=chunk_types,
                 exclude_document_ids=exclude_document_ids,
             )
             if cached:
@@ -63,7 +63,7 @@ class WorkflowPlanService:
                 namespace=namespace,
                 query=query,
                 top_k=top_k,
-                data_type=data_type,
+                chunk_types=chunk_types,
                 exclude_document_ids=exclude_document_ids,
                 plan=plan.to_dict(),
             )

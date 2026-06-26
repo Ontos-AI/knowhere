@@ -25,7 +25,7 @@ from shared.services.retrieval.search.lexical_text import (  # noqa: E402
     build_content_search_text,
     build_term_search_text,
 )
-from shared.services.retrieval.settings import resolve_allowed_chunk_types  # noqa: E402
+from shared.services.retrieval.settings import normalize_chunk_types  # noqa: E402
 from shared.services.retrieval.execution.reference_resolver import (  # noqa: E402
     resolve_workflow_references,
 )
@@ -40,7 +40,7 @@ def test_data_type_one_allows_page_and_page_content_enters_search_text() -> None
         "metadata": {"summary": "node summary is not the primary content"},
     }
 
-    assert resolve_allowed_chunk_types(1) is None
+    assert normalize_chunk_types(None) is None
     content_search_text = build_content_search_text(page_chunk) or ""
     assert "安全" in content_search_text
     assert "风险" in content_search_text
@@ -48,7 +48,7 @@ def test_data_type_one_allows_page_and_page_content_enters_search_text() -> None
 
 
 def test_data_type_seven_is_page_only() -> None:
-    assert resolve_allowed_chunk_types(7) == {"page"}
+    assert normalize_chunk_types(["page"]) == {"page"}
 
 
 def test_table_search_text_uses_summary_keywords_and_caption_not_content() -> None:

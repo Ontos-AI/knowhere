@@ -228,7 +228,7 @@ async def test_agentic_workflow_should_pass_full_request_policy_to_step_adapter(
                 "namespace": "contract-agentic-request-policy",
                 "query": "policy marker",
                 "top_k": 1,
-                "data_type": 7,
+                "chunk_types": ["page"],
                 "signal_paths": ["Root"],
                 "filter_mode": "keep",
                 "channels": ["content"],
@@ -250,7 +250,7 @@ async def test_agentic_workflow_should_pass_full_request_policy_to_step_adapter(
     assert request["top_k"] == 1
     assert request["exclude_document_ids"] == []
     assert request["exclude_sections"] == []
-    assert request["data_type"] == 7
+    assert request["chunk_types"] == {"page"}
     assert request["signal_paths"] == ["Root"]
     assert request["filter_mode"] == "keep"
     assert request["channels"] == ["content"]
@@ -623,7 +623,7 @@ async def test_agentic_retrieval_should_not_send_table_artifacts_to_vlm(
                 "namespace": "contract-agentic-table-vlm-filter",
                 "query": "budget 1000 Flat inspect_evidence_score_mean",
                 "top_k": 1,
-                "data_type": 4,
+                "chunk_types": ["table"],
                 "use_agentic": True,
             },
         )

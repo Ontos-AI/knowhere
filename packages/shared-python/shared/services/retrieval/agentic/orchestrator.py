@@ -42,7 +42,7 @@ from shared.services.retrieval.agentic.core.types import (
     DecisionTraceStep,
 )
 from shared.services.retrieval.llm_adapter import LLMFn
-from shared.services.retrieval.settings import DEFAULT_TOP_K
+from shared.services.retrieval.settings import DEFAULT_TOP_K, resolve_disabled_asset_types
 
 
 class RetrievalAgent:
@@ -73,7 +73,7 @@ class RetrievalAgent:
         llm_fn: LLMFn | None = None,
         exclude_document_ids: list[str] | None = None,
         exclude_sections: list[dict[str, str]] | None = None,
-        data_type: int = 1,
+        chunk_types: set[str] | None = None,
         signal_paths: list[str] | None = None,
         filter_mode: str = 'delete',
         channels: list[str] | None = None,
@@ -113,7 +113,7 @@ class RetrievalAgent:
         state.ledger.total_docs = total_docs
         trace = TraceRecorder(
             db, user_id=user_id, namespace=namespace, query=query,
-            config=config, top_k=top_k, data_type=data_type,
+            config=config, top_k=top_k, chunk_types=chunk_types,
             filters={
                 'exclude_document_ids': exclude_document_ids,
                 'exclude_sections': exclude_sections,
@@ -153,7 +153,7 @@ class RetrievalAgent:
             top_k=top_k,
             exclude_document_ids=exclude_document_ids,
             exclude_sections=exclude_sections,
-            data_type=data_type,
+            chunk_types=chunk_types,
             signal_paths=signal_paths,
             filter_mode=filter_mode,
             channels=channels,
@@ -332,6 +332,7 @@ class RetrievalAgent:
                 discovery_by_doc=discovery_by_doc,
                 llm_fn=llm_fn,
                 llm_budget=llm_budget,
+                disabled_asset_types=resolve_disabled_asset_types(chunk_types),
             )
             await navigation_runner.navigate_selected_documents()
             decision_trace.extend(

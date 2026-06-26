@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.core.database import get_db
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.app_service import run_retrieval_query
-from shared.services.retrieval.settings import DEFAULT_TOP_K
+from shared.services.retrieval.settings import DEFAULT_TOP_K, VALID_CHUNK_TYPES, normalize_chunk_types
 
 router = APIRouter(tags=["Retrieval"])
 
@@ -40,6 +40,15 @@ class RetrievalQueryRequest(BaseModel):
         description=(
             "Chunk type filter: 1=all, 2=text, 3=image, 4=table, "
             "5=text+image, 6=text+table, 7=page, 8=text+image+table"
+        ),
+        deprecated=True,
+    )
+    chunk_types: list[str] | None = Field(
+        None,
+        description=(
+            "Allowed chunk types for retrieval. "
+            "Options: text, image, table, page. "
+            "None or empty means all types. Overrides data_type if provided."
         ),
     )
     signal_paths: list[str] = Field(
@@ -72,6 +81,18 @@ class RetrievalQueryRequest(BaseModel):
         for ch in v:
             if ch not in valid:
                 raise ValueError(f"Invalid channel: {ch}. Must be one of {valid}")
+        return v
+
+    @field_validator("chunk_types")
+    @classmethod
+    def validate_chunk_types(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        for ct in v:
+            if ct not in VALID_CHUNK_TYPES:
+                raise ValueError(
+                    f"Invalid chunk type: {ct}. Must be one of {sorted(VALID_CHUNK_TYPES)}"
+                )
         return v
 
     @field_validator("namespace")
@@ -114,6 +135,20 @@ async def query_retrieval(
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Resolve chunk_types: explicit field takes precedence over legacy data_type
+    if payload.chunk_types is not None:
+        resolved_chunk_types = normalize_chunk_types(payload.chunk_types)
+    elif payload.data_type != 1:
+        # Legacy fallback: convert integer to chunk_types set
+        _DATA_TYPE_MAP: dict[int, set[str] | None] = {
+            1: None, 2: {"text"}, 3: {"image"}, 4: {"table"},
+            5: {"text", "image"}, 6: {"text", "table"},
+            7: {"page"}, 8: {"text", "image", "table"},
+        }
+        resolved_chunk_types = _DATA_TYPE_MAP.get(payload.data_type)
+    else:
+        resolved_chunk_types = None
+
     return await run_retrieval_query(
         db=db,
         user_id=current_user.user_id,
@@ -122,7 +157,7 @@ async def query_retrieval(
         top_k=payload.top_k,
         exclude_document_ids=payload.exclude_document_ids,
         exclude_sections=[item.model_dump() for item in payload.exclude_sections],
-        data_type=payload.data_type,
+        chunk_types=resolved_chunk_types,
         signal_paths=payload.signal_paths or None,
         filter_mode=payload.filter_mode,
         channels=payload.channels or None,

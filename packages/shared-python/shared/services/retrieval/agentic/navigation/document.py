@@ -63,6 +63,7 @@ class DocumentNavigationRunner:
         discovery_by_doc: dict[str, list[dict[str, Any]]],
         llm_fn: LLMFn | None,
         llm_budget: AgentLlmBudget,
+        disabled_asset_types: set[str] | None = None,
     ) -> None:
         self._db = db
         self._state = state
@@ -75,6 +76,7 @@ class DocumentNavigationRunner:
         self._discovery_by_doc = discovery_by_doc
         self._llm_fn = llm_fn
         self._llm_budget = llm_budget
+        self._disabled_asset_types = disabled_asset_types or set()
         self._decision_steps: list[dict[str, Any]] = []
 
     @property
@@ -231,7 +233,7 @@ class DocumentNavigationRunner:
                     expanded_scopes=nav_state.expanded_scopes,
                     rejected_paths=nav_state.rejected_paths,
                     rejected_collect_paths=nav_state.rejected_collect_paths,
-                    disabled_asset_types=nav_state.blocked_asset_types_for_scope(
+                    disabled_asset_types=self._disabled_asset_types | nav_state.blocked_asset_types_for_scope(
                         nav_state.current_scope
                     ),
                     discovery_hints=doc_discovery_hints,

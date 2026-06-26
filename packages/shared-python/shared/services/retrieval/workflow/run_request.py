@@ -15,7 +15,7 @@ class WorkflowRunRequest:
     top_k: int
     exclude_document_ids: list[str]
     exclude_sections: list[dict[str, str]]
-    data_type: int = 1
+    chunk_types: set[str] | None = None
     signal_paths: list[str] | None = None
     filter_mode: str = "delete"
     channels: list[str] | None = None
@@ -36,7 +36,7 @@ class WorkflowRunRequest:
             top_k=context.top_k,
             exclude_document_ids=context.exclude_document_ids,
             exclude_sections=context.exclude_sections,
-            data_type=context.data_type,
+            chunk_types=context.chunk_types,
             signal_paths=context.signal_paths,
             filter_mode=context.filter_mode,
             channels=context.channels,
@@ -55,7 +55,7 @@ class WorkflowRunRequest:
             top_k=step_top_k,
             exclude_document_ids=self.exclude_document_ids,
             exclude_sections=self.exclude_sections,
-            data_type=step.data_type or self.data_type,
+            chunk_types=step.chunk_types or self.chunk_types,
             signal_paths=self.signal_paths,
             filter_mode=self.filter_mode,
             channels=self.channels,
@@ -79,7 +79,7 @@ class WorkflowStepRequest:
     top_k: int
     exclude_document_ids: list[str]
     exclude_sections: list[dict[str, str]]
-    data_type: int
+    chunk_types: set[str] | None
     signal_paths: list[str] | None
     filter_mode: str
     channels: list[str] | None

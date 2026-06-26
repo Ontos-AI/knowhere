@@ -37,7 +37,7 @@ def _cache_shape_digest(
     top_k: int,
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
-    data_type: int = 1,
+    chunk_types: list[str] | set[str] | None = None,
     signal_paths: list[str] | None = None,
     filter_mode: str = "delete",
     channels: list[str] | None = None,
@@ -50,9 +50,10 @@ def _cache_shape_digest(
 ) -> str:
     normalized_excludes = sorted(exclude_document_ids)
     normalized_sections = _normalize_exclude_sections(exclude_sections)
+    chunk_types_str = ",".join(sorted(chunk_types)) if chunk_types else ""
     extra = "|".join(
         [
-            str(data_type),
+            chunk_types_str,
             ",".join(sorted(signal_paths or [])),
             filter_mode,
             ",".join(sorted(channels or [])),
@@ -195,7 +196,7 @@ async def _workflow_plan_cache_key(
     namespace: str,
     query: str,
     top_k: int,
-    data_type: int = 1,
+    chunk_types: set[str] | None = None,
     exclude_document_ids: list[str] | None = None,
 ) -> str:
     namespace = normalize_retrieval_namespace(namespace)
@@ -205,7 +206,7 @@ async def _workflow_plan_cache_key(
     digest = _cache_shape_digest(
         query=query,
         top_k=top_k,
-        data_type=data_type,
+        chunk_types=chunk_types,
         exclude_document_ids=exclude_document_ids or [],
         exclude_sections=[],
     )
@@ -218,13 +219,13 @@ async def get_cached_workflow_plan(
     namespace: str,
     query: str,
     top_k: int,
-    data_type: int = 1,
+    chunk_types: set[str] | None = None,
     exclude_document_ids: list[str] | None = None,
 ) -> dict[str, Any] | None:
     redis_service = RedisServiceFactory.get_service()
     key = await _workflow_plan_cache_key(
         user_id=user_id, namespace=namespace, query=query,
-        top_k=top_k, data_type=data_type,
+        top_k=top_k, chunk_types=chunk_types,
         exclude_document_ids=exclude_document_ids,
     )
     cached = await redis_service.get(key, default=None)
@@ -237,14 +238,14 @@ async def set_cached_workflow_plan(
     namespace: str,
     query: str,
     top_k: int,
-    data_type: int = 1,
+    chunk_types: set[str] | None = None,
     exclude_document_ids: list[str] | None = None,
     plan: dict[str, Any],
 ) -> None:
     redis_service = RedisServiceFactory.get_service()
     key = await _workflow_plan_cache_key(
         user_id=user_id, namespace=namespace, query=query,
-        top_k=top_k, data_type=data_type,
+        top_k=top_k, chunk_types=chunk_types,
         exclude_document_ids=exclude_document_ids,
     )
     await redis_service.set(key, plan, ex=_WORKFLOW_PLAN_CACHE_TTL_SECONDS)

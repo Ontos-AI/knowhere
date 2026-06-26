@@ -120,14 +120,15 @@ def tag_pages(
     greenlets = [pool.spawn(_tag_one, page) for page in pages]
     gevent.joinall(greenlets)
 
-    results = [g.value for g in greenlets]
-    vlm_calls = sum(1 for r in results if r and r.strategy_used == "vlm_lite")
+    results = [g.value for g in greenlets if g.value is not None]
+    vlm_calls = sum(1 for r in results if r.strategy_used == "vlm_lite")
     logger.info(
-        "[page_tagger] tagged {} pages ({} VLM calls, {} text_only, {} skipped) concurrency={}",
+        "[page_tagger] tagged {} pages ({} VLM calls, {} text_only, {} skipped, {} failed) concurrency={}",
         len(results),
         vlm_calls,
-        sum(1 for r in results if r and r.strategy_used == "text_only"),
-        sum(1 for r in results if r and r.strategy_used == "skip_tagging"),
+        sum(1 for r in results if r.strategy_used == "text_only"),
+        sum(1 for r in results if r.strategy_used == "skip_tagging"),
+        len(greenlets) - len(results),
         max_concurrent,
     )
     return results

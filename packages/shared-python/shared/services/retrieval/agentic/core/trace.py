@@ -53,7 +53,7 @@ class TraceRecorder:
         query: str,
         config: AgentRunConfig,
         top_k: int = DEFAULT_TOP_K,
-        data_type: int = 1,
+        chunk_types: set[str] | None = None,
         filters: dict[str, Any] | None = None,
         parent_run_id: str | None = None,
         workflow_step_id: str | None = None,
@@ -66,7 +66,7 @@ class TraceRecorder:
         self._query = query
         self._config = config
         self._top_k = top_k
-        self._data_type = data_type
+        self._chunk_types = chunk_types
         self._filters = filters or {}
         self._parent_run_id = parent_run_id
         self._workflow_step_id = workflow_step_id
@@ -91,7 +91,7 @@ class TraceRecorder:
                 query=self._query,
                 query_hash=_query_hash(self._query),
                 top_k=self._top_k,
-                data_type=self._data_type,
+                chunk_types=sorted(self._chunk_types) if self._chunk_types else None,
                 filters=self._filters,
                 policy_name='llm_policy_v1',
                 agentic_enabled=True,

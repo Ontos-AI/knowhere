@@ -21,7 +21,7 @@ class PlannedStep:
     depends_on: list[str] = field(default_factory=list)
     output_role: OutputRole = "final_part"
     top_k: int | None = None
-    data_type: int | None = None
+    chunk_types: set[str] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -34,8 +34,8 @@ class PlannedStep:
         }
         if self.top_k is not None:
             data["top_k"] = self.top_k
-        if self.data_type is not None:
-            data["data_type"] = self.data_type
+        if self.chunk_types is not None:
+            data["chunk_types"] = sorted(self.chunk_types)
         if self.metadata:
             data["metadata"] = dict(self.metadata)
         return data
@@ -79,7 +79,7 @@ class QueryPlan:
                 depends_on=[str(dep) for dep in item.get("depends_on") or []],
                 output_role=item.get("output_role", "final_part"),
                 top_k=int(item["top_k"]) if item.get("top_k") is not None else None,
-                data_type=int(item["data_type"]) if item.get("data_type") is not None else None,
+                chunk_types=set(item["chunk_types"]) if item.get("chunk_types") else None,
                 metadata=dict(item.get("metadata") or {}),
             )
             for idx, item in enumerate(data.get("steps") or [], start=1)

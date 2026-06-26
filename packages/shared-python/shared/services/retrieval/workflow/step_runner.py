@@ -70,7 +70,7 @@ class WorkflowStepRunner:
                     llm_fn=llm_fn,
                     exclude_document_ids=request.exclude_document_ids,
                     exclude_sections=request.exclude_sections,
-                    data_type=request.data_type,
+                    chunk_types=request.chunk_types,
                     signal_paths=request.signal_paths,
                     filter_mode=request.filter_mode,
                     channels=request.channels,

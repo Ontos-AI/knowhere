@@ -16,7 +16,7 @@ class RetrievalRouteContext:
     exclude_document_ids: list[str]
     exclude_sections: list[dict[str, str]]
     allowed_chunk_types: set[str] | None
-    data_type: int
+    chunk_types: set[str] | None
     signal_paths: list[str] | None
     filter_mode: str
     channels: list[str] | None
