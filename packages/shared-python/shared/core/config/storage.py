@@ -79,8 +79,8 @@ class StorageConfig(BaseModel):
         description="Soft page limit for oversized PDF shard pipeline. "
         "Documents exceeding this are rejected with a contact-support message.",
     )
-    PDF_PAGE_TOC_ENABLED: bool = Field(
-        default=True,
+    PDF_PROFILE_TOC_ENABLED: bool = Field(
+        default=False,
         description=(
             "Enable page-owned PDF TOC profiling during parser-entry DOC_PROFILE. "
             "When disabled, PDF parsing treats documents as no-TOC and does not "

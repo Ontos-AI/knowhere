@@ -648,13 +648,13 @@ def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
             self.calls.append("run_lightweight_anatomy")
             self.blackboard.toc_result = TocResult(
                 method="none",
-                notes="TOC profiling disabled by PDF_PAGE_TOC_ENABLED",
+                notes="TOC profiling disabled by PDF_PROFILE_TOC_ENABLED",
             )
             self.blackboard.global_signals["toc_profile_attempted"] = False
             return fake_anatomy
 
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
-    monkeypatch.setattr(doc_profiler.settings, "PDF_PAGE_TOC_ENABLED", False)
+    monkeypatch.setattr(doc_profiler.settings, "PDF_PROFILE_TOC_ENABLED", False)
     monkeypatch.setattr(doc_profiler.settings, "MAX_PDF_PAGE_LIMIT", 200)
 
     profile = profile_document(
@@ -668,7 +668,7 @@ def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
     assert init_settings[0]["toc_before_coarse"] is False
     assert profile.toc.attempted is False
     assert profile.toc.has_toc is False
-    assert profile.toc.notes == "TOC profiling disabled by PDF_PAGE_TOC_ENABLED"
+    assert profile.toc.notes == "TOC profiling disabled by PDF_PROFILE_TOC_ENABLED"
     assert profile.anatomy is fake_anatomy
 
 

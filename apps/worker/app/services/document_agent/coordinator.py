@@ -305,7 +305,7 @@ class ProfileCoordinator:
     def _ensure_disabled_toc_placeholder(self) -> None:
         self.blackboard.toc_result = TocResult(
             method="none",
-            notes="TOC profiling disabled by PDF_PAGE_TOC_ENABLED",
+            notes="TOC profiling disabled by PDF_PROFILE_TOC_ENABLED",
         )
         self.blackboard.toc_hierarchies = None
         self.blackboard.global_signals["toc_profile_attempted"] = False

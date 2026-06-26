@@ -112,7 +112,7 @@ def _profile_pdf_with_db(
 ) -> ParserDocumentProfile:
     profile_job_id = job_id or filename
     agent_output_dir = os.path.join(output_dir, "_doc_agent") if output_dir else None
-    page_toc_enabled = settings.PDF_PAGE_TOC_ENABLED
+    page_toc_enabled = settings.PDF_PROFILE_TOC_ENABLED
     coordinator = ProfileCoordinator(
         pdf_path=file_path,
         job_id=profile_job_id,
