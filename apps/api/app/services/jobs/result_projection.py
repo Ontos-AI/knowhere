@@ -44,6 +44,15 @@ def resolve_public_document_id(job: Any) -> Optional[str]:
     return None
 
 
+def resolve_job_document_id(
+    job: Any, job_metadata: Optional[dict[str, Any]]
+) -> Optional[str]:
+    published_document_id = resolve_public_document_id(job)
+    if published_document_id:
+        return published_document_id
+    return JobMetadataHelper.get_document_id(job_metadata)
+
+
 def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
     if not dt:
         return None
@@ -135,7 +144,7 @@ async def build_job_result_response(
     return JobResultResponse(
         job_id=job.job_id,
         namespace=JobMetadataHelper.get_namespace(job_metadata),
-        document_id=resolve_public_document_id(job),
+        document_id=resolve_job_document_id(job, job_metadata),
         status=to_job_status_value(job.status),
         source_type=job.source_type,
         data_id=JobMetadataHelper.get_data_id(job_metadata),

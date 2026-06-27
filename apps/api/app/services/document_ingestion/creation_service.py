@@ -195,6 +195,7 @@ class DocumentIngestionCreationService:
             source_type="file",
             data_id=payload.data_id,
             namespace=scope.namespace,
+            document_id=scope.document_id,
             upload_url=upload_url,
             upload_headers=upload_headers,
             expires_in=expires_in,
@@ -267,6 +268,7 @@ class DocumentIngestionCreationService:
             source_type="url",
             data_id=payload.data_id,
             namespace=scope.namespace,
+            document_id=scope.document_id,
         )
 
 

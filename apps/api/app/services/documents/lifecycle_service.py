@@ -17,6 +17,10 @@ from shared.services.retrieval.cache_service import (
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
 
 
+def _datetime_payload(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
 def document_payload(document) -> dict[str, Any]:
     return {
         "document_id": document.document_id,
@@ -24,16 +28,13 @@ def document_payload(document) -> dict[str, Any]:
         "status": document.status,
         "current_job_result_id": document.current_job_result_id,
         "source_file_name": document.source_file_name,
+        "document_metadata": document.document_metadata or {},
         "created_at": document.created_at.isoformat() if document.created_at else None,
         "updated_at": document.updated_at.isoformat() if document.updated_at else None,
         "archived_at": (
             document.archived_at.isoformat() if document.archived_at else None
         ),
     }
-
-
-def _datetime_payload(value: datetime | None) -> str | None:
-    return value.isoformat() if value else None
 
 
 class DocumentService:

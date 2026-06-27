@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from shared.models.database.document import Document
 from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
+from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
 from shared.services.retrieval.publication_content import (
@@ -100,6 +101,7 @@ class RetrievalPublicationService:
         source_file_name = job_metadata.get("source_file_name") or job_metadata.get(
             "file_name"
         )
+        document_metadata = JobMetadataHelper.get_document_metadata(job_metadata)
 
         deduped_chunks = chunks
 
@@ -124,6 +126,7 @@ class RetrievalPublicationService:
             namespace=namespace,
             parse_track=parse_track,
             source_file_name=str(source_file_name) if source_file_name else None,
+            document_metadata=document_metadata,
         )
         if document is None:
             return None
@@ -164,6 +167,7 @@ class RetrievalPublicationService:
         namespace: str,
         parse_track: str,
         source_file_name: str | None,
+        document_metadata: dict[str, Any],
     ) -> Document | None:
         document = None
         if document_id:
@@ -184,6 +188,7 @@ class RetrievalPublicationService:
                 status="active",
                 current_job_result_id=job_result_id,
                 source_file_name=source_file_name,
+                document_metadata=document_metadata,
                 parse_track=parse_track,
             )
             db.add(document)
@@ -202,6 +207,8 @@ class RetrievalPublicationService:
             document.archived_at = None
             document.current_job_result_id = job_result_id
             document.source_file_name = source_file_name or document.source_file_name
+            if document_metadata:
+                document.document_metadata = document_metadata
             document.parse_track = parse_track or document.parse_track
             document.updated_at = utc_now_naive()
 

@@ -68,6 +68,13 @@ class JobCreate(BaseModel):
     parsing_params: Optional[ParsingParams] = Field(
         None, description="Parsing parameters"
     )
+    document_metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "Display metadata copied to the published document, such as "
+            "created_by_client and client_version."
+        ),
+    )
     webhook: Optional[WebhookConfig] = Field(None, description="Webhook configuration")
 
 

@@ -25,6 +25,7 @@ async def _insert_document(
     namespace: str = "contract-documents",
     status: str = "active",
     source_file_name: str | None = None,
+    document_metadata: dict[str, object] | None = None,
     updated_at: datetime | None = None,
 ) -> None:
     engine = await _create_contract_engine()
@@ -42,6 +43,7 @@ async def _insert_document(
                         status,
                         current_job_result_id,
                         source_file_name,
+                        document_metadata,
                         parse_track,
                         created_at,
                         updated_at,
@@ -53,6 +55,7 @@ async def _insert_document(
                         :status,
                         :current_job_result_id,
                         :source_file_name,
+                        CAST(:document_metadata AS JSON),
                         :parse_track,
                         :created_at,
                         :updated_at,
@@ -66,6 +69,7 @@ async def _insert_document(
                     "status": status,
                     "current_job_result_id": None,
                     "source_file_name": source_file_name or f"{document_id}.pdf",
+                    "document_metadata": json.dumps(document_metadata or {}),
                     "parse_track": "chunk",
                     "created_at": timestamp,
                     "updated_at": effective_updated_at,
@@ -93,6 +97,7 @@ async def _fetch_document(document_id: str) -> dict[str, object]:
                             status,
                             current_job_result_id,
                             source_file_name,
+                            document_metadata,
                             archived_at
                         FROM documents
                         WHERE document_id = :document_id
@@ -565,6 +570,10 @@ async def test_should_return_document_details_for_an_owned_document(
         await _insert_document(
             document_id=document_id,
             source_file_name="contract-detail.pdf",
+            document_metadata={
+                "created_by_client": "notebook",
+                "client_version": "2026.06.26",
+            },
         )
         response = await api_client.get(f"/api/v1/documents/{document_id}")
 
@@ -577,6 +586,10 @@ async def test_should_return_document_details_for_an_owned_document(
     assert response_json["status"] == "active"
     assert response_json["current_job_result_id"] is None
     assert response_json["source_file_name"] == "contract-detail.pdf"
+    assert response_json["document_metadata"] == {
+        "created_by_client": "notebook",
+        "client_version": "2026.06.26",
+    }
     assert response_json["created_at"]
     assert response_json["updated_at"]
     assert response_json["archived_at"] is None
