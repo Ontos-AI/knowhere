@@ -179,6 +179,29 @@ class JsonParseAdapter:
         return ParseOutput(output_dir=session.full_output_dir, parsed_df=None)
 
 
+@dataclass(frozen=True)
+class HtmlParseAdapter:
+    """Adapter that parses .html / .htm files through the markdown pipeline.
+
+    HTML content is extracted into text lines, with headings, paragraphs,
+    tables, and images preserved in markdown-like format, then routed
+    through the standard parse_md() engine.
+    """
+    document_format: object
+
+    def parse(self, session: ParseSession) -> ParseOutput:
+        from app.services.document_parser.formats.html.parser import parse_html
+
+        parsed_df = parse_html(
+            session.full_output_dir,
+            source_type="html",
+            file_path=session.file_full_path,
+            base_llm_paras=session.base_llm_paras,
+            relative_root=session.relative_root,
+        )
+        return ParseOutput(output_dir=session.full_output_dir, parsed_df=parsed_df)
+
+
 def _parse_docx_path(
     docx_path: str,
     session: ParseSession,

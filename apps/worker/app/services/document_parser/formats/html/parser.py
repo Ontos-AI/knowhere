@@ -446,3 +446,192 @@ def first_cols_rows_html(html_str, max_items=10, max_chars=20):
     first_col_text = " | ".join(unique_col) if unique_col else ""
 
     return first_row_text, first_col_text
+
+
+# ═══════════════════════════════════════════════════════════════════
+# HTML Document Parser
+# ═══════════════════════════════════════════════════════════════════
+# The functions below convert a full .html document into text lines
+# compatible with parse_md(), reusing the existing markdown processing
+# pipeline for heading detection, hierarchy reconstruction, table
+# extraction, image processing, and LLM-based summarization.
+# ═══════════════════════════════════════════════════════════════════
+
+
+def parse_html(
+    output_dir: str,
+    source_type: str,
+    file_path: str | None = None,
+    base_llm_paras=None,
+    relative_root: str | None = None,
+):
+    """Parse an HTML file into a hierarchical document DataFrame.
+
+    Converts HTML structural elements into markdown-like text lines, then
+    delegates to the standard parse_md() pipeline for heading detection,
+    hierarchy reconstruction, table extraction, image processing, and
+    LLM-based enrichment.
+
+    The conversion handles:
+    - h1–h6 → markdown heading lines (e.g., "# Title")
+    - p, div, section, article → text content lines
+    - table → preserved as raw HTML for the table extraction pipeline
+    - img → preserved as markdown image references
+    - ul/ol/li → bullet/numbered list lines
+    - pre/code → code block lines
+    - blockquote → quoted lines with "> " prefix
+
+    Args:
+        output_dir: Full output directory path for parsed artifacts.
+        source_type: Source type label (always "html" from the adapter).
+        file_path: Absolute path to the .html or .htm file on disk.
+        base_llm_paras: LLM parameter dict for summary enrichment.
+        relative_root: Root path segment for hierarchical path construction.
+
+    Returns:
+        pd.DataFrame with columns [path, content, type, summary, keywords]
+        representing the parsed document hierarchy.
+    """
+    from app.services.common.file_loading import load_file_bytes
+    from app.services.document_parser.formats.markdown.parser import parse_md
+
+    html_bytes = load_file_bytes(file_path, file_url="")
+    html_text = html_bytes.decode("utf-8")
+    md_lines = _html_to_md_lines(html_text)
+    md_lines = merge_html_tables(md_lines)
+
+    parsed_df = parse_md(
+        output_dir,
+        source_type=source_type,
+        md_lines=md_lines,
+        base_llm_paras=base_llm_paras,
+        relative_root=relative_root,
+    )
+    return parsed_df
+
+
+def _html_to_md_lines(html_text: str) -> list[str]:
+    """Convert HTML document body into markdown-like text lines.
+
+    Extracts structural elements from the HTML body and converts them
+    into a flat list of text lines that the markdown parser can process.
+    This is intentionally lightweight — complex HTML styling is discarded
+    in favor of clean, parseable text content.
+    """
+    from bs4 import BeautifulSoup, NavigableString, Tag
+
+    soup = BeautifulSoup(html_text, "html.parser")
+    body = soup.find("body")
+    root = body if body else soup
+
+    lines: list[str] = []
+    _walk_html_nodes(root, lines, heading_base_level=0)
+
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    return lines
+
+
+def _walk_html_nodes(
+    element,
+    lines: list[str],
+    heading_base_level: int = 0,
+) -> None:
+    """Recursively walk HTML nodes, appending markdown-like lines.
+
+    This is the core extraction loop. It processes HTML tags semantically:
+    headings become markdown headings, paragraphs become text, tables are
+    preserved as raw HTML, and nested structures are recursed into.
+    """
+    from bs4 import NavigableString, Tag
+
+    if isinstance(element, NavigableString):
+        text = element.strip()
+        if text:
+            lines.append(text)
+        return
+
+    if not isinstance(element, Tag):
+        return
+
+    tag_name = element.name.lower() if element.name else ""
+
+    # ── Headings ───────────────────────────────────────────────
+    if tag_name in ("h1", "h2", "h3", "h4", "h5", "h6"):
+        level = int(tag_name[1]) + heading_base_level
+        level = min(level, 6)
+        heading_text = element.get_text(" ", strip=True)
+        if heading_text:
+            prefix = "#" * level
+            lines.append(f"{prefix} {heading_text}")
+        return
+
+    # ── Paragraphs ─────────────────────────────────────────────
+    if tag_name == "p":
+        text = element.get_text(" ", strip=True)
+        if text:
+            lines.append(text)
+        return
+
+    # ── Tables (preserve as raw HTML for downstream extraction) ─
+    if tag_name == "table":
+        raw_html = str(element)
+        lines.append(raw_html)
+        return
+
+    # ── Images ─────────────────────────────────────────────────
+    if tag_name == "img":
+        alt = element.get("alt", "")
+        src = element.get("src", "")
+        if src:
+            lines.append(f"![{alt}]({src})")
+        return
+
+    # ── List items ─────────────────────────────────────────────
+    if tag_name == "li":
+        text = element.get_text(" ", strip=True)
+        if text:
+            lines.append(f"- {text}")
+        return
+
+    # ── Code blocks ────────────────────────────────────────────
+    if tag_name in ("pre", "code"):
+        text = element.get_text()
+        if text.strip():
+            lines.append("```")
+            for code_line in text.splitlines():
+                lines.append(code_line)
+            lines.append("```")
+        return
+
+    # ── Blockquotes ────────────────────────────────────────────
+    if tag_name == "blockquote":
+        for child in element.children:
+            if isinstance(child, NavigableString):
+                t = child.strip()
+                if t:
+                    lines.append(f"> {t}")
+            elif isinstance(child, Tag):
+                text = child.get_text(" ", strip=True)
+                if text:
+                    lines.append(f"> {text}")
+        return
+
+    # ── Line break ─────────────────────────────────────────────
+    if tag_name == "br":
+        lines.append("")
+        return
+
+    # ── Horizontal rule ────────────────────────────────────────
+    if tag_name == "hr":
+        lines.append("---")
+        return
+
+    # ── Non-content elements: skip entirely ────────────────────
+    if tag_name in ("script", "style", "nav", "noscript", "meta", "link"):
+        return
+
+    # ── Container elements: recurse into children ───────────────
+    for child in element.children:
+        _walk_html_nodes(child, lines, heading_base_level)
