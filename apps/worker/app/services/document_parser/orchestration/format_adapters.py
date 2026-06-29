@@ -179,6 +179,26 @@ class JsonParseAdapter:
         return ParseOutput(output_dir=session.full_output_dir, parsed_df=None)
 
 
+@dataclass(frozen=True)
+class XmlParseAdapter:
+    """Adapter that parses .xml files through the markdown pipeline.
+    XML content is recursively walked to extract text from elements,
+    with tag names mapped to markdown headings where appropriate.
+    The extracted lines are then routed through parse_md()."""
+    document_format: object
+
+    def parse(self, session: ParseSession) -> ParseOutput:
+        from app.services.document_parser.formats.xml.parser import parse_xml
+        parsed_df = parse_xml(
+            session.full_output_dir,
+            source_type="xml",
+            file_path=session.file_full_path,
+            base_llm_paras=session.base_llm_paras,
+            relative_root=session.relative_root,
+        )
+        return ParseOutput(output_dir=session.full_output_dir, parsed_df=parsed_df)
+
+
 def _parse_docx_path(
     docx_path: str,
     session: ParseSession,
