@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import shutil
 from dataclasses import dataclass, replace
@@ -28,15 +27,8 @@ from app.services.page_memory._utils import (
     sort_skeletons,
 )
 from app.services.page_memory._serialization import (
-    build_hierarchy_tree as _build_hierarchy_tree,
     derive_hierarchy_page_scope as _derive_hierarchy_page_scope,
-    max_skeleton_end_page as _max_skeleton_end_page,
     scope_manifest as _scope_manifest,
-    serialize_assets as _serialize_assets,
-    serialize_hierarchy_artifact as _serialize_hierarchy_artifact,
-    serialize_page_tags as _serialize_page_tags,
-    serialize_skeletons as _serialize_skeletons,
-    write_json as _write_json,
     write_scope_artifacts as _write_scope_artifacts,
     write_top_level_artifacts as _write_top_level_artifacts,
 )
@@ -214,14 +206,12 @@ def _build_page_dataframe(
       C5  page_assets          → assets anchored to refined hierarchy pages
       C7  assemble node-granularity DataFrame
     """
-    from app.services.document_agent.budget import BudgetTracker, StageEnvelope
     from app.services.page_memory.skeleton_extractor import (
         SectionSkeleton,
         collapse_single_child_chains,
         extract_section_skeletons,
     )
     from app.services.page_memory.page_assets import (
-        get_asset_budget,
         get_asset_max_pages,
         page_asset_extraction_enabled,
     )
@@ -231,59 +221,7 @@ def _build_page_dataframe(
     if page_count <= 0:
         return pd.DataFrame(columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
 
-    # ── unified budget (page_locate + page_tagging + title_detection) ──
-    page_tagging_budget = int(
-        os.environ.get("PAGE_MEMORY_TAG_BUDGET", str(page_count * 1200))
-    )
-    page_locate_budget = int(
-        os.environ.get("PAGE_MEMORY_LOCATE_BUDGET", str(min(page_count * 1600, 2_000_000)))
-    )
-    title_detection_budget = int(
-        os.environ.get("PAGE_MEMORY_TITLE_BUDGET", str(page_count * 800))
-    )
     asset_extraction_enabled = page_asset_extraction_enabled()
-    asset_extraction_budget = (
-        get_asset_budget(page_count) if asset_extraction_enabled else 0
-    )
-    total_visual = (
-        page_tagging_budget
-        + page_locate_budget
-        + title_detection_budget
-        + asset_extraction_budget
-    )
-
-    # plan_budget powers the LLM decision loop inside PageLocateSubAgent.
-    # Without it the sub-agent falls back to a deterministic path that
-    # cannot rewrite queries (e.g. drop trailing doc-reference codes),
-    # causing grep to miss titles whose TOC text differs from body text.
-    plan_budget = int(
-        os.environ.get("PAGE_MEMORY_PLAN_BUDGET", str(min(page_count * 800, 2_000_000)))
-    )
-
-    stage_envelopes = {
-        "page_locate": StageEnvelope(
-            min_guarantee=page_locate_budget,
-            cap=None,
-        ),
-        "page_tagging": StageEnvelope(
-            min_guarantee=page_tagging_budget,
-            cap=None,
-        ),
-    }
-    stage_envelopes["page_title_detection"] = StageEnvelope(
-        min_guarantee=title_detection_budget,
-        cap=None,
-    )
-    if asset_extraction_enabled:
-        stage_envelopes["page_asset_extraction"] = StageEnvelope(
-            min_guarantee=asset_extraction_budget,
-            cap=None,
-        )
-    budget = BudgetTracker(
-        plan_budget=plan_budget,
-        visual_budget=total_visual,
-        visual_stage_envelopes=stage_envelopes,
-    )
 
     # ── build ToolContext for sub-agent VLM calls ─────────────────────
     ctx = _build_page_ctx(
@@ -291,7 +229,6 @@ def _build_page_dataframe(
         job_id=filename,
         output_dir=output_dir,
         page_count=page_count,
-        budget=budget,
         trace_recorder=trace_recorder,
     )
 
@@ -385,7 +322,6 @@ def _build_page_dataframe(
         page_texts=page_texts,
         page_features=page_features,
         page_labels=page_labels,
-        budget=budget,
         vlm_model=vlm_model,
         asset_extraction_enabled=asset_extraction_enabled,
         trace_recorder=trace_recorder,
@@ -490,7 +426,7 @@ def _build_page_dataframe(
             tag_by_page=tag_map,
             filename=filename,
             verdict=verdict,
-            budget=budget,
+            budget=None,
             vlm_model=vlm_model,
             page_assets_by_page=page_assets_by_page,
         )
@@ -517,7 +453,6 @@ def _build_page_ctx(
     job_id: str,
     output_dir: str,
     page_count: int,
-    budget: Any,
     trace_recorder: Any | None = None,
 ) -> ToolContext:
     """Construct a ToolContext for C4 sub-agent and C3 tagger VLM calls."""
@@ -532,7 +467,7 @@ def _build_page_ctx(
         pdf_path=pdf_path,
         job_id=job_id,
         blackboard=blackboard,
-        budget=budget,
+        budget=None,
         trace=trace_recorder,
         output_dir=output_dir,
         settings={
@@ -722,7 +657,6 @@ def _run_hierarchy_scope(
     page_texts: dict[int, str],
     page_features: list[Any],
     page_labels: list[Any],
-    budget: Any,
     vlm_model: str | None,
     asset_extraction_enabled: bool,
     asset_max_pages: int,
@@ -801,7 +735,7 @@ def _run_hierarchy_scope(
                 pages=title_rendered,
                 tag_results=title_tags,
                 fat_leaf_pages=fat_leaf_pages,
-                budget=budget,
+                budget=None,
                 vlm_model=vlm_model,
             )
         _record_trace_stage(
@@ -898,7 +832,7 @@ def _run_hierarchy_scope(
         tags = tag_pages(
             pages=rendered,
             plans=plans,
-            budget=budget,
+            budget=None,
             vlm_model=vlm_model,
         )
     _record_trace_stage(
@@ -923,7 +857,7 @@ def _run_hierarchy_scope(
                 rendered_pages=rendered,
                 output_dir=output_dir,
                 model_name=get_asset_model(),
-                budget=budget,
+                budget=None,
                 max_pages=asset_max_pages,
                 confidence_threshold=get_asset_confidence_threshold(),
             )

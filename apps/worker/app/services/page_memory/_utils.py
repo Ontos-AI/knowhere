@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+_NATURAL_RE = re.compile(r"(\d+)")
+
+
+def _natural_key(path: str) -> list[int | str]:
+    """Split a string into a list of int/str segments for natural ordering."""
+    return [int(c) if c.isdigit() else c.lower() for c in _NATURAL_RE.split(path)]
 
 
 def sort_skeletons(skeletons: list[Any]) -> list[Any]:
@@ -11,7 +19,7 @@ def sort_skeletons(skeletons: list[Any]) -> list[Any]:
         key=lambda item: (
             int(getattr(item, "start_page", 0) or 0),
             int(getattr(item, "level", 0) or 0),
-            str(getattr(item, "section_path", "") or ""),
+            _natural_key(str(getattr(item, "section_path", "") or "")),
         ),
     )
 

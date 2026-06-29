@@ -10,8 +10,6 @@ Step 2 of page-memory native hierarchy adds:
 - Independent VLM title candidate extraction (``observed_titles``)
 - Fat-leaf gating: only pages in TOC leaves with > N pages trigger title detection
 - Title extraction uses a dedicated verbatim-only prompt (temp=0, small max_tokens)
-
-Budget is drawn from the ``page_tagging`` stage envelope.
 """
 
 from __future__ import annotations
@@ -24,12 +22,10 @@ from typing import Any, cast
 
 from loguru import logger
 
-from app.services.document_agent.budget import BudgetTracker
 from app.services.page_memory.page_plan import PagePlan, PageProcessingStrategy
 from app.services.page_memory.page_renderer import PageRenderResult
 from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.summary.engine import summarize
-from shared.utils.token_estimate import estimate_tokens
 
 
 @dataclass
@@ -51,8 +47,6 @@ class PageTagResult:
     """
 
 
-_BUDGET_STAGE = "page_tagging"
-_BUDGET_STAGE_TITLES = "page_title_detection"
 _MAX_JSON_RETRIES = 1
 _DEFAULT_FINE_MIN_PAGES = 4
 
@@ -61,7 +55,7 @@ def tag_pages(
     *,
     pages: list[PageRenderResult],
     plans: list[PagePlan],
-    budget: BudgetTracker | None = None,
+    budget: Any | None = None,
     vlm_model: str | None = None,
 ) -> list[PageTagResult]:
     """Tag all pages according to their processing plan.
@@ -73,7 +67,7 @@ def tag_pages(
     plans:
         Processing plans (from ``page_plan``).
     budget:
-        Optional budget tracker with a ``page_tagging`` stage envelope.
+        Deprecated, ignored. Kept for call-site compatibility.
     vlm_model:
         VLM model name; falls back to ``$IMAGE_MODEL``.
 
@@ -105,16 +99,16 @@ def tag_pages(
             return _tag_skip(page)
 
         if strategy == PageProcessingStrategy.TEXT_ONLY:
-            return _tag_text_only(page, budget=budget)
+            return _tag_text_only(page)
 
         if not model:
             logger.warning(
                 "[page_tagger] no VLM model configured for page {}; using text_only",
                 page.page_index,
             )
-            return _tag_text_only(page, budget=budget)
+            return _tag_text_only(page)
 
-        return _tag_vlm_lite(page, model=model, budget=budget)
+        return _tag_vlm_lite(page, model=model)
 
     pool = GeventPool(size=min(max_concurrent, len(pages)))
     greenlets = [pool.spawn(_tag_one, page) for page in pages]
@@ -150,8 +144,6 @@ def _tag_skip(page: PageRenderResult) -> PageTagResult:
 
 def _tag_text_only(
     page: PageRenderResult,
-    *,
-    budget: BudgetTracker | None,
 ) -> PageTagResult:
     """Extract summary + entities from raw page text via page-memory-text-tag.
 
@@ -168,10 +160,7 @@ def _tag_text_only(
             strategy_used="text_only",
         )
 
-    model = (
-        os.environ.get("PAGE_MEMORY_TEXT_TAG_MODEL")
-        or os.environ.get("NORMOL_MODEL", "deepseek-chat")
-    )
+    model = os.environ.get("NORMOL_MODEL", "deepseek-v4-flash")
     text_input = raw[:4000]  # cap to avoid token overflow
     prompt, temperature, top_p, max_tokens = build_prompt(
         "page-memory-text-tag",
@@ -179,7 +168,6 @@ def _tag_text_only(
         "",
         paras={"max_tokens": 600, "page_text": text_input},
     )
-    est = estimate_tokens(prompt)
 
     try:
         from shared.services.ai.openai_compatible_client_sync import get_openai_client
@@ -194,13 +182,6 @@ def _tag_text_only(
             response_format={"type": "json_object"},
             usage_task="page_memory.text_tag",
         )
-        if budget is not None:
-            budget.commit(
-                "visual",
-                actual=usage.get("total_tokens", est),
-                est=0,  # text path does not reserve from visual budget
-                stage=_BUDGET_STAGE,
-            )
     except Exception as exc:
         logger.warning(
             "[page_tagger] text_only LLM failed for page {}: {}",
@@ -242,7 +223,6 @@ def _tag_vlm_lite(
     page: PageRenderResult,
     *,
     model: str,
-    budget: BudgetTracker | None,
 ) -> PageTagResult:
     """Send page PNG to the VLM via the unified engine."""
     if not page.image_path or not os.path.exists(page.image_path):
@@ -250,15 +230,13 @@ def _tag_vlm_lite(
             "[page_tagger] no PNG for page {}; text_only fallback",
             page.page_index,
         )
-        return _tag_text_only(page, budget=budget)
+        return _tag_text_only(page)
 
     result = summarize(
         mode="page",
         image_paths=[page.image_path],
         model=model,
         usage_task="page_memory.tag",
-        budget=budget,
-        budget_stage=_BUDGET_STAGE,
     )
     return PageTagResult(
         page_index=page.page_index,
@@ -282,7 +260,7 @@ def tag_page_titles(
     pages: list[PageRenderResult],
     tag_results: list[PageTagResult],
     fat_leaf_pages: set[int],
-    budget: BudgetTracker | None = None,
+    budget: Any | None = None,
     vlm_model: str | None = None,
 ) -> list[PageTagResult]:
     """Run independent VLM title detection on fat-leaf pages.
@@ -297,7 +275,7 @@ def tag_page_titles(
         Set of page indices belonging to fat-leaf TOC sections
         (those with > ``PAGE_MEMORY_FINE_MIN_PAGES`` pages).
     budget:
-        Optional budget tracker.
+        Deprecated, ignored. Kept for call-site compatibility.
     vlm_model:
         VLM model name; falls back to ``$IMAGE_MODEL``.
 
@@ -329,7 +307,7 @@ def tag_page_titles(
         if not page.image_path or not os.path.exists(page.image_path):
             continue
 
-        observed = _tag_vlm_titles(page, model=model, budget=budget)
+        observed = _tag_vlm_titles(page, model=model)
         tag.observed_titles = observed
         vlm_calls += 1
         titles_found += len(observed)
@@ -347,7 +325,6 @@ def _tag_vlm_titles(
     page: PageRenderResult,
     *,
     model: str,
-    budget: BudgetTracker | None,
 ) -> list[dict[str, Any]]:
     """Send page PNG to VLM with the title-only prompt and parse results."""
     prompt, temperature, _top_p, max_tokens = build_prompt(
@@ -356,15 +333,6 @@ def _tag_vlm_titles(
         "",
         paras={"max_tokens": 300},
     )
-    est = estimate_tokens(prompt) + 800  # ~800 tokens for image
-
-    if budget is not None:
-        if not budget.try_reserve("visual", est, stage=_BUDGET_STAGE_TITLES):
-            logger.debug(
-                "[page_tagger] title budget exhausted for page {}",
-                page.page_index,
-            )
-            return []
 
     try:
         with open(page.image_path, "rb") as f:
@@ -374,8 +342,6 @@ def _tag_vlm_titles(
             "[page_tagger] failed to read PNG for title detection page {}: {}",
             page.page_index, exc,
         )
-        if budget is not None:
-            budget.refund("visual", est=est, stage=_BUDGET_STAGE_TITLES)
         return []
 
     content_parts: list[dict[str, Any]] = [
@@ -400,13 +366,6 @@ def _tag_vlm_titles(
                 response_format={"type": "json_object"},
                 usage_task="page_memory.title_detection",
             )
-            if budget is not None:
-                budget.commit(
-                    "visual",
-                    actual=usage.get("total_tokens", est),
-                    est=est,
-                    stage=_BUDGET_STAGE_TITLES,
-                )
 
             data = json.loads(raw_response)
             titles_raw = data.get("titles", [])
@@ -417,10 +376,10 @@ def _tag_vlm_titles(
             for item in titles_raw:
                 if isinstance(item, dict) and item.get("text"):
                     text = str(item["text"]).strip()
-                    
+
                     is_table = item.get("is_in_table") is True
                     is_header = item.get("is_in_header_footer") is True
-                    
+
                     if is_table or is_header:
                         logger.debug(
                             "[page_tagger] filtered CoT title on page {}: '{}' (table={}, header={})",
@@ -455,8 +414,6 @@ def _tag_vlm_titles(
                 "[page_tagger] title VLM failed for page {}: {}",
                 page.page_index, exc,
             )
-            if budget is not None:
-                budget.refund("visual", est=est, stage=_BUDGET_STAGE_TITLES)
             return []
 
     return []

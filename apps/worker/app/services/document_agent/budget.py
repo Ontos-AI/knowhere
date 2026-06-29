@@ -164,3 +164,25 @@ class BudgetTracker:
                     for stage, usage in sorted(self._visual_stage_usage.items())
                 },
             }
+
+    def fork(self, ratio: float) -> "BudgetTracker":
+        """Create an independent child tracker with proportional remaining budget."""
+        ratio = max(0.0, min(1.0, float(ratio)))
+        with self._lock:
+            child_envelopes: dict[str, StageEnvelope] = {}
+            for stage, envelope in self._visual_stage_envelopes.items():
+                usage = self._visual_stage_usage.get(stage, StageUsage())
+                remaining_guarantee = max(envelope.min_guarantee - usage.committed, 0)
+                if stage == "page_locate":
+                    child_envelopes[stage] = StageEnvelope(min_guarantee=0, cap=0)
+                    continue
+                child_envelopes[stage] = StageEnvelope(
+                    min_guarantee=int(remaining_guarantee * ratio),
+                    cap=int(envelope.cap * ratio) if envelope.cap is not None else None,
+                )
+
+            return BudgetTracker(
+                plan_budget=int(self._plan.remaining * ratio),
+                visual_budget=int(self._visual.remaining * ratio),
+                visual_stage_envelopes=child_envelopes,
+            )

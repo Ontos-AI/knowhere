@@ -27,7 +27,6 @@ from typing import Any
 
 from loguru import logger
 
-from app.services.document_agent.budget import BudgetTracker
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.support.parser_rows import serialize_entities
 from app.services.page_memory.page_assets import (
@@ -40,7 +39,6 @@ from shared.services.ai.summary.engine import summarize, transcribe
 
 SAME_AS_PREFIX = "SAME-AS"
 
-_BUDGET_STAGE = "page_tagging"
 _NODE_SUMMARY_MAX_PAGES_DEFAULT = 5
 
 
@@ -255,7 +253,7 @@ def resolve_page_text(
     raw_text: str,
     image_path: str | None,
     vlm_model: str | None,
-    budget: BudgetTracker | None,
+    budget: Any | None = None,
 ) -> str:
     """Body text for an owned page: PyMuPDF text, or VLM OCR for scanned pages.
 
@@ -272,8 +270,6 @@ def resolve_page_text(
         model=vlm_model,
         max_tokens=1500,
         usage_task="page_memory.node_ocr",
-        budget=budget,
-        budget_stage=_BUDGET_STAGE,
     )
 
 
@@ -284,7 +280,7 @@ def compute_node_summary(
     tag_by_page: dict[int, PageTagResult],
     image_path_by_page: dict[int, str],
     vlm_model: str | None,
-    budget: BudgetTracker | None,
+    budget: Any | None = None,
 ) -> tuple[str, list[str], list[dict[str, str]]]:
     """Settle a node's summary, keywords, and typed entities (§4.4).
 
@@ -316,7 +312,6 @@ def compute_node_summary(
             page_to_leaves=page_to_leaves,
             image_path_by_page=image_path_by_page,
             vlm_model=vlm_model,
-            budget=budget,
         )
         if result is not None:
             return result
@@ -365,7 +360,6 @@ def _vlm_node_summary(
     page_to_leaves: dict[int, list[LeafNode]],
     image_path_by_page: dict[int, str],
     vlm_model: str,
-    budget: BudgetTracker | None,
 ) -> tuple[str, list[str], list[dict[str, str]]] | None:
     leaf = view.leaf
     pages = view.pages[: _node_summary_max_pages()]
@@ -391,8 +385,6 @@ def _vlm_node_summary(
         image_paths=image_paths,
         model=vlm_model,
         usage_task="page_memory.node_summary",
-        budget=budget,
-        budget_stage=_BUDGET_STAGE,
         prompt_task="page-memory-node-summary",
         prompt_paras={
             "max_tokens": 400,
@@ -422,7 +414,7 @@ def build_node_rows(
     tag_by_page: dict[int, PageTagResult],
     filename: str,
     verdict: str,
-    budget: BudgetTracker | None = None,
+    budget: Any | None = None,
     vlm_model: str | None = None,
     page_assets_by_page: dict[int, list[PageAsset]] | None = None,
 ) -> list[dict[str, Any]]:
@@ -441,7 +433,6 @@ def build_node_rows(
                 raw_text=raw_text_by_page.get(page, ""),
                 image_path=image_path_by_page.get(page),
                 vlm_model=vlm_model,
-                budget=budget,
             )
 
     rows: list[dict[str, Any]] = []
@@ -459,7 +450,6 @@ def build_node_rows(
             tag_by_page=tag_by_page,
             image_path_by_page=image_path_by_page,
             vlm_model=vlm_model,
-            budget=budget,
         )
         know_id = f"node_{gen_str_codes(f'{filename}::{leaf.section_path}')}"
         row = {

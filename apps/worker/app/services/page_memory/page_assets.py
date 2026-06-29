@@ -16,15 +16,12 @@ import pandas as pd
 from loguru import logger
 from PIL import Image, ImageDraw, ImageFont
 
-from app.services.document_agent.budget import BudgetTracker
 from app.services.document_agent.visual import visual_debug_enabled
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.support.parser_rows import serialize_entities
 from app.services.page_memory.page_renderer import PageRenderResult
 from shared.services.ai.prompt_service import build_prompt
-from shared.utils.token_estimate import estimate_tokens
 
-_BUDGET_STAGE = "page_asset_extraction"
 _GRID_SIZE = 1000
 _VALID_KINDS = {"table", "figure"}
 _DEFAULT_ASSET_MODEL = "qwen3.6-flash"
@@ -93,20 +90,12 @@ def get_asset_max_pages(page_count: int) -> int:
     return max(0, min(page_count, value))
 
 
-def get_asset_budget(page_count: int) -> int:
-    default_budget = str(page_count * 600)
-    try:
-        return max(0, int(os.environ.get("PAGE_MEMORY_ASSET_BUDGET", default_budget)))
-    except ValueError:
-        return max(0, page_count * 600)
-
-
 def detect_page_assets(
     *,
     page: PageRenderResult,
     source_name: str,
     model_name: str | None,
-    budget: BudgetTracker | None,
+    budget: Any | None = None,
     confidence_threshold: float,
 ) -> list[PageAsset]:
     """Detect asset regions on one rendered page via VLM."""
@@ -132,14 +121,6 @@ def detect_page_assets(
         "",
         paras={"max_tokens": 1200, "grid_size": _GRID_SIZE},
     )
-    est = estimate_tokens(prompt) + 1000
-    if budget is not None and not budget.try_reserve(
-        "visual", est, stage=_BUDGET_STAGE
-    ):
-        logger.debug(
-            "[page_assets] asset budget exhausted before page {}", page.page_index
-        )
-        return []
 
     try:
         from shared.services.ai.openai_compatible_client_sync import get_openai_client
@@ -169,13 +150,6 @@ def detect_page_assets(
             response_format={"type": "json_object"},
             usage_task="page_memory.asset_detect",
         )
-        if budget is not None:
-            budget.commit(
-                "visual",
-                actual=usage.get("total_tokens", est),
-                est=est,
-                stage=_BUDGET_STAGE,
-            )
         data = json.loads(raw_response)
     except Exception as exc:
         logger.warning(
@@ -183,8 +157,6 @@ def detect_page_assets(
             page.page_index,
             exc,
         )
-        if budget is not None:
-            budget.refund("visual", est=est, stage=_BUDGET_STAGE)
         return []
 
     regions = data.get("regions") if isinstance(data, dict) else None
@@ -353,7 +325,7 @@ def summarize_page_asset(
     *,
     asset: PageAsset,
     model_name: str | None,
-    budget: BudgetTracker | None,
+    budget: Any | None = None,
 ) -> PageAsset:
     """Summarize a cropped asset via the unified engine (§4.3).
 
@@ -378,8 +350,6 @@ def summarize_page_asset(
             text=table_html,
             model=model_name,
             usage_task="page_memory.asset_summary",
-            budget=budget,
-            budget_stage=_BUDGET_STAGE,
             asset_title_hint=asset.title,
         )
     elif asset.image_path and os.path.exists(asset.image_path):
@@ -389,8 +359,6 @@ def summarize_page_asset(
             text=asset.title,
             model=model_name,
             usage_task="page_memory.asset_summary",
-            budget=budget,
-            budget_stage=_BUDGET_STAGE,
             asset_title_hint=asset.title,
         )
     else:
@@ -414,7 +382,7 @@ def extract_page_assets_from_renders(
     rendered_pages: list[PageRenderResult],
     output_dir: str,
     model_name: str | None,
-    budget: BudgetTracker | None,
+    budget: Any | None = None,
     max_pages: int,
     confidence_threshold: float,
 ) -> dict[int, list[PageAsset]]:
@@ -429,7 +397,6 @@ def extract_page_assets_from_renders(
             page=page,
             source_name=source_name,
             model_name=model_name,
-            budget=budget,
             confidence_threshold=confidence_threshold,
         )
         page_assets_list: list[PageAsset] = []
@@ -463,7 +430,6 @@ def extract_page_assets_from_renders(
             assets_by_page=assets_by_page,
             output_dir=output_dir,
             model_name=model_name,
-            budget=budget,
         )
 
     if pending_summaries:
@@ -471,7 +437,6 @@ def extract_page_assets_from_renders(
         _batch_summarize_assets(
             assets=pending_summaries,
             model_name=model_name,
-            budget=budget,
         )
 
     logger.info(
@@ -486,7 +451,6 @@ def _batch_summarize_assets(
     *,
     assets: list[PageAsset],
     model_name: str | None,
-    budget: BudgetTracker | None,
 ) -> None:
     """Summarize assets in parallel using a gevent pool."""
     import gevent
@@ -507,7 +471,7 @@ def _batch_summarize_assets(
     )
     pool = GeventPool(size=min(max_concurrent, len(assets)))
     greenlets = [
-        pool.spawn(summarize_page_asset, asset=asset, model_name=model_name, budget=budget)
+        pool.spawn(summarize_page_asset, asset=asset, model_name=model_name)
         for asset in assets
     ]
     gevent.joinall(greenlets)
@@ -753,7 +717,6 @@ def merge_cross_page_tables(
     assets_by_page: dict[int, list[PageAsset]],
     output_dir: str,
     model_name: str | None,
-    budget: BudgetTracker | None,
 ) -> dict[int, list[PageAsset]]:
     """Detect and merge tables that span consecutive pages (C5b)."""
     sorted_pages = sorted(assets_by_page.keys())
@@ -794,7 +757,6 @@ def merge_cross_page_tables(
             head_html_path=head_table.html_path,
             col_count=tail_cols,
             model_name=model_name,
-            budget=budget,
         )
         if not is_continuation:
             logger.debug(
@@ -865,7 +827,6 @@ def _llm_judge_table_continuity(
     head_html_path: str,
     col_count: int,
     model_name: str | None,
-    budget: BudgetTracker | None,
 ) -> tuple[bool, int]:
     """Ask LLM whether two adjacent tables are a cross-page continuation.
 
@@ -887,12 +848,6 @@ def _llm_judge_table_continuity(
             "header_rows": header_rows,
         },
     )
-    est = estimate_tokens(prompt) + 100
-    if budget is not None and not budget.try_reserve(
-        "visual", est, stage=_BUDGET_STAGE
-    ):
-        logger.debug("[page_assets] budget exhausted for table continuity check")
-        return False, 0
 
     try:
         from shared.services.ai.openai_compatible_client_sync import get_openai_client
@@ -906,21 +861,12 @@ def _llm_judge_table_continuity(
             response_format={"type": "json_object"},
             usage_task="page_memory.table_continuity",
         )
-        if budget is not None:
-            budget.commit(
-                "visual",
-                actual=usage.get("total_tokens", est),
-                est=est,
-                stage=_BUDGET_STAGE,
-            )
         data = json.loads(raw_response)
         is_continuation = bool(data.get("is_continuation", False))
         header_rows_to_skip = max(0, int(data.get("header_rows_to_skip", 0)))
         return is_continuation, header_rows_to_skip
     except Exception as exc:
         logger.warning("[page_assets] table continuity LLM call failed: {}", exc)
-        if budget is not None:
-            budget.refund("visual", est=est, stage=_BUDGET_STAGE)
         return False, 0
 
 
@@ -965,7 +911,6 @@ __all__ = [
     "asset_reference",
     "build_asset_rows",
     "extract_page_assets_from_renders",
-    "get_asset_budget",
     "get_asset_confidence_threshold",
     "get_asset_max_pages",
     "get_asset_model",
