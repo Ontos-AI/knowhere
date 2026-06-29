@@ -598,6 +598,7 @@ def test_standard_pdf_profile_builds_page_toc_and_lightweight_anatomy_by_default
 
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
     monkeypatch.setattr(doc_profiler.settings, "MAX_PDF_PAGE_LIMIT", 200)
+    monkeypatch.setattr(doc_profiler.settings, "PDF_PROFILE_TOC_ENABLED", True)
 
     profile = profile_document(
         str(tmp_path / "standard.pdf"),

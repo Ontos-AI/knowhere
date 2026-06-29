@@ -119,7 +119,7 @@ def test_render_page_chunk_uses_summary_page_nums_and_page_pdf() -> None:
     )
 
     rendered = "\n".join(parts)
-    assert "Pages: 225, 226" in rendered
+    assert "Pages 225-226" in rendered
     assert "制度标准总则摘要" in rendered
     assert (
         "Page PDF (pages 225-226): "

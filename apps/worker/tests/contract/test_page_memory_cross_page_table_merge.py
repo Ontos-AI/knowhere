@@ -195,7 +195,6 @@ class TestMergeCrossPageTablesSkipsNonConsecutive:
             assets_by_page=assets_by_page,
             output_dir=str(tmp_path),
             model_name=None,
-            budget=None,
         )
         assert 10 in result
         assert 12 in result
@@ -214,7 +213,6 @@ class TestMergeCrossPageTablesSkipsNonConsecutive:
             assets_by_page=assets_by_page,
             output_dir=str(tmp_path),
             model_name=None,
-            budget=None,
         )
         assert 10 in result
         assert 11 in result
