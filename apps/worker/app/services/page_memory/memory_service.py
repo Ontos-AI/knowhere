@@ -363,38 +363,74 @@ def _build_page_dataframe(
     page_labels = anatomy.page_labels if anatomy else []
     vlm_model = os.environ.get("IMAGE_MODEL")
 
+    scope_concurrency = int(
+        os.environ.get("PAGE_MEMORY_SCOPE_CONCURRENCY", "4")
+    )
     logger.info(
-        "[page_memory] processing {} hierarchy scopes (production-shaped)",
+        "[page_memory] processing {} hierarchy scopes (concurrency={})",
         len(coarse_scopes),
+        scope_concurrency,
     )
     scope_results: list[_ScopeRunResult] = []
     asset_pages_remaining = (
         get_asset_max_pages(page_count) if asset_extraction_enabled else 0
     )
-    for index, scope in enumerate(coarse_scopes, start=1):
-        result = _run_hierarchy_scope(
-            scope=scope,
-            scope_index=index,
-            scope_count=len(coarse_scopes),
-            pdf_path=pdf_path,
-            filename=filename,
-            output_dir=output_dir,
-            page_count=page_count,
-            page_texts=page_texts,
-            page_features=page_features,
-            page_labels=page_labels,
-            budget=budget,
-            vlm_model=vlm_model,
-            asset_extraction_enabled=asset_extraction_enabled,
-            asset_max_pages=asset_pages_remaining,
-            trace_recorder=trace_recorder,
-        )
-        scope_results.append(result)
-        if asset_extraction_enabled:
-            asset_pages_remaining = max(
-                asset_pages_remaining - len(result.final_pages),
-                0,
+
+    # Common keyword arguments shared by every scope invocation.
+    _scope_kwargs = dict(
+        pdf_path=pdf_path,
+        filename=filename,
+        output_dir=output_dir,
+        page_count=page_count,
+        page_texts=page_texts,
+        page_features=page_features,
+        page_labels=page_labels,
+        budget=budget,
+        vlm_model=vlm_model,
+        asset_extraction_enabled=asset_extraction_enabled,
+        trace_recorder=trace_recorder,
+    )
+
+    if scope_concurrency <= 1 or len(coarse_scopes) <= 1:
+        # ── serial path (identical to previous behaviour) ─────────────
+        for index, scope in enumerate(coarse_scopes, start=1):
+            result = _run_scope_with_retry(
+                scope=scope,
+                scope_index=index,
+                scope_count=len(coarse_scopes),
+                asset_max_pages=asset_pages_remaining,
+                **_scope_kwargs,
             )
+            scope_results.append(result)
+            if asset_extraction_enabled:
+                asset_pages_remaining = max(
+                    asset_pages_remaining - len(result.final_pages),
+                    0,
+                )
+    else:
+        # ── concurrent path (GeventPool) ──────────────────────────────
+        import gevent
+        from gevent.pool import Pool as GeventPool
+
+        asset_allocations = _allocate_asset_pages(
+            coarse_scopes, asset_pages_remaining,
+        )
+        pool = GeventPool(
+            size=min(scope_concurrency, len(coarse_scopes)),
+        )
+        greenlets = [
+            pool.spawn(
+                _run_scope_with_retry,
+                scope=scope,
+                scope_index=idx,
+                scope_count=len(coarse_scopes),
+                asset_max_pages=asset_allocations[idx - 1],
+                **_scope_kwargs,
+            )
+            for idx, scope in enumerate(coarse_scopes, start=1)
+        ]
+        gevent.joinall(greenlets, raise_error=True)
+        scope_results = [g.value for g in greenlets]
 
     skeletons = sort_skeletons(
         [
@@ -617,6 +653,61 @@ def _build_hierarchy_scopes(
             end_page=pages[-1] if pages else page_count,
         )
     ]
+
+
+def _allocate_asset_pages(
+    scopes: list[_HierarchyScope], total_budget: int,
+) -> list[int]:
+    """Pre-allocate asset page budget proportionally to avoid concurrency races."""
+    if total_budget <= 0 or not scopes:
+        return [0] * len(scopes)
+    page_counts = [max(s.end_page - s.start_page + 1, 1) for s in scopes]
+    total_pages = sum(page_counts)
+    allocations: list[int] = []
+    remaining = total_budget
+    for i, count in enumerate(page_counts):
+        if i == len(page_counts) - 1:
+            allocations.append(remaining)
+        else:
+            share = min(int(total_budget * count / total_pages), remaining)
+            allocations.append(share)
+            remaining -= share
+    return allocations
+
+
+_SCOPE_RETRY_DELAY_SECONDS = 10.0
+
+
+def _run_scope_with_retry(
+    **kwargs: Any,
+) -> _ScopeRunResult:
+    """Execute a single scope, retrying once on transient LLM failures."""
+    import gevent
+
+    from shared.core.exceptions.domain_exceptions import LLMServiceException
+
+    scope: _HierarchyScope = kwargs["scope"]
+    scope_index: int = kwargs["scope_index"]
+    scope_count: int = kwargs["scope_count"]
+
+    for attempt in range(2):
+        try:
+            return _run_hierarchy_scope(**kwargs)
+        except LLMServiceException as exc:
+            if attempt == 0:
+                logger.warning(
+                    "[page_memory] scope {}/{} {} LLM failure, retrying after {}s: {}",
+                    scope_index,
+                    scope_count,
+                    scope.scope_id,
+                    _SCOPE_RETRY_DELAY_SECONDS,
+                    exc,
+                )
+                gevent.sleep(_SCOPE_RETRY_DELAY_SECONDS)
+            else:
+                raise
+    # Unreachable, but satisfies type-checker
+    raise RuntimeError("unreachable")  # pragma: no cover
 
 
 def _run_hierarchy_scope(

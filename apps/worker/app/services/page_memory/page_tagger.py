@@ -105,14 +105,14 @@ def tag_pages(
             return _tag_skip(page)
 
         if strategy == PageProcessingStrategy.TEXT_ONLY:
-            return _tag_text_only(page)
+            return _tag_text_only(page, budget=budget)
 
         if not model:
             logger.warning(
-                "[page_tagger] no VLM model for page {}; falling back to text_only",
+                "[page_tagger] no VLM model configured for page {}; using text_only",
                 page.page_index,
             )
-            return _tag_text_only(page)
+            return _tag_text_only(page, budget=budget)
 
         return _tag_vlm_lite(page, model=model, budget=budget)
 
@@ -148,12 +148,16 @@ def _tag_skip(page: PageRenderResult) -> PageTagResult:
     )
 
 
-def _tag_text_only(page: PageRenderResult) -> PageTagResult:
-    """Extract summary + keywords from raw page text via the unified engine.
+def _tag_text_only(
+    page: PageRenderResult,
+    *,
+    budget: BudgetTracker | None,
+) -> PageTagResult:
+    """Extract summary + entities from raw page text via page-memory-text-tag.
 
-    Returns an EMPTY-marked result when the page has no extractable text. On LLM
-    failure the engine returns an empty summary; we surface that directly (no
-    raw-text truncation fallback — empty means the model could not summarize).
+    Uses the same output spec ({summary, entities}) as the VLM path so
+    downstream consumers need no special-casing. Returns an EMPTY-marked
+    result when the page has no extractable text.
     """
     raw = page.raw_text.strip()
     if not raw:
@@ -164,18 +168,72 @@ def _tag_text_only(page: PageRenderResult) -> PageTagResult:
             strategy_used="text_only",
         )
 
-    result = summarize(
-        mode="text",
-        text=raw[:3000],  # limit input to avoid token overflow
-        summary_len=200,
-        max_keywords=5,
-        usage_task="page_memory.text_only_summary",
+    model = (
+        os.environ.get("PAGE_MEMORY_TEXT_TAG_MODEL")
+        or os.environ.get("NORMOL_MODEL", "deepseek-chat")
     )
+    text_input = raw[:4000]  # cap to avoid token overflow
+    prompt, temperature, top_p, max_tokens = build_prompt(
+        "page-memory-text-tag",
+        "",
+        "",
+        paras={"max_tokens": 600, "page_text": text_input},
+    )
+    est = estimate_tokens(prompt)
+
+    try:
+        from shared.services.ai.openai_compatible_client_sync import get_openai_client
+
+        client = get_openai_client(model=model)
+        raw_response, usage = client.chat_completion_with_usage(
+            messages=cast(Any, [{"role": "user", "content": prompt}]),
+            model=model,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            usage_task="page_memory.text_tag",
+        )
+        if budget is not None:
+            budget.commit(
+                "visual",
+                actual=usage.get("total_tokens", est),
+                est=0,  # text path does not reserve from visual budget
+                stage=_BUDGET_STAGE,
+            )
+    except Exception as exc:
+        logger.warning(
+            "[page_tagger] text_only LLM failed for page {}: {}",
+            page.page_index,
+            exc,
+        )
+        return PageTagResult(
+            page_index=page.page_index,
+            summary="",
+            keywords=[],
+            strategy_used="text_only",
+        )
+
+    try:
+        data = json.loads(raw_response)
+    except json.JSONDecodeError:
+        return PageTagResult(
+            page_index=page.page_index,
+            summary="",
+            keywords=[],
+            strategy_used="text_only",
+        )
+
+    entities_raw = data.get("entities") or []
+    entities = [
+        e for e in entities_raw
+        if isinstance(e, dict) and e.get("text")
+    ]
     return PageTagResult(
         page_index=page.page_index,
-        summary=result.summary,
-        keywords=[e.text for e in result.entities],
-        entities=[e.to_dict() for e in result.entities],
+        summary=str(data.get("summary") or "").strip(),
+        keywords=[str(e["text"]) for e in entities],
+        entities=entities,
         strategy_used="text_only",
     )
 
@@ -186,13 +244,13 @@ def _tag_vlm_lite(
     model: str,
     budget: BudgetTracker | None,
 ) -> PageTagResult:
-    """Send page PNG to the VLM via the unified engine; text_only on miss."""
+    """Send page PNG to the VLM via the unified engine."""
     if not page.image_path or not os.path.exists(page.image_path):
         logger.warning(
             "[page_tagger] no PNG for page {}; text_only fallback",
             page.page_index,
         )
-        return _tag_text_only(page)
+        return _tag_text_only(page, budget=budget)
 
     result = summarize(
         mode="page",
@@ -202,17 +260,6 @@ def _tag_vlm_lite(
         budget=budget,
         budget_stage=_BUDGET_STAGE,
     )
-    if not result.summary and not result.entities:
-        # Engine returned empty (budget exhausted, image unreadable, or JSON
-        # miss). Fall back to text_only so the page still gets a summary.
-        fallback = _tag_text_only(page)
-        return PageTagResult(
-            page_index=fallback.page_index,
-            summary=fallback.summary,
-            keywords=fallback.keywords,
-            entities=fallback.entities,
-            strategy_used="vlm_lite_fallback",
-        )
     return PageTagResult(
         page_index=page.page_index,
         summary=result.summary,

@@ -407,3 +407,127 @@ def _log_unlocated_title_warnings(
                 warning.get("parent_scope"),
                 warning.get("path_titles"),
             )
+
+
+def collapse_single_child_chains(
+    skeletons: list[SectionSkeleton],
+) -> list[SectionSkeleton]:
+    """Collapse single-child chains in a flat skeleton list.
+
+    Rebuilds the parent/child tree from ``parent_path`` references, then
+    bottom-up merges any parent whose only child is itself a parent (has its
+    own children).  Titles concatenate as ``"{parent.title} {child.title}"``,
+    the parent keeps its own ``section_path`` and page range, and grandchildren
+    are promoted one level and re-parented.
+
+    Returns a sorted flat skeleton list.
+    """
+    from app.services.page_memory._utils import sort_skeletons
+
+    if not skeletons:
+        return []
+
+    # Build child lookup: parent_path → list of children skeletons
+    by_path: dict[str, SectionSkeleton] = {s.section_path: s for s in skeletons}
+    children_of: dict[str, list[str]] = {}
+    roots: list[str] = []
+
+    for s in skeletons:
+        pp = s.parent_path
+        if pp is None or pp not in by_path:
+            roots.append(s.section_path)
+        else:
+            children_of.setdefault(pp, []).append(s.section_path)
+
+    # Bottom-up collapse via post-order traversal
+    result: list[SectionSkeleton] = []
+
+    def _collapse_node(path: str) -> None:
+        node = by_path[path]
+        child_paths = children_of.get(path, [])
+
+        # Recurse into children first (bottom-up)
+        for cp in list(child_paths):
+            _collapse_node(cp)
+
+        # Re-read children after recursive collapse may have mutated by_path
+        child_paths = children_of.get(path, [])
+
+        if len(child_paths) == 1:
+            only_child_path = child_paths[0]
+            only_child = by_path[only_child_path]
+            grandchild_paths = children_of.get(only_child_path, [])
+
+            # Merge: parent absorbs its only child
+            collapsed_from = list(node.evidence.get("collapsed_from", []))
+            collapsed_from.append(only_child_path)
+            collapsed_from.extend(only_child.evidence.get("collapsed_from", []))
+
+            merged_title = f"{node.title} {only_child.title}"
+            merged_evidence = dict(node.evidence)
+            merged_evidence["collapsed_from"] = collapsed_from
+
+            merged = SectionSkeleton(
+                section_path=node.section_path,
+                level=node.level,
+                start_page=node.start_page,
+                end_page=node.end_page,
+                title=merged_title,
+                parent_path=node.parent_path,
+                evidence=merged_evidence,
+            )
+            by_path[path] = merged
+
+            # Promote grandchildren under the merged node
+            new_children: list[str] = []
+            for gc_path in grandchild_paths:
+                gc = by_path[gc_path]
+                new_path = f"{node.section_path}/{gc.title}"
+                promoted = SectionSkeleton(
+                    section_path=new_path,
+                    level=gc.level - 1,
+                    start_page=gc.start_page,
+                    end_page=gc.end_page,
+                    title=gc.title,
+                    parent_path=node.section_path,
+                    evidence=dict(gc.evidence),
+                )
+                by_path[new_path] = promoted
+                new_children.append(new_path)
+                # Transfer grandchild's children to the new path
+                if gc_path in children_of:
+                    children_of[new_path] = children_of.pop(gc_path)
+                    # Update parent_path of great-grandchildren
+                    for ggc_path in children_of.get(new_path, []):
+                        ggc = by_path[ggc_path]
+                        by_path[ggc_path] = SectionSkeleton(
+                            section_path=ggc.section_path,
+                            level=ggc.level,
+                            start_page=ggc.start_page,
+                            end_page=ggc.end_page,
+                            title=ggc.title,
+                            parent_path=new_path,
+                            evidence=dict(ggc.evidence),
+                        )
+                # Remove old gc entry
+                by_path.pop(gc_path, None)
+
+            children_of[path] = new_children
+            # Remove the absorbed child
+            children_of.pop(only_child_path, None)
+            by_path.pop(only_child_path, None)
+
+    for root_path in roots:
+        _collapse_node(root_path)
+
+    # Flatten all remaining nodes
+    def _collect(path: str) -> None:
+        if path in by_path:
+            result.append(by_path[path])
+        for cp in children_of.get(path, []):
+            _collect(cp)
+
+    for root_path in roots:
+        _collect(root_path)
+
+    return sort_skeletons(result)

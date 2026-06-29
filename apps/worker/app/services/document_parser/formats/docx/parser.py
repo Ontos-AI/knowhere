@@ -468,7 +468,6 @@ def parse_docx(
     doc_data = load_file_bytes(docx_path, file_url=file_url)
 
     doc_structure = []
-    heading_data = pd.DataFrame(columns=["text", "level"])
     headings_stack = [{"level": -1, "content": doc_structure}]
     current_heading = ""
 
@@ -526,7 +525,6 @@ def parse_docx(
     else:
         text = filename.split(".")[0]
         outline_level = 1
-        heading_data.loc[len(heading_data)] = [text, outline_level]
         current_heading = text
         new_content = {"heading": text, "content": [], "level": outline_level}
         headings_stack[-1]["content"].append(new_content)

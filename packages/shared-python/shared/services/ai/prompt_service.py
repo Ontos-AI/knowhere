@@ -483,6 +483,36 @@ def build_prompt(task, texts, query, **kwargs):
         - Return ONLY the JSON object, with no markdown fences or extra text.
         """
 
+    elif task == "page-memory-text-tag":
+        temperature = 0
+        top_p = 0.01
+        max_tokens = kwargs.get("paras", {}).get("max_tokens", 600)
+        entity_line = _entity_instruction()
+        page_text = kwargs.get("paras", {}).get("page_text", "")
+        prompt = f"""\
+        You are annotating a single document page for a document memory system.
+        The following is the extracted text from the page:
+        \"\"\"
+        {page_text}
+        \"\"\"
+
+        Return one strict JSON object with exactly these keys:
+
+        {{
+        "summary": "<concise summary of what this page contains>",
+        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
+        }}
+
+        Rules:
+        - "summary": describe the main content in a few sentences, in the same
+          language as the text. If the text contains a table, state its topic
+          and key columns; if it describes a figure or chart, describe what it
+          depicts and any standout values. If the text is empty or carries no
+          meaningful content, set summary to an empty string.
+        {entity_line}
+        - Return ONLY the JSON object, with no markdown fences or extra text.
+        """
+
     elif task == "page-memory-vlm-title":
         temperature = 0
         top_p = 0.01
