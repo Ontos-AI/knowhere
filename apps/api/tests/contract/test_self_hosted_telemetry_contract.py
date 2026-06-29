@@ -12,6 +12,10 @@ from typing import Any, cast
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.core.config.base import (
+    DEFAULT_TELEMETRY_POSTHOG_PROJECT_KEY,
+    BaseConfig,
+)
 from shared.services.telemetry.client import TelemetryClient
 from shared.services.telemetry.config import TelemetryRuntimeConfig
 from shared.services.telemetry.api_metrics import ApiRequestTelemetryMetrics
@@ -96,6 +100,34 @@ def test_aggregate_event_names_are_allowed() -> None:
         "self_hosted_api_aggregate",
         "self_hosted_provider_aggregate",
     }.issubset(get_allowed_telemetry_event_names())
+
+
+def test_self_hosted_telemetry_defaults_to_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TELEMETRY_ENABLED", raising=False)
+    monkeypatch.delenv("TELEMETRY_POSTHOG_HOST", raising=False)
+    monkeypatch.delenv("TELEMETRY_POSTHOG_PROJECT_KEY", raising=False)
+    monkeypatch.delenv("NEXT_PUBLIC_POSTHOG_KEY", raising=False)
+
+    config = BaseConfig(_env_file=None, TMP_PATH="/tmp/knowhere")
+
+    assert config.TELEMETRY_ENABLED is True
+    assert config.TELEMETRY_POSTHOG_HOST == "https://us.i.posthog.com"
+    assert config.TELEMETRY_POSTHOG_PROJECT_KEY == DEFAULT_TELEMETRY_POSTHOG_PROJECT_KEY
+
+
+def test_self_hosted_telemetry_env_can_disable_and_override_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TELEMETRY_ENABLED", "false")
+    monkeypatch.setenv("TELEMETRY_POSTHOG_PROJECT_KEY", "phc_test_override")
+    monkeypatch.setenv("NEXT_PUBLIC_POSTHOG_KEY", "phc_next_public_should_not_win")
+
+    config = BaseConfig(_env_file=None, TMP_PATH="/tmp/knowhere")
+
+    assert config.TELEMETRY_ENABLED is False
+    assert config.TELEMETRY_POSTHOG_PROJECT_KEY == "phc_test_override"
 
 
 def test_aggregate_properties_strip_sensitive_values() -> None:
