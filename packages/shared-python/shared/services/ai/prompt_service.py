@@ -776,6 +776,51 @@ Output requirements:
         - Return ONLY the JSON object, no markdown fences or explanations.
         """
 
+    elif task == "page-memory-table-continuity":
+        temperature = 0
+        top_p = 0.01
+        max_tokens = 200
+        prompt = """\
+You are a document table analysis expert. You are given two HTML table fragments from consecutive PDF pages. Both tables have the same column count.
+
+Your task: determine whether Table B is a continuation of Table A (split across pages) or an independent table.
+
+[TABLE A - header rows (from the beginning of the table)]
+{header_rows}
+
+[TABLE A - last rows (from the end of the page)]
+{tail_rows}
+
+[TABLE B - first rows (from the beginning of the next page)]
+{head_rows}
+
+Step 1 - Continuation check:
+Table B is a NEW independent table if ANY of:
+- It opens with a standalone title or caption spanning all columns
+- Row numbering or indexing restarts rather than continuing from Table A
+- The column semantics are structurally different from Table A
+
+Table B is a CONTINUATION if:
+- Row numbering or content logically follows from Table A's last rows
+- The column structure and semantics are consistent
+
+Step 2 - Repeated header detection (only if continuation):
+Paginated tables sometimes reprint column headers at the top of each new page. Compare the first rows of Table B against Table A's header rows provided above. Count how many consecutive leading rows in Table B are repeated column headers rather than new data rows. Consider that headers may span multiple rows when columns have nested or grouped labels.
+
+Return ONLY strict JSON, no markdown fences:
+{{"is_continuation": true/false, "header_rows_to_skip": 0, "reason": "<one sentence>"}}
+
+header_rows_to_skip: integer, the number of leading rows in Table B that duplicate the table header and should be removed before merging. Set to 0 if Table B starts directly with data rows.
+"""
+        tail_rows = kwargs.get("paras", {}).get("tail_rows", "")
+        head_rows = kwargs.get("paras", {}).get("head_rows", "")
+        header_rows = kwargs.get("paras", {}).get("header_rows", "")
+        prompt = prompt.format(
+            tail_rows=tail_rows,
+            head_rows=head_rows,
+            header_rows=header_rows,
+        )
+
     # ==================== Image Processing Prompts ====================
 
     elif task == "summary-images":

@@ -18,6 +18,7 @@ from loguru import logger
 
 from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
+from app.services.page_memory._utils import collapse_page_ranges, page_scope_info
 from shared.services.ai.openai_compatible_client_sync import get_openai_client
 from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.response_process_service import eval_response
@@ -376,7 +377,7 @@ def _record_trace_hierarchy(
     try:
         trace_recorder.record_stage(
             "C4b.fine_hierarchy.scope",
-            page_info=_page_scope_info(
+            page_info=page_scope_info(
                 int(item.get("page") or 0) for item in candidates if item.get("page")
             ),
             variables={
@@ -391,34 +392,3 @@ def _record_trace_hierarchy(
             "[page_memory.fine_hierarchy] failed to record trace hierarchy: {}",
             exc,
         )
-
-
-def _page_scope_info(pages: Any) -> dict[str, Any]:
-    normalized: list[int] = []
-    for raw_page in pages or []:
-        try:
-            page = int(raw_page)
-        except (TypeError, ValueError):
-            continue
-        if page > 0:
-            normalized.append(page)
-    normalized = sorted(set(normalized))
-    return {
-        "page_count": len(normalized),
-        "page_ranges": _collapse_page_ranges(normalized),
-    }
-
-
-def _collapse_page_ranges(pages: list[int]) -> list[list[int]]:
-    if not pages:
-        return []
-    ranges: list[list[int]] = []
-    start = prev = pages[0]
-    for page in pages[1:]:
-        if page == prev + 1:
-            prev = page
-            continue
-        ranges.append([start, prev])
-        start = prev = page
-    ranges.append([start, prev])
-    return ranges

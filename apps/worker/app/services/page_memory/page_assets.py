@@ -458,7 +458,16 @@ def extract_page_assets_from_renders(
                     output_dir=output_dir,
                 )
 
+    if _table_merge_enabled():
+        assets_by_page = merge_cross_page_tables(
+            assets_by_page=assets_by_page,
+            output_dir=output_dir,
+            model_name=model_name,
+            budget=budget,
+        )
+
     if pending_summaries:
+        pending_summaries = [a for a in pending_summaries if a.html_path or a.image_path]
         _batch_summarize_assets(
             assets=pending_summaries,
             model_name=model_name,
@@ -730,6 +739,226 @@ def _safe_float(value: object, *, default: float) -> float:
         return default
 
 
+# ── C5b: cross-page table merge ──────────────────────────────────────
+
+
+def _table_merge_enabled() -> bool:
+    return os.environ.get(
+        "PAGE_MEMORY_TABLE_MERGE_ENABLED", "true"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def merge_cross_page_tables(
+    *,
+    assets_by_page: dict[int, list[PageAsset]],
+    output_dir: str,
+    model_name: str | None,
+    budget: BudgetTracker | None,
+) -> dict[int, list[PageAsset]]:
+    """Detect and merge tables that span consecutive pages (C5b)."""
+    sorted_pages = sorted(assets_by_page.keys())
+    merged_count = 0
+
+    i = 0
+    while i < len(sorted_pages) - 1:
+        curr_page = sorted_pages[i]
+        next_page = sorted_pages[i + 1]
+
+        if next_page != curr_page + 1:
+            i += 1
+            continue
+
+        curr_tables = [
+            a for a in assets_by_page.get(curr_page, [])
+            if a.kind == "table" and a.html_path and os.path.exists(a.html_path)
+        ]
+        next_tables = [
+            a for a in assets_by_page.get(next_page, [])
+            if a.kind == "table" and a.html_path and os.path.exists(a.html_path)
+        ]
+        if not curr_tables or not next_tables:
+            i += 1
+            continue
+
+        tail_table = curr_tables[-1]
+        head_table = next_tables[0]
+
+        tail_cols = _count_html_columns(tail_table.html_path)
+        head_cols = _count_html_columns(head_table.html_path)
+        if tail_cols != head_cols or tail_cols == 0:
+            i += 1
+            continue
+
+        is_continuation, header_rows_to_skip = _llm_judge_table_continuity(
+            tail_html_path=tail_table.html_path,
+            head_html_path=head_table.html_path,
+            col_count=tail_cols,
+            model_name=model_name,
+            budget=budget,
+        )
+        if not is_continuation:
+            logger.debug(
+                "[page_assets] table merge skip: page {} → {} (LLM: not continuation)",
+                curr_page, next_page,
+            )
+            i += 1
+            continue
+
+        _merge_table_html_files(
+            tail_asset=tail_table,
+            head_asset=head_table,
+            header_rows_to_skip=header_rows_to_skip,
+        )
+        assets_by_page[next_page].remove(head_table)
+        if not assets_by_page[next_page]:
+            del assets_by_page[next_page]
+            sorted_pages.remove(next_page)
+        merged_count += 1
+        logger.info(
+            "[page_assets] merged cross-page table: page {} + {} (header_skip={})",
+            curr_page, next_page, header_rows_to_skip,
+        )
+        # Do not advance i — check if the merged table continues to the next page
+
+    if merged_count:
+        logger.info("[page_assets] C5b merged {} cross-page table(s)", merged_count)
+    return assets_by_page
+
+
+def _count_html_columns(html_path: str) -> int:
+    """Count columns by parsing the first <tr> in an HTML table file."""
+    try:
+        from bs4 import BeautifulSoup
+
+        html = Path(html_path).read_text(encoding="utf-8")
+        soup = BeautifulSoup(html, "html.parser")
+        first_row = soup.find("tr")
+        if first_row is None:
+            return 0
+        return len(first_row.find_all(["td", "th"]))
+    except Exception:
+        return 0
+
+
+def _extract_boundary_rows(html_path: str, position: str, max_rows: int = 3) -> str:
+    """Extract first or last N <tr> elements as raw HTML string."""
+    try:
+        from bs4 import BeautifulSoup
+
+        html = Path(html_path).read_text(encoding="utf-8")
+        soup = BeautifulSoup(html, "html.parser")
+        all_rows = soup.find_all("tr")
+        if not all_rows:
+            return ""
+        if position == "tail":
+            selected = all_rows[-max_rows:]
+        else:
+            selected = all_rows[:max_rows]
+        return "\n".join(str(row) for row in selected)
+    except Exception:
+        return ""
+
+
+def _llm_judge_table_continuity(
+    *,
+    tail_html_path: str,
+    head_html_path: str,
+    col_count: int,
+    model_name: str | None,
+    budget: BudgetTracker | None,
+) -> tuple[bool, int]:
+    """Ask LLM whether two adjacent tables are a cross-page continuation.
+
+    Returns (is_continuation, header_rows_to_skip).
+    """
+    header_rows = _extract_boundary_rows(tail_html_path, "head", max_rows=3)
+    tail_rows = _extract_boundary_rows(tail_html_path, "tail", max_rows=3)
+    head_rows = _extract_boundary_rows(head_html_path, "head", max_rows=5)
+    if not tail_rows or not head_rows:
+        return False, 0
+
+    prompt, temperature, _top_p, max_tokens = build_prompt(
+        "page-memory-table-continuity",
+        "",
+        "",
+        paras={
+            "tail_rows": tail_rows,
+            "head_rows": head_rows,
+            "header_rows": header_rows,
+        },
+    )
+    est = estimate_tokens(prompt) + 100
+    if budget is not None and not budget.try_reserve(
+        "visual", est, stage=_BUDGET_STAGE
+    ):
+        logger.debug("[page_assets] budget exhausted for table continuity check")
+        return False, 0
+
+    try:
+        from shared.services.ai.openai_compatible_client_sync import get_openai_client
+
+        client = get_openai_client(model=model_name)
+        raw_response, usage = client.chat_completion_with_usage(
+            messages=[{"role": "user", "content": prompt}],
+            model=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            usage_task="page_memory.table_continuity",
+        )
+        if budget is not None:
+            budget.commit(
+                "visual",
+                actual=usage.get("total_tokens", est),
+                est=est,
+                stage=_BUDGET_STAGE,
+            )
+        data = json.loads(raw_response)
+        is_continuation = bool(data.get("is_continuation", False))
+        header_rows_to_skip = max(0, int(data.get("header_rows_to_skip", 0)))
+        return is_continuation, header_rows_to_skip
+    except Exception as exc:
+        logger.warning("[page_assets] table continuity LLM call failed: {}", exc)
+        if budget is not None:
+            budget.refund("visual", est=est, stage=_BUDGET_STAGE)
+        return False, 0
+
+
+def _merge_table_html_files(
+    *,
+    tail_asset: PageAsset,
+    head_asset: PageAsset,
+    header_rows_to_skip: int,
+) -> None:
+    """Append head table rows into tail table HTML file and clean up head."""
+    from bs4 import BeautifulSoup
+
+    tail_html = Path(tail_asset.html_path).read_text(encoding="utf-8")
+    head_html = Path(head_asset.html_path).read_text(encoding="utf-8")
+
+    tail_soup = BeautifulSoup(tail_html, "html.parser")
+    head_soup = BeautifulSoup(head_html, "html.parser")
+
+    tail_container = tail_soup.find("tbody") or tail_soup.find("table")
+    head_rows = (head_soup.find("tbody") or head_soup.find("table")).find_all("tr")
+
+    rows_to_append = head_rows[header_rows_to_skip:]
+    for row in rows_to_append:
+        tail_container.append(row)
+
+    Path(tail_asset.html_path).write_text(str(tail_soup), encoding="utf-8")
+
+    try:
+        Path(head_asset.html_path).unlink(missing_ok=True)
+    except Exception:
+        pass
+    if head_asset.image_path:
+        try:
+            Path(head_asset.image_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 __all__ = [
     "PageAsset",
     "annotate_page_assets",
@@ -740,6 +969,7 @@ __all__ = [
     "get_asset_confidence_threshold",
     "get_asset_max_pages",
     "get_asset_model",
+    "merge_cross_page_tables",
     "page_asset_extraction_enabled",
     "page_asset_summary_enabled",
     "summarize_page_asset",

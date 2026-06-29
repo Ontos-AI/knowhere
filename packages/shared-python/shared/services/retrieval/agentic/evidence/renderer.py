@@ -78,7 +78,12 @@ def render_unified_doc_tree(
             if path in node.children:
                 child = node.children[path]
                 if path in node.leaf_content:
-                    render_leaf_chunks(parts, node.leaf_content[path], sub_indent, asset_lookup=asset_lookup)
+                    # Parent has children: suppress page summary to avoid
+                    # redundant parent/child overlap (§ SAME-AS pattern).
+                    render_leaf_chunks(
+                        parts, node.leaf_content[path], sub_indent,
+                        asset_lookup=asset_lookup, suppress_page_summary=True,
+                    )
                 child_text = render_unified_doc_tree(child, doc_name, depth + 1, asset_lookup=asset_lookup)
                 if child_text.strip():
                     parts.append(child_text)
@@ -88,27 +93,36 @@ def render_unified_doc_tree(
         elif render_type == "orphan_leaf":
             path = cast(str, data)
             title = path.rsplit(" / ", 1)[-1] if " / " in path else path
-            sub_indent = indent + "    "
+            level = _infer_level_from_path(path)
+            item_indent = indent + "    " * max(level - 1, 0)
+            sub_indent = item_indent + "    "
+            level_tag = f"[L{level}] " if level else ""
             if path in node.children:
                 # Non-leaf node with own content: render heading, then
                 # self chunks, then child subtree (merged rendering).
-                parts.append(f"{indent}▸ [L{depth + 1}] {title}")
-                render_leaf_chunks(parts, node.leaf_content[path], sub_indent, asset_lookup=asset_lookup)
+                parts.append(f"{item_indent}▸ {level_tag}{title}")
+                render_leaf_chunks(
+                    parts, node.leaf_content[path], sub_indent,
+                    asset_lookup=asset_lookup, suppress_page_summary=True,
+                )
                 child_text = render_unified_doc_tree(node.children[path], doc_name, depth + 1, asset_lookup=asset_lookup)
                 if child_text.strip():
                     parts.append(child_text)
             else:
-                parts.append(f"{indent}▸ [L{depth + 1}] {title} [Leaf]")
+                parts.append(f"{item_indent}▸ {level_tag}{title} [Leaf]")
                 render_leaf_chunks(parts, node.leaf_content[path], sub_indent, asset_lookup=asset_lookup)
 
         elif render_type == "orphan_child":
             path = cast(str, data)
             title = path.rsplit(" / ", 1)[-1] if " / " in path else path
+            level = _infer_level_from_path(path)
+            item_indent = indent + "    " * max(level - 1, 0)
+            level_tag = f"[L{level}] " if level else ""
             child_text = render_unified_doc_tree(node.children[path], doc_name, depth + 1, asset_lookup=asset_lookup)
             # Only render the orphan heading if the child has content.
             # Prevents empty orphan nodes from polluting evidence_text.
             if child_text.strip():
-                parts.append(f"{indent}▸ [L{depth + 1}] {title}")
+                parts.append(f"{item_indent}▸ {level_tag}{title}")
                 parts.append(child_text)
 
     return "\n".join(parts)
@@ -119,6 +133,7 @@ def render_leaf_chunks(
     chunks: list[dict[str, Any]],
     indent: str,
     asset_lookup: dict[str, AssetLookupValue] | None = None,
+    suppress_page_summary: bool = False,
 ) -> None:
     chunk_by_id = {
         chunk.get("chunk_id", ""): chunk
@@ -140,7 +155,11 @@ def render_leaf_chunks(
             rendered_ids.add(chunk_id)
 
         if chunk_type == "page":
-            render_page_chunk_lines(parts, chunk, indent, asset_lookup=asset_lookup)
+            render_page_chunk_lines(
+                parts, chunk, indent,
+                asset_lookup=asset_lookup,
+                suppress_summary=suppress_page_summary,
+            )
             continue
 
         content = str(chunk.get("content", "")).strip()
@@ -218,6 +237,7 @@ def render_page_chunk_lines(
     chunk: dict[str, Any],
     indent: str,
     asset_lookup: dict[str, AssetLookupValue] | None = None,
+    suppress_summary: bool = False,
 ) -> None:
     metadata = chunk.get("chunk_metadata") or chunk.get("metadata") or {}
     summary = str(metadata.get("summary") or chunk.get("summary") or "").strip()
@@ -225,9 +245,8 @@ def render_page_chunk_lines(
         metadata.get("page_nums") or chunk.get("page_nums")
     )
     if page_nums:
-        page_label = ", ".join(str(page) for page in page_nums)
-        parts.append(f"{indent}┈ Pages: {page_label}")
-    if summary:
+        parts.append(f"{indent}┈ {_format_page_range(page_nums).capitalize()}")
+    if summary and not suppress_summary:
         for line in summary.split("\n"):
             if line.strip():
                 parts.append(f"{indent}┈ {line}")
@@ -329,6 +348,17 @@ def _coerce_page_nums(value: object) -> list[int]:
         except (TypeError, ValueError):
             continue
     return pages
+
+
+def _infer_level_from_path(path: str) -> int:
+    """Infer the section level for an orphan path from its segment count.
+
+    Section paths use ``" / "`` as separator with one segment per hierarchy
+    level (e.g. ``"安全类 / SJSYJ-SC103 / ... / 表3 ..."`` → level 5).
+    This aligns with ``doc_nav.json`` level numbering.
+    """
+    parts = [p for p in path.split(" / ") if p.strip()]
+    return max(len(parts), 1)
 
 
 def _infer_child_sort_order(child: DocTreeNode) -> float:

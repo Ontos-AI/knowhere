@@ -21,6 +21,25 @@ from app.services.document_parser.support.identifiers import gen_str_codes, get_
 from app.services.document_parser.support.parser_rows import PARSER_ROW_COLUMNS
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.page_memory.normalizer import normalize_to_pdf
+from app.services.page_memory._utils import (
+    collapse_page_ranges,
+    page_scope_info,
+    scope_id_for_pages,
+    sort_skeletons,
+)
+from app.services.page_memory._serialization import (
+    build_hierarchy_tree as _build_hierarchy_tree,
+    derive_hierarchy_page_scope as _derive_hierarchy_page_scope,
+    max_skeleton_end_page as _max_skeleton_end_page,
+    scope_manifest as _scope_manifest,
+    serialize_assets as _serialize_assets,
+    serialize_hierarchy_artifact as _serialize_hierarchy_artifact,
+    serialize_page_tags as _serialize_page_tags,
+    serialize_skeletons as _serialize_skeletons,
+    write_json as _write_json,
+    write_scope_artifacts as _write_scope_artifacts,
+    write_top_level_artifacts as _write_top_level_artifacts,
+)
 
 from loguru import logger
 
@@ -198,6 +217,7 @@ def _build_page_dataframe(
     from app.services.document_agent.budget import BudgetTracker, StageEnvelope
     from app.services.page_memory.skeleton_extractor import (
         SectionSkeleton,
+        collapse_single_child_chains,
         extract_section_skeletons,
     )
     from app.services.page_memory.page_assets import (
@@ -322,7 +342,7 @@ def _build_page_dataframe(
         "C4.skeleton",
         page_info={
             "document_page_count": page_count,
-            "coarse_scope": _page_scope_info(coarse_pages_scope),
+            "coarse_scope": page_scope_info(coarse_pages_scope),
         },
         variables={
             "sections": _summarize_skeletons(skeletons),
@@ -376,13 +396,14 @@ def _build_page_dataframe(
                 0,
             )
 
-    skeletons = _sort_skeletons(
+    skeletons = sort_skeletons(
         [
             skeleton
             for result in scope_results
             for skeleton in result.hierarchy
         ]
     )
+    skeletons = collapse_single_child_chains(skeletons)
     tags = _merge_page_tags(result.tags for result in scope_results)
     page_assets_by_page = _merge_assets_by_page(
         result.assets_by_page for result in scope_results
@@ -444,7 +465,7 @@ def _build_page_dataframe(
     _record_trace_stage(
         trace_recorder,
         "C7.node_assembly",
-        page_info=_page_scope_info(final_pages_scope),
+        page_info=page_scope_info(final_pages_scope),
         variables={
             "row_count": len(rows),
             "scope_count": len(scope_results),
@@ -500,10 +521,10 @@ def _build_hierarchy_scopes(
         for item in skeletons
     )
     if root_fallback:
-        ordered = _sort_skeletons(skeletons)
+        ordered = sort_skeletons(skeletons)
         return [
             _HierarchyScope(
-                scope_id=_scope_id_for_pages(1, page_count),
+                scope_id=scope_id_for_pages(1, page_count),
                 skeletons=ordered,
                 strategy="fallback_root",
                 start_page=1,
@@ -520,7 +541,7 @@ def _build_hierarchy_scopes(
     ]
     seen_top_paths: set[str] = set()
     unique_top_nodes: list[Any] = []
-    for item in _sort_skeletons(top_nodes):
+    for item in sort_skeletons(top_nodes):
         if item.section_path in seen_top_paths:
             continue
         seen_top_paths.add(item.section_path)
@@ -569,10 +590,10 @@ def _build_hierarchy_scopes(
             if int(getattr(item, "start_page", 1) or 1) <= end_page
             and int(getattr(item, "end_page", end_page) or end_page) >= start_page
         ]
-        bounded_members = _sort_skeletons(bounded_members)
+        bounded_members = sort_skeletons(bounded_members)
         scopes.append(
             _HierarchyScope(
-                scope_id=_scope_id_for_pages(start_page, end_page),
+                scope_id=scope_id_for_pages(start_page, end_page),
                 skeletons=bounded_members,
                 strategy=f"coarse_scope_{index + 1}",
                 start_page=start_page,
@@ -582,11 +603,11 @@ def _build_hierarchy_scopes(
     if scopes:
         return scopes
 
-    ordered = _sort_skeletons(skeletons)
+    ordered = sort_skeletons(skeletons)
     pages = _derive_hierarchy_page_scope(skeletons=ordered, page_count=page_count)
     return [
         _HierarchyScope(
-            scope_id=_scope_id_for_pages(
+            scope_id=scope_id_for_pages(
                 pages[0] if pages else 1,
                 pages[-1] if pages else page_count,
             ),
@@ -634,7 +655,7 @@ def _run_hierarchy_scope(
         tag_pages,
     )
 
-    scope_skeletons = _sort_skeletons(scope.skeletons)
+    scope_skeletons = sort_skeletons(scope.skeletons)
     scope_manifest = _scope_manifest(
         scope_id=scope.scope_id,
         skeletons=scope_skeletons,
@@ -650,12 +671,12 @@ def _run_hierarchy_scope(
         scope_index,
         scope_count,
         scope.scope_id,
-        _collapse_page_ranges(coarse_pages),
+        collapse_page_ranges(coarse_pages),
     )
     _record_trace_stage(
         trace_recorder,
         "C4.coarse_scope",
-        page_info=_page_scope_info(coarse_pages),
+        page_info=page_scope_info(coarse_pages),
         variables={
             "scope_index": scope_index,
             "scope_count": scope_count,
@@ -695,7 +716,7 @@ def _run_hierarchy_scope(
         _record_trace_stage(
             trace_recorder,
             "C3b.title_detection",
-            page_info=_page_scope_info(title_pages),
+            page_info=page_scope_info(title_pages),
             variables={
                 "scope_id": scope.scope_id,
                 "tags": _summarize_tags(title_tags),
@@ -731,7 +752,7 @@ def _run_hierarchy_scope(
     _record_trace_stage(
         trace_recorder,
         "C4b.fine_hierarchy",
-        page_info={"fat_leaf": _page_scope_info(sorted(fat_leaf_pages))},
+        page_info={"fat_leaf": page_scope_info(sorted(fat_leaf_pages))},
         variables={
             "scope_id": scope.scope_id,
             "sections": _summarize_skeletons(scope_skeletons),
@@ -760,7 +781,7 @@ def _run_hierarchy_scope(
     _record_trace_stage(
         trace_recorder,
         "C1.render_pages",
-        page_info=_page_scope_info([item.page_index for item in rendered]),
+        page_info=page_scope_info([item.page_index for item in rendered]),
         variables={
             "scope_id": scope.scope_id,
             "rendered_count": len(rendered),
@@ -778,7 +799,7 @@ def _run_hierarchy_scope(
     _record_trace_stage(
         trace_recorder,
         "C2.page_plan",
-        page_info=_page_scope_info([getattr(plan, "page_index", None) for plan in plans]),
+        page_info=page_scope_info([getattr(plan, "page_index", None) for plan in plans]),
         variables={"scope_id": scope.scope_id, "plan_count": len(plans)},
     )
 
@@ -792,13 +813,13 @@ def _run_hierarchy_scope(
     _record_trace_stage(
         trace_recorder,
         "C3.page_tagger",
-        page_info=_page_scope_info([tag.page_index for tag in tags]),
+        page_info=page_scope_info([tag.page_index for tag in tags]),
         variables={"scope_id": scope.scope_id, "tags": _summarize_tags(tags)},
     )
     _write_scope_artifacts(
         output_dir=output_dir,
         scope_id=scope.scope_id,
-        scope_manifest=scope_manifest,
+        scope_manifest_data=scope_manifest,
         hierarchy=scope_skeletons,
         tags=tags,
     )
@@ -818,7 +839,7 @@ def _run_hierarchy_scope(
     _record_trace_stage(
         trace_recorder,
         "C5.page_assets",
-        page_info=_page_scope_info(sorted(assets_by_page)),
+        page_info=page_scope_info(sorted(assets_by_page)),
         variables={
             "scope_id": scope.scope_id,
             "asset_count": sum(len(items) for items in assets_by_page.values()),
@@ -831,7 +852,7 @@ def _run_hierarchy_scope(
     _write_scope_artifacts(
         output_dir=output_dir,
         scope_id=scope.scope_id,
-        scope_manifest=scope_manifest,
+        scope_manifest_data=scope_manifest,
         hierarchy=scope_skeletons,
         tags=tags,
         assets_by_page=assets_by_page,
@@ -881,7 +902,7 @@ def _build_whole_doc_dataframe(
     _record_trace_stage(
         trace_recorder,
         "whole_doc",
-        page_info=_page_scope_info(pages),
+        page_info=page_scope_info(pages),
         variables={"summary": summary, "verdict": verdict},
     )
     return pd.DataFrame([row], columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
@@ -952,30 +973,6 @@ def _remove_nested_doc_agent_trace(output_dir: str) -> None:
         logger.debug("[page_memory] failed to remove nested doc-agent trace: {}", exc)
 
 
-def _sort_skeletons(skeletons: list[Any]) -> list[Any]:
-    return sorted(
-        skeletons,
-        key=lambda item: (
-            int(getattr(item, "start_page", 0) or 0),
-            int(getattr(item, "level", 0) or 0),
-            str(getattr(item, "section_path", "") or ""),
-        ),
-    )
-
-
-def _exclusive_end_for_skeleton(skeletons: list[Any], target: Any) -> int:
-    later_starts = [
-        int(getattr(item, "start_page", 0) or 0)
-        for item in skeletons
-        if int(getattr(item, "start_page", 0) or 0)
-        > int(getattr(target, "start_page", 0) or 0)
-    ]
-    end_page = int(getattr(target, "end_page", 1) or 1)
-    if not later_starts:
-        return end_page
-    return min(end_page, min(later_starts) - 1)
-
-
 def _merge_page_tags(tag_groups: Any) -> list[Any]:
     by_page: dict[int, Any] = {}
     for tags in tag_groups:
@@ -999,167 +996,6 @@ def _merge_assets_by_page(asset_groups: Any) -> dict[int, list[Any]]:
     return {page: merged[page] for page in sorted(merged)}
 
 
-def _write_json(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(value, ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-
-
-def _scope_id_for_pages(start_page: int, end_page: int) -> str:
-    return f"p{max(1, int(start_page))}-{max(1, int(end_page))}"
-
-
-def _scope_manifest(
-    *,
-    scope_id: str,
-    skeletons: list[Any],
-    page_count: int,
-    strategy: str,
-) -> dict[str, Any]:
-    pages = _derive_hierarchy_page_scope(skeletons=skeletons, page_count=page_count)
-    parent_paths = sorted({str(getattr(item, "parent_path", "") or "") for item in skeletons})
-    return {
-        "scope_id": scope_id,
-        "strategy": strategy,
-        "document_page_count": page_count,
-        "page_count": len(pages),
-        "page_ranges": _collapse_page_ranges(pages),
-        "skeleton_count": len(skeletons),
-        "parent_paths": parent_paths,
-    }
-
-
-def _write_scope_artifacts(
-    *,
-    output_dir: str,
-    scope_id: str,
-    scope_manifest: dict[str, Any],
-    hierarchy: list[Any],
-    tags: list[Any],
-    assets_by_page: dict[int, list[Any]] | None = None,
-) -> None:
-    scope_dir = Path(output_dir) / "scopes" / scope_id
-    _write_json(scope_dir / "scope.json", scope_manifest)
-    _write_json(
-        scope_dir / "fine_hierarchy.json",
-        _serialize_hierarchy_artifact(hierarchy, scope_manifest=scope_manifest),
-    )
-    _write_json(scope_dir / "page_tags.json", _serialize_page_tags(tags))
-    if assets_by_page:
-        _write_json(scope_dir / "assets.json", _serialize_assets(assets_by_page))
-
-
-def _write_top_level_artifacts(
-    *,
-    output_dir: str,
-    hierarchy: list[Any],
-    tags: list[Any],
-    assets_by_page: dict[int, list[Any]] | None = None,
-) -> None:
-    root = Path(output_dir)
-    _write_json(root / "hierarchy.json", _serialize_hierarchy_artifact(hierarchy))
-    _write_json(root / "page_tags.json", _serialize_page_tags(tags))
-    if assets_by_page:
-        _write_json(root / "assets.json", _serialize_assets(assets_by_page))
-    else:
-        try:
-            (root / "assets.json").unlink()
-        except FileNotFoundError:
-            pass
-
-
-def _serialize_skeletons(skeletons: list[Any]) -> list[dict[str, Any]]:
-    return [
-        {
-            "section_path": item.section_path,
-            "title": item.title,
-            "level": item.level,
-            "start_page": item.start_page,
-            "end_page": item.end_page,
-            "parent_path": item.parent_path,
-        }
-        for item in skeletons
-    ]
-
-
-def _serialize_hierarchy_artifact(
-    skeletons: list[Any],
-    *,
-    scope_manifest: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    nodes = _serialize_skeletons(skeletons)
-    artifact: dict[str, Any] = {
-        "HIERARCHY": _build_hierarchy_tree(skeletons),
-        "nodes": nodes,
-        "stats": {
-            "node_count": len(nodes),
-            **_page_scope_info(
-                _derive_hierarchy_page_scope(
-                    skeletons=skeletons,
-                    page_count=_max_skeleton_end_page(skeletons),
-                ),
-            ),
-            "max_depth": max(
-                (int(getattr(item, "level", 0) or 0) for item in skeletons),
-                default=0,
-            ),
-        },
-    }
-    if scope_manifest is not None:
-        artifact["scope"] = scope_manifest
-    return artifact
-
-
-def _build_hierarchy_tree(skeletons: list[Any]) -> dict[str, Any]:
-    hierarchy: dict[str, Any] = {}
-    for skel in _sort_skeletons(skeletons):
-        parts = str(getattr(skel, "section_path", "") or "").split("/")
-        section_parts = parts[1:] if len(parts) > 1 else parts
-        current = hierarchy
-        for part in section_parts:
-            if not part:
-                continue
-            current = current.setdefault(part, {})
-    return hierarchy
-
-
-def _serialize_page_tags(tags: list[Any]) -> list[dict[str, Any]]:
-    return [
-        {
-            "page_index": item.page_index,
-            "summary": item.summary,
-            "keywords": list(item.keywords),
-            "strategy_used": item.strategy_used,
-        }
-        for item in tags
-    ]
-
-
-def _serialize_assets(assets_by_page: dict[int, list[Any]]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for page_index in sorted(assets_by_page):
-        for asset in assets_by_page[page_index]:
-            rows.append(
-                {
-                    "asset_id": asset.asset_id,
-                    "page_index": asset.page_index,
-                    "asset_index": asset.asset_index,
-                    "kind": asset.kind,
-                    "bbox_px": asset.bbox_px,
-                    "confidence": asset.confidence,
-                    "title": asset.title,
-                    "summary": asset.summary,
-                    "keywords": list(asset.keywords),
-                    "image_uri": asset.image_uri,
-                    "html_uri": asset.html_uri,
-                    "extraction_status": asset.extraction_status,
-                }
-            )
-    return rows
-
-
 def _summarize_skeletons(skeletons: list[Any]) -> list[dict[str, Any]]:
     return [
         {
@@ -1172,40 +1008,6 @@ def _summarize_skeletons(skeletons: list[Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _derive_hierarchy_page_scope(
-    *,
-    skeletons: list[Any],
-    page_count: int,
-) -> list[int]:
-    """Pages that should receive PAGE-TAG after hierarchy anchoring.
-
-    Page-memory first anchors a hierarchy. PAGE-TAG should then run only on
-    pages covered by anchored sections. If hierarchy anchoring collapses to the
-    Root fallback, retain the legacy full-document behavior.
-    """
-    if page_count <= 0:
-        return []
-    if not skeletons:
-        return list(range(1, page_count + 1))
-
-    has_only_root_fallback = all(
-        getattr(item, "title", "") == "Root"
-        or (getattr(item, "evidence", {}) or {}).get("source") == "fallback_root"
-        for item in skeletons
-    )
-    if has_only_root_fallback:
-        return list(range(1, page_count + 1))
-
-    pages: set[int] = set()
-    for item in skeletons:
-        start_page = max(1, int(getattr(item, "start_page", 1) or 1))
-        end_page = min(page_count, int(getattr(item, "end_page", start_page) or start_page))
-        if end_page < start_page:
-            continue
-        pages.update(range(start_page, end_page + 1))
-    return sorted(pages) or list(range(1, page_count + 1))
-
-
 def _summarize_tag_scope(
     *,
     skeletons: list[Any],
@@ -1216,46 +1018,8 @@ def _summarize_tag_scope(
         "strategy": "hierarchy_anchored_pages",
         "document_page_count": page_count,
         "skeleton_count": len(skeletons),
-        **_page_scope_info(pages),
+        **page_scope_info(pages),
     }
-
-
-def _page_scope_info(pages: Any) -> dict[str, Any]:
-    normalized: list[int] = []
-    for raw_page in pages or []:
-        try:
-            page = int(raw_page)
-        except (TypeError, ValueError):
-            continue
-        if page > 0:
-            normalized.append(page)
-    normalized = sorted(set(normalized))
-    return {
-        "page_count": len(normalized),
-        "page_ranges": _collapse_page_ranges(normalized),
-    }
-
-
-def _max_skeleton_end_page(skeletons: list[Any]) -> int:
-    return max(
-        (int(getattr(item, "end_page", 0) or 0) for item in skeletons),
-        default=0,
-    )
-
-
-def _collapse_page_ranges(pages: list[int]) -> list[list[int]]:
-    if not pages:
-        return []
-    ranges: list[list[int]] = []
-    start = prev = pages[0]
-    for page in pages[1:]:
-        if page == prev + 1:
-            prev = page
-            continue
-        ranges.append([start, prev])
-        start = prev = page
-    ranges.append([start, prev])
-    return ranges
 
 
 def _summarize_tags(tags: list[Any]) -> list[dict[str, Any]]:

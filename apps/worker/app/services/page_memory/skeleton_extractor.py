@@ -3,13 +3,6 @@
 Step 1 of the page-memory native hierarchy plan:
 - Full TOC-depth grep anchoring + on-demand VLM confirmation
 - Section boundaries come purely from TOC anchoring
-
-Page-based track processes pages individually via VLM, so no physical
-document splitting (shard windowing) is needed.  The ``shard_plan``
-concept only exists to support the MinerU batch API pipeline
-(``_parse_pdf_via_shards``), which requires splitting long PDFs into
-physical sub-documents before sending them to MinerU.  Chunk-track's
-native text formats (DOCX/MD) don't use shards either.
 """
 
 from __future__ import annotations
@@ -92,6 +85,12 @@ def extract_section_skeletons(
             )
         ]
 
+    # Collapse degenerate single-child intermediate chains before locate.
+    # Rule: only merge a parent with its only child when that child is NOT a
+    # leaf (i.e. the child still has children of its own). This preserves the
+    # original leaf title so PageLocateResidualAgent can find it in the PDF.
+    nodes = _collapse_intermediate_single_child_chains(nodes)
+
     body_pages = _body_pages(anatomy=anatomy, page_count=page_count)
     offset_hint = _estimate_page_offset(nodes=nodes, anatomy=anatomy)
     locate_result = PageLocateResidualAgent(
@@ -163,6 +162,59 @@ def _range_to_skeleton(
         parent_path=parent_path,
         evidence=evidence,
     )
+
+
+# ── Single-child intermediate chain collapse ─────────────────────────────────
+#
+# Motivation: TOC hierarchies often contain "structural" intermediate nodes
+# (category codes, volume identifiers) that add depth but carry no locatable
+# text. Compressing them before locate keeps emit_depth small and lets the
+# VLM/grep focus on meaningful leaf titles.
+#
+# Critical invariant: a node whose only child is a LEAF (no grandchildren) is
+# NOT merged, so the leaf's original title survives unchanged into
+# PageLocateResidualAgent. Only pure-intermediate chains are compressed.
+
+
+def _collapse_intermediate_single_child_chains(
+    nodes: list[TitleNode],
+) -> list[TitleNode]:
+    """Collapse single-child chains of intermediate (non-leaf) nodes.
+
+    Leaf nodes (children=[]) are never absorbed into their parent title.
+    """
+    from dataclasses import replace as _replace
+
+    def _collapse(node: TitleNode) -> TitleNode:
+        # Recurse first (bottom-up), so grand-children are already collapsed.
+        collapsed_children = [_collapse(c) for c in node.children]
+
+        if len(collapsed_children) == 1:
+            only_child = collapsed_children[0]
+            # Only fold when the child is itself an intermediate node
+            # (i.e. still has children). Leaf nodes are left intact.
+            if only_child.children:
+                merged_title = f"{node.title} {only_child.title}"
+                merged_printed_page = only_child.printed_page or node.printed_page
+                merged_physical_hint = (
+                    only_child.physical_page_hint or node.physical_page_hint
+                )
+                # Promote grandchildren one level up (close the level gap).
+                promoted = [
+                    _replace(gc, level=max(1, gc.level - 1))
+                    for gc in only_child.children
+                ]
+                return _replace(
+                    node,
+                    title=merged_title,
+                    printed_page=merged_printed_page,
+                    physical_page_hint=merged_physical_hint,
+                    children=promoted,
+                )
+
+        return _replace(node, children=collapsed_children)
+
+    return [_collapse(n) for n in nodes]
 
 
 def _root_skeleton(
