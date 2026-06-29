@@ -181,12 +181,7 @@ class JsonParseAdapter:
 
 @dataclass(frozen=True)
 class HtmlParseAdapter:
-    """Adapter that parses .html / .htm files through the markdown pipeline.
-
-    HTML content is extracted into text lines, with headings, paragraphs,
-    tables, and images preserved in markdown-like format, then routed
-    through the standard parse_md() engine.
-    """
+    """Adapter that parses .html / .htm files through the markdown pipeline."""
     document_format: object
 
     def parse(self, session: ParseSession) -> ParseOutput:
