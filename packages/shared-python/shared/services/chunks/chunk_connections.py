@@ -20,6 +20,7 @@ class ConnectionPayload(TypedDict, total=False):
     position: PositionPayload
     score: float
     keywords: list[str]
+    same_as_owner: str
 
 
 RelationshipRef: TypeAlias = str | ChunkRefSpan
@@ -139,6 +140,9 @@ def normalize_connect_to_targets(
             ref = item.get("ref")
             if ref:
                 normalized_item["ref"] = str(ref)
+            same_as_owner = item.get("same_as_owner")
+            if same_as_owner:
+                normalized_item["same_as_owner"] = str(same_as_owner)
             position = item.get("position")
             if isinstance(position, dict):
                 start = position.get("start")

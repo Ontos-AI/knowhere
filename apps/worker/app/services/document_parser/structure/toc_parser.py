@@ -523,10 +523,3 @@ def detect_tocs_in_texts(
 
 
 # ==================== TOC Utility Functions ====================
-
-
-def load_toc_hierarchies(json_path: str) -> list:
-    import json
-
-    with open(json_path, "r", encoding="utf-8") as f:
-        return json.load(f)

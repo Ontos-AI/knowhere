@@ -187,7 +187,7 @@ async def test_agentic_workflow_should_pass_full_request_policy_to_step_adapter(
                 {
                     "chunk_id": policy_document["chunk_id"],
                     "document_id": policy_document["document_id"],
-                    "chunk_type": "text",
+                    "chunk_type": "page",
                     "section_path": policy_document["section_path"],
                     "file_path": "",
                     "job_id": policy_document["job_id"],
@@ -203,6 +203,7 @@ async def test_agentic_workflow_should_pass_full_request_policy_to_step_adapter(
             source_file_name="policy.pdf",
             section_path="Root/Policy",
             content="policy marker content",
+            chunk_type="page",
         )
         await _seed_retrieval_document(
             user_id="local-dev-user",
@@ -210,6 +211,7 @@ async def test_agentic_workflow_should_pass_full_request_policy_to_step_adapter(
             source_file_name="filler.pdf",
             section_path="Root/Filler",
             content="filler content",
+            chunk_type="page",
         )
         monkeypatch.setattr(
             "shared.services.retrieval.workflow.planner.QueryPlanner.plan",
@@ -226,7 +228,7 @@ async def test_agentic_workflow_should_pass_full_request_policy_to_step_adapter(
                 "namespace": "contract-agentic-request-policy",
                 "query": "policy marker",
                 "top_k": 1,
-                "data_type": 2,
+                "chunk_types": ["page"],
                 "signal_paths": ["Root"],
                 "filter_mode": "keep",
                 "channels": ["content"],
@@ -248,7 +250,7 @@ async def test_agentic_workflow_should_pass_full_request_policy_to_step_adapter(
     assert request["top_k"] == 1
     assert request["exclude_document_ids"] == []
     assert request["exclude_sections"] == []
-    assert request["data_type"] == 2
+    assert request["chunk_types"] == {"page"}
     assert request["signal_paths"] == ["Root"]
     assert request["filter_mode"] == "keep"
     assert request["channels"] == ["content"]
@@ -621,7 +623,7 @@ async def test_agentic_retrieval_should_not_send_table_artifacts_to_vlm(
                 "namespace": "contract-agentic-table-vlm-filter",
                 "query": "budget 1000 Flat inspect_evidence_score_mean",
                 "top_k": 1,
-                "data_type": 4,
+                "chunk_types": ["table"],
                 "use_agentic": True,
             },
         )

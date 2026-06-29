@@ -631,7 +631,7 @@ async def _search_images_via_vlm(
     for index, asset in enumerate(assets, start=1):
         chunk_id = str(asset.get("chunk_id") or "")
         url = url_map.get(chunk_id)
-        if not url:
+        if not url or isinstance(url, list):
             continue
         row_id = f"I{index}"
         file_path = asset.get("file_path") or ""

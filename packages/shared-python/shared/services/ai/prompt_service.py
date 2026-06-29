@@ -63,6 +63,59 @@ def _language_directive(lang) -> str:
     return ""
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Entity-extraction & chart-numeric directives (§4.3 / §4.4)
+# ──────────────────────────────────────────────────────────────────────────────
+# These build the shared, GENERAL-PURPOSE instructions injected into every
+# summary prompt. The type vocabulary is read from the ``ENTITY_TYPES`` config so
+# it can be extended without editing prompts, and the wording deliberately avoids
+# baked-in examples, sample values, or magic counts — extraction must generalize
+# across arbitrary documents, not fit any one corpus.
+
+
+def _entity_types() -> list[str]:
+    """The configured entity type vocabulary (lower-cased, de-duplicated)."""
+    from shared.core.config import settings
+
+    raw = getattr(settings, "ENTITY_TYPES", "") or ""
+    seen: dict[str, None] = {}
+    for part in raw.split(","):
+        label = part.strip().lower()
+        if label and label not in seen:
+            seen[label] = None
+    return list(seen.keys())
+
+
+def _entity_instruction() -> str:
+    """Build the ``entities`` field instruction from the configured vocabulary.
+
+    Returns a JSON-field directive that asks for typed entities and treats an
+    empty result as valid. No entity names or counts are hard-coded; the only
+    corpus-specific input is the configurable type list.
+    """
+    types = _entity_types()
+    if types:
+        type_clause = (
+            "Set \"type\" to the single best-fitting label from this allowed list: "
+            + ", ".join(types)
+            + ". If an entity fits none of them, omit that entity."
+        )
+    else:
+        type_clause = (
+            'Set "type" to a short lower-case category label you judge appropriate.'
+        )
+    return (
+        '- "entities": a JSON array of the salient named entities explicitly '
+        "present in the content. Each element is an object with keys \"text\" and "
+        '"type". Use the exact surface form from the content for "text". '
+        f"{type_clause} "
+        "Do not infer, translate, or invent entities. Return an empty array [] "
+        "when none are present — an empty result is valid and expected, so never "
+        "force extraction."
+    )
+
+
+
 def build_prompt(task, texts, query, **kwargs):
     from loguru import logger
 
@@ -78,90 +131,14 @@ def build_prompt(task, texts, query, **kwargs):
 
     # ==================== Text Processing Prompts ====================
 
-    if task == "summary":
+    if task == "summary-full":
         max_tokens = kwargs["paras"]["max_tokens"]
-        lang = kwargs["paras"].get("lang")
-        lang_directive = _language_directive(lang)
-        lang_rule = (
-            f"- **LANGUAGE (HARD CONSTRAINT)**: {lang_directive}"
-            if lang_directive
-            else "- Your response must be in the SAME LANGUAGE as the input text"
-        )
-        prompt = f"""
-        You will receive a text passage (which may include HTML tables or structured data):
-        '''
-        {texts}
-        '''
-        Your task and requirements:
-        {lang_rule}
-        - Extract the main content of the material, not exceeding {max_tokens} characters
-        - If the input is an HTML table, summarize its structure and key data points in natural language, do NOT return the HTML code itself
-        - If the input content is too short, mostly empty, or lacks meaningful text to summarize, return exactly: null
-        - Output the summary content DIRECTLY, do not start with phrases like "Here is the summary"
-        - Do not add any format wrappers, prefixes, or explanations beyond the summary
-        """
-
-    elif task == "summary-titled":
-        max_tokens = kwargs["paras"]["max_tokens"]
-        lang = kwargs["paras"].get("lang")
-        lang_directive = _language_directive(lang)
-        lang_rule = (
-            f"- **LANGUAGE (HARD CONSTRAINT)**: {lang_directive}"
-            if lang_directive
-            else "- Your response must be in the SAME LANGUAGE as the input text"
-        )
-        prompt = f"""
-        You will receive a text passage (which may include HTML tables or structured data):
-        '''
-        {texts}
-        '''
-        Your task:
-        {lang_rule}
-        - Line 1: Output a short title (no more than 15 characters) that captures the core topic
-        - Line 2 onward: Output a detailed summary, not exceeding {max_tokens} characters
-        - If the input is an HTML table, summarize its structure and key data points in natural language, do NOT return the HTML code itself
-        - If the input content is too short, mostly empty, or lacks meaningful text, return exactly: null
-        - Output DIRECTLY without any prefixes like "Title:" or "Summary:"
-        """
-
-    elif task == "summary-keywords":
-        max_tokens = kwargs["paras"]["max_tokens"]
-        kw_num = kwargs["paras"]["kw_num"]
-        lang = kwargs["paras"].get("lang")
-        lang_directive = _language_directive(lang)
-        lang_rule = (
-            f"- **LANGUAGE (HARD CONSTRAINT)**: {lang_directive}"
-            if lang_directive
-            else "- Keywords must be in the SAME LANGUAGE as the input text"
-        )
-
-        example = """
-         {"answer":"<keyword_1>;<keyword_2>;<keyword_3>"}
-        """
-
-        prompt = f"""
-        You will receive a text passage:
-        '''
-        {texts}
-        '''
-        Your task is to extract keywords, no more than [{kw_num}] keywords. Note:
-        {lang_rule}
-        - Your response must be in JSON dictionary format with key "answer" and value being the extracted keywords
-        - Keywords should reflect the text theme, separated by semicolons ";"
-        - Example format:
-        {example}
-        - Do not output any additional explanations or descriptions besides the keywords
-        """
-
-    elif task == "summary-full":
-        max_tokens = kwargs["paras"]["max_tokens"]
-        kw_num = kwargs["paras"].get("kw_num", 3)
         lang = kwargs["paras"].get("lang")
         lang_directive = _language_directive(lang)
         if lang_directive:
             lang_line = (
-                f"**LANGUAGE (HARD CONSTRAINT, applies to EVERY field — title, "
-                f"keywords, and summary)**: {lang_directive}"
+                "**LANGUAGE (HARD CONSTRAINT, applies to EVERY text field — "
+                f"title, summary, and entity text)**: {lang_directive}"
             )
         else:
             lang_line = (
@@ -169,175 +146,68 @@ def build_prompt(task, texts, query, **kwargs):
                 "**SAME LANGUAGE** as the input text"
             )
 
-        example = """
-         {"title":"<title>","keywords":"<keyword_1>;<keyword_2>;<keyword_3>","summary":"<summary>"}
-        """
+        entity_line = _entity_instruction()
 
         prompt = f"""
-        You will receive a text passage (which may include HTML tables or structured data):
+        You will receive a text passage (which may include HTML tables or
+        structured/quantitative data):
         '''
         {texts}
         '''
-        Your task is to extract a title, keywords, and summary from this content.
+        Extract a title, a summary, and the salient entities.
         {lang_line}
 
-        Other requirements:
-        - Your response must be in JSON format with exactly three keys: "title", "keywords", "summary"
-        - "title": a short title capturing the core topic, no more than 15 characters
-        - "keywords": the most important thematic keywords, no more than {kw_num}, separated by semicolons ";"
-        - "summary": a concise summary of the main content, not exceeding {max_tokens} characters
-        - If the input is an HTML table, summarize its structure and key data points in natural language
-        
-        - If the input content is too short, mostly empty, or lacks meaningful text, return exactly: null
-        - Example format:
-        {example}
-        - Do not output any additional explanations or descriptions
+        Output requirements:
+        - Respond with a single JSON object and nothing else.
+        - "title": a short, descriptive title capturing the core topic. Keep it
+          concise; use an empty string if the content has no clear title.
+        - "summary": a faithful summary of the main content within {max_tokens}
+          characters. If the input is an HTML table or other data, describe its
+          structure and report its key values and extremes rather than listing
+          every cell. If the content represents statistical data (charts, data
+          tables, measurement results), incorporate the distinct numbers —
+          extremes, totals, key values — directly into the summary sentence.
+        {entity_line}
+        - If the input is too short, empty, or carries no meaningful text, return
+          exactly: null
+        - Do not output explanations, comments, or markdown fences.
+        """
+
+    elif task == "summary-asset-linesplit":
+        max_tokens = kwargs["paras"]["max_tokens"]
+        lang = kwargs["paras"].get("lang")
+        lang_directive = _language_directive(lang)
+        if lang_directive:
+            lang_line = (
+                "**LANGUAGE (HARD CONSTRAINT, applies to EVERY field — "
+                f"title, summary, and entities)**: {lang_directive}"
+            )
+        else:
+            lang_line = (
+                "**First and most important**, all output must be in the "
+                "**SAME LANGUAGE** as the input text"
+            )
+
+        prompt = f"""
+        You will receive content from a document asset (table, figure, or chart):
+        '''
+        {texts}
+        '''
+        Extract a title, a summary, and named entities.
+        {lang_line}
+
+        Output exactly THREE lines (no extra lines, no blank lines, no fences):
+        Line 1: if the asset has an explicit caption or label, output it as-is; otherwise generate a short descriptive title without any punctuation
+        Line 2: a faithful summary within {max_tokens} characters. If the content
+        represents statistical data, incorporate the key numbers (extremes, totals,
+        notable values) directly into the summary.
+        Line 3: named entities (ONLY person names, organization names, or location names) as a semicolon-separated list. Leave empty if none present.
+
+        If the input is empty or unreadable, output exactly three empty lines.
+        Do not output JSON, markdown fences, labels, or explanations.
         """
 
     # ==================== Heading/Structure Prompts ====================
-
-    # ---------------------------------------------------------------------
-    # LEGACY `eval-headings` prompt — designed for FULL-TEXT input, before
-    # `_compact_for_llm` collapses consecutive body rows into placeholders.
-    # Kept as reference; DO NOT delete.  The live prompt below targets the
-    # COMPACT input shape used when `KB_LAYOUT_LLM_COMPACT_INPUT` is on
-    # (default). The live prompt below is the publication baseline.
-    # ---------------------------------------------------------------------
-    #     elif task == 'eval-headings':
-    #         temperature = 0
-    #         top_p = 0.01
-    #         max_depth = kwargs['paras']['max_depth']
-    #         max_tokens = kwargs['paras']['max_tokens']
-    #         toc_context = kwargs['paras'].get('toc_context', '')
-    #
-    #         # developing toc context (if any)
-    #         if toc_context:
-    #             toc_section = f"""
-    #         ***Important Reference: Table of Contents (TOC)***
-    #         The following is the document's table of contents with predefined levels. Use this as a reference when assigning levels:
-    #
-    #         '''
-    #         {toc_context}
-    #         '''
-    #
-    #         - If a row's heading matches a TOC entry, use the TOC's predefined level
-    #         - If a row appears to be a sub-section of a TOC entry, assign a deeper level
-    #         - IMPORTANT: If a row does NOT appear in the TOC, it CAN ONLY be set as either a body text (level = -1) or sub-section with a deeper level than the nearest TOC heading above it
-    #         """
-    #         else:
-    #             toc_section = ""
-    #
-    #         prompt = f"""
-    #         You are a document structure auditing expert. You will receive a Markdown table with text rows, where each row may be a heading or body text, including:
-    #         1. id column: line number
-    #         2. heading column: text content
-    #         3. level column: preliminary estimated level (may be inaccurate or missing), where:
-    #             1 represents `<h1>` (highest), 2 represents `<h2>`, and so on
-    #             -1 indicates the text is estimated as body text (not a heading)
-    #             "Not Sure" indicates the level is undetermined
-    #
-    #         Data to be adjusted:
-    #         '''
-    #         {texts}
-    #         '''
-    #
-    #         {toc_section}
-    #
-    #         ***Placeholder Rows***
-    #         Some rows may appear as "[N BODY LINES]" with an id like "55-63" (a range) or
-    #         "56" (a single line), and level column rendered as "-".  These are NOT real
-    #         candidates — they are compact markers representing N consecutive body-text
-    #         lines that have been collapsed to save space.  Treat them only as positional
-    #         context (they tell you how many body lines sit between two adjacent heading
-    #         candidates).
-    #         - You MUST NOT emit placeholder rows in your output.
-    #         - The output id field MUST be a single integer; never return an id containing
-    #           a hyphen ("-") or the level placeholder "-".
-    #         - Only evaluate rows whose id is a single integer.
-    #
-    #         ***Process in THREE steps:***
-    #
-    #         **STEP 1 — Global Pattern Scan (before assigning any levels)**
-    #         Scan ALL candidate heading rows across the entire input.
-    #         Identify every distinct structural/numbering pattern that signals hierarchy depth, for example:
-    #         - Decimal numbering: "1", "1.1", "1.1.1" → depth increases with dot count
-    #         - Enumeration styles such as Chinese numerals, numbered bullets,
-    #           or circled digits map from shallower to deeper levels
-    #         - Chapter/section keywords: "Chapter X", "Part X", and Chinese
-    #           chapter/section markers
-    #         - Indentation or formatting cues visible in the text prefix
-    #         Rank these patterns from shallowest to deepest to form a pattern → level mapping.
-    #
-    #         **STEP 2 — Assign levels using the following rules (in priority order)**
-    #         Rows marked as "Not Sure" should be treated like any other candidate row:
-    #         use the same rules below to decide whether they are true headings (level >= 1)
-    #         or body text (level = -1).
-    #
-    #         Rule 0 — Figure/Image rows are always body text (highest priority, no exceptions):
-    #             Any row whose heading text is exactly "Figure/Image" MUST be assigned level = -1.
-    #             These represent embedded images, figures, or inline resource references in the document.
-    #             Do NOT include these rows in the output (they are automatically treated as level = -1).
-    #         Rule 1 — Normalize to start at level 1:
-    #             The shallowest heading pattern found in this document MUST be assigned level 1.
-    #             Do NOT preserve preliminary estimates that start at level 2, 3, or deeper
-    #             if those headings are actually the top-level headings of the document.
-    #         Rule 2 — Global consistency (highest priority among content rules):
-    #             Headings that share the same structural pattern SHOULD receive the SAME level
-    #             throughout the ENTIRE document, regardless of their position or textual content.
-    #             (e.g., all "X.Y" two-part numbers must have the same level; all "X.Y.Z"
-    #             three-part numbers must share a different, deeper level.)
-    #         Rule 3 — Pattern over semantics:
-    #             When determining a heading's level, its numbering/structural pattern takes
-    #             precedence over its text length or semantic meaning.
-    #             Parenthetical annotations or long descriptions inside a heading text do NOT
-    #             indicate a different hierarchy level.
-    #         Rule 4 — Parent-child continuity and no level skipping:
-    #             Each heading must be consistent with adjacent headings.
-    #             A heading may stay at the same level, return to an ancestor level,
-    #             or go only ONE level deeper than its nearest valid ancestor heading.
-    #             Level jumps such as level 1 directly to level 3 are invalid.
-    #         Rule 5 — Body text demotion:
-    #             If a row does not truly serve as a section title in the document outline,
-    #             set its level to -1.
-    #             Strong body-text cues include:
-    #             - a full sentence or clause ending with sentence punctuation
-    #             - an isolated broken word, broken phrase, label fragment, data value, or body continuation
-    #             - a single Chinese character, digit, or very short fragment that clearly combines
-    #               with the next row to form one continuous phrase rather than a standalone heading
-    #         Rule 6 — Semantic heading promotion:
-    #             A row with NO obvious numbering or structural-format markers can still
-    #             be a heading, but ONLY when ALL of the following conditions are met:
-    #             (a) The text is short and title-like (not a full sentence with punctuation).
-    #             (b) It is NOT a broken fragment that simply continues into the next row
-    #                 (those belong to Rule 5 body-text demotion).
-    #             (c) Multiple longer body-text rows follow it, and the row clearly
-    #                 organizes, summarizes, or introduces the topic of those rows —
-    #                 i.e., removing it would leave the following rows without a
-    #                 meaningful section label.
-    #             Being short alone is NOT sufficient; the row must demonstrably serve
-    #             as a section boundary that groups the content below it.
-    #             When promoting, assign a level consistent with the surrounding
-    #             hierarchy — typically one level deeper than the nearest heading above.
-    #
-    #         **STEP 3 — Consistency check (one pass) before writing output**
-    #         Scan the level assignments you are about to output and confirm:
-    #         - All headings sharing the same structural or semantic pattern have been assigned the same level.
-    #         If any inconsistency is found, normalise to the most representative level for that pattern.
-    #
-    #         ***Output requirements***
-    #         - Output must be a [JSON array] only
-    #         - **Only include rows that you judge to be headings** (level >= 1). Do NOT include body text rows (level = -1) in the output
-    #         - Any row not present in your output will be automatically treated as body text (level = -1)
-    #         - Each element must contain the following fields in order:
-    #             - "id": original line number (integer)
-    #             - "level": the corrected heading level (integer from 1 to {max_depth})
-    #
-    #         ***Format requirements***
-    #         - Output only valid JSON — do not add markdown fences (no ```json)
-    #         - Do not add escaped newlines or other control characters
-    #         - Do not add any explanations, comments, or descriptive text
-    #         """
-
     elif task == "eval-headings":
         # COMPACT-input variant.  Input is pre-compressed by `compact_for_llm`
         # so that consecutive body-text rows are folded into a single
@@ -588,88 +458,453 @@ def build_prompt(task, texts, query, **kwargs):
         - No explanations, comments, or descriptive text
         """
 
+    # ==================== Page-Memory Native Hierarchy Prompts ====================
+
+    elif task == "page-memory-vlm-tag":
+        temperature = 0
+        top_p = 0.01
+        max_tokens = kwargs.get("paras", {}).get("max_tokens", 600)
+        entity_line = _entity_instruction()
+        prompt = f"""\
+        You are annotating a single rendered document page for a document memory
+        system. Return one strict JSON object with exactly these keys:
+
+        {{
+        "summary": "<concise summary of what this page contains>",
+        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
+        }}
+
+        Rules:
+        - "summary": describe the main content visible on the page in a few
+          sentences, in the same language as the page. If the page contains a
+          table, state its topic and key columns; if it contains a figure or
+          chart, describe what it depicts and any standout values.
+        {entity_line}
+        - Return ONLY the JSON object, with no markdown fences or extra text.
+        """
+
+    elif task == "page-memory-text-tag":
+        temperature = 0
+        top_p = 0.01
+        max_tokens = kwargs.get("paras", {}).get("max_tokens", 600)
+        entity_line = _entity_instruction()
+        page_text = kwargs.get("paras", {}).get("page_text", "")
+        prompt = f"""\
+        You are annotating a single document page for a document memory system.
+        The following is the extracted text from the page:
+        \"\"\"
+        {page_text}
+        \"\"\"
+
+        Return one strict JSON object with exactly these keys:
+
+        {{
+        "summary": "<concise summary of what this page contains>",
+        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
+        }}
+
+        Rules:
+        - "summary": describe the main content in a few sentences, in the same
+          language as the text. If the text contains a table, state its topic
+          and key columns; if it describes a figure or chart, describe what it
+          depicts and any standout values. If the text is empty or carries no
+          meaningful content, set summary to an empty string.
+        {entity_line}
+        - Return ONLY the JSON object, with no markdown fences or extra text.
+        """
+
+    elif task == "page-memory-vlm-title":
+        temperature = 0
+        top_p = 0.01
+        max_tokens = kwargs.get("paras", {}).get("max_tokens", 300)
+        prompt = """\
+        You are extracting document-outline-level headings from a PDF page screenshot.
+        Your goal is to find ONLY the headings that would appear in a Table of Contents.
+        Most pages will have ZERO such headings — returning an empty list is expected
+        and correct for the majority of pages.
+
+        Return strict JSON:
+        {
+        "titles": [
+            {
+            "text": "<exact verbatim heading>",
+            "prominence": <0.0-1.0>,
+            "is_in_table": <boolean>,
+            "is_in_header_footer": <boolean>
+            }
+        ]
+        }
+
+        ═══ MANDATORY BOOLEAN FLAGS (CRITICAL) ═══
+        For EVERY extracted heading, you MUST accurately evaluate these two flags:
+        1. is_in_table (boolean): Set to `true` if the text is ANYWHERE inside a table.
+        2. is_in_header_footer (boolean): Set to `true` if the text is located in the top margin (header) or bottom margin (footer) of the page.
+
+        ═══ WHAT TO EXTRACT ═══
+
+        Only extract text that satisfies ALL three criteria:
+
+        1. HEADING FUNCTION (primary — must be true):
+        The text serves as a TITLE for the body content that follows it.
+        It introduces or labels a block of subsequent paragraphs, clauses,
+        or sub-sections. If you removed this text, the following body content
+        would lose its topic label.
+
+        2. STANDALONE LINE (must be true):
+        The text occupies its own line, clearly separated from surrounding
+        body paragraphs. It is NOT inside a table, NOT part of a list,
+        and NOT embedded within a sentence.
+
+        3. VISUAL DISTINCTION (supporting):
+        The text is visually set apart from body text — larger font, bold,
+        centered, or has extra vertical spacing.
+
+        "prominence": 1.0 = most prominent; 0.5 = medium; 0.1 = minor.
+        Return titles in TOP-TO-BOTTOM order. Text must be EXACT verbatim.
+
+        ═══ WHAT TO EXCLUDE (critical — read carefully) ═══
+
+        1. TABLE CONTENT — Any text that is part of a table. If the
+        text is surrounded by grid lines, borders, or cell boundaries, or if
+        its neighboring content is arranged in rows and columns, it is table
+        content and MUST BE EXCLUDED. This applies even when the text is bold,
+        large, or spans a merged cell. Specifically exclude:
+        - Column headers, row category labels, merged-cell group labels
+        - Any label inside a tabular layout, regardless of visual prominence
+
+        2. PAGE PERIPHERY — Text in margins or corners of the page:
+        organization/document names repeated as running headers, page numbers,
+        book/volume titles used as running headers or footers.
+
+        3. BODY TEXT — Numbered clauses, list items, paragraphs, or running
+        prose, even if bold or indented.
+
+        4. CAPTIONS — Figure/table captions, footnotes.
+
+        5. TOC ENTRIES — If the page is itself a Table of Contents or index,
+        do NOT extract its listed entries. A TOC page lists other sections
+        with page numbers — those entries are references, not headings.
+
+        ═══ IMPORTANT ═══
+        Many pages consist entirely of tables, body text, or appendix forms.
+        These pages have NO qualifying headings. Return {"titles": []} for them.
+        Do NOT force-extract table labels or body text as headings.
+
+        Return ONLY the JSON object, no markdown fences.
+        """
+
+    elif task == "page-memory-hierarchy":
+        temperature = 0
+        top_p = 0.01
+        max_depth = kwargs["paras"].get("max_depth", 6)
+        max_tokens = kwargs["paras"].get("max_tokens", 2000)
+        coarse_context = kwargs["paras"].get("coarse_context", "")
+        coarse_section = f"""
+Confirmed coarse parent section:
+'''
+{coarse_context}
+'''
+
+""" if coarse_context else ""
+        prompt = f"""
+You are constructing a fine-grained document hierarchy for ONE already-bounded
+PDF segment. The input rows are NOT raw body text. They are clean title
+candidates observed directly from page screenshots by a VLM.
+
+Your task:
+- Assign a relative hierarchy level to each real section/table/form heading.
+- Level 1 means top-level inside this segment, level 2 is its child, etc.
+- Preserve all legitimate sibling headings. Consecutive same-level headings are
+  normal and MUST NOT be demoted just because no body text appears between rows.
+- Use page order as reading order. The "prominence" value is visual strength,
+  but numbering and structural pattern are more important.
+
+{coarse_section}
+
+Input rows:
+'''
+{texts}
+'''
+
+Rules:
+1. Trust structural numbering patterns first:
+   - "1", "2", "3" style headings at the same granularity are siblings.
+   - "3.1" is a child of "3"; "3.2.1" is a child of "3.2".
+   - "附录 A/B/C" are top-level siblings inside the segment unless the parent
+     context says otherwise.
+   - "表/附表" entries under an appendix are usually children of that appendix.
+2. Do not skip levels. A child can be at most one level deeper than its nearest
+   valid parent.
+3. Filter only obvious noise:
+   - duplicate/repeated variants of the same heading on adjacent rows;
+   - TOC/index headings such as "Contents", "目录", "目次";
+   - front matter such as "前言" when it is outside the segment's body outline.
+4. When two rows are near-duplicates, keep the clearer/more complete one and
+   omit the duplicate from output.
+5. Do not invent headings. Only return ids that exist in the input.
+
+Output requirements:
+- Output ONLY a valid JSON array. No markdown fences, no explanations.
+- Include each retained heading as:
+  {{"id": <integer>, "level": <integer from 1 to {max_depth}>}}
+- Omitted ids are treated as filtered noise.
+"""
+
+    elif task == "page-memory-node-summary":
+        temperature = 0
+        top_p = 0.01
+        max_tokens = kwargs.get("paras", {}).get("max_tokens", 400)
+        node_title = kwargs.get("paras", {}).get("node_title", "")
+        next_title = kwargs.get("paras", {}).get("next_title", "")
+        if next_title:
+            scope = (
+                f"Summarize ONLY the content that belongs to the section titled "
+                f"\"{node_title}\". The section ends where the next section "
+                f"\"{next_title}\" begins on the page(s). Ignore everything that "
+                f"belongs to \"{next_title}\" or to other sections."
+            )
+        else:
+            scope = (
+                f"Summarize the content of the section titled \"{node_title}\" "
+                f"across the provided page image(s) as a single coherent section."
+            )
+        entity_line = _entity_instruction()
+        prompt = f"""\
+        You are summarizing one section of a document for a navigation/memory
+        system. You are given the page image(s) that this section spans.
+
+        {scope}
+
+        Return one strict JSON object with exactly these keys:
+        {{
+        "summary": "<concise summary of THIS section's content>",
+        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
+        }}
+
+        Rules:
+        - "summary": describe what this section is about, in the same language as
+          the visible page content. If the section is mostly a table, describe the
+          table's topic and key columns. Do not summarize content that belongs to
+          other sections on the same page.
+        {entity_line}
+        - Return ONLY the JSON object, with no markdown fences or extra text.
+        """
+
+    elif task == "transcribe":
+        # Unified OCR primitive (§4.2): replaces the former ``page-memory-vlm-ocr``
+        # and ``ocr-image`` prompts. Transcribes page/image body text verbatim.
+        temperature = 0
+        top_p = 0.01
+        max_tokens = kwargs.get("paras", {}).get("max_tokens", 1500)
+        prompt = """\
+        You are transcribing a document page or image for a document memory
+        system. Extract the body text as faithfully as possible.
+
+        Return strict JSON with exactly this key:
+        {
+        "text": "<verbatim body text>"
+        }
+
+        Rules:
+        - Preserve the ORIGINAL LANGUAGE of the text; do not translate.
+        - Preserve the reading order (top-to-bottom, left-to-right).
+        - Transcribe tables row by row using a simple readable layout.
+        - Do NOT add commentary, translation, or summary — transcription only.
+        - Omit pure decorative running headers/footers and page numbers.
+        - If there is no readable text, return {"text": ""}.
+        - Return ONLY the JSON object, no markdown fences or extra text.
+    """
+
+    elif task == "page-memory-asset-detect":
+        temperature = 0
+        top_p = 0.01
+        max_tokens = kwargs.get("paras", {}).get("max_tokens", 1200)
+        grid_size = kwargs.get("paras", {}).get("grid_size", 1000)
+        # Previous production prompt kept for comparison:
+        # prompt = f"""\
+        # You are a precise document layout detector. The attached image is a single PDF
+        # page screenshot.
+        #
+        # Find visually distinct tables, charts, and figures that should become reusable
+        # document assets. Return strict JSON:
+        # {{
+        # "regions": [
+        #     {{
+        #     "kind": "table|chart|figure",
+        #     "bbox": [x1, y1, x2, y2],
+        #     "caption": "<visible caption or nearby label, if any>",
+        #     "title": "<short asset title>",
+        #     "summary": "<1 sentence searchable summary>",
+        #     "keywords": ["<keyword_1>", "<keyword_2>"],
+        #     "confidence": 0.0
+        #     }}
+        # ]
+        # }}
+        #
+        # Coordinate system:
+        # - Treat the page image as a {grid_size}x{grid_size} grid.
+        # - Origin is the top-left corner.
+        # - bbox values must be integers in [0, {grid_size}].
+        # - bbox must tightly include the whole asset: title, caption, legend, axes,
+        # labels, table headers, and footnotes that are part of the asset.
+        # - Exclude surrounding body paragraphs, page headers, page footers, and page
+        # numbers.
+        #
+        # Rules:
+        # - "table": rows/columns of data, forms, financial tables, appendix tables.
+        # - "chart": plotted data such as bar/line/pie/scatter charts.
+        # - "figure": distinct diagrams, flowcharts, architecture drawings, embedded images.
+        #
+        # - Do not transcribe entire tables. Summarize the topic and extreme values based on main columns or rows.
+        # - "keywords" must be an array of up to 5 strings in the same language as the visible asset text.
+        # - Use confidence 0.0-1.0. Only include assets you can localize.
+        # - If there are no assets, return {{"regions":[]}}.
+        # - Return ONLY the JSON object, no markdown fences or explanations.
+        # """
+        prompt = f"""\
+        You are a precise document layout detector. The attached image is a single
+        rendered PDF page.
+
+        Find visually distinct tables and figures that should become reusable
+        document assets. Locate them only - do NOT summarize, transcribe full
+        content, extract keywords, or read data values. Return strict JSON:
+        {{
+        "regions": [
+            {{
+            "kind": "table|figure",
+            "bbox": [x1, y1, x2, y2],
+            "title": "<short asset title or its visible caption/label, empty string if none>",
+            "confidence": 0.0
+            }}
+        ]
+        }}
+
+        Coordinate system:
+        - Treat the page image as a {grid_size}x{grid_size} grid.
+        - Origin is the top-left corner.
+        - bbox values must be integers in [0, {grid_size}].
+        - bbox must tightly include the whole asset: its title, caption, legend,
+        axes, labels, table headers, and footnotes that belong to that asset.
+        - Exclude surrounding body paragraphs, page headers, page footers, and page
+        numbers.
+
+        Rules:
+        - "table": data arranged in clear rows and columns - grid lines, cell
+        borders, or strongly aligned cells (data tables, forms, financial tables,
+        appendix tables).
+        - "figure": any non-table visual asset - bar/line/pie/scatter charts,
+        plots, diagrams, flowcharts, architecture drawings, schematics, or embedded
+        images.
+        - Do not mark ordinary paragraphs, bullet lists, title blocks, or loose
+        multi-line text as tables.
+        - Do not split a single coherent table or figure into sub-parts.
+        - "title" is one short label only (single line). Do not duplicate it into
+        other fields and do not write a summary. Use an empty string when there is
+        no visible title or caption.
+        - Use confidence 0.0-1.0. Only include assets you can localize.
+        - If there are no qualifying assets, return {{"regions":[]}}.
+        - Return ONLY the JSON object, no markdown fences or explanations.
+        """
+
+    elif task == "page-memory-table-continuity":
+        temperature = 0
+        top_p = 0.01
+        max_tokens = 200
+        prompt = """\
+You are a document table analysis expert. You are given two HTML table fragments from consecutive PDF pages. Both tables have the same column count.
+
+Your task: determine whether Table B is a continuation of Table A (split across pages) or an independent table.
+
+[TABLE A - header rows (from the beginning of the table)]
+{header_rows}
+
+[TABLE A - last rows (from the end of the page)]
+{tail_rows}
+
+[TABLE B - first rows (from the beginning of the next page)]
+{head_rows}
+
+Step 1 - Continuation check:
+Table B is a NEW independent table if ANY of:
+- It opens with a standalone title or caption spanning all columns
+- Row numbering or indexing restarts rather than continuing from Table A
+- The column semantics are structurally different from Table A
+
+Table B is a CONTINUATION if:
+- Row numbering or content logically follows from Table A's last rows
+- The column structure and semantics are consistent
+
+Step 2 - Repeated header detection (only if continuation):
+Paginated tables sometimes reprint column headers at the top of each new page. Compare the first rows of Table B against Table A's header rows provided above. Count how many consecutive leading rows in Table B are repeated column headers rather than new data rows. Consider that headers may span multiple rows when columns have nested or grouped labels.
+
+Return ONLY strict JSON, no markdown fences:
+{{"is_continuation": true/false, "header_rows_to_skip": 0, "reason": "<one sentence>"}}
+
+header_rows_to_skip: integer, the number of leading rows in Table B that duplicate the table header and should be removed before merging. Set to 0 if Table B starts directly with data rows.
+"""
+        tail_rows = kwargs.get("paras", {}).get("tail_rows", "")
+        head_rows = kwargs.get("paras", {}).get("head_rows", "")
+        header_rows = kwargs.get("paras", {}).get("header_rows", "")
+        prompt = prompt.format(
+            tail_rows=tail_rows,
+            head_rows=head_rows,
+            header_rows=header_rows,
+        )
+
     # ==================== Image Processing Prompts ====================
 
     elif task == "summary-images":
         temperature = 0.1
         max_tokens = int(kwargs["paras"]["max_tokens"] * 1.2)
         if texts.strip():
-            img_context = f"- Image context is [{texts}], you may reference the context for summarization"
+            img_context = (
+                f"- Context for this image: [{texts}]. You may use it to "
+                "disambiguate, but describe only what the image actually shows."
+            )
         else:
             img_context = ""
 
+        entity_line = _entity_instruction()
+
         prompt = f"""
-        You will receive an image from a document. Your task is to extract the most
-        USEFUL information from this image based on its type.
+        You will receive a single image extracted from a document (it may be a
+        chart, a table, a diagram, a credential/form, a technical drawing, a
+        photo, or any other visual asset). Extract the most useful information it
+        carries and return one strict JSON object with these keys:
 
-        **STEP 1: Identify the image type** (do NOT output this step, use it internally):
-        - Credential/ID: identity cards, passports, driver licenses, business licenses, certificates, permits
-        - Data Chart: bar charts, line charts, pie charts, scatter plots, heatmaps, gauge charts
-        - Table Screenshot: tabular data rendered as an image
-        - Diagram: flowcharts, org charts, architecture diagrams, mind maps, UML diagrams
-        - Engineering Drawing: architectural plans, circuit diagrams, CAD drawings, mechanical drawings
-        - Photo: real-world photographs of people, objects, scenes, products
-        - Other: anything not fitting the above categories
+        {{
+        "title": "<the asset's own caption or label>",
+        "summary": "<what the asset shows and its key information>",
+        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
+        }}
 
-        **STEP 2: Extract information according to image type**:
+        How to summarize, by what the image actually is (decide internally; do not
+        output the type):
+        - Quantitative chart or data table: state what is measured, the categories
+          or time range covered, and the standout values — highs, lows, totals, and
+          trends. Incorporate the distinct numbers directly into the summary.
+        - Diagram / flow / architecture: name the main components and how they
+          relate, and the overall flow or hierarchy.
+        - Credential / form / technical drawing: report the visible fields and
+          their values exactly as shown (identifiers, dates, codes, dimensions,
+          specifications).
+        - Photo or other: describe the primary subject, any visible text or
+          signage, and contextual cues.
 
-        For Credential/ID images:
-        - Extract ALL visible fields: name, ID number, date of birth, expiry date,
-          issuing authority, company name, registration number, legal representative,
-          business scope, qualification level, etc.
-        - Preserve exact values as shown (numbers, dates, codes)
-
-        For Data Charts:
-        - Chart title, axis labels and units
-        - Key data points, trends, and notable patterns
-        - Time range or categories covered
-        - Data source if visible
-
-        For Table Screenshots:
-        - Table title and column headers
-        - Key data entries and notable values
-        - Number of rows/columns and what the table represents
-
-        For Diagrams (flow/architecture/org):
-        - All node names and their relationships
-        - Flow direction and process steps
-        - Hierarchy levels and key connections
-
-        For Engineering/Technical Drawings:
-        - Drawing title, drawing number, scale
-        - Key dimensions and annotations
-        - Component/part names, material specifications
-
-        For Photos:
-        - Primary subject and scene description
-        - Notable features, text, or signage visible
-        - Context clues about location or purpose
-
-        For Other:
-        - Describe the most important visual information
-
-        **Output format**:
-        - Line 1: A concise title (no more than 20 characters) capturing the core topic
-        - Line 2 onward: The extracted information following the type-specific guidelines above
-        - Your response **MUST BE in the SAME LANGUAGE** as any text visible in the image
-          (if no text, use English)
-        - If the image is blank, unreadable, or contains no meaningful content, return exactly: null
-
+        Field rules:
+        - "title": the asset's own visible caption or label. Use an empty string
+          when the asset has none — do not invent one.
+        - "summary": faithful to the image, within about {max_tokens} characters,
+          in the SAME LANGUAGE as any text visible in the image (use English when
+          the image has no text). If the content represents statistical data,
+          incorporate the key numbers (extremes, totals, notable values) directly
+          into the summary sentence.
+        {entity_line}
+        - If the image is blank, unreadable, or carries no meaningful content,
+          return exactly: null
         {img_context}
-        - Output DIRECTLY without any prefixes like "Title:" or "Summary:" or "This image shows"
-        - Do not add any format wrappers, prefixes, or explanations beyond the content
-        """
-
-    elif task == "ocr-image":
-        temperature = 0.1
-
-        prompt = """
-        You will receive an image, which may be a photo, chart, or an image requiring OCR.
-        Your task is to perform OCR operation, fully extract and return the image content. Note:
-        - **MUST Preserve the ORIGINAL LANGUAGE** of the text in the image
-        - If the image contains no readable text, return exactly: null
-        - Output the text content DIRECTLY, do not start with phrases like "The text reads"
-        - Do not add any format wrappers, prefixes, or explanations beyond the text content
+        - Return ONLY the JSON object, with no prefixes, markdown fences, or extra
+          commentary.
         """
 
     elif task == "judge-image-type":
@@ -810,7 +1045,6 @@ def build_prompt(task, texts, query, **kwargs):
 
     else:
         from loguru import logger
-
         logger.warning(f"Unknown task: {task}, returning empty prompt")
         prompt = ""
 

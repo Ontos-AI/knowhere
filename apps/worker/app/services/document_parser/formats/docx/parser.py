@@ -2,7 +2,6 @@
 import json
 import os
 
-import pandas as pd
 from app.services.document_parser.tables.dataframe_helpers import process_dup_paths_df
 from app.services.document_parser.formats.docx.asset_accumulator import DocxAssetAccumulator
 from app.services.document_parser.formats.docx.asset_store import DocxAssetStore
@@ -13,7 +12,11 @@ from app.services.document_parser.assets.inline_asset import (
     build_image_asset_row,
     build_table_asset_row,
 )
-from app.services.document_parser.support.parser_rows import ParsedRow, ParsedRowsBuilder
+from app.services.document_parser.support.parser_rows import (
+    ParsedRow,
+    ParsedRowsBuilder,
+    serialize_entities,
+)
 from app.services.document_parser.support.path_helpers import (
     find_matches_parsing,
     process_path_texts,
@@ -24,8 +27,6 @@ from app.services.document_parser.structure.heading_hierarchy import (
     predict_heading_hierarchy,
 )
 from app.services.document_parser.formats.image.parser import (
-    _get_vision_client,
-    ask_image,
     perceptual_hash,
 )
 from app.services.document_parser.tables.table_text_parser import sanitize_table_name_from_header
@@ -120,12 +121,13 @@ def handle_image(
                 summary=cached["img_summary_field"],
                 know_id=cached["temp_uid"],
                 addtime=time_stamp,
+                entities=cached.get("entities", ""),
+                asset_title=cached.get("asset_title", ""),
             ).to_list()
         )
         logger.debug(f"Skipped duplicate image (hash={img_hash[:12]}...)")
         return headings_stack, df_list, False  # False = cache hit, don't increment
 
-    client = _get_vision_client()
     last_context = _find_img_context(headings_stack)
 
     # Image index (always present)
@@ -140,19 +142,22 @@ def handle_image(
     # LLM title + summary (optional, with fallback to last_context)
     llm_title = None
     llm_summary = None
+    asset_entities = ""
     if smart_summary:
-        from app.services.document_parser.formats.text.parser import split_title_summary
+        from shared.services.ai.summary.engine import summarize
 
-        # TODO: Risk of missing text content if the image is a screenshot of pure text.
-        # Consider adding judge-image-type and OCR fallback as done in image_parser.parse_image.
-        llm_resp = ask_image(
-            client,
-            asset_store.image_dir,
-            [f"{raw_img_name}{img_ext}"],
-            title_text=last_context,
+        # Asset contract (§4.1): the engine's per-type image prompt covers
+        # charts/tables/diagrams and pure-text screenshots alike (§4.2).
+        image_path = os.path.join(asset_store.image_dir, f"{raw_img_name}{img_ext}")
+        result = summarize(
+            mode="asset",
+            image_paths=[image_path],
+            text=last_context,
+            usage_task="parser.docx.image",
         )
-        if llm_resp:
-            llm_title, llm_summary = split_title_summary(llm_resp)
+        llm_title = result.title or None
+        llm_summary = result.summary or None
+        asset_entities = serialize_entities(result.entities)
 
     # Fallback: LLM summary -> last_context -> None
     img_summary = llm_summary or last_context or None
@@ -186,6 +191,7 @@ def handle_image(
     else:
         image_ref = f"\n{img_ref}\n"
 
+    asset_title = llm_title or ""
     headings_stack[-1]["content"].append(image_ref)
     df_list.append(
         build_image_asset_row(
@@ -194,6 +200,8 @@ def handle_image(
             summary=img_summary_field,
             know_id=temp_uid,
             addtime=time_stamp,
+            entities=asset_entities,
+            asset_title=asset_title,
         ).to_list()
     )
 
@@ -204,6 +212,8 @@ def handle_image(
             "image_ref": image_ref,
             "img_summary_field": img_summary_field,
             "temp_uid": temp_uid,
+            "entities": asset_entities,
+            "asset_title": asset_title,
         }
 
     return headings_stack, df_list, True  # True = new image processed
@@ -285,19 +295,15 @@ def handle_table(
                     cached = seen_images[cell_img_hash]
                     descriptions.append(f"[{cached['img_summary_field']}]")
                     table_img_entries.append(
-                        [
-                            cached["image_ref"],
-                            cached["img_path"],
-                            "image",
-                            len(cached["image_ref"]),
-                            "",
-                            cached["img_summary_field"],
-                            cached["temp_uid"],
-                            "",
-                            "",
-                            time_stamp,
-                            "",
-                        ]
+                        build_image_asset_row(
+                            content=cached["image_ref"],
+                            relative_path=cached["img_path"],
+                            summary=cached["img_summary_field"],
+                            know_id=cached["temp_uid"],
+                            addtime=time_stamp,
+                            entities=cached.get("entities", ""),
+                            asset_title=cached.get("asset_title", ""),
+                        ).to_list()
                     )
                     logger.debug(
                         f"Skipped duplicate table cell image (hash={cell_img_hash[:12]}...)"
@@ -318,15 +324,24 @@ def handle_table(
 
                 # LLM summary (optional)
                 img_summary = None
+                cell_entities = ""
+                cell_title = ""
                 if summary_image:
                     try:
-                        client = _get_vision_client()
-                        img_summary = ask_image(
-                            client,
-                            asset_store.image_dir,
-                            [f"{img_name}{img_ext}"],
-                            title_text=current_heading,
+                        from shared.services.ai.summary.engine import summarize
+
+                        cell_image_path = os.path.join(
+                            asset_store.image_dir, f"{img_name}{img_ext}"
                         )
+                        cell_result = summarize(
+                            mode="asset",
+                            image_paths=[cell_image_path],
+                            text=current_heading,
+                            usage_task="parser.docx.table_image",
+                        )
+                        img_summary = cell_result.summary or None
+                        cell_entities = serialize_entities(cell_result.entities)
+                        cell_title = cell_result.title or ""
                     except Exception as e:
                         logger.warning(f"Failed to summarize table image: {e}")
 
@@ -350,6 +365,8 @@ def handle_table(
                         summary=img_summary_field,
                         know_id=temp_uid,
                         addtime=time_stamp,
+                        entities=cell_entities,
+                        asset_title=cell_title,
                     ).to_list()
                 )
 
@@ -360,6 +377,8 @@ def handle_table(
                         "image_ref": image_ref,
                         "img_summary_field": img_summary_field,
                         "temp_uid": temp_uid,
+                        "entities": cell_entities,
+                        "asset_title": cell_title,
                     }
 
             cell_image_map[(row_idx, col_idx)] = " ".join(descriptions)
@@ -391,14 +410,16 @@ def handle_table(
     llm_title = None
     llm_summary = None
     tb_keywords = ""
+    tb_entities = ""
     if summary_table:
-        from app.services.document_parser.formats.text.parser import (
-            extract_title_keywords_summary,
-        )
+        from shared.services.ai.summary.engine import summarize
 
-        llm_title, tb_keywords, llm_summary = extract_title_keywords_summary(
-            tb_html_str, max_keywords=3
-        )
+        # Tables are Contract B assets: title + summary + entities from HTML.
+        result = summarize(mode="asset", text=tb_html_str, max_keywords=3)
+        llm_title = result.title or None
+        tb_keywords = result.keywords_str()
+        llm_summary = result.summary or None
+        tb_entities = serialize_entities(result.entities)
 
     # Build tb_summary for df_list: table-n + optional LLM summary
     if llm_summary:
@@ -423,12 +444,13 @@ def handle_table(
     headings_stack[-1]["content"].append(table_ref)
     df_list.append(
         build_table_asset_row(
-            content=tb_html_str,
             relative_path=table_asset.relative_path,
             summary=tb_summary,
             keywords=tb_keywords,
             know_id=temp_uid,
             addtime=time_stamp,
+            entities=tb_entities,
+            asset_title=(llm_title or ""),
         ).to_list()
     )
     return headings_stack, df_list, img_count
@@ -445,7 +467,6 @@ def parse_docx(
     doc_data = load_file_bytes(docx_path, file_url=file_url)
 
     doc_structure = []
-    heading_data = pd.DataFrame(columns=["text", "level"])
     headings_stack = [{"level": -1, "content": doc_structure}]
     current_heading = ""
 
@@ -503,7 +524,6 @@ def parse_docx(
     else:
         text = filename.split(".")[0]
         outline_level = 1
-        heading_data.loc[len(heading_data)] = [text, outline_level]
         current_heading = text
         new_content = {"heading": text, "content": [], "level": outline_level}
         headings_stack[-1]["content"].append(new_content)
@@ -573,6 +593,35 @@ def parse_docx(
     return {"content": doc_structure}, asset_accumulator.rows()
 
 
+def _row_values_to_parsed_row(row_values) -> ParsedRow:
+    """Rebuild a ``ParsedRow`` from a positional row list, preserving the new
+    trailing ``entities`` / ``asset_title`` columns (audit §4.4/§4.5).
+
+    Reads each index defensively so legacy 11-column rows still load while the
+    13-column rows keep their typed entities and asset titles instead of being
+    truncated at index 10.
+    """
+
+    def _get(index: int, default: str = "") -> object:
+        return row_values[index] if len(row_values) > index else default
+
+    return ParsedRow(
+        content=str(_get(0)),
+        path=str(_get(1)),
+        type=str(_get(2)),
+        length=int(_get(3, 0) or 0),
+        keywords=str(_get(4)),
+        summary=str(_get(5)),
+        know_id=str(_get(6)),
+        tokens=str(_get(7)),
+        connectto=str(_get(8)),
+        addtime=str(_get(9)),
+        page_nums=str(_get(10)),
+        entities=str(_get(11)),
+        asset_title=str(_get(12)),
+    )
+
+
 def convert_doc2dics(
     parsed_structure, df_list, output_dir, base_llm_paras, relative_root=None
 ):
@@ -624,6 +673,7 @@ def convert_doc2dics(
         try:
             keywords = row["keywords"]
             summary = row["local_summary"]
+            body_entities = row.get("entities", "")
             # Deterministic know_id: filter out IMAGE/TABLE ref items, hash pure text only
             text_items = [
                 item for item in row["content_lst"] if not has_chunk_ref(str(item))
@@ -647,6 +697,7 @@ def convert_doc2dics(
                     know_id=know_id,
                     tokens=bottom_tokens,
                     addtime=time_stamp,
+                    entities=str(body_entities or ""),
                 ).to_list()
             )
         except KnowhereException:
@@ -662,21 +713,7 @@ def convert_doc2dics(
 
     rows_builder = ParsedRowsBuilder()
     for row_values in df_list:
-        rows_builder.append(
-            ParsedRow(
-                content=str(row_values[0]),
-                path=str(row_values[1]),
-                type=str(row_values[2]),
-                length=int(row_values[3]),
-                keywords=str(row_values[4]),
-                summary=str(row_values[5]),
-                know_id=str(row_values[6]),
-                tokens=str(row_values[7]),
-                connectto=str(row_values[8]),
-                addtime=str(row_values[9]),
-                page_nums=str(row_values[10]),
-            )
-        )
+        rows_builder.append(_row_values_to_parsed_row(row_values))
     doc_df = rows_builder.to_dataframe()
     doc_df = process_dup_paths_df(doc_df)
     return doc_df

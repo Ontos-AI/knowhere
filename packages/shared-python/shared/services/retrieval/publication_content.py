@@ -23,10 +23,13 @@ def replace_document_revision_content(
     *,
     scope: DocumentPublicationScope,
     chunks: list[dict[str, Any]],
+    section_summaries: dict[str, str] | None = None,
 ) -> None:
     """Replace retrieval sections and chunks for one published document revision."""
     _delete_existing_revision_content(db, scope=scope)
-    section_publisher = DocumentSectionPublisher(db=db, scope=scope)
+    section_publisher = DocumentSectionPublisher(
+        db=db, scope=scope, section_summaries=section_summaries,
+    )
     for index, chunk in enumerate(chunks):
         chunk_metadata = _get_chunk_metadata(chunk)
         source_path = _get_source_path(chunk=chunk, chunk_metadata=chunk_metadata)
@@ -48,9 +51,16 @@ def replace_document_revision_content(
 
 
 class DocumentSectionPublisher:
-    def __init__(self, *, db: Session, scope: DocumentPublicationScope) -> None:
+    def __init__(
+        self,
+        *,
+        db: Session,
+        scope: DocumentPublicationScope,
+        section_summaries: dict[str, str] | None = None,
+    ) -> None:
         self._db = db
         self._scope = scope
+        self._section_summaries = section_summaries or {}
         self._sections_by_path: dict[str, DocumentSection] = {}
 
     def ensure_section(self, section_path: str) -> DocumentSection:
@@ -75,6 +85,7 @@ class DocumentSectionPublisher:
                 section_level=depth,
                 section_metadata={},
                 sort_order=len(self._sections_by_path),
+                summary=self._section_summaries.get(ancestor_path) or None,
             )
             self._db.add(ancestor_section)
             self._db.flush()

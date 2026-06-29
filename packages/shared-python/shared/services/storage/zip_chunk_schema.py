@@ -106,10 +106,8 @@ class ZipChunkSchemaBuilder:
                 )
                 metadata["tokens"] = []
             elif chunk_type == "page":
-                # Page chunks carry page_image_uri and section_roles in
-                # extra_metadata; minimal metadata here.
                 metadata["keywords"] = existing_metadata.get("keywords") or []
-                metadata["tokens"] = []
+                metadata["connect_to"] = existing_metadata.get("connect_to") or []
 
             formatted.append(
                 {

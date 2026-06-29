@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from shared.services.retrieval.hydration.assets import enrich_rows_with_retrieval_asset_urls
+from shared.services.retrieval.hydration.assets import enrich_rows_with_retrieval_asset_url
 from shared.services.retrieval.hydration.row_utils import (
     PUBLIC_RESULT_FIELDS,
     PUBLIC_SOURCE_FIELDS,
@@ -23,8 +23,8 @@ def to_public_source(row: dict[str, Any]) -> dict[str, Any]:
     return {field: row.get(field) for field in PUBLIC_SOURCE_FIELDS}
 
 
-async def enrich_referenced_chunks_with_asset_urls(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return await enrich_rows_with_retrieval_asset_urls(
+async def enrich_referenced_chunks_with_asset_url(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return await enrich_rows_with_retrieval_asset_url(
         refs,
         log_context='agentic referenced chunk',
     )
@@ -48,7 +48,7 @@ async def project_public_retrieval_response(response: dict[str, Any]) -> dict[st
     if response.get('decision_trace') is not None:
         public_response['decision_trace'] = response['decision_trace']
 
-    projected_rows = await enrich_rows_with_retrieval_asset_urls(
+    projected_rows = await enrich_rows_with_retrieval_asset_url(
         response.get('results', []),
         log_context='retrieval result',
     )

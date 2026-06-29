@@ -122,7 +122,8 @@ def ensure_doc_nav_json(
 
     from shared.services.storage.zip_result_schema import ZipResultSchemaBuilder
 
-    doc_nav = ZipResultSchemaBuilder().build_doc_nav(chunks, source_file_name)
+    schema = ZipResultSchemaBuilder()
+    doc_nav = schema.build_doc_nav(chunks, source_file_name)
 
     _save_doc_nav(file_dir, doc_nav)
     return nav_path

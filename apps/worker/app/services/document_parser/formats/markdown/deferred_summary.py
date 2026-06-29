@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from typing import Literal, TypeGuard
+from typing import Literal
 
 import gevent
 from app.services.document_parser.formats.markdown.deferred_task import (
@@ -12,30 +12,30 @@ from app.services.document_parser.formats.markdown.deferred_task import (
     TableDeferredSummaryTask,
     TextDeferredSummaryTask,
 )
-from app.services.document_parser.formats.image.parser import _get_vision_client, ask_image
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.document_parser.tables.table_text_parser import sanitize_table_name_from_header
-from app.services.document_parser.formats.text.parser import (
-    extract_title_keywords_summary,
-    split_title_summary,
+from app.services.document_parser.support.parser_rows import (
+    COL_ASSET_TITLE,
+    COL_ENTITIES,
+    COL_KEYWORDS,
+    COL_SUMMARY,
+    apply_body_summary,
+    serialize_entities,
 )
 from gevent.pool import Pool as GeventPool
 from loguru import logger
 
 from shared.core.config import settings
+from shared.services.ai.summary.engine import summarize
+from shared.services.ai.summary.model import AssetSummary, BodySummary
 from shared.utils.chunk_refs import build_chunk_ref
 from app.services.common.file_utils import path_handle
 
-DeferredResult = (
-    tuple[
-        int,
-        Literal["image", "table", "text"],
-        tuple[str | None, str | None] | tuple[str, str, str] | tuple[str, str],
-    ]
-)
-ImageSummaryResult = tuple[str | None, str | None]
-TableSummaryResult = tuple[str, str, str]
-TextSummaryResult = tuple[str, str]
+# Each deferred task now carries the engine's typed contract straight through to
+# the apply step (audit §4.5): assets → AssetSummary, text → BodySummary. The row
+# is then written by name via apply_asset_summary / apply_body_summary, so we no
+# longer poke magic positional offsets.
+DeferredResult = tuple[int, Literal["image", "table", "text"], object]
 
 
 @dataclass(frozen=True)
@@ -118,31 +118,36 @@ def _run_deferred_summary_task(
 ) -> DeferredResult | None:
     try:
         if isinstance(task, ImageDeferredSummaryTask):
-            client = _get_vision_client()
-            # TODO: Risk of missing text content if MinerU outputted a pure text image.
-            # Consider adding judge-image-type and OCR fallback as done in image_parser.parse_image.
-            llm_resp = ask_image(
-                client, deferred_input.output_dir, paths_=[task.relative_path]
+            # Asset contract (§4.1): title + summary + entities from the image.
+            # The engine's per-type image prompt covers charts/tables/diagrams and
+            # pure-text images alike, closing the old MinerU "pure text image" gap.
+            image_path = os.path.join(deferred_input.output_dir, task.relative_path)
+            result = summarize(
+                mode="asset",
+                image_paths=[image_path],
+                usage_task="parser.image.deferred",
             )
-            if llm_resp:
-                img_title, img_summary = split_title_summary(llm_resp)
-            else:
-                img_title, img_summary = None, None
-            return task.row_index, "image", (img_title, img_summary)
+            return task.row_index, "image", result
 
         if isinstance(task, TableDeferredSummaryTask):
-            title, keywords, summary = extract_title_keywords_summary(
-                task.table_html, max_keywords=3
+            # Tables are assets: summarize from HTML → title + summary + entities.
+            result = summarize(
+                mode="asset",
+                text=task.table_html,
+                usage_task="parser.table.deferred",
             )
-            return task.row_index, "table", (title, keywords, summary)
+            return task.row_index, "table", result
 
         if isinstance(task, TextDeferredSummaryTask):
-            _, keywords, summary = extract_title_keywords_summary(
-                task.content,
+            # Body content (Contract A): summary + entities, no title.
+            result = summarize(
+                mode="text",
+                text=task.content,
                 max_keywords=3,
                 summary_len=deferred_input.summary_len,
+                usage_task="parser.text.deferred",
             )
-            return task.row_index, "text", (keywords, summary)
+            return task.row_index, "text", result
     except Exception as exc:
         logger.warning(
             f"Deferred summary LLM call failed for idx={task.row_index}: {exc}"
@@ -165,7 +170,7 @@ def _apply_deferred_summary_results(
 
         row_index, task_type, task_result = result
         if task_type == "image":
-            if not _is_image_summary_result(task_result):
+            if not isinstance(task_result, AssetSummary):
                 logger.warning(f"Invalid image deferred result for idx={row_index}")
                 continue
             _apply_image_summary_result(
@@ -175,7 +180,7 @@ def _apply_deferred_summary_results(
                 task_result,
             )
         elif task_type == "table":
-            if not _is_table_summary_result(task_result):
+            if not isinstance(task_result, AssetSummary):
                 logger.warning(f"Invalid table deferred result for idx={row_index}")
                 continue
             _apply_table_summary_result(
@@ -185,34 +190,10 @@ def _apply_deferred_summary_results(
                 task_result,
             )
         elif task_type == "text":
-            if not _is_text_summary_result(task_result):
+            if not isinstance(task_result, BodySummary):
                 logger.warning(f"Invalid text deferred result for idx={row_index}")
                 continue
-            _apply_text_summary_result(deferred_input.rows, row_index, task_result)
-
-
-def _is_image_summary_result(result: object) -> TypeGuard[ImageSummaryResult]:
-    return (
-        isinstance(result, tuple)
-        and len(result) == 2
-        and all(isinstance(value, (str, type(None))) for value in result)
-    )
-
-
-def _is_table_summary_result(result: object) -> TypeGuard[TableSummaryResult]:
-    return (
-        isinstance(result, tuple)
-        and len(result) == 3
-        and all(isinstance(value, str) for value in result)
-    )
-
-
-def _is_text_summary_result(result: object) -> TypeGuard[TextSummaryResult]:
-    return (
-        isinstance(result, tuple)
-        and len(result) == 2
-        and all(isinstance(value, str) for value in result)
-    )
+            apply_body_summary(deferred_input.rows[row_index], task_result)
 
 
 def _get_image_task(task: MarkdownDeferredSummaryTask) -> ImageDeferredSummaryTask:
@@ -227,18 +208,41 @@ def _get_table_task(task: MarkdownDeferredSummaryTask) -> TableDeferredSummaryTa
     raise TypeError(f"Expected table deferred task, got {type(task).__name__}")
 
 
+def _apply_asset_result_preserving_index(
+    row: list[str | int], result: AssetSummary
+) -> None:
+    """Write an asset result onto a markdown row, keeping the summary's index tag.
+
+    Markdown image/table rows seed the summary column with an ``image-N`` /
+    ``table-N`` index token on the first line (see ``image_asset`` /
+    ``table_asset``). We preserve that token and append the generated summary
+    below it, then write entities, asset_title, and the transitional keywords by
+    name (audit §4.5).
+    """
+    while len(row) <= COL_ASSET_TITLE:
+        row.append("")
+    if result.summary:
+        existing = str(row[COL_SUMMARY])
+        index_token = existing.split("\n", 1)[0] if existing else ""
+        row[COL_SUMMARY] = (
+            f"{index_token}\n{result.summary}" if index_token else result.summary
+        )
+    row[COL_ENTITIES] = serialize_entities(result.entities)
+    row[COL_KEYWORDS] = result.keywords_str()
+    if result.title:
+        row[COL_ASSET_TITLE] = result.title
+
+
 def _apply_image_summary_result(
     rows: list[list[str | int]],
     original_task: ImageDeferredSummaryTask,
     row_index: int,
-    result: ImageSummaryResult,
+    result: AssetSummary,
 ) -> None:
-    img_title, img_summary = result
     row = rows[row_index]
-    if img_summary:
-        image_index = str(row[5]).split("\n")[0] if row[5] else "image"
-        row[5] = f"{image_index}\n{img_summary}"
+    _apply_asset_result_preserving_index(row, result)
 
+    img_title = result.title
     if not img_title:
         return
 
@@ -270,15 +274,12 @@ def _apply_table_summary_result(
     rows: list[list[str | int]],
     original_task: TableDeferredSummaryTask,
     row_index: int,
-    result: TableSummaryResult,
+    result: AssetSummary,
 ) -> None:
-    title, keywords, summary = result
     row = rows[row_index]
-    row[4] = keywords if isinstance(keywords, str) else ""
-    if summary:
-        table_index = str(row[5]) if "\n" not in str(row[5]) else str(row[5]).split("\n")[0]
-        row[5] = f"{table_index}\n{summary}"
+    _apply_asset_result_preserving_index(row, result)
 
+    title = result.title
     if not title:
         return
 
@@ -298,11 +299,3 @@ def _apply_table_summary_result(
     new_relative_path = f"tables/{new_table_name}.html"
     replace_chunk_ref_in_rows(rows, str(row[1]), new_relative_path)
     row[1] = new_relative_path
-
-
-def _apply_text_summary_result(
-    rows: list[list[str | int]], row_index: int, result: TextSummaryResult
-) -> None:
-    keywords, summary = result
-    rows[row_index][4] = keywords if isinstance(keywords, str) else ""
-    rows[row_index][5] = summary if isinstance(summary, str) else ""

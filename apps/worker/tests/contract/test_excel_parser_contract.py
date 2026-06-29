@@ -55,8 +55,7 @@ def test_xlsx_parser_contract_uses_stable_entrypoint_and_ignores_hidden_sheets(
     assert "[tables/table-Visible.html]" in parsed_df["type"].iloc[0]
     assert parsed_df["path"].tolist() == ["budget.xlsx/Visible"]
     assert parsed_df["summary"].tolist() == ["table-Visible"]
-    assert parsed_df["content"].iloc[0].lstrip().startswith("<table")
-    assert "[tables/" not in parsed_df["content"].iloc[0]
+    assert parsed_df["content"].iloc[0] == "tables/table-Visible.html"
     assert "Region" in parsed_df["keywords"].iloc[0]
     assert "Value" in parsed_df["keywords"].iloc[0]
 

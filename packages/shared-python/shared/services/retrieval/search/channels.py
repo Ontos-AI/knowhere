@@ -88,7 +88,7 @@ def _build_extra_filters(
     signal_paths: list[str],
     filter_mode: str,
 ) -> tuple[str, dict[str, Any]]:
-    """Build additional SQL WHERE clauses for data_type and signal_path filtering."""
+    """Build additional SQL WHERE clauses for chunk_types and signal_path filtering."""
     clauses: list[str] = []
     params: dict[str, Any] = {}
 

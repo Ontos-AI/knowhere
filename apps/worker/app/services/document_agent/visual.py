@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,43 @@ from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
     worker,
 )
+
+
+_DEBUG_VISUAL_DIRS = {
+    "planner_pages",
+    "page_locate_pages",
+    "toc_pages",
+    "inspect_pages",
+    "verify_pages",
+    "agent_visuals",
+}
+_PAGE_MEMORY_VISUAL_DIRS = {"pages", "asset_annotate"}
+
+
+def visual_debug_enabled() -> bool:
+    return os.environ.get("DOC_AGENT_KEEP_PAGE_VISUALS", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def purge_debug_visual_dirs(output_dir: str | None) -> None:
+    if not output_dir:
+        return
+    root = Path(output_dir)
+    candidates = [root / "_doc_agent" / name for name in _DEBUG_VISUAL_DIRS]
+    candidates.extend(root / name for name in _PAGE_MEMORY_VISUAL_DIRS)
+    if root.name == "_doc_agent":
+        candidates.extend(root / name for name in _DEBUG_VISUAL_DIRS)
+
+    for path in candidates:
+        try:
+            if path.exists():
+                shutil.rmtree(path)
+        except Exception:
+            pass
 
 
 @worker
@@ -83,4 +121,3 @@ def render_pages(
         timeout=timeout,
     )
     return list(result.get("results") or [])
-

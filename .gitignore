@@ -113,6 +113,7 @@ LICENSE.txt
 .agent/
 .agent-hooks/
 .codex/
+CLAUDE.md
 
 # Codex-generated local files
 .venv_unstructured/

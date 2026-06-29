@@ -9,7 +9,6 @@ from shared.models.schemas.retrieval_namespace import normalize_retrieval_namesp
 from shared.services.retrieval.execution.route_types import RetrievalRouteContext
 from shared.services.retrieval.settings import (
     INTERNAL_RECALL_K_MULTIPLIER,
-    resolve_allowed_chunk_types,
 )
 
 
@@ -22,7 +21,7 @@ class RetrievalQuery:
     top_k: int
     exclude_document_ids: list[str]
     exclude_sections: list[dict[str, str]]
-    data_type: int = 1
+    chunk_types: set[str] | None = None
     signal_paths: list[str] | None = None
     filter_mode: str = "delete"
     channels: list[str] | None = None
@@ -43,7 +42,7 @@ class RetrievalQuery:
         top_k: int,
         exclude_document_ids: list[str],
         exclude_sections: list[dict[str, str]],
-        data_type: int = 1,
+        chunk_types: set[str] | None = None,
         signal_paths: list[str] | None = None,
         filter_mode: str = "delete",
         channels: list[str] | None = None,
@@ -61,7 +60,7 @@ class RetrievalQuery:
             top_k=top_k,
             exclude_document_ids=exclude_document_ids,
             exclude_sections=exclude_sections,
-            data_type=data_type,
+            chunk_types=chunk_types,
             signal_paths=signal_paths,
             filter_mode=filter_mode,
             channels=channels,
@@ -74,7 +73,7 @@ class RetrievalQuery:
 
     def build_cache_extra(self) -> dict[str, Any]:
         return {
-            "data_type": self.data_type,
+            "chunk_types": sorted(self.chunk_types) if self.chunk_types else None,
             "signal_paths": self.signal_paths,
             "filter_mode": self.filter_mode,
             "channels": self.channels,
@@ -87,7 +86,7 @@ class RetrievalQuery:
         }
 
     def resolve_allowed_chunk_types(self) -> set[str] | None:
-        return resolve_allowed_chunk_types(self.data_type)
+        return self.chunk_types
 
     def resolve_effective_recall_k(self) -> int:
         if self.internal_recall_k is not None:
@@ -104,7 +103,7 @@ class RetrievalQuery:
             exclude_document_ids=self.exclude_document_ids,
             exclude_sections=self.exclude_sections,
             allowed_chunk_types=self.resolve_allowed_chunk_types(),
-            data_type=self.data_type,
+            chunk_types=self.chunk_types,
             signal_paths=self.signal_paths,
             filter_mode=self.filter_mode,
             channels=self.channels,

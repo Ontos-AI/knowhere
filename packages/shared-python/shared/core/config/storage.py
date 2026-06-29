@@ -79,8 +79,8 @@ class StorageConfig(BaseModel):
         description="Soft page limit for oversized PDF shard pipeline. "
         "Documents exceeding this are rejected with a contact-support message.",
     )
-    PDF_PAGE_TOC_ENABLED: bool = Field(
-        default=True,
+    PDF_PROFILE_TOC_ENABLED: bool = Field(
+        default=False,
         description=(
             "Enable page-owned PDF TOC profiling during parser-entry DOC_PROFILE. "
             "When disabled, PDF parsing treats documents as no-TOC and does not "
@@ -90,9 +90,15 @@ class StorageConfig(BaseModel):
     RETRIEVAL_PAGE_MEMORY_ENABLED: bool = Field(
         default=False,
         description=(
-            "Enable the experimental page_memory parse track. The API rejects "
-            "page_memory requests while this is false."
+            "Enable the page_memory parse track for PDF/PPTX. When true, these "
+            "formats default to page-based processing. Set false to fall back to "
+            "chunk-based MinerU parsing."
         ),
+    )
+    PAGE_MEMORY_MAX_PAGES: int = Field(
+        default=1500,
+        ge=1,
+        description="Hard page-count cap for the page_memory track. Documents exceeding this are rejected.",
     )
     MINERU_SHARD_CONCURRENCY: int = Field(
         default=3,

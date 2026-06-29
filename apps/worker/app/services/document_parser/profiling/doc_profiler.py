@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 
 from loguru import logger
 from app.services.document_agent.coordinator import ProfileCoordinator
+from app.services.document_agent.visual import purge_debug_visual_dirs, visual_debug_enabled
 from app.services.document_parser.orchestration.oversized_pdf_policy import (
+    build_oversized_pdf_profile_failed_exception,
     build_oversized_pdf_processing_failed_exception,
     raise_if_oversized_pdf_not_supported,
 )
@@ -29,6 +31,8 @@ def profile_document(
     *,
     job_id: str | None = None,
     output_dir: str | None = None,
+    skip_shard_plan: bool = False,
+    oversized_policy: Literal["chunk", "page_memory"] = "chunk",
 ) -> ParserDocumentProfile:
     """
     General document profiling entry point.
@@ -38,6 +42,13 @@ def profile_document(
         filename: File name (used to infer type)
         job_id: Parse job id for profile trace artifacts
         output_dir: Parser output directory
+        skip_shard_plan: When True, the lightweight anatomy stage skips the
+            LLM shard decision (+ H2 refinement) and populates a single-shard
+            placeholder instead. Used by the page-memory track, which never
+            consumes the shard plan. Chunk-track keeps the default (False).
+        oversized_policy: Controls oversized PDF admission. ``chunk`` applies
+            the legacy MinerU shard gate, while ``page_memory`` lets the
+            page-memory track continue to structural profiling.
 
     Returns:
         ParserDocumentProfile
@@ -47,7 +58,18 @@ def profile_document(
 
     ext = os.path.splitext(filename)[1].lower()
     if ext == ".pdf":
-        return _profile_pdf(file_path, filename, job_id=job_id, output_dir=output_dir)
+        try:
+            return _profile_pdf(
+                file_path,
+                filename,
+                job_id=job_id,
+                output_dir=output_dir,
+                skip_shard_plan=skip_shard_plan,
+                oversized_policy=oversized_policy,
+            )
+        finally:
+            if not visual_debug_enabled():
+                purge_debug_visual_dirs(output_dir)
 
     return ParserDocumentProfile(
         file_type=ext.lstrip("."),
@@ -63,6 +85,8 @@ def _profile_pdf(
     *,
     job_id: str | None,
     output_dir: str | None,
+    skip_shard_plan: bool = False,
+    oversized_policy: Literal["chunk", "page_memory"] = "chunk",
 ) -> ParserDocumentProfile:
     with _profile_db_context(enabled=bool(job_id)) as db:
         return _profile_pdf_with_db(
@@ -71,6 +95,8 @@ def _profile_pdf(
             job_id=job_id,
             output_dir=output_dir,
             db=db,
+            skip_shard_plan=skip_shard_plan,
+            oversized_policy=oversized_policy,
         )
 
 
@@ -81,10 +107,12 @@ def _profile_pdf_with_db(
     job_id: str | None,
     output_dir: str | None,
     db: Any | None,
+    skip_shard_plan: bool = False,
+    oversized_policy: Literal["chunk", "page_memory"] = "chunk",
 ) -> ParserDocumentProfile:
     profile_job_id = job_id or filename
     agent_output_dir = os.path.join(output_dir, "_doc_agent") if output_dir else None
-    page_toc_enabled = settings.PDF_PAGE_TOC_ENABLED
+    page_toc_enabled = settings.PDF_PROFILE_TOC_ENABLED
     coordinator = ProfileCoordinator(
         pdf_path=file_path,
         job_id=profile_job_id,
@@ -120,12 +148,18 @@ def _profile_pdf_with_db(
         },
     )
     if profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
-        raise_if_oversized_pdf_not_supported(page_count=profile.page_count)
+        if oversized_policy != "page_memory":
+            raise_if_oversized_pdf_not_supported(page_count=profile.page_count)
         if not profile.is_atlas:
             try:
                 profile.anatomy = coordinator.run_structural()
                 profile.toc = _map_toc_profile(coordinator)
             except Exception as exc:
+                if oversized_policy == "page_memory":
+                    raise build_oversized_pdf_profile_failed_exception(
+                        page_count=profile.page_count,
+                        original_exception=exc,
+                    ) from exc
                 raise build_oversized_pdf_processing_failed_exception(
                     page_count=profile.page_count,
                     original_exception=exc,
@@ -134,11 +168,14 @@ def _profile_pdf_with_db(
             profile.toc = _map_toc_profile(coordinator)
     else:
         if not profile.is_atlas:
-            profile.anatomy = coordinator.run_lightweight_anatomy()
+            profile.anatomy = coordinator.run_lightweight_anatomy(
+                skip_shard_plan=skip_shard_plan
+            )
         profile.toc = _map_toc_profile(coordinator)
 
     if trace := getattr(coordinator, "trace", None):
         trace.persist_doc_profile(profile)
+        setattr(profile, "trace_recorder", trace)
 
     return profile
 

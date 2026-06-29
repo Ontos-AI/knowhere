@@ -34,7 +34,6 @@ from shared.services.retrieval.settings import (
     CHANNEL_WEIGHT_PATH,
     CHANNEL_WEIGHT_TERM,
     INTERNAL_RECALL_K_MULTIPLIER,
-    resolve_allowed_chunk_types,
 )
 
 
@@ -47,7 +46,7 @@ async def bottom_discovery(
     top_k: int,
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
-    data_type: int = 1,
+    chunk_types: set[str] | None = None,
     signal_paths: list[str] | None = None,
     filter_mode: str = "delete",
     channels: list[str] | None = None,
@@ -58,7 +57,7 @@ async def bottom_discovery(
     """Run 3-channel BM25 discovery plus RRF fusion."""
     t0 = time.monotonic()
     try:
-        allowed_chunk_types = resolve_allowed_chunk_types(data_type)
+        allowed_chunk_types = chunk_types
         effective_recall_k = (
             internal_recall_k
             if internal_recall_k is not None

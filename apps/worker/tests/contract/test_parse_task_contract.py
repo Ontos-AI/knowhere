@@ -102,8 +102,8 @@ def test_parse_task_should_process_uploaded_file_through_real_contract_boundarie
     chunks_payload = result_zip["chunks"]
     assert len(chunks_payload["chunks"]) == len(job_chunks)
     assert all(chunk["type"] == "table" for chunk in chunks_payload["chunks"])
-    assert any(
-        chunk["content"].lstrip().startswith("<table")
+    assert all(
+        str(chunk["content"]).startswith("tables/")
         for chunk in chunks_payload["chunks"]
     )
     assert any(

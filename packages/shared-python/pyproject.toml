@@ -71,6 +71,7 @@ dependencies = [
 
     # Image processing (used by ZipResultService)
     "pillow==12.2.0",
+    "pypdf==6.10.2",
 
     # Gevent coroutine pool support
     "gevent>=24.11.1",

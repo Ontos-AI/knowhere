@@ -114,16 +114,16 @@ def _detect_mock_task(prompt_text: str) -> str:
     if '"answer"' in normalized_prompt and '"text" or "image"' in normalized_prompt:
         return "judge-image-type"
     if (
+        "you will receive a single image extracted from a document" in normalized_prompt
+        and '"chart"' in normalized_prompt
+    ):
+        return "summary-images"
+    if (
         '"title"' in normalized_prompt
-        and '"keywords"' in normalized_prompt
         and '"summary"' in normalized_prompt
+        and '"entities"' in normalized_prompt
     ):
         return "summary-full"
-    if (
-        'json dictionary format with key "answer"' in normalized_prompt
-        and "keywords" in normalized_prompt
-    ):
-        return "summary-keywords"
     if (
         "json array only" in normalized_prompt
         and "toc, not body text" in normalized_prompt
@@ -136,23 +136,15 @@ def _detect_mock_task(prompt_text: str) -> str:
         return "eval-headings"
     if "scanned page from an engineering atlas" in normalized_prompt:
         return "atlas-page-info"
-    if "perform ocr operation" in normalized_prompt:
-        return "ocr-image"
-    if (
-        "you will receive an image from a document" in normalized_prompt
-        and "identify the image type" in normalized_prompt
-    ):
-        return "summary-images"
+    if "you are transcribing a document page or image" in normalized_prompt:
+        return "transcribe"
+    if "annotating a single rendered document page" in normalized_prompt:
+        return "page-memory-vlm-tag"
+    if "you are summarizing one section of a document" in normalized_prompt:
+        return "page-memory-node-summary"
 
     if "summaries of sub-sections from a document section" in normalized_prompt:
         return "file-summary"
-    if (
-        "line 1: output a short title" in normalized_prompt
-        and "line 2 onward" in normalized_prompt
-    ):
-        return "summary-titled"
-    if "extract the main content of the material" in normalized_prompt:
-        return "summary"
 
     return "default"
 
@@ -291,17 +283,23 @@ def _build_mock_response(task_name: str) -> str:
         "detect-toc-range": '{"toc_start": null, "toc_end": null, "confidence": "low"}',
         "detect-table-headers": '{"answer": [0]}',
         "judge-image-type": '{"answer": "image"}',
-        "summary-full": '{"title": "Mock Title", "keywords": "mock", "summary": "Mock summary"}',
-        "summary-keywords": '{"answer": "mock"}',
+        "summary-full": (
+            '{"title": "Mock Title", "summary": "Mock summary", '
+            '"entities": [], "chart": null}'
+        ),
         "eval-headings": "[]",
         "eval-toc-headings": "[]",
         "atlas-page-info": "Mock atlas page info",
-        "ocr-image": "Mock OCR text",
-        "summary-images": "Mock Image Title\nMock image summary",
-
+        "transcribe": '{"text": "Mock transcribed text"}',
+        "summary-images": (
+            '{"title": "Mock Image Title", "summary": "Mock image summary", '
+            '"entities": [], "chart": null}'
+        ),
+        "page-memory-vlm-tag": '{"summary": "Mock page summary", "entities": []}',
+        "page-memory-node-summary": (
+            '{"summary": "Mock section summary", "entities": []}'
+        ),
         "file-summary": "Mock section summary",
-        "summary-titled": "Mock Title\nMock summary",
-        "summary": "Mock summary",
         "default": "Mock LLM response",
     }
     return response_by_task.get(task_name, response_by_task["default"])

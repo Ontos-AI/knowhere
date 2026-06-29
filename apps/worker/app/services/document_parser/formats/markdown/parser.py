@@ -39,7 +39,8 @@ from app.services.document_parser.tables.table_text_parser import (
     identify_tables,
 )
 from app.services.document_parser.structure.toc_parser import detect_tocs_in_texts
-from app.services.document_parser.formats.text.parser import extract_title_keywords_summary
+from app.services.document_parser.formats.text.parser import summarize_text_body
+from app.services.document_parser.support.parser_rows import serialize_entities
 from loguru import logger
 
 from shared.core.config import settings
@@ -194,13 +195,17 @@ def update_df_list(
 
     keywords = ""
     summary = ""
+    entities = ""
     needs_llm = (
         not skip_llm and len(bottom_content) > summary_len and llm_paras["summary_txt"]
     )
     if needs_llm:
-        _title, keywords, summary = extract_title_keywords_summary(
+        result = summarize_text_body(
             bottom_content, max_keywords=3, summary_len=summary_len
         )
+        keywords = result.keywords_str()
+        summary = result.summary
+        entities = serialize_entities(result.entities)
 
     df_list.append(
         ParsedRow(
@@ -213,6 +218,7 @@ def update_df_list(
             tokens=bottom_tokens,
             addtime=time_stamp,
             page_nums=page_nums,
+            entities=entities,
         ).to_list()
     )
     return df_list
@@ -371,7 +377,7 @@ def parse_md(
         else:  # no path change, remain in the same hierarchy
             # a. handle lines containing images (LLM deferred to post-loop parallel batch)
             # Always skip inline LLM — vision calls are deferred to parallel batch
-            imgs = detect_summary_img_md(line, last_context, output_dir, mode=False)
+            imgs = detect_summary_img_md(line, last_context, output_dir)
             image_name = build_markdown_image_name(
                 image_count=parser_state.image_count,
                 last_context=last_context,

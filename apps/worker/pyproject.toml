@@ -27,6 +27,7 @@ dependencies = [
     "gevent>=24.11.1",
     "psycogreen>=1.0.2",
     "httpcore>=1.0.6",
+    "tabula-py>=2.10.0",
 ]
 
 [dependency-groups]

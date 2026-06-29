@@ -72,6 +72,7 @@ class ImageParseAdapter:
 
 @dataclass(frozen=True)
 class PdfParseAdapter:
+    # Deprecated: prefer page_memory track for PDF (parse_track="page_memory").
     document_format: object
 
     def parse(self, session: ParseSession) -> ParseOutput:
@@ -136,6 +137,7 @@ class XlsxParseAdapter:
 
 @dataclass(frozen=True)
 class PptxParseAdapter:
+    # Deprecated: prefer page_memory track for PPTX (parse_track="page_memory").
     document_format: object
 
     def parse(self, session: ParseSession) -> ParseOutput:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -18,8 +19,10 @@ class ParseRunRecorder:
         self.run_id = f"prof_{uuid4().hex[:12]}"
         self.job_id = job_id
         self._db = db
+        self._lock = threading.Lock()
         self._started = time.monotonic()
         self._steps: list[dict[str, Any]] = []
+        self._stages: list[dict[str, Any]] = []
         self._anatomy: PageAnatomyMap | None = None
         self._doc_profile_source: Any | None = None
         self._artifact_path: str | None = None
@@ -35,28 +38,44 @@ class ParseRunRecorder:
         tool_name: str | None = None,
         tool_args: dict[str, Any] | None = None,
     ) -> None:
-        self._steps.append(
-            {
-                "round_index": round_index,
-                "actor": actor,
-                "action_type": action_type,
-                "tool_name": tool_name,
-                "tool_args": tool_args or {},
-                "observation": {
-                    "status": result.status,
-                    "payload_keys": sorted(result.payload.keys()),
-                    "payload": result.payload,
-                    "input_summary": result.input_summary,
-                    "output_summary": result.output_summary,
-                    "warnings": list(result.warnings),
-                    "debug": result.debug,
-                    "error": result.error,
-                },
-                "tokens_used": result.tokens_used,
-                "latency_ms": result.latency_ms,
-                "created_at": datetime.utcnow(),
-            }
-        )
+        entry = {
+            "round_index": round_index,
+            "actor": actor,
+            "action_type": action_type,
+            "tool_name": tool_name,
+            "tool_args": tool_args or {},
+            "observation": {
+                "status": result.status,
+                "payload_keys": sorted(result.payload.keys()),
+                "payload": result.payload,
+                "input_summary": result.input_summary,
+                "output_summary": result.output_summary,
+                "warnings": list(result.warnings),
+                "debug": result.debug,
+                "error": result.error,
+            },
+            "tokens_used": result.tokens_used,
+            "latency_ms": result.latency_ms,
+            "created_at": datetime.utcnow(),
+        }
+        with self._lock:
+            self._steps.append(entry)
+
+    def record_stage(
+        self,
+        stage: str,
+        *,
+        page_info: dict[str, Any] | None = None,
+        variables: dict[str, Any] | None = None,
+    ) -> None:
+        entry = {
+            "stage": stage,
+            "page_info": page_info or {},
+            "variables": variables or {},
+            "created_at": datetime.utcnow(),
+        }
+        with self._lock:
+            self._stages.append(entry)
 
     def set_anatomy_map(self, anatomy: PageAnatomyMap, artifact_path: str) -> None:
         self._anatomy = anatomy
@@ -162,6 +181,13 @@ class ParseRunRecorder:
                 if created_at is not None and hasattr(created_at, "isoformat"):
                     item["created_at"] = created_at.isoformat()
                 serializable_steps.append(item)
+            serializable_stages = []
+            for stage in self._stages:
+                item = dict(stage)
+                created_at = item.get("created_at")
+                if created_at is not None and hasattr(created_at, "isoformat"):
+                    item["created_at"] = created_at.isoformat()
+                serializable_stages.append(item)
             Path(trace_path).write_text(
                 json.dumps(
                     {
@@ -171,6 +197,7 @@ class ParseRunRecorder:
                         "summary": summary,
                         "artifact_path": self._artifact_path,
                         "steps": serializable_steps,
+                        "stages": serializable_stages,
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -185,6 +212,7 @@ class ParseRunRecorder:
         return {
             "run_id": self.run_id,
             "step_count": len(self._steps),
+            "stage_count": len(self._stages),
             "artifact_path": self._artifact_path,
             "latency_ms": int((time.monotonic() - self._started) * 1000),
         }

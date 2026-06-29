@@ -86,11 +86,15 @@ class ZipDocNavigationBuilder:
                 )
             elif chunk_type == "page":
                 stats["page_chunks"] += 1
-                # Page chunks participate in section tree like text chunks
+                page_nums = metadata.get("page_nums") or []
+                page_count = len(page_nums) if isinstance(page_nums, list) else 0
+                # Page chunks participate in section tree like text chunks, while
+                # preserving page-count semantics for navigation counts.
                 text_chunks.append(
                     {
                         "path": path,
                         "summary": summary or content_preview,
+                        "chunk_count": page_count or 1,
                     }
                 )
             else:
@@ -99,6 +103,7 @@ class ZipDocNavigationBuilder:
                     {
                         "path": path,
                         "summary": summary or content_preview,
+                        "chunk_count": 1,
                     }
                 )
 
@@ -144,7 +149,7 @@ class ZipDocNavigationBuilder:
                         "chunk_count": 0,
                         "_children_map": {},
                     }
-                root_children[key]["chunk_count"] += 1
+                root_children[key]["chunk_count"] += int(chunk.get("chunk_count") or 1)
                 if not root_children[key]["summary"]:
                     root_children[key]["summary"] = chunk.get("summary", "")
                 continue
@@ -163,7 +168,7 @@ class ZipDocNavigationBuilder:
                     }
                 node = current_level[part]
                 if index == len(section_parts) - 1:
-                    node["chunk_count"] += 1
+                    node["chunk_count"] += int(chunk.get("chunk_count") or 1)
                     if not node["summary"]:
                         node["summary"] = chunk.get("summary", "")
                 current_level = node["_children_map"]
@@ -199,3 +204,4 @@ def _section_tree_to_output(
             }
         )
     return result
+

@@ -87,15 +87,6 @@ def remove_isolated_nodes(tree: dict[str, dict]) -> dict[str, dict]:
     return _remove_isolated_nodes_recursive(tree)
 
 
-def cleanup_heading_tree(heading_preds: pd.DataFrame) -> pd.DataFrame:
-    if heading_preds.empty:
-        return heading_preds
-
-    tree, node_to_id, _ = build_tree_from_dataframe(heading_preds)
-    processed_tree = remove_isolated_nodes(tree)
-    return tree_to_dataframe(processed_tree, node_to_id, heading_preds)
-
-
 def _extract_headings_from_tree(
     node_dict: dict[str, dict],
     node_to_id: dict[tuple[str, str], int],
