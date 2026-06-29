@@ -7,6 +7,11 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+DEFAULT_TELEMETRY_POSTHOG_PROJECT_KEY = (
+    "phc_nWXdQnhvJFcjcvVNjQ8J8LhDYa9uvHfYhiuovf4Fzq64"
+)
+
+
 class BaseConfig(BaseSettings):
     """Base application configuration."""
 
@@ -34,7 +39,7 @@ class BaseConfig(BaseSettings):
         default="", description="Logfire API token for distributed tracing"
     )
     TELEMETRY_ENABLED: bool = Field(
-        default=False,
+        default=True,
         description="Enable anonymous product telemetry for self-hosted deployments",
     )
     TELEMETRY_POSTHOG_HOST: str = Field(
@@ -42,7 +47,10 @@ class BaseConfig(BaseSettings):
         description="PostHog ingestion host for anonymous telemetry events",
     )
     TELEMETRY_POSTHOG_PROJECT_KEY: str = Field(
-        default_factory=lambda: os.getenv("NEXT_PUBLIC_POSTHOG_KEY", ""),
+        default_factory=lambda: os.getenv(
+            "NEXT_PUBLIC_POSTHOG_KEY",
+            DEFAULT_TELEMETRY_POSTHOG_PROJECT_KEY,
+        ),
         description="PostHog project token for anonymous telemetry events",
     )
     TELEMETRY_INSTALLATION_ID: str = Field(
