@@ -18,7 +18,7 @@ from loguru import logger
 
 from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
-from app.services.page_memory._utils import collapse_page_ranges, page_scope_info
+from app.services.page_memory._utils import page_scope_info
 from shared.services.ai.openai_compatible_client_sync import get_openai_client
 from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.response_process_service import eval_response

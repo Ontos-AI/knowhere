@@ -790,12 +790,12 @@ def merge_cross_page_tables(
 def _count_html_columns(html_path: str) -> int:
     """Count columns by parsing the first <tr> in an HTML table file."""
     try:
-        from bs4 import BeautifulSoup
+        from bs4 import BeautifulSoup, Tag
 
         html = Path(html_path).read_text(encoding="utf-8")
         soup = BeautifulSoup(html, "html.parser")
         first_row = soup.find("tr")
-        if first_row is None:
+        if not isinstance(first_row, Tag):
             return 0
         return len(first_row.find_all(["td", "th"]))
     except Exception:
@@ -885,8 +885,15 @@ def _merge_table_html_files(
     tail_soup = BeautifulSoup(tail_html, "html.parser")
     head_soup = BeautifulSoup(head_html, "html.parser")
 
-    tail_container = tail_soup.find("tbody") or tail_soup.find("table")
-    head_rows = (head_soup.find("tbody") or head_soup.find("table")).find_all("tr")
+    from bs4 import Tag
+
+    _tail_container = tail_soup.find("tbody") or tail_soup.find("table")
+    _head_container = head_soup.find("tbody") or head_soup.find("table")
+    if not isinstance(_tail_container, Tag) or not isinstance(_head_container, Tag):
+        return
+
+    tail_container: Tag = _tail_container
+    head_rows = _head_container.find_all("tr")
 
     rows_to_append = head_rows[header_rows_to_skip:]
     for row in rows_to_append:

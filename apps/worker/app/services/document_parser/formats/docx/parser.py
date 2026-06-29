@@ -2,7 +2,6 @@
 import json
 import os
 
-import pandas as pd
 from app.services.document_parser.tables.dataframe_helpers import process_dup_paths_df
 from app.services.document_parser.formats.docx.asset_accumulator import DocxAssetAccumulator
 from app.services.document_parser.formats.docx.asset_store import DocxAssetStore

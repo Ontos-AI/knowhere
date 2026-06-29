@@ -366,7 +366,7 @@ def _build_page_dataframe(
             for idx, scope in enumerate(coarse_scopes, start=1)
         ]
         gevent.joinall(greenlets, raise_error=True)
-        scope_results = [g.value for g in greenlets]
+        scope_results = [g.value for g in greenlets if g.value is not None]
 
     skeletons = sort_skeletons(
         [

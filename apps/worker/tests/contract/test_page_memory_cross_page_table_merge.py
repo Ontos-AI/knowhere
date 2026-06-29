@@ -9,7 +9,6 @@ Verifies:
 from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
