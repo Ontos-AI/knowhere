@@ -1,27 +1,27 @@
 """Replace retrieval_runs.data_type integer with chunk_types JSON.
 
-Revision ID: a1b2c3d4e5f6
-Revises: f9c0d1e2f3a4
+Revision ID: f0d85d209e68
+Revises: f9d0e1f2a3b4
 Create Date: 2026-06-26
 """
 from alembic import op
 import sqlalchemy as sa
 
 
-revision = 'a1b2c3d4e5f6'
-down_revision = 'f9c0d1e2f3a4'
+revision = 'f0d85d209e68'
+down_revision = 'f9d0e1f2a3b4'
 branch_labels = None
 depends_on = None
 
 DATA_TYPE_TO_CHUNK_TYPES = {
     1: None,
-    2: '["text"]',
-    3: '["image"]',
-    4: '["table"]',
-    5: '["image", "text"]',
-    6: '["table", "text"]',
-    7: '["page"]',
-    8: '["image", "table", "text"]',
+    2: '[\"text\"]',
+    3: '[\"image\"]',
+    4: '[\"table\"]',
+    5: '[\"image\", \"text\"]',
+    6: '[\"table\", \"text\"]',
+    7: '[\"page\"]',
+    8: '[\"image\", \"table\", \"text\"]',
 }
 
 
