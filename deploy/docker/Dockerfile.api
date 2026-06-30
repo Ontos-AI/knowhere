@@ -1,6 +1,6 @@
 # API Dockerfile with a multi-stage build
-# Use the official Python base image
-FROM python:3.12-slim AS builder
+# Pin Debian Trixie explicitly so package resolution is deterministic.
+FROM python:3.12-slim-trixie AS builder
 
 WORKDIR /app
 
@@ -31,8 +31,8 @@ RUN \
     UV_PROJECT_ENVIRONMENT=/app/venv uv sync --locked --no-dev
 
 # Runtime stage
-# Use the official Python base image
-FROM python:3.12-slim
+# Pin Debian Trixie explicitly so package resolution is deterministic.
+FROM python:3.12-slim-trixie
 
 WORKDIR /app
 
