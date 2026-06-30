@@ -1,2 +1,2 @@
-"""Experimental page-memory parser track."""
+"""Page-memory document parsing track."""
 

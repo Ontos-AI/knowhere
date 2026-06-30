@@ -317,6 +317,8 @@ def parse_pptx(
     job_id=None,
 ):
     """
+    Deprecated: prefer page_memory track for PPTX processing.
+
     PPTX parsing entrance, aligned with parse_pdfs / parse_docx pattern.
 
     strategy options:

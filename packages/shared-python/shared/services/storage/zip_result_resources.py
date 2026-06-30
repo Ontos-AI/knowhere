@@ -18,7 +18,6 @@ ZipResourceFileInfo = dict[str, Any]
 class ZipPackageResources:
     image_files: tuple[ZipResourceFileInfo, ...]
     table_files: tuple[ZipResourceFileInfo, ...]
-    page_files: tuple[ZipResourceFileInfo, ...] = ()
 
     @property
     def image_files_map(self) -> dict[str, ZipResourceFileInfo]:
@@ -40,11 +39,9 @@ class ZipResourceCollector:
     ) -> ZipPackageResources:
         images_dir = os.path.join(add_dir, "images")
         tables_dir = os.path.join(add_dir, "tables")
-        pages_dir = os.path.join(add_dir, "pages")
         return ZipPackageResources(
             image_files=tuple(self._collect_image_files(chunks, images_dir)),
             table_files=tuple(self._collect_table_files(chunks, tables_dir)),
-            page_files=tuple(self._collect_page_files(pages_dir)),
         )
 
     def _collect_image_files(
@@ -215,27 +212,6 @@ class ZipResourceCollector:
             )
 
         return table_files
-
-    @staticmethod
-    def _collect_page_files(pages_dir: str) -> list[ZipResourceFileInfo]:
-        """Collect all page image/thumbnail files from pages/ directory."""
-        if not os.path.exists(pages_dir):
-            return []
-        page_files: list[ZipResourceFileInfo] = []
-        for filename in sorted(os.listdir(pages_dir)):
-            file_path = os.path.join(pages_dir, filename)
-            if not os.path.isfile(file_path):
-                continue
-            page_files.append(
-                {
-                    "file_path": f"pages/{filename}",
-                    "original_name": filename,
-                    "size_bytes": os.path.getsize(file_path),
-                    "source_path": file_path,
-                    "zip_path": f"pages/{filename}",
-                }
-            )
-        return page_files
 
 def _collect_files_by_name(directory_path: str) -> dict[str, str]:
     files: dict[str, str] = {}

@@ -429,19 +429,3 @@ class MetadataContext:
     ) -> str:
         """Format META suffix for reason code"""
         return f" META [{size_level}, {occurrence}, {is_bold}]"
-
-    def get_stats(self) -> dict:
-        """Get statistics about the headings"""
-        return {
-            "total_md_headings": len(self.md_headings),
-            "headings_with_height": len(
-                [h for h in self.md_headings if h.get("height", 0) > 0]
-            ),
-            "unique_heading_texts": len(self.lookup_map),
-        }
-
-
-# Convenience function
-def format_meta_suffix(size_rank: int, occurrence: int = 0, is_bold: int = 0) -> str:
-    """Format META suffix for reason code"""
-    return f" META [{size_rank}, {occurrence}, {is_bold}]"

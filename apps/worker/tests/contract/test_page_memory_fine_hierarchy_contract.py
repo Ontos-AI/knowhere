@@ -1,0 +1,183 @@
+from __future__ import annotations
+
+import json
+import os
+
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
+os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
+os.environ.setdefault("S3_BUCKET_NAME", "test-uploads")
+os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
+os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
+os.environ.setdefault("S3_TEMP_PATH", "/tmp")
+
+from app.services.page_memory import fine_hierarchy
+from app.services.page_memory.page_tagger import PageTagResult
+from app.services.page_memory.skeleton_extractor import SectionSkeleton
+
+
+class _FakeClient:
+    def __init__(self, response: list[dict[str, int]]) -> None:
+        self.response = response
+
+    def chat_completion(self, **_kwargs) -> str:
+        return json.dumps(self.response)
+
+
+def test_compute_fat_leaf_pages_uses_exclusive_boundaries() -> None:
+    skeletons = [
+        SectionSkeleton(
+            section_path="demo.pdf/A",
+            level=1,
+            start_page=10,
+            end_page=12,
+            title="A",
+            parent_path="demo.pdf",
+        ),
+        SectionSkeleton(
+            section_path="demo.pdf/B",
+            level=1,
+            start_page=12,
+            end_page=15,
+            title="B",
+            parent_path="demo.pdf",
+        ),
+    ]
+
+    assert fine_hierarchy.compute_fat_leaf_pages(skeletons, min_pages=1) == {
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+    }
+
+
+def test_refine_fat_leaf_skeletons_excludes_next_section_start_when_unordered(
+    monkeypatch,
+) -> None:
+    previous = SectionSkeleton(
+        section_path="demo.pdf/Section A",
+        level=3,
+        start_page=225,
+        end_page=302,
+        title="Section A",
+        parent_path="demo.pdf",
+    )
+    later = SectionSkeleton(
+        section_path="demo.pdf/Section C",
+        level=3,
+        start_page=320,
+        end_page=330,
+        title="Section C",
+        parent_path="demo.pdf",
+    )
+    next_section = SectionSkeleton(
+        section_path="demo.pdf/Section B",
+        level=3,
+        start_page=302,
+        end_page=319,
+        title="Section B",
+        parent_path="demo.pdf",
+    )
+    tags = [
+        PageTagResult(
+            page_index=301,
+            observed_titles=[{"text": "A.1 Last Heading", "prominence": 1.0}],
+        ),
+        PageTagResult(
+            page_index=302,
+            observed_titles=[
+                {
+                    "text": "B.1 Boundary Heading",
+                    "prominence": 1.0,
+                }
+            ],
+        ),
+    ]
+
+    monkeypatch.setattr(
+        fine_hierarchy,
+        "get_openai_client",
+        lambda model=None: _FakeClient([{"id": 1, "level": 1}]),
+    )
+
+    refined = fine_hierarchy.refine_fat_leaf_skeletons(
+        coarse_skeletons=[previous, later, next_section],
+        tag_results=tags,
+        fat_leaf_pages={301, 302},
+        model_name="test-model",
+    )
+
+    assert [item.title for item in refined] == [
+        "A.1 Last Heading",
+        "Section C",
+        "B.1 Boundary Heading",
+    ]
+    assert refined[0].parent_path == "demo.pdf/Section A"
+    assert refined[2].parent_path == "demo.pdf/Section B"
+
+
+def test_refine_fat_leaf_skeletons_uses_page_memory_prompt_without_demoting_siblings(
+    monkeypatch,
+) -> None:
+    skeleton = SectionSkeleton(
+        section_path="demo.pdf/安全风险分级管控",
+        level=1,
+        start_page=225,
+        end_page=245,
+        title="安全风险分级管控",
+        parent_path="demo.pdf",
+    )
+    tags = [
+        PageTagResult(
+            page_index=225,
+            observed_titles=[
+                {"text": "安全风险分级管控", "prominence": 1.0},
+                {"text": "1 总则", "prominence": 1.0},
+            ],
+        ),
+        PageTagResult(
+            page_index=226,
+            observed_titles=[
+                {"text": "2 术语", "prominence": 1.0},
+                {"text": "2.1 定义", "prominence": 0.8},
+            ],
+        ),
+        PageTagResult(
+            page_index=228,
+            observed_titles=[{"text": "3 基本规定", "prominence": 1.0}],
+        ),
+    ]
+
+    monkeypatch.setattr(
+        fine_hierarchy,
+        "get_openai_client",
+        lambda model=None: _FakeClient(
+            [
+                {"id": 1, "level": 1},
+                {"id": 2, "level": 1},
+                {"id": 3, "level": 2},
+                {"id": 4, "level": 1},
+            ]
+        ),
+    )
+
+    refined = fine_hierarchy.refine_fat_leaf_skeletons(
+        coarse_skeletons=[skeleton],
+        tag_results=tags,
+        fat_leaf_pages={225, 226, 227, 228},
+        model_name="test-model",
+    )
+
+    assert [item.title for item in refined] == [
+        "1 总则",
+        "2 术语",
+        "2.1 定义",
+        "3 基本规定",
+    ]
+    assert [item.level for item in refined] == [2, 2, 3, 2]
+    assert refined[0].end_page == 225
+    assert refined[1].end_page == 227
+    assert refined[2].parent_path.endswith("/2 术语")
+    assert all(item.title != skeleton.title for item in refined)

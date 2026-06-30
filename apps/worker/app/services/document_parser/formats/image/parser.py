@@ -10,7 +10,11 @@ from pathlib import Path
 import pandas as pd
 from app.services.document_parser.tables.dataframe_helpers import process_dup_paths_df
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
-from app.services.document_parser.support.parser_rows import ParsedRow, ParsedRowsBuilder
+from app.services.document_parser.support.parser_rows import (
+    PARSER_ROW_COLUMNS,
+    ParsedRow,
+    ParsedRowsBuilder,
+)
 from loguru import logger
 from PIL import Image
 
@@ -25,6 +29,7 @@ from shared.services.ai.response_process_service import eval_response
 from shared.utils.chunk_refs import build_chunk_ref
 from app.services.common.file_loading import is_remote, load_file_bytes
 from app.services.common.file_utils import path_handle
+from shared.services.ai.summary.engine import summarize, transcribe
 from shared.services.ai.openai_compatible_client_sync import (
     OpenAICompatibleClientSync,
     get_openai_client,
@@ -188,31 +193,18 @@ def ask_image(
         return None
 
 
-def detect_summary_img_md(line, last_context, image_root_dir, mode=False):
-    client = _get_vision_client()
+def detect_summary_img_md(line, last_context, image_root_dir):
+    """Collect markdown image refs with a placeholder summary.
+
+    The actual per-image summary is produced later by the deferred task path
+    (``ImageDeferredSummaryTask`` → unified summary engine), so here we only emit
+    a positional placeholder derived from the surrounding context.
+    """
     imgs = []
     img_paths = re.findall(MD_IMAGE_PATTERN, line, flags=re.IGNORECASE)
     for i, ip in enumerate(img_paths):
-        if mode:
-            try:
-                llm_resp = ask_image(client, image_root_dir, paths_=[ip])
-                if llm_resp:
-                    from app.services.document_parser.formats.text.parser import (
-                        split_title_summary,
-                    )
-
-                    img_title, image_summary = split_title_summary(llm_resp)
-                else:
-                    img_title = None
-                    image_summary = last_context + str(i)
-            except Exception:
-                img_title = None
-                image_summary = last_context + str(i)
-        else:
-            img_title = None
-            image_summary = last_context + str(i)
-        if image_summary is not None:
-            imgs.append((ip, img_title, image_summary))
+        image_summary = last_context + str(i)
+        imgs.append((ip, None, image_summary))
     return imgs
 
 
@@ -249,14 +241,14 @@ def parse_image(
                 f"Skipping image {filename} (too small: {saved_size / 1024:.1f} KB)"
             )
             os.remove(img_path)
-            return pd.DataFrame(columns=settings.ALL_DF_COLS.split(","))
+            return pd.DataFrame(columns=list(PARSER_ROW_COLUMNS))
 
         # Extract image content
         client = _get_vision_client()
+        abs_image_path = os.path.join(output_dir, relative_source_path)
 
-        ## Determine image category and task
-        img_task = "summary-images"
-        img_max_tokens = ProcessingConstants.IMG_MAX_TOKENS
+        ## Classify the image so text-heavy scans go through OCR (§4.2) and
+        ## everything else through the asset summary contract (§4.1).
         img_context = f"{filename}\n{base_llm_paras['frag_desc']}"
         type_resp = ask_image(
             client,
@@ -266,52 +258,44 @@ def parse_image(
             task="judge-image-type",
             size_cut=False,
         )
-        if type_resp is not None:
-            if type_resp["answer"] == "text":
-                img_task = "ocr-image"
-                img_max_tokens = ProcessingConstants.IMG_OCR_MAX_TOKENS
+        is_text_image = bool(
+            isinstance(type_resp, dict) and type_resp.get("answer") == "text"
+        )
 
-        if base_llm_paras[
-            "summary_image"
-        ]:  # Leave room for context to help understand the image
-            image_content = ask_image(
-                client,
-                output_dir,
-                paths_=[relative_source_path],
-                title_text=img_context,
-                task=img_task,
-                max_tokens=img_max_tokens,
-                size_cut=False,
-            )
-            if image_content is None:
-                image_content = filename
-        else:
+        if not base_llm_paras["summary_image"]:
+            img_title = None
+            image_summary = filename
             image_content = filename
-
-        if type_resp["answer"] == "text" and base_llm_paras["summary_image"]:
-            llm_resp = ask_image(
-                client,
-                output_dir,
-                paths_=[relative_source_path],
-                title_text=filename,
-                size_cut=False,
+        elif is_text_image:
+            # Text scan: transcribe the body (→ content) and summarize for title.
+            transcribed = transcribe(
+                image_paths=[abs_image_path],
+                max_tokens=ProcessingConstants.IMG_OCR_MAX_TOKENS,
+                usage_task="parser.image.transcribe",
             )
-            if llm_resp:
-                from app.services.document_parser.formats.text.parser import split_title_summary
-
-                img_title, image_summary = split_title_summary(llm_resp)
-            else:
-                img_title = None
-                image_summary = image_content
+            image_content = transcribed or filename
+            asset = summarize(
+                mode="asset",
+                image_paths=[abs_image_path],
+                text=filename,
+                summary_len=ProcessingConstants.IMG_MAX_TOKENS,
+                usage_task="parser.image.summary",
+            )
+            img_title = asset.title or None
+            image_summary = asset.summary or image_content
         else:
-            # For non-text images, split title from summary-images response
-            if base_llm_paras["summary_image"] and image_content != filename:
-                from app.services.document_parser.formats.text.parser import split_title_summary
-
-                img_title, image_summary = split_title_summary(image_content)
-            else:
-                img_title = None
-                image_summary = image_content
+            # Figure/chart/diagram: asset summary provides title + summary, and
+            # the summary doubles as the chunk content.
+            asset = summarize(
+                mode="asset",
+                image_paths=[abs_image_path],
+                text=img_context,
+                summary_len=ProcessingConstants.IMG_MAX_TOKENS,
+                usage_task="parser.image.summary",
+            )
+            img_title = asset.title or None
+            image_summary = asset.summary or filename
+            image_content = asset.summary or filename
 
         # 2. Decide whether to rename based on image title and filename
         img_name = path_handle((img_title or image_summary)[:20], mode="clean_single")

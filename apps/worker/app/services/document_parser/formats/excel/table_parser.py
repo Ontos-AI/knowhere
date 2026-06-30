@@ -216,7 +216,7 @@ def _write_excel_table_asset(
     table_html: str,
     time_stamp: str,
 ) -> ParsedRow:
-    title, keywords, summary = _summarize_excel_table(
+    title, keywords, summary, entities = _summarize_excel_table(
         table_frame=table_frame,
         table_html=table_html,
         sheet_name=sheet_name,
@@ -249,15 +249,15 @@ def _write_excel_table_asset(
             keywords=keywords,
             know_id=know_id,
             addtime=time_stamp,
-            content=table_html_string,
             tokens=table_tokens,
-            length=len(table_html_string),
             path=_build_excel_table_path(
                 request=request,
                 sheet_name=sheet_name,
                 subtable_title=subtable_title,
             ),
             asset_path=f"tables/{table_name}",
+            entities=entities,
+            asset_title=title or "",
         )
     )
 
@@ -309,21 +309,28 @@ def _summarize_excel_table(
     table_html: str,
     sheet_name: str,
     llm_parameters: dict[str, Any],
-) -> tuple[str | None, str, str | None]:
+) -> tuple[str | None, str, str | None, str]:
+    from app.services.document_parser.support.parser_rows import serialize_entities
+
     mechanical_keywords = parse_tb_keywords(table_frame)
 
     if llm_parameters["summary_table"]:
-        from app.services.document_parser.formats.text.parser import (
-            extract_title_keywords_summary,
-        )
+        from shared.services.ai.summary.engine import summarize
 
-        title, keywords, summary = extract_title_keywords_summary(
-            table_html,
+        # Tables are Contract B assets: title + summary + entities from HTML.
+        result = summarize(
+            mode="asset",
+            text=table_html,
             max_keywords=3,
         )
-        return title, keywords or mechanical_keywords, summary
+        return (
+            result.title or None,
+            result.keywords_str() or mechanical_keywords,
+            result.summary or None,
+            serialize_entities(result.entities),
+        )
 
-    return None, mechanical_keywords, None
+    return None, mechanical_keywords, None, ""
 
 
 def _rows_to_dataframe(parsed_rows: list[ParsedRow]) -> pd.DataFrame:

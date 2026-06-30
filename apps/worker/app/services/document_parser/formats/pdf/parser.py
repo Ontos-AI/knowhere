@@ -26,6 +26,7 @@ def parse_pdfs(
     s3_key=None,
     job_id=None,
 ):
+    # Deprecated: prefer page_memory track for PDF processing.
     base_llm_paras.update({"doc_name": filename})
 
     # ── Atlas routing: bypass MinerU entirely ──

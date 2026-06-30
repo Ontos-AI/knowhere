@@ -4,7 +4,6 @@ import os
 import re
 from typing import Any
 
-from bs4 import BeautifulSoup
 from shared.utils.chunk_refs import extract_chunk_refs
 from app.services.common.file_utils import path_handle
 
@@ -87,36 +86,3 @@ def remove_spaces(text: str, handle_punctuation: bool = False) -> str:
 
     res_text = re.sub(r"\s+", " ", res_text)
     return res_text.strip()
-
-
-def traverse_dict(d: dict[str, Any], parent: str | None = None) -> list[str]:
-    """Traverse a dictionary and generate description text."""
-    dic_texts: list[str] = []
-    for key, value in d.items():
-        if value:
-            child_keys = ", ".join(value.keys())
-            text = f"'{key}' includes {child_keys}"
-            dic_texts.append(text)
-            dic_texts.extend(traverse_dict(value, key))
-    return dic_texts
-
-
-def restore_graph_by_paths(paths: list[str]) -> tuple[dict[str, Any], list[str]]:
-    """Rebuild a graph structure from path strings."""
-    root_dict: dict[str, Any] = {}
-    split_char = os.getenv("SPLIT_CHAR", "/")
-    for path in paths:
-        nodes = path.split(split_char)
-        current_dict = root_dict
-        for node in nodes:
-            if node not in current_dict:
-                current_dict[node] = {}
-            current_dict = current_dict[node]
-    dic_texts = traverse_dict(root_dict)
-    return root_dict, dic_texts
-
-
-def html2txt(html_text: str) -> str:
-    """Convert HTML into plain text."""
-    soup = BeautifulSoup(html_text, "html.parser")
-    return soup.get_text()

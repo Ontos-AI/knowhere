@@ -376,7 +376,7 @@ class RetrievalRun(Base):
     query: Mapped[str] = mapped_column(Text, nullable=False)
     query_hash: Mapped[str] = mapped_column(String(32), nullable=False, default='')
     top_k: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
-    data_type: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    chunk_types: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
     filters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     policy_name: Mapped[str] = mapped_column(String(64), nullable=False, default='rule_based_v1')
     agentic_enabled: Mapped[bool] = mapped_column(nullable=False, default=True)

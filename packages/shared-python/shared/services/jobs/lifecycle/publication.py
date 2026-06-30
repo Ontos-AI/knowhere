@@ -4,10 +4,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from shared.models.database.document import DocumentSection
 from shared.models.database.job import Job
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
@@ -62,16 +61,10 @@ class SyncJobPublicationFinalizer:
             job_id=job_id,
             job_result_id=job_result_id,
             chunks=chunks,
+            section_summaries=section_summaries,
         )
         if _should_publish_document_graph(published_document_state):
             assert published_document_state is not None
-            if section_summaries:
-                self._backfill_section_summaries(
-                    db,
-                    document_id=published_document_state.document_id or "",
-                    job_result_id=job_result_id,
-                    section_summaries=section_summaries,
-                )
             self._retrieval_publication.publish_document_graph(
                 db,
                 job_id=job_id,
@@ -111,36 +104,6 @@ class SyncJobPublicationFinalizer:
                 "Failed to invalidate retrieval cache after publication "
                 f"(ignored): job_id={cache_invalidation.job_id}, error={exc}"
             )
-
-    def _backfill_section_summaries(
-        self,
-        db: Session,
-        *,
-        document_id: str,
-        job_result_id: str,
-        section_summaries: dict[str, str],
-    ) -> None:
-        if not document_id or not section_summaries:
-            return
-
-        try:
-            for path, summary in section_summaries.items():
-                if not path or not summary:
-                    continue
-                db.execute(
-                    update(DocumentSection)
-                    .where(DocumentSection.document_id == document_id)
-                    .where(DocumentSection.job_result_id == job_result_id)
-                    .where(DocumentSection.section_path == path)
-                    .values(summary=summary)
-                )
-            db.flush()
-            logger.debug(
-                f"Backfilled section summaries: document_id={document_id}, "
-                f"count={len(section_summaries)}"
-            )
-        except Exception as exc:
-            logger.warning(f"Section summary backfill failed (non-fatal): {exc}")
 
     def _build_cache_invalidation(
         self,

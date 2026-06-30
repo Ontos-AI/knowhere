@@ -7,6 +7,9 @@ from typing import Any
 MIN_KEYWORD_OVERLAP = 3
 KEYWORD_SCORE_WEIGHT = 1.0
 MIN_SCORE_THRESHOLD = 0.8
+# Typed entities are higher-precision than free-form keywords, so a smaller
+# overlap is meaningful for cross-document links (§4.4).
+MIN_ENTITY_OVERLAP = 2
 
 
 def normalize_keyword(keyword: str) -> str:
@@ -29,6 +32,69 @@ def extract_keywords_from_chunk_metadata(meta: dict) -> list[str]:
         return [str(token) for token in tokens if token and len(str(token)) > 1]
 
     return []
+
+
+def normalize_entity(text: str, entity_type: str) -> tuple[str, str] | None:
+    """Normalize a typed entity into a ``(type, text)`` key, or None if empty.
+
+    Type is lower-cased; text is lower-cased and whitespace-collapsed. Typing the
+    key means "Apple" the organization does not collide with "apple" the product
+    once types are populated, while untyped entities still match on text alone.
+    """
+    norm_text = re.sub(r'\s+', ' ', str(text).lower().strip())
+    if not norm_text or len(norm_text) <= 1:
+        return None
+    if re.match(r'^\d+[.,%]*$', norm_text):
+        return None
+    norm_type = re.sub(r'\s+', ' ', str(entity_type or '').lower().strip())
+    return (norm_type, norm_text)
+
+
+def extract_entities_from_chunk_metadata(meta: dict) -> list[tuple[str, str]]:
+    """Extract normalized typed-entity keys from one chunk's metadata (§4.4)."""
+    if not isinstance(meta, dict):
+        return []
+    entities = meta.get('entities')
+    if not isinstance(entities, list):
+        return []
+    result: list[tuple[str, str]] = []
+    for item in entities:
+        if not isinstance(item, dict):
+            continue
+        key = normalize_entity(item.get('text', ''), item.get('type', ''))
+        if key is not None:
+            result.append(key)
+    return result
+
+
+def get_normalized_entity_set(
+    chunk_metadata_list: list[dict[str, Any]],
+) -> set[tuple[str, str]]:
+    """Collect all normalized typed entities across a document's chunks."""
+    result: set[tuple[str, str]] = set()
+    for meta in chunk_metadata_list:
+        result.update(extract_entities_from_chunk_metadata(meta))
+    return result
+
+
+def compute_entity_score(
+    shared_entities: set[tuple[str, str]],
+    entities_a: set[tuple[str, str]],
+    entities_b: set[tuple[str, str]],
+    weight: float = 1.0,
+) -> float:
+    """Character-length-weighted typed-entity overlap score.
+
+    Mirrors ``compute_keyword_score`` but over ``(type, text)`` keys, weighting by
+    the length of the entity text so longer, more specific entities count more.
+    """
+    def _weight(entities: set[tuple[str, str]]) -> int:
+        return sum(len(text) for _type, text in entities)
+
+    denominator = min(_weight(entities_a), _weight(entities_b))
+    if denominator == 0:
+        return 0.0
+    return weight * _weight(shared_entities) / denominator
 
 
 def compute_tfidf_keywords(

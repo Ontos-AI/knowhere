@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.services.retrieval.hydration.reference import hydrate_referenced_chunk_rows
 from shared.services.retrieval.execution.response_projection import (
-    enrich_referenced_chunks_with_asset_urls,
+    enrich_referenced_chunks_with_asset_url,
 )
 from shared.services.retrieval.hydration.row_utils import build_reference_lookup_key
 
@@ -26,15 +26,19 @@ async def resolve_workflow_references(
     refs: list[dict[str, Any]],
     score_by_chunk_id: dict[str, float] | None = None,
 ) -> ResolvedWorkflowReferences:
-    enriched_refs = await enrich_referenced_chunks_with_asset_urls(refs)
     hydrated_rows = await hydrate_referenced_chunk_rows(
         db=db,
         user_id=user_id,
         namespace=namespace,
-        refs=enriched_refs,
+        refs=refs,
         score_by_chunk_id=score_by_chunk_id,
     )
-    return _select_matching_references(enriched_refs, hydrated_rows)
+    resolved = _select_matching_references(refs, hydrated_rows)
+    enriched_rows = await enrich_referenced_chunks_with_asset_url(resolved.rows)
+    return ResolvedWorkflowReferences(
+        refs=_merge_reference_asset_url(resolved.refs, enriched_rows),
+        rows=resolved.rows,
+    )
 
 
 def _select_matching_references(
@@ -89,6 +93,38 @@ def _row_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
         section_path=row.get("section_path"),
         file_path=row.get("file_path"),
     )
+
+
+def _merge_reference_asset_url(
+    refs: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    row_by_key = {_row_key(row): row for row in rows}
+    merged_refs: list[dict[str, Any]] = []
+    for ref in refs:
+        merged = dict(ref)
+        row = row_by_key.get(
+            build_reference_lookup_key(
+                document_id=ref.get("document_id"),
+                chunk_id=ref.get("chunk_id"),
+                section_path=ref.get("section_path"),
+                file_path=ref.get("file_path"),
+            )
+        )
+        if row is None:
+            row = _find_matching_row_for_ref(ref, rows)
+        if row is not None:
+            if row.get("asset_url"):
+                merged["asset_url"] = row["asset_url"]
+        merged_refs.append(merged)
+    return merged_refs
+
+
+def _find_matching_row_for_ref(
+    ref: dict[str, Any],
+    rows: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    return next((row for row in rows if _matches_reference(ref, row)), None)
 
 
 def _matches_root_alias(ref: dict[str, Any], row: dict[str, Any]) -> bool:

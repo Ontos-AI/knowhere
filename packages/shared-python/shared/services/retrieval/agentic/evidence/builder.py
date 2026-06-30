@@ -9,7 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.models.database.document import RetrievalHitStat
 from shared.services.retrieval.agentic.core.budget import BudgetLedger
 from shared.services.retrieval.agentic.core.types import DocTreeNode
-from shared.services.retrieval.hydration.assets import build_retrieval_asset_url_map
+from shared.services.retrieval.hydration.assets import (
+    AssetUrlValue,
+    build_retrieval_asset_url_map,
+)
 from shared.services.retrieval.stats.service import compute_importance_score
 from shared.utils.token_estimate import estimate_tokens
 
@@ -32,7 +35,7 @@ def _collect_chunks_by_type(
 
 
 def collect_media_chunks(node: DocTreeNode) -> list[dict[str, Any]]:
-    return _collect_chunks_by_type(node, {"image", "table"})
+    return _collect_chunks_by_type(node, {"image", "table", "page"})
 
 
 def collect_media_chunks_all(
@@ -46,7 +49,7 @@ def collect_media_chunks_all(
 
 async def build_asset_url_map(
     media_chunks: list[dict[str, Any]],
-) -> dict[str, str]:
+) -> dict[str, AssetUrlValue]:
     return await build_retrieval_asset_url_map(
         media_chunks,
         log_context="agentic evidence",

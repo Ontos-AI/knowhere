@@ -29,7 +29,7 @@ async def run_retrieval_query(
     top_k: int,
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
-    data_type: int = 1,
+    chunk_types: set[str] | None = None,
     signal_paths: list[str] | None = None,
     filter_mode: str = "delete",
     channels: list[str] | None = None,
@@ -49,7 +49,7 @@ async def run_retrieval_query(
             top_k=top_k,
             exclude_document_ids=exclude_document_ids,
             exclude_sections=exclude_sections,
-            data_type=data_type,
+            chunk_types=chunk_types,
             signal_paths=signal_paths,
             filter_mode=filter_mode,
             channels=channels,
@@ -73,7 +73,7 @@ class RetrievalExecutionPlan:
         # Before any retrieval runs, parse `request.query` with LLM +
         # KG overview + section tree to extract structured navigation
         # hints (document_hint, scope_hint, content_type_hint).
-        # Use extracted hints to override request.data_type,
+        # Use extracted hints to override request.chunk_types,
         # request.signal_paths, request.filter_mode, and narrow
         # request.exclude_document_ids. This pre-trims the search
         # space so Discovery/DocSelect/Navigation operate on a
@@ -87,7 +87,7 @@ class RetrievalExecutionPlan:
             user_id=request.user_id,
             namespace=request.namespace,
             top_k=request.top_k,
-            data_type=request.data_type,
+            chunk_types=request.chunk_types,
             exclude_document_ids=request.exclude_document_ids,
             exclude_sections=request.exclude_sections,
         )
@@ -242,7 +242,7 @@ def _log_retrieval_start(
     user_id: str,
     namespace: str,
     top_k: int,
-    data_type: int,
+    chunk_types: set[str] | None,
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
 ) -> None:
@@ -250,7 +250,7 @@ def _log_retrieval_start(
     logger.info("  🚀 RETRIEVAL PIPELINE START")
     logger.info(f'  query="{query}"')
     logger.info(
-        f"  user={user_id}  ns={namespace}  top_k={top_k}  data_type={data_type}"
+        f"  user={user_id}  ns={namespace}  top_k={top_k}  chunk_types={chunk_types}"
     )
     logger.info(
         f"  exclude_docs={exclude_document_ids}  "

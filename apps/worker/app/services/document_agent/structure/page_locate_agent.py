@@ -250,16 +250,17 @@ def verify_section_page_choice(
     model = None
     if ctx is not None:
         model = ctx.settings.get("vlm_model") or os.environ.get("IMAGE_MODEL")
+    pages = [match.page for match in candidates]
     if ctx is None or not model or ctx.budget is None:
         best = candidates[0]
         return {
             "selected_page": best.page,
+            "candidate_pages": pages,
             "confidence": min(best.confidence, GREP_ONLY_CONFIDENCE_CAP),
             "source": "agent_heuristic",
             "reason": "VLM unavailable; selected top grep candidate",
         }
 
-    pages = [match.page for match in candidates]
     from app.services.document_agent.visual import render_pages
 
     rendered = render_pages(
@@ -273,6 +274,7 @@ def verify_section_page_choice(
         best = candidates[0]
         return {
             "selected_page": best.page,
+            "candidate_pages": pages,
             "confidence": min(best.confidence, RENDER_FAILED_GREP_CONFIDENCE_CAP),
             "source": "agent_heuristic",
             "reason": "render failed; selected top grep candidate",
@@ -285,6 +287,7 @@ def verify_section_page_choice(
         best = candidates[0]
         return {
             "selected_page": best.page,
+            "candidate_pages": pages,
             "confidence": min(best.confidence, BUDGET_EXHAUSTED_GREP_CONFIDENCE_CAP),
             "source": "agent_heuristic",
             "reason": "page_locate visual budget exhausted; selected top grep candidate",
@@ -329,6 +332,7 @@ def verify_section_page_choice(
             selected_page = None
         return {
             "selected_page": selected_page,
+            "candidate_pages": pages,
             "confidence": float(payload.get("confidence") or VLM_CONFIRMED_DEFAULT_CONFIDENCE),
             "source": "agent_vlm",
             "reason": str(payload.get("reason") or ""),
@@ -341,6 +345,7 @@ def verify_section_page_choice(
         logger.warning("[page_locate.agent] VLM failed for title={!r}: {}", title, exc)
         return {
             "selected_page": best.page,
+            "candidate_pages": pages,
             "confidence": min(best.confidence, VLM_FAILED_GREP_CONFIDENCE_CAP),
             "source": "agent_heuristic",
             "reason": f"VLM failed ({type(exc).__name__}); selected top grep candidate",

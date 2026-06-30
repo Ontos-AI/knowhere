@@ -23,15 +23,34 @@ class DocumentRepository:
         *,
         user_id: str,
         namespace: str,
+        limit: int,
+        offset: int,
     ) -> Sequence[Document]:
         result = await db.execute(
             select(Document)
             .where(Document.user_id == user_id)
             .where(Document.namespace == namespace)
             .where(Document.status != "archived")
-            .order_by(Document.updated_at.desc())
+            .order_by(Document.updated_at.desc(), Document.document_id.asc())
+            .limit(limit)
+            .offset(offset)
         )
         return result.scalars().all()
+
+    async def count_by_user_namespace(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: str,
+        namespace: str,
+    ) -> int:
+        result = await db.execute(
+            select(func.count(Document.document_id))
+            .where(Document.user_id == user_id)
+            .where(Document.namespace == namespace)
+            .where(Document.status != "archived")
+        )
+        return int(result.scalar_one())
 
     async def get_document(
         self,

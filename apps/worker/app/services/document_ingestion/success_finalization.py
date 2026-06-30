@@ -17,6 +17,7 @@ from app.services.document_ingestion.parse_result_package import (
     ParseResultPackage,
     build_generated_result_package,
 )
+from app.services.document_ingestion.artifact_refs import collect_referenced_artifact_refs
 from app.services.document_ingestion.processing_context import ParseJobContext
 from loguru import logger
 
@@ -248,11 +249,14 @@ def _upload_result_package(
     job_id: str,
     result_storage_factory: ResultStorageFactory,
 ) -> str:
+    artifact_refs = collect_referenced_artifact_refs(result_package.chunks)
+    add_dir = str(result_package.artifact.add_dir) if result_package.artifact.add_dir else ""
+    if add_dir and os.path.isfile(os.path.join(add_dir, "source.pdf")):
+        artifact_refs.add("source.pdf")
     result_bundle = result_storage_factory().upload(
         job_id=job_id,
-        result_dir=str(result_package.artifact.add_dir)
-        if result_package.artifact.add_dir
-        else "",
+        result_dir=add_dir,
         zip_file_path=generated_package.zip_file_path,
+        artifact_refs=artifact_refs,
     )
     return result_bundle.zip_key

@@ -13,6 +13,7 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 from app.services.document_agent.budget import BudgetTracker, StageEnvelope
 from app.services.page_memory import memory_service
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
+from shared.services.storage.zip_chunk_schema import ZipChunkSchemaBuilder
 
 import pandas as pd
 
@@ -73,11 +74,7 @@ def test_dataframe_converter_accepts_page_chunks_with_extra_metadata() -> None:
                 "connectto": "",
                 "addtime": "2026-06-11 00:00:00",
                 "page_nums": "1,2",
-                "extra_metadata": {
-                    "granularity": "whole_doc",
-                    "page_image_uris": ["pages/page_page_1.png"],
-                    "page_nums": [99],
-                },
+                "extra_metadata": {},
             }
         ]
     )
@@ -85,8 +82,37 @@ def test_dataframe_converter_accepts_page_chunks_with_extra_metadata() -> None:
     chunks = dataframe_to_chunks(df)
 
     assert chunks[0]["type"] == "page"
-    assert chunks[0]["metadata"]["granularity"] == "whole_doc"
     assert chunks[0]["metadata"]["page_nums"] == [1, 2]
+    assert "page_image_uris" not in chunks[0]["metadata"]
+
+
+def test_zip_chunk_schema_preserves_page_memory_node_metadata() -> None:
+    chunks = [
+        {
+            "chunk_id": "page-231",
+            "type": "page",
+            "content": "page body",
+            "path": "demo.pdf/3 基本规定/3.2 管理规定",
+            "metadata": {
+                "summary": "page summary",
+                "page_nums": [231],
+            },
+        }
+    ]
+
+    formatted = ZipChunkSchemaBuilder().format_chunks(
+        chunks,
+        image_files_map={},
+        table_files_map={},
+    )
+
+    metadata = formatted[0]["metadata"]
+    assert metadata["page_nums"] == [231]
+    assert "page_image_uris" not in metadata
+    assert "granularity" not in metadata
+    assert "page_indices" not in metadata
+    assert "owned_pages" not in metadata
+    assert "section_path" not in metadata
 
 
 def test_page_memory_granularity_routes_supported_page_modes() -> None:
@@ -106,5 +132,5 @@ def test_page_memory_granularity_routes_supported_page_modes() -> None:
         memory_service._decide_granularity(  # noqa: SLF001
             SimpleNamespace(page_count=201, toc=SimpleNamespace(has_toc=False))
         )
-        == "shard_page"
+        == "page"
     )

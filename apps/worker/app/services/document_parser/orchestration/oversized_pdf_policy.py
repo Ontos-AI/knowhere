@@ -59,6 +59,28 @@ def build_oversized_pdf_processing_failed_exception(
     )
 
 
+def build_oversized_pdf_profile_failed_exception(
+    *,
+    page_count: int,
+    original_exception: Exception,
+) -> PDFParsingException:
+    reason = _format_original_error(original_exception)
+    return PDFParsingException(
+        user_message=(
+            "Oversized PDF page-memory profiling failed: "
+            f"{reason}. This document has {page_count} pages and requires a "
+            "successful structural profile before page-memory parsing can continue."
+        ),
+        reason="OVERSIZED_PAGE_MEMORY_PROFILE_FAILED",
+        internal_message=(
+            "Oversized PDF page-memory structural profile failed. "
+            f"page_count={page_count}, "
+            f"original={type(original_exception).__name__}: {original_exception}"
+        ),
+        original_exception=original_exception,
+    )
+
+
 def _build_standard_page_limit_exception(page_count: int) -> ValidationException:
     page_limit = settings.MAX_PDF_PAGE_LIMIT
     return ValidationException(

@@ -592,12 +592,13 @@ def test_standard_pdf_profile_builds_page_toc_and_lightweight_anatomy_by_default
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
-        def run_lightweight_anatomy(self):
+        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
             self.calls.append("run_lightweight_anatomy")
             return fake_anatomy
 
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
     monkeypatch.setattr(doc_profiler.settings, "MAX_PDF_PAGE_LIMIT", 200)
+    monkeypatch.setattr(doc_profiler.settings, "PDF_PROFILE_TOC_ENABLED", True)
 
     profile = profile_document(
         str(tmp_path / "standard.pdf"),
@@ -644,17 +645,17 @@ def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
         def run_toc(self) -> TocResult:
             raise AssertionError("kill switch should not call TOC profiling")
 
-        def run_lightweight_anatomy(self):
+        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
             self.calls.append("run_lightweight_anatomy")
             self.blackboard.toc_result = TocResult(
                 method="none",
-                notes="TOC profiling disabled by PDF_PAGE_TOC_ENABLED",
+                notes="TOC profiling disabled by PDF_PROFILE_TOC_ENABLED",
             )
             self.blackboard.global_signals["toc_profile_attempted"] = False
             return fake_anatomy
 
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
-    monkeypatch.setattr(doc_profiler.settings, "PDF_PAGE_TOC_ENABLED", False)
+    monkeypatch.setattr(doc_profiler.settings, "PDF_PROFILE_TOC_ENABLED", False)
     monkeypatch.setattr(doc_profiler.settings, "MAX_PDF_PAGE_LIMIT", 200)
 
     profile = profile_document(
@@ -668,8 +669,55 @@ def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
     assert init_settings[0]["toc_before_coarse"] is False
     assert profile.toc.attempted is False
     assert profile.toc.has_toc is False
-    assert profile.toc.notes == "TOC profiling disabled by PDF_PAGE_TOC_ENABLED"
+    assert profile.toc.notes == "TOC profiling disabled by PDF_PROFILE_TOC_ENABLED"
     assert profile.anatomy is fake_anatomy
+
+
+def test_page_memory_profile_bypasses_chunk_oversized_gate(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fake_anatomy = object()
+    fake_instances = []
+
+    class FakeCoordinator:
+        def __init__(self, **_kwargs) -> None:
+            self.calls: list[str] = []
+            self.blackboard = SimpleNamespace(
+                page_count=201,
+                doc_stats={"page_count": 201},
+                global_signals={},
+                toc_result=None,
+                toc_hierarchies=None,
+            )
+            fake_instances.append(self)
+
+        def run_coarse(self) -> DocumentProfile:
+            self.calls.append("run_coarse")
+            return DocumentProfile(
+                is_scanned=False,
+                category="Research Report",
+                routing_category=PdfRoutingCategory.GENERIC.value,
+            )
+
+        def run_structural(self):
+            self.calls.append("run_structural")
+            return fake_anatomy
+
+    monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
+    monkeypatch.setattr(doc_profiler.settings, "MAX_PDF_PAGE_LIMIT", 200)
+    monkeypatch.setattr(doc_profiler.settings, "OVERSIZED_PDF_SHARD_ENABLED", False)
+
+    profile = profile_document(
+        str(tmp_path / "oversized.pdf"),
+        "oversized.pdf",
+        job_id="job-page-memory-oversized",
+        output_dir=str(tmp_path),
+        oversized_policy="page_memory",
+    )
+
+    assert profile.anatomy is fake_anatomy
+    assert fake_instances[0].calls == ["run_coarse", "run_structural"]
 
 
 def test_standard_pdf_profile_maps_page_toc_evidence(
@@ -716,7 +764,7 @@ def test_standard_pdf_profile_maps_page_toc_evidence(
             self.calls.append("run_toc")
             raise AssertionError("run_toc should be no-op after TOC-before-coarse")
 
-        def run_lightweight_anatomy(self):
+        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
             self.calls.append("run_lightweight_anatomy")
             return fake_anatomy
 
