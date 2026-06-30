@@ -44,19 +44,20 @@ async def _archive_document_response(
 @router.get("")
 async def list_documents(
     namespace: str | None = Query(None, max_length=255),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=200, description="Items per page"),
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     effective_namespace = normalize_retrieval_namespace(namespace)
-    documents = await _document_service.list_documents(
+    response = await _document_service.list_documents(
         db,
         user_id=current_user.user_id,
         namespace=effective_namespace,
+        page=page,
+        page_size=page_size,
     )
-    return {
-        "namespace": effective_namespace,
-        "documents": documents,
-    }
+    return response
 
 
 @router.get("/{document_id}")

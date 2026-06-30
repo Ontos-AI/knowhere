@@ -548,14 +548,74 @@ async def test_should_list_only_the_authenticated_users_documents_for_the_effect
     assert default_namespace_json == {
         "namespace": "default",
         "documents": [],
+        "pagination": {
+            "page": 1,
+            "page_size": 50,
+            "total": 0,
+            "total_pages": 0,
+        },
     }
     assert named_namespace_json["namespace"] == "contract-documents"
+    assert named_namespace_json["pagination"] == {
+        "page": 1,
+        "page_size": 50,
+        "total": 2,
+        "total_pages": 1,
+    }
     assert [document["document_id"] for document in documents] == [
         owned_second_document_id,
         owned_first_document_id,
     ]
     assert all(document["namespace"] == "contract-documents" for document in documents)
     assert all(document["status"] == "active" for document in documents)
+
+
+@pytest.mark.asyncio
+async def test_should_paginate_documents_for_the_effective_namespace(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    async with developer_api_client_factory() as api_client:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        oldest_document_id = f"doc_{uuid4().hex[:12]}"
+        middle_document_id = f"doc_{uuid4().hex[:12]}"
+        newest_document_id = f"doc_{uuid4().hex[:12]}"
+        await _insert_document(
+            document_id=oldest_document_id,
+            updated_at=now - timedelta(minutes=10),
+        )
+        await _insert_document(
+            document_id=middle_document_id,
+            updated_at=now - timedelta(minutes=5),
+        )
+        await _insert_document(
+            document_id=newest_document_id,
+            updated_at=now,
+        )
+
+        response = await api_client.get(
+            "/api/v1/documents",
+            params={
+                "namespace": "contract-documents",
+                "page": 2,
+                "page_size": 1,
+            },
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    documents = cast(list[dict[str, object]], response_json["documents"])
+
+    assert response_json["namespace"] == "contract-documents"
+    assert response_json["pagination"] == {
+        "page": 2,
+        "page_size": 1,
+        "total": 3,
+        "total_pages": 3,
+    }
+    assert [document["document_id"] for document in documents] == [middle_document_id]
 
 
 @pytest.mark.asyncio

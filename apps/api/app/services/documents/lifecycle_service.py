@@ -53,13 +53,31 @@ class DocumentService:
         *,
         user_id: str,
         namespace: str,
-    ) -> list[dict[str, Any]]:
-        documents = await self._repository.list_by_user_namespace(
+        page: int,
+        page_size: int,
+    ) -> dict[str, Any]:
+        total = await self._repository.count_by_user_namespace(
             db,
             user_id=user_id,
             namespace=namespace,
         )
-        return [document_payload(document) for document in documents]
+        documents = await self._repository.list_by_user_namespace(
+            db,
+            user_id=user_id,
+            namespace=namespace,
+            limit=page_size,
+            offset=(page - 1) * page_size,
+        )
+        return {
+            "namespace": namespace,
+            "documents": [document_payload(document) for document in documents],
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": math.ceil(total / page_size) if total else 0,
+            },
+        }
 
     async def list_document_chunks(
         self,
