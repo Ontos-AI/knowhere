@@ -29,10 +29,6 @@ env:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
-    if: >-
-      ${{ github.event_name != 'release' ||
-      startsWith(github.event.release.tag_name, 'v') ||
-      startsWith(github.event.release.tag_name, 'oss-v') }}
     permissions:
       contents: read
 
@@ -50,6 +46,18 @@ jobs:
             ecr_repo_name: knowhere-worker
 
     steps:
+      - name: Validate semantic release tag
+        if: ${{ github.event_name == 'release' }}
+        shell: bash
+        run: |
+          release_tag="${{ github.event.release.tag_name }}"
+          semver_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
+
+          if [[ ! "$release_tag" =~ $semver_pattern ]]; then
+            echo "::error::Knowhere API releases must use semantic version tags like v1.0.1. Date-based tags such as 2026.06.18.1 or v2026.06.18.1 are not supported."
+            exit 1
+          fi
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -340,9 +348,7 @@ jobs:
     needs: deploy
     if: >-
       ${{ github.event_name == 'release' &&
-      github.event.action == 'published' &&
-      (startsWith(github.event.release.tag_name, 'v') ||
-      startsWith(github.event.release.tag_name, 'oss-v')) }}
+      github.event.action == 'published' }}
     permissions:
       contents: write
     steps:

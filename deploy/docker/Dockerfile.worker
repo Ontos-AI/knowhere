@@ -1,6 +1,6 @@
 # Worker Dockerfile with a multi-stage build
-# Use the official Python base image
-FROM python:3.12-slim AS builder
+# Pin Debian Trixie explicitly; Trixie provides OpenJDK 21 for tabula-py.
+FROM python:3.12-slim-trixie AS builder
 
 WORKDIR /app
 
@@ -34,8 +34,8 @@ RUN \
     find /app/venv -type f -name "*.pyo" -delete
 
 # Runtime stage
-# Use the official Python base image
-FROM python:3.12-slim
+# Pin Debian Trixie explicitly; Trixie provides OpenJDK 21 for tabula-py.
+FROM python:3.12-slim-trixie
 
 WORKDIR /app
 
@@ -49,7 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-calc \
     libreoffice-impress \
     libreoffice-writer \
-    openjdk-17-jre-headless \
+    openjdk-21-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 # tabula-py shells out to Java for page-memory table HTML extraction.
