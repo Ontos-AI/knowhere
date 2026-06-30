@@ -753,7 +753,7 @@ async def test_should_list_current_document_chunks_by_document_id(
 
 
 @pytest.mark.asyncio
-async def test_should_include_media_asset_urls_in_document_chunk_list(
+async def test_should_include_media_asset_urls_in_document_chunk_list_when_requested(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
@@ -787,14 +787,17 @@ async def test_should_include_media_asset_urls_in_document_chunk_list(
         )
         response = await api_client.get(
             f"/api/v1/documents/{document_id}/chunks",
-            params={"page": 1, "page_size": 2},
+            params={
+                "page": 1,
+                "page_size": 2,
+                "include_asset_urls": "true",
+            },
         )
-        opt_out_response = await api_client.get(
+        default_response = await api_client.get(
             f"/api/v1/documents/{document_id}/chunks",
             params={
                 "page": 1,
                 "page_size": 2,
-                "include_asset_urls": "false",
             },
         )
 
@@ -808,11 +811,11 @@ async def test_should_include_media_asset_urls_in_document_chunk_list(
     assert chunks[0]["asset_url"] is None
     assert chunks[1]["asset_url"] == expected_asset_url
 
-    assert opt_out_response.status_code == 200
-    opt_out_chunks = cast(
-        list[dict[str, object]], opt_out_response.json()["chunks"]
+    assert default_response.status_code == 200
+    default_chunks = cast(
+        list[dict[str, object]], default_response.json()["chunks"]
     )
-    assert opt_out_chunks[1]["asset_url"] is None
+    assert default_chunks[1]["asset_url"] is None
 
 
 @pytest.mark.asyncio
@@ -869,12 +872,19 @@ async def test_should_return_one_document_chunk_by_document_chunk_id(
         )
         response = await api_client.get(
             f"/api/v1/documents/{document_id}/chunks/{chunk_id}",
+            params={"include_asset_urls": "true"},
+        )
+        default_response = await api_client.get(
+            f"/api/v1/documents/{document_id}/chunks/{chunk_id}",
         )
 
     assert response.status_code == 200
+    assert default_response.status_code == 200
 
     response_json = cast(dict[str, object], response.json())
     chunk = cast(dict[str, object], response_json["chunk"])
+    default_response_json = cast(dict[str, object], default_response.json())
+    default_chunk = cast(dict[str, object], default_response_json["chunk"])
 
     assert response_json["document_id"] == document_id
     assert response_json["namespace"] == "contract-documents"
@@ -893,6 +903,7 @@ async def test_should_return_one_document_chunk_by_document_chunk_id(
         f"results/{revision['job_id']}/images/figure-1.png"
         "?method=GET&expires_in=604800"
     )
+    assert default_chunk["asset_url"] is None
     assert chunk["metadata"] == {"summary": "Figure", "page_nums": []}
     assert chunk["created_at"]
 

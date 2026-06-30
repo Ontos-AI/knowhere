@@ -87,8 +87,8 @@ async def list_document_chunks(
     page_size: int = Query(50, ge=1, le=200, description="Items per page"),
     chunk_type: DocumentChunkType | None = Query(None, description="Chunk type filter"),
     include_asset_urls: bool = Query(
-        True,
-        description="Generate 7-day asset URLs for image/table chunks",
+        False,
+        description="Generate 7-day asset URLs for image/table chunks when true",
     ),
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
@@ -116,8 +116,8 @@ async def get_document_chunk(
     document_id: str,
     document_chunk_id: str,
     include_asset_urls: bool = Query(
-        True,
-        description="Generate 7-day asset URLs for image/table chunks",
+        False,
+        description="Generate 7-day asset URLs for image/table chunks when true",
     ),
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
