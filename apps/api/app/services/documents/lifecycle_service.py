@@ -15,10 +15,42 @@ from shared.services.retrieval.cache_service import (
     invalidate_retrieval_cache_namespaces,
 )
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
+from shared.services.storage.result_storage import ResultStorage, get_result_storage
+
+_DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS = 7 * 24 * 60 * 60
+_MEDIA_CHUNK_TYPES = frozenset({"image", "table"})
 
 
 def _datetime_payload(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
+
+
+def _document_chunk_asset_url(
+    *,
+    chunk_type: str,
+    job_id: str | None,
+    file_path: str | None,
+    include_asset_urls: bool,
+    result_storage: ResultStorage | None,
+) -> str | None:
+    if (
+        not include_asset_urls
+        or chunk_type not in _MEDIA_CHUNK_TYPES
+        or not job_id
+        or not file_path
+        or result_storage is None
+    ):
+        return None
+
+    try:
+        return result_storage.generate_artifact_url(
+            job_id=job_id,
+            artifact_ref=file_path,
+            expires_in=_DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning(f"Failed to generate document chunk asset URL (ignored): {exc}")
+        return None
 
 
 def document_payload(document) -> dict[str, Any]:
@@ -53,13 +85,31 @@ class DocumentService:
         *,
         user_id: str,
         namespace: str,
-    ) -> list[dict[str, Any]]:
-        documents = await self._repository.list_by_user_namespace(
+        page: int,
+        page_size: int,
+    ) -> dict[str, Any]:
+        total = await self._repository.count_by_user_namespace(
             db,
             user_id=user_id,
             namespace=namespace,
         )
-        return [document_payload(document) for document in documents]
+        documents = await self._repository.list_by_user_namespace(
+            db,
+            user_id=user_id,
+            namespace=namespace,
+            limit=page_size,
+            offset=(page - 1) * page_size,
+        )
+        return {
+            "namespace": namespace,
+            "documents": [document_payload(document) for document in documents],
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": math.ceil(total / page_size) if total else 0,
+            },
+        }
 
     async def list_document_chunks(
         self,
@@ -70,6 +120,7 @@ class DocumentService:
         page: int,
         page_size: int,
         chunk_type: str | None,
+        include_asset_urls: bool,
     ) -> dict[str, Any] | None:
         document = await self._repository.get_document(
             db,
@@ -110,10 +161,14 @@ class DocumentService:
             offset=(page - 1) * page_size,
             chunk_type=normalized_chunk_type,
         )
+        result_storage = get_result_storage() if include_asset_urls else None
         chunks = [
             self._chunk_payload(
                 chunk=chunk,
                 section=section,
+                job_id=job_result.job_id,
+                include_asset_urls=include_asset_urls,
+                result_storage=result_storage,
             )
             for chunk, section, job_result in rows
         ]
@@ -140,6 +195,7 @@ class DocumentService:
         user_id: str,
         document_id: str,
         document_chunk_id: str,
+        include_asset_urls: bool,
     ) -> dict[str, Any] | None:
         document = await self._repository.get_document(
             db,
@@ -159,6 +215,7 @@ class DocumentService:
             return None
 
         chunk, section, job_result = row
+        result_storage = get_result_storage() if include_asset_urls else None
         return {
             "document_id": document.document_id,
             "namespace": document.namespace,
@@ -167,6 +224,9 @@ class DocumentService:
             "chunk": self._chunk_payload(
                 chunk=chunk,
                 section=section,
+                job_id=job_result.job_id,
+                include_asset_urls=include_asset_urls,
+                result_storage=result_storage,
             ),
         }
 
@@ -191,6 +251,9 @@ class DocumentService:
         *,
         chunk: DocumentChunk,
         section: DocumentSection | None,
+        job_id: str | None,
+        include_asset_urls: bool,
+        result_storage: ResultStorage | None,
     ) -> dict[str, Any]:
         chunk_type = _normalize_chunk_type(chunk.chunk_type)
         file_path = chunk.file_path
@@ -205,6 +268,13 @@ class DocumentService:
             "file_path": file_path,
             "sort_order": chunk.sort_order,
             "metadata": chunk.chunk_metadata,
+            "asset_url": _document_chunk_asset_url(
+                chunk_type=chunk_type,
+                job_id=job_id,
+                file_path=file_path,
+                include_asset_urls=include_asset_urls,
+                result_storage=result_storage,
+            ),
             "created_at": _datetime_payload(chunk.created_at),
         }
 
