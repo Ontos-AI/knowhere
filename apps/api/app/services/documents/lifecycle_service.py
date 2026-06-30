@@ -15,7 +15,7 @@ from shared.services.retrieval.cache_service import (
     invalidate_retrieval_cache_namespaces,
 )
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
-from shared.services.storage.result_storage import get_result_storage
+from shared.services.storage.result_storage import ResultStorage, get_result_storage
 
 _DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS = 7 * 24 * 60 * 60
 _MEDIA_CHUNK_TYPES = frozenset({"image", "table"})
@@ -31,17 +31,19 @@ def _document_chunk_asset_url(
     job_id: str | None,
     file_path: str | None,
     include_asset_urls: bool,
+    result_storage: ResultStorage | None,
 ) -> str | None:
     if (
         not include_asset_urls
         or chunk_type not in _MEDIA_CHUNK_TYPES
         or not job_id
         or not file_path
+        or result_storage is None
     ):
         return None
 
     try:
-        return get_result_storage().generate_artifact_url(
+        return result_storage.generate_artifact_url(
             job_id=job_id,
             artifact_ref=file_path,
             expires_in=_DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS,
@@ -159,12 +161,14 @@ class DocumentService:
             offset=(page - 1) * page_size,
             chunk_type=normalized_chunk_type,
         )
+        result_storage = get_result_storage() if include_asset_urls else None
         chunks = [
             self._chunk_payload(
                 chunk=chunk,
                 section=section,
                 job_id=job_result.job_id,
                 include_asset_urls=include_asset_urls,
+                result_storage=result_storage,
             )
             for chunk, section, job_result in rows
         ]
@@ -211,6 +215,7 @@ class DocumentService:
             return None
 
         chunk, section, job_result = row
+        result_storage = get_result_storage() if include_asset_urls else None
         return {
             "document_id": document.document_id,
             "namespace": document.namespace,
@@ -221,6 +226,7 @@ class DocumentService:
                 section=section,
                 job_id=job_result.job_id,
                 include_asset_urls=include_asset_urls,
+                result_storage=result_storage,
             ),
         }
 
@@ -247,6 +253,7 @@ class DocumentService:
         section: DocumentSection | None,
         job_id: str | None,
         include_asset_urls: bool,
+        result_storage: ResultStorage | None,
     ) -> dict[str, Any]:
         chunk_type = _normalize_chunk_type(chunk.chunk_type)
         file_path = chunk.file_path
@@ -266,6 +273,7 @@ class DocumentService:
                 job_id=job_id,
                 file_path=file_path,
                 include_asset_urls=include_asset_urls,
+                result_storage=result_storage,
             ),
             "created_at": _datetime_payload(chunk.created_at),
         }
