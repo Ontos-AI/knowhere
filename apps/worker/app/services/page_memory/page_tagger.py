@@ -391,8 +391,12 @@ def _tag_vlm_titles(
                         prominence = None
                         try:
                             prominence = float(item.get("prominence", 0.5))
-                        except (TypeError, ValueError):
-                            pass
+                        except (TypeError, ValueError) as exc:
+                            logger.debug(
+                                "[page_tagger] ignored non-numeric title prominence {}: {}",
+                                item.get("prominence"),
+                                exc,
+                            )
                         observed.append({
                             "text": text,
                             "prominence": prominence,

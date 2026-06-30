@@ -181,7 +181,6 @@ def _call_llm(
             logger.warning("[summary] LLM call failed for {}: {}", usage_task, exc)
             if budget is not None:
                 budget.refund(budget_pool, est=est, stage=budget_stage)
-                budget = None
             return None
     return None
 
@@ -202,7 +201,8 @@ def summarize(
     asset_title_hint: str = ...,
     prompt_task: str | None = ...,
     prompt_paras: dict[str, Any] | None = ...,
-) -> AssetSummary: ...
+) -> AssetSummary:
+    pass
 
 
 @overload
@@ -221,7 +221,8 @@ def summarize(
     asset_title_hint: str = ...,
     prompt_task: str | None = ...,
     prompt_paras: dict[str, Any] | None = ...,
-) -> BodySummary: ...
+) -> BodySummary:
+    pass
 
 
 def summarize(

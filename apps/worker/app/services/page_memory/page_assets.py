@@ -903,13 +903,21 @@ def _merge_table_html_files(
 
     try:
         Path(head_asset.html_path).unlink(missing_ok=True)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(
+            "[page_assets] failed to remove merged table head html {}: {}",
+            head_asset.html_path,
+            exc,
+        )
     if head_asset.image_path:
         try:
             Path(head_asset.image_path).unlink(missing_ok=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "[page_assets] failed to remove merged table head image {}: {}",
+                head_asset.image_path,
+                exc,
+            )
 
 
 __all__ = [
