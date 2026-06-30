@@ -15,10 +15,40 @@ from shared.services.retrieval.cache_service import (
     invalidate_retrieval_cache_namespaces,
 )
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
+from shared.services.storage.result_storage import get_result_storage
+
+_DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS = 7 * 24 * 60 * 60
+_MEDIA_CHUNK_TYPES = frozenset({"image", "table"})
 
 
 def _datetime_payload(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
+
+
+def _document_chunk_asset_url(
+    *,
+    chunk_type: str,
+    job_id: str | None,
+    file_path: str | None,
+    include_asset_urls: bool,
+) -> str | None:
+    if (
+        not include_asset_urls
+        or chunk_type not in _MEDIA_CHUNK_TYPES
+        or not job_id
+        or not file_path
+    ):
+        return None
+
+    try:
+        return get_result_storage().generate_artifact_url(
+            job_id=job_id,
+            artifact_ref=file_path,
+            expires_in=_DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning(f"Failed to generate document chunk asset URL (ignored): {exc}")
+        return None
 
 
 def document_payload(document) -> dict[str, Any]:
@@ -88,6 +118,7 @@ class DocumentService:
         page: int,
         page_size: int,
         chunk_type: str | None,
+        include_asset_urls: bool,
     ) -> dict[str, Any] | None:
         document = await self._repository.get_document(
             db,
@@ -132,6 +163,8 @@ class DocumentService:
             self._chunk_payload(
                 chunk=chunk,
                 section=section,
+                job_id=job_result.job_id,
+                include_asset_urls=include_asset_urls,
             )
             for chunk, section, job_result in rows
         ]
@@ -158,6 +191,7 @@ class DocumentService:
         user_id: str,
         document_id: str,
         document_chunk_id: str,
+        include_asset_urls: bool,
     ) -> dict[str, Any] | None:
         document = await self._repository.get_document(
             db,
@@ -185,6 +219,8 @@ class DocumentService:
             "chunk": self._chunk_payload(
                 chunk=chunk,
                 section=section,
+                job_id=job_result.job_id,
+                include_asset_urls=include_asset_urls,
             ),
         }
 
@@ -209,6 +245,8 @@ class DocumentService:
         *,
         chunk: DocumentChunk,
         section: DocumentSection | None,
+        job_id: str | None,
+        include_asset_urls: bool,
     ) -> dict[str, Any]:
         chunk_type = _normalize_chunk_type(chunk.chunk_type)
         file_path = chunk.file_path
@@ -223,6 +261,12 @@ class DocumentService:
             "file_path": file_path,
             "sort_order": chunk.sort_order,
             "metadata": chunk.chunk_metadata,
+            "asset_url": _document_chunk_asset_url(
+                chunk_type=chunk_type,
+                job_id=job_id,
+                file_path=file_path,
+                include_asset_urls=include_asset_urls,
+            ),
             "created_at": _datetime_payload(chunk.created_at),
         }
 

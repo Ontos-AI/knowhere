@@ -746,9 +746,73 @@ async def test_should_list_current_document_chunks_by_document_id(
             "file_path": None,
             "sort_order": 0,
             "metadata": {"summary": "Intro", "page_nums": []},
+            "asset_url": None,
             "created_at": chunks[0]["created_at"],
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_should_include_media_asset_urls_in_document_chunk_list(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+    text_chunk_id = f"dchk_{uuid4().hex[:12]}"
+    table_chunk_id = f"dchk_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory() as api_client:
+        revision = await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            chunks=[
+                {
+                    "id": text_chunk_id,
+                    "chunk_id": "parser-text",
+                    "chunk_type": "text",
+                    "content": "Text chunk content",
+                    "source_chunk_path": "Chapter 1/Text",
+                    "metadata": {"summary": "Text", "page_nums": []},
+                },
+                {
+                    "id": table_chunk_id,
+                    "chunk_id": "parser-table",
+                    "chunk_type": "table",
+                    "content": "| A | B |",
+                    "source_chunk_path": "Chapter 1/Table",
+                    "file_path": "tables/table-1.html",
+                    "metadata": {"summary": "Table", "page_nums": []},
+                },
+            ],
+        )
+        response = await api_client.get(
+            f"/api/v1/documents/{document_id}/chunks",
+            params={"page": 1, "page_size": 2},
+        )
+        opt_out_response = await api_client.get(
+            f"/api/v1/documents/{document_id}/chunks",
+            params={
+                "page": 1,
+                "page_size": 2,
+                "include_asset_urls": "false",
+            },
+        )
+
+    assert response.status_code == 200
+    chunks = cast(list[dict[str, object]], response.json()["chunks"])
+    expected_asset_url = (
+        "filesystem://knowhere-test-results/"
+        f"results/{revision['job_id']}/tables/table-1.html"
+        "?method=GET&expires_in=604800"
+    )
+    assert chunks[0]["asset_url"] is None
+    assert chunks[1]["asset_url"] == expected_asset_url
+
+    assert opt_out_response.status_code == 200
+    opt_out_chunks = cast(
+        list[dict[str, object]], opt_out_response.json()["chunks"]
+    )
+    assert opt_out_chunks[1]["asset_url"] is None
 
 
 @pytest.mark.asyncio
@@ -824,6 +888,11 @@ async def test_should_return_one_document_chunk_by_document_chunk_id(
     assert chunk["section_path"] == "Chapter 1"
     assert chunk["source_chunk_path"] == "Chapter 1/Figure"
     assert chunk["file_path"] == "images/figure-1.png"
+    assert chunk["asset_url"] == (
+        "filesystem://knowhere-test-results/"
+        f"results/{revision['job_id']}/images/figure-1.png"
+        "?method=GET&expires_in=604800"
+    )
     assert chunk["metadata"] == {"summary": "Figure", "page_nums": []}
     assert chunk["created_at"]
 
