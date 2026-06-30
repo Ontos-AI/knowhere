@@ -991,9 +991,7 @@ def _cleanup_page_memory_artifacts(output_dir: str) -> None:
 
 def _remove_nested_doc_agent_trace(output_dir: str) -> None:
     try:
-        (Path(output_dir) / "_doc_agent" / "trace.json").unlink()
-    except FileNotFoundError:
-        pass
+        (Path(output_dir) / "_doc_agent" / "trace.json").unlink(missing_ok=True)
     except Exception as exc:
         logger.debug("[page_memory] failed to remove nested doc-agent trace: {}", exc)
 

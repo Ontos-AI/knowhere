@@ -202,7 +202,4 @@ def write_top_level_artifacts(
     if assets_by_page:
         write_json(root / "assets.json", serialize_assets(assets_by_page))
     else:
-        try:
-            (root / "assets.json").unlink()
-        except FileNotFoundError:
-            pass
+        (root / "assets.json").unlink(missing_ok=True)
