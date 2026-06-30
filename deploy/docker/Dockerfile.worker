@@ -1,6 +1,6 @@
 # Worker Dockerfile with a multi-stage build
-# Use the official Python base image
-FROM python:3.12-slim AS builder
+# Pin Bookworm because the worker installs the OpenJDK 17 runtime.
+FROM python:3.12-slim-bookworm AS builder
 
 WORKDIR /app
 
@@ -34,8 +34,8 @@ RUN \
     find /app/venv -type f -name "*.pyo" -delete
 
 # Runtime stage
-# Use the official Python base image
-FROM python:3.12-slim
+# Pin Bookworm because the worker installs the OpenJDK 17 runtime.
+FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
