@@ -5,6 +5,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.services.document_parser.formats.docx.asset_store import DocxAssetStore
+from app.services.document_parser.formats.docx.image_summary_scheduler import (
+    DocxImageSummaryScheduler,
+)
 
 
 ImageHandler = Callable[
@@ -17,6 +20,7 @@ ImageHandler = Callable[
         int,
         bool,
         dict[str, dict[str, str]],
+        DocxImageSummaryScheduler,
     ],
     tuple[list[dict[str, Any]], list[list[object]], bool],
 ]
@@ -35,6 +39,12 @@ class DocxAssetAccumulator:
     _image_count: int = 0
     _table_count: int = 0
     _seen_images: dict[str, dict[str, str]] = field(default_factory=dict)
+    _image_summary_scheduler: DocxImageSummaryScheduler = field(init=False)
+
+    def __post_init__(self) -> None:
+        self._image_summary_scheduler = DocxImageSummaryScheduler(
+            should_summarize=self.should_summary_image
+        )
 
     def append_image(
         self,
@@ -51,6 +61,7 @@ class DocxAssetAccumulator:
             self._image_count,
             self.should_summary_image,
             self._seen_images,
+            self._image_summary_scheduler,
         )
         if is_new_image:
             self._image_count += 1
@@ -75,9 +86,13 @@ class DocxAssetAccumulator:
             cell_images=cell_images,
             img_count=self._image_count,
             seen_images=self._seen_images,
+            image_summary_scheduler=self._image_summary_scheduler,
         )
         self._table_count += 1
         return headings_stack
+
+    def finalize(self) -> None:
+        self._image_summary_scheduler.run_all()
 
     def rows(self) -> list[list[object]]:
         return self._rows
