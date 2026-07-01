@@ -185,7 +185,7 @@ class HtmlParseAdapter:
     document_format: object
 
     def parse(self, session: ParseSession) -> ParseOutput:
-        from app.services.document_parser.formats.html.parser import parse_html
+        from app.services.document_parser.formats.html.document_parser import parse_html
 
         parsed_df = parse_html(
             session.full_output_dir,

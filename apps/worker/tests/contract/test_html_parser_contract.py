@@ -333,7 +333,7 @@ def test_html_to_md_lines_converts_headings_correctly() -> None:
     This is a fast unit test that does not require the full contract
     infrastructure (no database, no Celery, no S3).
     """
-    from app.services.document_parser.formats.html.parser import _html_to_md_lines
+    from app.services.document_parser.formats.html.document_parser import _html_to_md_lines
 
     html = """
     <html><body>
@@ -359,7 +359,7 @@ def test_html_to_md_lines_converts_headings_correctly() -> None:
 def test_html_to_md_lines_converts_tables_to_markdown() -> None:
     """Unit test: verify that <table> elements are converted to markdown
     pipe-delimited table format by the markdownify-based converter."""
-    from app.services.document_parser.formats.html.parser import _html_to_md_lines
+    from app.services.document_parser.formats.html.document_parser import _html_to_md_lines
 
     html = """
     <html><body>
@@ -390,7 +390,7 @@ def test_html_to_md_lines_converts_tables_to_markdown() -> None:
 def test_html_to_md_lines_skips_script_and_style() -> None:
     """Unit test: verify that <script> and <style> elements are silently
     skipped and do not leak JavaScript/CSS into the parsed output."""
-    from app.services.document_parser.formats.html.parser import _html_to_md_lines
+    from app.services.document_parser.formats.html.document_parser import _html_to_md_lines
 
     html = """
     <html><head><style>body { color: red; }</style></head>
@@ -418,7 +418,7 @@ def test_html_to_md_lines_img_produces_alt_text_only() -> None:
     """Unit test: verify that <img> tags do not produce markdown image
     references (which would be broken for single-file uploads), but
     instead emit only the alt text as an annotation."""
-    from app.services.document_parser.formats.html.parser import _html_to_md_lines
+    from app.services.document_parser.formats.html.document_parser import _html_to_md_lines
 
     html = """
     <html><body>
