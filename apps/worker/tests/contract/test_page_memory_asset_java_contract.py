@@ -16,10 +16,7 @@ from app.services.page_memory import page_assets
 from app.services.page_memory.page_renderer import PageRenderResult
 
 
-def test_page_assets_default_to_qwen_flash_and_full_page_scan(monkeypatch) -> None:
-    monkeypatch.delenv("PAGE_MEMORY_ASSET_MODEL", raising=False)
-    monkeypatch.delenv("PAGE_MEMORY_ASSET_MAX_PAGES", raising=False)
-
+def test_page_assets_default_to_qwen_flash_and_full_page_scan() -> None:
     assert page_assets.get_asset_model() == "qwen3.6-flash"
     assert page_assets.get_asset_max_pages(301) == 301
 
@@ -126,7 +123,8 @@ def test_page_asset_extraction_keeps_debug_output_minimal(
         asset.image_path = str(tmp_path / asset.image_uri)
         return asset
 
-    def _fake_extract_table(*, asset, pdf_path, output_dir):
+    def _fake_extract_table(*, asset, pdf_path, output_dir, table_engine="tabula"):
+        assert table_engine == "tabula"
         table_path = tmp_path / "tables" / "table_page_1_1.html"
         table_path.parent.mkdir(parents=True, exist_ok=True)
         table_path.write_text("<table><tr><td>A</td></tr></table>", encoding="utf-8")
@@ -147,6 +145,10 @@ def test_page_asset_extraction_keeps_debug_output_minimal(
         budget=None,
         max_pages=2,
         confidence_threshold=0.3,
+        summary_enabled=False,
+        summary_concurrency=4,
+        table_engine="tabula",
+        table_merge_enabled=True,
     )
 
     assert sorted(assets_by_page) == [1]

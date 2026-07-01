@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import os
 import uuid
-from typing import Literal, cast
+from collections.abc import Callable
+from typing import cast
 
 from app.services.document_ingestion.confirmation_service import (
     DocumentIngestionConfirmationService,
+)
+from app.services.document_ingestion.command import (
+    ApiVersion,
+    DocumentIngestionCommand,
+    build_v1_ingestion_command,
+    build_v2_ingestion_command,
 )
 from app.services.document_ingestion.creation_service import (
     DocumentIngestionCreationService,
@@ -32,14 +39,16 @@ from shared.core.exceptions.domain_exceptions import (
     ValidationException,
 )
 from shared.core.exceptions.webhook_exceptions import WebhookConfigException
-from shared.models.schemas.job import ConfirmUploadRequest, JobCreate, JobResponse
+from shared.models.schemas.job import ConfirmUploadRequest, JobCreateBase, JobResponse
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.http.url_file_type import resolve_file_extension_async
 from shared.services.http.url_security import validate_http_url_and_resolve_ip_async
 
 JobMetadata = dict[str, object]
-ParseTrack = Literal["chunk", "page_memory"]
-_PAGE_MEMORY_PARSE_TRACK_EXTENSIONS = {".pdf", ".pptx"}
+_PUBLIC_MODE_SELECTOR_FIELDS = {"mode", "processing"}
+_PARSE_TRACK_FIELD = "parse_track"
+_PAGE_MEMORY_FIELD_PREFIX = "page_memory"
+IngestionCommandFactory = Callable[[str], DocumentIngestionCommand]
 
 
 class DocumentIngestionService:
@@ -56,19 +65,60 @@ class DocumentIngestionService:
         )
         self._job_admission_service = job_admission_service or JobAdmissionService()
 
-    async def create_job(
+    async def create_v1_job(
         self,
         db: AsyncSession,
         *,
-        payload: JobCreate,
+        payload: JobCreateBase,
         current_user: CurrentUser,
+    ) -> JobResponse:
+        return await self._create_job_with_command_factory(
+            db,
+            payload=payload,
+            current_user=current_user,
+            api_version="v1",
+            build_command=lambda _file_extension: build_v1_ingestion_command(
+                payload=payload,
+            ),
+        )
+
+    async def create_v2_job(
+        self,
+        db: AsyncSession,
+        *,
+        payload: JobCreateBase,
+        current_user: CurrentUser,
+    ) -> JobResponse:
+        return await self._create_job_with_command_factory(
+            db,
+            payload=payload,
+            current_user=current_user,
+            api_version="v2",
+            build_command=lambda file_extension: build_v2_ingestion_command(
+                payload=payload,
+                file_extension=file_extension,
+            ),
+        )
+
+    async def _create_job_with_command_factory(
+        self,
+        db: AsyncSession,
+        *,
+        payload: JobCreateBase,
+        current_user: CurrentUser,
+        api_version: ApiVersion,
+        build_command: IngestionCommandFactory,
     ) -> JobResponse:
         try:
             job_id = f"job_{uuid.uuid4().hex[:12]}"
-            await self._validate_create_payload(payload)
+            file_extension = await self._validate_create_payload(
+                payload,
+                api_version=api_version,
+            )
+            command = build_command(file_extension)
             scope = await self._resolve_scope(
                 db,
-                payload=payload,
+                command=command,
                 current_user=current_user,
             )
 
@@ -79,7 +129,7 @@ class DocumentIngestionService:
 
             return await self._creation_service.create_job(
                 db,
-                payload=payload,
+                command=command,
                 job_id=job_id,
                 current_user=current_user,
                 scope=scope,
@@ -132,7 +182,14 @@ class DocumentIngestionService:
                 internal_message=f"Failed to confirm upload: {str(exc)}"
             )
 
-    async def _validate_create_payload(self, payload: JobCreate) -> None:
+    async def _validate_create_payload(
+        self,
+        payload: JobCreateBase,
+        *,
+        api_version: ApiVersion,
+    ) -> str:
+        _validate_public_mode_selector_fields(payload, api_version=api_version)
+
         if payload.source_type == "file" and not payload.file_name:
             raise ValidationException(
                 user_message="file_name is required when source_type is 'file'",
@@ -198,24 +255,29 @@ class DocumentIngestionService:
                         }
                     ],
                 )
-            _apply_effective_parse_track(
-                payload,
-                file_extension=file_extension,
-            )
+            return file_extension.lower()
         elif payload.file_name:
-            _apply_effective_parse_track(
-                payload,
-                file_extension=os.path.splitext(payload.file_name)[1].lower(),
-            )
+            return os.path.splitext(payload.file_name)[1].lower()
+        return ""
 
     async def _resolve_scope(
         self,
         db: AsyncSession,
         *,
-        payload: JobCreate,
+        command: DocumentIngestionCommand,
         current_user: CurrentUser,
     ) -> ResolvedDocumentIngestionScope:
-        job_metadata = cast(JobMetadata, JobMetadataHelper.create_from_request(payload))
+        payload = command.payload
+        job_metadata = cast(
+            JobMetadata,
+            JobMetadataHelper.create_from_request(
+                payload,
+                api_version=command.api_version,
+                parse_track=command.parse_track,
+                processing_generation=command.processing_generation,
+                page_memory_config=command.page_memory_config,
+            ),
+        )
         requested_document_id = JobMetadataHelper.get_document_id(job_metadata)
         if requested_document_id:
             active_job = await find_active_job_for_document(
@@ -274,80 +336,68 @@ def _is_supported_file_name(file_name: str) -> bool:
     return file_extension in settings.get_supported_extensions()
 
 
-def _validate_parse_track_for_extension(*, parse_track: str, file_extension: str) -> None:
-    if parse_track == "chunk":
+def _validate_public_mode_selector_fields(
+    payload: JobCreateBase,
+    *,
+    api_version: ApiVersion,
+) -> None:
+    extra_fields = payload.model_extra or {}
+    parse_track = extra_fields.get(_PARSE_TRACK_FIELD)
+    if parse_track is not None:
+        _validate_deprecated_parse_track(parse_track, api_version=api_version)
+
+    forbidden_fields = [
+        field_name
+        for field_name in extra_fields
+        if _is_forbidden_public_mode_field(field_name)
+    ]
+    if forbidden_fields:
+        raise ValidationException(
+            user_message="Parser mode fields are selected by the API version",
+            violations=[
+                {
+                    "field": field_name,
+                    "description": "Remove this field and choose /v1/jobs or /v2/jobs",
+                }
+                for field_name in forbidden_fields
+            ],
+        )
+
+
+def _validate_deprecated_parse_track(
+    parse_track: object,
+    *,
+    api_version: ApiVersion,
+) -> None:
+    if api_version == "v1" and parse_track == "chunk":
         return
-    if parse_track != "page_memory":
+
+    if api_version == "v1" and parse_track == "page_memory":
         raise ValidationException(
-            user_message="Unsupported parse_track",
-            violations=[
-                {"field": "parse_track", "description": "Must be chunk or page_memory"}
-            ],
-        )
-    if not settings.RETRIEVAL_PAGE_MEMORY_ENABLED:
-        raise ValidationException(
-            user_message="page_memory parse track is not enabled",
+            user_message="Use /v2/jobs for page-memory ingestion",
             violations=[
                 {
-                    "field": "parse_track",
-                    "description": "page_memory is disabled by configuration",
-                }
-            ],
-        )
-    if file_extension.lower() not in _PAGE_MEMORY_PARSE_TRACK_EXTENSIONS:
-        raise ValidationException(
-            user_message="page_memory parse track only supports PDF and PPTX",
-            violations=[
-                {
-                    "field": "parse_track",
-                    "description": "Allowed file types in this build: .pdf, .pptx",
+                    "field": _PARSE_TRACK_FIELD,
+                    "description": (
+                        "parse_track=page_memory is not accepted on /v1/jobs"
+                    ),
                 }
             ],
         )
 
-
-def _apply_effective_parse_track(
-    payload: JobCreate,
-    *,
-    file_extension: str,
-) -> ParseTrack:
-    explicit = "parse_track" in payload.model_fields_set
-    effective_parse_track = _resolve_effective_parse_track(
-        parse_track=payload.parse_track,
-        file_extension=file_extension,
-        explicit=explicit,
+    raise ValidationException(
+        user_message="Parser mode is selected by the API version",
+        violations=[
+            {
+                "field": _PARSE_TRACK_FIELD,
+                "description": "Remove parse_track and choose /v1/jobs or /v2/jobs",
+            }
+        ],
     )
-    payload.parse_track = effective_parse_track
-    return effective_parse_track
 
 
-def _resolve_effective_parse_track(
-    *,
-    parse_track: ParseTrack,
-    file_extension: str,
-    explicit: bool,
-) -> ParseTrack:
-    if parse_track == "chunk":
-        return "chunk"
-    if parse_track != "page_memory":
-        raise ValidationException(
-            user_message="Unsupported parse_track",
-            violations=[
-                {"field": "parse_track", "description": "Must be chunk or page_memory"}
-            ],
-        )
-
-    if (
-        not explicit
-        and (
-            not settings.RETRIEVAL_PAGE_MEMORY_ENABLED
-            or file_extension.lower() not in _PAGE_MEMORY_PARSE_TRACK_EXTENSIONS
-        )
-    ):
-        return "chunk"
-
-    _validate_parse_track_for_extension(
-        parse_track=parse_track,
-        file_extension=file_extension,
-    )
-    return parse_track
+def _is_forbidden_public_mode_field(field_name: str) -> bool:
+    normalized_name = field_name.strip().lower()
+    if normalized_name in _PUBLIC_MODE_SELECTOR_FIELDS:
+        return True
+    return normalized_name.startswith(_PAGE_MEMORY_FIELD_PREFIX)

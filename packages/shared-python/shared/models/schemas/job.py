@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WebhookConfig(BaseModel):
@@ -38,8 +38,10 @@ class ParsingParams(BaseModel):
     )
 
 
-class JobCreate(BaseModel):
-    """Request payload for creating a job."""
+class JobCreateBase(BaseModel):
+    """Common public request payload for creating a job."""
+
+    model_config = ConfigDict(extra="allow")
 
     namespace: Optional[str] = Field(
         None,
@@ -58,13 +60,6 @@ class JobCreate(BaseModel):
         description="File name; required when source_type=file and must include the extension",
     )
     data_id: Optional[str] = Field(None, max_length=128, description="User-defined ID")
-    parse_track: Literal["chunk", "page_memory"] = Field(
-        "page_memory",
-        description=(
-            "Parser track. Defaults to page_memory for supported PDF/PPTX "
-            "uploads when enabled; unsupported formats fall back to chunk."
-        ),
-    )
     parsing_params: Optional[ParsingParams] = Field(
         None, description="Parsing parameters"
     )
@@ -76,6 +71,14 @@ class JobCreate(BaseModel):
         ),
     )
     webhook: Optional[WebhookConfig] = Field(None, description="Webhook configuration")
+
+
+class JobCreate(JobCreateBase):
+    """Public v1 request payload for creating a job."""
+
+
+class JobCreateV2(JobCreateBase):
+    """Public v2 request payload for creating a job."""
 
 
 class JobResponse(BaseModel):

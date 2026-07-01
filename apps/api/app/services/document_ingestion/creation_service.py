@@ -8,6 +8,7 @@ from typing import cast
 from urllib.parse import urlparse
 
 from app.repositories.job_repository import JobRepository
+from app.services.document_ingestion.command import DocumentIngestionCommand
 from app.services.document_ingestion.scope_service import (
     is_active_document_job_unique_violation,
     raise_document_ingestion_conflict,
@@ -24,7 +25,7 @@ from shared.core.exceptions.domain_exceptions import (
 )
 from shared.core.state_machine.states import JobStatus
 from shared.models.database.job import Job
-from shared.models.schemas.job import JobCreate, JobResponse
+from shared.models.schemas.job import JobCreateBase, JobResponse
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.redis import JobInfoRedisService, RedisServiceFactory
 from shared.services.redis.job_metadata_service import JobMetadataService
@@ -60,11 +61,12 @@ class DocumentIngestionCreationService:
         self,
         db: AsyncSession,
         *,
-        payload: JobCreate,
+        command: DocumentIngestionCommand,
         job_id: str,
         current_user: CurrentUser,
         scope: ResolvedDocumentIngestionScope,
     ) -> JobResponse:
+        payload = command.payload
         if payload.source_type == "file":
             return await self._create_file_job(
                 db,
@@ -147,7 +149,7 @@ class DocumentIngestionCreationService:
         self,
         db: AsyncSession,
         *,
-        payload: JobCreate,
+        payload: JobCreateBase,
         job_id: str,
         current_user: CurrentUser,
         scope: ResolvedDocumentIngestionScope,
@@ -205,7 +207,7 @@ class DocumentIngestionCreationService:
         self,
         db: AsyncSession,
         *,
-        payload: JobCreate,
+        payload: JobCreateBase,
         job_id: str,
         current_user: CurrentUser,
         scope: ResolvedDocumentIngestionScope,

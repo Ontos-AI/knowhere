@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from shared.models.schemas.page_memory_config import PageMemoryConfig
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 
 
@@ -21,6 +22,14 @@ class JobMetadataBase(BaseModel):
     webhook: Optional[Dict[str, Any]] = Field(None, description="Webhook configuration")
     document_metadata: Optional[Dict[str, Any]] = Field(
         None, description="Display metadata copied to the published document"
+    )
+    api_version: Optional[str] = Field(None, description="Public API version")
+    processing_generation: Optional[str] = Field(
+        None, description="Resolved internal ingestion generation"
+    )
+    parse_track: Optional[str] = Field(None, description="Resolved parser track")
+    page_memory_config: Optional[Dict[str, Any]] = Field(
+        None, description="Resolved page-memory worker configuration"
     )
     # result_mode was removed and is no longer supported.
 
@@ -42,14 +51,29 @@ class JobMetadataHelper:
     """Helper methods for creating and reading job metadata."""
 
     @staticmethod
-    def create_from_request(request, **kwargs) -> Dict[str, Any]:
-        """Build metadata from a JobCreate request without embedding user_config."""
+    def create_from_request(
+        request,
+        *,
+        api_version: str = "v1",
+        parse_track: str = "chunk",
+        processing_generation: str = "legacy_chunk",
+        page_memory_config: PageMemoryConfig | Dict[str, Any] | None = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Build metadata from a public job request."""
         namespace = normalize_retrieval_namespace(request.namespace)
+        resolved_page_memory_config: Dict[str, Any] | None
+        if isinstance(page_memory_config, PageMemoryConfig):
+            resolved_page_memory_config = page_memory_config.to_dict()
+        else:
+            resolved_page_memory_config = page_memory_config
         metadata = {
             "original_request": request.model_dump(),
+            "api_version": api_version,
             "namespace": namespace,
             "document_id": request.document_id,
-            "parse_track": request.parse_track,
+            "parse_track": parse_track,
+            "processing_generation": processing_generation,
             "parsing_params": (
                 request.parsing_params.model_dump() if request.parsing_params else None
             ),
@@ -57,6 +81,8 @@ class JobMetadataHelper:
             "data_id": request.data_id,
             "webhook": request.webhook.model_dump() if request.webhook else None,
         }
+        if resolved_page_memory_config is not None:
+            metadata["page_memory_config"] = resolved_page_memory_config
         metadata.update(kwargs)
         return metadata
 
@@ -134,7 +160,35 @@ class JobMetadataHelper:
     @staticmethod
     def get_parse_track(metadata: Optional[Dict[str, Any]]) -> str:
         """Return the parser track stored in metadata."""
-        return JobMetadataHelper.get_string_field(metadata, "parse_track", "chunk") or "chunk"
+        return (
+            JobMetadataHelper.get_string_field(metadata, "parse_track", "chunk")
+            or "chunk"
+        )
+
+    @staticmethod
+    def get_api_version(metadata: Optional[Dict[str, Any]]) -> str:
+        """Return the API version stored in metadata."""
+        return JobMetadataHelper.get_string_field(metadata, "api_version", "v1") or "v1"
+
+    @staticmethod
+    def get_processing_generation(metadata: Optional[Dict[str, Any]]) -> str:
+        """Return the internal processing generation stored in metadata."""
+        return (
+            JobMetadataHelper.get_string_field(
+                metadata,
+                "processing_generation",
+                "legacy_chunk",
+            )
+            or "legacy_chunk"
+        )
+
+    @staticmethod
+    def get_page_memory_config(
+        metadata: Optional[Dict[str, Any]],
+    ) -> PageMemoryConfig:
+        """Return resolved page-memory worker config stored in metadata."""
+        config = JobMetadataHelper.get_field(metadata, "page_memory_config", {})
+        return PageMemoryConfig.from_mapping(config)
 
     @staticmethod
     def get_document_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
