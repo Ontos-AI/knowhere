@@ -16,10 +16,13 @@ PUBLIC_SOURCE_FIELDS = {
 ReferenceLookupKey = tuple[str, str, str, str]
 
 _PATH_REF_RE = re.compile(r'\[(?:images|tables)/[^\]\n]+\]')
+_SAME_AS_RE = re.compile(r'\[SAME-AS [^\]]+\]')
 
 
 def clean_content(content: str) -> str:
-    return _PATH_REF_RE.sub('', content).strip()
+    text = _PATH_REF_RE.sub('', content)
+    text = _SAME_AS_RE.sub('', text)
+    return text.strip()
 
 
 def normalize_chunk_type(raw: object) -> str:

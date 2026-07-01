@@ -31,7 +31,7 @@ async def hydrate_connected_target_rows(
     }
     target_ids_by_revision: dict[tuple[str, str], set[str]] = {}
     for row in rows:
-        if normalize_chunk_type(row.get('chunk_type')) != 'text':
+        if normalize_chunk_type(row.get('chunk_type')) not in ('text', 'page'):
             continue
         document_id = str(row.get('document_id') or '').strip()
         job_result_id = str(row.get('job_result_id') or '').strip()
