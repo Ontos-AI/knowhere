@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from time import perf_counter
@@ -9,6 +10,7 @@ import gevent
 from gevent.pool import Pool as GeventPool
 from loguru import logger
 
+from app.services.document_parser.support.path_helpers import process_path_texts
 from app.services.document_parser.support.parser_rows import (
     COL_ASSET_TITLE,
     COL_ENTITIES,
@@ -25,6 +27,7 @@ class DocxImageSummaryTask:
     image_path: str
     context: str
     usage_task: str
+    title_path_prefix: str | None = None
 
 
 @dataclass
@@ -41,6 +44,7 @@ class DocxImageSummaryScheduler:
     should_summarize: bool
     _tasks_by_hash: dict[str, DocxImageSummaryTask] = field(default_factory=dict)
     _results_by_hash: dict[str, AssetSummary | None] = field(default_factory=dict)
+    _relative_paths_by_hash: dict[str, str] = field(default_factory=dict)
     _occurrences_by_hash: dict[str, list[DocxImageOccurrence]] = field(
         default_factory=dict
     )
@@ -52,6 +56,7 @@ class DocxImageSummaryScheduler:
         image_path: str,
         context: str,
         usage_task: str,
+        title_path_prefix: str | None = None,
     ) -> None:
         if not self.should_summarize or image_hash in self._tasks_by_hash:
             return
@@ -61,6 +66,7 @@ class DocxImageSummaryScheduler:
             image_path=image_path,
             context=context,
             usage_task=usage_task,
+            title_path_prefix=title_path_prefix,
         )
 
     def register_occurrence(
@@ -166,10 +172,16 @@ class DocxImageSummaryScheduler:
 
         summary = result.summary or ""
         asset_title = result.title or ""
+        relative_path = self._resolve_relative_path(
+            image_hash=image_hash,
+            result=result,
+            current_relative_path=str(occurrence.row[1]),
+        )
         summary_field = (
             f"{occurrence.image_index}\n{summary}" if summary else occurrence.image_index
         )
-        occurrence.row[0] = _build_image_ref(str(occurrence.row[1]), summary)
+        occurrence.row[0] = _build_image_ref(relative_path, summary)
+        occurrence.row[1] = relative_path
         occurrence.row[3] = len(str(occurrence.row[0]))
         occurrence.row[COL_SUMMARY] = summary_field
         occurrence.row[COL_ENTITIES] = serialize_entities(result.entities)
@@ -180,6 +192,41 @@ class DocxImageSummaryScheduler:
             and occurrence.content_index is not None
         ):
             occurrence.content_holder[occurrence.content_index] = occurrence.row[0]
+
+    def _resolve_relative_path(
+        self,
+        *,
+        image_hash: str,
+        result: AssetSummary,
+        current_relative_path: str,
+    ) -> str:
+        renamed_relative_path = self._relative_paths_by_hash.get(image_hash)
+        if renamed_relative_path:
+            return renamed_relative_path
+
+        task = self._tasks_by_hash.get(image_hash)
+        title = result.title or ""
+        if task is None or not task.title_path_prefix or not title:
+            return current_relative_path
+
+        new_name = process_path_texts(f"{task.title_path_prefix} {title}", last=30)
+        if not new_name:
+            return current_relative_path
+
+        image_dir = os.path.dirname(task.image_path)
+        image_extension = os.path.splitext(task.image_path)[1]
+        new_absolute_path = os.path.join(image_dir, f"{new_name}{image_extension}")
+        if task.image_path != new_absolute_path:
+            if not os.path.exists(task.image_path):
+                return current_relative_path
+            os.rename(task.image_path, new_absolute_path)
+
+        relative_dir = os.path.dirname(current_relative_path)
+        new_relative_path = f"{new_name}{image_extension}"
+        if relative_dir:
+            new_relative_path = f"{relative_dir}/{new_relative_path}"
+        self._relative_paths_by_hash[image_hash] = new_relative_path
+        return new_relative_path
 
 
 def build_fallback_image_ref(relative_path: str) -> str:

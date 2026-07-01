@@ -179,6 +179,7 @@ def handle_image(
             image_path=image_asset.absolute_path,
             context=last_context,
             usage_task="parser.docx.image",
+            title_path_prefix=image_index,
         )
         image_summary_scheduler.register_occurrence(
             DocxImageOccurrence(

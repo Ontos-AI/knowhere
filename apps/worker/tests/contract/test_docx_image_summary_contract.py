@@ -78,6 +78,43 @@ def test_docx_inline_image_summaries_are_bounded(
     assert all("summary" in str(row[0]) for row in rows)
 
 
+def test_docx_inline_image_title_remains_in_searchable_path(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def fake_summarize(**_: Any) -> AssetSummary:
+        return AssetSummary(summary="revenue chart summary", title="Revenue Chart")
+
+    monkeypatch.setattr(settings, "DOCX_IMAGE_SUMMARY_MAX_CONCURRENT", 4)
+    monkeypatch.setattr("shared.services.ai.summary.engine.summarize", fake_summarize)
+
+    asset_store = _create_asset_store(tmp_path)
+    headings_stack = _create_headings_stack()
+    rows: list[list[object]] = []
+    seen_images: dict[str, dict[str, str]] = {}
+    scheduler = DocxImageSummaryScheduler(should_summarize=True)
+
+    _, rows, is_new_image = handle_image(
+        rows,
+        _create_image_meta(1),
+        asset_store,
+        headings_stack,
+        "Heading",
+        0,
+        smart_summary=True,
+        seen_images=seen_images,
+        image_summary_scheduler=scheduler,
+    )
+    scheduler.run_all()
+
+    relative_path = str(rows[0][1])
+    assert is_new_image is True
+    assert relative_path == "images/image-1 Revenue Chart.png"
+    assert "Revenue Chart" in str(rows[0][0])
+    assert rows[0][12] == "Revenue Chart"
+    assert (tmp_path / relative_path).exists()
+
+
 def test_docx_duplicate_images_share_one_summary_call(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -128,6 +165,7 @@ def test_docx_duplicate_images_share_one_summary_call(
     assert len(call_paths) == 1
     assert len(rows) == 2
     assert all("shared duplicate summary" in str(row[0]) for row in rows)
+    assert all("shared title" in str(row[1]) for row in rows)
     assert all("shared duplicate summary" in str(item) for item in headings_stack[-1]["content"][1:])
 
 
@@ -208,6 +246,7 @@ def test_docx_table_image_summary_is_applied_before_html_render(
     assert rows[0][2] == "image"
     assert rows[0][5] == "image-1\ntable cell summary"
     assert rows[0][12] == "table image title"
+    assert "table image title" not in str(rows[0][1])
     assert rows[1][2] == "table"
 
     table_path = tmp_path / str(rows[1][1])
