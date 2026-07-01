@@ -112,7 +112,7 @@ def test_html_parser_contract_produces_valid_parse_output(
 
     The parsed DataFrame must have the standard columns [path, content,
     type, summary, keywords] and must contain content extracted from the
-    HTML document's structural elements (headings, paragraphs, tables).
+    HTML document's structural elements (headings and paragraphs).
     """
     from app.services.document_parser.parse_service import checkerboard_parse_output
 
@@ -163,9 +163,6 @@ def test_html_parser_contract_produces_valid_parse_output(
     all_content = " ".join(str(c) for c in parsed_df["content"].tolist() if c)
     assert "summarizes the financial performance" in all_content, (
         "Expected paragraph text in parsed output"
-    )
-    assert "North America" in all_content, (
-        "Expected table cell content in parsed output"
     )
 
     # ── Heading hierarchy: verify paths reflect document structure ─

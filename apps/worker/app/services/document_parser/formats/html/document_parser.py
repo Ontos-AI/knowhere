@@ -5,6 +5,8 @@ the standard Markdown parser pipeline for hierarchy reconstruction and
 enrichment.
 """
 
+from typing import cast
+
 
 def parse_html(
     output_dir: str,
@@ -37,7 +39,9 @@ def _html_to_md_lines(html_content: str | bytes) -> list[str]:
         bullets="-",
         strong_em_symbol="*",
     )
-    md_text = converter.convert(html_content)
+    # markdownify passes bytes through to BeautifulSoup for charset detection,
+    # but its public type hint only accepts str.
+    md_text = converter.convert(cast(str, html_content))
 
     lines = md_text.splitlines()
     while lines and not lines[-1].strip():
