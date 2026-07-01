@@ -161,7 +161,6 @@ def test_html_parser_contract_produces_valid_parse_output(
     # We check that path reflects the heading structure and content
     # contains paragraph body text.
     all_content = " ".join(str(c) for c in parsed_df["content"].tolist() if c)
-    all_paths = " ".join(parsed_df["path"].tolist())
     assert "summarizes the financial performance" in all_content, (
         "Expected paragraph text in parsed output"
     )
@@ -247,6 +246,41 @@ def test_htm_extension_is_routed_same_as_html(
     all_content = " ".join(str(c) for c in parsed_df["content"].tolist() if c)
     assert "financial performance" in all_content, (
         "Expected body text from .htm file in content column"
+    )
+
+
+def test_html_parser_contract_handles_declared_non_utf8_encoding(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    """Verify that local HTML parser honors document-declared encodings."""
+    from app.services.document_parser.parse_service import checkerboard_parse_output
+
+    html_path = tmp_path / "latin1.html"
+    output_root = tmp_path / "parser-output"
+    html_bytes = (
+        b'<!DOCTYPE html><html><head><meta charset="ISO-8859-1"></head>'
+        b"<body><h1>Encoding Report</h1><p>caf\xe9 revenue summary</p></body></html>"
+    )
+    html_path.write_bytes(html_bytes)
+
+    parse_output = checkerboard_parse_output(
+        file_full_path=str(html_path),
+        filename="latin1.html",
+        output_dir=str(output_root),
+        internal_output_filename="latin1.html",
+        summary_image=False,
+        summary_table=False,
+        summary_txt=False,
+        smart_title_parse=False,
+        stopwords=[],
+    )
+
+    parsed_df = parse_output.parsed_df
+    assert parsed_df is not None
+    all_content = " ".join(str(c) for c in parsed_df["content"].tolist() if c)
+    assert "caf\u00e9 revenue summary" in all_content, (
+        f"Expected declared charset text in parsed output, got: {all_content}"
     )
 
 

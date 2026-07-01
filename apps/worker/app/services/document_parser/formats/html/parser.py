@@ -483,8 +483,7 @@ def parse_html(
     from app.services.document_parser.formats.markdown.parser import parse_md
 
     html_bytes = load_file_bytes(file_path, file_url="")
-    html_text = html_bytes.decode("utf-8")
-    md_lines = _html_to_md_lines(html_text)
+    md_lines = _html_to_md_lines(html_bytes)
 
     # parse_md() already calls merge_html_tables() internally, so we
     # don't need to do it here — just pass the lines straight through.
@@ -498,7 +497,7 @@ def parse_html(
     return parsed_df
 
 
-def _html_to_md_lines(html_text: str) -> list[str]:
+def _html_to_md_lines(html_content: str | bytes) -> list[str]:
     """Convert HTML document body into markdown-like text lines.
 
     Uses markdownify with a custom converter subclass that:
@@ -514,7 +513,7 @@ def _html_to_md_lines(html_text: str) -> list[str]:
         bullets="-",
         strong_em_symbol="*",
     )
-    md_text = converter.convert(html_text)
+    md_text = converter.convert(html_content)
 
     # Split into lines and strip trailing blanks.
     lines = md_text.splitlines()
