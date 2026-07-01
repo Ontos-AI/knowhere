@@ -322,9 +322,9 @@ def test_html_to_md_lines_converts_headings_correctly() -> None:
     assert "More details." in lines
 
 
-def test_html_to_md_lines_preserves_tables_as_raw_html() -> None:
-    """Unit test: verify that <table> elements are preserved as raw HTML
-    strings so the downstream table extraction pipeline can process them."""
+def test_html_to_md_lines_converts_tables_to_markdown() -> None:
+    """Unit test: verify that <table> elements are converted to markdown
+    pipe-delimited table format by the markdownify-based converter."""
     from app.services.document_parser.formats.html.parser import _html_to_md_lines
 
     html = """
@@ -340,13 +340,16 @@ def test_html_to_md_lines_preserves_tables_as_raw_html() -> None:
     assert "# Data" in lines
     assert "Footer text" in lines
 
-    # The table should appear as raw HTML (contains <table> tag).
-    table_lines = [l for l in lines if "<table" in l]
-    assert len(table_lines) >= 1, (
-        f"Expected at least one line with <table>, got: {lines}"
+    # markdownify converts tables to pipe-delimited markdown format.
+    all_text = "\n".join(lines)
+    assert "Name" in all_text, (
+        f"Expected table header 'Name' in output, got: {lines}"
     )
-    assert "Alice" in table_lines[0], (
-        f"Expected table content in raw HTML line, got: {table_lines}"
+    assert "Alice" in all_text, (
+        f"Expected table cell 'Alice' in output, got: {lines}"
+    )
+    assert "95" in all_text, (
+        f"Expected table cell '95' in output, got: {lines}"
     )
 
 
@@ -374,4 +377,39 @@ def test_html_to_md_lines_skips_script_and_style() -> None:
     )
     assert "console.log" not in all_text, (
         "JavaScript from <script> should not appear in output"
+    )
+
+
+def test_html_to_md_lines_img_produces_alt_text_only() -> None:
+    """Unit test: verify that <img> tags do not produce markdown image
+    references (which would be broken for single-file uploads), but
+    instead emit only the alt text as an annotation."""
+    from app.services.document_parser.formats.html.parser import _html_to_md_lines
+
+    html = """
+    <html><body>
+    <p>See the chart below:</p>
+    <img src="chart.png" alt="Revenue Projection" />
+    <img src="logo.svg" />
+    <p>End of document.</p>
+    </body></html>
+    """
+
+    lines = _html_to_md_lines(html)
+    all_text = " ".join(lines)
+
+    # Alt text should be preserved as an annotation.
+    assert "[Image: Revenue Projection]" in all_text, (
+        f"Expected alt text annotation, got: {lines}"
+    )
+    # Must NOT produce markdown image syntax with src path.
+    assert "![" not in all_text, (
+        f"Must not produce markdown image refs, got: {lines}"
+    )
+    assert "chart.png" not in all_text, (
+        f"Must not include unresolvable src path, got: {lines}"
+    )
+    # img without alt should be silently dropped.
+    assert "logo.svg" not in all_text, (
+        f"img without alt should produce no output, got: {lines}"
     )

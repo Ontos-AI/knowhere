@@ -450,6 +450,8 @@ def first_cols_rows_html(html_str, max_items=10, max_chars=20):
 
 # HTML Document Parser — converts .html/.htm files into text lines
 # compatible with parse_md(), reusing the markdown processing pipeline.
+# Uses markdownify (already a transitive dependency via markitdown) for
+# robust HTML-to-Markdown conversion with proper DOM-order traversal.
 
 
 def parse_html(
@@ -461,19 +463,10 @@ def parse_html(
 ):
     """Parse an HTML file into a hierarchical document DataFrame.
 
-    Converts HTML structural elements into markdown-like text lines, then
-    delegates to the standard parse_md() pipeline for heading detection,
-    hierarchy reconstruction, table extraction, image processing, and
-    LLM-based enrichment.
-
-    The conversion handles:
-    - h1–h6 → markdown heading lines (e.g., "# Title")
-    - p, div, section, article → text content lines
-    - table → preserved as raw HTML for the table extraction pipeline
-    - img → preserved as markdown image references
-    - ul/ol → list lines (bullets for unordered, numbered for ordered)
-    - pre/code → code block lines
-    - blockquote → quoted lines with "> " prefix
+    Converts HTML to clean Markdown via markdownify, stripping unsafe and
+    non-content elements (script, style, img, iframe, etc.), then delegates
+    to the standard parse_md() pipeline for heading detection, hierarchy
+    reconstruction, table extraction, and LLM-based enrichment.
 
     Args:
         output_dir: Full output directory path for parsed artifacts.
@@ -508,132 +501,73 @@ def parse_html(
 def _html_to_md_lines(html_text: str) -> list[str]:
     """Convert HTML document body into markdown-like text lines.
 
-    Extracts structural elements from the HTML body and converts them
-    into a flat list of text lines that the markdown parser can process.
-    This is intentionally lightweight — complex HTML styling is discarded
-    in favor of clean, parseable text content.
+    Uses markdownify with a custom converter subclass that:
+    - Strips unsafe/non-content tags (script, style, iframe, etc.)
+    - Converts <img> to alt-text-only (no broken markdown image refs)
+    - Preserves headings, lists, tables, code blocks, blockquotes
+    - Correctly handles inline formatting in DOM order
+
+    Returns a list of lines suitable for the parse_md() pipeline.
     """
-    from bs4 import BeautifulSoup
+    converter = _SafeHtmlConverter(
+        heading_style="ATX",
+        bullets="-",
+        strong_em_symbol="*",
+    )
+    md_text = converter.convert(html_text)
 
-    soup = BeautifulSoup(html_text, "html.parser")
-    body = soup.find("body")
-    root = body if body else soup
-
-    lines: list[str] = []
-    _walk_html_nodes(root, lines)
-
-    # Strip trailing blank lines.
+    # Split into lines and strip trailing blanks.
+    lines = md_text.splitlines()
     while lines and not lines[-1].strip():
         lines.pop()
 
     return lines
 
 
-def _walk_html_nodes(element, lines: list[str]) -> None:
-    """Recursively walk HTML nodes, appending markdown-like lines.
+class _SafeHtmlConverter:
+    """Markdownify-based HTML→Markdown converter with safety filtering.
 
-    Processes HTML tags semantically: headings become markdown headings,
-    paragraphs become text, tables are preserved as raw HTML, ordered
-    lists get numbered prefixes, and nested structures are recursed into.
+    Subclasses MarkdownConverter to suppress elements that are either
+    non-content (script, style, nav) or would produce broken references
+    in a single-file upload context (img with relative src).
     """
-    from bs4 import NavigableString, Tag
 
-    if isinstance(element, NavigableString):
-        text = element.strip()
-        if text:
-            lines.append(text)
-        return
+    def __new__(cls, **kwargs):
+        # Lazy import so the module loads even if markdownify is somehow
+        # missing — the error surfaces only when parse_html() is called.
+        from markdownify import MarkdownConverter
 
-    if not isinstance(element, Tag):
-        return
+        # Dynamically build the subclass from MarkdownConverter so we
+        # don't need a module-level import.
+        converter_cls = type(
+            "_SafeHtmlConverterImpl",
+            (MarkdownConverter,),
+            {
+                "convert_script": _noop_converter,
+                "convert_style": _noop_converter,
+                "convert_iframe": _noop_converter,
+                "convert_object": _noop_converter,
+                "convert_embed": _noop_converter,
+                "convert_form": _noop_converter,
+                "convert_nav": _noop_converter,
+                "convert_noscript": _noop_converter,
+                "convert_img": _img_alt_only_converter,
+            },
+        )
+        return converter_cls(**kwargs)
 
-    tag_name = element.name.lower() if element.name else ""
 
-    # Headings — convert to markdown heading syntax
-    if tag_name in ("h1", "h2", "h3", "h4", "h5", "h6"):
-        level = int(tag_name[1])
-        heading_text = element.get_text(" ", strip=True)
-        if heading_text:
-            lines.append(f"{'#' * level} {heading_text}")
-        return
+def _noop_converter(self, el, text, parent_tags):
+    """Return empty string — suppresses the element and all its content."""
+    return ""
 
-    # Paragraphs — extract as plain text
-    if tag_name == "p":
-        text = element.get_text(" ", strip=True)
-        if text:
-            lines.append(text)
-        return
 
-    # Tables — preserve as raw HTML for downstream table extraction
-    if tag_name == "table":
-        lines.append(str(element))
-        return
+def _img_alt_only_converter(self, el, text, parent_tags):
+    """Convert <img> to alt-text-only, avoiding broken markdown image refs.
 
-    # Images — convert to markdown image syntax
-    if tag_name == "img":
-        alt = element.get("alt", "")
-        src = element.get("src", "")
-        if src:
-            lines.append(f"![{alt}]({src})")
-        return
-
-    # Ordered lists — enumerate child <li> items with 1. 2. 3. prefixes
-    if tag_name == "ol":
-        counter = 1
-        for child in element.children:
-            if isinstance(child, Tag) and child.name and child.name.lower() == "li":
-                text = child.get_text(" ", strip=True)
-                if text:
-                    lines.append(f"{counter}. {text}")
-                    counter += 1
-            elif isinstance(child, Tag):
-                _walk_html_nodes(child, lines)
-        return
-
-    # Unordered list items — bullet prefix
-    if tag_name == "li":
-        text = element.get_text(" ", strip=True)
-        if text:
-            lines.append(f"- {text}")
-        return
-
-    # Code blocks — wrap in fenced code markers
-    if tag_name in ("pre", "code"):
-        text = element.get_text()
-        if text.strip():
-            lines.append("```")
-            for code_line in text.splitlines():
-                lines.append(code_line)
-            lines.append("```")
-        return
-
-    # Blockquotes — prefix each child's text with ">"
-    if tag_name == "blockquote":
-        for child in element.children:
-            if isinstance(child, NavigableString):
-                t = child.strip()
-                if t:
-                    lines.append(f"> {t}")
-            elif isinstance(child, Tag):
-                text = child.get_text(" ", strip=True)
-                if text:
-                    lines.append(f"> {text}")
-        return
-
-    # Line break
-    if tag_name == "br":
-        lines.append("")
-        return
-
-    # Horizontal rule
-    if tag_name == "hr":
-        lines.append("---")
-        return
-
-    # Non-content elements — skip entirely
-    if tag_name in ("script", "style", "nav", "noscript", "meta", "link"):
-        return
-
-    # Container elements (div, section, article, ul, etc.) — recurse
-    for child in element.children:
-        _walk_html_nodes(child, lines)
+    Single-file HTML uploads don't have access to relative image assets,
+    and fetching remote URLs would create SSRF concerns. We preserve the
+    alt text as a bracketed annotation so the content isn't silently lost.
+    """
+    alt = el.get("alt", "").strip()
+    return f"[Image: {alt}]" if alt else ""
