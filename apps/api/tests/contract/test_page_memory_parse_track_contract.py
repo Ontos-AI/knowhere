@@ -15,11 +15,19 @@ from shared.core.exceptions.domain_exceptions import ValidationException
 from shared.models.schemas.job import JobCreate, JobCreateV2
 
 
+def _build_job_create(**values: object) -> JobCreate:
+    return JobCreate.model_validate(values)
+
+
+def _build_job_create_v2(**values: object) -> JobCreateV2:
+    return JobCreateV2.model_validate(values)
+
+
 def test_v1_ingestion_command_always_resolves_chunk_for_supported_files() -> None:
     from app.services.document_ingestion.command import build_v1_ingestion_command
 
     command = build_v1_ingestion_command(
-        payload=JobCreate(source_type="file", file_name="policy.pdf"),
+        payload=_build_job_create(source_type="file", file_name="policy.pdf"),
     )
 
     assert command.api_version == "v1"
@@ -35,7 +43,10 @@ def test_v2_ingestion_command_resolves_page_memory_for_current_v2_formats(
     from app.services.document_ingestion.command import build_v2_ingestion_command
 
     command = build_v2_ingestion_command(
-        payload=JobCreateV2(source_type="file", file_name=f"policy{file_extension}"),
+        payload=_build_job_create_v2(
+            source_type="file",
+            file_name=f"policy{file_extension}",
+        ),
         file_extension=file_extension,
     )
 
@@ -50,7 +61,7 @@ def test_v2_ingestion_command_uses_chunk_for_future_v2_formats_until_supported()
     from app.services.document_ingestion.command import build_v2_ingestion_command
 
     command = build_v2_ingestion_command(
-        payload=JobCreateV2(source_type="file", file_name="policy.docx"),
+        payload=_build_job_create_v2(source_type="file", file_name="policy.docx"),
         file_extension=".docx",
     )
 
@@ -64,14 +75,37 @@ def test_v1_accepts_deprecated_chunk_parse_track_as_noop() -> None:
     from app.services.document_ingestion.service import (
         _validate_public_mode_selector_fields,
     )
+    from shared.models.schemas.job_metadata import JobMetadataHelper
 
-    payload = JobCreate(
+    payload = _build_job_create(
         source_type="file",
         file_name="policy.pdf",
         parse_track="chunk",
     )
 
     _validate_public_mode_selector_fields(payload, api_version="v1")
+    metadata = JobMetadataHelper.create_from_request(payload)
+    original_request = metadata["original_request"]
+
+    assert isinstance(original_request, dict)
+    assert "parse_track" not in original_request
+
+
+def test_v1_rejects_null_deprecated_parse_track() -> None:
+    from app.services.document_ingestion.service import (
+        _validate_public_mode_selector_fields,
+    )
+
+    payload = _build_job_create(
+        source_type="file",
+        file_name="policy.pdf",
+        parse_track=None,
+    )
+
+    with pytest.raises(ValidationException) as exc_info:
+        _validate_public_mode_selector_fields(payload, api_version="v1")
+
+    assert "API version" in exc_info.value.user_message
 
 
 def test_v1_rejects_deprecated_page_memory_parse_track() -> None:
@@ -79,7 +113,7 @@ def test_v1_rejects_deprecated_page_memory_parse_track() -> None:
         _validate_public_mode_selector_fields,
     )
 
-    payload = JobCreate(
+    payload = _build_job_create(
         source_type="file",
         file_name="policy.pdf",
         parse_track="page_memory",
@@ -96,7 +130,7 @@ def test_v2_rejects_public_parse_track_selector() -> None:
         _validate_public_mode_selector_fields,
     )
 
-    payload = JobCreateV2(
+    payload = _build_job_create_v2(
         source_type="file",
         file_name="policy.pdf",
         parse_track="chunk",
@@ -108,12 +142,62 @@ def test_v2_rejects_public_parse_track_selector() -> None:
     assert "API version" in exc_info.value.user_message
 
 
+def test_public_job_create_rejects_unknown_top_level_fields() -> None:
+    from app.services.document_ingestion.service import (
+        _validate_public_mode_selector_fields,
+    )
+
+    payload = _build_job_create(
+        source_type="file",
+        file_name="policy.pdf",
+        processing_generation="page_memory",
+    )
+
+    with pytest.raises(ValidationException) as exc_info:
+        _validate_public_mode_selector_fields(payload, api_version="v1")
+
+    assert "Unsupported job-create fields" in exc_info.value.user_message
+    assert exc_info.value.details["violations"] == [
+        {
+            "field": "processing_generation",
+            "description": "Remove this unsupported top-level field",
+        }
+    ]
+
+
 def test_public_job_create_schemas_do_not_advertise_parse_track() -> None:
     v1_schema = JobCreate.model_json_schema()
     v2_schema = JobCreateV2.model_json_schema()
 
     assert "parse_track" not in v1_schema["properties"]
     assert "parse_track" not in v2_schema["properties"]
+    assert v1_schema["additionalProperties"] is False
+    assert v2_schema["additionalProperties"] is False
+
+
+def test_v2_job_polling_system_rule_matches_before_default() -> None:
+    from app.services.rate_limit.data_structures import SystemLimitRule
+    from app.services.rate_limit.system_limit import find_system_rule
+
+    rules = [
+        SystemLimitRule(
+            method="GET",
+            api_pattern="/v2/jobs/*",
+            priority=200,
+            limit=200,
+        ),
+        SystemLimitRule(
+            method="*",
+            api_pattern="*",
+            priority=9999,
+            limit=1000,
+        ),
+    ]
+
+    rule = find_system_rule("GET", "/v2/jobs/job_123", rules)
+
+    assert rule.api_pattern == "/v2/jobs/*"
+    assert rule.limit == 200
 
 
 def test_v2_jobs_documents_and_retrieval_routes_are_registered_in_openapi() -> None:

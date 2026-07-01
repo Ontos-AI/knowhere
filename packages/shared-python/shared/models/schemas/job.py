@@ -41,7 +41,12 @@ class ParsingParams(BaseModel):
 class JobCreateBase(BaseModel):
     """Common public request payload for creating a job."""
 
-    model_config = ConfigDict(extra="allow")
+    # Allow extras only so the API layer can inspect and reject legacy selector
+    # fields that are intentionally absent from the public OpenAPI schema.
+    model_config = ConfigDict(
+        extra="allow",
+        json_schema_extra={"additionalProperties": False},
+    )
 
     namespace: Optional[str] = Field(
         None,

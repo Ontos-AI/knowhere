@@ -68,7 +68,7 @@ class JobMetadataHelper:
         else:
             resolved_page_memory_config = page_memory_config
         metadata = {
-            "original_request": request.model_dump(),
+            "original_request": _dump_public_request(request),
             "api_version": api_version,
             "namespace": namespace,
             "document_id": request.document_id,
@@ -238,3 +238,9 @@ class JobMetadataHelper:
     def get_webhook(metadata: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """Return the webhook configuration from metadata."""
         return JobMetadataHelper.get_field(metadata, "webhook")
+
+
+def _dump_public_request(request) -> Dict[str, Any]:
+    """Dump declared public request fields without hidden compatibility extras."""
+    extra_fields = getattr(request, "model_extra", None) or {}
+    return request.model_dump(exclude=set(extra_fields))

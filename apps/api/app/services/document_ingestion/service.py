@@ -48,6 +48,7 @@ JobMetadata = dict[str, object]
 _PUBLIC_MODE_SELECTOR_FIELDS = {"mode", "processing"}
 _PARSE_TRACK_FIELD = "parse_track"
 _PAGE_MEMORY_FIELD_PREFIX = "page_memory"
+_PUBLIC_COMPATIBILITY_EXTRA_FIELDS = frozenset({_PARSE_TRACK_FIELD})
 IngestionCommandFactory = Callable[[str], DocumentIngestionCommand]
 
 
@@ -342,14 +343,19 @@ def _validate_public_mode_selector_fields(
     api_version: ApiVersion,
 ) -> None:
     extra_fields = payload.model_extra or {}
-    parse_track = extra_fields.get(_PARSE_TRACK_FIELD)
-    if parse_track is not None:
-        _validate_deprecated_parse_track(parse_track, api_version=api_version)
+    if _PARSE_TRACK_FIELD in extra_fields:
+        _validate_deprecated_parse_track(
+            extra_fields[_PARSE_TRACK_FIELD],
+            api_version=api_version,
+        )
 
     forbidden_fields = [
         field_name
-        for field_name in extra_fields
-        if _is_forbidden_public_mode_field(field_name)
+        for field_name in sorted(extra_fields)
+        if (
+            field_name not in _PUBLIC_COMPATIBILITY_EXTRA_FIELDS
+            and _is_forbidden_public_mode_field(field_name)
+        )
     ]
     if forbidden_fields:
         raise ValidationException(
@@ -360,6 +366,24 @@ def _validate_public_mode_selector_fields(
                     "description": "Remove this field and choose /v1/jobs or /v2/jobs",
                 }
                 for field_name in forbidden_fields
+            ],
+        )
+
+    unsupported_fields = [
+        field_name
+        for field_name in sorted(extra_fields)
+        if field_name not in _PUBLIC_COMPATIBILITY_EXTRA_FIELDS
+        and field_name not in forbidden_fields
+    ]
+    if unsupported_fields:
+        raise ValidationException(
+            user_message="Unsupported job-create fields",
+            violations=[
+                {
+                    "field": field_name,
+                    "description": "Remove this unsupported top-level field",
+                }
+                for field_name in unsupported_fields
             ],
         )
 
