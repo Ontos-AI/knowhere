@@ -291,6 +291,53 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("file_name", "data_id", "expected_s3_key"),
+    [
+        ("contract-upload.html", "contract-job-html-upload", "uploads/{job_id}.html"),
+        ("contract-upload.htm", "contract-job-htm-upload", "uploads/{job_id}.htm"),
+    ],
+)
+async def test_should_create_a_waiting_file_job_for_html_uploads(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    file_name: str,
+    data_id: str,
+    expected_s3_key: str,
+) -> None:
+    payload: dict[str, object] = {
+        "namespace": "contract-jobs",
+        "source_type": "file",
+        "file_name": file_name,
+        "data_id": data_id,
+    }
+
+    async with developer_api_client_factory() as api_client:
+        response = await api_client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 200
+
+    response_json: dict[str, object] = response.json()
+    job_id = cast(str, response_json["job_id"])
+
+    assert response_json["status"] == "waiting-file"
+    assert response_json["source_type"] == "file"
+    assert response_json["namespace"] == payload["namespace"]
+    assert response_json["data_id"] == payload["data_id"]
+    assert response_json["upload_headers"] == {"Content-Type": "text/html"}
+
+    job_record = await _load_job_record(job_id)
+    job_metadata = cast(dict[str, object], job_record["job_metadata"])
+
+    assert job_record["status"] == "waiting-file"
+    assert job_record["source_type"] == "file"
+    assert job_record["s3_key"] == expected_s3_key.format(job_id=job_id)
+    assert job_metadata["source_file_name"] == file_name
+    assert job_metadata["data_id"] == data_id
+
+
+@pytest.mark.asyncio
 async def test_should_return_invalid_argument_when_file_mode_job_is_missing_file_name(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]

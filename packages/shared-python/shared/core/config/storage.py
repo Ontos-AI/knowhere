@@ -107,7 +107,7 @@ class StorageConfig(BaseModel):
         description="Maximum concurrent MinerU API calls for shard parsing.",
     )
     SUPPORTED_EXTENSIONS: str = Field(
-        default=".doc,.docx,.pdf,.txt,.xls,.xlsx,.pptx,.jpg,.jpeg,.png,.md",
+        default=".doc,.docx,.pdf,.txt,.xls,.xlsx,.pptx,.jpg,.jpeg,.png,.md,.html,.htm",
         description="Supported file extensions",
     )
 
