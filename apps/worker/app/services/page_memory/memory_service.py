@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -35,8 +35,8 @@ from app.services.page_memory._serialization import (
 
 from loguru import logger
 
-from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import ValidationException
+from shared.models.schemas.page_memory_config import PageMemoryConfig
 
 
 @dataclass(frozen=True)
@@ -47,6 +47,9 @@ class PageMemoryInput:
     job_id: str | None = None
     internal_output_filename: str | None = None
     base_url: str = ""
+    page_memory_config: PageMemoryConfig = field(
+        default_factory=PageMemoryConfig.default,
+    )
 
 
 @dataclass(frozen=True)
@@ -76,6 +79,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
     - ``page`` → per-page chunks via the full C1-C7 pipeline
     """
     full_output_dir = _resolve_output_dir(request)
+    page_memory_config = request.page_memory_config
     os.makedirs(full_output_dir, exist_ok=True)
     _cleanup_page_memory_artifacts(full_output_dir)
     trace_recorder: Any | None = None
@@ -101,15 +105,15 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
             )
         trace_recorder = getattr(profile, "trace_recorder", None)
         page_count = max(int(profile.page_count or 0), 0)
-        if page_count > settings.PAGE_MEMORY_MAX_PAGES:
+        if page_count > page_memory_config.max_pages:
             raise ValidationException(
                 user_message=(
                     f"Document too large: {page_count} pages exceeds the "
-                    f"{settings.PAGE_MEMORY_MAX_PAGES}-page limit for page-based processing."
+                    f"{page_memory_config.max_pages}-page limit for page-based processing."
                 ),
                 violations=[{
                     "field": "page_count",
-                    "description": f"PDF has {page_count} pages, limit is {settings.PAGE_MEMORY_MAX_PAGES}",
+                    "description": f"PDF has {page_count} pages, limit is {page_memory_config.max_pages}",
                 }],
             )
         verdict = _decide_granularity(profile)
@@ -134,6 +138,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 profile=profile,
                 verdict=verdict,
                 trace_recorder=trace_recorder,
+                page_memory_config=page_memory_config,
             )
         final_status = "success"
         trace_summary["rows_count"] = len(parsed_df)
@@ -182,6 +187,24 @@ def _decide_granularity(profile: Any) -> str:
     return "page"
 
 
+def _resolve_asset_max_pages(
+    page_count: int,
+    page_memory_config: PageMemoryConfig,
+) -> int:
+    configured_limit = page_memory_config.asset_max_pages
+    if configured_limit is None:
+        return page_count
+    return max(0, min(page_count, configured_limit))
+
+
+def _resolve_hierarchy_model(page_memory_config: PageMemoryConfig) -> str | None:
+    return (
+        page_memory_config.hierarchy_model
+        or os.environ.get("HIERARCHY_LLM_MODEL")
+        or os.environ.get("NORMOL_MODEL")
+    )
+
+
 # ── page builder (C1→C2→C3→C4→C6→C7) ────────────────────────────────
 
 
@@ -192,6 +215,7 @@ def _build_page_dataframe(
     output_dir: str,
     profile: Any,
     verdict: str,
+    page_memory_config: PageMemoryConfig,
     trace_recorder: Any | None = None,
 ) -> pd.DataFrame:
     """Build per-page DataFrame via the full C1-C7 pipeline.
@@ -211,17 +235,12 @@ def _build_page_dataframe(
         collapse_single_child_chains,
         extract_section_skeletons,
     )
-    from app.services.page_memory.page_assets import (
-        get_asset_max_pages,
-        page_asset_extraction_enabled,
-    )
-
     anatomy = getattr(profile, "anatomy", None)
     page_count = max(int(profile.page_count or 0), 0)
     if page_count <= 0:
         return pd.DataFrame(columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
 
-    asset_extraction_enabled = page_asset_extraction_enabled()
+    asset_extraction_enabled = page_memory_config.asset_extraction_enabled
 
     # ── build ToolContext for sub-agent VLM calls ─────────────────────
     ctx = _build_page_ctx(
@@ -244,6 +263,7 @@ def _build_page_dataframe(
                 filename=filename,
                 page_texts=page_texts,
                 ctx=ctx,
+                page_memory_config=page_memory_config,
             )
         else:
             skeletons = []
@@ -300,9 +320,7 @@ def _build_page_dataframe(
     page_labels = anatomy.page_labels if anatomy else []
     vlm_model = os.environ.get("IMAGE_MODEL")
 
-    scope_concurrency = int(
-        os.environ.get("PAGE_MEMORY_SCOPE_CONCURRENCY", "4")
-    )
+    scope_concurrency = page_memory_config.scope_concurrency
     logger.info(
         "[page_memory] processing {} hierarchy scopes (concurrency={})",
         len(coarse_scopes),
@@ -310,7 +328,9 @@ def _build_page_dataframe(
     )
     scope_results: list[_ScopeRunResult] = []
     asset_pages_remaining = (
-        get_asset_max_pages(page_count) if asset_extraction_enabled else 0
+        _resolve_asset_max_pages(page_count, page_memory_config)
+        if asset_extraction_enabled
+        else 0
     )
 
     # Common keyword arguments shared by every scope invocation.
@@ -325,6 +345,7 @@ def _build_page_dataframe(
         vlm_model=vlm_model,
         asset_extraction_enabled=asset_extraction_enabled,
         trace_recorder=trace_recorder,
+        page_memory_config=page_memory_config,
     )
 
     if scope_concurrency <= 1 or len(coarse_scopes) <= 1:
@@ -429,6 +450,7 @@ def _build_page_dataframe(
             budget=None,
             vlm_model=vlm_model,
             page_assets_by_page=page_assets_by_page,
+            node_summary_max_pages=page_memory_config.node_summary_max_pages,
         )
     logger.info(
         "[page_memory] C7 assembled {} node rows (verdict={})",
@@ -661,21 +683,17 @@ def _run_hierarchy_scope(
     asset_extraction_enabled: bool,
     asset_max_pages: int,
     trace_recorder: Any | None,
+    page_memory_config: PageMemoryConfig,
 ) -> _ScopeRunResult:
     from app.services.page_memory.fine_hierarchy import (
         compute_fat_leaf_pages,
         refine_fat_leaf_skeletons,
     )
-    from app.services.page_memory.page_assets import (
-        extract_page_assets_from_renders,
-        get_asset_confidence_threshold,
-        get_asset_model,
-    )
+    from app.services.page_memory.page_assets import extract_page_assets_from_renders
     from app.services.page_memory.page_plan import derive_page_processing_plan
     from app.services.page_memory.page_renderer import render_document_pages
     from app.services.page_memory.page_tagger import (
         PageTagResult,
-        get_fine_min_pages,
         tag_page_titles,
         tag_pages,
     )
@@ -709,7 +727,7 @@ def _run_hierarchy_scope(
         },
     )
 
-    fine_min = get_fine_min_pages()
+    fine_min = page_memory_config.fine_min_pages
     fat_leaf_pages = compute_fat_leaf_pages(scope_skeletons, min_pages=fine_min)
     if fat_leaf_pages:
         title_pages = sorted(fat_leaf_pages)
@@ -752,13 +770,9 @@ def _run_hierarchy_scope(
                 coarse_skeletons=scope_skeletons,
                 tag_results=title_tags,
                 fat_leaf_pages=fat_leaf_pages,
-                model_name=os.environ.get(
-                    "PAGE_MEMORY_HIERARCHY_MODEL",
-                    os.environ.get(
-                        "HIERARCHY_LLM_MODEL",
-                        os.environ.get("NORMOL_MODEL"),
-                    ),
-                ),
+                model_name=_resolve_hierarchy_model(page_memory_config),
+                max_tokens=page_memory_config.hierarchy_max_tokens,
+                max_depth=page_memory_config.max_heading_depth,
                 trace_recorder=trace_recorder,
             )
     else:
@@ -818,6 +832,7 @@ def _run_hierarchy_scope(
         page_count=page_count,
         page_labels=page_labels,
         page_features=page_features,
+        tag_mode=page_memory_config.tag_mode,
     )
     final_page_set = set(final_pages)
     plans = [plan for plan in plans if plan.page_index in final_page_set]
@@ -834,6 +849,7 @@ def _run_hierarchy_scope(
             plans=plans,
             budget=None,
             vlm_model=vlm_model,
+            max_concurrent=page_memory_config.tag_concurrency,
         )
     _record_trace_stage(
         trace_recorder,
@@ -856,10 +872,14 @@ def _run_hierarchy_scope(
                 pdf_path=pdf_path,
                 rendered_pages=rendered,
                 output_dir=output_dir,
-                model_name=get_asset_model(),
+                model_name=page_memory_config.asset_model,
                 budget=None,
                 max_pages=asset_max_pages,
-                confidence_threshold=get_asset_confidence_threshold(),
+                confidence_threshold=page_memory_config.asset_confidence_threshold,
+                summary_enabled=page_memory_config.asset_summary_enabled,
+                summary_concurrency=page_memory_config.asset_summary_concurrency,
+                table_engine=page_memory_config.table_engine,
+                table_merge_enabled=page_memory_config.table_merge_enabled,
             )
     _record_trace_stage(
         trace_recorder,

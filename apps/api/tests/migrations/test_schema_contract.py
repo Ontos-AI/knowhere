@@ -178,6 +178,27 @@ def test_should_allow_a_new_active_document_job_after_a_terminal_job(
     assert int(result.scalar_one()) == 2
 
 
+def test_should_seed_v2_job_polling_system_limit(
+    migrated_head_engine: Engine,
+) -> None:
+    with migrated_head_engine.begin() as connection:
+        result = connection.execute(
+            text(
+                """
+                SELECT priority, rpm, period, description
+                FROM system_limits
+                WHERE method = 'GET'
+                  AND api_pattern = '/v2/jobs/*'
+                """
+            )
+        ).mappings().one()
+
+    assert result["priority"] == 200
+    assert result["rpm"] == 200
+    assert result["period"] == "minute"
+    assert result["description"] == "Job queries - prevent polling"
+
+
 def test_api_standalone_mode_should_create_auth_user_table_before_migrations(
     standalone_alembic_engine: Engine,
 ) -> None:

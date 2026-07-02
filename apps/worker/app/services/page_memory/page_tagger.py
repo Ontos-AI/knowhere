@@ -57,6 +57,7 @@ def tag_pages(
     plans: list[PagePlan],
     budget: Any | None = None,
     vlm_model: str | None = None,
+    max_concurrent: int | None = None,
 ) -> list[PageTagResult]:
     """Tag all pages according to their processing plan.
 
@@ -70,6 +71,8 @@ def tag_pages(
         Deprecated, ignored. Kept for call-site compatibility.
     vlm_model:
         VLM model name; falls back to ``$IMAGE_MODEL``.
+    max_concurrent:
+        Maximum concurrent page-tagging calls.
 
     Returns
     -------
@@ -84,11 +87,8 @@ def tag_pages(
     plan_map = {plan.page_index: plan for plan in plans}
     model = vlm_model or os.environ.get("IMAGE_MODEL")
 
-    max_concurrent = int(
-        os.environ.get(
-            "PAGE_MEMORY_TAG_CONCURRENCY",
-            getattr(settings, "SUMMARY_LLM_MAX_CONCURRENT", 4),
-        )
+    resolved_max_concurrent = max_concurrent or int(
+        getattr(settings, "SUMMARY_LLM_MAX_CONCURRENT", 4)
     )
 
     def _tag_one(page: PageRenderResult) -> PageTagResult:
@@ -110,7 +110,7 @@ def tag_pages(
 
         return _tag_vlm_lite(page, model=model)
 
-    pool = GeventPool(size=min(max_concurrent, len(pages)))
+    pool = GeventPool(size=min(resolved_max_concurrent, len(pages)))
     greenlets = [pool.spawn(_tag_one, page) for page in pages]
     gevent.joinall(greenlets)
 
@@ -123,7 +123,7 @@ def tag_pages(
         sum(1 for r in results if r.strategy_used == "text_only"),
         sum(1 for r in results if r.strategy_used == "skip_tagging"),
         len(greenlets) - len(results),
-        max_concurrent,
+        resolved_max_concurrent,
     )
     return results
 
@@ -251,8 +251,8 @@ def _tag_vlm_lite(
 
 
 def get_fine_min_pages() -> int:
-    """Fat-leaf gating threshold from env ``PAGE_MEMORY_FINE_MIN_PAGES``."""
-    return int(os.environ.get("PAGE_MEMORY_FINE_MIN_PAGES", str(_DEFAULT_FINE_MIN_PAGES)))
+    """Default fat-leaf gating threshold."""
+    return _DEFAULT_FINE_MIN_PAGES
 
 
 def tag_page_titles(
@@ -273,7 +273,7 @@ def tag_page_titles(
         Existing tag results from ``tag_pages()`` (will be updated in-place).
     fat_leaf_pages:
         Set of page indices belonging to fat-leaf TOC sections
-        (those with > ``PAGE_MEMORY_FINE_MIN_PAGES`` pages).
+        (those with more than the configured fine-min-page threshold).
     budget:
         Deprecated, ignored. Kept for call-site compatibility.
     vlm_model:
