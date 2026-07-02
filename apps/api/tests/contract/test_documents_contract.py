@@ -2,6 +2,7 @@ import json
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
@@ -258,6 +259,8 @@ async def _insert_document_revision_with_chunks(
     namespace: str = "contract-documents",
     user_id: str = "local-dev-user",
     source_file_name: str = "contract-chunks.pdf",
+    parse_track: str = "chunk",
+    status: str = "active",
 ) -> dict[str, str]:
     engine = await _create_contract_engine()
     timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -284,23 +287,25 @@ async def _insert_document_revision_with_chunks(
                         :document_id,
                         :user_id,
                         :namespace,
-                        'active',
+                        :status,
                         NULL,
                         :source_file_name,
                         :parse_track,
                         :created_at,
                         :updated_at,
-                        NULL
+                        :archived_at
                     )
                     """),
                 {
                     "document_id": document_id,
                     "user_id": user_id,
                     "namespace": namespace,
+                    "status": status,
                     "source_file_name": source_file_name,
-                    "parse_track": "chunk",
+                    "parse_track": parse_track,
                     "created_at": timestamp,
                     "updated_at": timestamp,
+                    "archived_at": timestamp if status == "archived" else None,
                 },
             )
             await connection.execute(
@@ -498,6 +503,21 @@ async def _insert_document_revision_with_chunks(
     }
 
 
+def _upload_page_citation_source(*, job_id: str) -> None:
+    from shared.services.storage.result_storage import JobResultStorage
+
+    source_pdf_path = Path("/tmp") / f"knowhere-contract-source-{job_id}.pdf"
+    source_pdf_path.write_bytes(b"%PDF-1.4\n%contract page citation source\n")
+    try:
+        JobResultStorage().upload_raw_file(
+            job_id=job_id,
+            relative_path="source.pdf",
+            local_file_path=str(source_pdf_path),
+        )
+    finally:
+        source_pdf_path.unlink(missing_ok=True)
+
+
 @pytest.mark.asyncio
 async def test_should_list_only_the_authenticated_users_documents_for_the_effective_namespace(
     developer_api_client_factory: Callable[
@@ -679,6 +699,178 @@ async def test_should_return_not_found_when_requesting_a_missing_document(
         "resource": "Document",
         "id": missing_document_id,
     }
+
+
+@pytest.mark.asyncio
+async def test_should_return_page_citation_source_for_page_memory_document(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory() as api_client:
+        revision = await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            parse_track="page_memory",
+            chunks=[
+                {
+                    "id": f"dchk_{uuid4().hex[:12]}",
+                    "chunk_id": "page-memory-text",
+                    "chunk_type": "text",
+                    "content": "Page memory content",
+                    "source_chunk_path": "Page 1",
+                    "metadata": {"page_nums": [1]},
+                }
+            ],
+        )
+        _upload_page_citation_source(job_id=revision["job_id"])
+        response = await api_client.get(
+            f"/api/v2/documents/{document_id}/files/page-citation-source"
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    assert response_json["document_id"] == document_id
+    assert response_json["namespace"] == "contract-documents"
+    assert response_json["job_id"] == revision["job_id"]
+    assert response_json["job_result_id"] == revision["job_result_id"]
+    assert response_json["variant"] == "normalized_pdf"
+    assert response_json["file_name"] == "source.pdf"
+    assert response_json["content_type"] == "application/pdf"
+    assert response_json["url"] == (
+        "filesystem://knowhere-test-results/"
+        f"results/{revision['job_id']}/source.pdf"
+        "?method=GET&expires_in=3600"
+    )
+    assert response_json["expires_at"]
+
+
+@pytest.mark.asyncio
+async def test_should_return_not_found_for_chunk_document_page_citation_source(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory() as api_client:
+        revision = await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            chunks=[
+                {
+                    "id": f"dchk_{uuid4().hex[:12]}",
+                    "chunk_id": "chunk-text",
+                    "chunk_type": "text",
+                    "content": "Chunk content",
+                    "source_chunk_path": "Chunk 1",
+                    "metadata": {"page_nums": []},
+                }
+            ],
+        )
+        _upload_page_citation_source(job_id=revision["job_id"])
+        response = await api_client.get(
+            f"/api/v2/documents/{document_id}/files/page-citation-source"
+        )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_should_return_not_found_when_page_citation_source_is_missing(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory() as api_client:
+        await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            parse_track="page_memory",
+            chunks=[
+                {
+                    "id": f"dchk_{uuid4().hex[:12]}",
+                    "chunk_id": "page-memory-text",
+                    "chunk_type": "text",
+                    "content": "Page memory content",
+                    "source_chunk_path": "Page 1",
+                    "metadata": {"page_nums": [1]},
+                }
+            ],
+        )
+        response = await api_client.get(
+            f"/api/v2/documents/{document_id}/files/page-citation-source"
+        )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_should_return_not_found_for_archived_page_citation_source(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory() as api_client:
+        revision = await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            parse_track="page_memory",
+            status="archived",
+            chunks=[
+                {
+                    "id": f"dchk_{uuid4().hex[:12]}",
+                    "chunk_id": "page-memory-text",
+                    "chunk_type": "text",
+                    "content": "Page memory content",
+                    "source_chunk_path": "Page 1",
+                    "metadata": {"page_nums": [1]},
+                }
+            ],
+        )
+        _upload_page_citation_source(job_id=revision["job_id"])
+        response = await api_client.get(
+            f"/api/v2/documents/{document_id}/files/page-citation-source"
+        )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_should_return_not_found_for_other_users_page_citation_source(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+    other_user_id = f"contract-user-{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory() as api_client:
+        await ContractDatabase.insert_user(user_id=other_user_id)
+        revision = await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            user_id=other_user_id,
+            parse_track="page_memory",
+            chunks=[
+                {
+                    "id": f"dchk_{uuid4().hex[:12]}",
+                    "chunk_id": "page-memory-text",
+                    "chunk_type": "text",
+                    "content": "Page memory content",
+                    "source_chunk_path": "Page 1",
+                    "metadata": {"page_nums": [1]},
+                }
+            ],
+        )
+        _upload_page_citation_source(job_id=revision["job_id"])
+        response = await api_client.get(
+            f"/api/v2/documents/{document_id}/files/page-citation-source"
+        )
+
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.repositories.document_repository import DocumentRepository
@@ -19,6 +19,10 @@ from shared.services.storage.result_storage import ResultStorage, get_result_sto
 
 _DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS = 7 * 24 * 60 * 60
 _MEDIA_CHUNK_TYPES = frozenset({"image", "table"})
+_PAGE_CITATION_SOURCE_EXPIRES_SECONDS = 60 * 60
+_PAGE_CITATION_SOURCE_FILE_NAME = "source.pdf"
+_PAGE_CITATION_SOURCE_VARIANT = "normalized_pdf"
+_PAGE_MEMORY_PARSE_TRACK = "page_memory"
 
 
 def _datetime_payload(value: datetime | None) -> str | None:
@@ -75,9 +79,11 @@ class DocumentService:
         *,
         repository: DocumentRepository | None = None,
         graph_service: DocumentGraphService | None = None,
+        result_storage: ResultStorage | None = None,
     ) -> None:
         self._repository = repository or DocumentRepository()
         self._graph_service = graph_service or DocumentGraphService()
+        self._result_storage = result_storage
 
     async def list_documents(
         self,
@@ -245,6 +251,55 @@ class DocumentService:
         if document is None:
             return None
         return document_payload(document)
+
+    async def get_document_page_citation_source(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: str,
+        document_id: str,
+    ) -> dict[str, Any] | None:
+        row = await self._repository.get_current_document_job_revision(
+            db,
+            user_id=user_id,
+            document_id=document_id,
+        )
+        if row is None:
+            return None
+
+        document, job_result, job = row
+        if document.parse_track != _PAGE_MEMORY_PARSE_TRACK:
+            return None
+
+        result_storage = self._result_storage or get_result_storage()
+        if not result_storage.verify_raw_exists(
+            job_id=job_result.job_id,
+            relative_path=_PAGE_CITATION_SOURCE_FILE_NAME,
+        ):
+            return None
+
+        source_url = result_storage.generate_raw_file_url(
+            job_id=job_result.job_id,
+            relative_path=_PAGE_CITATION_SOURCE_FILE_NAME,
+            expires_in=_PAGE_CITATION_SOURCE_EXPIRES_SECONDS,
+        )
+        if not source_url:
+            return None
+
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            seconds=_PAGE_CITATION_SOURCE_EXPIRES_SECONDS,
+        )
+        return {
+            "document_id": document.document_id,
+            "namespace": document.namespace,
+            "job_id": job.job_id,
+            "job_result_id": job_result.id,
+            "variant": _PAGE_CITATION_SOURCE_VARIANT,
+            "file_name": _PAGE_CITATION_SOURCE_FILE_NAME,
+            "content_type": "application/pdf",
+            "url": source_url,
+            "expires_at": expires_at.isoformat(),
+        }
 
     def _chunk_payload(
         self,
