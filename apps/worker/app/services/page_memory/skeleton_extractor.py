@@ -16,8 +16,6 @@ from app.services.document_agent.manifest import (
     ToolContext,
 )
 from app.services.document_agent.structure.page_locate_agent import (
-    PageLocateConfig,
-    PageLocateResidualAgent,
     verify_section_page_choice,
 )
 from app.services.document_agent.structure.hierarchy_locator import (
@@ -33,7 +31,6 @@ from app.services.document_parser.structure.body_boundary import (
     normalize_heading_text,
 )
 from loguru import logger
-from shared.models.schemas.page_memory_config import PageMemoryConfig
 
 _FRONT_TOC_REGION_GAP_PAGES = 5
 
@@ -59,7 +56,6 @@ def extract_section_skeletons(
     page_texts: dict[int, str],
     ctx: ToolContext | None = None,
     hierarchy_nodes: list[TitleNode] | None = None,
-    page_memory_config: PageMemoryConfig | None = None,
 ) -> list[SectionSkeleton]:
     """Convert PageAnatomyMap hierarchy evidence into section skeletons.
 
@@ -96,7 +92,7 @@ def extract_section_skeletons(
     # Collapse degenerate single-child intermediate chains before locate.
     # Rule: only merge a parent with its only child when that child is NOT a
     # leaf (i.e. the child still has children of its own). This preserves the
-    # original leaf title so PageLocateResidualAgent can find it in the PDF.
+    # original leaf title so offset-guided anchoring can find it in the PDF.
     nodes = _collapse_intermediate_single_child_chains(nodes)
 
     body_pages = _body_pages(anatomy=anatomy, page_count=page_count)
@@ -139,24 +135,14 @@ def extract_section_skeletons(
             "offset": offset_hint,
             "bulk_count": len(offset_matches),
         }
-        resolve_nodes = nodes
     else:
-        # Fallback: full grep+VLM agent (kept for when calibration fails)
-        locate_result = PageLocateResidualAgent(
-            ctx=ctx,
-            page_texts=page_texts,
-            body_pages=primary_body_pages,
-            page_count=page_count,
-            page_offset_hint=offset_hint,
-            config=(
-                PageLocateConfig.from_page_memory_config(page_memory_config)
-                if page_memory_config is not None
-                else None
-            ),
-        ).prepare(nodes)
-        match_overrides = {**calibration_overrides, **locate_result.match_overrides}
-        locate_summary = locate_result.summary
-        resolve_nodes = locate_result.nodes
+        match_overrides = calibration_overrides
+        locate_summary = {
+            "agent": "offset_only",
+            "offset": offset_hint,
+            "reason": "offset_guided_anchoring_skipped_or_empty",
+        }
+    resolve_nodes = nodes
 
 
     ranges = resolve_hierarchy_page_ranges(
@@ -198,7 +184,6 @@ def extract_section_skeletons(
             page_count=page_count,
             filename=filename,
             body_pages=body_pages,
-            page_memory_config=page_memory_config,
         )
         skeletons.extend(secondary_skeletons)
 
@@ -243,11 +228,11 @@ def _range_to_skeleton(
 # Motivation: TOC hierarchies often contain "structural" intermediate nodes
 # (category codes, volume identifiers) that add depth but carry no locatable
 # text. Compressing them before locate keeps emit_depth small and lets the
-# VLM/grep focus on meaningful leaf titles.
+# offset-guided anchoring focus on meaningful leaf titles.
 #
 # Critical invariant: a node whose only child is a LEAF (no grandchildren) is
 # NOT merged, so the leaf's original title survives unchanged into
-# PageLocateResidualAgent. Only pure-intermediate chains are compressed.
+# offset-guided anchoring. Only pure-intermediate chains are compressed.
 
 
 def _collapse_intermediate_single_child_chains(
@@ -818,7 +803,6 @@ def _resolve_pending_tocs(
     page_count: int,
     filename: str,
     body_pages: list[int],
-    page_memory_config: PageMemoryConfig | None = None,
 ) -> list[SectionSkeleton]:
     """Independently calibrate and anchor each pending TOC, then graft results.
 
@@ -897,20 +881,13 @@ def _resolve_pending_tocs(
                 "toc_relationship": relationship,
             }
         else:
-            locate_result = PageLocateResidualAgent(
-                ctx=ctx,
-                page_texts=page_texts,
-                body_pages=toc_body_pages,
-                page_count=toc_scope_end,
-                page_offset_hint=offset,
-                config=(
-                    PageLocateConfig.from_page_memory_config(page_memory_config)
-                    if page_memory_config is not None
-                    else None
-                ),
-            ).prepare(nodes)
-            match_overrides = {**cal_overrides, **locate_result.match_overrides}
-            locate_summary = {**locate_result.summary, "toc_relationship": relationship}
+            match_overrides = cal_overrides
+            locate_summary = {
+                "agent": "offset_only",
+                "offset": offset,
+                "toc_relationship": relationship,
+                "reason": "offset_guided_anchoring_skipped_or_empty",
+            }
 
         ranges = resolve_hierarchy_page_ranges(
             nodes,

@@ -259,7 +259,6 @@ def _build_page_dataframe(
                 filename=filename,
                 page_texts=page_texts,
                 ctx=ctx,
-                page_memory_config=page_memory_config,
             )
         else:
             skeletons = []
