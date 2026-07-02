@@ -27,6 +27,7 @@ WITH scoped_chunks AS (
         dc.section_id,
         dc.chunk_type,
         dc.content,
+        dc.source_chunk_path,
         dc.file_path,
         dc.chunk_metadata,
         dc.job_result_id,

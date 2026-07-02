@@ -7,14 +7,12 @@ one of three strategies:
 - ``text_only`` — use raw text via page-memory-text-tag (no VLM call)
 - ``skip_tagging`` — blank-like page, preserve image only
 
-Set ``PAGE_MEMORY_TAG_MODE=text`` to force all non-skip pages to
-``text_only``, routing through DeepSeek (or ``PAGE_MEMORY_TEXT_TAG_MODEL``)
-instead of the VLM. Default is ``vlm``.
+Set ``tag_mode=text`` to force all non-skip pages to ``text_only``.
+Default is ``vlm``.
 """
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from enum import Enum
 
@@ -43,12 +41,13 @@ def derive_page_processing_plan(
     page_count: int,
     page_labels: list[PageLabel],
     page_features: list[PageFeature],
+    tag_mode: str = "vlm",
 ) -> list[PagePlan]:
     """Assign a processing strategy to every page.
 
     Rules:
     - ``low_content`` + ``is_blank_like`` → ``skip_tagging``
-    - ``PAGE_MEMORY_TAG_MODE=text`` → ``text_only`` for all remaining pages
+    - ``tag_mode=text`` → ``text_only`` for all remaining pages
     - ``table_heavy`` with sufficient raw text → ``text_only``
     - everything else (normal / image_heavy / landscape) → ``vlm_lite``
 
@@ -61,7 +60,7 @@ def derive_page_processing_plan(
     for page in range(1, page_count + 1):
         label = label_map.get(page)
         feature = feature_map.get(page)
-        strategy, reason = _classify_page(label, feature)
+        strategy, reason = _classify_page(label, feature, tag_mode=tag_mode)
         plans.append(PagePlan(page_index=page, strategy=strategy, reason=reason))
 
     return plans
@@ -70,13 +69,11 @@ def derive_page_processing_plan(
 # ── minimum raw text length for table_heavy → text_only ──────────────
 _TABLE_TEXT_THRESHOLD = 200
 
-# ── global tag-mode switch ────────────────────────────────────────────
-_TAG_MODE_TEXT = os.environ.get("PAGE_MEMORY_TAG_MODE", "vlm").strip().lower() == "text"
-
-
 def _classify_page(
     label: PageLabel | None,
     feature: PageFeature | None,
+    *,
+    tag_mode: str,
 ) -> tuple[PageProcessingStrategy, str]:
     """Determine the strategy for a single page."""
     kind = label.kind if label else "normal"
@@ -86,7 +83,7 @@ def _classify_page(
     if kind == "low_content" and is_blank:
         return PageProcessingStrategy.SKIP_TAGGING, "low_content + blank_like"
 
-    if _TAG_MODE_TEXT:
+    if tag_mode.strip().lower() == "text":
         return PageProcessingStrategy.TEXT_ONLY, f"text_mode_override kind={kind}"
 
     if kind == "table_heavy" and text_len >= _TABLE_TEXT_THRESHOLD:

@@ -6,6 +6,11 @@ from app.services.document_parser.tables.dataframe_helpers import process_dup_pa
 from app.services.document_parser.formats.docx.asset_accumulator import DocxAssetAccumulator
 from app.services.document_parser.formats.docx.asset_store import DocxAssetStore
 from app.services.document_parser.formats.docx.block_stream import iter_block_items
+from app.services.document_parser.formats.docx.image_summary_scheduler import (
+    DocxImageOccurrence,
+    DocxImageSummaryScheduler,
+    build_fallback_image_ref,
+)
 from app.services.document_parser.formats.docx.table_html import table2html
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.assets.inline_asset import (
@@ -105,6 +110,7 @@ def handle_image(
     img_count,
     smart_summary=False,
     seen_images=None,
+    image_summary_scheduler: DocxImageSummaryScheduler | None = None,
 ):
     time_stamp = get_str_time()
 
@@ -113,8 +119,9 @@ def handle_image(
     img_hash = perceptual_hash(img_file["data"])
     if seen_images is not None and img_hash in seen_images:
         cached = seen_images[img_hash]
-        headings_stack[-1]["content"].append(cached["image_ref"])
-        df_list.append(
+        content_holder = headings_stack[-1]["content"]
+        content_holder.append(cached["image_ref"])
+        row = (
             build_image_asset_row(
                 content=cached["image_ref"],
                 relative_path=cached["img_path"],
@@ -125,6 +132,17 @@ def handle_image(
                 asset_title=cached.get("asset_title", ""),
             ).to_list()
         )
+        df_list.append(row)
+        if image_summary_scheduler is not None:
+            image_summary_scheduler.register_occurrence(
+                DocxImageOccurrence(
+                    image_hash=img_hash,
+                    image_index=cached["image_index"],
+                    row=row,
+                    content_holder=content_holder,
+                    content_index=len(content_holder) - 1,
+                )
+            )
         logger.debug(f"Skipped duplicate image (hash={img_hash[:12]}...)")
         return headings_stack, df_list, False  # False = cache hit, don't increment
 
@@ -137,73 +155,41 @@ def handle_image(
     raw_img_name = process_path_texts(
         f"image-{str(img_count + 1)} {current_heading} {last_context}", last=30
     )
-    raw_image_asset = asset_store.write_image(raw_img_name, img_ext, img_file["data"])
-
-    # LLM title + summary (optional, with fallback to last_context)
-    llm_title = None
-    llm_summary = None
-    asset_entities = ""
-    if smart_summary:
-        from shared.services.ai.summary.engine import summarize
-
-        # Asset contract (§4.1): the engine's per-type image prompt covers
-        # charts/tables/diagrams and pure-text screenshots alike (§4.2).
-        image_path = os.path.join(asset_store.image_dir, f"{raw_img_name}{img_ext}")
-        result = summarize(
-            mode="asset",
-            image_paths=[image_path],
-            text=last_context,
-            usage_task="parser.docx.image",
-        )
-        llm_title = result.title or None
-        llm_summary = result.summary or None
-        asset_entities = serialize_entities(result.entities)
-
-    # Fallback: LLM summary -> last_context -> None
-    img_summary = llm_summary or last_context or None
-    # Fallback: LLM title -> last_context -> None
-    img_title = llm_title or last_context or None
-
-    # Use LLM title alone for clean naming; fallback to heading+context
-    if llm_title:
-        img_name = process_path_texts(
-            f"image-{str(img_count + 1)} {llm_title}", last=30
-        )
-    else:
-        img_name = process_path_texts(
-            f"image-{str(img_count + 1)} {current_heading} {img_title or ''}", last=30
-        )
-    image_asset = asset_store.rename_image(raw_image_asset, img_name)
+    image_asset = asset_store.write_image(raw_img_name, img_ext, img_file["data"])
 
     temp_uid = gen_str_codes(img_hash)
 
-    # Build img_summary_field for df_list: image-n + optional summary
-    if img_summary:
-        img_summary_field = f"{image_index}\n{img_summary}"
-    else:
-        img_summary_field = image_index
-
-    img_ref = build_chunk_ref(image_asset.relative_path)
-
-    # Build image_ref for heading_stack: optional summary + image path ref
-    if img_summary:
-        image_ref = f"\n{img_summary}\n{img_ref}\n"
-    else:
-        image_ref = f"\n{img_ref}\n"
-
-    asset_title = llm_title or ""
-    headings_stack[-1]["content"].append(image_ref)
-    df_list.append(
+    img_summary_field = image_index
+    image_ref = build_fallback_image_ref(image_asset.relative_path)
+    content_holder = headings_stack[-1]["content"]
+    content_holder.append(image_ref)
+    row = (
         build_image_asset_row(
             content=image_ref,
             relative_path=image_asset.relative_path,
             summary=img_summary_field,
             know_id=temp_uid,
             addtime=time_stamp,
-            entities=asset_entities,
-            asset_title=asset_title,
         ).to_list()
     )
+    df_list.append(row)
+    if smart_summary and image_summary_scheduler is not None:
+        image_summary_scheduler.register_task(
+            image_hash=img_hash,
+            image_path=image_asset.absolute_path,
+            context=last_context,
+            usage_task="parser.docx.image",
+            title_path_prefix=image_index,
+        )
+        image_summary_scheduler.register_occurrence(
+            DocxImageOccurrence(
+                image_hash=img_hash,
+                image_index=image_index,
+                row=row,
+                content_holder=content_holder,
+                content_index=len(content_holder) - 1,
+            )
+        )
 
     # Cache result for document-level dedup
     if seen_images is not None:
@@ -212,8 +198,9 @@ def handle_image(
             "image_ref": image_ref,
             "img_summary_field": img_summary_field,
             "temp_uid": temp_uid,
-            "entities": asset_entities,
-            "asset_title": asset_title,
+            "entities": "",
+            "asset_title": "",
+            "image_index": image_index,
         }
 
     return headings_stack, df_list, True  # True = new image processed
@@ -266,6 +253,23 @@ def _first_cols_rows(table_block, max_items=10, max_chars=20):
     return first_row_text, first_col_text
 
 
+def _format_cell_image_descriptions(
+    descriptions: list[tuple[str, str]],
+    image_summary_scheduler: DocxImageSummaryScheduler | None,
+) -> str:
+    formatted_descriptions = []
+    for image_hash, image_index in descriptions:
+        if image_summary_scheduler is None:
+            formatted_descriptions.append(f"[{image_index}]")
+        else:
+            image_description = image_summary_scheduler.get_description(
+                image_hash,
+                image_index,
+            )
+            formatted_descriptions.append(f"[{image_description}]")
+    return " ".join(formatted_descriptions)
+
+
 def handle_table(
     df_list,
     block,
@@ -278,23 +282,25 @@ def handle_table(
     cell_images=None,
     img_count=0,
     seen_images=None,
+    image_summary_scheduler: DocxImageSummaryScheduler | None = None,
 ):
     time_stamp = get_str_time()
 
     # Process cell images: save to disk + optional LLM summary
     cell_image_map = {}  # {(row, col): "description text"} for table2html
     table_img_entries = []  # df_list entries for images
+    table_image_hashes: list[str] = []
+    table_cell_descriptions: dict[tuple[int, int], list[tuple[str, str]]] = {}
 
     if cell_images:
         for (row_idx, col_idx), images in cell_images.items():
-            descriptions = []
+            descriptions: list[tuple[str, str]] = []
             for img_data in images:
                 # Document-level dedup: perceptual hash for visual duplicates
                 cell_img_hash = perceptual_hash(img_data["data"])
                 if seen_images is not None and cell_img_hash in seen_images:
                     cached = seen_images[cell_img_hash]
-                    descriptions.append(f"[{cached['img_summary_field']}]")
-                    table_img_entries.append(
+                    row = (
                         build_image_asset_row(
                             content=cached["image_ref"],
                             relative_path=cached["img_path"],
@@ -305,6 +311,17 @@ def handle_table(
                             asset_title=cached.get("asset_title", ""),
                         ).to_list()
                     )
+                    table_img_entries.append(row)
+                    descriptions.append((cell_img_hash, cached["image_index"]))
+                    table_image_hashes.append(cell_img_hash)
+                    if image_summary_scheduler is not None:
+                        image_summary_scheduler.register_occurrence(
+                            DocxImageOccurrence(
+                                image_hash=cell_img_hash,
+                                image_index=cached["image_index"],
+                                row=row,
+                            )
+                        )
                     logger.debug(
                         f"Skipped duplicate table cell image (hash={cell_img_hash[:12]}...)"
                     )
@@ -322,53 +339,38 @@ def handle_table(
                     img_name, img_ext, img_data["data"]
                 )
 
-                # LLM summary (optional)
-                img_summary = None
-                cell_entities = ""
-                cell_title = ""
-                if summary_image:
-                    try:
-                        from shared.services.ai.summary.engine import summarize
-
-                        cell_image_path = os.path.join(
-                            asset_store.image_dir, f"{img_name}{img_ext}"
-                        )
-                        cell_result = summarize(
-                            mode="asset",
-                            image_paths=[cell_image_path],
-                            text=current_heading,
-                            usage_task="parser.docx.table_image",
-                        )
-                        img_summary = cell_result.summary or None
-                        cell_entities = serialize_entities(cell_result.entities)
-                        cell_title = cell_result.title or ""
-                    except Exception as e:
-                        logger.warning(f"Failed to summarize table image: {e}")
-
-                effective_desc = img_summary or image_index
-                descriptions.append(f"[{effective_desc}]")
+                descriptions.append((cell_img_hash, image_index))
+                table_image_hashes.append(cell_img_hash)
+                if summary_image and image_summary_scheduler is not None:
+                    image_summary_scheduler.register_task(
+                        image_hash=cell_img_hash,
+                        image_path=image_asset.absolute_path,
+                        context=current_heading,
+                        usage_task="parser.docx.table_image",
+                    )
 
                 # Also add as IMAGE entry in df_list for indexing
                 temp_uid = gen_str_codes(cell_img_hash)
-                img_summary_field = (
-                    f"{image_index}\n{img_summary}" if img_summary else image_index
-                )
-                img_ref = build_chunk_ref(image_asset.relative_path)
-                if img_summary:
-                    image_ref = f"\n{img_summary}\n{img_ref}\n"
-                else:
-                    image_ref = f"\n{img_ref}\n"
-                table_img_entries.append(
+                img_summary_field = image_index
+                image_ref = build_fallback_image_ref(image_asset.relative_path)
+                row = (
                     build_image_asset_row(
                         content=image_ref,
                         relative_path=image_asset.relative_path,
                         summary=img_summary_field,
                         know_id=temp_uid,
                         addtime=time_stamp,
-                        entities=cell_entities,
-                        asset_title=cell_title,
                     ).to_list()
                 )
+                table_img_entries.append(row)
+                if image_summary_scheduler is not None:
+                    image_summary_scheduler.register_occurrence(
+                        DocxImageOccurrence(
+                            image_hash=cell_img_hash,
+                            image_index=image_index,
+                            row=row,
+                        )
+                    )
 
                 # Cache result for document-level dedup
                 if seen_images is not None:
@@ -377,11 +379,25 @@ def handle_table(
                         "image_ref": image_ref,
                         "img_summary_field": img_summary_field,
                         "temp_uid": temp_uid,
-                        "entities": cell_entities,
-                        "asset_title": cell_title,
+                        "entities": "",
+                        "asset_title": "",
+                        "image_index": image_index,
                     }
 
-            cell_image_map[(row_idx, col_idx)] = " ".join(descriptions)
+            table_cell_descriptions[(row_idx, col_idx)] = descriptions
+
+        if summary_image and image_summary_scheduler is not None:
+            image_summary_scheduler.run_for_hashes(
+                table_image_hashes,
+                stage="docx.table_image_summaries",
+                total_tasks=sum(len(v) for v in cell_images.values()),
+            )
+
+        for cell_position, descriptions in table_cell_descriptions.items():
+            cell_image_map[cell_position] = _format_cell_image_descriptions(
+                descriptions,
+                image_summary_scheduler,
+            )
 
         logger.info(
             f"Extracted {sum(len(v) for v in cell_images.values())} images from table-{table_count + 1} cells"
@@ -590,6 +606,7 @@ def parse_docx(
         else:  # TODO: handle latex, etc.
             pass
 
+    asset_accumulator.finalize()
     return {"content": doc_structure}, asset_accumulator.rows()
 
 

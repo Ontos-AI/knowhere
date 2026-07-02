@@ -30,6 +30,8 @@ def refine_fat_leaf_skeletons(
     tag_results: list[PageTagResult],
     fat_leaf_pages: set[int],
     model_name: str | None = None,
+    max_tokens: int = 2000,
+    max_depth: int = 6,
     trace_recorder: Any | None = None,
 ) -> list[SectionSkeleton]:
     """Refine coarse TOC leaf skeletons using VLM-observed title candidates.
@@ -73,6 +75,8 @@ def refine_fat_leaf_skeletons(
             candidates=candidates,
             skeleton=skeleton,
             model_name=model_name,
+            max_tokens=max_tokens,
+            max_depth=max_depth,
             trace_recorder=trace_recorder,
         )
 
@@ -170,6 +174,8 @@ def _run_hierarchy_on_candidates(
     candidates: list[dict[str, Any]],
     skeleton: SectionSkeleton,
     model_name: str | None,
+    max_tokens: int,
+    max_depth: int,
     trace_recorder: Any | None,
 ) -> list[SectionSkeleton] | None:
     """Run the page-memory hierarchy prompt and rebuild a nested skeleton tree.
@@ -183,8 +189,6 @@ def _run_hierarchy_on_candidates(
     if not candidates:
         return None
 
-    max_depth = int(os.environ.get("KB_LLM_HEADING_MAX_DEPTH", "6"))
-    max_tokens = int(os.environ.get("PAGE_MEMORY_HIERARCHY_MAX_TOKENS", "2000"))
     input_json = json.dumps(
         [
             {
@@ -217,7 +221,6 @@ def _run_hierarchy_on_candidates(
         )
         resolved_model = (
             model_name
-            or os.environ.get("PAGE_MEMORY_HIERARCHY_MODEL")
             or os.environ.get(
                 "HIERARCHY_LLM_MODEL",
                 os.environ.get("NORMOL_MODEL"),

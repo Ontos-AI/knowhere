@@ -25,6 +25,7 @@ from app.services.document_agent.structure.page_locate_subagent import (
     PageLocateSubAgent,
     SubAgentConfig,
 )
+from shared.models.schemas.page_memory_config import PageMemoryConfig
 
 VLM_CONFIRMED_DEFAULT_CONFIDENCE = 0.75
 GREP_ONLY_CONFIDENCE_CAP = 0.62
@@ -42,16 +43,18 @@ class PageLocateConfig:
     full_leaf_sections: bool = False
 
     @classmethod
-    def from_env(cls) -> "PageLocateConfig":
+    def from_page_memory_config(
+        cls,
+        page_memory_config: PageMemoryConfig,
+    ) -> "PageLocateConfig":
         return cls(
-            residual_agent_limit=int(os.environ.get("PAGE_MEMORY_RESIDUAL_AGENT_LIMIT", "50")),
-            max_emit_depth=int(os.environ.get("PAGE_MEMORY_MAX_EMIT_DEPTH", "5")),
-            min_emit_depth=int(os.environ.get("PAGE_MEMORY_MIN_EMIT_DEPTH", "2")),
-            vlm_candidate_page_cap=int(
-                os.environ.get("PAGE_MEMORY_VLM_CANDIDATE_PAGE_CAP", "4")
+            residual_agent_limit=page_memory_config.page_locate_residual_agent_limit,
+            max_emit_depth=page_memory_config.page_locate_max_emit_depth,
+            min_emit_depth=page_memory_config.page_locate_min_emit_depth,
+            vlm_candidate_page_cap=(
+                page_memory_config.page_locate_vlm_candidate_page_cap
             ),
-            full_leaf_sections=os.environ.get("PAGE_MEMORY_FULL_LEAF_SECTIONS", "").lower()
-            in {"1", "true", "yes", "on"},
+            full_leaf_sections=page_memory_config.page_locate_full_leaf_sections,
         )
 
 
@@ -86,7 +89,7 @@ class PageLocateResidualAgent:
         self.body_pages = sorted({page for page in body_pages if 1 <= page <= page_count})
         self.page_count = page_count
         self.page_offset_hint = page_offset_hint
-        self.config = config or PageLocateConfig.from_env()
+        self.config = config or PageLocateConfig()
 
     def prepare(self, nodes: list[TitleNode]) -> PageLocatePrepareResult:
         if not nodes:

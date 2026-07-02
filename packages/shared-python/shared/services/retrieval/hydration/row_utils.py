@@ -7,7 +7,14 @@ from shared.services.retrieval.search.section_filters import is_excluded_section
 
 MEDIA_CHUNK_TYPES = {'image', 'table'}
 PUBLIC_RESULT_FIELDS = {
-    'chunk_type', 'content', 'score', 'asset_url',
+    'chunk_id',
+    'chunk_type',
+    'content',
+    'content_source',
+    'score',
+    'asset_url',
+    'source_chunk_path',
+    'file_path',
 }
 PUBLIC_SOURCE_FIELDS = {
     'document_id', 'source_file_name', 'section_path',

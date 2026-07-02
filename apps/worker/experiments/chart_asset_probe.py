@@ -460,7 +460,7 @@ def _write_report(out_dir: Path, pdf_path: Path, args: Any,
         "## How to read",
         "- `asset_annotate/page_N.png`: red = new VLM boxes, green = reference boxes from existing chunks.",
         "- Judge VLM by: does the red box tightly enclose the table/chart "
-        "(incl. caption, excl. body text)? Compare against the green reference.",
+        + "(incl. caption, excl. body text)? Compare against the green reference.",
         "- `crops/`: the actual extracted assets to feed a table model next.",
     ]
     (out_dir / "report.md").write_text("\n".join(lines), encoding="utf-8")

@@ -20,6 +20,11 @@ _GUEST_API_KEY_ALLOWED_ROUTE_PATTERNS: tuple[str, ...] = (
     "/v1/retrieval/query",
     "/v1/documents",
     "/v1/documents/*",
+    "/v2/jobs",
+    "/v2/jobs/*",
+    "/v2/retrieval/query",
+    "/v2/documents",
+    "/v2/documents/*",
     "/mcp",
 )
 _GUEST_API_KEY_REQUIRED_PERMISSION: str = (

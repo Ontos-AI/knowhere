@@ -58,6 +58,11 @@ async def project_public_retrieval_response(response: dict[str, Any]) -> dict[st
         for field in PUBLIC_RESULT_FIELDS:
             if field in row:
                 public_row[field] = row[field]
+        metadata = row.get('metadata')
+        if not isinstance(metadata, dict):
+            metadata = row.get('chunk_metadata')
+        if isinstance(metadata, dict):
+            public_row['metadata'] = metadata
         if 'source' in row:
             public_row['source'] = row['source']
         else:

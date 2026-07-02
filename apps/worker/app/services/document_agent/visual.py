@@ -45,11 +45,8 @@ def purge_debug_visual_dirs(output_dir: str | None) -> None:
         candidates.extend(root / name for name in _DEBUG_VISUAL_DIRS)
 
     for path in candidates:
-        try:
-            if path.exists():
-                shutil.rmtree(path)
-        except Exception:
-            pass
+        if path.exists():
+            shutil.rmtree(path, ignore_errors=True)
 
 
 @worker

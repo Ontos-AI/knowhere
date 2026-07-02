@@ -443,6 +443,57 @@ def test_should_reject_pdf_when_page_count_exceeds_configured_limit(
     assert billing["system_grant_payment_count"] == 0
 
 
+def test_page_memory_parse_track_bypasses_legacy_oversized_pdf_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typing import Any, cast
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
+    monkeypatch.setenv("TMP_PATH", "/tmp")
+    monkeypatch.setenv("S3_BUCKET_NAME", "test-uploads")
+    monkeypatch.setenv("S3_ACCESS_KEY_ID", "test")
+    monkeypatch.setenv("S3_SECRET_ACCESS_KEY", "test")
+    monkeypatch.setenv("S3_TEMP_PATH", "/tmp")
+
+    from app.services.document_ingestion.processing_context import ParseJobContext
+    from app.services.document_ingestion.processing_run import (
+        _build_parse_track_oversized_pdf_rejection,
+    )
+    from shared.core.config import settings
+
+    monkeypatch.setattr(settings, "MAX_PDF_PAGE_LIMIT", 1)
+    monkeypatch.setattr(settings, "OVERSIZED_PDF_SHARD_ENABLED", False)
+
+    chunk_context = ParseJobContext(
+        job_metadata={"parse_track": "chunk"},
+        job_user_id=None,
+        metadata_service=cast(Any, None),
+        redis_service=cast(Any, None),
+        s3_key="uploads/chunk.pdf",
+    )
+    page_memory_context = ParseJobContext(
+        job_metadata={"parse_track": "page_memory"},
+        job_user_id=None,
+        metadata_service=cast(Any, None),
+        redis_service=cast(Any, None),
+        s3_key="uploads/page-memory.pdf",
+    )
+
+    chunk_rejection = _build_parse_track_oversized_pdf_rejection(
+        job_context=chunk_context,
+        file_extension=".pdf",
+        page_count=2,
+    )
+    page_memory_rejection = _build_parse_track_oversized_pdf_rejection(
+        job_context=page_memory_context,
+        file_extension=".pdf",
+        page_count=2,
+    )
+
+    assert chunk_rejection is not None
+    assert page_memory_rejection is None
+
+
 def test_should_reject_pdf_when_page_count_exceeds_soft_limit(
     worker_contract_environment: None,
     monkeypatch: pytest.MonkeyPatch,

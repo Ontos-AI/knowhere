@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from shared.testing.contract_runtime import get_contract_database_url
+from tests.support.contract_database import ContractDatabase
 
 
 async def _create_contract_engine() -> AsyncEngine:
@@ -57,6 +58,77 @@ async def _load_job_record(job_id: str) -> dict[str, object]:
             return dict(job_row)
     finally:
         await engine.dispose()
+
+
+async def _publish_contract_chunk_for_job(
+    *,
+    job_id: str,
+    document_id: str,
+    namespace: str,
+    source_file_name: str,
+    parse_track: str,
+    section_path: str,
+    content: str,
+    chunk_type: str = "page",
+) -> dict[str, str]:
+    job_result_id = str(uuid4())
+    section_id = f"sec_{uuid4().hex[:12]}"
+    chunk_id = f"chunk_{uuid4().hex[:12]}"
+
+    await ContractDatabase.insert_document(
+        document_id=document_id,
+        user_id="local-dev-user",
+        namespace=namespace,
+        source_file_name=source_file_name,
+        parse_track=parse_track,
+    )
+    await ContractDatabase.insert_job_result(
+        job_result_id=job_result_id,
+        job_id=job_id,
+        document_id=document_id,
+        delivery_mode="inline",
+    )
+    await ContractDatabase.execute(
+        """
+        UPDATE documents
+        SET current_job_result_id = :job_result_id
+        WHERE document_id = :document_id
+        """,
+        {
+            "job_result_id": job_result_id,
+            "document_id": document_id,
+        },
+    )
+    await ContractDatabase.insert_document_section(
+        section_id=section_id,
+        user_id="local-dev-user",
+        namespace=namespace,
+        document_id=document_id,
+        job_result_id=job_result_id,
+        section_path=section_path,
+        section_title=section_path.split("/")[-1],
+    )
+    await ContractDatabase.insert_document_chunk(
+        chunk_id=chunk_id,
+        user_id="local-dev-user",
+        namespace=namespace,
+        document_id=document_id,
+        job_result_id=job_result_id,
+        section_id=section_id,
+        chunk_type=chunk_type,
+        content=content,
+        section_path=section_path,
+        chunk_metadata={"summary": content} if chunk_type == "page" else {},
+    )
+
+    return {
+        "chunk_id": chunk_id,
+        "document_id": document_id,
+        "job_id": job_id,
+        "job_result_id": job_result_id,
+        "section_id": section_id,
+        "section_path": section_path,
+    }
 
 
 async def _insert_document(
@@ -260,6 +332,9 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         assert job_row["webhook_enabled"] is False
         assert persisted_document_id.startswith("doc_")
         assert job_metadata["namespace"] == payload["namespace"]
+        assert job_metadata["api_version"] == "v1"
+        assert job_metadata["parse_track"] == "chunk"
+        assert job_metadata["processing_generation"] == "legacy_chunk"
         assert job_metadata["source_type"] == "file"
         assert job_metadata["source_file_name"] == payload["file_name"]
         assert job_metadata["data_id"] == payload["data_id"]
@@ -267,6 +342,7 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         assert original_request["file_name"] == payload["file_name"]
         assert original_request["source_type"] == payload["source_type"]
         assert original_request["document_metadata"] == payload["document_metadata"]
+        assert "parse_track" not in original_request
 
         redis_service = RedisServiceFactory.get_service()
         metadata_service = JobMetadataService(redis_service)
@@ -279,6 +355,9 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         assert cached_job_info is not None
         assert cached_metadata["document_id"] == persisted_document_id
         assert cached_metadata["namespace"] == payload["namespace"]
+        assert cached_metadata["api_version"] == "v1"
+        assert cached_metadata["parse_track"] == "chunk"
+        assert cached_metadata["processing_generation"] == "legacy_chunk"
         assert cached_metadata["source_type"] == "file"
         assert cached_metadata["source_file_name"] == payload["file_name"]
         assert cached_metadata["document_metadata"] == payload["document_metadata"]
@@ -288,6 +367,198 @@ async def test_should_create_a_waiting_file_job_for_an_authenticated_developer(
         assert cached_job_info["source_type"] == "file"
         assert cached_job_info["s3_key"] == f"uploads/{job_id}.pdf"
         assert cached_job_info["webhook_enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_should_create_a_v2_page_memory_job_for_pdf_uploads(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    payload: dict[str, object] = {
+        "namespace": "contract-jobs-v2",
+        "source_type": "file",
+        "file_name": "contract-v2-upload.pdf",
+        "data_id": "contract-v2-page-memory-upload",
+    }
+
+    async with developer_api_client_factory() as api_client:
+        response = await api_client.post("/api/v2/jobs", json=payload)
+
+        assert response.status_code == 200
+
+        response_json: dict[str, object] = response.json()
+        job_id = cast(str, response_json["job_id"])
+
+        list_response = await api_client.get("/api/v2/jobs")
+        read_response = await api_client.get(f"/api/v2/jobs/{job_id}")
+
+    assert response_json["status"] == "waiting-file"
+    assert response_json["source_type"] == "file"
+    assert response_json["namespace"] == payload["namespace"]
+    assert response_json["data_id"] == payload["data_id"]
+    assert response_json["upload_headers"] == {"Content-Type": "application/pdf"}
+    assert list_response.status_code == 200
+    assert read_response.status_code == 200
+    listed_jobs = cast(list[dict[str, object]], list_response.json()["jobs"])
+    assert any(job["job_id"] == job_id for job in listed_jobs)
+    assert read_response.json()["job_id"] == job_id
+
+    job_record = await _load_job_record(job_id)
+    job_metadata = cast(dict[str, object], job_record["job_metadata"])
+    original_request = cast(dict[str, object], job_metadata["original_request"])
+    page_memory_config = cast(dict[str, object], job_metadata["page_memory_config"])
+
+    assert job_record["status"] == "waiting-file"
+    assert job_record["source_type"] == "file"
+    assert job_record["s3_key"] == f"uploads/{job_id}.pdf"
+    assert job_metadata["api_version"] == "v2"
+    assert job_metadata["parse_track"] == "page_memory"
+    assert job_metadata["processing_generation"] == "page_memory"
+    assert job_metadata["source_file_name"] == payload["file_name"]
+    assert page_memory_config["max_pages"] == 1500
+    assert page_memory_config["asset_extraction_enabled"] is False
+    assert original_request["file_name"] == payload["file_name"]
+    assert "parse_track" not in original_request
+
+
+@pytest.mark.asyncio
+async def test_v2_created_page_memory_job_can_query_v2_retrieval(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    payload: dict[str, object] = {
+        "namespace": "contract-jobs-v2-retrieval",
+        "source_type": "file",
+        "file_name": "contract-v2-retrieval.pdf",
+        "data_id": "contract-v2-retrieval-upload",
+    }
+
+    async with developer_api_client_factory() as api_client:
+        create_response = await api_client.post("/api/v2/jobs", json=payload)
+        assert create_response.status_code == 200
+
+        create_json: dict[str, object] = create_response.json()
+        job_id = cast(str, create_json["job_id"])
+        document_id = cast(str, create_json["document_id"])
+        section_path = "contract-v2-retrieval.pdf/Root/Policy"
+        published_chunk = await _publish_contract_chunk_for_job(
+            job_id=job_id,
+            document_id=document_id,
+            namespace=cast(str, payload["namespace"]),
+            source_file_name=cast(str, payload["file_name"]),
+            parse_track="page_memory",
+            section_path=section_path,
+            content="v2 page-memory retrieval policy marker",
+        )
+
+        retrieval_response = await api_client.post(
+            "/api/v2/retrieval/query",
+            json={
+                "namespace": payload["namespace"],
+                "query": "v2 page-memory retrieval policy marker",
+                "top_k": 1,
+                "chunk_types": ["page"],
+            },
+        )
+
+    assert retrieval_response.status_code == 200
+    retrieval_json: dict[str, object] = retrieval_response.json()
+    results = cast(list[dict[str, object]], retrieval_json["results"])
+    source = cast(dict[str, object], results[0]["source"])
+
+    assert retrieval_json["namespace"] == payload["namespace"]
+    assert retrieval_json["router_used"] == "small_corpus_all"
+    assert len(results) == 1
+    assert results[0]["chunk_id"] == published_chunk["chunk_id"]
+    assert results[0]["chunk_type"] == "page"
+    assert results[0]["content_source"] == "summary"
+    assert results[0]["content"] == "v2 page-memory retrieval policy marker"
+    assert results[0]["score"] == 1.0
+    assert results[0]["source_chunk_path"] == published_chunk["section_path"]
+    assert results[0]["metadata"] == {
+        "summary": "v2 page-memory retrieval policy marker"
+    }
+    assert source["document_id"] == document_id
+    assert source["section_path"] == published_chunk["section_path"]
+
+
+@pytest.mark.asyncio
+async def test_should_create_a_v2_chunk_job_for_non_page_memory_formats(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    payload: dict[str, object] = {
+        "namespace": "contract-jobs-v2",
+        "source_type": "file",
+        "file_name": "contract-v2-upload.docx",
+        "data_id": "contract-v2-docx-upload",
+    }
+
+    async with developer_api_client_factory() as api_client:
+        response = await api_client.post("/api/v2/jobs", json=payload)
+
+    assert response.status_code == 200
+
+    response_json: dict[str, object] = response.json()
+    job_id = cast(str, response_json["job_id"])
+    job_record = await _load_job_record(job_id)
+    job_metadata = cast(dict[str, object], job_record["job_metadata"])
+
+    assert response_json["status"] == "waiting-file"
+    assert job_metadata["api_version"] == "v2"
+    assert job_metadata["parse_track"] == "chunk"
+    assert job_metadata["processing_generation"] == "legacy_chunk"
+    assert "page_memory_config" not in job_metadata
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("file_name", "data_id", "expected_s3_key"),
+    [
+        ("contract-upload.html", "contract-job-html-upload", "uploads/{job_id}.html"),
+        ("contract-upload.htm", "contract-job-htm-upload", "uploads/{job_id}.htm"),
+    ],
+)
+async def test_should_create_a_waiting_file_job_for_html_uploads(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    file_name: str,
+    data_id: str,
+    expected_s3_key: str,
+) -> None:
+    payload: dict[str, object] = {
+        "namespace": "contract-jobs",
+        "source_type": "file",
+        "file_name": file_name,
+        "data_id": data_id,
+    }
+
+    async with developer_api_client_factory() as api_client:
+        response = await api_client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 200
+
+    response_json: dict[str, object] = response.json()
+    job_id = cast(str, response_json["job_id"])
+
+    assert response_json["status"] == "waiting-file"
+    assert response_json["source_type"] == "file"
+    assert response_json["namespace"] == payload["namespace"]
+    assert response_json["data_id"] == payload["data_id"]
+    assert response_json["upload_headers"] == {"Content-Type": "text/html"}
+
+    job_record = await _load_job_record(job_id)
+    job_metadata = cast(dict[str, object], job_record["job_metadata"])
+
+    assert job_record["status"] == "waiting-file"
+    assert job_record["source_type"] == "file"
+    assert job_record["s3_key"] == expected_s3_key.format(job_id=job_id)
+    assert job_metadata["source_file_name"] == file_name
+    assert job_metadata["data_id"] == data_id
 
 
 @pytest.mark.asyncio

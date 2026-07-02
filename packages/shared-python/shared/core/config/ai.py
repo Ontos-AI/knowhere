@@ -92,6 +92,10 @@ class AIConfig(BaseModel):
         default=8,
         description="Max concurrent gevent greenlets for parallel post-heading summary LLM calls -- image/table/text (Dashscope).",
     )
+    DOCX_IMAGE_SUMMARY_MAX_CONCURRENT: int = Field(
+        default=4,
+        description="Max concurrent local DOCX image summary VLM calls per parse job.",
+    )
     TOKEN_PRICING_TABLE_JSON: str = Field(
         default="",
         description=(

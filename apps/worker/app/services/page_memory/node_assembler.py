@@ -238,15 +238,6 @@ def pages_by_leaf_count(views: list[NodePageView]) -> dict[int, list[LeafNode]]:
 # ── VLM-backed helpers ───────────────────────────────────────────────
 
 
-def _node_summary_max_pages() -> int:
-    return int(
-        os.environ.get(
-            "PAGE_MEMORY_NODE_SUMMARY_MAX_PAGES",
-            str(_NODE_SUMMARY_MAX_PAGES_DEFAULT),
-        )
-    )
-
-
 def resolve_page_text(
     *,
     page: int,
@@ -281,6 +272,7 @@ def compute_node_summary(
     image_path_by_page: dict[int, str],
     vlm_model: str | None,
     budget: Any | None = None,
+    node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,
 ) -> tuple[str, list[str], list[dict[str, str]]]:
     """Settle a node's summary, keywords, and typed entities (§4.4).
 
@@ -312,6 +304,7 @@ def compute_node_summary(
             page_to_leaves=page_to_leaves,
             image_path_by_page=image_path_by_page,
             vlm_model=vlm_model,
+            node_summary_max_pages=node_summary_max_pages,
         )
         if result is not None:
             return result
@@ -360,9 +353,10 @@ def _vlm_node_summary(
     page_to_leaves: dict[int, list[LeafNode]],
     image_path_by_page: dict[int, str],
     vlm_model: str,
+    node_summary_max_pages: int,
 ) -> tuple[str, list[str], list[dict[str, str]]] | None:
     leaf = view.leaf
-    pages = view.pages[: _node_summary_max_pages()]
+    pages = view.pages[:node_summary_max_pages]
 
     # Boundary title: only meaningful when this node's start page hosts a later
     # sibling node, so the VLM can stop at that boundary.
@@ -417,6 +411,7 @@ def build_node_rows(
     budget: Any | None = None,
     vlm_model: str | None = None,
     page_assets_by_page: dict[int, list[PageAsset]] | None = None,
+    node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,
 ) -> list[dict[str, Any]]:
     """Assemble one row per leaf section node (node-granularity chunks)."""
     available_pages = set(raw_text_by_page.keys())
@@ -450,6 +445,7 @@ def build_node_rows(
             tag_by_page=tag_by_page,
             image_path_by_page=image_path_by_page,
             vlm_model=vlm_model,
+            node_summary_max_pages=node_summary_max_pages,
         )
         know_id = f"node_{gen_str_codes(f'{filename}::{leaf.section_path}')}"
         row = {

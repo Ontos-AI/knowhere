@@ -44,19 +44,20 @@ async def _archive_document_response(
 @router.get("")
 async def list_documents(
     namespace: str | None = Query(None, max_length=255),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=200, description="Items per page"),
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     effective_namespace = normalize_retrieval_namespace(namespace)
-    documents = await _document_service.list_documents(
+    response = await _document_service.list_documents(
         db,
         user_id=current_user.user_id,
         namespace=effective_namespace,
+        page=page,
+        page_size=page_size,
     )
-    return {
-        "namespace": effective_namespace,
-        "documents": documents,
-    }
+    return response
 
 
 @router.get("/{document_id}")
@@ -85,6 +86,10 @@ async def list_document_chunks(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=200, description="Items per page"),
     chunk_type: DocumentChunkType | None = Query(None, description="Chunk type filter"),
+    include_asset_urls: bool = Query(
+        False,
+        description="Generate 7-day asset URLs for image/table chunks when true",
+    ),
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -95,6 +100,7 @@ async def list_document_chunks(
         page=page,
         page_size=page_size,
         chunk_type=chunk_type,
+        include_asset_urls=include_asset_urls,
     )
     if response is None:
         raise NotFoundException(
@@ -109,6 +115,10 @@ async def list_document_chunks(
 async def get_document_chunk(
     document_id: str,
     document_chunk_id: str,
+    include_asset_urls: bool = Query(
+        False,
+        description="Generate 7-day asset URLs for image/table chunks when true",
+    ),
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -117,6 +127,7 @@ async def get_document_chunk(
         user_id=current_user.user_id,
         document_id=document_id,
         document_chunk_id=document_chunk_id,
+        include_asset_urls=include_asset_urls,
     )
     if response is None:
         raise NotFoundException(

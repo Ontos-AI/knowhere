@@ -1,6 +1,4 @@
-"""
-Unified Jobs API routes.
-"""
+"""Jobs API v2 routes."""
 
 from __future__ import annotations
 
@@ -22,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.core.database import get_db
 from shared.models.schemas.job import (
     ConfirmUploadRequest,
-    JobCreate,
+    JobCreateV2,
     JobList,
     JobResponse,
     JobResultResponse,
@@ -32,21 +30,16 @@ router = APIRouter(tags=["Jobs"])
 _document_ingestion_service = DocumentIngestionService()
 
 
-# ==================== Shared Helpers ====================
-
-
-@router.post("", response_model=JobResponse, summary="Create a parsing job")
+@router.post("", response_model=JobResponse, summary="Create a v2 parsing job")
 @router.post("/", include_in_schema=False)
 async def create_job(  # pyright: ignore[reportGeneralTypeIssues]
-    payload: JobCreate,
+    payload: JobCreateV2,
     current_user: CurrentUser = Depends(require_billing_limits),
     _write_permission: None = Depends(require_write_permission),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Create a parsing job.
-    """
-    return await _document_ingestion_service.create_v1_job(
+    """Create a v2 parsing job."""
+    return await _document_ingestion_service.create_v2_job(
         db,
         payload=payload,
         current_user=current_user,
@@ -72,9 +65,7 @@ async def list_jobs(
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    List jobs for the current user.
-    """
+    """List jobs for the current user."""
     return await list_jobs_for_user(
         db,
         user_id=current_user.user_id,
@@ -94,9 +85,7 @@ async def get_job_result(
     current_user: CurrentUser = Depends(with_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Return the result payload for one job.
-    """
+    """Return the result payload for one job."""
     return await get_job_result_for_user(
         db,
         job_id=job_id,
@@ -116,9 +105,7 @@ async def confirm_upload(
     _write_permission: None = Depends(require_write_permission),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Confirm a completed file upload as a fallback path.
-    """
+    """Confirm a completed file upload as a fallback path."""
     return await _document_ingestion_service.confirm_upload(
         db,
         job_id=job_id,

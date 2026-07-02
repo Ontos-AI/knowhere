@@ -548,14 +548,74 @@ async def test_should_list_only_the_authenticated_users_documents_for_the_effect
     assert default_namespace_json == {
         "namespace": "default",
         "documents": [],
+        "pagination": {
+            "page": 1,
+            "page_size": 50,
+            "total": 0,
+            "total_pages": 0,
+        },
     }
     assert named_namespace_json["namespace"] == "contract-documents"
+    assert named_namespace_json["pagination"] == {
+        "page": 1,
+        "page_size": 50,
+        "total": 2,
+        "total_pages": 1,
+    }
     assert [document["document_id"] for document in documents] == [
         owned_second_document_id,
         owned_first_document_id,
     ]
     assert all(document["namespace"] == "contract-documents" for document in documents)
     assert all(document["status"] == "active" for document in documents)
+
+
+@pytest.mark.asyncio
+async def test_should_paginate_documents_for_the_effective_namespace(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    async with developer_api_client_factory() as api_client:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        oldest_document_id = f"doc_{uuid4().hex[:12]}"
+        middle_document_id = f"doc_{uuid4().hex[:12]}"
+        newest_document_id = f"doc_{uuid4().hex[:12]}"
+        await _insert_document(
+            document_id=oldest_document_id,
+            updated_at=now - timedelta(minutes=10),
+        )
+        await _insert_document(
+            document_id=middle_document_id,
+            updated_at=now - timedelta(minutes=5),
+        )
+        await _insert_document(
+            document_id=newest_document_id,
+            updated_at=now,
+        )
+
+        response = await api_client.get(
+            "/api/v1/documents",
+            params={
+                "namespace": "contract-documents",
+                "page": 2,
+                "page_size": 1,
+            },
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    documents = cast(list[dict[str, object]], response_json["documents"])
+
+    assert response_json["namespace"] == "contract-documents"
+    assert response_json["pagination"] == {
+        "page": 2,
+        "page_size": 1,
+        "total": 3,
+        "total_pages": 3,
+    }
+    assert [document["document_id"] for document in documents] == [middle_document_id]
 
 
 @pytest.mark.asyncio
@@ -686,9 +746,76 @@ async def test_should_list_current_document_chunks_by_document_id(
             "file_path": None,
             "sort_order": 0,
             "metadata": {"summary": "Intro", "page_nums": []},
+            "asset_url": None,
             "created_at": chunks[0]["created_at"],
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_should_include_media_asset_urls_in_document_chunk_list_when_requested(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+    text_chunk_id = f"dchk_{uuid4().hex[:12]}"
+    table_chunk_id = f"dchk_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory() as api_client:
+        revision = await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            chunks=[
+                {
+                    "id": text_chunk_id,
+                    "chunk_id": "parser-text",
+                    "chunk_type": "text",
+                    "content": "Text chunk content",
+                    "source_chunk_path": "Chapter 1/Text",
+                    "metadata": {"summary": "Text", "page_nums": []},
+                },
+                {
+                    "id": table_chunk_id,
+                    "chunk_id": "parser-table",
+                    "chunk_type": "table",
+                    "content": "| A | B |",
+                    "source_chunk_path": "Chapter 1/Table",
+                    "file_path": "tables/table-1.html",
+                    "metadata": {"summary": "Table", "page_nums": []},
+                },
+            ],
+        )
+        response = await api_client.get(
+            f"/api/v1/documents/{document_id}/chunks",
+            params={
+                "page": 1,
+                "page_size": 2,
+                "include_asset_urls": "true",
+            },
+        )
+        default_response = await api_client.get(
+            f"/api/v1/documents/{document_id}/chunks",
+            params={
+                "page": 1,
+                "page_size": 2,
+            },
+        )
+
+    assert response.status_code == 200
+    chunks = cast(list[dict[str, object]], response.json()["chunks"])
+    expected_asset_url = (
+        "filesystem://knowhere-test-results/"
+        f"results/{revision['job_id']}/tables/table-1.html"
+        "?method=GET&expires_in=604800"
+    )
+    assert chunks[0]["asset_url"] is None
+    assert chunks[1]["asset_url"] == expected_asset_url
+
+    assert default_response.status_code == 200
+    default_chunks = cast(
+        list[dict[str, object]], default_response.json()["chunks"]
+    )
+    assert default_chunks[1]["asset_url"] is None
 
 
 @pytest.mark.asyncio
@@ -745,12 +872,19 @@ async def test_should_return_one_document_chunk_by_document_chunk_id(
         )
         response = await api_client.get(
             f"/api/v1/documents/{document_id}/chunks/{chunk_id}",
+            params={"include_asset_urls": "true"},
+        )
+        default_response = await api_client.get(
+            f"/api/v1/documents/{document_id}/chunks/{chunk_id}",
         )
 
     assert response.status_code == 200
+    assert default_response.status_code == 200
 
     response_json = cast(dict[str, object], response.json())
     chunk = cast(dict[str, object], response_json["chunk"])
+    default_response_json = cast(dict[str, object], default_response.json())
+    default_chunk = cast(dict[str, object], default_response_json["chunk"])
 
     assert response_json["document_id"] == document_id
     assert response_json["namespace"] == "contract-documents"
@@ -764,6 +898,12 @@ async def test_should_return_one_document_chunk_by_document_chunk_id(
     assert chunk["section_path"] == "Chapter 1"
     assert chunk["source_chunk_path"] == "Chapter 1/Figure"
     assert chunk["file_path"] == "images/figure-1.png"
+    assert chunk["asset_url"] == (
+        "filesystem://knowhere-test-results/"
+        f"results/{revision['job_id']}/images/figure-1.png"
+        "?method=GET&expires_in=604800"
+    )
+    assert default_chunk["asset_url"] is None
     assert chunk["metadata"] == {"summary": "Figure", "page_nums": []}
     assert chunk["created_at"]
 
