@@ -62,6 +62,7 @@ def execute_document_parse(
             if parse_track == "page_memory":
                 parse_output = _execute_page_memory_parse(
                     job_id=job_id,
+                    job_context=job_context,
                     prepared_source=prepared_source,
                     output_dir=output_dir,
                 )
@@ -123,11 +124,15 @@ def execute_document_parse(
 def _execute_page_memory_parse(
     *,
     job_id: str,
+    job_context: ParseJobContext,
     prepared_source: PreparedSourceFile,
     output_dir: str,
 ) -> ParseOutput:
     from app.services.page_memory.memory_service import PageMemoryInput, run
 
+    page_memory_config = JobMetadataHelper.get_page_memory_config(
+        job_context.job_metadata,
+    )
     page_output_dir, parsed_df = run(
         PageMemoryInput(
             file_path=prepared_source.local_file_path,
@@ -135,6 +140,7 @@ def _execute_page_memory_parse(
             internal_output_filename=prepared_source.internal_parse_name,
             output_dir=output_dir,
             job_id=job_id,
+            page_memory_config=page_memory_config,
         )
     )
     return ParseOutput(output_dir=page_output_dir, parsed_df=parsed_df)

@@ -87,19 +87,6 @@ class StorageConfig(BaseModel):
             "fall back to Markdown TOC detection."
         ),
     )
-    RETRIEVAL_PAGE_MEMORY_ENABLED: bool = Field(
-        default=False,
-        description=(
-            "Enable the page_memory parse track for PDF/PPTX. When true, these "
-            "formats default to page-based processing. Set false to fall back to "
-            "chunk-based MinerU parsing."
-        ),
-    )
-    PAGE_MEMORY_MAX_PAGES: int = Field(
-        default=1500,
-        ge=1,
-        description="Hard page-count cap for the page_memory track. Documents exceeding this are rejected.",
-    )
     MINERU_SHARD_CONCURRENCY: int = Field(
         default=3,
         ge=1,
@@ -107,7 +94,7 @@ class StorageConfig(BaseModel):
         description="Maximum concurrent MinerU API calls for shard parsing.",
     )
     SUPPORTED_EXTENSIONS: str = Field(
-        default=".doc,.docx,.pdf,.txt,.xls,.xlsx,.pptx,.jpg,.jpeg,.png,.md",
+        default=".doc,.docx,.pdf,.txt,.xls,.xlsx,.pptx,.jpg,.jpeg,.png,.md,.html,.htm",
         description="Supported file extensions",
     )
 

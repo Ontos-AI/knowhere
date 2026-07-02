@@ -16,6 +16,7 @@ from app.services.document_agent.manifest import (
     ToolContext,
 )
 from app.services.document_agent.structure.page_locate_agent import (
+    PageLocateConfig,
     PageLocateResidualAgent,
 )
 from app.services.document_agent.structure.hierarchy_locator import (
@@ -29,6 +30,7 @@ from app.services.document_parser.structure.body_boundary import (
     normalize_heading_text,
 )
 from loguru import logger
+from shared.models.schemas.page_memory_config import PageMemoryConfig
 
 _FRONT_TOC_REGION_GAP_PAGES = 5
 
@@ -54,6 +56,7 @@ def extract_section_skeletons(
     page_texts: dict[int, str],
     ctx: ToolContext | None = None,
     hierarchy_nodes: list[TitleNode] | None = None,
+    page_memory_config: PageMemoryConfig | None = None,
 ) -> list[SectionSkeleton]:
     """Convert PageAnatomyMap hierarchy evidence into section skeletons.
 
@@ -99,6 +102,11 @@ def extract_section_skeletons(
         body_pages=body_pages,
         page_count=page_count,
         page_offset_hint=offset_hint,
+        config=(
+            PageLocateConfig.from_page_memory_config(page_memory_config)
+            if page_memory_config is not None
+            else None
+        ),
     ).prepare(nodes)
     ranges = resolve_hierarchy_page_ranges(
         locate_result.nodes,

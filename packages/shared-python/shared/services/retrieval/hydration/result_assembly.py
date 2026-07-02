@@ -58,8 +58,10 @@ async def assemble_retrieval_results(
         chunk_type = normalize_chunk_type(row.get('chunk_type'))
         if chunk_type == 'page':
             assembled_row['content'] = _page_summary(row)
+            assembled_row['content_source'] = 'summary'
         elif chunk_type == 'table':
             assembled_row['content'] = _table_summary_content(row)
+            assembled_row['content_source'] = 'summary'
         elif chunk_type == 'text':
             connected_targets: list[tuple[int, str]] = []
             for target_id in iter_connected_target_ids(row):
@@ -82,8 +84,10 @@ async def assemble_retrieval_results(
                 assembled_row['content'] = '\n\n'.join([base_content, *related_parts])
             else:
                 assembled_row['content'] = base_content
+            assembled_row['content_source'] = 'content'
         else:
             assembled_row['content'] = base_content
+            assembled_row['content_source'] = 'content'
         assembled_row['content'] = clean_content(assembled_row['content'])
         assembled.append(assembled_row)
     return assembled

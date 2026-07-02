@@ -52,9 +52,7 @@ class PageAsset:
 
 
 def page_asset_extraction_enabled() -> bool:
-    return os.environ.get(
-        "PAGE_MEMORY_ASSET_EXTRACTION_ENABLED", "false"
-    ).strip().lower() in {"1", "true", "yes", "on"}
+    return False
 
 
 def page_asset_summary_enabled() -> bool:
@@ -63,31 +61,19 @@ def page_asset_summary_enabled() -> bool:
     Gated separately from detection so the richer chart/figure summarization can
     be rolled out independently. Defaults off.
     """
-    return os.environ.get(
-        "PAGE_MEMORY_ASSET_SUMMARY_ENABLED", "false"
-    ).strip().lower() in {"1", "true", "yes", "on"}
+    return False
 
 
 def get_asset_confidence_threshold() -> float:
-    try:
-        return float(os.environ.get("PAGE_MEMORY_ASSET_CONFIDENCE_THRESHOLD", "0.3"))
-    except ValueError:
-        return 0.3
+    return 0.3
 
 
 def get_asset_model() -> str | None:
-    model = os.environ.get("PAGE_MEMORY_ASSET_MODEL", "").strip()
-    if model:
-        return model
     return _DEFAULT_ASSET_MODEL
 
 
 def get_asset_max_pages(page_count: int) -> int:
-    try:
-        value = int(os.environ.get("PAGE_MEMORY_ASSET_MAX_PAGES", str(page_count)))
-    except ValueError:
-        value = page_count
-    return max(0, min(page_count, value))
+    return max(0, page_count)
 
 
 def detect_page_assets(
@@ -244,11 +230,12 @@ def extract_table_html(
     asset: PageAsset,
     pdf_path: str,
     output_dir: str,
+    table_engine: str = "tabula",
 ) -> PageAsset:
     """Extract table HTML with tabula stream mode; degrade on missing Java/package."""
     if asset.kind != "table":
         return asset
-    if os.environ.get("PAGE_MEMORY_TABLE_ENGINE", "tabula").strip().lower() != "tabula":
+    if table_engine.strip().lower() != "tabula":
         asset.extraction_status = f"{asset.extraction_status}:table_engine_disabled"
         return asset
     if not _has_working_java():
@@ -385,12 +372,15 @@ def extract_page_assets_from_renders(
     budget: Any | None = None,
     max_pages: int,
     confidence_threshold: float,
+    summary_enabled: bool = False,
+    summary_concurrency: int = 4,
+    table_engine: str = "tabula",
+    table_merge_enabled: bool = True,
 ) -> dict[int, list[PageAsset]]:
     pages = sorted(rendered_pages, key=lambda item: item.page_index)[:max_pages]
     source_name = Path(pdf_path).name
     assets_by_page: dict[int, list[PageAsset]] = {}
     pending_summaries: list[PageAsset] = []
-    summary_enabled = page_asset_summary_enabled()
 
     for page in pages:
         detected = detect_page_assets(
@@ -411,6 +401,7 @@ def extract_page_assets_from_renders(
                     asset=asset,
                     pdf_path=pdf_path,
                     output_dir=output_dir,
+                    table_engine=table_engine,
                 )
             if asset.image_uri or asset.html_uri:
                 page_assets_list.append(asset)
@@ -425,7 +416,7 @@ def extract_page_assets_from_renders(
                     output_dir=output_dir,
                 )
 
-    if _table_merge_enabled():
+    if table_merge_enabled:
         assets_by_page = merge_cross_page_tables(
             assets_by_page=assets_by_page,
             output_dir=output_dir,
@@ -437,6 +428,7 @@ def extract_page_assets_from_renders(
         _batch_summarize_assets(
             assets=pending_summaries,
             model_name=model_name,
+            max_concurrent=summary_concurrency,
         )
 
     logger.info(
@@ -451,19 +443,12 @@ def _batch_summarize_assets(
     *,
     assets: list[PageAsset],
     model_name: str | None,
+    max_concurrent: int,
 ) -> None:
     """Summarize assets in parallel using a gevent pool."""
     import gevent
     from gevent.pool import Pool as GeventPool
 
-    from shared.core.config import settings
-
-    max_concurrent = int(
-        os.environ.get(
-            "PAGE_MEMORY_ASSET_SUMMARY_CONCURRENCY",
-            getattr(settings, "SUMMARY_LLM_MAX_CONCURRENT", 4),
-        )
-    )
     logger.info(
         "[page_assets] batch-summarizing {} assets (concurrency={})",
         len(assets),
@@ -704,12 +689,6 @@ def _safe_float(value: object, *, default: float) -> float:
 
 
 # ── C5b: cross-page table merge ──────────────────────────────────────
-
-
-def _table_merge_enabled() -> bool:
-    return os.environ.get(
-        "PAGE_MEMORY_TABLE_MERGE_ENABLED", "true"
-    ).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def merge_cross_page_tables(

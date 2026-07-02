@@ -22,6 +22,7 @@ class DocumentFormat(str, Enum):
     PPTX = "pptx"
     MARKDOWN = "markdown"
     JSON = "json"
+    HTML = "html"
 
 
 SUPPORTED_FILE_TYPES: tuple[str, ...] = (
@@ -37,6 +38,8 @@ SUPPORTED_FILE_TYPES: tuple[str, ...] = (
     ".xlsx",
     ".pptx",
     ".md",
+    ".html",
+    ".htm",
     ".json",
 )
 
@@ -65,6 +68,8 @@ def resolve_document_format(file_path: str) -> DocumentFormat:
         return DocumentFormat.MARKDOWN
     if extension == ".json":
         return DocumentFormat.JSON
+    if extension in (".html", ".htm"):
+        return DocumentFormat.HTML
 
     raise ValidationException(
         user_message=f"Unsupported file type: {extension}",
@@ -89,6 +94,7 @@ def get_document_parse_adapter(document_format: DocumentFormat) -> DocumentParse
         DocumentFormat.XLSX: format_adapters.XlsxParseAdapter(document_format),
         DocumentFormat.PPTX: format_adapters.PptxParseAdapter(document_format),
         DocumentFormat.MARKDOWN: format_adapters.MarkdownParseAdapter(document_format),
+        DocumentFormat.HTML: format_adapters.HtmlParseAdapter(document_format),
         DocumentFormat.JSON: format_adapters.JsonParseAdapter(document_format),
     }
     return adapter_by_format[document_format]
