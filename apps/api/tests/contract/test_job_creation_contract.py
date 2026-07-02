@@ -471,9 +471,15 @@ async def test_v2_created_page_memory_job_can_query_v2_retrieval(
     assert retrieval_json["namespace"] == payload["namespace"]
     assert retrieval_json["router_used"] == "small_corpus_all"
     assert len(results) == 1
+    assert results[0]["chunk_id"] == published_chunk["chunk_id"]
     assert results[0]["chunk_type"] == "page"
+    assert results[0]["content_source"] == "summary"
     assert results[0]["content"] == "v2 page-memory retrieval policy marker"
     assert results[0]["score"] == 1.0
+    assert results[0]["source_chunk_path"] == published_chunk["section_path"]
+    assert results[0]["metadata"] == {
+        "summary": "v2 page-memory retrieval policy marker"
+    }
     assert source["document_id"] == document_id
     assert source["section_path"] == published_chunk["section_path"]
 

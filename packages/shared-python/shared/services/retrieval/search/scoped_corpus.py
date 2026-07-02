@@ -93,6 +93,7 @@ async def load_all_scoped_chunks(
             'chunk_type': chunk.chunk_type,
             'content': chunk.content,
             'score': 1.0,
+            'source_chunk_path': chunk.source_chunk_path,
             'file_path': chunk.file_path,
             'chunk_metadata': chunk.chunk_metadata or {},
             'job_result_id': chunk.job_result_id,
