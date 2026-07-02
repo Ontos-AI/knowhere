@@ -32,6 +32,8 @@ from app.services.document_parser.support.stage_profiler import (
     cleanup_stage_tracker,
     init_stage_tracker,
 )
+from shared.core.exceptions.domain_exceptions import ValidationException
+from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.ai.token_tracking import cleanup_token_tracker, init_token_tracker
 from shared.services.jobs.lifecycle.service import get_sync_job_lifecycle_service
 from shared.services.redis.distributed_lock import RedisJobLock
@@ -103,7 +105,8 @@ def _run_parse_job(
         )
 
         processing_started_at = datetime.now(timezone.utc)
-        oversized_pdf_rejection = build_oversized_pdf_rejection(
+        oversized_pdf_rejection = _build_parse_track_oversized_pdf_rejection(
+            job_context=job_context,
             file_extension=prepared_source.file_extension,
             page_count=page_count,
         )
@@ -179,3 +182,17 @@ def _run_parse_job(
         }
         cleanup_token_tracker()
         cleanup_stage_tracker()
+
+
+def _build_parse_track_oversized_pdf_rejection(
+    *,
+    job_context: ParseJobContext,
+    file_extension: str,
+    page_count: int,
+) -> ValidationException | None:
+    if JobMetadataHelper.get_parse_track(job_context.job_metadata) == "page_memory":
+        return None
+    return build_oversized_pdf_rejection(
+        file_extension=file_extension,
+        page_count=page_count,
+    )
