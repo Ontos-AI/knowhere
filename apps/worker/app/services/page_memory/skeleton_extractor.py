@@ -198,6 +198,7 @@ def extract_section_skeletons(
             page_count=page_count,
             filename=filename,
             body_pages=body_pages,
+            page_memory_config=page_memory_config,
         )
         skeletons.extend(secondary_skeletons)
 
@@ -424,35 +425,6 @@ def _body_pages(*, anatomy: Any | None, page_count: int) -> list[int]:
     toc_result = getattr(anatomy, "toc_result", None)
     excluded.update(int(page) for page in getattr(toc_result, "toc_pages", []) or [])
     return [page for page in range(1, page_count + 1) if page not in excluded]
-
-
-# ── Old offset estimation (kept for reference, no longer called) ─────────────
-# def _estimate_page_offset(*, nodes: list[TitleNode], anatomy: Any | None) -> int | None:
-#     printed_by_title: dict[str, int] = {}
-#     for node in _walk_nodes(nodes):
-#         if node.printed_page is None:
-#             continue
-#         printed_by_title[_title_key(node.title)] = node.printed_page
-#     offsets: list[int] = []
-#     h1_result = getattr(anatomy, "h1_result", None)
-#     for candidate in getattr(h1_result, "h1_candidates", []) or []:
-#         printed_page = printed_by_title.get(_title_key(candidate.title))
-#         if printed_page is not None:
-#             offsets.append(int(candidate.page) - printed_page)
-#     if not offsets:
-#         return None
-#     offsets.sort()
-#     return offsets[len(offsets) // 2]
-#
-# def _walk_nodes(nodes: list[TitleNode]) -> list[TitleNode]:
-#     walked: list[TitleNode] = []
-#     for node in nodes:
-#         walked.append(node)
-#         walked.extend(_walk_nodes(node.children))
-#     return walked
-#
-# def _title_key(title: str) -> str:
-#     return normalize_heading_text(clean_toc_title(title) or title).casefold()
 
 
 # ── VLM offset calibration (Phase A1) ───────────────────────────────────────
@@ -846,6 +818,7 @@ def _resolve_pending_tocs(
     page_count: int,
     filename: str,
     body_pages: list[int],
+    page_memory_config: PageMemoryConfig | None = None,
 ) -> list[SectionSkeleton]:
     """Independently calibrate and anchor each pending TOC, then graft results.
 
@@ -930,6 +903,11 @@ def _resolve_pending_tocs(
                 body_pages=toc_body_pages,
                 page_count=toc_scope_end,
                 page_offset_hint=offset,
+                config=(
+                    PageLocateConfig.from_page_memory_config(page_memory_config)
+                    if page_memory_config is not None
+                    else None
+                ),
             ).prepare(nodes)
             match_overrides = {**cal_overrides, **locate_result.match_overrides}
             locate_summary = {**locate_result.summary, "toc_relationship": relationship}
