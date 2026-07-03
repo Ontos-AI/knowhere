@@ -116,6 +116,9 @@ def _merge_reference_asset_url(
         if row is not None:
             if row.get("asset_url"):
                 merged["asset_url"] = row["asset_url"]
+            metadata = row.get("metadata") or row.get("chunk_metadata")
+            if isinstance(metadata, dict):
+                merged["metadata"] = metadata
         merged_refs.append(merged)
     return merged_refs
 

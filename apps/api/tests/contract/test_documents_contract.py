@@ -518,6 +518,21 @@ def _upload_page_citation_source(*, job_id: str) -> None:
         source_pdf_path.unlink(missing_ok=True)
 
 
+def _upload_page_citation_asset(*, job_id: str, artifact_ref: str) -> None:
+    from shared.services.storage.result_storage import JobResultStorage
+
+    asset_path = Path("/tmp") / f"knowhere-contract-page-asset-{uuid4().hex}.png"
+    asset_path.write_bytes(b"\x89PNG\r\n\x1a\ncontract page citation asset\n")
+    try:
+        JobResultStorage().upload_raw_file(
+            job_id=job_id,
+            relative_path=artifact_ref,
+            local_file_path=str(asset_path),
+        )
+    finally:
+        asset_path.unlink(missing_ok=True)
+
+
 @pytest.mark.asyncio
 async def test_should_list_only_the_authenticated_users_documents_for_the_effective_namespace(
     developer_api_client_factory: Callable[
@@ -1008,6 +1023,97 @@ async def test_should_include_media_asset_urls_in_document_chunk_list_when_reque
         list[dict[str, object]], default_response.json()["chunks"]
     )
     assert default_chunks[1]["asset_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_should_include_page_citation_asset_urls_in_document_chunk_metadata_when_requested(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+    page_chunk_id = f"dchk_{uuid4().hex[:12]}"
+    page_asset_ref = "page_citation_assets/page-4.png"
+
+    async with developer_api_client_factory() as api_client:
+        revision = await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            parse_track="page_memory",
+            chunks=[
+                {
+                    "id": page_chunk_id,
+                    "chunk_id": "page-node-4",
+                    "chunk_type": "page",
+                    "content": "Page node content",
+                    "source_chunk_path": "Chapter 1/Page 4",
+                    "metadata": {
+                        "summary": "Page node summary",
+                        "page_nums": [4],
+                        "page_assets": [
+                            {
+                                "page_num": 4,
+                                "artifact_ref": page_asset_ref,
+                                "content_type": "image/png",
+                                "width": 1200,
+                                "height": 1800,
+                                "source": "knowhere-rendered-page-citation-source",
+                            }
+                        ],
+                    },
+                },
+            ],
+        )
+        _upload_page_citation_asset(
+            job_id=revision["job_id"],
+            artifact_ref=page_asset_ref,
+        )
+        response = await api_client.get(
+            f"/api/v1/documents/{document_id}/chunks",
+            params={
+                "page": 1,
+                "page_size": 1,
+                "include_asset_urls": "true",
+            },
+        )
+        default_response = await api_client.get(
+            f"/api/v1/documents/{document_id}/chunks",
+            params={
+                "page": 1,
+                "page_size": 1,
+            },
+        )
+
+    assert response.status_code == 200
+    assert default_response.status_code == 200
+
+    chunk = cast(list[dict[str, object]], response.json()["chunks"])[0]
+    default_chunk = cast(list[dict[str, object]], default_response.json()["chunks"])[0]
+    page_assets = cast(list[dict[str, object]], chunk["page_assets"])
+    metadata = cast(dict[str, object], chunk["metadata"])
+    metadata_page_assets = cast(list[dict[str, object]], metadata["page_assets"])
+
+    expected_asset_url = (
+        "filesystem://knowhere-test-results/"
+        f"results/{revision['job_id']}/{page_asset_ref}"
+        "?method=GET&expires_in=604800"
+    )
+    assert page_assets[0]["asset_url"] == expected_asset_url
+    assert metadata_page_assets[0]["asset_url"] == expected_asset_url
+    assert default_chunk["metadata"] == {
+        "summary": "Page node summary",
+        "page_nums": [4],
+        "page_assets": [
+            {
+                "page_num": 4,
+                "artifact_ref": page_asset_ref,
+                "content_type": "image/png",
+                "width": 1200,
+                "height": 1800,
+                "source": "knowhere-rendered-page-citation-source",
+            }
+        ],
+    }
+    assert "page_assets" not in default_chunk
 
 
 @pytest.mark.asyncio
