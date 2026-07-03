@@ -35,6 +35,58 @@ from loguru import logger
 _FRONT_TOC_REGION_GAP_PAGES = 5
 
 
+def _prune_out_of_scope_nodes(
+    nodes: list[TitleNode],
+    *,
+    offset: int,
+    page_count: int,
+) -> tuple[list[TitleNode], int]:
+    """Remove leaf nodes whose printed_page + offset exceeds page_count.
+
+    Bottom-up: prune out-of-scope leaves, then remove intermediate nodes
+    that become childless after pruning. Returns (pruned_tree, removed_count).
+    """
+    from dataclasses import replace as _replace
+
+    removed = 0
+
+    def _prune(node: TitleNode) -> TitleNode | None:
+        nonlocal removed
+        if not node.children:
+            if node.printed_page is not None:
+                expected = node.printed_page + offset
+                if expected > page_count or expected < 1:
+                    removed += 1
+                    return None
+            return node
+        pruned_children = []
+        for child in node.children:
+            result = _prune(child)
+            if result is not None:
+                pruned_children.append(result)
+        if not pruned_children:
+            removed += 1
+            return None
+        return _replace(node, children=pruned_children)
+
+    pruned = []
+    for node in nodes:
+        result = _prune(node)
+        if result is not None:
+            pruned.append(result)
+
+    if removed:
+        logger.info(
+            "[page_memory.skeleton] pruned {} out-of-scope TOC nodes "
+            "(printed_page + offset={} exceeds page_count={})",
+            removed,
+            offset,
+            page_count,
+        )
+
+    return pruned, removed
+
+
 @dataclass(frozen=True)
 class SectionSkeleton:
     section_path: str
@@ -119,6 +171,22 @@ def extract_section_skeletons(
         page_count=page_count,
     )
 
+    # Prune TOC nodes whose printed_page + offset exceeds the physical PDF.
+    pruned_count = 0
+    if offset_hint is not None:
+        nodes, pruned_count = _prune_out_of_scope_nodes(
+            nodes, offset=offset_hint, page_count=page_count,
+        )
+        if not nodes:
+            return [
+                _root_skeleton(
+                    root_path=root_path,
+                    filename=filename,
+                    page_count=page_count,
+                    reason="all_toc_nodes_out_of_scope",
+                )
+            ]
+
     # Phase A3: try offset-guided bulk anchoring before expensive residual agent.
     offset_matches: dict[tuple[str, ...], TitleMatch] | None = None
     if offset_hint is not None and ctx is not None:
@@ -136,6 +204,7 @@ def extract_section_skeletons(
             "agent": "offset_guided_bulk",
             "offset": offset_hint,
             "bulk_count": len(offset_matches),
+            "pruned_out_of_scope": pruned_count,
         }
     else:
         match_overrides = calibration_overrides
@@ -143,6 +212,7 @@ def extract_section_skeletons(
             "agent": "offset_only",
             "offset": offset_hint,
             "reason": "offset_guided_anchoring_skipped_or_empty",
+            "pruned_out_of_scope": pruned_count,
         }
     resolve_nodes = nodes
 
@@ -537,13 +607,31 @@ def _verify_offset_tail(
 
     If head offset == tail offset, monotonicity guarantees all intermediate
     entries share the same offset.
+
+    Prefers a tail leaf whose expected page is strictly less than page_count
+    (boundary pages are unreliable for VLM verification).
     """
     tail_leaves = [
         (path, node) for path, node in reversed(leaves) if node.printed_page is not None
     ]
     if not tail_leaves:
         return True
-    path, node = tail_leaves[0]
+
+    # Prefer non-boundary: printed_page + offset < page_count
+    selected = None
+    for path, node in tail_leaves:
+        pp = node.printed_page
+        if pp is None:
+            continue
+        expected = pp + offset
+        if 1 <= expected < page_count:
+            selected = (path, node)
+            break
+    if selected is None:
+        # All leaves are at the boundary; fall back to the last one
+        selected = tail_leaves[0]
+
+    path, node = selected
     printed_page = node.printed_page
     if printed_page is None:
         return True
