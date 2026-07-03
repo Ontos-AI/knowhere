@@ -425,8 +425,6 @@ class DocumentService:
             ),
             "created_at": _datetime_payload(chunk.created_at),
         }
-        if include_asset_urls and page_assets:
-            payload["page_assets"] = page_assets
         return payload
 
     async def archive_document(

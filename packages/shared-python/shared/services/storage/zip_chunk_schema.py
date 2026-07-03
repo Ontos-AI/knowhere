@@ -119,10 +119,6 @@ class ZipChunkSchemaBuilder:
                 "path": path,
                 "metadata": metadata,
             }
-            if chunk_type == "page":
-                page_assets = _normalize_page_assets(metadata.get("page_assets"))
-                if page_assets:
-                    formatted_chunk["page_assets"] = page_assets
 
             formatted.append(formatted_chunk)
 

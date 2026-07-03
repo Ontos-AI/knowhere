@@ -1088,7 +1088,6 @@ async def test_should_include_page_citation_asset_urls_in_document_chunk_metadat
 
     chunk = cast(list[dict[str, object]], response.json()["chunks"])[0]
     default_chunk = cast(list[dict[str, object]], default_response.json()["chunks"])[0]
-    page_assets = cast(list[dict[str, object]], chunk["page_assets"])
     metadata = cast(dict[str, object], chunk["metadata"])
     metadata_page_assets = cast(list[dict[str, object]], metadata["page_assets"])
 
@@ -1097,8 +1096,8 @@ async def test_should_include_page_citation_asset_urls_in_document_chunk_metadat
         f"results/{revision['job_id']}/{page_asset_ref}"
         "?method=GET&expires_in=604800"
     )
-    assert page_assets[0]["asset_url"] == expected_asset_url
     assert metadata_page_assets[0]["asset_url"] == expected_asset_url
+    assert "page_assets" not in chunk
     assert default_chunk["metadata"] == {
         "summary": "Page node summary",
         "page_nums": [4],
