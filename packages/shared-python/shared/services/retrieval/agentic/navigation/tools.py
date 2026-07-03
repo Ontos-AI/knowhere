@@ -27,6 +27,7 @@ from shared.services.retrieval.agentic.navigation.actions import (
     format_agent_state_block,
 )
 from shared.services.retrieval.agentic.navigation.section_tree import load_child_sections
+from shared.services.retrieval.agentic.navigation.state import RejectionRecord
 from shared.services.retrieval.agentic.core.types import DocTreeNode, NavigateStepResult
 from shared.services.retrieval.llm_adapter import LLMFn
 
@@ -48,8 +49,7 @@ async def navigate_step(
     nav_trace: list[dict[str, Any]] | None = None,
     collected_paths: list[dict[str, Any]] | None = None,
     expanded_scopes: set[str] | None = None,
-    rejected_paths: set[str] | None = None,
-    rejected_collect_paths: set[str] | None = None,
+    rejected: dict[str, RejectionRecord] | None = None,
     disabled_asset_types: set[str] | None = None,
     discovery_hints: list[dict[str, Any]] | None = None,
     section_rows: list | None = None,
@@ -89,14 +89,14 @@ async def navigate_step(
         expanded_path_set = set(expanded_scopes or _expanded_paths_from_trace(nav_trace or []))
         if scope_path:
             expanded_path_set.add(scope_path)
+        rejection_ledger = rejected or {}
         provisional_action_set = build_legal_actions(
             items=items,
             current_scope=scope_path,
             collected_paths=collected_paths or [],
             expanded_scopes=expanded_path_set,
             discovery_hints=discovery_hints,
-            rejected_paths=rejected_paths or set(),
-            rejected_collect_paths=rejected_collect_paths or set(),
+            rejected=rejection_ledger,
             total_images=total_images,
             total_tables=total_tables,
             disabled_asset_types=disabled_asset_types or set(),
@@ -137,8 +137,7 @@ async def navigate_step(
                 collected_paths=collected_paths or [],
                 expanded_scopes=expanded_path_set,
                 discovery_hints=discovery_hints,
-                rejected_paths=rejected_paths or set(),
-                rejected_collect_paths=rejected_collect_paths or set(),
+                rejected=rejection_ledger,
                 total_images=total_images,
                 total_tables=total_tables,
                 disabled_asset_types=disabled_asset_types or set(),
@@ -166,16 +165,17 @@ async def navigate_step(
                 "search": [item.id for item in action_set.search],
                 "finish": [action_set.finish.id] if action_set.finish else [],
             },
-            "rejected_paths": sorted(rejected_paths or set()),
-            "rejected_collect_paths": sorted(rejected_collect_paths or set()),
+            "rejected": {
+                path: {"reason": record.reason, "step": record.step}
+                for path, record in rejection_ledger.items()
+            },
         }
         agent_state_block = format_agent_state_block(
             current_scope=scope_path,
             query_intent=query_intent,
             expanded_scopes=expanded_path_set,
-            rejected_paths=rejected_paths or set(),
+            rejected=rejection_ledger,
             collected_paths=collected_paths or [],
-            rejected_collect_paths=rejected_collect_paths or set(),
             prior_tool_result=prior_tool_result,
             search_context=search_context,
             budget_snapshot=adjusted_snapshot,

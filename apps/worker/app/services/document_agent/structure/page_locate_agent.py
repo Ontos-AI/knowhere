@@ -132,6 +132,22 @@ class PageLocateResidualAgent:
             summary=summary,
         )
 
+    def _entry_scope(self, node: TitleNode) -> list[int]:
+        """Narrow search scope for a node using its printed page + offset hint.
+
+        When a node carries a printed_page and we have a page_offset_hint,
+        restrict grep to a small window around the expected physical page.
+        The window spans [printed_page, printed_page + offset] (inclusive,
+        order-independent) to cover the uncertainty between printed numbering
+        and physical page positions.
+        """
+        if node.printed_page is None or self.page_offset_hint is None:
+            return self.body_pages
+        expected = node.printed_page + self.page_offset_hint
+        lo = min(node.printed_page, expected)
+        hi = max(node.printed_page, expected)
+        return [p for p in self.body_pages if lo <= p <= hi]
+
     def _classify_residuals(
         self,
         nodes: list[TitleNode],
@@ -139,9 +155,10 @@ class PageLocateResidualAgent:
         direct: dict[tuple[str, ...], TitleMatch] = {}
         residuals: list[ResidualRequest] = []
         for path_titles, node in iter_leaf_title_nodes(nodes):
+            scope = self._entry_scope(node)
             match = locate_title_strict_exact(
                 node.title,
-                scope_pages=self.body_pages,
+                scope_pages=scope,
                 page_texts=self.page_texts,
             )
             if match is not None:
@@ -180,9 +197,10 @@ class PageLocateResidualAgent:
             verify_page_cap=max(self.config.vlm_candidate_page_cap, 1),
         )
         for residual in residuals:
+            scope = self._entry_scope(residual.node)
             agent = PageLocateSubAgent(
                 ctx=self.ctx,
-                scope_pages=self.body_pages,
+                scope_pages=scope,
                 page_count=self.page_count,
                 config=sub_config,
                 page_offset_hint=self.page_offset_hint,

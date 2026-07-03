@@ -6,6 +6,9 @@ from typing import Any, Literal
 
 from shared.services.retrieval.agentic.core.budget import budget_status_from_snapshot
 from shared.services.retrieval.agentic.navigation.path_ledger import PathLedger
+from shared.services.retrieval.agentic.navigation.state import (
+    RejectionRecord,
+)
 from shared.services.retrieval.search.lexical_text import normalize_section_path
 from shared.utils.text_utils import truncate_content_preview
 
@@ -68,8 +71,7 @@ def build_legal_actions(
     collected_paths: list[dict[str, Any]],
     expanded_scopes: set[str],
     discovery_hints: list[dict[str, Any]] | None = None,
-    rejected_paths: set[str] | None = None,
-    rejected_collect_paths: set[str] | None = None,
+    rejected: dict[str, RejectionRecord] | None = None,
     total_images: int,
     total_tables: int,
     disabled_asset_types: set[str] | None = None,
@@ -79,11 +81,14 @@ def build_legal_actions(
     covered_paths = _covered_paths(collected_paths)
     outline_paths = _outline_paths(collected_paths)
     budget_mode = budget_status_from_snapshot(budget_snapshot)
-    rejected = {PathLedger.normalize(path) for path in rejected_paths or set()}
-    rejected_collects = {
-        normalized
-        for path in rejected_collect_paths or set()
-        if (normalized := PathLedger.normalize(path))
+    rejection_ledger = rejected or {}
+    tool_adjudicated_paths = {
+        path for path, record in rejection_ledger.items()
+        if record.reason == "tool_adjudicated"
+    }
+    navigational_abandoned_paths = {
+        path for path, record in rejection_ledger.items()
+        if record.reason == "navigational_abandon"
     }
     discovery_scores = _discovery_scores_by_path(discovery_hints or [])
     scored_items = _score_items(items, discovery_scores)
@@ -100,9 +105,12 @@ def build_legal_actions(
         path = str(item.get("path") or "").strip()
         if not path or path == "Root":
             continue
-        if PathLedger.is_covered(path, covered_paths):
+        normalized_path = PathLedger.normalize(path)
+        if PathLedger.is_covered(normalized_path, covered_paths):
             continue
-        if PathLedger.is_covered(path, rejected_collects):
+        # tool_adjudicated rejections are content-level negative and are not
+        # revived this round (TODO: future strong-signal revival).
+        if PathLedger.is_covered(normalized_path, tool_adjudicated_paths):
             continue
 
         action_set.add(LegalAction(
@@ -112,7 +120,7 @@ def build_legal_actions(
             target_scope=path,
             note=(
                 "upgrade outline to full evidence"
-                if path in outline_paths
+                if normalized_path in outline_paths
                 else _item_note(item)
             ),
             score=float(item.get("relevance_score") or 0.0),
@@ -128,18 +136,22 @@ def build_legal_actions(
             critical_expand = True
         if item.get("is_leaf"):
             continue
-        if path == current_scope:
+        if normalized_path == current_scope:
             continue
-        if current_scope and PathLedger.is_ancestor(path, current_scope):
+        if current_scope and PathLedger.is_ancestor(normalized_path, current_scope):
             continue
-        if path in expanded_scopes:
+        if normalized_path in expanded_scopes:
             continue
         if (
             budget_mode == "TIGHT"
-            and path not in expand_allowlist
+            and normalized_path not in expand_allowlist
         ):
             continue
-        if path in rejected and not _path_has_discovery_signal(path, discovery_scores):
+        # EXPAND suppression: navigational_abandon (weak) suppresses unless a
+        # discovery / lexical signal revives the path.
+        if normalized_path in navigational_abandoned_paths and not _has_discovery_signal(
+            normalized_path, discovery_scores
+        ):
             continue
 
         action_set.add(LegalAction(
@@ -166,9 +178,10 @@ def build_legal_actions(
         seen_discovery_paths.add(path)
         if PathLedger.is_covered(path, covered_paths):
             continue
+        # tool_adjudicated rejections are not revived by discovery this round.
         # TODO: allow tool-specific LLM adjudicators to revive rejected
         # collects when validity cannot be determined structurally.
-        if PathLedger.is_covered(path, rejected_collects):
+        if PathLedger.is_covered(path, tool_adjudicated_paths):
             continue
         if any(action.path == path for action in action_set.collect):
             continue
@@ -236,9 +249,8 @@ def format_agent_state_block(
     current_scope: str | None,
     query_intent: str,
     expanded_scopes: set[str],
-    rejected_paths: set[str],
+    rejected: dict[str, RejectionRecord],
     collected_paths: list[dict[str, Any]],
-    rejected_collect_paths: set[str] | None = None,
     prior_tool_result: dict[str, Any] | None,
     search_context: str,
     budget_snapshot: dict[str, Any] | None,
@@ -267,15 +279,26 @@ def format_agent_state_block(
             lines.append(f'  - "{path}"')
     else:
         lines.append("Expanded scopes: none")
-    rejected_collects = set(rejected_collect_paths or set())
-    low_value_rejected = set(rejected_paths) - rejected_collects
-    if low_value_rejected:
-        lines.append("Low-value scopes avoided unless revived by discovery:")
-        for path in sorted(low_value_rejected):
+
+    navigational_abandoned = sorted(
+        path for path, record in rejected.items()
+        if record.reason == "navigational_abandon"
+    )
+    tool_adjudicated = sorted(
+        path for path, record in rejected.items()
+        if record.reason == "tool_adjudicated"
+    )
+    if navigational_abandoned:
+        lines.append(
+            "Scopes avoided (soft; revived by discovery):"
+        )
+        for path in navigational_abandoned:
             lines.append(f'  - "{path}"')
-    if rejected_collect_paths:
-        lines.append("Collects rejected by tool reconciliation:")
-        for path in sorted(rejected_collect_paths):
+    if tool_adjudicated:
+        lines.append(
+            "Collects rejected by tool reconciliation (content-level; not revived):"
+        )
+        for path in tool_adjudicated:
             lines.append(f'  - "{path}"')
 
     full_paths, outline_paths = _dedupe_collection_modes(collected_paths)
@@ -648,10 +671,11 @@ def _expand_allowlist(
     return set(candidates[:limit])
 
 
-def _path_has_discovery_signal(
+def _has_discovery_signal(
     path: str,
     discovery_scores: dict[str, float],
 ) -> bool:
+    """A path has a discovery signal if it, an ancestor, or a descendant appears in discovery."""
     return any(
         candidate == path
         or PathLedger.is_ancestor(path, candidate)

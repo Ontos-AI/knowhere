@@ -302,6 +302,10 @@ def _resolve_siblings(
                 printed_page=node.printed_page,
                 page_offset_hint=page_offset_hint,
             )
+        if match is None and node.children and match_overrides:
+            match = _infer_start_from_descendant_overrides(
+                node, parent_titles, match_overrides, pages,
+            )
         if match is None:
             start_page = lower_bound
         else:
@@ -405,9 +409,56 @@ def _find_next_located_sibling(
                 printed_page=sibling.printed_page,
                 page_offset_hint=page_offset_hint,
             )
+        if match is None and sibling.children and match_overrides:
+            match = _infer_start_from_descendant_overrides(
+                sibling, parent_titles, match_overrides, pages,
+            )
         if match is not None:
             return match
     return None
+
+
+def _infer_start_from_descendant_overrides(
+    node: TitleNode,
+    parent_titles: tuple[str, ...],
+    match_overrides: dict[tuple[str, ...], TitleMatch],
+    scope_pages: list[int],
+) -> TitleMatch | None:
+    """Infer a parent node's start page from its earliest located descendant leaf.
+
+    When a non-leaf node cannot be directly located (no printed_page, no grep
+    match), its descendant leaves may already be in match_overrides from
+    offset-guided bulk anchoring. Use the minimum page among those descendants
+    as a synthetic match so the resolver can cap the previous sibling's end_page.
+    """
+    if not node.children or not match_overrides:
+        return None
+    leaves = iter_leaf_title_nodes([node], parent_titles=parent_titles)
+    min_page: int | None = None
+    min_match: TitleMatch | None = None
+    for leaf_path, _leaf_node in leaves:
+        m = match_overrides.get(leaf_path)
+        if m is None:
+            continue
+        if m.page not in scope_pages:
+            continue
+        if min_page is None or m.page < min_page:
+            min_page = m.page
+            min_match = m
+    if min_match is None:
+        return None
+    return TitleMatch(
+        page=min_match.page,
+        confidence=min(min_match.confidence, 0.80),
+        source=min_match.source,
+        matched_line="",
+        score=min(min_match.score, 0.80),
+        candidates=[min_match.page],
+        evidence={
+            "inferred_from": "descendant_leaf_override",
+            "original_confidence": min_match.confidence,
+        },
+    )
 
 
 def _match_override(
