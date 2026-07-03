@@ -700,10 +700,10 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     offset_hint: int | None = None
     if ctx.blackboard.toc_hierarchies:
         from app.services.document_agent.structure.hierarchy_locator import extract_toc_nodes
-        from app.services.page_memory.skeleton_extractor import calibrate_offset_via_vlm
+        from app.services.page_memory.skeleton_extractor import _calibrate_offset_via_vlm
 
         nodes = extract_toc_nodes(ctx.blackboard.toc_hierarchies)
-        offset_hint, _ = calibrate_offset_via_vlm(
+        offset_hint, _ = _calibrate_offset_via_vlm(
             nodes=nodes,
             toc_hierarchies=ctx.blackboard.toc_hierarchies,
             ctx=ctx,
