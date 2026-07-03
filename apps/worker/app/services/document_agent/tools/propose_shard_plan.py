@@ -15,17 +15,21 @@ from app.services.document_agent.manifest import (
 )
 from app.services.document_agent.registry import has_doc_stats, has_toc_result, register_tool
 from app.services.document_agent.validators import single_shard_plan, validate_shard_plan
+from loguru import logger
 from shared.utils.token_estimate import estimate_tokens
 
 
 def derive_leaf_cut_pages(
     toc_hierarchies: list[dict[str, Any]] | None,
+    *,
+    offset_override: int | None = None,
 ) -> list[int]:
     """Derive physical page numbers of TOC leaf nodes for shard splitting.
 
     Leaf nodes are entries in toc_with_level whose next sibling has level <= theirs
     (i.e. they have no children). The offset from printed page to physical page is
-    computed from toc_range (physical TOC pages) and the first entry's page_number.
+    either provided via offset_override (VLM-calibrated) or computed arithmetically
+    from toc_range and the first entry's page_number as a fallback.
     """
     if not toc_hierarchies:
         return []
@@ -43,14 +47,24 @@ def derive_leaf_cut_pages(
         if not entries:
             continue
 
-        toc_end_page = toc_range[1] if isinstance(toc_range, list) else toc_range
-        first_printed = next(
-            (e.get("page_number") for e in entries if e.get("page_number") is not None),
-            None,
-        )
-        if first_printed is None:
-            continue
-        offset = (toc_end_page + 1) - first_printed
+        if offset_override is not None:
+            offset = offset_override
+        else:
+            toc_end_page = toc_range[1] if isinstance(toc_range, list) else toc_range
+            first_printed = next(
+                (e.get("page_number") for e in entries if e.get("page_number") is not None),
+                None,
+            )
+            if first_printed is None:
+                continue
+            offset = (toc_end_page + 1) - first_printed
+            logger.warning(
+                "[propose_shard_plan] using arithmetic offset fallback: "
+                "toc_end={} first_printed={} offset={}",
+                toc_end_page,
+                first_printed,
+                offset,
+            )
 
         for i, entry in enumerate(entries):
             pn = entry.get("page_number")
@@ -70,6 +84,8 @@ def split_toc_for_shard(
     toc_hierarchies: list[dict[str, Any]] | None,
     shard_page_start: int,
     shard_page_end: int,
+    *,
+    offset_override: int | None = None,
 ) -> list[dict[str, Any]] | None:
     """Build per-shard toc_hierarchies filtered to the shard's page range.
 
@@ -94,46 +110,61 @@ def split_toc_for_shard(
         if not entries:
             continue
 
-        toc_end_page = toc_range[1] if isinstance(toc_range, list) else toc_range
-        first_printed = next(
-            (e.get("page_number") for e in entries if e.get("page_number") is not None),
-            None,
-        )
-        if first_printed is None:
-            continue
-        offset = (toc_end_page + 1) - first_printed
+        if offset_override is not None:
+            offset = offset_override
+        else:
+            toc_end_page = toc_range[1] if isinstance(toc_range, list) else toc_range
+            first_printed = next(
+                (e.get("page_number") for e in entries if e.get("page_number") is not None),
+                None,
+            )
+            if first_printed is None:
+                continue
+            offset = (toc_end_page + 1) - first_printed
 
         shard_entries: list[dict[str, Any]] = []
-        for entry in entries:
+        first_idx: int | None = None
+        for idx, entry in enumerate(entries):
             pn = entry.get("page_number")
             if pn is None:
                 continue
             physical = pn + offset
             if shard_page_start <= physical <= shard_page_end:
+                if first_idx is None:
+                    first_idx = idx
                 shard_entries.append(entry)
 
-        if not shard_entries:
+        if not shard_entries or first_idx is None:
             continue
 
-        # Prepend ancestor chain for continuation shards
+        # Prepend ancestor chain for continuation shards. Walk forward through
+        # every entry preceding the shard's first entry, maintaining a
+        # monotonic stack of "open" ancestors: an incoming entry closes out
+        # (pops) any stack entries at the same or deeper level before being
+        # pushed itself. A final pop against first_entry_level removes a
+        # trailing sibling that shares the same level as the shard's first
+        # entry (siblings are not ancestors). This is robust to non-monotonic
+        # level sequences (e.g. [L1, L2, L1, L3]), unlike a simple
+        # "smallest-unseen-level" scan.
         first_entry_level = shard_entries[0].get("level", 1)
         ancestors: list[dict[str, Any]] = []
         if first_entry_level > 1:
-            first_idx = entries.index(shard_entries[0])
-            seen_levels: set[int] = set()
-            for i in range(first_idx - 1, -1, -1):
-                ancestor = entries[i]
+            stack: list[dict[str, Any]] = []
+            for ancestor in entries[:first_idx]:
                 ancestor_level = ancestor.get("level", 1)
-                if ancestor_level < first_entry_level and ancestor_level not in seen_levels:
-                    ancestors.append({
-                        "heading": ancestor.get("heading"),
-                        "level": ancestor_level,
-                        "page_number": None,
-                    })
-                    seen_levels.add(ancestor_level)
-                    if ancestor_level == 1:
-                        break
-            ancestors.reverse()
+                while stack and stack[-1].get("level", 1) >= ancestor_level:
+                    stack.pop()
+                stack.append(ancestor)
+            while stack and stack[-1].get("level", 1) >= first_entry_level:
+                stack.pop()
+            ancestors = [
+                {
+                    "heading": node.get("heading"),
+                    "level": node.get("level", 1),
+                    "page_number": None,
+                }
+                for node in stack
+            ]
 
         result.append({
             "toc_range": [shard_page_start, shard_page_end],
@@ -394,7 +425,22 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
             latency_ms=int((time.monotonic() - start) * 1000),
         )
 
-    leaf_pages = derive_leaf_cut_pages(ctx.blackboard.toc_hierarchies)
+    offset_hint: int | None = None
+    if ctx.blackboard.toc_hierarchies:
+        from app.services.document_agent.structure.hierarchy_locator import extract_toc_nodes
+        from app.services.page_memory.skeleton_extractor import calibrate_offset_via_vlm
+
+        nodes = extract_toc_nodes(ctx.blackboard.toc_hierarchies)
+        offset_hint, _ = calibrate_offset_via_vlm(
+            nodes=nodes,
+            toc_hierarchies=ctx.blackboard.toc_hierarchies,
+            ctx=ctx,
+            page_texts={},
+            page_count=page_count,
+        )
+    ctx.blackboard.toc_page_offset = offset_hint
+
+    leaf_pages = derive_leaf_cut_pages(ctx.blackboard.toc_hierarchies, offset_override=offset_hint)
     model = ctx.settings.get("model")
     prompt = _build_prompt(
         page_count=page_count,

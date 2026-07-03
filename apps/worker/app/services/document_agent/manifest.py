@@ -220,6 +220,7 @@ class PageAnatomyMap:
     h1_result: H1BoundaryResult | None = None
     document_profile: DocumentProfile | None = None
     toc_hierarchies: list[dict[str, Any]] | None = None
+    toc_page_offset: int | None = None
     global_signals: dict[str, Any] = field(default_factory=dict)
     trace_summary: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -240,6 +241,7 @@ class PageAnatomyMap:
             if self.document_profile
             else None,
             "toc_hierarchies": self.toc_hierarchies,
+            "toc_page_offset": self.toc_page_offset,
             "global_signals": dict(self.global_signals),
             "trace_summary": dict(self.trace_summary),
             "created_at": self.created_at.isoformat(),

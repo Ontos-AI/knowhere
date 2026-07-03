@@ -11,7 +11,7 @@ class PageMemoryConfig:
     """Resolved page-memory defaults used by worker execution."""
 
     max_pages: int = 1500
-    scope_concurrency: int = 4
+    scope_concurrency: int = 5
     tag_concurrency: int = 4
     tag_mode: Literal["vlm", "text"] = "vlm"
     fine_min_pages: int = 4

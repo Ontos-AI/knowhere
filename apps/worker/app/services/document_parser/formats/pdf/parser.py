@@ -265,7 +265,10 @@ def _parse_pdf_via_shards(
             shard = merged_shards[shard_idx]
             shard_toc = (
                 toc_hierarchies if is_first_shard
-                else split_toc_for_shard(toc_hierarchies, shard.page_start, shard.page_end)
+                else split_toc_for_shard(
+                    toc_hierarchies, shard.page_start, shard.page_end,
+                    offset_override=getattr(anatomy, "toc_page_offset", None),
+                )
             )
 
             lines_with_heading = eval_md_headings(

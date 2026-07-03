@@ -35,6 +35,7 @@ def build_anatomy_map(ctx: ToolContext) -> PageAnatomyMap:
         shard_plan=ctx.blackboard.shard_plan,
         document_profile=ctx.blackboard.document_profile,
         toc_hierarchies=ctx.blackboard.toc_hierarchies,
+        toc_page_offset=ctx.blackboard.toc_page_offset,
         global_signals=ctx.blackboard.global_signals,
         trace_summary={
             "budget": ctx.budget.snapshot(),

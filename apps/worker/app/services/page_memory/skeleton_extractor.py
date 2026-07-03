@@ -112,7 +112,7 @@ def extract_section_skeletons(
             primary_page_count = min(pending_starts) - 1
             primary_body_pages = [p for p in body_pages if p <= primary_page_count]
 
-    offset_hint, calibration_overrides = _calibrate_offset_via_vlm(
+    offset_hint, calibration_overrides = calibrate_offset_via_vlm(
         nodes=nodes,
         toc_hierarchies=toc_hierarchies if not hierarchy_nodes else None,
         ctx=ctx,
@@ -409,7 +409,7 @@ _CALIBRATION_WINDOW_PAGES = 10
 _CALIBRATION_LEAF_PROBE_COUNT = 3
 
 
-def _calibrate_offset_via_vlm(
+def calibrate_offset_via_vlm(
     *,
     nodes: list[TitleNode],
     toc_hierarchies: list[dict[str, Any]] | None,
@@ -426,7 +426,7 @@ def _calibrate_offset_via_vlm(
     if ctx is None:
         return None, {}
 
-    toc_physical_end = _toc_cluster_end_page(toc_hierarchies)
+    toc_physical_end = toc_cluster_end_page(toc_hierarchies)
     if toc_physical_end is None:
         return None, {}
 
@@ -496,7 +496,7 @@ def _calibrate_offset_via_vlm(
     return None, {}
 
 
-def _toc_cluster_end_page(toc_hierarchies: list[dict[str, Any]] | None) -> int | None:
+def toc_cluster_end_page(toc_hierarchies: list[dict[str, Any]] | None) -> int | None:
     """Get the last physical page of the primary TOC cluster."""
     if not toc_hierarchies:
         return None
@@ -833,7 +833,7 @@ def _resolve_pending_tocs(
             if p <= toc_scope_end and (toc_scope_start is None or p >= toc_scope_start)
         ]
 
-        offset, cal_overrides = _calibrate_offset_via_vlm(
+        offset, cal_overrides = calibrate_offset_via_vlm(
             nodes=nodes,
             toc_hierarchies=[pending_toc],
             ctx=ctx,
