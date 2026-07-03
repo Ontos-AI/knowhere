@@ -176,7 +176,7 @@ class Shard:
     page_start: int
     page_end: int
     page_offset: int
-    anchor_type: Literal["h1_boundary", "blank_separator", "forced_max_size"]
+    anchor_type: Literal["h1_boundary", "blank_separator", "forced_max_size", "toc_chapter_boundary"]
     anchor_evidence: str
     confidence: float
 
