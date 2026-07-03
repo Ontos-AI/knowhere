@@ -179,8 +179,6 @@ class Shard:
     anchor_type: Literal["h1_boundary", "blank_separator", "forced_max_size"]
     anchor_evidence: str
     confidence: float
-    split_depth: int = 1        # 1=H1 cut, 2=H2 cut, etc.
-    is_continuation: bool = False  # True for continuation shards that don't contain parent heading
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -218,8 +216,8 @@ class PageAnatomyMap:
     page_features: list[PageFeature]
     page_labels: list[PageLabel]
     toc_result: TocResult
-    h1_result: H1BoundaryResult
     shard_plan: ShardPlan
+    h1_result: H1BoundaryResult | None = None
     document_profile: DocumentProfile | None = None
     toc_hierarchies: list[dict[str, Any]] | None = None
     global_signals: dict[str, Any] = field(default_factory=dict)
@@ -236,7 +234,7 @@ class PageAnatomyMap:
             "page_features": [feature.to_dict() for feature in self.page_features],
             "page_labels": [label.to_dict() for label in self.page_labels],
             "toc_result": self.toc_result.to_dict(),
-            "h1_result": self.h1_result.to_dict(),
+            "h1_result": self.h1_result.to_dict() if self.h1_result else None,
             "shard_plan": self.shard_plan.to_dict(),
             "document_profile": self.document_profile.to_dict()
             if self.document_profile

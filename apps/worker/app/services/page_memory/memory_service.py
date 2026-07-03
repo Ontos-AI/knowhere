@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,6 @@ from app.services.page_memory._utils import (
     build_hierarchy_scopes,
     collapse_page_ranges,
     page_scope_info,
-    scope_id_for_pages,
     sort_skeletons,
 )
 from app.services.page_memory._serialization import (

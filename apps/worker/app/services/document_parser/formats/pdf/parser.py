@@ -117,6 +117,7 @@ def _parse_pdf_via_shards(
         bin_pack_shards,
         split_pdf,
     )
+    from app.services.document_agent.tools.propose_shard_plan import split_toc_for_shard
 
     work_dir: str | None = None
     temp_shard_s3_keys: list[str] = []
@@ -261,7 +262,11 @@ def _parse_pdf_via_shards(
             md_lines = merge_html_tables(md_lines)
 
             is_first_shard = shard_idx == 0
-            shard_toc = toc_hierarchies
+            shard = merged_shards[shard_idx]
+            shard_toc = (
+                toc_hierarchies if is_first_shard
+                else split_toc_for_shard(toc_hierarchies, shard.page_start, shard.page_end)
+            )
 
             lines_with_heading = eval_md_headings(
                 md_lines,
@@ -313,15 +318,8 @@ def _parse_pdf_via_shards(
                 raise RuntimeError(f"Missing heading result for shard_{index}")
             complete_heading_results.append(result)
 
-        # Compute level offsets: continuation shards get shifted deeper.
-        shard_offsets: list[int] = []
-        for shard in agent_shards[: len(complete_heading_results)]:
-            if shard.is_continuation:
-                shard_offsets.append(max(shard.split_depth - 1, 0))
-            else:
-                shard_offsets.append(0)
-        if any(offset > 0 for offset in shard_offsets):
-            logger.info(f"📐 Shard level offsets: {shard_offsets}")
+        # No level offsets needed — leaf-node splitting produces self-contained shards
+        shard_offsets: list[int] = [0] * len(complete_heading_results)
 
         all_lines_with_heading: list[str] = merge_shard_lines(
             [result.lines_with_heading for result in complete_heading_results],

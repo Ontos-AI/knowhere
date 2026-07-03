@@ -11,7 +11,6 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from app.services.document_agent.manifest import (
-    H1Candidate,
     PageAnatomyMap,
     ToolContext,
 )
@@ -28,7 +27,6 @@ from app.services.document_agent.structure.hierarchy_locator import (
 )
 from app.services.document_parser.structure.body_boundary import (
     clean_toc_title,
-    normalize_heading_text,
 )
 from loguru import logger
 
@@ -78,16 +76,19 @@ def extract_section_skeletons(
             filename=filename,
         )
         toc_nodes = extract_toc_nodes(toc_hierarchies)
-        nodes = toc_nodes or _h1_nodes(anatomy)
-    if not nodes:
-        return [
-            _root_skeleton(
-                root_path=root_path,
-                filename=filename,
-                page_count=page_count,
-                reason="no_hierarchy",
-            )
-        ]
+        if not toc_nodes:
+            # TODO: explore lightweight hierarchy inference for no-TOC documents
+            # (e.g. heading font-size clustering, visual layout analysis).
+            # For now, no TOC → flat page tagging + asset extraction only.
+            return [
+                _root_skeleton(
+                    root_path=root_path,
+                    filename=filename,
+                    page_count=page_count,
+                    reason="no_toc",
+                )
+            ]
+        nodes = toc_nodes
 
     # Collapse degenerate single-child intermediate chains before locate.
     # Rule: only merge a parent with its only child when that child is NOT a
@@ -102,9 +103,11 @@ def extract_section_skeletons(
     primary_page_count = page_count
     primary_body_pages = body_pages
     if pending_tocs:
-        pending_starts = [
-            _toc_range_start(t) for t in pending_tocs if _toc_range_start(t) is not None
-        ]
+        pending_starts: list[int] = []
+        for t in pending_tocs:
+            start = _toc_range_start(t)
+            if start is not None:
+                pending_starts.append(start)
         if pending_starts:
             primary_page_count = min(pending_starts) - 1
             primary_body_pages = [p for p in body_pages if p <= primary_page_count]
@@ -393,18 +396,6 @@ def _toc_range_end(hierarchy: dict[str, Any]) -> int | None:
         return None
 
 
-def _h1_nodes(anatomy: Any | None) -> list[TitleNode]:
-    h1_result = getattr(anatomy, "h1_result", None)
-    candidates: list[H1Candidate] = list(getattr(h1_result, "h1_candidates", []) or [])
-    nodes: list[TitleNode] = []
-    for candidate in sorted(candidates, key=lambda item: item.page):
-        title = clean_toc_title(candidate.title) or normalize_heading_text(candidate.title)
-        if not title:
-            continue
-        nodes.append(TitleNode(title=title, level=1, physical_page_hint=candidate.page))
-    return nodes
-
-
 def _body_pages(*, anatomy: Any | None, page_count: int) -> list[int]:
     excluded: set[int] = set()
     toc_result = getattr(anatomy, "toc_result", None)
@@ -542,7 +533,10 @@ def _verify_offset_tail(
     if not tail_leaves:
         return True
     path, node = tail_leaves[0]
-    expected_page = node.printed_page + offset
+    printed_page = node.printed_page
+    if printed_page is None:
+        return True
+    expected_page = printed_page + offset
     if expected_page < 1 or expected_page > page_count:
         return False
 
@@ -673,12 +667,15 @@ def _recalibrate_after_breakpoint(
 
     Monotonicity guarantees new offset > old offset, so search space is tiny.
     """
+    entry_printed_page = entry_node.printed_page
+    if entry_printed_page is None:
+        return None
     for delta in range(1, _MAX_RECALIBRATE_DELTA + 1):
         new_offset = old_offset + delta
         if _vlm_confirm_single_page(
             ctx=ctx,
             title=entry_node.title,
-            expected_page=entry_node.printed_page + new_offset,
+            expected_page=entry_printed_page + new_offset,
             page_count=page_count,
         ):
             logger.info(
@@ -825,11 +822,11 @@ def _resolve_pending_tocs(
         # Each TOC's content scope: [toc_range_end + 1, next_toc_start - 1]
         toc_end = _toc_range_end(pending_toc)
         toc_scope_start = (toc_end + 1) if toc_end is not None else None
-        next_starts = [
-            _toc_range_start(pending_tocs[j])
-            for j in range(i + 1, len(pending_tocs))
-            if _toc_range_start(pending_tocs[j]) is not None
-        ]
+        next_starts: list[int] = []
+        for j in range(i + 1, len(pending_tocs)):
+            start = _toc_range_start(pending_tocs[j])
+            if start is not None:
+                next_starts.append(start)
         toc_scope_end = (min(next_starts) - 1) if next_starts else page_count
         toc_body_pages = [
             p for p in body_pages
@@ -945,8 +942,12 @@ def _classify_toc_relationship(
     if not leaves:
         return "unresolvable"
 
-    first_physical = leaves[0].printed_page + offset
-    last_physical = leaves[-1].printed_page + offset
+    first_printed = leaves[0].printed_page
+    last_printed = leaves[-1].printed_page
+    if first_printed is None or last_printed is None:
+        return "unresolvable"
+    first_physical = first_printed + offset
+    last_physical = last_printed + offset
 
     if first_physical < 1 or first_physical > page_count:
         return "unresolvable"

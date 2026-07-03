@@ -164,7 +164,6 @@ class ProfileCoordinator:
         profile, initial_decision, _planner_result = self._propose_profile(
             actor="planner"
         )
-        self._run_h1_boundary_pipeline()
         executor_result = ReActExecutor(
             self.ctx,
             registry=REGISTRY,
@@ -209,7 +208,6 @@ class ProfileCoordinator:
                 )
             else:
                 self._ensure_disabled_toc_placeholder()
-        self._run_h1_boundary_pipeline()
         if skip_shard_plan:
             # Page-based track processes pages individually via VLM and never
             # consumes the shard plan; only build_anatomy_map's invariant needs
@@ -385,8 +383,3 @@ class ProfileCoordinator:
                 actor=f"toc:{tool_name}",
             )
 
-    def _run_h1_boundary_pipeline(self) -> None:
-        self._dispatch_profile_tool(
-            tool_name="match.h1_pages",
-            actor="toc:match.h1_pages",
-        )
