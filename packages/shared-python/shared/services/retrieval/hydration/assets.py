@@ -41,6 +41,40 @@ def _resolve_asset_request(row: dict[str, Any]) -> tuple[str, str] | None:
     return job_id, artifact_ref
 
 
+def _metadata_for_row(row: dict[str, Any]) -> dict[str, Any]:
+    metadata = row.get("chunk_metadata") or row.get("metadata") or {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _resolve_page_citation_asset_request(row: dict[str, Any]) -> tuple[str, str] | None:
+    job_id = str(row.get("job_id") or "").strip()
+    if not job_id or not _is_page_row(row):
+        return None
+
+    for page_asset in _iter_page_assets(_metadata_for_row(row).get("page_assets")):
+        artifact_ref = _normalize_artifact_ref(page_asset.get("artifact_ref"))
+        if artifact_ref is None:
+            continue
+        return job_id, artifact_ref
+    return None
+
+
+def _resolve_direct_page_citation_asset_url(row: dict[str, Any]) -> str | None:
+    if not _is_page_row(row):
+        return None
+    for page_asset in _iter_page_assets(_metadata_for_row(row).get("page_assets")):
+        asset_url = str(page_asset.get("asset_url") or "").strip()
+        if asset_url:
+            return asset_url
+    return None
+
+
+def _iter_page_assets(raw_assets: object) -> list[dict[str, Any]]:
+    if not isinstance(raw_assets, list):
+        return []
+    return [item for item in raw_assets if isinstance(item, dict)]
+
+
 def _coerce_page_nums(value: object) -> list[int]:
     if isinstance(value, list):
         raw_values = value
@@ -63,10 +97,10 @@ def _resolve_page_pdf_request(row: dict[str, Any]) -> PagePdfRequestKey | None:
     if not job_id or not _is_page_row(row):
         return None
 
-    metadata = row.get("chunk_metadata") or row.get("metadata") or {}
-    if not isinstance(metadata, dict):
+    if _resolve_direct_page_citation_asset_url(row) or _resolve_page_citation_asset_request(row):
         return None
 
+    metadata = _metadata_for_row(row)
     pages = _coerce_page_nums(metadata.get("page_nums") or row.get("page_nums"))
     if not pages:
         return None
@@ -94,6 +128,79 @@ async def _generate_retrieval_asset_url(
     except Exception as exc:
         logger.warning(f"Failed to generate {log_context} asset URL (ignored): {exc}")
         return None
+
+
+async def _generate_page_citation_asset_url(
+    *,
+    row: dict[str, Any],
+    log_context: str,
+) -> str | None:
+    direct_url = _resolve_direct_page_citation_asset_url(row)
+    if direct_url:
+        return direct_url
+
+    request = _resolve_page_citation_asset_request(row)
+    if request is None:
+        return None
+
+    job_id, artifact_ref = request
+    try:
+        return get_result_storage().generate_artifact_url(
+            job_id=job_id,
+            artifact_ref=artifact_ref,
+        )
+    except Exception as exc:
+        logger.warning(
+            f"Failed to generate {log_context} page citation asset URL (ignored): {exc}"
+        )
+        return None
+
+
+async def _enrich_page_assets(
+    *,
+    row: dict[str, Any],
+    log_context: str,
+) -> list[dict[str, Any]]:
+    if not _is_page_row(row):
+        return []
+    page_assets = _iter_page_assets(_metadata_for_row(row).get("page_assets"))
+    if not page_assets:
+        return []
+
+    enriched_assets: list[dict[str, Any]] = []
+    job_id = str(row.get("job_id") or "").strip()
+    for page_asset in page_assets:
+        enriched = dict(page_asset)
+        if not str(enriched.get("asset_url") or "").strip() and job_id:
+            artifact_ref = _normalize_artifact_ref(enriched.get("artifact_ref"))
+            if artifact_ref is not None:
+                try:
+                    asset_url = get_result_storage().generate_artifact_url(
+                        job_id=job_id,
+                        artifact_ref=artifact_ref,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        f"Failed to generate {log_context} page citation metadata URL (ignored): {exc}"
+                    )
+                    asset_url = None
+                if asset_url:
+                    enriched["asset_url"] = asset_url
+        enriched_assets.append(enriched)
+    return enriched_assets
+
+
+def _attach_enriched_page_assets(
+    *,
+    row: dict[str, Any],
+    page_assets: list[dict[str, Any]],
+) -> None:
+    if not page_assets:
+        return
+    metadata = dict(_metadata_for_row(row))
+    metadata["page_assets"] = page_assets
+    row["chunk_metadata"] = metadata
+    row["metadata"] = metadata
 
 
 async def _generate_page_pdf_asset_url_for_request(
@@ -151,16 +258,27 @@ async def enrich_rows_with_retrieval_asset_url(
     enriched_rows: list[dict[str, Any]] = []
     for row in rows:
         enriched = dict(row)
+        page_assets = await _enrich_page_assets(
+            row=row,
+            log_context=log_context,
+        )
+        _attach_enriched_page_assets(row=enriched, page_assets=page_assets)
         asset_url = await _generate_retrieval_asset_url(
             row=row,
             log_context=log_context,
         )
         if asset_url:
             enriched["asset_url"] = asset_url
+        page_citation_asset_url = await _generate_page_citation_asset_url(
+            row=row,
+            log_context=log_context,
+        )
+        if page_citation_asset_url:
+            enriched["asset_url"] = page_citation_asset_url
         page_pdf_url = None
         if page_request := _resolve_page_pdf_request(row):
             page_pdf_url = page_pdf_urls.get(page_request)
-        if page_pdf_url:
+        if page_pdf_url and not page_citation_asset_url:
             enriched["asset_url"] = page_pdf_url
         enriched_rows.append(enriched)
     return enriched_rows
@@ -176,6 +294,14 @@ async def build_retrieval_asset_url_map(
     for row in rows:
         chunk_id = str(row.get("chunk_id") or "").strip()
         if not chunk_id:
+            continue
+
+        page_citation_asset_url = await _generate_page_citation_asset_url(
+            row=row,
+            log_context=log_context,
+        )
+        if page_citation_asset_url:
+            url_map[chunk_id] = page_citation_asset_url
             continue
 
         page_pdf_url = None

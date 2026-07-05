@@ -23,6 +23,7 @@ from app.services.page_memory.skeleton_extractor import SectionSkeleton
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 
 import pandas as pd
+from PIL import Image
 
 
 def _same_page_sibling_skeletons() -> list[SectionSkeleton]:
@@ -122,6 +123,42 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
     assert SAME_AS_PREFIX in leaf_b["content"]
     assert "text-232" in leaf_b["content"]
     assert leaf_b["extra_metadata"] == {}
+
+
+def test_build_node_rows_attaches_page_citation_assets_for_rendered_pages(tmp_path) -> None:
+    page_image = tmp_path / "pages" / "page-231.png"
+    page_image.parent.mkdir()
+    Image.new("RGB", (2, 3), color=(255, 255, 255)).save(page_image)
+
+    rows = build_node_rows(
+        skeletons=_same_page_sibling_skeletons(),
+        raw_text_by_page={231: "text-231", 232: "text-232"},
+        image_path_by_page={231: str(page_image)},
+        kind_by_page={},
+        tag_by_page={
+            231: PageTagResult(page_index=231, summary="s231", keywords=["k1"]),
+            232: PageTagResult(page_index=232, summary="s232", keywords=["k2"]),
+        },
+        filename="demo.pdf",
+        verdict="page",
+        budget=None,
+        vlm_model=None,
+    )
+
+    first_page_chunk = next(row for row in rows if row["type"] == "page")
+    page_assets = first_page_chunk["extra_metadata"]["page_assets"]
+
+    assert page_assets == [
+        {
+            "page_num": 231,
+            "artifact_ref": "page_citation_assets/page-231.png",
+            "content_type": "image/png",
+            "width": 2,
+            "height": 3,
+            "source": "knowhere-rendered-page-citation-source",
+        }
+    ]
+    assert (tmp_path / "page_citation_assets" / "page-231.png").is_file()
 
 
 def test_build_node_rows_keeps_internal_section_body_pages() -> None:

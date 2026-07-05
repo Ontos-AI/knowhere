@@ -169,7 +169,6 @@ class DocumentNavigationRunner:
 
         Returns (doc_pending_assets, collected_paths).
         """
-        doc_exclude: set[str] = set()
         doc_discovery_hints = self._discovery_by_doc.get(doc.document_id, [])
         doc_pending_assets: list[dict[str, Any]] = []
         nav_state = NavigationState(
@@ -201,8 +200,7 @@ class DocumentNavigationRunner:
             nav_state.step_count += 1
             before_scope = nav_state.current_scope
             expanded_before = set(nav_state.expanded_scopes)
-            rejected_before = set(nav_state.rejected_paths)
-            rejected_collect_before = set(nav_state.rejected_collect_paths)
+            rejected_before = dict(nav_state.rejected)
             collected_before_count = len(nav_state.collected_paths)
 
             doc_llm_fn = self._llm_budget.for_document(
@@ -226,13 +224,11 @@ class DocumentNavigationRunner:
                     namespace=self._namespace,
                     doc_name=doc_name,
                     scope_path=nav_state.current_scope,
-                    exclude_paths=doc_exclude,
                     budget_snapshot=self._state.ledger.snapshot() if self._state.ledger else None,
                     nav_trace=nav_state.nav_trace if nav_state.nav_trace else None,
                     collected_paths=nav_state.collected_paths,
                     expanded_scopes=nav_state.expanded_scopes,
-                    rejected_paths=nav_state.rejected_paths,
-                    rejected_collect_paths=nav_state.rejected_collect_paths,
+                    rejected=nav_state.rejected,
                     disabled_asset_types=self._disabled_asset_types | nav_state.blocked_asset_types_for_scope(
                         nav_state.current_scope
                     ),
@@ -292,8 +288,11 @@ class DocumentNavigationRunner:
             if rejected_collects:
                 nav_result.collect = collect_reconcile["accepted_collects"]
                 for path in rejected_collects:
-                    nav_state.mark_rejected_collect(path)
-                    doc_exclude.add(path)
+                    nav_state.mark_rejected_collect(
+                        path,
+                        step=nav_state.step_count,
+                        detail=collect_reconcile.get("reason", ""),
+                    )
                 logger.info(
                     "  agentic: tool reconciliation rejected collects: "
                     f"{rejected_collects}"
@@ -309,10 +308,10 @@ class DocumentNavigationRunner:
                     scope_context=nav_state.current_scope,
                 )
                 collected_in_step.append(path)
-                # Outline collections should NOT exclude children — the intent
-                # is "see structure, then drill deeper for full content".
-                if coll_item.get("hydrate_mode") != "outline":
-                    doc_exclude.add(path)
+                # Outline collections keep children visible — the intent is
+                # "see structure, then drill deeper for full content".
+                # Coverage / action filtering now derives from collected_paths
+                # via the navigation state ledger (no physical exclusion).
 
             # ── Process navigation action ────────────────────────────────
             should_break = False
@@ -336,7 +335,11 @@ class DocumentNavigationRunner:
                 else:
                     back_target = nav_result.back_to  # None = root
                     if PathLedger.valid_back_target(nav_state.current_scope, back_target):
-                        nav_state.mark_rejected_if_unproductive(nav_state.current_scope)
+                        nav_state.mark_rejected_if_unproductive(
+                            nav_state.current_scope,
+                            step=nav_state.step_count,
+                            detail="back_from_unproductive_scope",
+                        )
                         nav_state.current_scope = back_target
                     else:
                         logger.warning(
@@ -363,7 +366,6 @@ class DocumentNavigationRunner:
                 before_scope=before_scope,
                 expanded_before=expanded_before,
                 rejected_before=rejected_before,
-                rejected_collect_before=rejected_collect_before,
                 collected_before_count=collected_before_count,
             )
             trace_entry: dict[str, Any] = {

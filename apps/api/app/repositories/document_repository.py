@@ -11,9 +11,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
+from shared.models.database.job import Job
 from shared.models.database.job_result import JobResult
 
 DocumentChunkRow = tuple[DocumentChunk, DocumentSection | None, JobResult]
+DocumentJobRevisionRow = tuple[Document, JobResult, Job]
 
 
 class DocumentRepository:
@@ -65,6 +67,29 @@ class DocumentRepository:
             .where(Document.user_id == user_id)
         )
         return result.scalar_one_or_none()
+
+    async def get_current_document_job_revision(
+        self,
+        db: AsyncSession,
+        *,
+        document_id: str,
+        user_id: str,
+    ) -> DocumentJobRevisionRow | None:
+        stmt = (
+            select(Document, JobResult, Job)
+            .join(JobResult, JobResult.id == Document.current_job_result_id)
+            .join(Job, Job.job_id == JobResult.job_id)
+            .where(Document.document_id == document_id)
+            .where(Document.user_id == user_id)
+            .where(JobResult.document_id == Document.document_id)
+            .where(Job.user_id == user_id)
+            .where(Document.status != "archived")
+            .limit(1)
+        )
+
+        result = await db.execute(stmt)
+        row = result.first()
+        return cast(DocumentJobRevisionRow | None, row)
 
     async def archive_document(
         self,

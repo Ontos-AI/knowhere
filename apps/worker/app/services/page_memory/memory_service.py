@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -21,9 +21,10 @@ from app.services.document_parser.support.parser_rows import PARSER_ROW_COLUMNS
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.page_memory.normalizer import normalize_to_pdf
 from app.services.page_memory._utils import (
+    CoarseScope,
+    build_hierarchy_scopes,
     collapse_page_ranges,
     page_scope_info,
-    scope_id_for_pages,
     sort_skeletons,
 )
 from app.services.page_memory._serialization import (
@@ -52,13 +53,7 @@ class PageMemoryInput:
     )
 
 
-@dataclass(frozen=True)
-class _HierarchyScope:
-    scope_id: str
-    skeletons: list[Any]
-    strategy: str
-    start_page: int
-    end_page: int
+_HierarchyScope = CoarseScope
 
 
 @dataclass(frozen=True)
@@ -263,7 +258,6 @@ def _build_page_dataframe(
                 filename=filename,
                 page_texts=page_texts,
                 ctx=ctx,
-                page_memory_config=page_memory_config,
             )
         else:
             skeletons = []
@@ -505,111 +499,11 @@ def _build_hierarchy_scopes(
     filename: str,
     page_count: int,
 ) -> list[_HierarchyScope]:
-    if not skeletons:
-        return []
-
-    root_fallback = all(
-        getattr(item, "title", "") == "Root"
-        or (getattr(item, "evidence", {}) or {}).get("source") == "fallback_root"
-        for item in skeletons
+    return build_hierarchy_scopes(
+        skeletons=skeletons,
+        filename=filename,
+        page_count=page_count,
     )
-    if root_fallback:
-        ordered = sort_skeletons(skeletons)
-        return [
-            _HierarchyScope(
-                scope_id=scope_id_for_pages(1, page_count),
-                skeletons=ordered,
-                strategy="fallback_root",
-                start_page=1,
-                end_page=page_count,
-            )
-        ]
-
-    min_level = min(int(getattr(item, "level", 0) or 0) for item in skeletons)
-    top_nodes = [
-        item
-        for item in skeletons
-        if int(getattr(item, "level", 0) or 0) == min_level
-        or not str(getattr(item, "parent_path", "") or "").startswith(f"{filename}/")
-    ]
-    seen_top_paths: set[str] = set()
-    unique_top_nodes: list[Any] = []
-    for item in sort_skeletons(top_nodes):
-        if item.section_path in seen_top_paths:
-            continue
-        seen_top_paths.add(item.section_path)
-        unique_top_nodes.append(item)
-
-    scopes: list[_HierarchyScope] = []
-    for index, top in enumerate(unique_top_nodes):
-        prefix = f"{top.section_path}/"
-        members = [
-            item
-            for item in skeletons
-            if item.section_path == top.section_path
-            or str(item.section_path).startswith(prefix)
-        ]
-        if not members:
-            continue
-        start_page = max(1, int(getattr(top, "start_page", 1) or 1))
-        next_top_start = (
-            int(getattr(unique_top_nodes[index + 1], "start_page", page_count + 1) or page_count + 1)
-            if index + 1 < len(unique_top_nodes)
-            else page_count + 1
-        )
-        end_page = min(
-            page_count,
-            max(
-                start_page,
-                min(
-                    int(getattr(top, "end_page", page_count) or page_count),
-                    next_top_start - 1,
-                ),
-            ),
-        )
-        bounded_members = [
-            replace(
-                item,
-                start_page=max(
-                    start_page,
-                    int(getattr(item, "start_page", start_page) or start_page),
-                ),
-                end_page=min(
-                    end_page,
-                    int(getattr(item, "end_page", end_page) or end_page),
-                ),
-            )
-            for item in members
-            if int(getattr(item, "start_page", 1) or 1) <= end_page
-            and int(getattr(item, "end_page", end_page) or end_page) >= start_page
-        ]
-        bounded_members = sort_skeletons(bounded_members)
-        scopes.append(
-            _HierarchyScope(
-                scope_id=scope_id_for_pages(start_page, end_page),
-                skeletons=bounded_members,
-                strategy=f"coarse_scope_{index + 1}",
-                start_page=start_page,
-                end_page=end_page,
-            )
-        )
-    if scopes:
-        return scopes
-
-    ordered = sort_skeletons(skeletons)
-    pages = _derive_hierarchy_page_scope(skeletons=ordered, page_count=page_count)
-    return [
-        _HierarchyScope(
-            scope_id=scope_id_for_pages(
-                pages[0] if pages else 1,
-                pages[-1] if pages else page_count,
-            ),
-            skeletons=ordered,
-            strategy="full_coarse_hierarchy",
-            start_page=pages[0] if pages else 1,
-            end_page=pages[-1] if pages else page_count,
-        )
-    ]
 
 
 def _allocate_asset_pages(

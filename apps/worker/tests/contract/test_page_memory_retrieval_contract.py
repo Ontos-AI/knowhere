@@ -179,10 +179,81 @@ async def test_page_asset_url_is_generated_from_page_nums(monkeypatch) -> None:
     assert url_map["page-node-1"] == enriched[0]["asset_url"]
 
 
-def test_result_storage_allows_page_pdf_artifact_refs_not_page_pngs() -> None:
+@pytest.mark.asyncio
+async def test_page_citation_asset_precedes_lazy_page_pdf_fallback(monkeypatch) -> None:
+    page_pdf_calls: list[tuple[str, list[int]]] = []
+
+    def fake_crop_source_pdf_pages(*, job_id, pages):
+        page_pdf_calls.append((job_id, pages))
+        return f"https://assets.example.com/{job_id}/page_pdfs/{'-'.join(map(str, pages))}.pdf"
+
+    class FakeResultStorage:
+        def normalize_artifact_ref(self, artifact_ref: str | None) -> str | None:
+            if artifact_ref == "page_citation_assets/page-225.png":
+                return artifact_ref
+            return None
+
+        def generate_artifact_url(
+            self,
+            *,
+            job_id: str,
+            artifact_ref: str,
+            expires_in: int = 3600,
+        ) -> str:
+            del expires_in
+            return f"https://assets.example.com/{job_id}/{artifact_ref}"
+
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.assets.crop_source_pdf_pages",
+        fake_crop_source_pdf_pages,
+    )
+    monkeypatch.setattr(
+        "shared.services.retrieval.hydration.assets.get_result_storage",
+        lambda: FakeResultStorage(),
+    )
+
+    rows = [
+        {
+            "chunk_id": "page-node-1",
+            "chunk_type": "page",
+            "job_id": "job-1",
+            "chunk_metadata": {
+                "page_nums": [225, 226],
+                "page_assets": [
+                    {
+                        "page_num": 225,
+                        "artifact_ref": "page_citation_assets/page-225.png",
+                        "content_type": "image/png",
+                        "width": 1200,
+                        "height": 1800,
+                        "source": "knowhere-rendered-page-citation-source",
+                    }
+                ],
+            },
+        }
+    ]
+
+    enriched = await enrich_rows_with_retrieval_asset_url(
+        rows,
+        log_context="contract",
+    )
+    url_map = await build_retrieval_asset_url_map(rows, log_context="contract")
+
+    expected_url = "https://assets.example.com/job-1/page_citation_assets/page-225.png"
+    assert enriched[0]["asset_url"] == expected_url
+    assert enriched[0]["metadata"]["page_assets"][0]["asset_url"] == expected_url
+    assert url_map["page-node-1"] == expected_url
+    assert page_pdf_calls == []
+
+
+def test_result_storage_allows_page_citation_and_page_pdf_artifact_refs_not_debug_page_pngs() -> None:
     storage = JobResultStorage(results_bucket="test-results")
 
     assert storage.normalize_artifact_ref("pages/page-225.png") is None
+    assert (
+        storage.normalize_artifact_ref("page_citation_assets/page-225.png")
+        == "page_citation_assets/page-225.png"
+    )
     assert (
         storage.normalize_artifact_ref("page_pdfs/page-225.pdf")
         == "page_pdfs/page-225.pdf"
@@ -205,10 +276,13 @@ def test_result_storage_upload_filters_to_referenced_artifacts(tmp_path) -> None
 
     result_dir = tmp_path / "result"
     (result_dir / "pages").mkdir(parents=True)
+    (result_dir / "page_citation_assets").mkdir()
     (result_dir / "tables").mkdir()
     (result_dir / "source.pdf").write_bytes(b"source")
     (result_dir / "pages" / "page-225.png").write_bytes(b"anchored")
     (result_dir / "pages" / "page-999.png").write_bytes(b"unanchored")
+    (result_dir / "page_citation_assets" / "page-225.png").write_bytes(b"citation")
+    (result_dir / "page_citation_assets" / "page-999.png").write_bytes(b"unreferenced")
     (result_dir / "tables" / "table-1.html").write_text("<table></table>")
     (result_dir / "debug.csv").write_text("debug")
     zip_path = tmp_path / "result.zip"
@@ -224,14 +298,25 @@ def test_result_storage_upload_filters_to_referenced_artifacts(tmp_path) -> None
         job_id="job-1",
         result_dir=str(result_dir),
         zip_file_path=str(zip_path),
-        artifact_refs={"source.pdf", "pages/page-225.png", "tables/table-1.html"},
+        artifact_refs={
+            "source.pdf",
+            "pages/page-225.png",
+            "page_citation_assets/page-225.png",
+            "tables/table-1.html",
+        },
     )
 
-    assert set(bundle.raw_files) == {"source.pdf", "tables/table-1.html"}
+    assert set(bundle.raw_files) == {
+        "source.pdf",
+        "page_citation_assets/page-225.png",
+        "tables/table-1.html",
+    }
     assert "results/job-1/source.pdf" in adapter.uploaded_keys
     assert "results/job-1/tables/table-1.html" in adapter.uploaded_keys
+    assert "results/job-1/page_citation_assets/page-225.png" in adapter.uploaded_keys
     assert "results/job-1/pages/page-225.png" not in adapter.uploaded_keys
     assert "results/job-1/pages/page-999.png" not in adapter.uploaded_keys
+    assert "results/job-1/page_citation_assets/page-999.png" not in adapter.uploaded_keys
     assert "results/job-1/debug.csv" not in adapter.uploaded_keys
 
 
