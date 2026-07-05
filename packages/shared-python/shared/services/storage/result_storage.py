@@ -13,7 +13,7 @@ from shared.services.storage.storage_adapter import StorageAdapter
 
 _EXCLUDED_FILE_NAMES = {".DS_Store", "Thumbs.db"}
 _EXCLUDED_DIR_NAMES = {"tmp", "temp", "__pycache__"}
-_CLIENT_ARTIFACT_DIRS = {"images", "tables", "page_pdfs"}
+_CLIENT_ARTIFACT_DIRS = {"images", "tables", "page_pdfs", "page_citation_assets"}
 _INTERNAL_RAW_FILES = {"source.pdf"}
 
 
@@ -38,6 +38,14 @@ class ResultStorage(Protocol):
     def generate_artifact_url(
         self, *, job_id: str, artifact_ref: str, expires_in: int = 3600
     ) -> str | None:
+        raise NotImplementedError
+
+    def generate_raw_file_url(
+        self, *, job_id: str, relative_path: str, expires_in: int = 3600
+    ) -> str | None:
+        raise NotImplementedError
+
+    def verify_raw_exists(self, *, job_id: str, relative_path: str) -> bool:
         raise NotImplementedError
 
     def normalize_artifact_ref(self, artifact_ref: str | None) -> str | None:
@@ -132,6 +140,14 @@ class JobResultStorage:
         key = self.build_raw_key(job_id=job_id, relative_path=relative_path)
         result = self._job_file_storage.verify_exists(key, bucket=self.results_bucket)
         return bool(result.get("exists"))
+
+    def generate_raw_file_url(
+        self, *, job_id: str, relative_path: str, expires_in: int = 3600
+    ) -> str | None:
+        return self.generate_url(
+            storage_key=self.build_raw_key(job_id=job_id, relative_path=relative_path),
+            expires_in=expires_in,
+        )
 
     def upload_raw_file(
         self,
