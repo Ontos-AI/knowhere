@@ -16,14 +16,12 @@ from shared.core.exceptions.domain_exceptions import (  # noqa: E402
     LLMServiceException,
     UnavailableException,
 )
-from shared.services.ai.openai_compatible_client_sync import (  # noqa: E402
-    OpenAICompatibleClientSync,
-)
+import shared.services.ai.openai_compatible_client_sync as client_mod  # noqa: E402
 from shared.services.ai.page_memory_vlm_limiter import (  # noqa: E402
     PageMemoryVlmLease,
     PageMemoryVlmLimiter,
 )
-from shared.services.ai.summary.engine import summarize, transcribe  # noqa: E402
+import shared.services.ai.summary.engine as summary_engine  # noqa: E402
 
 
 class _FakeRedis:
@@ -142,15 +140,13 @@ def test_page_memory_provider_exception_still_releases_lease(monkeypatch) -> Non
         chat = _FakeChat()
         base_url = "http://provider.example"
 
-    import shared.services.ai.openai_compatible_client_sync as client_mod
-
     fake_limiter = _FakeLimiter()
     monkeypatch.setattr(
         client_mod,
         "get_page_memory_vlm_limiter",
         lambda: fake_limiter,
     )
-    client = OpenAICompatibleClientSync(
+    client = client_mod.OpenAICompatibleClientSync(
         api_key="test",
         api_url="http://provider.example/v1",
         default_model="deepseek-test",
@@ -179,7 +175,6 @@ def test_page_memory_summary_unavailable_exception_propagates(
 
     image_path = tmp_path / "page.png"
     image_path.write_bytes(b"png")
-    import shared.services.ai.summary.engine as summary_engine
 
     monkeypatch.setattr(
         summary_engine._client_mod,
@@ -188,7 +183,7 @@ def test_page_memory_summary_unavailable_exception_propagates(
     )
 
     with pytest.raises(UnavailableException):
-        summarize(
+        summary_engine.summarize(
             mode="page",
             image_paths=[str(image_path)],
             model="fake-vlm",
@@ -209,7 +204,6 @@ def test_page_memory_transcription_unavailable_exception_propagates(
 
     image_path = tmp_path / "page.png"
     image_path.write_bytes(b"png")
-    import shared.services.ai.summary.engine as summary_engine
 
     monkeypatch.setattr(
         summary_engine._client_mod,
@@ -218,7 +212,7 @@ def test_page_memory_transcription_unavailable_exception_propagates(
     )
 
     with pytest.raises(UnavailableException):
-        transcribe(
+        summary_engine.transcribe(
             image_paths=[str(image_path)],
             model="fake-vlm",
             usage_task="page_memory.node_ocr",

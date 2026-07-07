@@ -11,7 +11,6 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 import pytest
 
-import app.services.page_memory.node_assembler as node_assembler
 from app.services.page_memory.node_assembler import (
     SAME_AS_PREFIX,
     assign_pages_to_leaves,
@@ -158,10 +157,12 @@ def test_build_node_rows_preserves_order_under_ocr_and_summary_concurrency(
         gevent.sleep(0.01 * view.leaf.start_page)
         return f"summary-{view.leaf.start_page}", [f"k{view.leaf.start_page}"], []
 
-    monkeypatch.setattr(node_assembler, "resolve_page_text", _fake_resolve_page_text)
     monkeypatch.setattr(
-        node_assembler,
-        "compute_node_summary",
+        "app.services.page_memory.node_assembler.resolve_page_text",
+        _fake_resolve_page_text,
+    )
+    monkeypatch.setattr(
+        "app.services.page_memory.node_assembler.compute_node_summary",
         _fake_compute_node_summary,
     )
 
@@ -197,7 +198,10 @@ def test_build_node_rows_failed_ocr_greenlet_fails_stage(monkeypatch) -> None:
             raise RuntimeError("ocr failed")
         return "ok"
 
-    monkeypatch.setattr(node_assembler, "resolve_page_text", _fake_resolve_page_text)
+    monkeypatch.setattr(
+        "app.services.page_memory.node_assembler.resolve_page_text",
+        _fake_resolve_page_text,
+    )
 
     with pytest.raises(RuntimeError):
         build_node_rows(
@@ -221,7 +225,10 @@ def test_build_node_rows_unavailable_propagates_from_ocr(monkeypatch) -> None:
             retry_after=5,
         )
 
-    monkeypatch.setattr(node_assembler, "resolve_page_text", _fake_resolve_page_text)
+    monkeypatch.setattr(
+        "app.services.page_memory.node_assembler.resolve_page_text",
+        _fake_resolve_page_text,
+    )
 
     with pytest.raises(UnavailableException):
         build_node_rows(
@@ -248,8 +255,7 @@ def test_build_node_rows_unavailable_propagates_from_node_summary(
         )
 
     monkeypatch.setattr(
-        node_assembler,
-        "compute_node_summary",
+        "app.services.page_memory.node_assembler.compute_node_summary",
         _fake_compute_node_summary,
     )
 
