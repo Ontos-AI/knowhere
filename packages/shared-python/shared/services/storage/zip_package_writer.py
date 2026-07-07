@@ -22,6 +22,7 @@ class ZipPackageWriteRequest:
     formatted_chunks: list[dict[str, Any]]
     image_files: tuple[ZipResourceFileInfo, ...]
     table_files: tuple[ZipResourceFileInfo, ...]
+    page_citation_files: tuple[ZipResourceFileInfo, ...]
     doc_nav: dict[str, Any] | None
     manifest: dict[str, Any]
     temp_dir: str | None
@@ -75,6 +76,11 @@ class ZipPackageWriter:
 
             self._write_resource_files(zip_file, request.image_files, label="Image")
             self._write_resource_files(zip_file, request.table_files, label="Table")
+            self._write_resource_files(
+                zip_file,
+                request.page_citation_files,
+                label="Page citation asset",
+            )
 
             if request.doc_nav is not None:
                 doc_nav_json = json.dumps(request.doc_nav, ensure_ascii=False, indent=2)

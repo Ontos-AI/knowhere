@@ -87,6 +87,7 @@ class ZipResultService:
                     formatted_chunks=formatted_chunks,
                     image_files=resources.image_files,
                     table_files=resources.table_files,
+                    page_citation_files=resources.page_citation_files,
                     doc_nav=doc_nav,
                     manifest=manifest,
                     temp_dir=temp_dir,
