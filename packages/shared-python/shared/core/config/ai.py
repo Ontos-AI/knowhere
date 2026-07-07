@@ -44,10 +44,6 @@ class AIConfig(BaseModel):
             "Same alternates as IMAGE_MODEL (e.g. qwen3-vl-32b-instruct)."
         ),
     )
-    RETRIEVAL_DECOMPOSITION_ENABLED: bool = Field(
-        default=False,
-        description="Enable query-decomposition workflow before agentic retrieval.",
-    )
     RETRIEVAL_PLANNER_MODEL: str = Field(
         default="",
         description="Reasoning-capable model used by the workflow query planner.",
@@ -71,13 +67,6 @@ class AIConfig(BaseModel):
     RETRIEVAL_WORKFLOW_PARALLEL_MAX: int = Field(
         default=3,
         description="Maximum concurrent workflow steps in the same DAG batch.",
-    )
-    RETRIEVAL_AGENTIC_INLINE_TABLE_CHAR_LIMIT: int = Field(
-        default=10000,
-        description=(
-            "Maximum table HTML characters inlined into agentic evidence_text. "
-            "Larger tables are represented by asset URL, path, summary, and keywords."
-        ),
     )
 
     # Runtime LLM controls.
