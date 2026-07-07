@@ -8,7 +8,6 @@ from typing import Any
 
 from app.services.document_agent.manifest import PageAnatomyMap, ToolContext, ToolResult
 from app.services.document_agent.registry import (
-    has_h1_result,
     has_shard_plan,
     has_toc_result,
     register_tool,
@@ -31,13 +30,12 @@ def _thresholds(ctx: ToolContext) -> tuple[int, int]:
 @register_tool(
     name="validate.anatomy_map",
     description="Validate page anatomy, hierarchy hints, and shard coverage.",
-    preconditions=(has_toc_result, has_h1_result, has_shard_plan),
+    preconditions=(has_toc_result, has_shard_plan),
 )
 def validate_current_anatomy(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()
     if not (
         ctx.blackboard.toc_result
-        and ctx.blackboard.h1_result
         and ctx.blackboard.shard_plan
     ):
         return ToolResult(

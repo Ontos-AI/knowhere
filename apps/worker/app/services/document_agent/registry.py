@@ -155,9 +155,5 @@ def has_toc_hierarchies(blackboard: AgentBlackboard) -> tuple[bool, str]:
     return bool(blackboard.toc_hierarchies), "toc_hierarchies missing; call extract_toc first"
 
 
-def has_h1_result(blackboard: AgentBlackboard) -> tuple[bool, str]:
-    return blackboard.h1_result is not None, "h1_result missing; call match_h1 first"
-
-
 def has_shard_plan(blackboard: AgentBlackboard) -> tuple[bool, str]:
     return blackboard.shard_plan is not None, "shard_plan missing; call propose_shard first"

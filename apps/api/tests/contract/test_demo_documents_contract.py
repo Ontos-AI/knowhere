@@ -279,7 +279,6 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
     monkeypatch: MonkeyPatch,
 ) -> None:
     fake_result_storage = FakeResultStorage()
-    monkeypatch.setenv("RETRIEVAL_AGENTIC_ENABLED", "false")
 
     async with developer_api_client_factory() as api_client:
         import app.services.demo.source_materializer as source_materializer_module
