@@ -358,34 +358,11 @@ async def test_should_return_empty_results_for_an_empty_query(
 
 
 @pytest.mark.asyncio
-async def test_retrieval_should_ignore_false_agentic_hint_and_use_workflow(
+async def test_retrieval_should_use_classic_topk_when_agentic_is_false(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
-    monkeypatch: MonkeyPatch,
 ) -> None:
-    async def fake_run_request(
-        self: object,
-        db: AsyncSession,
-        *,
-        request: WorkflowRunRequest,
-        llm_fn: object | None = None,
-    ) -> WorkflowResult:
-        return WorkflowResult(
-            namespace=request.namespace,
-            query=request.query,
-            router_used="workflow_single_step",
-            answer_text="",
-            plan=QueryPlan.single_step(request.query),
-            referenced_chunks=[],
-            results=[],
-        )
-
-    monkeypatch.setattr(
-        "shared.services.retrieval.workflow.orchestrator.WorkflowOrchestrator.run_request",
-        fake_run_request,
-    )
-
     async with developer_api_client_factory() as api_client:
         await _seed_retrieval_document(
             user_id="local-dev-user",
@@ -414,8 +391,7 @@ async def test_retrieval_should_ignore_false_agentic_hint_and_use_workflow(
     assert response.status_code == 200
 
     response_json = cast(dict[str, object], response.json())
-    assert response_json["router_used"] == "workflow_single_step"
-    assert response_json["results"] == []
+    assert response_json["router_used"] == "classic_topk"
 
 
 @pytest.mark.asyncio
