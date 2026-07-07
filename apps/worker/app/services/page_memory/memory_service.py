@@ -445,6 +445,7 @@ def _build_page_dataframe(
             vlm_model=vlm_model,
             page_assets_by_page=page_assets_by_page,
             node_summary_max_pages=page_memory_config.node_summary_max_pages,
+            node_assembly_concurrency=page_memory_config.node_assembly_concurrency,
         )
     logger.info(
         "[page_memory] C7 assembled {} node rows (verdict={})",
@@ -625,14 +626,15 @@ def _run_hierarchy_scope(
     fat_leaf_pages = compute_fat_leaf_pages(scope_skeletons, min_pages=fine_min)
     if fat_leaf_pages:
         title_pages = sorted(fat_leaf_pages)
-        title_rendered = render_document_pages(
-            pdf_path=pdf_path,
-            page_count=page_count,
-            output_dir=output_dir,
-            pages=title_pages,
-            page_features=page_features,
-            page_texts=page_texts,
-        )
+        with stage_timer("page_memory.title_render", page_count=len(title_pages)):
+            title_rendered = render_document_pages(
+                pdf_path=pdf_path,
+                page_count=page_count,
+                output_dir=output_dir,
+                pages=title_pages,
+                page_features=page_features,
+                page_texts=page_texts,
+            )
         title_tags = [
             PageTagResult(
                 page_index=page,
@@ -649,6 +651,7 @@ def _run_hierarchy_scope(
                 fat_leaf_pages=fat_leaf_pages,
                 budget=None,
                 vlm_model=vlm_model,
+                max_concurrent=page_memory_config.title_detection_concurrency,
             )
         _record_trace_stage(
             trace_recorder,

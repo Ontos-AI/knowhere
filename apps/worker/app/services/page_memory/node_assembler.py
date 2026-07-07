@@ -25,10 +25,11 @@ import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
+from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.support.parser_rows import serialize_entities
 from app.services.page_memory.page_assets import (
@@ -416,63 +417,114 @@ def build_node_rows(
     vlm_model: str | None = None,
     page_assets_by_page: dict[int, list[PageAsset]] | None = None,
     node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,
+    node_assembly_concurrency: int = 2,
 ) -> list[dict[str, Any]]:
     """Assemble one row per leaf section node (node-granularity chunks)."""
     available_pages = set(raw_text_by_page.keys())
     leaves = identify_leaf_nodes(skeletons)
     views, page_owner = assign_pages_to_leaves(leaves, available_pages=available_pages)
     page_to_leaves = pages_by_leaf_count(views)
+    resolved_concurrency = max(1, node_assembly_concurrency)
 
     # Resolve body text once per owned page (PyMuPDF, OCR fallback for scanned).
     resolved_text: dict[int, str] = {}
-    for view in views:
-        for page in view.owned_pages:
-            resolved_text[page] = resolve_page_text(
+    owned_pages = sorted({page for view in views for page in view.owned_pages})
+    if owned_pages:
+        import gevent
+        from gevent.pool import Pool as GeventPool
+
+        def _resolve_one(page: int) -> tuple[int, str]:
+            return page, resolve_page_text(
                 page=page,
                 raw_text=raw_text_by_page.get(page, ""),
                 image_path=image_path_by_page.get(page),
                 vlm_model=vlm_model,
             )
 
+        with stage_timer(
+            "page_memory.node_ocr",
+            page_count=len(owned_pages),
+            concurrency=resolved_concurrency,
+        ):
+            pool = GeventPool(size=min(resolved_concurrency, len(owned_pages)))
+            greenlets = [pool.spawn(_resolve_one, page) for page in owned_pages]
+            gevent.joinall(greenlets, raise_error=True)
+            resolved_pairs = [
+                cast(tuple[int, str], greenlet.value)
+                for greenlet in greenlets
+            ]
+            resolved_text = {page: text for page, text in resolved_pairs}
+
+    summaries: dict[int, tuple[str, list[str], list[dict[str, str]]]] = {}
+    if views:
+        import gevent
+        from gevent.pool import Pool as GeventPool
+
+        def _summarize_one(
+            index: int,
+        ) -> tuple[int, tuple[str, list[str], list[dict[str, str]]]]:
+            return index, compute_node_summary(
+                view=views[index],
+                page_to_leaves=page_to_leaves,
+                tag_by_page=tag_by_page,
+                image_path_by_page=image_path_by_page,
+                vlm_model=vlm_model,
+                node_summary_max_pages=node_summary_max_pages,
+            )
+
+        with stage_timer(
+            "page_memory.node_summary",
+            node_count=len(views),
+            concurrency=resolved_concurrency,
+        ):
+            pool = GeventPool(size=min(resolved_concurrency, len(views)))
+            greenlets = [
+                pool.spawn(_summarize_one, index)
+                for index in range(len(views))
+            ]
+            gevent.joinall(greenlets, raise_error=True)
+            summary_pairs = [
+                cast(
+                    tuple[int, tuple[str, list[str], list[dict[str, str]]]],
+                    greenlet.value,
+                )
+                for greenlet in greenlets
+            ]
+            summaries = {index: result for index, result in summary_pairs}
+
     rows: list[dict[str, Any]] = []
     rows_by_path: dict[str, dict[str, Any]] = {}
-    for view in views:
-        leaf = view.leaf
-        content = build_node_content(
-            view,
-            page_owner=page_owner,
-            page_text=resolved_text,
-        )
-        summary, keywords, entities = compute_node_summary(
-            view=view,
-            page_to_leaves=page_to_leaves,
-            tag_by_page=tag_by_page,
-            image_path_by_page=image_path_by_page,
-            vlm_model=vlm_model,
-            node_summary_max_pages=node_summary_max_pages,
-        )
-        know_id = f"node_{gen_str_codes(f'{filename}::{leaf.section_path}')}"
-        row = {
-            "content": content,
-            "path": leaf.section_path,
-            "type": "page",
-            "length": len(content),
-            "keywords": ";".join(keywords),
-            "summary": summary,
-            "know_id": know_id,
-            "tokens": "",
-            "connectto": "",
-            "addtime": get_str_time(),
-            "page_nums": ",".join(str(page) for page in view.pages),
-            "entities": serialize_entities(entities),
-            "asset_title": "",
-            "extra_metadata": _build_page_extra_metadata(
-                pages=view.pages,
-                image_path_by_page=image_path_by_page,
-            ),
-        }
-        rows.append(row)
-        rows_by_path[leaf.section_path] = row
+    with stage_timer("page_memory.node_rows", node_count=len(views)):
+        for index, view in enumerate(views):
+            leaf = view.leaf
+            content = build_node_content(
+                view,
+                page_owner=page_owner,
+                page_text=resolved_text,
+            )
+            summary, keywords, entities = summaries.get(index, ("", [], []))
+            know_id = f"node_{gen_str_codes(f'{filename}::{leaf.section_path}')}"
+            row = {
+                "content": content,
+                "path": leaf.section_path,
+                "type": "page",
+                "length": len(content),
+                "keywords": ";".join(keywords),
+                "summary": summary,
+                "know_id": know_id,
+                "tokens": "",
+                "connectto": "",
+                "addtime": get_str_time(),
+                "page_nums": ",".join(str(page) for page in view.pages),
+                "entities": serialize_entities(entities),
+                "asset_title": "",
+                "extra_metadata": _build_page_extra_metadata(
+                    pages=view.pages,
+                    image_path_by_page=image_path_by_page,
+                ),
+            }
+            rows.append(row)
+            rows_by_path[leaf.section_path] = row
 
     asset_rows: list[dict[str, Any]] = []
     if page_assets_by_page:
