@@ -262,6 +262,7 @@ def tag_page_titles(
     fat_leaf_pages: set[int],
     budget: Any | None = None,
     vlm_model: str | None = None,
+    max_concurrent: int | None = None,
 ) -> list[PageTagResult]:
     """Run independent VLM title detection on fat-leaf pages.
 
@@ -278,6 +279,8 @@ def tag_page_titles(
         Deprecated, ignored. Kept for call-site compatibility.
     vlm_model:
         VLM model name; falls back to ``$IMAGE_MODEL``.
+    max_concurrent:
+        Maximum concurrent title-detection VLM calls.
 
     Returns
     -------
@@ -292,31 +295,52 @@ def tag_page_titles(
         logger.warning("[page_tagger] no VLM model for title detection; skipping")
         return tag_results
 
+    import gevent
+    from gevent.pool import Pool as GeventPool
+
+    from shared.core.config import settings
+
     tag_map = {t.page_index: t for t in tag_results}
     page_map = {p.page_index: p for p in pages}
+
+    page_indices = [
+        page_idx
+        for page_idx in sorted(fat_leaf_pages)
+        if (page := page_map.get(page_idx)) is not None
+        and page_idx in tag_map
+        and page.image_path
+        and os.path.exists(page.image_path)
+    ]
+
+    resolved_max_concurrent = max_concurrent or int(
+        getattr(settings, "SUMMARY_LLM_MAX_CONCURRENT", 4)
+    )
+
+    def _detect_one(page_idx: int) -> tuple[int, list[dict[str, Any]]]:
+        page = page_map[page_idx]
+        return page_idx, _tag_vlm_titles(page, model=model)
+
+    pool = GeventPool(size=min(resolved_max_concurrent, len(page_indices)))
+    greenlets = [pool.spawn(_detect_one, page_idx) for page_idx in page_indices]
+    gevent.joinall(greenlets)
+
     vlm_calls = 0
     titles_found = 0
-
-    for page_idx in sorted(fat_leaf_pages):
-        page = page_map.get(page_idx)
-        tag = tag_map.get(page_idx)
-        if page is None or tag is None:
+    for greenlet in greenlets:
+        if greenlet.value is None:
             continue
-
-        # Skip pages without images (text_only / skip)
-        if not page.image_path or not os.path.exists(page.image_path):
-            continue
-
-        observed = _tag_vlm_titles(page, model=model)
-        tag.observed_titles = observed
+        page_idx, observed = greenlet.value
+        tag_map[page_idx].observed_titles = observed
         vlm_calls += 1
         titles_found += len(observed)
 
     logger.info(
-        "[page_tagger] title detection: {} VLM calls on {} fat-leaf pages, {} titles found",
+        "[page_tagger] title detection: {} VLM calls on {} fat-leaf pages, "
+        "{} titles found, concurrency={}",
         vlm_calls,
         len(fat_leaf_pages),
         titles_found,
+        resolved_max_concurrent,
     )
     return tag_results
 

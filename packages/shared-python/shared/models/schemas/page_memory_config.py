@@ -13,6 +13,8 @@ class PageMemoryConfig:
     max_pages: int = 1500
     scope_concurrency: int = 4
     tag_concurrency: int = 4
+    title_detection_concurrency: int = 4
+    node_assembly_concurrency: int = 4
     tag_mode: Literal["vlm", "text"] = "vlm"
     fine_min_pages: int = 4
     hierarchy_model: str | None = None
@@ -56,6 +58,14 @@ class PageMemoryConfig:
             tag_concurrency=_as_int(
                 value.get("tag_concurrency"),
                 default.tag_concurrency,
+            ),
+            title_detection_concurrency=_as_int(
+                value.get("title_detection_concurrency"),
+                default.title_detection_concurrency,
+            ),
+            node_assembly_concurrency=_as_int(
+                value.get("node_assembly_concurrency"),
+                default.node_assembly_concurrency,
             ),
             tag_mode=resolved_tag_mode,
             fine_min_pages=_as_int(

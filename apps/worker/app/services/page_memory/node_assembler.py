@@ -242,6 +242,9 @@ def pages_by_leaf_count(views: list[NodePageView]) -> dict[int, list[LeafNode]]:
 # ── VLM-backed helpers ───────────────────────────────────────────────
 
 
+_NODE_VLM_RETRY_DELAY_SECONDS = 5.0
+
+
 def resolve_page_text(
     *,
     page: int,
@@ -254,18 +257,33 @@ def resolve_page_text(
 
     Electronic PDFs already have PyMuPDF text; scanned pages have (near) empty
     text and fall back to the shared ``transcribe()`` OCR primitive (§4.2).
+    Retries once on an empty transcription before giving up.
     """
     text = (raw_text or "").strip()
     if text:
         return text
     if not vlm_model or not image_path or not os.path.exists(image_path):
         return ""
-    return transcribe(
-        image_paths=[image_path],
-        model=vlm_model,
-        max_tokens=1500,
-        usage_task="page_memory.node_ocr",
-    )
+
+    import gevent
+
+    for attempt in range(2):
+        transcribed = transcribe(
+            image_paths=[image_path],
+            model=vlm_model,
+            max_tokens=1500,
+            usage_task="page_memory.node_ocr",
+        )
+        if transcribed:
+            return transcribed
+        if attempt == 0:
+            logger.warning(
+                "[node_assembler] empty OCR transcription for page {}, retrying after {}s",
+                page,
+                _NODE_VLM_RETRY_DELAY_SECONDS,
+            )
+            gevent.sleep(_NODE_VLM_RETRY_DELAY_SECONDS)
+    return ""
 
 
 def compute_node_summary(
@@ -378,26 +396,36 @@ def _vlm_node_summary(
     if not image_paths:
         return None
 
-    result = summarize(
-        mode="page",
-        image_paths=image_paths,
-        model=vlm_model,
-        usage_task="page_memory.node_summary",
-        prompt_task="page-memory-node-summary",
-        prompt_paras={
-            "max_tokens": 400,
-            "node_title": leaf.title,
-            "next_title": next_title or "",
-            "kw_num": 5,
-        },
-    )
-    if not result.summary and not result.entities:
-        return None
-    return (
-        result.summary,
-        [e.text for e in result.entities],
-        [e.to_dict() for e in result.entities],
-    )
+    import gevent
+
+    for attempt in range(2):
+        result = summarize(
+            mode="page",
+            image_paths=image_paths,
+            model=vlm_model,
+            usage_task="page_memory.node_summary",
+            prompt_task="page-memory-node-summary",
+            prompt_paras={
+                "max_tokens": 400,
+                "node_title": leaf.title,
+                "next_title": next_title or "",
+                "kw_num": 5,
+            },
+        )
+        if result.summary or result.entities:
+            return (
+                result.summary,
+                [e.text for e in result.entities],
+                [e.to_dict() for e in result.entities],
+            )
+        if attempt == 0:
+            logger.warning(
+                "[node_assembler] empty VLM node summary for {}, retrying after {}s",
+                leaf.section_path,
+                _NODE_VLM_RETRY_DELAY_SECONDS,
+            )
+            gevent.sleep(_NODE_VLM_RETRY_DELAY_SECONDS)
+    return None
 
 
 # ── Orchestration ────────────────────────────────────────────────────
@@ -416,34 +444,54 @@ def build_node_rows(
     vlm_model: str | None = None,
     page_assets_by_page: dict[int, list[PageAsset]] | None = None,
     node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,
+    max_concurrent: int | None = None,
 ) -> list[dict[str, Any]]:
     """Assemble one row per leaf section node (node-granularity chunks)."""
+    import gevent
+    from gevent.pool import Pool as GeventPool
+
+    from shared.core.config import settings
+
     available_pages = set(raw_text_by_page.keys())
     leaves = identify_leaf_nodes(skeletons)
     views, page_owner = assign_pages_to_leaves(leaves, available_pages=available_pages)
     page_to_leaves = pages_by_leaf_count(views)
 
-    # Resolve body text once per owned page (PyMuPDF, OCR fallback for scanned).
-    resolved_text: dict[int, str] = {}
-    for view in views:
-        for page in view.owned_pages:
-            resolved_text[page] = resolve_page_text(
-                page=page,
-                raw_text=raw_text_by_page.get(page, ""),
-                image_path=image_path_by_page.get(page),
-                vlm_model=vlm_model,
-            )
+    resolved_max_concurrent = max_concurrent or int(
+        getattr(settings, "SUMMARY_LLM_MAX_CONCURRENT", 4)
+    )
 
-    rows: list[dict[str, Any]] = []
-    rows_by_path: dict[str, dict[str, Any]] = {}
-    for view in views:
-        leaf = view.leaf
-        content = build_node_content(
-            view,
-            page_owner=page_owner,
-            page_text=resolved_text,
+    # Resolve body text once per owned page (PyMuPDF, OCR fallback for scanned).
+    # Loop 2 (node summaries) reads this map via build_node_content, so it
+    # must run only after this pool has fully joined.
+    owned_pages = [page for view in views for page in view.owned_pages]
+
+    def _resolve_one(page: int) -> tuple[int, str]:
+        text = resolve_page_text(
+            page=page,
+            raw_text=raw_text_by_page.get(page, ""),
+            image_path=image_path_by_page.get(page),
+            vlm_model=vlm_model,
         )
-        summary, keywords, entities = compute_node_summary(
+        return page, text
+
+    resolved_text: dict[int, str] = {}
+    if owned_pages:
+        pool = GeventPool(size=min(resolved_max_concurrent, len(owned_pages)))
+        greenlets = [pool.spawn(_resolve_one, page) for page in owned_pages]
+        gevent.joinall(greenlets)
+        for greenlet in greenlets:
+            if greenlet.value is None:
+                continue
+            page, text = greenlet.value
+            resolved_text[page] = text
+
+    # Node summaries: computed concurrently, but merged into `summaries` by
+    # index so row order below matches `views` order regardless of the
+    # order greenlets complete in.
+    def _summarize_one(index: int) -> tuple[int, tuple[str, list[str], list[dict[str, str]]]]:
+        view = views[index]
+        return index, compute_node_summary(
             view=view,
             page_to_leaves=page_to_leaves,
             tag_by_page=tag_by_page,
@@ -451,6 +499,30 @@ def build_node_rows(
             vlm_model=vlm_model,
             node_summary_max_pages=node_summary_max_pages,
         )
+
+    summaries: list[tuple[str, list[str], list[dict[str, str]]]] = [
+        ("", [], []) for _ in views
+    ]
+    if views:
+        pool = GeventPool(size=min(resolved_max_concurrent, len(views)))
+        greenlets = [pool.spawn(_summarize_one, index) for index in range(len(views))]
+        gevent.joinall(greenlets)
+        for greenlet in greenlets:
+            if greenlet.value is None:
+                continue
+            index, result = greenlet.value
+            summaries[index] = result
+
+    rows: list[dict[str, Any]] = []
+    rows_by_path: dict[str, dict[str, Any]] = {}
+    for index, view in enumerate(views):
+        leaf = view.leaf
+        content = build_node_content(
+            view,
+            page_owner=page_owner,
+            page_text=resolved_text,
+        )
+        summary, keywords, entities = summaries[index]
         know_id = f"node_{gen_str_codes(f'{filename}::{leaf.section_path}')}"
         row = {
             "content": content,

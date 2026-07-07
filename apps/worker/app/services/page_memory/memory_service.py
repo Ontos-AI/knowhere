@@ -445,6 +445,7 @@ def _build_page_dataframe(
             vlm_model=vlm_model,
             page_assets_by_page=page_assets_by_page,
             node_summary_max_pages=page_memory_config.node_summary_max_pages,
+            max_concurrent=page_memory_config.node_assembly_concurrency,
         )
     logger.info(
         "[page_memory] C7 assembled {} node rows (verdict={})",
@@ -649,6 +650,7 @@ def _run_hierarchy_scope(
                 fat_leaf_pages=fat_leaf_pages,
                 budget=None,
                 vlm_model=vlm_model,
+                max_concurrent=page_memory_config.title_detection_concurrency,
             )
         _record_trace_stage(
             trace_recorder,

@@ -9,8 +9,13 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
+import gevent
+
+import app.services.page_memory.node_assembler as node_assembler
 from app.services.page_memory.node_assembler import (
     SAME_AS_PREFIX,
+    LeafNode,
+    NodePageView,
     assign_pages_to_leaves,
     build_node_content,
     build_node_rows,
@@ -20,6 +25,7 @@ from app.services.document_parser.support.parser_rows import PARSER_ROW_COLUMNS
 from app.services.page_memory.page_assets import PageAsset
 from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
+from shared.services.ai.summary.model import BodySummary
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 
 import pandas as pd
@@ -389,3 +395,177 @@ def test_page_connectto_normalizes_to_asset_chunk_id() -> None:
             "ref": "[tables/table_page_1_1.html]",
         }
     ]
+
+
+def _many_leaf_skeletons(count: int) -> list[SectionSkeleton]:
+    """One single-page leaf section per page, 1..count, all siblings."""
+    return [
+        SectionSkeleton(
+            section_path=f"demo.pdf/Section {page}",
+            level=1,
+            start_page=page,
+            end_page=page,
+            title=f"Section {page}",
+            parent_path="demo.pdf",
+        )
+        for page in range(1, count + 1)
+    ]
+
+
+def test_build_node_rows_preserves_order_under_concurrent_vlm_summaries(
+    tmp_path,
+) -> None:
+    """Node summaries are computed concurrently but must land in view order."""
+    page_count = 8
+    skeletons = _many_leaf_skeletons(page_count)
+    raw_text_by_page = {page: "" for page in range(1, page_count + 1)}
+    image_path_by_page: dict[int, str] = {}
+    for page in range(1, page_count + 1):
+        img = tmp_path / f"page-{page}.png"
+        img.write_bytes(b"\x89PNG\r\n\x1a\n fake")
+        image_path_by_page[page] = str(img)
+
+    # Every leaf here is single-page and unshared, so compute_node_summary
+    # short-circuits to the per-page tag (no VLM call needed) -- this test
+    # only needs to prove ordering survives the pooled merge, which applies
+    # regardless of which code path filled `summaries[index]`.
+    tag_by_page = {
+        page: PageTagResult(
+            page_index=page, summary=f"summary-{page}", keywords=[f"kw-{page}"]
+        )
+        for page in range(1, page_count + 1)
+    }
+
+    rows = build_node_rows(
+        skeletons=skeletons,
+        raw_text_by_page=raw_text_by_page,
+        image_path_by_page=image_path_by_page,
+        kind_by_page={},
+        tag_by_page=tag_by_page,
+        filename="demo.pdf",
+        verdict="page",
+        budget=None,
+        vlm_model="fake-vlm",
+        max_concurrent=4,
+    )
+
+    assert [r["path"] for r in rows] == [
+        f"demo.pdf/Section {page}" for page in range(1, page_count + 1)
+    ]
+    assert [r["summary"] for r in rows] == [
+        f"summary-{page}" for page in range(1, page_count + 1)
+    ]
+
+
+def test_vlm_node_summary_retries_once_on_empty_result(monkeypatch, tmp_path) -> None:
+    """A first empty VLM response is retried once before giving up."""
+    calls: list[int] = []
+
+    def _fake_summarize(**kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            return BodySummary(summary="", entities=[], kind="page")
+        return BodySummary(summary="retried summary", entities=[], kind="page")
+
+    monkeypatch.setattr(node_assembler, "summarize", _fake_summarize)
+    monkeypatch.setattr(gevent, "sleep", lambda _seconds: None)
+
+    img1 = tmp_path / "page-1.png"
+    img1.write_bytes(b"\x89PNG\r\n\x1a\n fake")
+    img2 = tmp_path / "page-2.png"
+    img2.write_bytes(b"\x89PNG\r\n\x1a\n fake")
+
+    leaf = LeafNode(
+        section_path="demo.pdf/Section 1",
+        title="Section 1",
+        level=1,
+        start_page=1,
+        end_page=2,
+    )
+    view = NodePageView(leaf=leaf, pages=[1, 2], owned_pages=[1, 2])
+
+    result = node_assembler._vlm_node_summary(
+        view=view,
+        page_to_leaves={1: [leaf], 2: [leaf]},
+        image_path_by_page={1: str(img1), 2: str(img2)},
+        vlm_model="fake-vlm",
+        node_summary_max_pages=5,
+    )
+
+    assert len(calls) == 2
+    assert result is not None
+    summary, _keywords, _entities = result
+    assert summary == "retried summary"
+
+
+def test_vlm_node_summary_returns_none_after_retry_exhausted(monkeypatch, tmp_path) -> None:
+    """Two consecutive empty VLM responses fall through to None (caller degrades)."""
+    monkeypatch.setattr(
+        node_assembler,
+        "summarize",
+        lambda **kwargs: BodySummary(summary="", entities=[], kind="page"),
+    )
+    monkeypatch.setattr(gevent, "sleep", lambda _seconds: None)
+
+    img = tmp_path / "page-1.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n fake")
+
+    leaf = LeafNode(
+        section_path="demo.pdf/Section 1",
+        title="Section 1",
+        level=1,
+        start_page=1,
+        end_page=1,
+    )
+    view = NodePageView(leaf=leaf, pages=[1], owned_pages=[1])
+
+    result = node_assembler._vlm_node_summary(
+        view=view,
+        page_to_leaves={1: [leaf]},
+        image_path_by_page={1: str(img)},
+        vlm_model="fake-vlm",
+        node_summary_max_pages=5,
+    )
+
+    assert result is None
+
+
+def test_resolve_page_text_retries_once_on_empty_transcription(monkeypatch, tmp_path) -> None:
+    calls: list[int] = []
+
+    def _fake_transcribe(**kwargs):
+        calls.append(1)
+        return "" if len(calls) == 1 else "transcribed text"
+
+    monkeypatch.setattr(node_assembler, "transcribe", _fake_transcribe)
+    monkeypatch.setattr(gevent, "sleep", lambda _seconds: None)
+
+    img = tmp_path / "page-1.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n fake")
+
+    text = node_assembler.resolve_page_text(
+        page=1,
+        raw_text="",
+        image_path=str(img),
+        vlm_model="fake-vlm",
+    )
+
+    assert len(calls) == 2
+    assert text == "transcribed text"
+
+
+def test_resolve_page_text_empty_after_retry_exhausted(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(node_assembler, "transcribe", lambda **kwargs: "")
+    monkeypatch.setattr(gevent, "sleep", lambda _seconds: None)
+
+    img = tmp_path / "page-1.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n fake")
+
+    text = node_assembler.resolve_page_text(
+        page=1,
+        raw_text="",
+        image_path=str(img),
+        vlm_model="fake-vlm",
+    )
+
+    assert text == ""
