@@ -29,6 +29,7 @@ from typing import Any, Literal, cast, overload
 
 from loguru import logger
 
+from shared.core.exceptions.domain_exceptions import UnavailableException
 from shared.services.ai import openai_compatible_client_sync as _client_mod
 from shared.services.ai.prompt_service import _detect_text_language, build_prompt
 from shared.services.ai.response_process_service import eval_response
@@ -176,6 +177,12 @@ def _call_llm(
                     attempt + 1,
                 )
                 continue
+            return None
+        except UnavailableException:
+            if budget is not None:
+                budget.refund(budget_pool, est=est, stage=budget_stage)
+            if usage_task.startswith("page_memory."):
+                raise
             return None
         except Exception as exc:
             logger.warning("[summary] LLM call failed for {}: {}", usage_task, exc)
