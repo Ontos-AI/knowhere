@@ -11,13 +11,7 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 import pytest
 
-from app.services.page_memory.node_assembler import (
-    SAME_AS_PREFIX,
-    assign_pages_to_leaves,
-    build_node_content,
-    build_node_rows,
-    identify_leaf_nodes,
-)
+import app.services.page_memory.node_assembler as node_assembler
 from app.services.document_parser.support.parser_rows import PARSER_ROW_COLUMNS
 from app.services.page_memory.page_assets import PageAsset
 from app.services.page_memory.page_tagger import PageTagResult
@@ -72,13 +66,15 @@ def _ordered_page_skeletons() -> list[SectionSkeleton]:
 
 
 def test_identify_leaf_nodes_drops_internal_parents() -> None:
-    leaves = identify_leaf_nodes(_same_page_sibling_skeletons())
+    leaves = node_assembler.identify_leaf_nodes(_same_page_sibling_skeletons())
     assert [leaf.title for leaf in leaves] == ["3.1 职责", "3.2 管理规定"]
 
 
 def test_page_ownership_first_leaf_owns_shared_page() -> None:
-    leaves = identify_leaf_nodes(_same_page_sibling_skeletons())
-    views, page_owner = assign_pages_to_leaves(leaves, available_pages={231, 232})
+    leaves = node_assembler.identify_leaf_nodes(_same_page_sibling_skeletons())
+    views, page_owner = node_assembler.assign_pages_to_leaves(
+        leaves, available_pages={231, 232}
+    )
 
     assert page_owner[231].title == "3.1 职责"
     assert page_owner[232].title == "3.2 管理规定"
@@ -90,26 +86,30 @@ def test_page_ownership_first_leaf_owns_shared_page() -> None:
 
 
 def test_build_node_content_uses_same_as_for_shared_page() -> None:
-    leaves = identify_leaf_nodes(_same_page_sibling_skeletons())
-    views, page_owner = assign_pages_to_leaves(leaves, available_pages={231, 232})
+    leaves = node_assembler.identify_leaf_nodes(_same_page_sibling_skeletons())
+    views, page_owner = node_assembler.assign_pages_to_leaves(
+        leaves, available_pages={231, 232}
+    )
     by_title = {view.leaf.title: view for view in views}
     page_text = {231: "text-231", 232: "text-232"}
 
-    content_a = build_node_content(
+    content_a = node_assembler.build_node_content(
         by_title["3.1 职责"], page_owner=page_owner, page_text=page_text
     )
-    content_b = build_node_content(
+    content_b = node_assembler.build_node_content(
         by_title["3.2 管理规定"], page_owner=page_owner, page_text=page_text
     )
 
     assert content_a == "text-231"
-    assert content_b.startswith(f"[{SAME_AS_PREFIX} demo.pdf/3 基本规定/3.1 职责 p231]")
+    assert content_b.startswith(
+        f"[{node_assembler.SAME_AS_PREFIX} demo.pdf/3 基本规定/3.1 职责 p231]"
+    )
     assert "text-232" in content_b
     assert "text-231" not in content_b
 
 
 def test_build_node_rows_reuses_tags_without_vlm() -> None:
-    rows = build_node_rows(
+    rows = node_assembler.build_node_rows(
         skeletons=_same_page_sibling_skeletons(),
         raw_text_by_page={231: "text-231", 232: "text-232"},
         image_path_by_page={},
@@ -137,7 +137,7 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
 
     leaf_b = by_path["demo.pdf/3 基本规定/3.2 管理规定"]
     assert leaf_b["page_nums"] == "231,232"
-    assert SAME_AS_PREFIX in leaf_b["content"]
+    assert node_assembler.SAME_AS_PREFIX in leaf_b["content"]
     assert "text-232" in leaf_b["content"]
     assert leaf_b["extra_metadata"] == {}
 
@@ -158,15 +158,17 @@ def test_build_node_rows_preserves_order_under_ocr_and_summary_concurrency(
         return f"summary-{view.leaf.start_page}", [f"k{view.leaf.start_page}"], []
 
     monkeypatch.setattr(
-        "app.services.page_memory.node_assembler.resolve_page_text",
+        node_assembler,
+        "resolve_page_text",
         _fake_resolve_page_text,
     )
     monkeypatch.setattr(
-        "app.services.page_memory.node_assembler.compute_node_summary",
+        node_assembler,
+        "compute_node_summary",
         _fake_compute_node_summary,
     )
 
-    rows = build_node_rows(
+    rows = node_assembler.build_node_rows(
         skeletons=_ordered_page_skeletons(),
         raw_text_by_page={1: "", 2: "", 3: ""},
         image_path_by_page={},
@@ -199,12 +201,13 @@ def test_build_node_rows_failed_ocr_greenlet_fails_stage(monkeypatch) -> None:
         return "ok"
 
     monkeypatch.setattr(
-        "app.services.page_memory.node_assembler.resolve_page_text",
+        node_assembler,
+        "resolve_page_text",
         _fake_resolve_page_text,
     )
 
     with pytest.raises(RuntimeError):
-        build_node_rows(
+        node_assembler.build_node_rows(
             skeletons=_ordered_page_skeletons()[:2],
             raw_text_by_page={1: "", 2: ""},
             image_path_by_page={},
@@ -226,12 +229,13 @@ def test_build_node_rows_unavailable_propagates_from_ocr(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(
-        "app.services.page_memory.node_assembler.resolve_page_text",
+        node_assembler,
+        "resolve_page_text",
         _fake_resolve_page_text,
     )
 
     with pytest.raises(UnavailableException):
-        build_node_rows(
+        node_assembler.build_node_rows(
             skeletons=_ordered_page_skeletons()[:1],
             raw_text_by_page={1: ""},
             image_path_by_page={},
@@ -255,12 +259,13 @@ def test_build_node_rows_unavailable_propagates_from_node_summary(
         )
 
     monkeypatch.setattr(
-        "app.services.page_memory.node_assembler.compute_node_summary",
+        node_assembler,
+        "compute_node_summary",
         _fake_compute_node_summary,
     )
 
     with pytest.raises(UnavailableException):
-        build_node_rows(
+        node_assembler.build_node_rows(
             skeletons=_ordered_page_skeletons()[:1],
             raw_text_by_page={1: "text-1"},
             image_path_by_page={},
@@ -279,7 +284,7 @@ def test_build_node_rows_attaches_page_citation_assets_for_rendered_pages(tmp_pa
     page_image.parent.mkdir()
     Image.new("RGB", (2, 3), color=(255, 255, 255)).save(page_image)
 
-    rows = build_node_rows(
+    rows = node_assembler.build_node_rows(
         skeletons=_same_page_sibling_skeletons(),
         raw_text_by_page={231: "text-231", 232: "text-232"},
         image_path_by_page={231: str(page_image)},
@@ -328,7 +333,7 @@ def test_build_node_rows_keeps_internal_section_body_pages() -> None:
         parent_path="demo.pdf/4 风险辨识与分级管控",
     )
 
-    rows = build_node_rows(
+    rows = node_assembler.build_node_rows(
         skeletons=[parent, child],
         raw_text_by_page={233: "parent body", 234: "child body"},
         image_path_by_page={},
@@ -374,8 +379,8 @@ def test_boundary_page_belongs_to_next_sibling_start() -> None:
         parent_path="demo.pdf/安全类",
     )
 
-    leaves = identify_leaf_nodes([coarse, next_sibling])
-    views, page_owner = assign_pages_to_leaves(
+    leaves = node_assembler.identify_leaf_nodes([coarse, next_sibling])
+    views, page_owner = node_assembler.assign_pages_to_leaves(
         leaves,
         available_pages={301, 302, 303},
     )
@@ -411,7 +416,7 @@ def test_build_node_rows_uses_vlm_node_summary_with_boundary(
     img = tmp_path / "page-231.png"
     img.write_bytes(b"\x89PNG\r\n\x1a\n fake")
 
-    rows = build_node_rows(
+    rows = node_assembler.build_node_rows(
         skeletons=_same_page_sibling_skeletons(),
         raw_text_by_page={231: "text-231", 232: "text-232"},
         image_path_by_page={231: str(img), 232: str(img)},
@@ -452,7 +457,7 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
         extraction_status="table_html_extracted",
     )
 
-    rows = build_node_rows(
+    rows = node_assembler.build_node_rows(
         skeletons=_same_page_sibling_skeletons(),
         raw_text_by_page={231: "text-231", 232: "text-232"},
         image_path_by_page={},
