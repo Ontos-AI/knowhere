@@ -13,8 +13,8 @@ class PageMemoryConfig:
     max_pages: int = 1500
     scope_concurrency: int = 5
     tag_concurrency: int = 4
-    title_detection_concurrency: int = 2
-    node_assembly_concurrency: int = 2
+    title_detection_concurrency: int = 3
+    node_assembly_concurrency: int = 3
     tag_mode: Literal["vlm", "text"] = "vlm"
     fine_min_pages: int = 4
     hierarchy_model: str | None = None
@@ -40,13 +40,21 @@ class PageMemoryConfig:
         from shared.core.config import settings
 
         return cls(
+            scope_concurrency=_as_int(
+                getattr(settings, "PAGE_MEMORY_SCOPE_CONCURRENCY", 5),
+                5,
+            ),
+            tag_concurrency=_as_int(
+                getattr(settings, "PAGE_MEMORY_TAG_CONCURRENCY", 4),
+                4,
+            ),
             title_detection_concurrency=_as_int(
-                getattr(settings, "PAGE_MEMORY_TITLE_DETECTION_CONCURRENCY", 2),
-                2,
+                getattr(settings, "PAGE_MEMORY_TITLE_DETECTION_CONCURRENCY", 3),
+                3,
             ),
             node_assembly_concurrency=_as_int(
-                getattr(settings, "PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY", 2),
-                2,
+                getattr(settings, "PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY", 3),
+                3,
             ),
         )
 

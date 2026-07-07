@@ -108,12 +108,20 @@ class AIConfig(BaseModel):
         default=120,
         description="Max wait before page-memory VLM capacity pressure becomes retryable.",
     )
+    PAGE_MEMORY_SCOPE_CONCURRENCY: int = Field(
+        default=5,
+        description="Local per-job hierarchy scope concurrency for page-memory.",
+    )
+    PAGE_MEMORY_TAG_CONCURRENCY: int = Field(
+        default=4,
+        description="Local per-job page tagging concurrency for page-memory.",
+    )
     PAGE_MEMORY_TITLE_DETECTION_CONCURRENCY: int = Field(
-        default=2,
+        default=3,
         description="Local per-job title detection concurrency for page-memory.",
     )
     PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY: int = Field(
-        default=2,
+        default=3,
         description="Local per-job node OCR and summary concurrency for page-memory.",
     )
     TOKEN_PRICING_TABLE_JSON: str = Field(

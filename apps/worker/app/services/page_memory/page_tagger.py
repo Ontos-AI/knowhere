@@ -316,7 +316,7 @@ def tag_page_titles(
     from shared.core.config import settings
 
     resolved_max_concurrent = max_concurrent or int(
-        getattr(settings, "PAGE_MEMORY_TITLE_DETECTION_CONCURRENCY", 2)
+        getattr(settings, "PAGE_MEMORY_TITLE_DETECTION_CONCURRENCY", 3)
     )
 
     def _detect_one(
