@@ -16,11 +16,15 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
 from shared.core.config import settings
-from shared.core.exceptions.domain_exceptions import LLMServiceException
+from shared.core.exceptions.domain_exceptions import LLMServiceException, UnavailableException
 from shared.services.http.client_pool import get_sync_client
 from shared.services.ai.llm_mock import build_mock_chat_completion_response
 from shared.utils.security_utils import mask_api_key
 from shared.services.ai.token_tracking import record_tokens
+from shared.services.ai.page_memory_vlm_limiter import (
+    PageMemoryVlmLease,
+    get_page_memory_vlm_limiter,
+)
 
 LOCAL_DEBUG = os.getenv("LOCAL_DEBUG", "0") == "1"
 LLMUsage = dict[str, int]
@@ -37,6 +41,10 @@ def _is_ali_model(model_name: str) -> bool:
 def _should_mock_llm_calls() -> bool:
     """Whether all OpenAI-compatible LLM calls should short-circuit to mock responses."""
     return bool(getattr(settings, "LLM_MOCK_ENABLED", False))
+
+
+def _is_page_memory_usage_task(usage_task: str | None) -> bool:
+    return bool(usage_task and usage_task.startswith("page_memory."))
 
 
 def _empty_usage() -> LLMUsage:
@@ -170,6 +178,19 @@ class OpenAICompatibleClientSync:
     # ------------------------------------------------------------------
     # Ali token-pool helpers
     # ------------------------------------------------------------------
+
+    def _acquire_page_memory_vlm_lease(
+        self, *, usage_task: str | None
+    ) -> PageMemoryVlmLease | None:
+        if not _is_page_memory_usage_task(usage_task):
+            return None
+        return get_page_memory_vlm_limiter().acquire(usage_task=usage_task or "")
+
+    def _release_page_memory_vlm_lease(
+        self, lease: PageMemoryVlmLease | None
+    ) -> None:
+        if lease is not None:
+            get_page_memory_vlm_limiter().release(lease)
 
     def _should_use_ali_pool(self) -> bool:
         """Whether to route through the AliQuotaManager instead of a fixed key."""
@@ -327,23 +348,24 @@ class OpenAICompatibleClientSync:
             )
             return {"mock_content": content}, _empty_usage()
 
-        if self._should_use_ali_pool():
-            return self._make_ali_pool_raw_call(
-                model=effective_model,
-                all_messages=all_messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                api_kwargs=api_kwargs,
-                usage_task=usage_task,
-            )
-
-        client = self._client
-        if client is None:
-            raise LLMServiceException(
-                internal_message="OpenAI client is not initialized for direct provider requests",
-                provider=self.default_model,
-            )
+        lease = self._acquire_page_memory_vlm_lease(usage_task=usage_task)
         try:
+            if self._should_use_ali_pool():
+                return self._make_ali_pool_raw_call(
+                    model=effective_model,
+                    all_messages=all_messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    api_kwargs=api_kwargs,
+                    usage_task=usage_task,
+                )
+
+            client = self._client
+            if client is None:
+                raise LLMServiceException(
+                    internal_message="OpenAI client is not initialized for direct provider requests",
+                    provider=self.default_model,
+                )
             response = client.chat.completions.create(
                 model=effective_model,
                 messages=all_messages,
@@ -361,11 +383,14 @@ class OpenAICompatibleClientSync:
             return response, usage
         except LLMServiceException:
             raise
+        except UnavailableException:
+            raise
         except Exception as exc:
+            base_url = getattr(self._client, "base_url", None)
             logger.error(
                 "LLM raw request failed: model={model}, base_url={base_url}, error_chain={error_chain}",
                 model=effective_model,
-                base_url=client.base_url,
+                base_url=base_url,
                 error_chain=_summarize_exception_chain(exc),
             )
             raise LLMServiceException(
@@ -373,6 +398,8 @@ class OpenAICompatibleClientSync:
                 provider=self.default_model,
                 original_exception=exc,
             ) from exc
+        finally:
+            self._release_page_memory_vlm_lease(lease)
 
     def chat_completion_with_usage(
         self,
@@ -428,9 +455,10 @@ class OpenAICompatibleClientSync:
                 model_name=effective_model,
             ), _empty_usage()
 
-        # Route through Ali token pool when applicable
-        if self._should_use_ali_pool():
-            try:
+        lease = self._acquire_page_memory_vlm_lease(usage_task=usage_task)
+        try:
+            # Route through Ali token pool when applicable
+            if self._should_use_ali_pool():
                 return self._make_ali_pool_call(
                     model=effective_model,
                     all_messages=all_messages,
@@ -439,25 +467,14 @@ class OpenAICompatibleClientSync:
                     api_kwargs=api_kwargs,
                     usage_task=usage_task,
                 )
-            except LLMServiceException:
-                raise
-            except Exception as exc:
-                logger.error(f"LLM request failed (Ali pool): model={effective_model}, error={exc}")
+
+            # Non-Ali path: use the single pre-configured client
+            client = self._client
+            if client is None:
                 raise LLMServiceException(
-                    internal_message=f"API request failed: {str(exc)}",
+                    internal_message="OpenAI client is not initialized for direct provider requests",
                     provider=self.default_model,
-                    original_exception=exc,
-                ) from exc
-
-        # Non-Ali path: use the single pre-configured client
-        client = self._client
-        if client is None:
-            raise LLMServiceException(
-                internal_message="OpenAI client is not initialized for direct provider requests",
-                provider=self.default_model,
-            )
-
-        try:
+                )
             response = client.chat.completions.create(
                 model=effective_model,
                 messages=all_messages,
@@ -479,11 +496,14 @@ class OpenAICompatibleClientSync:
             return content, usage
         except LLMServiceException:
             raise
+        except UnavailableException:
+            raise
         except Exception as exc:
+            base_url = getattr(self._client, "base_url", None)
             logger.error(
                 "LLM request failed: model={model}, base_url={base_url}, error_chain={error_chain}",
                 model=effective_model,
-                base_url=client.base_url,
+                base_url=base_url,
                 error_chain=_summarize_exception_chain(exc),
             )
             raise LLMServiceException(
@@ -491,6 +511,8 @@ class OpenAICompatibleClientSync:
                 provider=self.default_model,
                 original_exception=exc,
             ) from exc
+        finally:
+            self._release_page_memory_vlm_lease(lease)
 
     def chat_completion(
         self,

@@ -37,6 +37,7 @@ class AgentBlackboard:
     toc_result: TocResult | None = None
     toc_hierarchies: list[dict[str, Any]] | None = None
     h1_result: H1BoundaryResult | None = None
+    toc_page_offset: int | None = None
     shard_plan: ShardPlan | None = None
     validation_report: dict[str, Any] | None = None
     verdict: AgentVerdict | None = None

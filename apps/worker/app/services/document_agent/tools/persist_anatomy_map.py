@@ -21,7 +21,6 @@ def _artifact_dir(ctx: ToolContext) -> Path:
 def build_anatomy_map(ctx: ToolContext) -> PageAnatomyMap:
     if not (
         ctx.blackboard.toc_result
-        and ctx.blackboard.h1_result
         and ctx.blackboard.shard_plan
     ):
         raise ValueError("cannot build anatomy map from incomplete blackboard")
@@ -36,6 +35,7 @@ def build_anatomy_map(ctx: ToolContext) -> PageAnatomyMap:
         shard_plan=ctx.blackboard.shard_plan,
         document_profile=ctx.blackboard.document_profile,
         toc_hierarchies=ctx.blackboard.toc_hierarchies,
+        toc_page_offset=ctx.blackboard.toc_page_offset,
         global_signals=ctx.blackboard.global_signals,
         trace_summary={
             "budget": ctx.budget.snapshot(),

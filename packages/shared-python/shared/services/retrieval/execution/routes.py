@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from loguru import logger
 
+from shared.services.retrieval.agentic.discovery.tools import bottom_discovery
 from shared.services.retrieval.execution.reference_resolver import resolve_workflow_references
 from shared.services.retrieval.hydration.result_assembly import assemble_retrieval_results
 from shared.services.retrieval.execution.response_projection import (
@@ -12,6 +13,7 @@ from shared.services.retrieval.execution.route_types import (
     RetrievalRouteContext,
     RetrievalRouteOutcome,
 )
+from shared.services.retrieval.search.ranking import rank_retrieval_candidates
 from shared.services.retrieval.search.scoped_corpus import (
     count_scoped_chunks,
     load_all_scoped_chunks,
@@ -25,7 +27,10 @@ async def run_retrieval_route(
     if small_corpus_outcome is not None:
         return small_corpus_outcome
 
-    return await _run_agentic_route(context)
+    if context.use_agentic is True:
+        return await _run_agentic_route(context)
+
+    return await _run_classic_topk_route(context)
 
 
 async def _try_run_small_corpus_route(
@@ -86,6 +91,65 @@ async def _try_run_small_corpus_route(
         response=response,
         hit_stats_results=results,
         completion_label="Small corpus",
+        completion_count=len(results),
+        completion_detail="results",
+    )
+
+
+async def _run_classic_topk_route(
+    context: RetrievalRouteContext,
+) -> RetrievalRouteOutcome:
+    discovery_result = await bottom_discovery(
+        context.db,
+        user_id=context.user_id,
+        namespace=context.namespace,
+        query=context.query,
+        top_k=context.effective_recall_k,
+        exclude_document_ids=context.exclude_document_ids,
+        exclude_sections=context.exclude_sections,
+        chunk_types=context.allowed_chunk_types,
+        signal_paths=context.signal_paths,
+        filter_mode=context.filter_mode,
+        channels=context.channels,
+        channel_weights=context.channel_weights,
+        internal_recall_k=context.internal_recall_k,
+    )
+
+    fused_rows = (
+        discovery_result.payload.get("fused_rows", [])
+        if discovery_result.status != "error"
+        else []
+    )
+
+    ranked_rows = await rank_retrieval_candidates(
+        context.db,
+        user_id=context.user_id,
+        namespace=context.namespace,
+        discovery_rows=fused_rows,
+        routed_rows=[],
+        top_k=context.top_k,
+    )
+
+    assembled_rows = await assemble_retrieval_results(
+        db=context.db,
+        rows=ranked_rows,
+        exclude_document_ids=context.exclude_document_ids,
+        exclude_sections=context.exclude_sections,
+        allowed_chunk_types=context.allowed_chunk_types,
+    )
+    results = [attach_citation(row) for row in assembled_rows]
+    response = {
+        "namespace": context.namespace,
+        "query": context.query,
+        "router_used": "classic_topk",
+        "evidence_text": render_legacy_evidence_text(results),
+        "answer_text": "",
+        "results": results,
+    }
+    return RetrievalRouteOutcome(
+        response=response,
+        hit_stats_results=results,
+        completion_label="CLASSIC TOP-K",
         completion_count=len(results),
         completion_detail="results",
     )

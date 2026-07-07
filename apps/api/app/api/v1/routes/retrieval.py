@@ -71,7 +71,7 @@ class RetrievalQueryRequest(BaseModel):
     )
     use_agentic: bool | None = Field(
         None,
-        description="Deprecated mode hint retained for cache/request compatibility; retrieval always uses the agentic workflow.",
+        description="Set to true to enable agentic retrieval (LLM doc-select + navigation). Default (None/false) uses classic 3-channel top-K.",
     )
 
     @field_validator("channels")

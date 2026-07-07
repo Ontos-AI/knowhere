@@ -11,8 +11,10 @@ class PageMemoryConfig:
     """Resolved page-memory defaults used by worker execution."""
 
     max_pages: int = 1500
-    scope_concurrency: int = 4
+    scope_concurrency: int = 5
     tag_concurrency: int = 4
+    title_detection_concurrency: int = 3
+    node_assembly_concurrency: int = 3
     tag_mode: Literal["vlm", "text"] = "vlm"
     fine_min_pages: int = 4
     hierarchy_model: str | None = None
@@ -35,7 +37,26 @@ class PageMemoryConfig:
 
     @classmethod
     def default(cls) -> Self:
-        return cls()
+        from shared.core.config import settings
+
+        return cls(
+            scope_concurrency=_as_int(
+                getattr(settings, "PAGE_MEMORY_SCOPE_CONCURRENCY", 5),
+                5,
+            ),
+            tag_concurrency=_as_int(
+                getattr(settings, "PAGE_MEMORY_TAG_CONCURRENCY", 4),
+                4,
+            ),
+            title_detection_concurrency=_as_int(
+                getattr(settings, "PAGE_MEMORY_TITLE_DETECTION_CONCURRENCY", 3),
+                3,
+            ),
+            node_assembly_concurrency=_as_int(
+                getattr(settings, "PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY", 3),
+                3,
+            ),
+        )
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
@@ -56,6 +77,14 @@ class PageMemoryConfig:
             tag_concurrency=_as_int(
                 value.get("tag_concurrency"),
                 default.tag_concurrency,
+            ),
+            title_detection_concurrency=_as_int(
+                value.get("title_detection_concurrency"),
+                default.title_detection_concurrency,
+            ),
+            node_assembly_concurrency=_as_int(
+                value.get("node_assembly_concurrency"),
+                default.node_assembly_concurrency,
             ),
             tag_mode=resolved_tag_mode,
             fine_min_pages=_as_int(

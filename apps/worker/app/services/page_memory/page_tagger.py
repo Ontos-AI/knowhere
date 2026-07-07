@@ -26,6 +26,7 @@ from app.services.page_memory.page_plan import PagePlan, PageProcessingStrategy
 from app.services.page_memory.page_renderer import PageRenderResult
 from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.summary.engine import summarize
+from shared.core.exceptions.domain_exceptions import UnavailableException
 
 
 @dataclass
@@ -90,6 +91,8 @@ def tag_pages(
     resolved_max_concurrent = max_concurrent or int(
         getattr(settings, "SUMMARY_LLM_MAX_CONCURRENT", 4)
     )
+    if not pages:
+        return []
 
     def _tag_one(page: PageRenderResult) -> PageTagResult:
         plan = plan_map.get(page.page_index)
@@ -112,9 +115,9 @@ def tag_pages(
 
     pool = GeventPool(size=min(resolved_max_concurrent, len(pages)))
     greenlets = [pool.spawn(_tag_one, page) for page in pages]
-    gevent.joinall(greenlets)
+    gevent.joinall(greenlets, raise_error=True)
 
-    results = [g.value for g in greenlets if g.value is not None]
+    results = [cast(PageTagResult, g.value) for g in greenlets]
     vlm_calls = sum(1 for r in results if r.strategy_used == "vlm_lite")
     logger.info(
         "[page_tagger] tagged {} pages ({} VLM calls, {} text_only, {} skipped, {} failed) concurrency={}",
@@ -182,6 +185,8 @@ def _tag_text_only(
             response_format={"type": "json_object"},
             usage_task="page_memory.text_tag",
         )
+    except UnavailableException:
+        raise
     except Exception as exc:
         logger.warning(
             "[page_tagger] text_only LLM failed for page {}: {}",
@@ -262,6 +267,7 @@ def tag_page_titles(
     fat_leaf_pages: set[int],
     budget: Any | None = None,
     vlm_model: str | None = None,
+    max_concurrent: int | None = None,
 ) -> list[PageTagResult]:
     """Run independent VLM title detection on fat-leaf pages.
 
@@ -278,6 +284,8 @@ def tag_page_titles(
         Deprecated, ignored. Kept for call-site compatibility.
     vlm_model:
         VLM model name; falls back to ``$IMAGE_MODEL``.
+    max_concurrent:
+        Maximum concurrent title-detection calls.
 
     Returns
     -------
@@ -294,29 +302,57 @@ def tag_page_titles(
 
     tag_map = {t.page_index: t for t in tag_results}
     page_map = {p.page_index: p for p in pages}
-    vlm_calls = 0
-    titles_found = 0
+    work_items = [
+        (page_idx, page, tag_map[page_idx])
+        for page_idx in sorted(fat_leaf_pages)
+        if (page := page_map.get(page_idx)) is not None
+        and page_idx in tag_map
+        and page.image_path
+        and os.path.exists(page.image_path)
+    ]
+    if not work_items:
+        return tag_results
 
-    for page_idx in sorted(fat_leaf_pages):
-        page = page_map.get(page_idx)
-        tag = tag_map.get(page_idx)
-        if page is None or tag is None:
-            continue
+    from shared.core.config import settings
 
-        # Skip pages without images (text_only / skip)
-        if not page.image_path or not os.path.exists(page.image_path):
-            continue
+    resolved_max_concurrent = max_concurrent or int(
+        getattr(settings, "PAGE_MEMORY_TITLE_DETECTION_CONCURRENCY", 3)
+    )
 
-        observed = _tag_vlm_titles(page, model=model)
+    def _detect_one(
+        page_idx: int,
+        page: PageRenderResult,
+    ) -> tuple[int, list[dict[str, Any]]]:
+        return page_idx, _tag_vlm_titles(page, model=model)
+
+    import gevent
+    from gevent.pool import Pool as GeventPool
+
+    pool = GeventPool(size=min(resolved_max_concurrent, len(work_items)))
+    greenlets = [
+        pool.spawn(_detect_one, page_idx, page)
+        for page_idx, page, _tag in work_items
+    ]
+    gevent.joinall(greenlets, raise_error=True)
+
+    title_pairs = [
+        cast(tuple[int, list[dict[str, Any]]], greenlet.value)
+        for greenlet in greenlets
+    ]
+    titles_by_page: dict[int, list[dict[str, Any]]] = dict(title_pairs)
+    for page_idx, _page, tag in work_items:
+        observed = titles_by_page.get(page_idx, [])
         tag.observed_titles = observed
-        vlm_calls += 1
-        titles_found += len(observed)
+
+    vlm_calls = len(work_items)
+    titles_found = sum(len(titles) for titles in titles_by_page.values())
 
     logger.info(
-        "[page_tagger] title detection: {} VLM calls on {} fat-leaf pages, {} titles found",
+        "[page_tagger] title detection: {} VLM calls on {} fat-leaf pages, {} titles found concurrency={}",
         vlm_calls,
         len(fat_leaf_pages),
         titles_found,
+        resolved_max_concurrent,
     )
     return tag_results
 
@@ -413,6 +449,8 @@ def _tag_vlm_titles(
                 page.page_index,
             )
             return []
+        except UnavailableException:
+            raise
         except Exception as exc:
             logger.warning(
                 "[page_tagger] title VLM failed for page {}: {}",

@@ -273,15 +273,10 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
             {"toc_range": [17, 17], "toc_range_unit": "page", "toc_tree": {}}
         ]
 
-    def fake_h1_boundary() -> None:
-        calls.append("h1")
-        coordinator.blackboard.h1_result = H1BoundaryResult(method="toc_grep")
-
     def fake_persist(_anatomy):
         calls.append("persist")
 
     monkeypatch.setattr(coordinator, "_run_toc_extraction_pipeline", fake_toc_extraction)
-    monkeypatch.setattr(coordinator, "_run_h1_boundary_pipeline", fake_h1_boundary)
     monkeypatch.setattr(coordinator, "_persist_ready_anatomy", fake_persist)
 
     monkeypatch.setattr(
@@ -324,7 +319,7 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
 
     anatomy = coordinator.run_structural()
 
-    assert calls[:2] == ["toc", "h1"]
+    assert calls == ["toc", "persist"]
     assert anatomy.toc_result.toc_pages == [17]
 
 
@@ -369,15 +364,10 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
 
     calls: list[str] = []
 
-    def fake_h1_boundary() -> None:
-        calls.append("h1")
-        coordinator.blackboard.h1_result = H1BoundaryResult(method="none")
-
     def fake_persist(_anatomy):
         calls.append("persist")
 
     monkeypatch.setattr(coordinator, "_run_toc_extraction_pipeline", fake_toc_extraction)
-    monkeypatch.setattr(coordinator, "_run_h1_boundary_pipeline", fake_h1_boundary)
     monkeypatch.setattr(coordinator, "_persist_ready_anatomy", fake_persist)
 
     monkeypatch.setattr(
@@ -420,7 +410,7 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
 
     anatomy = coordinator.run_structural()
 
-    assert calls == ["h1", "persist"]
+    assert calls == ["persist"]
     assert anatomy.toc_result.failure_kind == "rejected_all"
     assert anatomy.toc_result.toc_pages == []
 
@@ -454,15 +444,10 @@ def test_run_coarse_runs_toc_before_planner_for_oversized_and_reuses_planner(
             {"toc_range": [17, 17], "toc_range_unit": "page", "toc_tree": {}}
         ]
 
-    def fake_h1_boundary() -> None:
-        calls.append("h1")
-        coordinator.blackboard.h1_result = H1BoundaryResult(method="toc_grep")
-
     def fake_persist(_anatomy):
         calls.append("persist")
 
     monkeypatch.setattr(coordinator, "_run_toc_extraction_pipeline", fake_toc_extraction)
-    monkeypatch.setattr(coordinator, "_run_h1_boundary_pipeline", fake_h1_boundary)
     monkeypatch.setattr(coordinator, "_persist_ready_anatomy", fake_persist)
 
     def fake_propose(_self):
@@ -510,7 +495,7 @@ def test_run_coarse_runs_toc_before_planner_for_oversized_and_reuses_planner(
     coordinator.run_coarse()
     anatomy = coordinator.run_structural()
 
-    assert calls == ["toc", "planner", "h1", "persist"]
+    assert calls == ["toc", "planner", "persist"]
     assert anatomy.toc_result.toc_pages == [17]
 
 

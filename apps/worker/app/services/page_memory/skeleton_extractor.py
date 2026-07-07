@@ -11,7 +11,6 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from app.services.document_agent.manifest import (
-    H1Candidate,
     PageAnatomyMap,
     ToolContext,
 )
@@ -28,7 +27,6 @@ from app.services.document_agent.structure.hierarchy_locator import (
 )
 from app.services.document_parser.structure.body_boundary import (
     clean_toc_title,
-    normalize_heading_text,
 )
 from loguru import logger
 
@@ -130,16 +128,19 @@ def extract_section_skeletons(
             filename=filename,
         )
         toc_nodes = extract_toc_nodes(toc_hierarchies)
-        nodes = toc_nodes or _h1_nodes(anatomy)
-    if not nodes:
-        return [
-            _root_skeleton(
-                root_path=root_path,
-                filename=filename,
-                page_count=page_count,
-                reason="no_hierarchy",
-            )
-        ]
+        if not toc_nodes:
+            # TODO: explore lightweight hierarchy inference for no-TOC documents
+            # (e.g. heading font-size clustering, visual layout analysis).
+            # For now, no TOC → flat page tagging + asset extraction only.
+            return [
+                _root_skeleton(
+                    root_path=root_path,
+                    filename=filename,
+                    page_count=page_count,
+                    reason="no_toc",
+                )
+            ]
+        nodes = toc_nodes
 
     # Collapse degenerate single-child intermediate chains before locate.
     # Rule: only merge a parent with its only child when that child is NOT a
@@ -463,18 +464,6 @@ def _toc_range_end(hierarchy: dict[str, Any]) -> int | None:
         return int(toc_range[-1])
     except (TypeError, ValueError):
         return None
-
-
-def _h1_nodes(anatomy: Any | None) -> list[TitleNode]:
-    h1_result = getattr(anatomy, "h1_result", None)
-    candidates: list[H1Candidate] = list(getattr(h1_result, "h1_candidates", []) or [])
-    nodes: list[TitleNode] = []
-    for candidate in sorted(candidates, key=lambda item: item.page):
-        title = clean_toc_title(candidate.title) or normalize_heading_text(candidate.title)
-        if not title:
-            continue
-        nodes.append(TitleNode(title=title, level=1, physical_page_hint=candidate.page))
-    return nodes
 
 
 def _body_pages(*, anatomy: Any | None, page_count: int) -> list[int]:
