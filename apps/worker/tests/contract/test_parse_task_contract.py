@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import uuid4
 
+import pandas as pd
 import pytest
 
+from app.services.document_parser.orchestration.parse_output import ParseOutput
 from support.worker_parse_contract import WorkerParseContract
 
 _REPO_ROOT: Path = Path(__file__).resolve().parents[4]
@@ -116,6 +119,108 @@ def test_parse_task_should_process_uploaded_file_through_real_contract_boundarie
     assert manifest_payload["statistics"]["total_chunks"] == len(job_chunks)
 
     assert contract.find_task_workspaces(tmp_path, job["job_id"]) == []
+
+
+def test_parse_task_result_zip_includes_page_citation_assets(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    contract = WorkerParseContract.create()
+    contract.use_workspace_root(monkeypatch, tmp_path)
+    contract.use_billing(monkeypatch, is_enabled=False)
+
+    source_pdf = tmp_path / "page-citation-source.pdf"
+    _write_blank_pdf(source_pdf, page_count=1)
+
+    job = contract.create_file_job(
+        source_file_name=source_pdf.name,
+        job_id_prefix="job_parse_page_citation",
+    )
+    contract.upload_source_file(
+        local_file_path=source_pdf,
+        s3_key=job["s3_key"],
+    )
+
+    def fake_execute_document_parse(
+        *,
+        job_id: str,
+        job_context: object,
+        prepared_source: object,
+        output_dir: str,
+    ) -> ParseOutput:
+        del job_id, job_context, prepared_source
+        output_path = Path(output_dir)
+        page_citation_assets_dir = output_path / "page_citation_assets"
+        page_citation_assets_dir.mkdir(parents=True, exist_ok=True)
+        (page_citation_assets_dir / "page-1.png").write_bytes(b"page image")
+        (page_citation_assets_dir / "page-999.png").write_bytes(
+            b"unreferenced page image"
+        )
+        parsed_df = pd.DataFrame(
+            [
+                {
+                    "know_id": "page-node-1",
+                    "type": "page",
+                    "content": "Page text",
+                    "path": f"{source_pdf.name}/Root/Introduction",
+                    "length": 9,
+                    "keywords": "",
+                    "summary": "Page summary",
+                    "tokens": "",
+                    "connectto": "",
+                    "page_nums": "1",
+                    "extra_metadata": json.dumps(
+                        {
+                            "page_assets": [
+                                {
+                                    "page_num": 1,
+                                    "artifact_ref": "page_citation_assets/page-1.png",
+                                    "content_type": "image/png",
+                                    "source": "knowhere-rendered-page-citation-source",
+                                    "width": 1200,
+                                    "height": 1800,
+                                }
+                            ],
+                        }
+                    ),
+                }
+            ]
+        )
+        return ParseOutput(output_dir=output_dir, parsed_df=parsed_df)
+
+    monkeypatch.setattr(
+        "app.services.document_ingestion.processing_run.execute_document_parse",
+        fake_execute_document_parse,
+    )
+
+    celery_result = contract.enqueue_parse_task(
+        job_id=job["job_id"],
+        user_id=job["user_id"],
+    )
+
+    assert celery_result.successful()
+    assert celery_result.result["status"] == "success"
+
+    observed = contract.observe_successful_job(job["job_id"])
+    result_row = observed["result"]
+    result_zip = contract.read_result_zip(
+        result_s3_key=result_row["result_s3_key"],
+        tmp_path=tmp_path,
+    )
+
+    assert "page_citation_assets/page-1.png" in result_zip["members"]
+    assert "page_citation_assets/page-999.png" not in result_zip["members"]
+    assert result_zip["chunks"]["chunks"][0]["metadata"]["page_assets"] == [
+        {
+            "page_num": 1,
+            "artifact_ref": "page_citation_assets/page-1.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1200,
+            "height": 1800,
+        }
+    ]
 
 
 def test_parse_task_should_charge_user_when_billing_is_enabled(

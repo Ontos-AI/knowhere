@@ -209,6 +209,14 @@ def test_v2_jobs_documents_and_retrieval_routes_are_registered_in_openapi() -> N
     assert any(path.endswith("/v2/jobs/{job_id}") for path in paths)
     assert any(path.endswith("/v2/jobs/{job_id}/confirm-upload") for path in paths)
     assert any(path.endswith("/v2/documents") for path in paths)
+    assert any(
+        path.endswith("/v2/documents/{document_id}/files/page-citation-source")
+        for path in paths
+    )
+    assert not any(
+        path.endswith("/v1/documents/{document_id}/files/page-citation-source")
+        for path in paths
+    )
     assert any(path.endswith("/v2/retrieval/query") for path in paths)
 
 
@@ -219,6 +227,7 @@ def test_v2_jobs_documents_and_retrieval_routes_are_registered_in_openapi() -> N
         "/v2/jobs/job_123",
         "/v2/documents",
         "/v2/documents/doc_123",
+        "/v2/documents/doc_123/files/page-citation-source",
         "/v2/retrieval/query",
     ],
 )

@@ -85,6 +85,34 @@ class AIConfig(BaseModel):
         default=4,
         description="Max concurrent local DOCX image summary VLM calls per parse job.",
     )
+    PAGE_MEMORY_VLM_MAX_INFLIGHT: int = Field(
+        default=16,
+        description="Global Redis-backed in-flight limit for page-memory VLM calls.",
+    )
+    PAGE_MEMORY_VLM_LEASE_TTL_SECONDS: int = Field(
+        default=600,
+        description="Safety TTL for page-memory VLM in-flight leases.",
+    )
+    PAGE_MEMORY_VLM_WAIT_TIMEOUT_SECONDS: int = Field(
+        default=120,
+        description="Max wait before page-memory VLM capacity pressure becomes retryable.",
+    )
+    PAGE_MEMORY_SCOPE_CONCURRENCY: int = Field(
+        default=5,
+        description="Local per-job hierarchy scope concurrency for page-memory.",
+    )
+    PAGE_MEMORY_TAG_CONCURRENCY: int = Field(
+        default=4,
+        description="Local per-job page tagging concurrency for page-memory.",
+    )
+    PAGE_MEMORY_TITLE_DETECTION_CONCURRENCY: int = Field(
+        default=3,
+        description="Local per-job title detection concurrency for page-memory.",
+    )
+    PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY: int = Field(
+        default=3,
+        description="Local per-job node OCR and summary concurrency for page-memory.",
+    )
     TOKEN_PRICING_TABLE_JSON: str = Field(
         default="",
         description=(
