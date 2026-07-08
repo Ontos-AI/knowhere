@@ -527,16 +527,14 @@ def build_prompt(task, texts, query, **kwargs):
 
         # Derive direction wording from scan_direction
         if "right_to_left" in scan_direction:
-            reading_order = "top-to-bottom, right-to-left"
             reading_order_upper = "TOP-TO-BOTTOM, RIGHT-TO-LEFT"
         else:
-            reading_order = "top-to-bottom, left-to-right"
             reading_order_upper = "TOP-TO-BOTTOM, LEFT-TO-RIGHT"
 
         # Build spatial preamble (only when context is provided)
         spatial_preamble = ""
         if coarse_title:
-            spatial_preamble = f"""
+            spatial_preamble = """
         READING ORDER:
         This page may contain one or more readable columns.
         Within each column, read from top to bottom.
