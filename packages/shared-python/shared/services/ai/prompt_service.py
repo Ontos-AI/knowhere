@@ -527,54 +527,52 @@ def build_prompt(task, texts, query, **kwargs):
 
         # Derive direction wording from scan_direction
         if "right_to_left" in scan_direction:
-            after_word = "below it on the page, OR to its left on the same horizontal line"
-            before_word = "above it on the page, OR to its right on the same horizontal line"
             reading_order = "top-to-bottom, right-to-left"
+            reading_order_upper = "TOP-TO-BOTTOM, RIGHT-TO-LEFT"
         else:
-            after_word = "below it on the page, OR to its right on the same horizontal line"
-            before_word = "above it on the page, OR to its left on the same horizontal line"
             reading_order = "top-to-bottom, left-to-right"
+            reading_order_upper = "TOP-TO-BOTTOM, LEFT-TO-RIGHT"
 
         # Build spatial preamble (only when context is provided)
         spatial_preamble = ""
         if coarse_title:
-            spatial_preamble = f"""\
-
-SPATIAL ORIENTATION:
-Imagine this page divided into quadrants: top-left, top-right, bottom-left, bottom-right.
-Reading order for this document: {reading_order}.
-Heading "A" comes BEFORE heading "B" if A appears earlier in reading order.
-"AFTER" means it appears later in reading order.
-"""
+            spatial_preamble = f"""
+        READING ORDER:
+        This page may contain one or more readable columns.
+        Within each column, read from top to bottom.
+        Between columns, read from left to right (i.e. finish the left column before starting the right column).
+        "AFTER X" means: appearing later than X in this reading order.
+        "BEFORE X" means: appearing earlier than X in this reading order.
+        """
 
         # Build boundary blocks
         boundary_blocks = ""
         if coarse_title and is_first_page:
             boundary_blocks += f"""
-═══ SCOPE BOUNDARY — START ═══
-This page contains the parent section heading: "{coarse_title}"
-1. LOCATE "{coarse_title}" on this page — note its position.
-2. ONLY extract headings that appear AFTER "{coarse_title}" in reading order:
-   • {after_word}.
-3. DO NOT extract "{coarse_title}" itself.
-4. DO NOT extract anything positioned before "{coarse_title}" in reading order.
-"""
+        ═══ SCOPE BOUNDARY — START ═══
+        "{coarse_title}" appears on this page.
+        1. LOCATE "{coarse_title}" on this page.
+        2. DO NOT extract "{coarse_title}" itself.
+        3. ONLY extract headings that appear AFTER "{coarse_title}" in reading order.
+        """
         if coarse_title and is_last_page and next_sibling_title:
             boundary_blocks += f"""
-═══ SCOPE BOUNDARY — END ═══
-The next section "{next_sibling_title}" begins somewhere on this page.
-1. LOCATE "{next_sibling_title}" on this page — note its position.
-2. ONLY extract headings that appear BEFORE "{next_sibling_title}" in reading order:
-   • {before_word}.
-3. DO NOT extract "{next_sibling_title}" itself.
-4. DO NOT extract anything positioned after "{next_sibling_title}" in reading order.
-"""
+        ═══ SCOPE BOUNDARY — END ═══
+        "{next_sibling_title}" appears on this page. It is NOT part of the current section.
+        1. LOCATE "{next_sibling_title}" on this page.
+        2. DO NOT extract "{next_sibling_title}" itself.
+        3. DO NOT extract ANY heading that appears AFTER "{next_sibling_title}" in reading order.
+        4. ONLY extract headings that appear BEFORE "{next_sibling_title}" in reading order.
+        """
 
         prompt = f"""\
         You are extracting document-outline-level headings from a PDF page screenshot.
         Your goal is to find ONLY the section headings that structure the document.
         If no text on this page qualifies as a section heading, return an empty list.
-{spatial_preamble}{boundary_blocks}
+        {spatial_preamble}
+        
+        {boundary_blocks}
+        
         Return strict JSON:
         {{
         "titles": [
@@ -613,7 +611,7 @@ The next section "{next_sibling_title}" begins somewhere on this page.
         background color block.
 
         "prominence": 1.0 = most prominent; 0.5 = medium; 0.1 = minor.
-        Return titles in {reading_order.upper()} order. Text must be EXACT verbatim.
+        Return titles in {reading_order_upper} order. Text must be EXACT verbatim.
 
         ═══ WHAT TO EXCLUDE (critical — read carefully) ═══
 
