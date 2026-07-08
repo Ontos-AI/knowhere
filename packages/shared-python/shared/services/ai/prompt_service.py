@@ -516,24 +516,76 @@ def build_prompt(task, texts, query, **kwargs):
     elif task == "page-memory-vlm-title":
         temperature = 0
         top_p = 0.01
-        max_tokens = kwargs.get("paras", {}).get("max_tokens", 300)
-        prompt = """\
-        You are extracting document-outline-level headings from a PDF page screenshot.
-        Your goal is to find ONLY the headings that would appear in a Table of Contents.
-        Most pages will have ZERO such headings — returning an empty list is expected
-        and correct for the majority of pages.
+        paras = kwargs.get("paras", {})
+        max_tokens = paras.get("max_tokens", 300)
 
+        coarse_title = paras.get("coarse_title")
+        is_first_page = paras.get("is_first_page", False)
+        is_last_page = paras.get("is_last_page", False)
+        next_sibling_title = paras.get("next_sibling_title")
+        scan_direction = paras.get("scan_direction", "top_to_bottom_left_to_right")
+
+        # Derive direction wording from scan_direction
+        if "right_to_left" in scan_direction:
+            after_word = "below it on the page, OR to its left on the same horizontal line"
+            before_word = "above it on the page, OR to its right on the same horizontal line"
+            reading_order = "top-to-bottom, right-to-left"
+        else:
+            after_word = "below it on the page, OR to its right on the same horizontal line"
+            before_word = "above it on the page, OR to its left on the same horizontal line"
+            reading_order = "top-to-bottom, left-to-right"
+
+        # Build spatial preamble (only when context is provided)
+        spatial_preamble = ""
+        if coarse_title:
+            spatial_preamble = f"""\
+
+SPATIAL ORIENTATION:
+Imagine this page divided into quadrants: top-left, top-right, bottom-left, bottom-right.
+Reading order for this document: {reading_order}.
+Heading "A" comes BEFORE heading "B" if A appears earlier in reading order.
+"AFTER" means it appears later in reading order.
+"""
+
+        # Build boundary blocks
+        boundary_blocks = ""
+        if coarse_title and is_first_page:
+            boundary_blocks += f"""
+═══ SCOPE BOUNDARY — START ═══
+This page contains the parent section heading: "{coarse_title}"
+1. LOCATE "{coarse_title}" on this page — note its position.
+2. ONLY extract headings that appear AFTER "{coarse_title}" in reading order:
+   • {after_word}.
+3. DO NOT extract "{coarse_title}" itself.
+4. DO NOT extract anything positioned before "{coarse_title}" in reading order.
+"""
+        if coarse_title and is_last_page and next_sibling_title:
+            boundary_blocks += f"""
+═══ SCOPE BOUNDARY — END ═══
+The next section "{next_sibling_title}" begins somewhere on this page.
+1. LOCATE "{next_sibling_title}" on this page — note its position.
+2. ONLY extract headings that appear BEFORE "{next_sibling_title}" in reading order:
+   • {before_word}.
+3. DO NOT extract "{next_sibling_title}" itself.
+4. DO NOT extract anything positioned after "{next_sibling_title}" in reading order.
+"""
+
+        prompt = f"""\
+        You are extracting document-outline-level headings from a PDF page screenshot.
+        Your goal is to find ONLY the section headings that structure the document.
+        If no text on this page qualifies as a section heading, return an empty list.
+{spatial_preamble}{boundary_blocks}
         Return strict JSON:
-        {
+        {{
         "titles": [
-            {
+            {{
             "text": "<exact verbatim heading>",
             "prominence": <0.0-1.0>,
             "is_in_table": <boolean>,
             "is_in_header_footer": <boolean>
-            }
+            }}
         ]
-        }
+        }}
 
         ═══ MANDATORY BOOLEAN FLAGS (CRITICAL) ═══
         For EVERY extracted heading, you MUST accurately evaluate these two flags:
@@ -557,10 +609,11 @@ def build_prompt(task, texts, query, **kwargs):
 
         3. VISUAL DISTINCTION (supporting):
         The text is visually set apart from body text — larger font, bold,
-        centered, or has extra vertical spacing.
+        centered, extra vertical spacing, or wrapped in a distinctive
+        background color block.
 
         "prominence": 1.0 = most prominent; 0.5 = medium; 0.1 = minor.
-        Return titles in TOP-TO-BOTTOM order. Text must be EXACT verbatim.
+        Return titles in {reading_order.upper()} order. Text must be EXACT verbatim.
 
         ═══ WHAT TO EXCLUDE (critical — read carefully) ═══
 
@@ -576,8 +629,8 @@ def build_prompt(task, texts, query, **kwargs):
         organization/document names repeated as running headers, page numbers,
         book/volume titles used as running headers or footers.
 
-        3. BODY TEXT — Numbered clauses, list items, paragraphs, or running
-        prose, even if bold or indented.
+        3. INLINE TEXT — bullet list items, numbered clauses, or text that continues a paragraph. 
+        These are content items, not section headings, even if bold.
 
         4. CAPTIONS — Figure/table captions, footnotes.
 
@@ -586,9 +639,9 @@ def build_prompt(task, texts, query, **kwargs):
         with page numbers — those entries are references, not headings.
 
         ═══ IMPORTANT ═══
-        Many pages consist entirely of tables, body text, or appendix forms.
-        These pages have NO qualifying headings. Return {"titles": []} for them.
-        Do NOT force-extract table labels or body text as headings.
+        Many pages consist entirely of tables, numbered clauses, or appendix forms.
+        These pages have NO qualifying headings. Return {{"titles": []}} for them.
+        Do NOT force-extract table labels or numbered items as headings.
 
         Return ONLY the JSON object, no markdown fences.
         """

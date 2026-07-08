@@ -649,6 +649,8 @@ def _run_hierarchy_scope(
                 fat_leaf_pages=fat_leaf_pages,
                 budget=None,
                 vlm_model=vlm_model,
+                coarse_skeletons=scope_skeletons,
+                scan_direction=page_memory_config.scan_direction,
             )
         _record_trace_stage(
             trace_recorder,

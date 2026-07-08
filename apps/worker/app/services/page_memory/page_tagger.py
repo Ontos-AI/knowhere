@@ -48,6 +48,17 @@ class PageTagResult:
 
 
 _MAX_JSON_RETRIES = 1
+
+
+@dataclass
+class PageTitleContext:
+    """Spatial context for position-aware VLM title detection."""
+
+    coarse_title: str
+    is_first_page: bool
+    is_last_page: bool
+    next_sibling_title: str | None = None
+    scan_direction: str = "top_to_bottom_left_to_right"
 _DEFAULT_FINE_MIN_PAGES = 4
 
 
@@ -262,6 +273,8 @@ def tag_page_titles(
     fat_leaf_pages: set[int],
     budget: Any | None = None,
     vlm_model: str | None = None,
+    coarse_skeletons: list[Any] | None = None,
+    scan_direction: str = "top_to_bottom_left_to_right",
 ) -> list[PageTagResult]:
     """Run independent VLM title detection on fat-leaf pages.
 
@@ -278,6 +291,11 @@ def tag_page_titles(
         Deprecated, ignored. Kept for call-site compatibility.
     vlm_model:
         VLM model name; falls back to ``$IMAGE_MODEL``.
+    coarse_skeletons:
+        Sorted list of coarse skeletons for this scope. When provided,
+        enables position-aware spatial constraints on first/last pages.
+    scan_direction:
+        Reading direction for boundary constraint wording.
 
     Returns
     -------
@@ -291,6 +309,12 @@ def tag_page_titles(
     if not model:
         logger.warning("[page_tagger] no VLM model for title detection; skipping")
         return tag_results
+
+    ctx_map: dict[int, PageTitleContext] = {}
+    if coarse_skeletons:
+        ctx_map = _build_page_title_context_map(
+            coarse_skeletons, fat_leaf_pages, scan_direction,
+        )
 
     tag_map = {t.page_index: t for t in tag_results}
     page_map = {p.page_index: p for p in pages}
@@ -307,7 +331,9 @@ def tag_page_titles(
         if not page.image_path or not os.path.exists(page.image_path):
             continue
 
-        observed = _tag_vlm_titles(page, model=model)
+        observed = _tag_vlm_titles(
+            page, model=model, title_ctx=ctx_map.get(page_idx),
+        )
         tag.observed_titles = observed
         vlm_calls += 1
         titles_found += len(observed)
@@ -321,17 +347,63 @@ def tag_page_titles(
     return tag_results
 
 
+def _build_page_title_context_map(
+    coarse_skeletons: list[Any],
+    fat_leaf_pages: set[int],
+    scan_direction: str,
+) -> dict[int, PageTitleContext]:
+    """Map each fat-leaf page to its spatial position context."""
+    ctx_map: dict[int, PageTitleContext] = {}
+    for idx, skel in enumerate(coarse_skeletons):
+        exclusive_end = _title_exclusive_end(coarse_skeletons, idx)
+        next_title = (
+            coarse_skeletons[idx + 1].title
+            if idx + 1 < len(coarse_skeletons)
+            else None
+        )
+        for page in range(skel.start_page, exclusive_end + 1):
+            if page not in fat_leaf_pages:
+                continue
+            ctx_map[page] = PageTitleContext(
+                coarse_title=skel.title,
+                is_first_page=(page == skel.start_page),
+                is_last_page=(page == exclusive_end),
+                next_sibling_title=next_title,
+                scan_direction=scan_direction,
+            )
+    return ctx_map
+
+
+def _title_exclusive_end(skeletons: list[Any], index: int) -> int:
+    """Last page owned by a skeleton before the next sibling starts."""
+    skeleton = skeletons[index]
+    later_starts = [
+        skel.start_page for skel in skeletons if skel.start_page > skeleton.start_page
+    ]
+    if not later_starts:
+        return skeleton.end_page
+    return min(skeleton.end_page, min(later_starts) - 1)
+
+
 def _tag_vlm_titles(
     page: PageRenderResult,
     *,
     model: str,
+    title_ctx: PageTitleContext | None = None,
 ) -> list[dict[str, Any]]:
     """Send page PNG to VLM with the title-only prompt and parse results."""
+    paras: dict[str, Any] = {"max_tokens": 300}
+    if title_ctx is not None:
+        paras["coarse_title"] = title_ctx.coarse_title
+        paras["is_first_page"] = title_ctx.is_first_page
+        paras["is_last_page"] = title_ctx.is_last_page
+        paras["next_sibling_title"] = title_ctx.next_sibling_title
+        paras["scan_direction"] = title_ctx.scan_direction
     prompt, temperature, _top_p, max_tokens = build_prompt(
         "page-memory-vlm-title",
         "",
         "",
-        paras={"max_tokens": 300},
+        paras=paras,
     )
 
     try:
