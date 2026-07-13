@@ -34,7 +34,6 @@ CLIENT_NAMES = frozenset(
     {
         "cli",
         "node-sdk",
-        "dashboard",
         "notebook",
         "mcp",
         "api",
