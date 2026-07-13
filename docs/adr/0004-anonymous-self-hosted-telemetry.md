@@ -40,20 +40,20 @@ events (cardinality); app version stays on base properties only.
 
 ### Event catalog
 
-Keep the existing eight event names and add two:
+Event names use the `oss_` prefix (not `self_hosted_`). Catalog:
 
 | Event | Role |
 | --- | --- |
-| `self_hosted_instance_started` | Install boot |
-| `self_hosted_instance_heartbeat` | Periodic liveness + health |
-| `self_hosted_instance_shutdown` | Graceful stop (includes base props) |
-| `self_hosted_usage_aggregate` | Fleet usage snapshot (24h window) |
-| `self_hosted_retrieval_aggregate` | Retrieval activity |
-| `self_hosted_worker_aggregate` | Worker backlog / completion |
-| `self_hosted_api_aggregate` | In-process API request counters |
-| `self_hosted_provider_aggregate` | Parse/retrieval provider activity |
-| `self_hosted_document_type_aggregate` | Per allowlisted document type |
-| `self_hosted_client_aggregate` | Per allowlisted created_by_client |
+| `oss_instance_started` | Install boot |
+| `oss_instance_heartbeat` | Periodic liveness + health |
+| `oss_instance_shutdown` | Graceful stop (includes base props) |
+| `oss_usage_aggregate` | Fleet usage snapshot (24h window) |
+| `oss_retrieval_aggregate` | Retrieval activity |
+| `oss_worker_aggregate` | Worker backlog / completion |
+| `oss_api_aggregate` | In-process API request counters |
+| `oss_provider_aggregate` | Parse/retrieval provider activity |
+| `oss_document_type_aggregate` | Per allowlisted document type |
+| `oss_client_aggregate` | Per allowlisted created_by_client |
 
 ### Allowlists
 

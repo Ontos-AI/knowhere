@@ -145,7 +145,7 @@ async def collect_self_hosted_aggregate_event_captures(
     """Collect aggregate captures without including customer content."""
     captures: list[tuple[str, TelemetryProperties]] = [
         (
-            "self_hosted_api_aggregate",
+            "oss_api_aggregate",
             _collect_api_aggregate(
                 config,
                 api_metrics.snapshot_and_reset(),
@@ -160,13 +160,13 @@ async def collect_self_hosted_aggregate_event_captures(
         try:
             captures.append(
                 (
-                    "self_hosted_usage_aggregate",
+                    "oss_usage_aggregate",
                     await _collect_usage_aggregate(session, config, window_seconds),
                 )
             )
             captures.append(
                 (
-                    "self_hosted_retrieval_aggregate",
+                    "oss_retrieval_aggregate",
                     await _collect_retrieval_aggregate(
                         session,
                         config,
@@ -176,13 +176,13 @@ async def collect_self_hosted_aggregate_event_captures(
             )
             captures.append(
                 (
-                    "self_hosted_worker_aggregate",
+                    "oss_worker_aggregate",
                     await _collect_worker_aggregate(session, config, window_seconds),
                 )
             )
             captures.append(
                 (
-                    "self_hosted_provider_aggregate",
+                    "oss_provider_aggregate",
                     await _collect_provider_aggregate(session, config, window_seconds),
                 )
             )
@@ -191,13 +191,13 @@ async def collect_self_hosted_aggregate_event_captures(
                 config,
                 window_seconds,
             ):
-                captures.append(("self_hosted_document_type_aggregate", properties))
+                captures.append(("oss_document_type_aggregate", properties))
             for properties in await _collect_client_aggregates(
                 session,
                 config,
                 window_seconds,
             ):
-                captures.append(("self_hosted_client_aggregate", properties))
+                captures.append(("oss_client_aggregate", properties))
             return captures
         finally:
             await _release_aggregate_advisory_lock(session)
@@ -224,8 +224,8 @@ async def collect_self_hosted_aggregate_event_properties(
         # Keep first capture for singleton events; multi-row events are omitted
         # from this dict helper (use collect_self_hosted_aggregate_event_captures).
         if event_name in {
-            "self_hosted_document_type_aggregate",
-            "self_hosted_client_aggregate",
+            "oss_document_type_aggregate",
+            "oss_client_aggregate",
         }:
             continue
         event_properties[event_name] = properties

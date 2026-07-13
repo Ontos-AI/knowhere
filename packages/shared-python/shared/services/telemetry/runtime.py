@@ -66,7 +66,7 @@ class SelfHostedHeartbeatTelemetryRunner:
         redis_healthy = await _run_health_probe(self._redis_probe, default=False)
         uptime_seconds = time.monotonic() - self._started_at_monotonic
         self._telemetry_client.capture(
-            "self_hosted_instance_heartbeat",
+            "oss_instance_heartbeat",
             build_instance_event_properties(
                 self._config,
                 api_standalone_mode_enabled=self._settings.API_STANDALONE_MODE_ENABLED,
@@ -145,9 +145,9 @@ async def start_self_hosted_telemetry(
         api_standalone_mode_enabled=settings.API_STANDALONE_MODE_ENABLED,
         billing_enabled=settings.BILLING_ENABLED,
     )
-    telemetry_client.capture("self_hosted_instance_started", base_properties)
+    telemetry_client.capture("oss_instance_started", base_properties)
     telemetry_client.capture(
-        "self_hosted_instance_heartbeat",
+        "oss_instance_heartbeat",
         build_instance_event_properties(
             config,
             api_standalone_mode_enabled=settings.API_STANDALONE_MODE_ENABLED,
@@ -216,7 +216,7 @@ async def stop_self_hosted_telemetry(
     shutdown_properties = (
         build_base_event_properties(config) if config is not None else {}
     )
-    telemetry_client.capture("self_hosted_instance_shutdown", shutdown_properties)
+    telemetry_client.capture("oss_instance_shutdown", shutdown_properties)
     await telemetry_client.stop()
 
 

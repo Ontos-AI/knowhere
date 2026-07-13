@@ -89,8 +89,8 @@ _POSTHOG_SDK_PROPERTY_NAMES = frozenset(
 )
 
 _EVENT_PROPERTY_NAMES: dict[str, frozenset[str]] = {
-    "self_hosted_instance_started": frozenset(),
-    "self_hosted_instance_heartbeat": frozenset(
+    "oss_instance_started": frozenset(),
+    "oss_instance_heartbeat": frozenset(
         {
             "api_healthy",
             "postgres_healthy",
@@ -98,8 +98,8 @@ _EVENT_PROPERTY_NAMES: dict[str, frozenset[str]] = {
             "uptime_bucket",
         }
     ),
-    "self_hosted_instance_shutdown": frozenset(),
-    "self_hosted_usage_aggregate": _AGGREGATE_PROPERTY_NAMES
+    "oss_instance_shutdown": frozenset(),
+    "oss_usage_aggregate": _AGGREGATE_PROPERTY_NAMES
     | frozenset(
         {
             "active_api_keys",
@@ -126,7 +126,7 @@ _EVENT_PROPERTY_NAMES: dict[str, frozenset[str]] = {
             "total_users",
         }
     ),
-    "self_hosted_retrieval_aggregate": _AGGREGATE_PROPERTY_NAMES
+    "oss_retrieval_aggregate": _AGGREGATE_PROPERTY_NAMES
     | frozenset(
         {
             "retrieval_cache_hits_24h",
@@ -140,7 +140,7 @@ _EVENT_PROPERTY_NAMES: dict[str, frozenset[str]] = {
             "retrieval_tokens_24h",
         }
     ),
-    "self_hosted_worker_aggregate": _AGGREGATE_PROPERTY_NAMES
+    "oss_worker_aggregate": _AGGREGATE_PROPERTY_NAMES
     | frozenset(
         {
             "job_duration_avg_seconds_24h",
@@ -152,7 +152,7 @@ _EVENT_PROPERTY_NAMES: dict[str, frozenset[str]] = {
             "jobs_waiting_file",
         }
     ),
-    "self_hosted_api_aggregate": _AGGREGATE_PROPERTY_NAMES
+    "oss_api_aggregate": _AGGREGATE_PROPERTY_NAMES
     | frozenset(
         {
             "api_latency_avg_ms",
@@ -164,7 +164,7 @@ _EVENT_PROPERTY_NAMES: dict[str, frozenset[str]] = {
             "api_requests_total",
         }
     ),
-    "self_hosted_provider_aggregate": _AGGREGATE_PROPERTY_NAMES
+    "oss_provider_aggregate": _AGGREGATE_PROPERTY_NAMES
     | frozenset(
         {
             "parse_agent_errors_24h",
@@ -179,7 +179,7 @@ _EVENT_PROPERTY_NAMES: dict[str, frozenset[str]] = {
             "webhook_delivery_failures_24h",
         }
     ),
-    "self_hosted_document_type_aggregate": _AGGREGATE_PROPERTY_NAMES
+    "oss_document_type_aggregate": _AGGREGATE_PROPERTY_NAMES
     | frozenset(
         {
             "document_type",
@@ -190,7 +190,7 @@ _EVENT_PROPERTY_NAMES: dict[str, frozenset[str]] = {
             "success_rate_24h",
         }
     ),
-    "self_hosted_client_aggregate": _AGGREGATE_PROPERTY_NAMES
+    "oss_client_aggregate": _AGGREGATE_PROPERTY_NAMES
     | frozenset(
         {
             "created_by_client",
