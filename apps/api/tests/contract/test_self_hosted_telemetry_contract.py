@@ -17,7 +17,7 @@ from shared.core.config.base import (
     BaseConfig,
 )
 from shared.services.telemetry.client import TelemetryClient
-from shared.services.telemetry.config import TelemetryRuntimeConfig
+from shared.services.telemetry.config import SCHEMA_VERSION, TelemetryRuntimeConfig
 from shared.services.telemetry.api_metrics import ApiRequestTelemetryMetrics
 from shared.services.telemetry.aggregates import (
     TelemetryAggregateSettings,
@@ -26,7 +26,6 @@ from shared.services.telemetry.aggregates import (
     stop_self_hosted_aggregate_telemetry,
 )
 from shared.services.telemetry.events import (
-    SCHEMA_VERSION,
     build_base_event_properties,
     compute_success_rate,
     count_to_bucket,
