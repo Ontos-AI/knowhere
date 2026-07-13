@@ -60,7 +60,8 @@ Event names use the `oss_` prefix (not `self_hosted_`). Catalog:
 - `document_type`: `pdf|docx|doc|xlsx|xls|pptx|ppt|csv|txt|md|html|image|other`
   - Extension from `job_metadata->>'source_file_name'` only; map
     `png|jpg|jpeg|gif|webp|tiff` → `image`; everything else → `other`
-- `created_by_client`: `cli|node-sdk|dashboard|notebook|mcp|api|other`
+- `created_by_client`: `cli|node-sdk|notebook|mcp|api|other`
+  - No `dashboard` client: the web dashboard does not create parse jobs.
   - From `job_metadata #>> '{document_metadata,created_by_client}'`
 - `source_type`: `file|url|other`
 
