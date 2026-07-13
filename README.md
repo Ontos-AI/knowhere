@@ -244,6 +244,24 @@ make check
 
 - External dependency guide:
   [docs/external-services.md](docs/external-services.md)
+- Architecture decisions:
+  [docs/adr/README.md](docs/adr/README.md)
+
+## Telemetry
+
+Self-hosted Knowhere emits **anonymous** product telemetry to PostHog so Ontos
+operators can understand OSS adoption (install liveness, usage aggregates,
+client/document mix). Events never include filenames, prompts, emails, IPs, or
+geo. Schema and allowlists are locked in
+[ADR-0004](docs/adr/0004-anonymous-self-hosted-telemetry.md).
+
+Telemetry is **default-on**. To opt out, set:
+
+```bash
+TELEMETRY_ENABLED=false
+```
+
+Related settings live in `apps/api/.env.example` under `TELEMETRY_*`.
 
 ## Citation
 

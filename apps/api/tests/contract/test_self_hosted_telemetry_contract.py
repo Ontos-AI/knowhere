@@ -26,11 +26,22 @@ from shared.services.telemetry.aggregates import (
     stop_self_hosted_aggregate_telemetry,
 )
 from shared.services.telemetry.events import (
+    SCHEMA_VERSION,
+    build_base_event_properties,
+    compute_success_rate,
+    count_to_bucket,
     get_allowed_telemetry_event_names,
+    normalize_client_name,
+    normalize_document_type,
+    normalize_source_type,
     sanitize_event_properties,
+    uptime_seconds_to_bucket,
 )
 from shared.services.telemetry.identity import get_or_create_installation_id
-
+from shared.services.telemetry.runtime import (
+    SelfHostedHeartbeatTelemetryRunner,
+    stop_self_hosted_telemetry,
+)
 
 def test_installation_id_is_generated_once(tmp_path: Path) -> None:
     installation_id_path = tmp_path / "telemetry-installation-id"
@@ -99,7 +110,173 @@ def test_aggregate_event_names_are_allowed() -> None:
         "self_hosted_worker_aggregate",
         "self_hosted_api_aggregate",
         "self_hosted_provider_aggregate",
+        "self_hosted_document_type_aggregate",
+        "self_hosted_client_aggregate",
     }.issubset(get_allowed_telemetry_event_names())
+
+
+def test_normalize_document_type_and_client_name() -> None:
+    assert normalize_document_type("report.PDF") == "pdf"
+    assert normalize_document_type("photo.jpeg") == "image"
+    assert normalize_document_type("notes.htm") == "html"
+    assert normalize_document_type("secret.xyz") == "other"
+    assert normalize_document_type(None) == "other"
+    assert normalize_client_name("node-sdk") == "node-sdk"
+    assert normalize_client_name("CLI") == "cli"
+    assert normalize_client_name("custom-bot") == "other"
+    assert normalize_source_type("direct_upload") == "file"
+    assert normalize_source_type("url") == "url"
+    assert normalize_source_type("demo") == "other"
+
+
+def test_success_rate_and_count_buckets() -> None:
+    assert compute_success_rate(9, 1) == 0.9
+    assert compute_success_rate(0, 0) == 0.0
+    assert count_to_bucket(0) == "0"
+    assert count_to_bucket(7) == "1-10"
+    assert count_to_bucket(50) == "11-100"
+    assert count_to_bucket(101) == "100+"
+    assert uptime_seconds_to_bucket(30) == "0m-5m"
+    assert uptime_seconds_to_bucket(3600) == "1h-24h"
+
+
+def test_usage_and_document_type_properties_strip_sensitive_values() -> None:
+    usage_properties = sanitize_event_properties(
+        "self_hosted_usage_aggregate",
+        {
+            "app_version": "1.2.3",
+            "window_seconds": 86_400,
+            "success_rate_24h": 0.9,
+            "source_file_jobs_24h": 2,
+            "email": "user@example.com",
+            "document_name": "private.pdf",
+            "source_file_name": "private.pdf",
+        },
+    )
+    document_type_properties = sanitize_event_properties(
+        "self_hosted_document_type_aggregate",
+        {
+            "document_type": "pdf",
+            "jobs_created_24h": 1,
+            "source_file_name": "private.pdf",
+            "email": "user@example.com",
+        },
+    )
+    client_properties = sanitize_event_properties(
+        "self_hosted_client_aggregate",
+        {
+            "created_by_client": "cli",
+            "jobs_created_24h": 1,
+            "client_version": "9.9.9",
+            "email": "user@example.com",
+        },
+    )
+
+    assert usage_properties == {
+        "app_version": "1.2.3",
+        "window_seconds": 86_400,
+        "success_rate_24h": 0.9,
+        "source_file_jobs_24h": 2,
+    }
+    assert document_type_properties == {
+        "document_type": "pdf",
+        "jobs_created_24h": 1,
+    }
+    assert client_properties == {
+        "created_by_client": "cli",
+        "jobs_created_24h": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_emit_once_includes_health_and_uptime(
+    tmp_path: Path,
+) -> None:
+    posthog_client = _FakePostHogClient()
+    config = _build_config(tmp_path)
+    telemetry_client = TelemetryClient(config, posthog_client=posthog_client)
+    await telemetry_client.start()
+
+    async def postgres_probe() -> bool:
+        return True
+
+    async def redis_probe() -> bool:
+        return False
+
+    runner = SelfHostedHeartbeatTelemetryRunner(
+        config=config,
+        telemetry_client=telemetry_client,
+        settings=_HeartbeatSettings(),
+        interval_seconds=60,
+        started_at_monotonic=0.0,
+        postgres_probe=postgres_probe,
+        redis_probe=redis_probe,
+    )
+    await runner.emit_once()
+    await telemetry_client.stop()
+
+    assert len(posthog_client.captured_events) == 1
+    captured = posthog_client.captured_events[0]
+    assert captured.event_name == "self_hosted_instance_heartbeat"
+    properties = cast(dict[str, object], captured.kwargs["properties"])
+    assert properties["api_healthy"] is True
+    assert properties["postgres_healthy"] is True
+    assert properties["redis_healthy"] is False
+    assert properties["uptime_bucket"] in {
+        "0m-5m",
+        "5m-1h",
+        "1h-24h",
+        "24h-7d",
+        "7d+",
+    }
+    assert properties["schema_version"] == SCHEMA_VERSION
+
+
+@pytest.mark.asyncio
+async def test_shutdown_includes_base_event_properties(tmp_path: Path) -> None:
+    posthog_client = _FakePostHogClient()
+    config = _build_config(tmp_path)
+    telemetry_client = TelemetryClient(config, posthog_client=posthog_client)
+    await telemetry_client.start()
+
+    await stop_self_hosted_telemetry(telemetry_client, config=config)
+
+    assert len(posthog_client.captured_events) == 1
+    captured = posthog_client.captured_events[0]
+    assert captured.event_name == "self_hosted_instance_shutdown"
+    assert captured.kwargs["properties"] == {
+        **build_base_event_properties(config),
+        "$process_person_profile": False,
+    }
+
+
+def test_usage_aggregate_allowlist_includes_v2_keys() -> None:
+    properties = sanitize_event_properties(
+        "self_hosted_usage_aggregate",
+        {
+            "success_rate_24h": 1.0,
+            "job_duration_p95_seconds_24h": 12.5,
+            "has_webhooks_24h": True,
+            "has_retrieval_24h": False,
+            "jobs_created_bucket": "1-10",
+            "pages_processed_bucket": "0",
+            "source_file_jobs_24h": 1,
+            "source_url_jobs_24h": 0,
+            "source_other_jobs_24h": 0,
+            "filename": "secret.pdf",
+        },
+    )
+    assert set(properties) == {
+        "success_rate_24h",
+        "job_duration_p95_seconds_24h",
+        "has_webhooks_24h",
+        "has_retrieval_24h",
+        "jobs_created_bucket",
+        "pages_processed_bucket",
+        "source_file_jobs_24h",
+        "source_url_jobs_24h",
+        "source_other_jobs_24h",
+    }
 
 
 def test_self_hosted_telemetry_defaults_to_enabled(
@@ -428,6 +605,13 @@ class _AggregateSettings:
     TELEMETRY_AGGREGATE_INTERVAL_SECONDS: int = 60
 
 
+@dataclass(frozen=True)
+class _HeartbeatSettings:
+    API_STANDALONE_MODE_ENABLED: bool = False
+    BILLING_ENABLED: bool = False
+    TELEMETRY_AGGREGATE_INTERVAL_SECONDS: int = 60
+
+
 class _FailingSessionContext(AbstractAsyncContextManager[AsyncSession]):
     async def __aenter__(self) -> AsyncSession:
         raise RuntimeError("database unavailable")
@@ -517,4 +701,5 @@ def _build_config(
         environment="production",
         app_env="production",
         service_name="knowhere-api",
+        schema_version=SCHEMA_VERSION,
     )
