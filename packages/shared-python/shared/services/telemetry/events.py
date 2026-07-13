@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import TypeAlias, cast
 
-from .config import SCHEMA_VERSION, TelemetryRuntimeConfig
+from .config import TelemetryRuntimeConfig
 
 TelemetryPropertyValue: TypeAlias = str | int | float | bool | None
 TelemetryProperties: TypeAlias = dict[str, TelemetryPropertyValue]
