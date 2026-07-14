@@ -625,7 +625,8 @@ def _resolve_working_java() -> Path | None:
     candidates: list[Path] = []
     java_home = os.environ.get("JAVA_HOME")
     if java_home:
-        candidates.append(Path(java_home) / "bin" / "java")
+        java_executable = "java.exe" if os.name == "nt" else "java"
+        candidates.append(Path(java_home) / "bin" / java_executable)
 
     which_java = shutil.which("java")
     if which_java:

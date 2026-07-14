@@ -161,14 +161,22 @@ def test_page_assets_adds_java_home_to_path(monkeypatch, tmp_path) -> None:
     java_home = tmp_path / "jdk"
     java_bin = java_home / "bin"
     java_bin.mkdir(parents=True)
-    java = java_bin / "java"
-    java.write_text(
-        "#!/bin/sh\n"
-        "echo 'openjdk version \"25.0.2\"' >&2\n"
-        "exit 0\n",
-        encoding="utf-8",
-    )
-    java.chmod(0o755)
+    java = java_bin / ("java.exe" if os.name == "nt" else "java")
+    if os.name == "nt":
+        java.touch()
+        monkeypatch.setattr(
+            page_assets,
+            "_java_version_ok",
+            lambda candidate: candidate == java,
+        )
+    else:
+        java.write_text(
+            "#!/bin/sh\n"
+            "echo 'openjdk version \"25.0.2\"' >&2\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        java.chmod(0o755)
 
     monkeypatch.setenv("JAVA_HOME", str(java_home))
     monkeypatch.setenv("PATH", os.defpath)

@@ -13,7 +13,12 @@ from celery import Celery
 from pytest import MonkeyPatch
 from shared.testing import contract_runtime
 from shared.testing.contract_runtime import PostgreSQLProcess
-from shared.testing.postgresql_environment import find_executable
+from shared.testing.postgresql_environment import (
+    configure_pytest_postgresql_for_current_platform,
+    find_executable,
+)
+
+configure_pytest_postgresql_for_current_platform()
 
 _REPO_ROOT: Path = Path(__file__).resolve().parents[4]
 _WORKER_ROOT: Path = _REPO_ROOT / "apps" / "worker"

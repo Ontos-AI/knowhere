@@ -22,7 +22,12 @@ from shared.testing.contract_runtime import (
     prepare_contract_storage,
     seed_contract_developer,
 )
-from shared.testing.postgresql_environment import find_executable
+from shared.testing.postgresql_environment import (
+    configure_pytest_postgresql_for_current_platform,
+    find_executable,
+)
+
+configure_pytest_postgresql_for_current_platform()
 
 configure_import_environment()
 ensure_import_paths()

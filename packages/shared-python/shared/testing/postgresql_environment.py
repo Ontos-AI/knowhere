@@ -1,8 +1,48 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
+
+
+def configure_pytest_postgresql_for_current_platform() -> None:
+    """Remove POSIX-only quoting from pytest-postgresql on Windows."""
+    if os.name != "nt":
+        return
+
+    from pytest_postgresql.executor import PostgreSQLExecutor
+
+    executor_type: Any = PostgreSQLExecutor
+    executor_type.BASE_PROC_START_COMMAND = (
+        '{executable} start -D "{datadir}" '
+        '-o "-F -p {port} -c log_destination=stderr '
+        '-c logging_collector=off {postgres_options}" '
+        '-l "{logfile}" {startparams}'
+    )
+
+    def _stop_on_windows(
+        executor: Any,
+        _signal: int | None = None,
+        _expected_signal: int | None = None,
+    ) -> Any:
+        subprocess.check_output(
+            [
+                executor.executable,
+                "stop",
+                "-D",
+                executor.datadir,
+                "-m",
+                "f",
+            ]
+        )
+        if executor.process is not None:
+            executor.process.wait(timeout=10)
+            executor._clear_process()
+        return executor
+
+    executor_type.stop = _stop_on_windows
 
 
 def _get_common_postgresql_bin_directories() -> tuple[Path, ...]:
