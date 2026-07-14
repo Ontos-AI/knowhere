@@ -328,6 +328,24 @@ git commit -m "docs: record local provider validation results"
 - Generated review packages, smoke output, coverage, pytest cache, and the
   generated MinerU `uv.lock` were removed. No offline firewall rules remained.
 
+## Deferred Backlog
+
+### BL-001: Elevated Windows Firewall isolation attestation
+
+- **Status:** Deferred; does not block the local provider implementation or
+  application-offline validation.
+- **Owner:** Operator (manual execution by the user).
+- **Reason:** The current Windows token is not elevated. The verifier correctly
+  exited before creating rules or an attestation.
+- **Prerequisite:** Open an elevated Windows terminal with access to the exact
+  `uv.exe` and MinerU `.venv\Scripts\python.exe` paths.
+- **Execution:** Run the documented
+  `apps/worker/scripts/verify_codex_export_offline.py` command and retain the
+  generated `codex-offline-attestation/1.0` JSON outside the repository.
+- **Acceptance:** Exit code 0, `verified=true`, both executable SHA-256 values
+  present, report SHA-256 present, `cleanup_completed=true`, and zero
+  `Knowhere-MinerU-Offline-*` rules after completion.
+
 ### Task 6: Final verification and cleanup
 
 **Files:**
