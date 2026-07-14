@@ -59,13 +59,15 @@ Wrong Usage:
     raise KnowhereException(code=ErrorCode.INVALID_ARGUMENT, ...)
 """
 
-from typing import Any, Dict, Optional
+from collections.abc import Mapping
+from typing import Any, Dict, Literal, Optional
 
 from shared.core.response.ErrorCode import ErrorCode, ErrorCodeMapper
 
 # Default messages for auto-sanitization
 DEFAULT_5XX_USER_MESSAGE = "An internal system error occurred. Please contact support."
 DEFAULT_4XX_USER_MESSAGE = "Invalid request. Please check your input."
+ErrorCategory = Literal["client", "system"]
 
 
 class KnowhereException(Exception):
@@ -121,6 +123,8 @@ class KnowhereException(Exception):
         details: Optional[Dict[str, Any]] = None,
         http_status_code: Optional[int] = None,
         original_exception: Optional[Exception] = None,
+        error_category: ErrorCategory | None = None,
+        exception_context: Mapping[str, object] | None = None,
     ):
         """
         Initialize a KnowhereException.
@@ -134,6 +138,10 @@ class KnowhereException(Exception):
             details: Optional structured data to include in response (must be safe).
             http_status_code: Override HTTP status (auto-derived from code if None).
             original_exception: The underlying exception being wrapped (for logging).
+            error_category: Optional telemetry category override. Defaults to the
+                category derived from the HTTP status.
+            exception_context: Internal-only structured telemetry fields. These are
+                included in logs and never returned to clients.
         """
         super().__init__(internal_message)
         self.code = code
@@ -143,6 +151,11 @@ class KnowhereException(Exception):
             http_status_code or ErrorCodeMapper.get_http_status_from_error_code(code)
         )
         self.original_exception = original_exception
+        default_error_category: ErrorCategory = (
+            "system" if self.http_status_code >= 500 else "client"
+        )
+        self.error_category: ErrorCategory = error_category or default_error_category
+        self.exception_context: Dict[str, object] = dict(exception_context or {})
 
         # =======================================================================
         # SECURITY: Auto-sanitize user_message based on HTTP status
@@ -215,13 +228,11 @@ class KnowhereException(Exception):
             - details: Additional structured data
             - original_exception: Wrapped exception info
         """
-        # Determine error category based on HTTP status
-        error_category = "system" if self.http_status_code >= 500 else "client"
-
         log_data: Dict[str, Any] = {
+            **self.exception_context,
             "error_code": self.code.value,
             "http_status": self.http_status_code,
-            "error_category": error_category,
+            "error_category": self.error_category,
             "exception_class": self.__class__.__name__,
             "internal_message": self.internal_message,
             "user_message": self.user_message,
@@ -275,8 +286,9 @@ class KnowhereException(Exception):
         }
 
         # Log at appropriate level with appropriate event
-        if self.http_status_code >= 500:
-            # 5xx: ERROR level with stacktrace
+        if self.error_category == "system":
+            # System-category errors use ERROR level with a stacktrace even when
+            # their public HTTP status intentionally remains a 4xx response.
             logger.bind(event=LogEvent.EXCEPTION_SYSTEM.value, **log_data).opt(
                 exception=self
             ).error(self.internal_message)

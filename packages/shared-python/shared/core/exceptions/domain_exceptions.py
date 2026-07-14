@@ -42,9 +42,10 @@ Usage (5xx - System Error):
     # User sees: "An internal system error occurred. Please contact support."
 """
 
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, TypedDict
 
-from shared.core.exceptions.knowhere_exception import KnowhereException
+from shared.core.exceptions.knowhere_exception import ErrorCategory, KnowhereException
 from shared.core.response.ErrorCode import ErrorCode, SubCode
 
 # ============================================================================
@@ -112,12 +113,16 @@ class AuthException(KnowhereException):
         self,
         user_message: str = "Authentication required",
         internal_message: Optional[str] = None,
+        error_category: ErrorCategory | None = None,
+        exception_context: Mapping[str, object] | None = None,
     ):
         super().__init__(
             code=ErrorCode.UNAUTHENTICATED,
             internal_message=internal_message or user_message,
             user_message=user_message,
             details={},  # Empty for security
+            error_category=error_category,
+            exception_context=exception_context,
         )
 
 

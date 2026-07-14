@@ -84,7 +84,7 @@ def _is_expected_client_exception(exception: BaseException) -> bool:
     from shared.core.exceptions.knowhere_exception import KnowhereException
 
     if isinstance(exception, KnowhereException):
-        return 400 <= exception.http_status_code < 500
+        return exception.error_category == "client"
 
     try:
         from fastapi import HTTPException as FastAPIHTTPException
