@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,11 +19,18 @@ MAX_RENDER_DPI = 300
 
 def render_document_pages(**kwargs: Any) -> Any:
     """Lazily load the platform renderer so standalone imports need no app config."""
+    os.environ.setdefault("PYMUPDF_MAX_CONCURRENT", "1")
     from app.services.page_memory.page_renderer import (
         render_document_pages as platform_render_document_pages,
     )
+    from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
+        shutdown_pymupdf_process_pool,
+    )
 
-    return platform_render_document_pages(**kwargs)
+    try:
+        return platform_render_document_pages(**kwargs)
+    finally:
+        shutdown_pymupdf_process_pool()
 
 
 @dataclass(frozen=True)

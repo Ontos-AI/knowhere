@@ -1,6 +1,7 @@
 """Worker runtime limits for parser subprocesses and native thread pools."""
 
 from collections.abc import MutableMapping
+import os
 
 NATIVE_THREAD_CAPS = {
     "OMP_NUM_THREADS": "1",
@@ -15,6 +16,13 @@ NATIVE_THREAD_CAPS = {
 
 def read_pymupdf_max_concurrent() -> int:
     """Read the per-pod PyMuPDF child-process cap from shared settings."""
+    environment_value = os.environ.get("PYMUPDF_MAX_CONCURRENT")
+    if environment_value is not None:
+        value = int(environment_value)
+        if value < 1:
+            raise ValueError("PYMUPDF_MAX_CONCURRENT must be positive")
+        return value
+
     from shared.core.config import settings
 
     return settings.PYMUPDF_MAX_CONCURRENT

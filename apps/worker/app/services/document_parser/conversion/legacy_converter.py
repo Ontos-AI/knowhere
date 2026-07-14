@@ -20,6 +20,30 @@ def resolve_libreoffice_binary() -> str:
 
     candidate_paths.extend(
         [
+            os.path.join(
+                os.environ.get("ProgramFiles", r"C:\Program Files"),
+                "LibreOffice",
+                "program",
+                "soffice.com",
+            ),
+            os.path.join(
+                os.environ.get("ProgramFiles", r"C:\Program Files"),
+                "LibreOffice",
+                "program",
+                "soffice.exe",
+            ),
+            os.path.join(
+                os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+                "LibreOffice",
+                "program",
+                "soffice.com",
+            ),
+            os.path.join(
+                os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+                "LibreOffice",
+                "program",
+                "soffice.exe",
+            ),
             "/usr/bin/libreoffice",
             "/usr/bin/soffice",
             "/opt/homebrew/bin/soffice",

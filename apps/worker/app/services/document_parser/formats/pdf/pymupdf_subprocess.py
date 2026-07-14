@@ -117,6 +117,11 @@ def _shutdown_process_pool() -> None:
     executor.join()
 
 
+def shutdown_pymupdf_process_pool() -> None:
+    """Synchronously release the shared pool before standalone interpreter exit."""
+    _shutdown_process_pool()
+
+
 def _close_result_queue(result_queue: MultiprocessingQueue) -> None:
     """Release parent-side queue resources once the child result is no longer needed."""
     try:

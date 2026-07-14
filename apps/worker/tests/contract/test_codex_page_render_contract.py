@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,81 @@ from app.services.codex_export.schema import (
 )
 from app.services.page_memory.page_renderer import PageRenderResult
 from shared.core.exceptions.domain_exceptions import LibreOfficeServiceException
+
+
+def test_standalone_page_renderer_import_needs_no_app_service_config() -> None:
+    worker_root = Path(__file__).resolve().parents[2]
+    environment = os.environ.copy()
+    for name in (
+        "DATABASE_URL",
+        "TMP_PATH",
+        "S3_BUCKET_NAME",
+        "S3_ACCESS_KEY_ID",
+        "S3_SECRET_ACCESS_KEY",
+        "S3_TEMP_PATH",
+        "PYMUPDF_MAX_CONCURRENT",
+    ):
+        environment.pop(name, None)
+    code = """
+from app.services.codex_export.page_selection import render_document_pages
+result = render_document_pages(
+    pdf_path='', page_count=0, output_dir='.', pages=[],
+    page_features=None, page_texts={}, dpi=144,
+)
+assert result == []
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=worker_root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        shell=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_standalone_render_process_exits_cleanly(tmp_path: Path) -> None:
+    worker_root = Path(__file__).resolve().parents[2]
+    pdf_path = tmp_path / "standalone.pdf"
+    _pdf(pdf_path, 1)
+    output_dir = tmp_path / "standalone-pages"
+    environment = os.environ.copy()
+    for name in (
+        "DATABASE_URL",
+        "TMP_PATH",
+        "S3_BUCKET_NAME",
+        "S3_ACCESS_KEY_ID",
+        "S3_SECRET_ACCESS_KEY",
+        "S3_TEMP_PATH",
+        "PYMUPDF_MAX_CONCURRENT",
+    ):
+        environment.pop(name, None)
+    code = f"""
+from pathlib import Path
+from app.services.codex_export.page_selection import render_review_pages
+items = render_review_pages(
+    pdf_path=Path({str(pdf_path)!r}), pages=[1],
+    output_dir=Path({str(output_dir)!r}), dpi=144,
+)
+assert len(items) == 1
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=worker_root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        shell=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert (output_dir / "page-0001.png").is_file()
 
 
 def _block(block_type: str, page: int, *, locator_kind: str = "pdf_page") -> DocumentBlock:
@@ -264,3 +340,19 @@ def test_missing_libreoffice_is_surfaced(
             docx_path=docx_path,
             output_dir=tmp_path / "normalized",
         )
+
+
+def test_libreoffice_resolver_checks_standard_windows_installation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.document_parser.conversion import legacy_converter
+
+    expected = r"C:\Program Files\LibreOffice\program\soffice.com"
+    monkeypatch.setattr(legacy_converter.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(
+        legacy_converter.os.path,
+        "isfile",
+        lambda candidate: candidate == expected,
+    )
+
+    assert legacy_converter.resolve_libreoffice_binary() == expected
