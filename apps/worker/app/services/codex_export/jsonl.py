@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Sequence
 
-from app.services.codex_export.schema import DocumentBlock
+from app.services.codex_export.schema import DocumentBlock, ExtractionFinding
 
 
 def write_blocks_jsonl(
@@ -44,3 +44,20 @@ def write_blocks_jsonl(
         if temporary_path is not None and temporary_path.exists():
             temporary_path.unlink()
 
+
+def write_findings_jsonl(
+    findings: Sequence[ExtractionFinding],
+    output_path: Path,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="\n") as stream:
+        for finding in findings:
+            stream.write(
+                json.dumps(
+                    finding.to_dict(),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
+            stream.write("\n")

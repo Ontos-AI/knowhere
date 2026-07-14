@@ -5,16 +5,24 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 import pymupdf
 
 from app.services.codex_export.schema import DocumentBlock
-from app.services.page_memory.page_renderer import render_document_pages
 
 
 MIN_RENDER_DPI = 72
 MAX_RENDER_DPI = 300
+
+
+def render_document_pages(**kwargs: Any) -> Any:
+    """Lazily load the platform renderer so standalone imports need no app config."""
+    from app.services.page_memory.page_renderer import (
+        render_document_pages as platform_render_document_pages,
+    )
+
+    return platform_render_document_pages(**kwargs)
 
 
 @dataclass(frozen=True)
@@ -88,6 +96,7 @@ def render_review_pages(
     pages: Sequence[int],
     output_dir: Path,
     dpi: int,
+    page_number_semantics: str = "native_pdf",
 ) -> list[RenderedPage]:
     """Render selected one-based PDF pages to zero-padded lossless PNG files."""
     if not MIN_RENDER_DPI <= dpi <= MAX_RENDER_DPI:
@@ -135,6 +144,7 @@ def render_review_pages(
                 dpi=dpi,
                 width_points=width,
                 height_points=height,
+                page_number_semantics=page_number_semantics,
             )
         )
     return results
