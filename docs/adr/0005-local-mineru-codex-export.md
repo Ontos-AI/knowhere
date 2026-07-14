@@ -48,6 +48,15 @@ and requests local-only model loading. Application-level offline flags are not
 equivalent to a firewall, so packages report offline verification separately
 from the offline request.
 
+The supported MVP backend is MinerU `pipeline` for PDF; DOCX selects MinerU's
+effective `office` path. Other non-HTTP MinerU backends are not qualified by
+this workflow. Strict offline runs require the selected backend's models to be
+downloaded and cached in advance. CPU-only execution may be practical for some
+documents but can be slow and memory-intensive; GPU execution also requires
+compatible drivers, runtime, and device memory. Resource needs depend on model,
+backend, page count, resolution, and document complexity, so this decision
+makes no throughput or capacity promise.
+
 ### DOCX page semantics
 
 DOCX blocks retain MinerU Office logical-page locators. If visual pages are
@@ -71,6 +80,11 @@ MinerU's license and additional terms remain applicable. An online deployment
 must evaluate MinerU attribution and other deployment-specific obligations;
 this ADR does not make a legal conclusion.
 
+No source code is copied between the repositories by this integration. If
+future changes copy or redistribute code, the original license headers,
+notices, and applicable obligations must be reviewed and preserved. A
+deployment-specific legal review may be required.
+
 ## Consequences
 
 - Parser crashes, timeouts, model lifecycle, and dependency changes are
@@ -79,6 +93,8 @@ this ADR does not make a legal conclusion.
 - Artifact validation and copying add local disk and hashing cost.
 - Table CSV may be lossy, DOCX physical pages are environment-dependent, and
   large documents may require substantial model memory and runtime.
+- Operator and Codex inspection instructions are maintained in
+  [`../guides/codex-review-package.md`](../guides/codex-review-package.md).
 
 ## Implementation notes and deviations
 
@@ -92,4 +108,3 @@ this ADR does not make a legal conclusion.
   is not executable on Windows. A focused, service-free baseline completed with
   23 passes; these pre-existing platform gaps are tracked as verification
   limitations rather than product changes.
-

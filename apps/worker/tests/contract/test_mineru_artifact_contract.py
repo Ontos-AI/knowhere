@@ -145,6 +145,25 @@ def test_artifact_path_traversal_fails(tmp_path: Path) -> None:
         validate_mineru_artifact_bundle(manifest_path, output_root, source)
 
 
+def test_artifact_symlink_escape_fails(tmp_path: Path) -> None:
+    source, output_root, manifest_path, manifest = _write_valid_bundle(tmp_path)
+    outside = tmp_path / "outside.json"
+    outside.write_text("{}", encoding="utf-8")
+    symlink = output_root / "report" / "auto" / "linked-middle.json"
+    try:
+        symlink.symlink_to(outside)
+    except OSError as error:
+        pytest.skip(f"symlink creation is unavailable on this host: {error}")
+    manifest["artifacts"]["middle_json"] = {
+        "path": "report/auto/linked-middle.json",
+        "sha256": _sha256(outside),
+    }
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(MinerUArtifactContractError, match="safe relative path"):
+        validate_mineru_artifact_bundle(manifest_path, output_root, source)
+
+
 def test_artifact_hash_mismatch_fails(tmp_path: Path) -> None:
     source, output_root, manifest_path, manifest = _write_valid_bundle(tmp_path)
     manifest["artifacts"]["markdown"]["sha256"] = "0" * 64
@@ -196,4 +215,3 @@ def test_required_json_artifacts_are_parsed_before_success(tmp_path: Path) -> No
 
     with pytest.raises(MinerUArtifactContractError, match="middle_json"):
         validate_mineru_artifact_bundle(manifest_path, output_root, source)
-
