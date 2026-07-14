@@ -132,9 +132,48 @@ def test_static_pdf_fixture_build_is_complete_and_reproducible(
 
     first_blocks = _jsonl(first.package_root / "structured" / "blocks.jsonl")
     second_blocks = _jsonl(second.package_root / "structured" / "blocks.jsonl")
+    first_manifest = json.loads(first.manifest_path.read_text(encoding="utf-8"))
+    second_manifest = json.loads(second.manifest_path.read_text(encoding="utf-8"))
+    first_tree = json.loads(
+        (first.package_root / "structured" / "document_tree.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    second_tree = json.loads(
+        (second.package_root / "structured" / "document_tree.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert first.document_id == second.document_id
     assert [block["block_id"] for block in first_blocks] == [
         block["block_id"] for block in second_blocks
     ]
+    assert [block["content_sha256"] for block in first_blocks] == [
+        block["content_sha256"] for block in second_blocks
+    ]
+    assert first_blocks == second_blocks
+    assert [node["node_id"] for node in first_tree["nodes"]] == [
+        node["node_id"] for node in second_tree["nodes"]
+    ]
+    assert [
+        json.loads(path.read_text(encoding="utf-8"))["table_id"]
+        for path in sorted((first.package_root / "tables").glob("*.metadata.json"))
+    ] == [
+        json.loads(path.read_text(encoding="utf-8"))["table_id"]
+        for path in sorted((second.package_root / "tables").glob("*.metadata.json"))
+    ]
+    assert {
+        path.name: path.read_bytes()
+        for path in (first.package_root / "tables").iterdir()
+        if path.suffix in {".html", ".csv"}
+    } == {
+        path.name: path.read_bytes()
+        for path in (second.package_root / "tables").iterdir()
+        if path.suffix in {".html", ".csv"}
+    }
+    assert sorted(path.name for path in (first.package_root / "pages").glob("*.png")) == sorted(
+        path.name for path in (second.package_root / "pages").glob("*.png")
+    )
     assert {block["source_locator"]["page_number"] for block in first_blocks} == {
         1,
         2,
@@ -149,13 +188,7 @@ def test_static_pdf_fixture_build_is_complete_and_reproducible(
     assert (first.package_root / "pages" / "page-0001.png").is_file()
     assert (first.package_root / "pages" / "page-0002.png").is_file()
 
-    manifest = json.loads(first.manifest_path.read_text(encoding="utf-8"))
-    tree = json.loads(
-        (first.package_root / "structured" / "document_tree.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert manifest["counts"] == {
+    assert first_manifest["counts"] == {
         "blocks": len(first_blocks),
         "findings": len(
             _jsonl(first.package_root / "structured" / "extraction_findings.jsonl")
@@ -163,11 +196,14 @@ def test_static_pdf_fixture_build_is_complete_and_reproducible(
         "pages": len(list((first.package_root / "pages").glob("*.png"))),
         "tables": len(list((first.package_root / "tables").glob("*.metadata.json"))),
     }
-    root = next(node for node in tree["nodes"] if node["node_id"] == "sec_root")
-    details = next(node for node in tree["nodes"] if node["title"] == "1.1 Results")
+    root = next(node for node in first_tree["nodes"] if node["node_id"] == "sec_root")
+    details = next(
+        node for node in first_tree["nodes"] if node["title"] == "1.1 Results"
+    )
     assert (root["start_page_number"], root["end_page_number"]) == (1, 2)
     assert (details["start_page_number"], details["end_page_number"]) == (2, 2)
-    assert manifest["conversion"]["selected_pages"] == [1, 2]
+    assert first_manifest["conversion"]["selected_pages"] == [1, 2]
+    assert second_manifest["conversion"]["selected_pages"] == [1, 2]
 
 
 @pytest.mark.skipif(
