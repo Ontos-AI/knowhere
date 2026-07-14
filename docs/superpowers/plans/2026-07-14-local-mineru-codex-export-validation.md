@@ -28,7 +28,7 @@
 - Inspect: `apps/worker/scripts/export_codex_review_package.py`
 - Inspect: `../MinerU/mineru/integrations/knowhere/cli.py`
 
-- [ ] **Step 1: Confirm clean feature branches**
+- [x] **Step 1: Confirm clean feature branches**
 
 Run:
 
@@ -41,7 +41,7 @@ git -C C:\Users\psc01\workspace\MinerU branch --show-current
 
 Expected: no uncommitted files before this plan document; both expected feature branches are active.
 
-- [ ] **Step 2: Confirm required local executables and model configuration**
+- [x] **Step 2: Confirm required local executables and model configuration**
 
 Run:
 
@@ -63,7 +63,7 @@ Expected: every command exits zero; PostgreSQL is at least 14; MinerU has a loca
 - Test: `apps/worker/tests/contract/test_mineru_artifact_contract.py`
 - Test: `apps/worker/tests/contract/test_codex_*_contract.py`
 
-- [ ] **Step 1: Run MinerU adapter contracts and focused lint**
+- [x] **Step 1: Run MinerU adapter contracts and focused lint**
 
 Run:
 
@@ -76,7 +76,7 @@ python -m uv tool run ruff check mineru/integrations/knowhere tests/unittest/tes
 
 Expected: 13 tests pass, focused Ruff passes, and the real pipeline import succeeds.
 
-- [ ] **Step 2: Run Knowhere repository checks**
+- [x] **Step 2: Run Knowhere repository checks**
 
 Run:
 
@@ -88,7 +88,7 @@ make check
 
 Expected: Ruff passes and Pyright reports zero errors.
 
-- [ ] **Step 3: Run standalone-export contracts and static integrations**
+- [x] **Step 3: Run standalone-export contracts and static integrations**
 
 Run:
 
@@ -118,7 +118,7 @@ Expected: all runnable tests pass. A Windows symlink test may skip without SeCre
 - Test: `apps/worker/tests/contract/test_page_memory_*`
 - Test: `apps/api/tests/contract/test_self_hosted_telemetry_contract.py`
 
-- [ ] **Step 1: Run worker regressions with portable PostgreSQL**
+- [x] **Step 1: Run worker regressions with portable PostgreSQL**
 
 Run:
 
@@ -134,7 +134,7 @@ python -m uv run pytest @tests -q
 
 Expected: 103 tests pass; only known deprecation warnings may be emitted.
 
-- [ ] **Step 2: Run telemetry regression contracts**
+- [x] **Step 2: Run telemetry regression contracts**
 
 Run:
 
@@ -153,7 +153,7 @@ Expected: 23 tests pass.
 - Generate: `.codex-review/validation/pdf-run-2/`
 - Generate: `.codex-review/validation/docx-run/`
 
-- [ ] **Step 1: Generate synthetic sources**
+- [x] **Step 1: Generate synthetic sources**
 
 Run:
 
@@ -164,7 +164,7 @@ python -m uv run python apps/worker/tests/fixtures/codex_export/generate_docx_fi
 
 Expected: both generated files exist and are non-empty.
 
-- [ ] **Step 2: Build the PDF package twice with local models**
+- [x] **Step 2: Build the PDF package twice with local models**
 
 Run twice with output `pdf-run-1` and `pdf-run-2`:
 
@@ -184,7 +184,7 @@ python -m uv run python scripts/export_codex_review_package.py \
 
 Expected: both commands exit zero and both manifests have `status=completed`.
 
-- [ ] **Step 3: Build the DOCX package with LibreOffice rendering**
+- [x] **Step 3: Build the DOCX package with LibreOffice rendering**
 
 Run:
 
@@ -199,7 +199,7 @@ python -m uv run python scripts/export_codex_review_package.py \
 
 Expected: command exits zero; normalized PDF and two PNG pages exist; logical-to-normalized mapping remains `unmapped`.
 
-- [ ] **Step 4: Validate package integrity and reproducibility**
+- [x] **Step 4: Validate package integrity and reproducibility**
 
 Run a Python audit that:
 
@@ -219,15 +219,15 @@ Expected: audit exits zero and prints `package audit: ok` and `PDF reproducibili
 - Remove: generated validation PDF/DOCX
 - Remove: `.coverage`, `htmlcov/`, `.pytest_cache/`, `.ruff_cache/`, and untracked `uv.lock`
 
-- [ ] **Step 1: Record result counts and limitations**
+- [x] **Step 1: Record result counts and limitations**
 
 Record exact test counts, runtime, package block/table/page/finding counts, skip reasons, and any deviations in the execution report.
 
-- [ ] **Step 2: Remove generated artifacts and caches**
+- [x] **Step 2: Remove generated artifacts and caches**
 
 Verify every deletion target resolves under one of the two repository roots before removal.
 
-- [ ] **Step 3: Run final Git audit**
+- [x] **Step 3: Run final Git audit**
 
 Run:
 
@@ -239,3 +239,57 @@ git -C C:\Users\psc01\workspace\MinerU diff --check
 ```
 
 Expected: only this committed plan and its execution-report update are present in Knowhere history; both worktrees are clean and contain no generated review package or source document.
+
+## Execution Report — 2026-07-14
+
+### Environment
+
+- uv 0.11.28
+- Python 3.13
+- LibreOffice 26.2.4.2
+- PostgreSQL 16.14
+- GNU Make 3.81
+- MinerU pipeline models resolved from the local `models-dir.pipeline` configuration
+- MinerU execution forced to CPU and local/offline cache mode
+
+### Automated verification
+
+- MinerU adapter contracts: 13 passed
+- MinerU focused Ruff: passed
+- MinerU real pipeline import: passed
+- Knowhere Ruff: passed
+- Knowhere Pyright: 0 errors, 0 warnings
+- Standalone-export contracts and static integrations: 77 passed, 2 skipped
+- PostgreSQL-backed worker regressions: 103 passed, 5 deprecation warnings
+- Telemetry contracts: 23 passed
+- Total test executions: 216 passed, 2 skipped
+
+Skip reasons:
+
+- Windows did not grant symlink-creation privilege for the symlink escape test.
+- The opt-in model-backed pytest remained disabled because the equivalent real model E2E was run explicitly below.
+
+### Real model-backed packages
+
+| Run | Time | Blocks | Tables | Pages | Findings |
+|---|---:|---:|---:|---:|---:|
+| PDF run 1 | 28.66 s | 14 | 1 | 2 | 1 |
+| PDF run 2 | 27.98 s | 14 | 1 | 2 | 1 |
+| DOCX run | 11.45 s | 12 | 2 | 2 | 2 |
+
+Package audit results:
+
+- Every inventoried artifact existed and matched its recorded size and SHA-256.
+- Required native, structured, instruction, page, and metadata files existed.
+- No absolute user or repository path appeared in the portable manifests.
+- PDF document IDs, block IDs, structured blocks, document tree, table files, asset IDs, and selected page filenames matched between both runs.
+- PDF complex-table CSV fidelity was `lossy_complex`.
+- DOCX table fidelity contained one `best_effort_simple` and one `lossy_complex` result.
+- DOCX normalized PDF existed and every block retained `normalized_pdf_mapping_status=unmapped` with no normalized page assignment.
+- All packages recorded `offline.requested=true` and `offline.verified=false`.
+
+### Limitations and observations
+
+- Network denial was not independently enforced by a firewall, so full offline execution is not claimed.
+- GNU Make emitted harmless Windows messages from the Makefile's POSIX cache-directory probe after successful Ruff and Pyright execution.
+- Five existing `datetime.utcnow()` deprecation warnings remain in document-agent tracing tests.
