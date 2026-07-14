@@ -1,0 +1,86 @@
+{
+  "schema_version": "codex-validation-corpus/1.0",
+  "documents": [
+    {
+      "id": "mineru-unit-pdf",
+      "root": "mineru",
+      "path": "tests/unittest/pdfs/test.pdf",
+      "tags": ["pdf", "smoke", "public-test"],
+      "language": "en",
+      "pages": [1],
+      "expected_status": "completed"
+    },
+    {
+      "id": "mineru-small-ocr",
+      "root": "mineru",
+      "path": "demo/pdfs/small_ocr.pdf",
+      "tags": ["pdf", "ocr", "public-demo"],
+      "language": "en",
+      "pages": [1, 2],
+      "expected_status": "completed"
+    },
+    {
+      "id": "mineru-demo-one",
+      "root": "mineru",
+      "path": "demo/pdfs/demo1.pdf",
+      "tags": ["pdf", "layout", "public-demo"],
+      "language": "en",
+      "pages": [1, 2],
+      "expected_status": "completed"
+    },
+    {
+      "id": "mineru-demo-two",
+      "root": "mineru",
+      "path": "demo/pdfs/demo2.pdf",
+      "tags": ["pdf", "tables", "public-demo"],
+      "language": "en",
+      "pages": [1, 2],
+      "expected_status": "completed"
+    },
+    {
+      "id": "mineru-demo-three",
+      "root": "mineru",
+      "path": "demo/pdfs/demo3.pdf",
+      "tags": ["pdf", "layout", "public-demo"],
+      "language": "en",
+      "pages": [1, 2],
+      "expected_status": "completed"
+    },
+    {
+      "id": "mineru-office-docx",
+      "root": "mineru",
+      "path": "demo/office_docs/docx_01.docx",
+      "tags": ["docx", "tables", "public-demo"],
+      "language": "en",
+      "pages": [1, 2],
+      "expected_status": "completed"
+    },
+    {
+      "id": "knowhere-three-page-pdf",
+      "root": "knowhere",
+      "path": "apps/worker/tests/fixtures/sample_3pages.pdf",
+      "tags": ["pdf", "synthetic-test"],
+      "language": "en",
+      "pages": [1, 2],
+      "expected_status": "completed"
+    },
+    {
+      "id": "knowhere-thousand-word-docx",
+      "root": "knowhere",
+      "path": "apps/worker/tests/fixtures/sample_1000words.docx",
+      "tags": ["docx", "text", "synthetic-test"],
+      "language": "en",
+      "pages": [1],
+      "expected_status": "completed"
+    },
+    {
+      "id": "knowhere-chinese-docx",
+      "root": "knowhere",
+      "path": "apps/worker/tests/fixtures/sample_chinese_600chars.docx",
+      "tags": ["docx", "multilingual", "synthetic-test"],
+      "language": "zh",
+      "pages": [1],
+      "expected_status": "completed"
+    }
+  ]
+}
