@@ -1,0 +1,77 @@
+[
+  [
+    {
+      "type": "title",
+      "content": {"level": 1, "title_content": [{"type": "text", "content": "1. Scope"}]},
+      "bbox": [80, 80, 900, 130]
+    },
+    {
+      "type": "paragraph",
+      "content": {
+        "paragraph_content": [
+          {"type": "text", "content": "Public synthetic values: "},
+          {"type": "equation_inline", "content": "≤ ± µA 10⁻⁶ °C"}
+        ]
+      },
+      "bbox": [80, 140, 900, 190]
+    },
+    {
+      "type": "table",
+      "content": {
+        "image_source": {"path": "images/simple-table.svg"},
+        "table_caption": [{"type": "text", "content": "Table 1 — Public synthetic limits"}],
+        "table_footnote": [{"type": "text", "content": "Verify on native page."}],
+        "html": "<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Current</td><td>5 µA</td></tr><tr><td>Temperature</td><td>25 °C</td></tr></tbody></table>",
+        "table_type": "simple_table",
+        "table_nest_level": 0
+      },
+      "bbox": [80, 220, 900, 500]
+    },
+    {
+      "type": "image",
+      "content": {
+        "image_source": {"path": "images/synthetic-figure.svg"},
+        "image_caption": [{"type": "text", "content": "Synthetic embedded figure"}],
+        "content": "A blue panel with an orange circle."
+      },
+      "bbox": [80, 520, 500, 820]
+    },
+    {
+      "type": "page_footer",
+      "content": {"page_footer_content": [{"type": "text", "content": "Page 1"}]}
+    }
+  ],
+  [
+    {
+      "type": "title",
+      "content": {"level": 2, "title_content": [{"type": "text", "content": "1.1 Results"}]},
+      "bbox": [80, 80, 900, 130]
+    },
+    {
+      "type": "table",
+      "content": {
+        "image_source": {"path": "images/complex-table.svg"},
+        "table_caption": [{"type": "text", "content": "Table 2 — Complex matrix"}],
+        "table_footnote": [{"type": "text", "content": "CSV may be lossy."}],
+        "html": "<table><tr><th rowspan='2'>Group</th><th colspan='2'>Limits</th></tr><tr><th>Low</th><th>High</th></tr><tr><td>A</td><td>1</td><td><table><tr><td>9</td></tr></table></td></tr></table>",
+        "table_type": "complex_table",
+        "table_nest_level": 1
+      },
+      "bbox": [80, 180, 900, 520]
+    },
+    {
+      "type": "title",
+      "content": {"level": 1, "title_content": [{"type": "text", "content": "2. Conclusion"}]},
+      "bbox": [80, 560, 900, 610]
+    },
+    {
+      "type": "paragraph",
+      "content": {"paragraph_content": [{"type": "text", "content": "Verify evidence on native pages."}]},
+      "bbox": [80, 620, 900, 680]
+    },
+    {
+      "type": "page_footer",
+      "content": {"page_footer_content": [{"type": "text", "content": "Page 2"}]}
+    }
+  ]
+]

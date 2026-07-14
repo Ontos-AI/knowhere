@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="140" viewBox="0 0 320 140">
+  <rect width="320" height="140" fill="#fff7ed" stroke="#7c2d12"/>
+  <path d="M100 0v140M210 40v100M0 80h320M100 40h220" stroke="#7c2d12"/>
+  <text x="12" y="30" font-family="sans-serif" font-size="14">Group</text>
+  <text x="155" y="28" font-family="sans-serif" font-size="14">Merged limits</text>
+</svg>
