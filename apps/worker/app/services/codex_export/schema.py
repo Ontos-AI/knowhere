@@ -84,3 +84,51 @@ class DocumentBlock:
             "flags": self.flags,
         }
 
+
+@dataclass
+class DocumentTreeNode:
+    node_id: str
+    parent_node_id: str | None
+    title: str | None
+    level: int
+    title_block_id: str | None
+    start_sequence: int | None
+    end_sequence: int | None
+    start_page_number: int | None
+    end_page_number: int | None
+    child_node_ids: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "node_id": self.node_id,
+            "parent_node_id": self.parent_node_id,
+            "title": self.title,
+            "level": self.level,
+            "title_block_id": self.title_block_id,
+            "start_sequence": self.start_sequence,
+            "end_sequence": self.end_sequence,
+            "start_page_number": self.start_page_number,
+            "end_page_number": self.end_page_number,
+            "child_node_ids": self.child_node_ids,
+        }
+
+
+@dataclass
+class DocumentTree:
+    document_id: str
+    nodes: list[DocumentTreeNode]
+    findings: list[ExtractionFinding] = field(default_factory=list, repr=False)
+    schema_version: str = "codex-document-tree/1.0"
+    tree_origin: str = "mineru_title_levels"
+    navigation_only: bool = True
+    root_node_id: str = "sec_root"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "document_id": self.document_id,
+            "tree_origin": self.tree_origin,
+            "navigation_only": self.navigation_only,
+            "root_node_id": self.root_node_id,
+            "nodes": [node.to_dict() for node in self.nodes],
+        }
