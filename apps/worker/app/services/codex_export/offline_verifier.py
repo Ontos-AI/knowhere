@@ -106,7 +106,7 @@ class WindowsFirewallController:
         )
 
     def delete(self, name: str) -> None:
-        self._run(
+        result = self._run(
             [
                 "netsh",
                 "advfirewall",
@@ -116,6 +116,8 @@ class WindowsFirewallController:
                 f"name={name}",
             ]
         )
+        if result.returncode != 0:
+            raise FirewallCommandError(f"Could not delete firewall rule {name}")
 
     def run_validator(
         self,

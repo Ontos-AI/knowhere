@@ -10,7 +10,7 @@ from typing import Any, Mapping
 
 
 CORPUS_SCHEMA_VERSION = "codex-validation-corpus/1.0"
-_DOCUMENT_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_DOCUMENT_ID_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
 _SUPPORTED_SUFFIXES = {".pdf", ".docx"}
 _EXPECTED_STATUSES = {"completed", "failed"}
 

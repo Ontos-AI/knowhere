@@ -72,6 +72,7 @@ def test_load_validation_corpus_resolves_safe_relative_document(tmp_path: Path) 
         ([_document(path="../sample.pdf")], "escape"),
         ([_document(path="fixtures/sample.txt")], "PDF or DOCX"),
         ([_document(id="INVALID ID")], "document id"),
+        ([_document(id="a" * 65)], "document id"),
         ([_document(pages=[0])], "positive"),
         ([_document(expected_status="unknown")], "expected_status"),
         ([_document(), _document()], "duplicate"),

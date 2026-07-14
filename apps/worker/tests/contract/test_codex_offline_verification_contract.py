@@ -21,6 +21,7 @@ class RecordingCommands:
         self.validator_result = validator_result
         self.calls: list[tuple[list[str], dict[str, Any]]] = []
         self.raise_validator = False
+        self.delete_result = 0
 
     def __call__(self, argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         self.calls.append((argv, kwargs))
@@ -39,6 +40,10 @@ class RecordingCommands:
                 self.report_path.write_text('{"summary":{"runs":1}}', encoding="utf-8")
             return subprocess.CompletedProcess(
                 argv, self.validator_result, stdout="", stderr="validation failed"
+            )
+        if "delete" in argv:
+            return subprocess.CompletedProcess(
+                argv, self.delete_result, stdout="", stderr="delete failed"
             )
         return subprocess.CompletedProcess(argv, 0, stdout="Ok.", stderr="")
 
@@ -140,3 +145,21 @@ def test_offline_verifier_cleans_rules_and_records_unverified_failure(
     attestation = json.loads(request.attestation_path.read_text(encoding="utf-8"))
     assert attestation["verified"] is False
     assert attestation["failure_type"] in {"ValidatorExitError", "OSError"}
+
+
+def test_offline_verifier_does_not_attest_when_rule_cleanup_fails(
+    tmp_path: Path,
+) -> None:
+    request = _request(tmp_path)
+    commands = RecordingCommands(request.report_path)
+    commands.delete_result = 1
+    controller = WindowsFirewallController(run_command=commands)
+
+    result = verify_offline_validation(
+        request, controller=controller, is_admin=lambda: True
+    )
+
+    assert result.verified is False
+    attestation = json.loads(request.attestation_path.read_text(encoding="utf-8"))
+    assert attestation["cleanup_completed"] is False
+    assert attestation["failure_type"] == "FirewallCommandError"
