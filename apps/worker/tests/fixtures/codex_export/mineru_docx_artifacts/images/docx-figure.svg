@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="160" viewBox="0 0 240 160">
+  <rect width="240" height="160" rx="12" fill="#bfdbfe" stroke="#1d4ed8"/>
+  <circle cx="120" cy="80" r="46" fill="#fdba74" stroke="#c2410c"/>
+  <text x="50" y="148" font-family="sans-serif" font-size="13">DOCX synthetic figure</text>
+</svg>

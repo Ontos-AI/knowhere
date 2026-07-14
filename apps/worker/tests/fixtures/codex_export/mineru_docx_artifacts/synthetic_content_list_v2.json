@@ -1,0 +1,75 @@
+[
+  [
+    {
+      "type": "title",
+      "anchor": "heading-1-overview",
+      "content": {"level": 1, "title_content": [{"type": "text", "content": "1. Overview"}]}
+    },
+    {
+      "type": "paragraph",
+      "anchor": "paragraph-public-synthetic",
+      "content": {
+        "paragraph_content": [
+          {"type": "text", "content": "Rich text: H"},
+          {"type": "subscript", "content": "2"},
+          {"type": "text", "content": "O and 10"},
+          {"type": "superscript", "content": "-6"},
+          {"type": "text", "content": " A; symbols ≤ ± µA °C."}
+        ]
+      }
+    },
+    {
+      "type": "table",
+      "anchor": "table-simple-values",
+      "content": {
+        "image_source": {"path": "images/simple-table.svg"},
+        "table_caption": [{"type": "text", "content": "Simple values"}],
+        "html": "<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td>Current</td><td>5 µA</td></tr><tr><td>Temperature</td><td>25 °C</td></tr></tbody></table>",
+        "table_type": "simple_table",
+        "table_nest_level": 0
+      }
+    },
+    {
+      "type": "image",
+      "anchor": "image-synthetic",
+      "content": {
+        "image_source": {"path": "images/docx-figure.svg"},
+        "image_caption": [{"type": "text", "content": "Synthetic embedded image"}],
+        "content": "A blue panel with an orange circle."
+      }
+    }
+  ],
+  [
+    {
+      "type": "title",
+      "anchor": "heading-1-1-results",
+      "content": {"level": 2, "title_content": [{"type": "text", "content": "1.1 Results"}]}
+    },
+    {
+      "type": "table",
+      "anchor": "table-merged-limits",
+      "content": {
+        "image_source": {"path": "images/merged-table.svg"},
+        "table_caption": [{"type": "text", "content": "Merged limits"}],
+        "table_footnote": [{"type": "text", "content": "CSV may be lossy."}],
+        "html": "<table><tr><th rowspan='2'>Group</th><th colspan='2'>Limits</th></tr><tr><th>Low</th><th>High</th></tr><tr><td>A</td><td>1</td><td>9</td></tr></table>",
+        "table_type": "complex_table",
+        "table_nest_level": 1
+      }
+    },
+    {
+      "type": "title",
+      "anchor": "heading-2-conclusion",
+      "content": {"level": 1, "title_content": [{"type": "text", "content": "2. Conclusion"}]}
+    },
+    {
+      "type": "paragraph",
+      "anchor": "paragraph-conclusion",
+      "content": {"paragraph_content": [{"type": "text", "content": "Verify evidence in the native DOCX."}]}
+    },
+    {
+      "type": "page_footer",
+      "content": {"page_footer_content": [{"type": "text", "content": "Synthetic fixture — no client content"}]}
+    }
+  ]
+]

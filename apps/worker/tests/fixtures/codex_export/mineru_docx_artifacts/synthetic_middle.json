@@ -1,0 +1,5 @@
+{
+  "fixture": "public-synthetic-docx",
+  "logical_pages": 2,
+  "backend": "office"
+}
