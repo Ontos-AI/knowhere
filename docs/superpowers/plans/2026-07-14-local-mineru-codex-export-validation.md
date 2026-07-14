@@ -50,7 +50,7 @@ uv --version
 & 'C:\Program Files\LibreOffice\program\soffice.com' --headless --version
 & 'C:\Users\psc01\tools\postgresql-16.14\pgsql\bin\postgres.exe' --version
 & 'C:\Users\psc01\tools\gnuwin32\bin\make.exe' --version
-python -c "import json, pathlib; p=pathlib.Path.home()/'mineru.json'; d=json.loads(p.read_text()); assert d.get('pipeline-model'); print('MinerU model config: ok')"
+python -c "import json, pathlib; p=pathlib.Path.home()/'mineru.json'; d=json.loads(p.read_text()); model_dir=pathlib.Path(d['models-dir']['pipeline']); assert model_dir.is_dir(); print('MinerU model config: ok')"
 ```
 
 Expected: every command exits zero; PostgreSQL is at least 14; MinerU has a local pipeline model path.
