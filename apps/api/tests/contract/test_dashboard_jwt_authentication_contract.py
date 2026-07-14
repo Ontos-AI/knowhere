@@ -5,7 +5,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import Protocol, cast
 
 import jwt
 import pytest
@@ -28,13 +28,10 @@ from tests.support.dashboard_jwt import (
     serve_dashboard_jwks as _serve_jwks,
 )
 
-if TYPE_CHECKING:
-    from logfire.types import ExceptionCallbackHelper
-
-
 class _LoguruMessage(Protocol):
     @property
-    def record(self) -> Mapping[str, object]: ...
+    def record(self) -> Mapping[str, object]:
+        raise NotImplementedError
 
 
 @dataclass(frozen=True)
@@ -563,9 +560,7 @@ def test_logfire_exception_callback_keeps_system_category_auth_errors_recorded()
         )
     )
 
-    _downgrade_expected_logfire_exception(
-        cast("ExceptionCallbackHelper", helper),
-    )
+    _downgrade_expected_logfire_exception(helper)  # pyright: ignore[reportArgumentType]
 
     assert helper.level == "error"
     assert helper.is_recording_exception is True
@@ -574,9 +569,7 @@ def test_logfire_exception_callback_keeps_system_category_auth_errors_recorded()
 def test_logfire_exception_callback_downgrades_client_category_auth_errors() -> None:
     helper = _FakeLogfireExceptionHelper(exception=AuthException())
 
-    _downgrade_expected_logfire_exception(
-        cast("ExceptionCallbackHelper", helper),
-    )
+    _downgrade_expected_logfire_exception(helper)  # pyright: ignore[reportArgumentType]
 
     assert helper.level == "warning"
     assert helper.is_recording_exception is False
