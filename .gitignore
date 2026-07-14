@@ -114,6 +114,7 @@ LICENSE.txt
 .agent/
 .agent-hooks/
 .codex/
+.worktrees/
 CLAUDE.md
 
 # Codex-generated local files
