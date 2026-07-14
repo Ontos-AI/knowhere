@@ -11,9 +11,7 @@ from app.services.document_parser.providers.mineru.artifact_contract import (
     MinerUArtifactManifest,
 )
 from app.services.document_parser.providers.mineru.local_process import (
-    LocalMinerUError,
     LocalMinerURequest,
-    LocalMinerURunner,
 )
 
 
@@ -109,7 +107,7 @@ def test_runner_builds_argv_list_for_paths_with_spaces_and_uses_no_shell(
         "validate_mineru_artifact_bundle",
         lambda **_kwargs: expected_bundle,
     )
-    runner = LocalMinerURunner(
+    runner = local_process.LocalMinerURunner(
         project_path=project_path,
         uv_executable=str(uv_path),
         timeout_seconds=30,
@@ -159,9 +157,9 @@ def test_nonzero_exit_raises_typed_error_and_redacts_secrets(
     from app.services.document_parser.providers.mineru import local_process
 
     monkeypatch.setattr(local_process.subprocess, "Popen", lambda *_a, **_k: process)
-    runner = LocalMinerURunner(project_path, str(uv_path), 30, 1000)
+    runner = local_process.LocalMinerURunner(project_path, str(uv_path), 30, 1000)
 
-    with pytest.raises(LocalMinerUError) as captured:
+    with pytest.raises(local_process.LocalMinerUError) as captured:
         runner.run(request)
 
     assert captured.value.return_code == 7
@@ -191,9 +189,9 @@ def test_timeout_terminates_process_tree_and_surfaces_timeout(
         "_terminate_process_tree",
         lambda child: terminated.append(child.pid),
     )
-    runner = LocalMinerURunner(project_path, str(uv_path), 0.01, 1000)
+    runner = local_process.LocalMinerURunner(project_path, str(uv_path), 0.01, 1000)
 
-    with pytest.raises(LocalMinerUError) as captured:
+    with pytest.raises(local_process.LocalMinerUError) as captured:
         runner.run(request)
 
     assert terminated == [4242]
@@ -214,9 +212,9 @@ def test_runner_bounds_persisted_stdout_and_stderr_logs(
     from app.services.document_parser.providers.mineru import local_process
 
     monkeypatch.setattr(local_process.subprocess, "Popen", lambda *_a, **_k: process)
-    runner = LocalMinerURunner(project_path, str(uv_path), 30, 80)
+    runner = local_process.LocalMinerURunner(project_path, str(uv_path), 30, 80)
 
-    with pytest.raises(LocalMinerUError) as captured:
+    with pytest.raises(local_process.LocalMinerUError) as captured:
         runner.run(request)
 
     log_content = captured.value.log_path.read_text(encoding="utf-8")
@@ -225,11 +223,13 @@ def test_runner_bounds_persisted_stdout_and_stderr_logs(
 
 
 def test_runner_rejects_non_absolute_or_missing_project_path(tmp_path: Path) -> None:
+    from app.services.document_parser.providers.mineru import local_process
+
     with pytest.raises(ValueError, match="absolute"):
-        LocalMinerURunner(Path("relative/MinerU"), "uv", 30, 1000)
+        local_process.LocalMinerURunner(Path("relative/MinerU"), "uv", 30, 1000)
 
     with pytest.raises(ValueError, match="does not exist"):
-        LocalMinerURunner(tmp_path / "missing", "uv", 30, 1000)
+        local_process.LocalMinerURunner(tmp_path / "missing", "uv", 30, 1000)
 
 
 def test_existing_cloud_mineru_entrypoint_remains_importable(
