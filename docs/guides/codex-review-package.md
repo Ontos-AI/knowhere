@@ -97,6 +97,71 @@ Open the completed package directory in Codex and ask it to read
 renders to locate evidence, then verify material claims against `native/`.
 Check `structured/extraction_findings.jsonl` before relying on any derivative.
 
+## Validate the repository test corpus
+
+The batch validator accepts only named repository roots and corpus-relative PDF
+or DOCX paths. It rejects absolute paths, traversal, symlink escapes, duplicate
+IDs, unsupported extensions, and missing files. From the Knowhere repository
+root on Windows:
+
+```powershell
+$env:MINERU_LOCAL_UV_EXECUTABLE = "C:\path\to\uv.exe"
+python -m uv run python apps/worker/scripts/validate_codex_export_corpus.py `
+  --corpus apps/worker/tests/fixtures/codex_export/validation-corpus.json `
+  --output .codex-review/batch-validation `
+  --mineru-project C:\path\to\MinerU `
+  --repeat 1 --backend pipeline --method auto --dpi 144 --offline --force
+```
+
+The two outputs are `validation-report.json` and `validation-report.html`.
+They contain source filenames, IDs, tags, hashes, sizes, timings, peak RSS,
+package counts, fidelity/finding counters, expected/actual status, and bounded
+sanitized errors. They never contain extracted text, table cell values,
+absolute paths, environment dumps, credentials, or package contents. Package
+artifact hashes are rechecked before a run is counted as completed.
+
+## Externally verify offline execution on Windows
+
+Application offline flags do not prove network denial. The external verifier
+requires an elevated Windows token and temporarily installs outbound block
+rules for the exact `uv.exe` and MinerU virtual-environment `python.exe`. It
+verifies both rules, runs the batch, deletes only its uniquely named rules in a
+`finally` path, and then writes a separate attestation:
+
+```powershell
+python -m uv run python apps/worker/scripts/verify_codex_export_offline.py `
+  --corpus apps/worker/tests/fixtures/codex_export/validation-corpus.json `
+  --output .codex-review/offline-validation `
+  --mineru-project C:\path\to\MinerU `
+  --uv-executable C:\path\to\uv.exe `
+  --mineru-python C:\path\to\MinerU\.venv\Scripts\python.exe `
+  --attestation .codex-review/offline-attestation.json --force
+```
+
+Without elevation it exits before creating rules or an attestation with
+`Administrator privileges are required`. A successful external attestation
+does not change any package manifest: package-level `offline.verified` remains
+false because the enforcement evidence has its own lifecycle and schema.
+
+## Opt in to the production local PDF provider
+
+Production PDF parsing remains cloud-backed by default. Roll out local parsing
+explicitly with the paired MinerU checkout and local models already installed:
+
+```dotenv
+MINERU_PROVIDER=local
+MINERU_LOCAL_PROJECT_PATH=C:\path\to\MinerU
+MINERU_LOCAL_UV_EXECUTABLE=C:\path\to\uv.exe
+MINERU_LOCAL_SHARD_CONCURRENCY=1
+```
+
+Local mode accepts only a local PDF path, publishes the validated Markdown as
+`full.md`, confines copied images, retains the sanitized MinerU log, and removes
+raw temporary artifacts. It does not use S3, API keys, or HTTP requests and it
+never falls back to cloud after a local failure. DOCX production routing is
+unchanged. Keep local shard concurrency at one until capacity testing supports
+a higher value; cloud mode continues to use `MINERU_SHARD_CONCURRENCY`.
+
 ## Security and licensing notes
 
 The adapter validates relative artifact paths, resolves symlinks, verifies

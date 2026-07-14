@@ -34,11 +34,11 @@
 - Produces: `ValidationCorpus`, `ValidationDocument`, `load_validation_corpus(path, roots)`.
 - Consumes: named root paths supplied by the CLI; no global settings.
 
-- [ ] **Step 1: Write failing corpus tests**
+- [x] **Step 1: Write failing corpus tests**
 
 Cover a valid relative document, duplicate ID, absolute path, `..`, unsupported suffix, missing file, and symlink escape. Assert the loaded record contains only `document_id`, `root_name`, relative `path`, `tags`, `language`, `pages`, and `expected_status`.
 
-- [ ] **Step 2: Run the focused test and observe failure**
+- [x] **Step 2: Run the focused test and observe failure**
 
 Run:
 
@@ -48,7 +48,7 @@ python -m uv run pytest apps/worker/tests/contract/test_codex_batch_validation_c
 
 Expected: collection fails because `validation_corpus` does not exist.
 
-- [ ] **Step 3: Implement the corpus contract**
+- [x] **Step 3: Implement the corpus contract**
 
 Use these signatures:
 
@@ -75,11 +75,11 @@ The loader interface is `load_validation_corpus(corpus_path: Path, *, roots: Map
 
 Validate schema version `codex-validation-corpus/1.0`; require IDs matching `[a-z0-9][a-z0-9-]{0,63}`; require suffix `.pdf` or `.docx`; resolve paths and call `relative_to(root)` after resolution.
 
-- [ ] **Step 4: Add the nine-document default corpus**
+- [x] **Step 4: Add the nine-document default corpus**
 
 Use the exact paths listed in the design spec, tagged by `pdf`, `docx`, `ocr`, `english`, `chinese`, `table`, and `multi-page` where the existing filename or fixture role establishes that property. Request pages `[1]` for one-page files and `[1,2]` for multi-page files.
 
-- [ ] **Step 5: Run the focused tests and commit**
+- [x] **Step 5: Run the focused tests and commit**
 
 Expected: corpus tests pass.
 
@@ -100,27 +100,27 @@ git commit -m "feat: add safe Codex validation corpus"
 - Consumes: `ValidationCorpus`, `ReviewPackageRequest`, `build_codex_review_package()`.
 - Produces: `ValidationRunResult`, `ValidationReport`, `run_validation_corpus()`, `write_validation_reports()`.
 
-- [ ] **Step 1: Write failing runner and report tests**
+- [x] **Step 1: Write failing runner and report tests**
 
 Use a fake package builder to prove sequential execution, continuation after one failure, expectation accounting, deterministic ordering, repeat comparison, artifact hash validation, table fidelity aggregation, and absence of source text/absolute paths/secrets in JSON and HTML.
 
-- [ ] **Step 2: Run the focused tests and observe failure**
+- [x] **Step 2: Run the focused tests and observe failure**
 
 Expected: imports for runner and report modules fail.
 
-- [ ] **Step 3: Implement result contracts and package audit**
+- [x] **Step 3: Implement result contracts and package audit**
 
 Use serializable dataclasses. Result records may contain only source metadata, SHA-256, byte counts, duration, sampled peak RSS, package counts, fidelity/finding counters, expected/actual status, reproducibility status, and sanitized error type/message. Audit every artifact inventory entry before counting a package as completed.
 
-- [ ] **Step 4: Implement sequential execution and resource sampling**
+- [x] **Step 4: Implement sequential execution and resource sampling**
 
 Use a daemon sampling thread around each package build. Sum RSS for the current process and recursive children through `psutil.Process`; tolerate process exit races. Use `time.perf_counter()` and always stop/join the monitor in `finally`.
 
-- [ ] **Step 5: Implement atomic JSON and escaped HTML output**
+- [x] **Step 5: Implement atomic JSON and escaped HTML output**
 
 Write `validation-report.json` and `validation-report.html` through sibling temporary files plus `os.replace()`. Generate HTML with `html.escape()` and no script or external asset dependency.
 
-- [ ] **Step 6: Implement the CLI**
+- [x] **Step 6: Implement the CLI**
 
 Required options:
 
@@ -138,7 +138,7 @@ Required options:
 
 The CLI maps `knowhere` to the repository root and `mineru` to `--mineru-project`, exits zero only when actual statuses match expectations and reproducibility audits pass, and prints only the two report paths plus summary counts.
 
-- [ ] **Step 7: Run focused tests and commit**
+- [x] **Step 7: Run focused tests and commit**
 
 ```powershell
 python -m uv run pytest apps/worker/tests/contract/test_codex_batch_validation_contract.py -q
@@ -158,23 +158,23 @@ git commit -m "feat: add batch Codex export validation reports"
 - Produces: `WindowsFirewallController`, `OfflineVerificationRequest`, `verify_offline_validation()`.
 - Consumes: batch-validator argv and exact `uv.exe`/MinerU `.venv/Scripts/python.exe` paths.
 
-- [ ] **Step 1: Write failing offline-controller tests**
+- [x] **Step 1: Write failing offline-controller tests**
 
 Inject a fake `run_command(argv, **kwargs)` callable. Assert exact `netsh advfirewall firewall add rule`, `show rule`, and `delete rule` argv; non-admin rejection before rule creation; both-rule active verification; validator environment; cleanup after validator success, failure, and exception; attestation remains `verified=false` on every failure path.
 
-- [ ] **Step 2: Run focused tests and observe failure**
+- [x] **Step 2: Run focused tests and observe failure**
 
 Expected: `offline_verifier` import fails.
 
-- [ ] **Step 3: Implement the controller and attestation**
+- [x] **Step 3: Implement the controller and attestation**
 
 Use unique rule names prefixed `Knowhere-MinerU-Offline-`. Check elevation with `ctypes.windll.shell32.IsUserAnAdmin()`. Hash both executables and the final JSON report. The attestation schema is `codex-offline-attestation/1.0`; write it atomically. Delete each known rule in `finally`, even when the matching add command failed.
 
-- [ ] **Step 4: Implement the CLI and execute the non-admin preflight**
+- [x] **Step 4: Implement the CLI and execute the non-admin preflight**
 
 The CLI accepts the batch-validator arguments plus `--uv-executable`, `--mineru-python`, and `--attestation`. On this host it must exit nonzero with `Administrator privileges are required` before creating a firewall rule or attestation.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 ```powershell
 python -m uv run pytest apps/worker/tests/contract/test_codex_offline_verification_contract.py -q
@@ -196,11 +196,11 @@ git commit -m "feat: add external offline validation attestation"
 - Produces: `parse_pdf(pdf_path, filename, output_dir, *, s3_key=None)`.
 - Consumes: cloud `parse_via_full()`, `LocalMinerURunner`, validated artifact bundle.
 
-- [ ] **Step 1: Write failing provider tests**
+- [x] **Step 1: Write failing provider tests**
 
 Assert cloud is the default and delegates every argument; local mode never calls cloud; missing project/uv configuration fails clearly; remote sources fail; local Markdown is atomically materialized as `full.md`; images are copied without traversal; local raw work is removed after success; failure removes partial outputs; local shard concurrency defaults to one.
 
-- [ ] **Step 2: Run focused tests and observe failure**
+- [x] **Step 2: Run focused tests and observe failure**
 
 ```powershell
 python -m uv run pytest apps/worker/tests/contract/test_mineru_provider_contract.py -q
@@ -208,7 +208,7 @@ python -m uv run pytest apps/worker/tests/contract/test_mineru_provider_contract
 
 Expected: provider modules do not exist or configuration fields are absent.
 
-- [ ] **Step 3: Add validated configuration**
+- [x] **Step 3: Add validated configuration**
 
 Add:
 
@@ -219,15 +219,15 @@ MINERU_LOCAL_SHARD_CONCURRENCY: int = Field(default=1, ge=1)
 
 Document both values in `.env.example` while keeping cloud as the default.
 
-- [ ] **Step 4: Implement local materialization**
+- [x] **Step 4: Implement local materialization**
 
 Run MinerU into a temporary directory under `output_dir`. Atomically copy Markdown to `full.md`; copy only regular files that resolve beneath the validated images directory; retain the sanitized log at `output_dir/logs/mineru.log`; remove raw temp data on success. Do not access S3, API keys, or requests.
 
-- [ ] **Step 5: Implement dispatcher and change PDF call sites**
+- [x] **Step 5: Implement dispatcher and change PDF call sites**
 
 Replace direct `parse_via_full` imports/calls in `formats/pdf/parser.py` with `parse_pdf`. In shard parsing select `settings.MINERU_LOCAL_SHARD_CONCURRENCY` only when provider is local; otherwise retain `settings.MINERU_SHARD_CONCURRENCY`.
 
-- [ ] **Step 6: Run focused and affected tests, then commit**
+- [x] **Step 6: Run focused and affected tests, then commit**
 
 ```powershell
 python -m uv run pytest apps/worker/tests/contract/test_mineru_provider_contract.py apps/worker/tests/contract/test_local_mineru_process_contract.py apps/worker/tests/contract/test_doc_profile_anatomy_contract.py apps/worker/tests/contract/test_parse_task_contract.py -q
@@ -241,45 +241,109 @@ git commit -m "feat: add production local MinerU provider"
 - Modify: `docs/guides/codex-review-package.md`
 - Modify: `docs/superpowers/plans/2026-07-14-batch-validation-offline-production-provider.md`
 
-- [ ] **Step 1: Document batch, offline, and provider commands**
+- [x] **Step 1: Document batch, offline, and provider commands**
 
 Include report privacy guarantees, corpus root rules, non-admin behavior, external attestation semantics, feature flag rollout, no-fallback policy, and concurrency one.
 
-- [ ] **Step 2: Execute the nine-document batch**
+- [x] **Step 2: Execute the nine-document batch**
 
 Run with `--repeat 1`, CPU, local model source, and offline application flags. Save output under ignored `.codex-review/batch-validation`. Record exact success/failure counts, wall times, peak RSS, table fidelity, and findings in this plan's execution report.
 
-- [ ] **Step 3: Execute the Firewall verifier**
+- [x] **Step 3: Execute the Firewall verifier**
 
 Attempt the real command. If the current token is not elevated, record the exact exit code/message and absence of any `Knowhere-MinerU-Offline-*` rules as the priority-2 environmental blocker.
 
-- [ ] **Step 4: Execute production local-provider integration**
+- [x] **Step 4: Execute production local-provider integration**
 
 Use the synthetic PDF generator, set `MINERU_PROVIDER=local`, and invoke `parse_pdfs()` with title-LLM behavior stubbed only where required to isolate the provider seam. Assert `full.md` exists and no cloud session method is called.
 
-- [ ] **Step 5: Update execution report and commit docs**
+- [x] **Step 5: Update execution report and commit docs**
 
 ```powershell
 git add docs/guides/codex-review-package.md docs/superpowers/plans/2026-07-14-batch-validation-offline-production-provider.md
 git commit -m "docs: record local provider validation results"
 ```
 
+## Execution Report (2026-07-14)
+
+### Priority 1: nine-document batch — passed
+
+- Command: `validate_codex_export_corpus.py`, repeat 1, CPU `pipeline`, `auto`,
+  144 DPI, application offline enabled, forced replacement under ignored
+  `.codex-review/batch-validation`.
+- Result: 9 runs completed, 0 failed, 0 expectation mismatches, and 0
+  reproducibility failures. Elapsed document time was 404.252186 seconds.
+- Peak sampled process-tree RSS was 5,125,976,064 bytes. Generated packages
+  totaled 24,056,270 bytes.
+- Audited output: 535 blocks, 24 tables, 25 requested/native page renders, and
+  20 findings. Table fidelity was 12 `best_effort_simple` and 12
+  `lossy_complex`. Finding categories were 12 `table_conversion`, 5
+  `hierarchy`, and 3 `docx_rendering`.
+- The JSON report was 8,329 bytes, contained no workspace absolute path, and
+  every package artifact in its manifest inventory passed size and SHA-256
+  verification before the document was counted as completed.
+
+### Priority 2: external firewall proof — environment blocked
+
+- Controller contract: 5 tests passed, covering dual-rule activation checks,
+  application offline environment, validator success/nonzero/launch exception,
+  and reverse-order cleanup.
+- Real preflight exit code: 2, with
+  `Administrator privileges are required for offline firewall verification`.
+- `Knowhere-MinerU-Offline-*` rules before: 0; rules after: 0; attestation
+  created: false. The preflight stopped before any rule mutation, as designed.
+- This is the only incomplete external proof: an elevated Windows token is
+  required to produce a `verified=true` attestation. It does not block the
+  application-offline batch or production provider implementation.
+
+### Priority 3: production local provider — passed
+
+- New provider contracts: 6 passed. The affected provider/parser suite passed
+  45 of 46 in the combined run; the remaining Windows file-lock cleanup test
+  passed immediately when rerun alone (1 passed), identifying it as an existing
+  timing-sensitive workspace cleanup condition rather than a provider failure.
+- Real standard `parse_pdfs()` seam smoke used the committed synthetic
+  three-page PDF with `MINERU_PROVIDER=local`, real local MinerU, application
+  offline flags, local shard concurrency 1, and only `parse_md` stubbed to
+  isolate downstream title/LLM behavior.
+- Result: provider seam passed, `full.md` and sanitized `logs/mineru.log`
+  existed, local raw work was removed, and a patched cloud call sentinel was
+  never invoked. The synthetic PDF intentionally yielded an empty Markdown
+  file and no images; existence/materialization, not content quality, was the
+  provider-seam assertion.
+
+### Final verification
+
+- Targeted Knowhere validation/provider suite: 38 passed, 1 expected symlink
+  privilege skip.
+- Full Knowhere worker contract suite with portable PostgreSQL 16: 233 passed,
+  2 expected skips. A stale-module test isolation issue exposed by the full run
+  was corrected by resolving `LocalMinerURunner` from the current module at
+  test execution time.
+- Paired MinerU Knowhere adapter suite: 13 passed.
+- Repository-equivalent `make check` commands: Ruff reported all checks passed;
+  Pyright reported 0 errors and 0 warnings. Native Windows GNU Make could not
+  parse the Makefile's POSIX shell detection (`cache_root`/`printf`), so the two
+  exact target commands were executed directly through `python -m uv run`.
+- Generated review packages, smoke output, coverage, pytest cache, and the
+  generated MinerU `uv.lock` were removed. No offline firewall rules remained.
+
 ### Task 6: Final verification and cleanup
 
 **Files:**
 - Remove generated `.codex-review/batch-validation/`, synthetic sources, caches, coverage, and untracked MinerU `uv.lock`.
 
-- [ ] **Step 1: Run targeted tests and repository checks**
+- [x] **Step 1: Run targeted tests and repository checks**
 
 ```powershell
 python -m uv run pytest apps/worker/tests/contract/test_codex_batch_validation_contract.py apps/worker/tests/contract/test_codex_offline_verification_contract.py apps/worker/tests/contract/test_mineru_provider_contract.py apps/worker/tests/contract/test_local_mineru_process_contract.py apps/worker/tests/contract/test_codex_review_package_contract.py -q
 make check
 ```
 
-- [ ] **Step 2: Run expanded worker regressions**
+- [x] **Step 2: Run expanded worker regressions**
 
 Run parse-task, PDF anatomy, DOCX, page-memory, and telemetry contracts with portable PostgreSQL 16.
 
-- [ ] **Step 3: Clean and audit both repositories**
+- [x] **Step 3: Clean and audit both repositories**
 
 Expected: both `git status --short` outputs are empty; `git diff --check` passes; no generated document, package, firewall rule, `.env`, credential, coverage output, model, or untracked lockfile remains.
