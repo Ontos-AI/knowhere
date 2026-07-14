@@ -125,3 +125,7 @@ doc-deploy/
 todos/
 *.egg-info/
 *.rdb
+
+# Standalone Codex document review packages
+.codex-review/
+review-package/

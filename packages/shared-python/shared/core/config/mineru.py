@@ -68,3 +68,37 @@ class MineruConfig(BaseModel):
         default=3600,
         description="Presigned URL TTL in seconds for S3 URL mode ingestion.",
     )
+    MINERU_LOCAL_PROJECT_PATH: str = Field(
+        default="",
+        description="Absolute path to a separate local MinerU checkout.",
+    )
+    MINERU_LOCAL_UV_EXECUTABLE: str = Field(
+        default="uv",
+        description="Absolute path or PATH-resolvable uv executable for local MinerU.",
+    )
+    MINERU_LOCAL_TIMEOUT_SECONDS: int = Field(
+        default=1800,
+        gt=0,
+        description="Timeout for one isolated local MinerU parse.",
+    )
+    MINERU_LOCAL_BACKEND: str = Field(
+        default="pipeline",
+        description="Default local MinerU backend for standalone exports.",
+    )
+    MINERU_LOCAL_METHOD: str = Field(
+        default="auto",
+        description="Default local MinerU parsing method.",
+    )
+    MINERU_LOCAL_LANGUAGE: str = Field(
+        default="en",
+        description="Default local MinerU document language.",
+    )
+    MINERU_LOCAL_OFFLINE: bool = Field(
+        default=True,
+        description="Request local-only model loading for standalone exports.",
+    )
+    MINERU_LOCAL_MAX_LOG_CHARS: int = Field(
+        default=8000,
+        gt=0,
+        description="Maximum sanitized stderr characters attached to local errors.",
+    )
