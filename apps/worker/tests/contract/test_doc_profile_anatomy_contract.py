@@ -964,7 +964,7 @@ def test_pdf_standard_single_pass_skips_markdown_toc_detection(
         calls["skip_toc_detection"] = kwargs.get("skip_toc_detection")
         return {"ok": True}
 
-    monkeypatch.setattr(pdf_parser, "parse_via_full", fake_parse_via_full)
+    monkeypatch.setattr(pdf_parser, "parse_pdf", fake_parse_via_full)
     monkeypatch.setattr(pdf_parser, "parse_md", fake_parse_md)
 
     result = pdf_parser.parse_pdfs(
@@ -1009,7 +1009,7 @@ def test_pdf_shard_pipeline_accepts_single_shard_fast_path(
     active_markdown_parser = importlib.import_module(
         "app.services.document_parser.formats.markdown.parser"
     )
-    monkeypatch.setattr(pdf_parser, "parse_via_full", fake_parse_via_full)
+    monkeypatch.setattr(pdf_parser, "parse_pdf", fake_parse_via_full)
     monkeypatch.setattr(shard_splitter, "split_pdf", fail_split)
     monkeypatch.setattr(
         active_markdown_parser,
@@ -1088,7 +1088,7 @@ def test_pdf_shard_pipeline_does_not_use_markdown_toc_detector(
     active_toc_parser = importlib.import_module(
         "app.services.document_parser.structure.toc_parser"
     )
-    monkeypatch.setattr(pdf_parser, "parse_via_full", fake_parse_via_full)
+    monkeypatch.setattr(pdf_parser, "parse_pdf", fake_parse_via_full)
     monkeypatch.setattr(
         active_toc_parser,
         "detect_tocs_in_texts",

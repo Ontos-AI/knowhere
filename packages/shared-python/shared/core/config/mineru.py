@@ -2,6 +2,8 @@
 MinerU service configuration
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -101,4 +103,13 @@ class MineruConfig(BaseModel):
         default=8000,
         gt=0,
         description="Maximum sanitized stderr characters attached to local errors.",
+    )
+    MINERU_PROVIDER: Literal["cloud", "local"] = Field(
+        default="cloud",
+        description="PDF MinerU provider; local is explicit opt-in with no cloud fallback.",
+    )
+    MINERU_LOCAL_SHARD_CONCURRENCY: int = Field(
+        default=1,
+        ge=1,
+        description="Maximum concurrent local MinerU PDF shard parses.",
     )

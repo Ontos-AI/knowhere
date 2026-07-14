@@ -836,7 +836,7 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
         "app.services.document_parser.formats.pdf.shard_splitter.split_pdf",
         _fake_split_pdf,
     )
-    monkeypatch.setattr(pdf_parser, "parse_via_full", _fake_parse_via_full)
+    monkeypatch.setattr(pdf_parser, "parse_pdf", _fake_parse_via_full)
     monkeypatch.setattr(
         "app.services.document_parser.formats.markdown.parser.eval_md_headings",
         _identity_eval_md_headings,

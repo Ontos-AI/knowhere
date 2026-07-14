@@ -7,7 +7,7 @@ from app.services.document_parser.formats.markdown.parser import parse_md
 from app.services.document_parser.orchestration.oversized_pdf_policy import (
     build_oversized_pdf_processing_failed_exception,
 )
-from app.services.document_parser.providers.mineru.pdf_service import parse_via_full
+from app.services.document_parser.providers.mineru.provider import parse_pdf
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
 from app.services.document_parser.support.stage_profiler import stage_timer
 from loguru import logger
@@ -72,7 +72,7 @@ def parse_pdfs(
     # ── Standard single-pass MinerU ──
     logger.info(f"📄 Standard MinerU parse for {filename}")
     with stage_timer("pdf.extract.standard", filename=filename):
-        parse_via_full(pdf_path, filename, output_dir, s3_key=s3_key)
+        parse_pdf(pdf_path, filename, output_dir, s3_key=s3_key)
 
     logger.info("✅ PDF parsing step 1 complete: text extracted")
 
@@ -167,12 +167,16 @@ def _parse_pdf_via_shards(
         # 4. Parse via MinerU. The 1-shard/no-TOC case keeps the original
         # PDF/S3 object to avoid temporary split/upload churn.
         shard_output_dirs: list[str | None]
-        concurrency = settings.MINERU_SHARD_CONCURRENCY
+        concurrency = (
+            settings.MINERU_LOCAL_SHARD_CONCURRENCY
+            if settings.MINERU_PROVIDER == "local"
+            else settings.MINERU_SHARD_CONCURRENCY
+        )
 
         if fast_path_original_pdf:
             logger.info("📄 Single shard without TOC pages; using original PDF fast path")
             with stage_timer("pdf.extract.single_shard_fast", filename=filename):
-                parse_via_full(pdf_path, filename, output_dir, s3_key=s3_key)
+                parse_pdf(pdf_path, filename, output_dir, s3_key=s3_key)
             shard_output_dirs = [output_dir]
         else:
             # Physically split PDF when TOC pages must be excluded or multiple
@@ -215,7 +219,7 @@ def _parse_pdf_via_shards(
                     f"  🔄 MinerU shard_{shard_idx}: parsing via S3 URL "
                     f"({shard_s3_key})"
                 )
-                parse_via_full(
+                parse_pdf(
                     shard_pdf, shard_filename, shard_out, s3_key=shard_s3_key
                 )
                 return shard_out
