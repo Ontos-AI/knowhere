@@ -16,6 +16,12 @@ from app.services.codex_export.package_builder import (  # noqa: E402
     ReviewPackageRequest,
     build_codex_review_package,
 )
+from app.services.document_parser.providers.mineru.artifact_contract import (  # noqa: E402
+    MinerUArtifactContractError,
+)
+from app.services.document_parser.providers.mineru.local_process import (  # noqa: E402
+    LocalMinerUError,
+)
 
 
 def _parse_pages(value: str) -> tuple[int, ...]:
@@ -83,7 +89,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     try:
         result = build_codex_review_package(request)
-    except (ReviewPackageError, ValueError) as error:
+    except (
+        LocalMinerUError,
+        MinerUArtifactContractError,
+        ReviewPackageError,
+        ValueError,
+    ) as error:
         print(f"codex-review-export: {error}", file=sys.stderr)
         return 2
     print(result.package_root)
