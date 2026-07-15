@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import sys
 from collections.abc import Iterator, Mapping
@@ -216,6 +217,18 @@ def _create_token_without_key_id() -> str:
     )
 
 
+def _base64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+
+def _create_token_with_malformed_json_payload(*, key_id: str) -> str:
+    header: dict[str, object] = {"alg": "RS256", "kid": key_id, "typ": "JWT"}
+    header_segment = _base64url_encode(json.dumps(header).encode("utf-8"))
+    payload_segment = _base64url_encode(b"not-json")
+    signature_segment = _base64url_encode(b"signature")
+    return f"{header_segment}.{payload_segment}.{signature_segment}"
+
+
 @pytest.mark.asyncio
 async def test_missing_key_id_is_a_client_warning_without_fetching_jwks(
     monkeypatch: MonkeyPatch,
@@ -272,6 +285,37 @@ async def test_malformed_jwt_is_a_client_warning_without_fetching_jwks(
     assert auth_log.extra["jwt_kid_present"] is False
     assert "jwt_algorithm" not in auth_log.extra
     assert "jwt_kid" not in auth_log.extra
+    _assert_log_excludes_token(auth_log, token=token)
+
+
+@pytest.mark.asyncio
+async def test_malformed_jwt_payload_is_a_client_warning_without_fetching_jwks(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    key_id = "malformed-payload-key"
+    token = _create_token_with_malformed_json_payload(key_id=key_id)
+
+    with _capture_auth_logs() as log_capture:
+        with _serve_jwks() as jwks_server:
+            jwks_server.state.set_raw_response(b"unavailable", status_code=503)
+            _use_dashboard_endpoint(monkeypatch, jwks_server.endpoint)
+            response = await _request_with_token(token)
+
+    _assert_unauthenticated_response(
+        response,
+        expected_message="Invalid token",
+        token=token,
+    )
+    assert jwks_server.state.request_count == 0
+
+    assert len(log_capture.records) == 1
+    auth_log = log_capture.records[0]
+    assert auth_log.level == "WARNING"
+    assert auth_log.event == "exception.client"
+    assert auth_log.extra["failure_reason"] == "jwt_invalid"
+    assert auth_log.extra["jwt_algorithm"] == "RS256"
+    assert auth_log.extra["jwt_kid_present"] is True
+    assert auth_log.extra["jwt_kid"] == key_id
     _assert_log_excludes_token(auth_log, token=token)
 
 

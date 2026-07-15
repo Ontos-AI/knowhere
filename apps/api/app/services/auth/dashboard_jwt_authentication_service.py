@@ -12,6 +12,7 @@ from typing import Literal, cast
 import jwt
 from jwt import PyJWKClient, PyJWKClientConnectionError, PyJWKClientError, PyJWKSetError
 from jwt.algorithms import AllowedPublicKeys
+from jwt.types import Options
 
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import AuthException
@@ -21,6 +22,16 @@ JWKS_CACHE_TTL_SECONDS = 60 * 60
 JWT_KEY_ID_MAX_LENGTH = 64
 JWT_KEY_ID_UNSAFE_PATTERN = re.compile(r"[^A-Za-z0-9._:-]")
 JWT_ALGORITHMS: tuple[str, ...] = ("HS256", "RS256", "EdDSA")
+JWT_STRUCTURE_ONLY_DECODE_OPTIONS: Options = {
+    "verify_signature": False,
+    "verify_exp": False,
+    "verify_nbf": False,
+    "verify_iat": False,
+    "verify_aud": False,
+    "verify_iss": False,
+    "verify_sub": False,
+    "verify_jti": False,
+}
 READ_ONLY_PERMISSION: Literal["read_only"] = "read_only"
 FULL_ACCESS_PERMISSION: Literal["full_access"] = "full_access"
 Permission = Literal["read_only", "full_access"]
@@ -81,6 +92,7 @@ class DashboardJWTAuthenticationService:
             )
 
         try:
+            self._reject_malformed_token_before_jwks_lookup(token, exception_context)
             key = self._get_verification_key(key_id)
             if key is None:
                 raise _create_auth_exception(
@@ -146,6 +158,26 @@ class DashboardJWTAuthenticationService:
             ),
         )
         return payload
+
+    def _reject_malformed_token_before_jwks_lookup(
+        self,
+        token: str,
+        exception_context: dict[str, object],
+    ) -> None:
+        """Reject structurally invalid JWTs before touching Dashboard JWKS."""
+        try:
+            # This decode only checks token structure; verified claims come from
+            # _decode_payload after the signing key is resolved.
+            jwt.decode(
+                token,
+                options=JWT_STRUCTURE_ONLY_DECODE_OPTIONS,
+            )
+        except (json.JSONDecodeError, UnicodeDecodeError, jwt.InvalidTokenError):
+            raise _create_auth_exception(
+                user_message="Invalid token",
+                failure_reason="jwt_invalid",
+                exception_context=exception_context,
+            ) from None
 
     def _get_verification_key(self, key_id: str) -> VerificationKey | None:
         """Resolve the JWT verification key from the Dashboard JWKS endpoint."""
