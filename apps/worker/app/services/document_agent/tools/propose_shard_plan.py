@@ -738,9 +738,9 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
         if model and ctx.budget.try_reserve("plan", prompt_tokens_est):
             try:
                 llm_attempted = True
-                from shared.services.ai.openai_compatible_client_sync import get_openai_client
+                from shared.services.ai.llm_overrides import get_text_client
 
-                client = get_openai_client(model=model)
+                client, model = get_text_client(requested_model=model)
                 raw_response, usage = client.chat_completion_with_usage(
                     messages=[{"role": "user", "content": prompt}],
                     model=model,

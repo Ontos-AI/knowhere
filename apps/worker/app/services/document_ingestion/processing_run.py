@@ -34,6 +34,7 @@ from app.services.document_parser.support.stage_profiler import (
 )
 from shared.core.exceptions.domain_exceptions import ValidationException
 from shared.models.schemas.job_metadata import JobMetadataHelper
+from shared.services.ai.llm_overrides import cleanup_llm_overrides, init_llm_overrides
 from shared.services.ai.token_tracking import cleanup_token_tracker, init_token_tracker
 from shared.services.jobs.lifecycle.service import get_sync_job_lifecycle_service
 from shared.services.redis.distributed_lock import RedisJobLock
@@ -87,6 +88,7 @@ def _run_parse_job(
     lifecycle_service.update_progress(job_id, progress=10, message="Parsing document...")
     token_usage_dict = init_token_tracker()
     stage_timing_dict = init_stage_tracker()
+    init_llm_overrides(JobMetadataHelper.get_llm_config(job_context.job_metadata))
 
     try:
         prepared_source = prepare_source_file(
@@ -180,6 +182,7 @@ def _run_parse_job(
             "timing_ms": dict(stage_timing_dict),
             "token_usage": dict(token_usage_dict),
         }
+        cleanup_llm_overrides()
         cleanup_token_tracker()
         cleanup_stage_tracker()
 

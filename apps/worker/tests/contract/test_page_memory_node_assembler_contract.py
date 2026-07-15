@@ -410,7 +410,7 @@ def test_build_node_rows_uses_vlm_node_summary_with_boundary(
     import shared.services.ai.openai_compatible_client_sync as client_mod
 
     monkeypatch.setattr(
-        client_mod, "get_openai_client", lambda model=None: _FakeClient()
+        client_mod, "get_openai_client", lambda model=None, **_kwargs: _FakeClient()
     )
 
     img = tmp_path / "page-231.png"

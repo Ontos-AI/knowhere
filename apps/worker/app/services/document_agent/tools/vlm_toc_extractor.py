@@ -162,7 +162,7 @@ def vlm_extract_toc_batch(
         BatchTocResult with per-page classification and extracted entries.
     """
     from loguru import logger
-    from shared.services.ai.openai_compatible_client_sync import get_openai_client
+    from shared.services.ai.llm_overrides import get_vision_client
 
     if not page_pngs:
         return BatchTocResult(
@@ -190,7 +190,8 @@ def vlm_extract_toc_batch(
         )
 
     start = time.monotonic()
-    client = get_openai_client(model=model)
+    client, resolved_model = get_vision_client(requested_model=model)
+    model = resolved_model or model
     raw, usage = client.chat_completion_with_usage(
         messages=cast(Any, [{"role": "user", "content": content_parts}]),
         model=model,

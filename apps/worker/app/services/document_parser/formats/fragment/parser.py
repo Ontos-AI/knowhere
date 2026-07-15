@@ -16,7 +16,7 @@ from loguru import logger
 from openai.types.chat import ChatCompletionMessageParam
 
 from app.services.common.file_utils import path_handle
-from shared.services.ai.openai_compatible_client_sync import get_openai_client
+from shared.services.ai.llm_overrides import get_text_client
 
 
 def generate_fragment_title(content: str, max_tokens: int = 30) -> Optional[str]:
@@ -39,7 +39,8 @@ def generate_fragment_title(content: str, max_tokens: int = 30) -> Optional[str]
         messages: list[ChatCompletionMessageParam] = [
             {"role": "user", "content": title_prompt}
         ]
-        generated_title = get_openai_client().chat_completion(
+        client, _ = get_text_client()
+        generated_title = client.chat_completion(
             messages=messages,
             max_tokens=max_tokens,
             timeout=30,

@@ -5,6 +5,8 @@ from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from shared.models.schemas.llm_config import LLMConfig
+
 
 class WebhookConfig(BaseModel):
     """Webhook configuration."""
@@ -84,6 +86,16 @@ class JobCreate(JobCreateBase):
 
 class JobCreateV2(JobCreateBase):
     """Public v2 request payload for creating a job."""
+
+    llm_config: Optional[LLMConfig] = Field(
+        None,
+        description=(
+            "Optional bring-your-own-key OpenAI-compatible LLM credentials. "
+            "Provide text and/or vision provider configs; if only one is set it "
+            "is used as a unified multimodal model for both. When omitted, "
+            "server defaults are used."
+        ),
+    )
 
 
 class JobResponse(BaseModel):

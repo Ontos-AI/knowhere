@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.models.schemas.llm_config import LLMConfig
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.execution.plan import (
     run_retrieval_query as execute_retrieval_query,
@@ -31,6 +32,7 @@ async def run_retrieval_query(
     threshold: float = 0.0,
     internal_recall_k: int | None = None,
     use_agentic: bool | None = None,
+    llm_config: LLMConfig | None = None,
 ) -> dict[str, Any]:
     return await execute_retrieval_query(
         db=db,
@@ -49,4 +51,5 @@ async def run_retrieval_query(
         threshold=threshold,
         internal_recall_k=internal_recall_k,
         use_agentic=use_agentic,
+        llm_config=llm_config,
     )
