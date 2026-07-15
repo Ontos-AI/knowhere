@@ -19,13 +19,27 @@ class LLMProviderConfig(BaseModel):
     )
 
 
+class LLMModelsConfig(BaseModel):
+    """Per-channel model ids that share root api_key / base_url."""
+
+    text: Optional[str] = Field(None, min_length=1, description="Text / planning model id")
+    vision: Optional[str] = Field(None, min_length=1, description="Vision / VLM model id")
+
+
 class LLMConfig(BaseModel):
     """OpenAI-compatible BYOK credentials (flat root + optional channel overrides).
 
-    Happy path (one multimodal model for both channels), matching OpenAI /
-    LangChain / LiteLLM style::
+    Happy path (one multimodal model for both channels)::
 
         {"api_key": "...", "model": "gpt-4o", "base_url": "https://api.openai.com/v1"}
+
+    Same endpoint, different models per channel::
+
+        {
+          "api_key": "...",
+          "base_url": "https://api.openai.com/v1",
+          "models": {"text": "gpt-4o-mini", "vision": "gpt-4o"}
+        }
 
     Different endpoints per channel::
 
@@ -35,18 +49,26 @@ class LLMConfig(BaseModel):
         }
 
     Semantics:
-    - root ``api_key`` / ``model`` / ``base_url`` (all three together) -> default
-      for both channels
-    - ``text`` / ``vision`` fully replace the default for that channel
-    - a channel with neither a slot nor a root default keeps server defaults
+    - root ``api_key`` + ``base_url`` with ``model`` and/or ``models`` -> shared auth
+    - ``models.<channel>`` wins over root ``model`` for that channel
+    - ``text`` / ``vision`` objects fully replace the root for that channel
+    - a channel with no resolved model keeps server defaults
     """
 
     api_key: Optional[str] = Field(None, min_length=1, description="Default provider API key")
-    model: Optional[str] = Field(None, min_length=1, description="Default model identifier")
+    model: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="Default model for both channels (overridden by models.*)",
+    )
     base_url: Optional[str] = Field(
         None,
         min_length=1,
         description="Default OpenAI-compatible base URL",
+    )
+    models: Optional[LLMModelsConfig] = Field(
+        None,
+        description="Per-channel model ids sharing root api_key / base_url",
     )
     text: Optional[LLMProviderConfig] = Field(
         None,
@@ -59,35 +81,64 @@ class LLMConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_shape(self) -> "LLMConfig":
-        root_fields = (self.api_key, self.model, self.base_url)
-        root_set_count = sum(value is not None for value in root_fields)
-        if root_set_count not in (0, 3):
+        has_api_key = self.api_key is not None
+        has_base_url = self.base_url is not None
+        if has_api_key != has_base_url:
+            raise ValueError("llm_config api_key and base_url must be set together")
+
+        has_auth = has_api_key and has_base_url
+        has_models = self.models is not None and (
+            self.models.text is not None or self.models.vision is not None
+        )
+        if self.models is not None and not has_models:
+            raise ValueError("llm_config.models requires at least one of text or vision")
+        if self.model is not None and not has_auth:
+            raise ValueError("llm_config.model requires api_key and base_url")
+        if has_models and not has_auth:
+            raise ValueError("llm_config.models requires api_key and base_url")
+        if has_auth and self.model is None and not has_models:
             raise ValueError(
-                "llm_config root api_key, model, and base_url must be set together"
+                "llm_config with api_key/base_url requires model and/or models"
             )
-        if root_set_count == 0 and self.text is None and self.vision is None:
+
+        if (
+            not has_auth
+            and self.text is None
+            and self.vision is None
+        ):
             raise ValueError(
                 "llm_config requires root credentials and/or text/vision overrides"
             )
         return self
 
-    def root_provider(self) -> LLMProviderConfig | None:
-        """Return the flat root as a provider config, or None if unset."""
-        if self.api_key is None or self.model is None or self.base_url is None:
+    def _channel_model(self, channel: str) -> str | None:
+        if self.models is not None:
+            named = getattr(self.models, channel)
+            if isinstance(named, str) and named:
+                return named
+        return self.model
+
+    def _root_provider_for(self, channel: str) -> LLMProviderConfig | None:
+        if self.api_key is None or self.base_url is None:
+            return None
+        model = self._channel_model(channel)
+        if model is None:
             return None
         return LLMProviderConfig(
             api_key=self.api_key,
-            model=self.model,
+            model=model,
             base_url=self.base_url,
         )
 
     def text_effective(self) -> LLMProviderConfig | None:
         """Return the text-channel config, or None to keep server defaults."""
-        return self.text if self.text is not None else self.root_provider()
+        return self.text if self.text is not None else self._root_provider_for("text")
 
     def vision_effective(self) -> LLMProviderConfig | None:
         """Return the vision-channel config, or None to keep server defaults."""
-        return self.vision if self.vision is not None else self.root_provider()
+        return (
+            self.vision if self.vision is not None else self._root_provider_for("vision")
+        )
 
     def masked_dump(self) -> dict[str, Any]:
         """Serialize with api_key values redacted for snapshots / responses."""
@@ -102,14 +153,14 @@ class LLMConfig(BaseModel):
                 "base_url": provider.base_url,
             }
 
-        dump: dict[str, Any] = {
+        return {
             "api_key": mask_api_key(self.api_key) if self.api_key else None,
             "model": self.model,
             "base_url": self.base_url,
+            "models": self.models.model_dump() if self.models is not None else None,
             "text": _mask_provider(self.text),
             "vision": _mask_provider(self.vision),
         }
-        return dump
 
 
 def parse_llm_config(value: Any) -> LLMConfig | None:

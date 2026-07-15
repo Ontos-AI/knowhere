@@ -26,9 +26,9 @@ class RetrievalQueryRequestV2(RetrievalQueryRequest):
         None,
         description=(
             "Optional bring-your-own-key OpenAI-compatible LLM credentials. "
-            "Flat root {api_key, model, base_url} applies to both channels "
-            "(multimodal shorthand). Optional text/vision objects fully replace "
-            "the default for that channel (use both for different endpoints). "
+            "Flat {api_key, model, base_url} applies to both channels. "
+            "Use models.{text,vision} for different model ids on the same "
+            "endpoint, or text/vision objects for different endpoints. "
             "When omitted, server defaults are used."
         ),
     )

@@ -14,7 +14,7 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from shared.models.schemas.llm_config import LLMConfig, LLMProviderConfig
+from shared.models.schemas.llm_config import LLMConfig, LLMModelsConfig, LLMProviderConfig
 
 
 def _creds(
@@ -36,6 +36,39 @@ def test_flat_root_applies_to_both_channels() -> None:
     assert cfg.vision_effective() is not None
     assert cfg.text_effective().model == "gpt-4o"
     assert cfg.vision_effective().api_key == "sk-root"
+
+
+def test_models_map_same_endpoint_different_models() -> None:
+    cfg = LLMConfig(
+        api_key="sk-root",
+        base_url="https://api.openai.com/v1",
+        models=LLMModelsConfig(text="gpt-4o-mini", vision="gpt-4o"),
+    )
+    assert cfg.text_effective().model == "gpt-4o-mini"
+    assert cfg.vision_effective().model == "gpt-4o"
+    assert cfg.text_effective().api_key == "sk-root"
+    assert cfg.vision_effective().base_url == "https://api.openai.com/v1"
+
+
+def test_models_map_partial_leaves_other_channel_default() -> None:
+    cfg = LLMConfig(
+        api_key="sk-root",
+        base_url="https://api.openai.com/v1",
+        models=LLMModelsConfig(text="gpt-4o-mini"),
+    )
+    assert cfg.text_effective().model == "gpt-4o-mini"
+    assert cfg.vision_effective() is None
+
+
+def test_models_overrides_root_model_per_channel() -> None:
+    cfg = LLMConfig(
+        api_key="sk-root",
+        model="gpt-4o-mini",
+        base_url="https://api.openai.com/v1",
+        models=LLMModelsConfig(vision="gpt-4o"),
+    )
+    assert cfg.text_effective().model == "gpt-4o-mini"
+    assert cfg.vision_effective().model == "gpt-4o"
 
 
 def test_text_only_leaves_vision_on_defaults() -> None:
@@ -89,8 +122,13 @@ def test_root_plus_text_override() -> None:
 
 
 def test_partial_root_rejected() -> None:
-    with pytest.raises(ValidationError, match="must be set together"):
+    with pytest.raises(ValidationError, match="api_key and base_url must be set together"):
         LLMConfig(api_key="sk-only")
+
+
+def test_auth_without_model_rejected() -> None:
+    with pytest.raises(ValidationError, match="requires model and/or models"):
+        LLMConfig(api_key="sk-root", base_url="https://api.openai.com/v1")
 
 
 def test_empty_config_rejected() -> None:
