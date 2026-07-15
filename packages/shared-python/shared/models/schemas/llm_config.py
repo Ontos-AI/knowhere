@@ -22,11 +22,14 @@ class LLMProviderConfig(BaseModel):
 class LLMConfig(BaseModel):
     """Optional text + vision provider configs for BYOK.
 
-    Semantics:
-    - both set -> text for text tasks, vision for VLM tasks
-    - exactly one set -> that config is used as a unified multimodal model
-      for both text and vision tasks
+    Semantics (partial override per channel):
+    - ``text`` set -> overrides text / planning LLM calls only
+    - ``vision`` set -> overrides vision / VLM calls only
+    - a missing slot keeps the server default for that channel
     - neither set -> invalid when the object itself is present
+
+    To drive both channels with one multimodal model, set both ``text`` and
+    ``vision`` to the same credentials.
     """
 
     text: Optional[LLMProviderConfig] = Field(
@@ -43,12 +46,12 @@ class LLMConfig(BaseModel):
         return self
 
     def text_effective(self) -> LLMProviderConfig | None:
-        """Resolve the config used for text tasks (unified-multimodal aware)."""
-        return self.text if self.text is not None else self.vision
+        """Return the text-channel override, or None to keep server defaults."""
+        return self.text
 
     def vision_effective(self) -> LLMProviderConfig | None:
-        """Resolve the config used for vision/VLM tasks (unified-multimodal aware)."""
-        return self.vision if self.vision is not None else self.text
+        """Return the vision-channel override, or None to keep server defaults."""
+        return self.vision
 
     def masked_dump(self) -> dict[str, Any]:
         """Serialize with api_key values redacted for snapshots / responses."""
