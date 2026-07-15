@@ -267,9 +267,11 @@ def _mask_llm_config_in_request(payload: Dict[str, Any]) -> Dict[str, Any]:
         return payload
 
     masked = dict(payload)
-    masked_llm: Dict[str, Any] = {}
-    for slot in ("provider", "text", "vision"):
-        provider = llm_config.get(slot)
+    masked_llm: Dict[str, Any] = dict(llm_config)
+    if isinstance(masked_llm.get("api_key"), str):
+        masked_llm["api_key"] = mask_api_key(masked_llm["api_key"])
+    for slot in ("text", "vision"):
+        provider = masked_llm.get(slot)
         if isinstance(provider, dict):
             provider_copy = dict(provider)
             if "api_key" in provider_copy:
@@ -279,8 +281,6 @@ def _mask_llm_config_in_request(payload: Dict[str, Any]) -> Dict[str, Any]:
                     else None
                 )
             masked_llm[slot] = provider_copy
-        elif provider is not None:
-            masked_llm[slot] = provider
     masked["llm_config"] = masked_llm
     return masked
 

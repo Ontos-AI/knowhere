@@ -17,20 +17,25 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 from shared.models.schemas.llm_config import LLMConfig, LLMProviderConfig
 
 
-def _creds(model: str = "gpt-4o") -> LLMProviderConfig:
-    return LLMProviderConfig(
-        api_key="sk-test",
-        model=model,
+def _creds(
+    model: str = "gpt-4o",
+    *,
+    api_key: str = "sk-test",
+    base_url: str = "https://api.openai.com/v1",
+) -> LLMProviderConfig:
+    return LLMProviderConfig(api_key=api_key, model=model, base_url=base_url)
+
+
+def test_flat_root_applies_to_both_channels() -> None:
+    cfg = LLMConfig(
+        api_key="sk-root",
+        model="gpt-4o",
         base_url="https://api.openai.com/v1",
     )
-
-
-def test_provider_alone_applies_to_both_channels() -> None:
-    cfg = LLMConfig(provider=_creds("gpt-4o"))
     assert cfg.text_effective() is not None
     assert cfg.vision_effective() is not None
     assert cfg.text_effective().model == "gpt-4o"
-    assert cfg.vision_effective().model == "gpt-4o"
+    assert cfg.vision_effective().api_key == "sk-root"
 
 
 def test_text_only_leaves_vision_on_defaults() -> None:
@@ -45,31 +50,63 @@ def test_vision_only_leaves_text_on_defaults() -> None:
     assert cfg.vision_effective().model == "vlm"
 
 
-def test_channel_overrides_provider() -> None:
+def test_two_different_endpoints() -> None:
     cfg = LLMConfig(
-        provider=_creds("shared"),
+        text=_creds("gpt-4o-mini", base_url="https://api.openai.com/v1"),
+        vision=_creds(
+            "qwen-vl-max",
+            api_key="sk-ali",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        ),
+    )
+    assert cfg.text_effective().base_url == "https://api.openai.com/v1"
+    assert cfg.vision_effective().base_url.endswith("/compatible-mode/v1")
+    assert cfg.vision_effective().model == "qwen-vl-max"
+
+
+def test_channel_replaces_root() -> None:
+    cfg = LLMConfig(
+        api_key="sk-root",
+        model="shared",
+        base_url="https://api.openai.com/v1",
         text=_creds("text-only"),
-        vision=_creds("vision-only"),
+        vision=_creds("vision-only", base_url="https://other.example/v1"),
     )
     assert cfg.text_effective().model == "text-only"
     assert cfg.vision_effective().model == "vision-only"
+    assert cfg.vision_effective().base_url == "https://other.example/v1"
 
 
-def test_provider_plus_text_override() -> None:
-    cfg = LLMConfig(provider=_creds("shared"), text=_creds("text-only"))
+def test_root_plus_text_override() -> None:
+    cfg = LLMConfig(
+        api_key="sk-root",
+        model="shared",
+        base_url="https://api.openai.com/v1",
+        text=_creds("text-only"),
+    )
     assert cfg.text_effective().model == "text-only"
     assert cfg.vision_effective().model == "shared"
 
 
+def test_partial_root_rejected() -> None:
+    with pytest.raises(ValidationError, match="must be set together"):
+        LLMConfig(api_key="sk-only")
+
+
 def test_empty_config_rejected() -> None:
-    with pytest.raises(ValidationError, match="provider, text, or vision"):
+    with pytest.raises(ValidationError, match="root credentials and/or text/vision"):
         LLMConfig()
 
 
-def test_masked_dump_includes_provider() -> None:
-    cfg = LLMConfig(provider=_creds())
+def test_masked_dump_masks_root_and_channels() -> None:
+    cfg = LLMConfig(
+        api_key="sk-root",
+        model="gpt-4o",
+        base_url="https://api.openai.com/v1",
+        vision=_creds("vlm", api_key="sk-vision"),
+    )
     dump = cfg.masked_dump()
-    assert dump["provider"] is not None
-    assert dump["provider"]["api_key"] != "sk-test"
+    assert dump["api_key"] != "sk-root"
+    assert dump["model"] == "gpt-4o"
+    assert dump["vision"]["api_key"] != "sk-vision"
     assert dump["text"] is None
-    assert dump["vision"] is None

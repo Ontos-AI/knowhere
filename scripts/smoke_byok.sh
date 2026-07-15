@@ -59,20 +59,18 @@ echo "HTTP $code"
 cat /tmp/byok_empty.json | head -c 400; echo
 test "$code" = "422" || test "$code" = "400"
 
-echo "== v2 jobs: accept llm_config.provider (multimodal shorthand) shape =="
+echo "== v2 jobs: accept flat llm_config (multimodal shorthand) shape =="
 # Expect waiting-file or pending-ish success, not 422
 code=$(curl -sS -o /tmp/byok_ok.json -w '%{http_code}' "${auth_hdr[@]}" \
   -d '{
     "source_type":"url",
     "source_url":"https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
     "file_name":"dummy.pdf",
-    "data_id":"byok-smoke-provider",
+    "data_id":"byok-smoke-flat",
     "llm_config":{
-      "provider":{
-        "api_key":"sk-smoke-test-key-not-real",
-        "model":"gpt-4o",
-        "base_url":"https://api.openai.com/v1"
-      }
+      "api_key":"sk-smoke-test-key-not-real",
+      "model":"gpt-4o",
+      "base_url":"https://api.openai.com/v1"
     }
   }' \
   "${BASE_URL}/api/v2/jobs")
@@ -92,6 +90,31 @@ if [[ -n "${JOB_ID}" ]]; then
   fi
   echo "No raw key in job response OK"
 fi
+
+echo "== v2 jobs: accept llm_config.text + vision (two endpoints) shape =="
+code=$(curl -sS -o /tmp/byok_split.json -w '%{http_code}' "${auth_hdr[@]}" \
+  -d '{
+    "source_type":"url",
+    "source_url":"https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+    "file_name":"dummy.pdf",
+    "data_id":"byok-smoke-split",
+    "llm_config":{
+      "text":{
+        "api_key":"sk-smoke-text",
+        "model":"gpt-4o-mini",
+        "base_url":"https://api.openai.com/v1"
+      },
+      "vision":{
+        "api_key":"sk-smoke-vision",
+        "model":"qwen-vl-max",
+        "base_url":"https://dashscope.aliyuncs.com/compatible-mode/v1"
+      }
+    }
+  }' \
+  "${BASE_URL}/api/v2/jobs")
+echo "HTTP $code"
+cat /tmp/byok_split.json | head -c 400; echo
+test "$code" = "200" || test "$code" = "201"
 
 echo "== v2 jobs: accept llm_config.text-only (partial override) shape =="
 code=$(curl -sS -o /tmp/byok_text.json -w '%{http_code}' "${auth_hdr[@]}" \

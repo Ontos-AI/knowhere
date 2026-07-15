@@ -26,9 +26,9 @@ class RetrievalQueryRequestV2(RetrievalQueryRequest):
         None,
         description=(
             "Optional bring-your-own-key OpenAI-compatible LLM credentials. "
-            "Use `provider` for a single multimodal model (both channels). "
-            "Use `text` / `vision` to override one channel (or both). "
-            "Missing channels without `provider` keep server defaults. "
+            "Flat root {api_key, model, base_url} applies to both channels "
+            "(multimodal shorthand). Optional text/vision objects fully replace "
+            "the default for that channel (use both for different endpoints). "
             "When omitted, server defaults are used."
         ),
     )
