@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Literal, Protocol, cast
+from typing import Protocol, cast
 
 import jwt
 import pytest
@@ -44,6 +44,8 @@ class _CapturedAuthLog:
     event: str
     message: str
     extra: Mapping[str, object]
+    exception_type: str | None
+    exception_message: str | None
 
 
 @dataclass
@@ -66,13 +68,25 @@ class _AuthLogCapture:
         if extra.get("auth_component") != "dashboard_jwt":
             return
 
-        level = record["level"]
+        level: object = record["level"]
+        exception: object | None = record.get("exception")
+        exception_type: str | None = None
+        exception_message: str | None = None
+        if exception is not None:
+            exception_value: object | None = getattr(exception, "value", None)
+            exception_type_value: object | None = getattr(exception, "type", None)
+            if exception_type_value is not None:
+                exception_type = str(getattr(exception_type_value, "__name__", ""))
+            if exception_value is not None:
+                exception_message = str(exception_value)
         self.records.append(
             _CapturedAuthLog(
                 level=str(getattr(level, "name", level)),
                 event=str(extra.get("event", "")),
                 message=str(record["message"]),
                 extra=dict(extra),
+                exception_type=exception_type,
+                exception_message=exception_message,
             )
         )
 
@@ -112,17 +126,10 @@ def _use_dashboard_endpoint(
     )
 
 
-def _create_auth_exception(
-    *,
-    error_category: Literal["client", "system"] | None = None,
-    exception_context: Mapping[str, object] | None = None,
-) -> BaseException:
+def _create_auth_exception() -> BaseException:
     from shared.core.exceptions.domain_exceptions import AuthException
 
-    return AuthException(
-        error_category=error_category,
-        exception_context=exception_context,
-    )
+    return AuthException()
 
 
 def _downgrade_logfire_exception(helper: _FakeLogfireExceptionHelper) -> None:
@@ -185,6 +192,8 @@ def _assert_unauthenticated_response(
     assert "dashboard_jwt" not in serialized_response
     assert "jwt_algorithm" not in serialized_response
     assert "jwt_kid" not in serialized_response
+    assert "payload" not in serialized_response
+    assert "contract-dashboard-user" not in serialized_response
     assert token not in serialized_response
     assert f"Bearer {token}" not in serialized_response
     token_segments = token.split(".")
@@ -197,13 +206,51 @@ def _assert_log_excludes_token(
     *,
     token: str,
 ) -> None:
-    serialized_log = json.dumps(auth_log.extra, default=str)
+    serialized_log = _serialize_auth_log(auth_log)
     assert token not in serialized_log
     assert f"Bearer {token}" not in serialized_log
     token_segments = token.split(".")
     if len(token_segments) > 1:
         assert token_segments[1] not in serialized_log
     assert "contract-dashboard-user" not in serialized_log
+
+
+def _serialize_auth_log(auth_log: _CapturedAuthLog) -> str:
+    return json.dumps(
+        {
+            "message": auth_log.message,
+            "extra": auth_log.extra,
+            "exception_type": auth_log.exception_type,
+            "exception_message": auth_log.exception_message,
+        },
+        default=str,
+    )
+
+
+def _assert_client_auth_log(auth_log: _CapturedAuthLog) -> None:
+    assert auth_log.level == "WARNING"
+    assert auth_log.event == "exception.client"
+    assert auth_log.exception_type is None
+    assert auth_log.exception_message is None
+    assert "error_category" not in auth_log.extra
+
+
+def _assert_jwks_dependency_auth_log(auth_log: _CapturedAuthLog) -> None:
+    assert auth_log.level == "ERROR"
+    assert auth_log.event == "exception.system"
+    assert auth_log.exception_type is not None
+    assert auth_log.exception_message is not None
+    assert "error_category" not in auth_log.extra
+
+
+def _assert_log_excludes_jwks_body(
+    auth_log: _CapturedAuthLog,
+    *,
+    jwks_body: bytes,
+) -> None:
+    raw_body = jwks_body.decode("utf-8", errors="ignore")
+    if raw_body:
+        assert raw_body not in _serialize_auth_log(auth_log)
 
 
 def _create_token_without_key_id() -> str:
@@ -249,8 +296,7 @@ async def test_missing_key_id_is_a_client_warning_without_fetching_jwks(
 
     assert len(log_capture.records) == 1
     auth_log = log_capture.records[0]
-    assert auth_log.level == "WARNING"
-    assert auth_log.event == "exception.client"
+    _assert_client_auth_log(auth_log)
     assert auth_log.extra["failure_reason"] == "jwt_missing_key_id"
     assert auth_log.extra["jwt_algorithm"] == "HS256"
     assert auth_log.extra["jwt_kid_present"] is False
@@ -272,15 +318,14 @@ async def test_malformed_jwt_is_a_client_warning_without_fetching_jwks(
 
     _assert_unauthenticated_response(
         response,
-        expected_message="Invalid token",
+        expected_message="Authentication required",
         token=token,
     )
     assert jwks_server.state.request_count == 0
 
     assert len(log_capture.records) == 1
     auth_log = log_capture.records[0]
-    assert auth_log.level == "WARNING"
-    assert auth_log.event == "exception.client"
+    _assert_client_auth_log(auth_log)
     assert auth_log.extra["failure_reason"] == "jwt_invalid"
     assert auth_log.extra["jwt_kid_present"] is False
     assert "jwt_algorithm" not in auth_log.extra
@@ -303,15 +348,14 @@ async def test_malformed_jwt_payload_is_a_client_warning_without_fetching_jwks(
 
     _assert_unauthenticated_response(
         response,
-        expected_message="Invalid token",
+        expected_message="Authentication required",
         token=token,
     )
     assert jwks_server.state.request_count == 0
 
     assert len(log_capture.records) == 1
     auth_log = log_capture.records[0]
-    assert auth_log.level == "WARNING"
-    assert auth_log.event == "exception.client"
+    _assert_client_auth_log(auth_log)
     assert auth_log.extra["failure_reason"] == "jwt_invalid"
     assert auth_log.extra["jwt_algorithm"] == "RS256"
     assert auth_log.extra["jwt_kid_present"] is True
@@ -347,8 +391,7 @@ async def test_unknown_key_id_refreshes_once_and_remains_a_client_warning(
 
     assert len(log_capture.records) == 1
     auth_log = log_capture.records[0]
-    assert auth_log.level == "WARNING"
-    assert auth_log.event == "exception.client"
+    _assert_client_auth_log(auth_log)
     assert auth_log.extra["failure_reason"] == "jwt_unknown_key_id"
     assert auth_log.extra["jwt_algorithm"] == "RS256"
     assert auth_log.extra["jwt_kid_present"] is True
@@ -365,10 +408,11 @@ async def test_unavailable_jwks_is_a_system_error_with_an_unchanged_response(
 ) -> None:
     signing_key = _create_rsa_private_key()
     token = _create_rsa_token(signing_key, key_id="unavailable-key")
+    jwks_body = b"dashboard-jwks-secret-body"
 
     with _capture_auth_logs() as log_capture:
         with _serve_jwks() as jwks_server:
-            jwks_server.state.set_raw_response(b"unavailable", status_code=503)
+            jwks_server.state.set_raw_response(jwks_body, status_code=503)
             _use_dashboard_endpoint(monkeypatch, jwks_server.endpoint)
             response = await _request_with_token(token)
 
@@ -381,13 +425,13 @@ async def test_unavailable_jwks_is_a_system_error_with_an_unchanged_response(
 
     assert len(log_capture.records) == 1
     auth_log = log_capture.records[0]
-    assert auth_log.level == "ERROR"
-    assert auth_log.event == "exception.system"
-    assert auth_log.extra["error_category"] == "system"
+    _assert_jwks_dependency_auth_log(auth_log)
+    assert auth_log.exception_type == "PyJWKClientConnectionError"
     assert auth_log.extra["failure_reason"] == "jwks_unavailable"
     assert auth_log.extra["jwt_kid"] == "unavailable-key"
 
     _assert_log_excludes_token(auth_log, token=token)
+    _assert_log_excludes_jwks_body(auth_log, jwks_body=jwks_body)
 
 
 @pytest.mark.parametrize(
@@ -421,13 +465,12 @@ async def test_invalid_jwks_is_a_system_error_with_an_unchanged_response(
 
     assert len(log_capture.records) == 1
     auth_log = log_capture.records[0]
-    assert auth_log.level == "ERROR"
-    assert auth_log.event == "exception.system"
-    assert auth_log.extra["error_category"] == "system"
+    _assert_jwks_dependency_auth_log(auth_log)
     assert auth_log.extra["failure_reason"] == "jwks_invalid"
     assert auth_log.extra["jwt_kid"] == "invalid-jwks-key"
 
     _assert_log_excludes_token(auth_log, token=token)
+    _assert_log_excludes_jwks_body(auth_log, jwks_body=jwks_body)
 
 
 @pytest.mark.asyncio
@@ -481,16 +524,14 @@ async def test_expired_jwt_retains_response_and_logs_client_warning(
 
     _assert_unauthenticated_response(
         response,
-        expected_message="Token has expired",
+        expected_message="Authentication required",
         token=token,
     )
     assert jwks_server.state.request_count == 1
 
     assert len(log_capture.records) == 1
     auth_log = log_capture.records[0]
-    assert auth_log.level == "WARNING"
-    assert auth_log.event == "exception.client"
-    assert auth_log.extra["error_category"] == "client"
+    _assert_client_auth_log(auth_log)
     assert auth_log.extra["failure_reason"] == "jwt_expired"
     assert auth_log.extra["jwt_algorithm"] == "RS256"
     assert auth_log.extra["jwt_kid"] == key_id
@@ -516,16 +557,14 @@ async def test_invalid_signature_retains_response_and_logs_client_warning(
 
     _assert_unauthenticated_response(
         response,
-        expected_message="Invalid token",
+        expected_message="Authentication required",
         token=token,
     )
     assert jwks_server.state.request_count == 1
 
     assert len(log_capture.records) == 1
     auth_log = log_capture.records[0]
-    assert auth_log.level == "WARNING"
-    assert auth_log.event == "exception.client"
-    assert auth_log.extra["error_category"] == "client"
+    _assert_client_auth_log(auth_log)
     assert auth_log.extra["failure_reason"] == "jwt_invalid"
     assert auth_log.extra["jwt_algorithm"] == "RS256"
     assert auth_log.extra["jwt_kid"] == key_id
@@ -554,16 +593,14 @@ async def test_missing_user_claim_retains_response_and_logs_client_warning(
 
     _assert_unauthenticated_response(
         response,
-        expected_message="Token missing 'id' claim",
+        expected_message="Authentication required",
         token=token,
     )
     assert jwks_server.state.request_count == 1
 
     assert len(log_capture.records) == 1
     auth_log = log_capture.records[0]
-    assert auth_log.level == "WARNING"
-    assert auth_log.event == "exception.client"
-    assert auth_log.extra["error_category"] == "client"
+    _assert_client_auth_log(auth_log)
     assert auth_log.extra["failure_reason"] == "jwt_invalid"
     assert auth_log.extra["jwt_algorithm"] == "RS256"
     assert auth_log.extra["jwt_kid"] == key_id
@@ -592,14 +629,13 @@ async def test_non_allowlisted_algorithm_is_not_recorded_as_safe_metadata(
 
     _assert_unauthenticated_response(
         response,
-        expected_message="Invalid token",
+        expected_message="Authentication required",
         token=token,
     )
 
     assert len(log_capture.records) == 1
     auth_log = log_capture.records[0]
-    assert auth_log.level == "WARNING"
-    assert auth_log.event == "exception.client"
+    _assert_client_auth_log(auth_log)
     assert auth_log.extra["failure_reason"] == "jwt_invalid"
     assert auth_log.extra["jwt_kid_present"] is True
     assert auth_log.extra["jwt_kid"] == key_id
@@ -607,24 +643,7 @@ async def test_non_allowlisted_algorithm_is_not_recorded_as_safe_metadata(
     _assert_log_excludes_token(auth_log, token=token)
 
 
-def test_logfire_exception_callback_keeps_system_category_auth_errors_recorded() -> None:
-    helper = _FakeLogfireExceptionHelper(
-        exception=_create_auth_exception(
-            error_category="system",
-            exception_context={
-                "auth_component": "dashboard_jwt",
-                "failure_reason": "jwks_unavailable",
-            },
-        )
-    )
-
-    _downgrade_logfire_exception(helper)
-
-    assert helper.level == "error"
-    assert helper.is_recording_exception is True
-
-
-def test_logfire_exception_callback_downgrades_client_category_auth_errors() -> None:
+def test_logfire_exception_callback_downgrades_auth_exceptions_by_status() -> None:
     helper = _FakeLogfireExceptionHelper(exception=_create_auth_exception())
 
     _downgrade_logfire_exception(helper)

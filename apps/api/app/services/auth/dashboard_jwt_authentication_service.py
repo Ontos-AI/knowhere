@@ -7,15 +7,17 @@ import re
 import threading
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Literal, cast
+from typing import Literal, NoReturn, cast
 
 import jwt
 from jwt import PyJWKClient, PyJWKClientConnectionError, PyJWKClientError, PyJWKSetError
 from jwt.algorithms import AllowedPublicKeys
 from jwt.types import Options
+from loguru import logger
 
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import AuthException
+from shared.core.logging import LogEvent
 
 JWKS_ENDPOINT_PATH = "/api/auth/jwks"
 JWKS_CACHE_TTL_SECONDS = 60 * 60
@@ -68,79 +70,80 @@ class DashboardJWTAuthenticationService:
         try:
             unverified_header = cast(dict[str, object], jwt.get_unverified_header(token))
         except jwt.InvalidTokenError:
-            raise _create_auth_exception(
-                user_message="Invalid token",
+            _reject_client_jwt(
                 failure_reason="jwt_invalid",
-                exception_context=_build_exception_context(
+                telemetry_context=_build_telemetry_context(
                     algorithm=None,
                     key_id=None,
                 ),
-            ) from None
+            )
 
         algorithm = unverified_header.get("alg")
         key_id_value = unverified_header.get("kid")
         key_id = key_id_value if isinstance(key_id_value, str) else None
-        exception_context = _build_exception_context(
+        telemetry_context = _build_telemetry_context(
             algorithm=algorithm,
             key_id=key_id,
         )
 
         if key_id is None or not key_id.strip():
-            raise _create_auth_exception(
+            _reject_client_jwt(
                 failure_reason="jwt_missing_key_id",
-                exception_context=exception_context,
+                telemetry_context=telemetry_context,
             )
 
         try:
-            self._reject_malformed_token_before_jwks_lookup(token, exception_context)
+            self._reject_malformed_token_before_jwks_lookup(token, telemetry_context)
             key = self._get_verification_key(key_id)
             if key is None:
-                raise _create_auth_exception(
+                _reject_client_jwt(
                     failure_reason="jwt_unknown_key_id",
-                    exception_context=exception_context,
+                    telemetry_context=telemetry_context,
                 )
 
             payload = self._decode_payload(token, key)
             user_id = payload.get("id")
             if not isinstance(user_id, str) or not user_id:
-                raise _create_auth_exception(
-                    user_message="Token missing 'id' claim",
+                _reject_client_jwt(
                     failure_reason="jwt_invalid",
-                    exception_context=exception_context,
+                    telemetry_context=telemetry_context,
                 )
 
             permission = _normalize_permission(payload.get("permission"))
             return DashboardJWTIdentity(user_id=user_id, permission=permission)
         except jwt.ExpiredSignatureError:
-            raise _create_auth_exception(
-                user_message="Token has expired",
+            _reject_client_jwt(
                 failure_reason="jwt_expired",
-                exception_context=exception_context,
-            ) from None
-        except PyJWKClientConnectionError:
-            raise _create_auth_exception(
+                telemetry_context=telemetry_context,
+            )
+        except PyJWKClientConnectionError as error:
+            _reject_jwks_dependency(
                 failure_reason="jwks_unavailable",
-                error_category="system",
-                exception_context=exception_context,
-            ) from None
-        except (json.JSONDecodeError, UnicodeDecodeError, PyJWKSetError, jwt.PyJWKError):
-            raise _create_auth_exception(
+                telemetry_context=telemetry_context,
+                original_exception=error,
+            )
+        except (
+            json.JSONDecodeError,
+            UnicodeDecodeError,
+            PyJWKSetError,
+            jwt.PyJWKError,
+        ) as error:
+            _reject_jwks_dependency(
                 failure_reason="jwks_invalid",
-                error_category="system",
-                exception_context=exception_context,
-            ) from None
-        except PyJWKClientError:
-            raise _create_auth_exception(
+                telemetry_context=telemetry_context,
+                original_exception=error,
+            )
+        except PyJWKClientError as error:
+            _reject_jwks_dependency(
                 failure_reason="jwks_invalid",
-                error_category="system",
-                exception_context=exception_context,
-            ) from None
+                telemetry_context=telemetry_context,
+                original_exception=error,
+            )
         except jwt.InvalidTokenError:
-            raise _create_auth_exception(
-                user_message="Invalid token",
+            _reject_client_jwt(
                 failure_reason="jwt_invalid",
-                exception_context=exception_context,
-            ) from None
+                telemetry_context=telemetry_context,
+            )
 
     def _decode_payload(
         self,
@@ -162,7 +165,7 @@ class DashboardJWTAuthenticationService:
     def _reject_malformed_token_before_jwks_lookup(
         self,
         token: str,
-        exception_context: dict[str, object],
+        telemetry_context: dict[str, object],
     ) -> None:
         """Reject structurally invalid JWTs before touching Dashboard JWKS."""
         try:
@@ -173,11 +176,10 @@ class DashboardJWTAuthenticationService:
                 options=JWT_STRUCTURE_ONLY_DECODE_OPTIONS,
             )
         except (json.JSONDecodeError, UnicodeDecodeError, jwt.InvalidTokenError):
-            raise _create_auth_exception(
-                user_message="Invalid token",
+            _reject_client_jwt(
                 failure_reason="jwt_invalid",
-                exception_context=exception_context,
-            ) from None
+                telemetry_context=telemetry_context,
+            )
 
     def _get_verification_key(self, key_id: str) -> VerificationKey | None:
         """Resolve the JWT verification key from the Dashboard JWKS endpoint."""
@@ -215,7 +217,7 @@ class DashboardJWTAuthenticationService:
         return self._jwks_client
 
 
-def _build_exception_context(
+def _build_telemetry_context(
     *,
     algorithm: object,
     key_id: str | None,
@@ -237,23 +239,57 @@ def _sanitize_key_id(key_id: str) -> str:
     return sanitized_key_id[:JWT_KEY_ID_MAX_LENGTH]
 
 
-def _create_auth_exception(
+def _reject_client_jwt(
     *,
     failure_reason: JWTFailureReason,
-    user_message: str = "Authentication required",
-    error_category: Literal["client", "system"] | None = None,
-    exception_context: dict[str, object] | None = None,
-) -> AuthException:
-    context: dict[str, object] = {
-        **(exception_context or {}),
+    telemetry_context: dict[str, object],
+) -> NoReturn:
+    _log_dashboard_jwt_auth_failure(
+        failure_reason=failure_reason,
+        telemetry_context=telemetry_context,
+        is_jwks_dependency_failure=False,
+    )
+    raise AuthException() from None
+
+
+def _reject_jwks_dependency(
+    *,
+    failure_reason: JWTFailureReason,
+    telemetry_context: dict[str, object],
+    original_exception: Exception,
+) -> NoReturn:
+    _log_dashboard_jwt_auth_failure(
+        failure_reason=failure_reason,
+        telemetry_context=telemetry_context,
+        is_jwks_dependency_failure=True,
+        original_exception=original_exception,
+    )
+    raise AuthException() from None
+
+
+def _log_dashboard_jwt_auth_failure(
+    *,
+    failure_reason: JWTFailureReason,
+    telemetry_context: dict[str, object],
+    is_jwks_dependency_failure: bool,
+    original_exception: Exception | None = None,
+) -> None:
+    log_data: dict[str, object] = {
+        **telemetry_context,
         "failure_reason": failure_reason,
     }
-    return AuthException(
-        user_message=user_message,
-        internal_message=f"Dashboard JWT authentication failed: {failure_reason}",
-        error_category=error_category,
-        exception_context=context,
-    )
+    message = f"Dashboard JWT authentication failed: {failure_reason}"
+    if is_jwks_dependency_failure:
+        logger.bind(
+            event=LogEvent.EXCEPTION_SYSTEM.value,
+            **log_data,
+        ).opt(exception=original_exception).error(message)
+        return
+
+    logger.bind(
+        event=LogEvent.EXCEPTION_CLIENT.value,
+        **log_data,
+    ).warning(message)
 
 
 def _normalize_permission(value: object) -> Permission:
