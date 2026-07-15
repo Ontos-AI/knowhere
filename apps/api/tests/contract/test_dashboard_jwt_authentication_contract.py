@@ -87,12 +87,13 @@ def _capture_auth_logs() -> Iterator[_AuthLogCapture]:
 
 
 def _prepare_api_app_imports() -> None:
-    api_root = str(Path(__file__).resolve().parents[2])
+    api_root: str = str(Path(__file__).resolve().parents[2])
     if api_root in sys.path:
         sys.path.remove(api_root)
     sys.path.insert(0, api_root)
 
-    for module_name in list(sys.modules):
+    cached_module_names: list[str] = list(sys.modules)
+    for module_name in cached_module_names:
         if module_name == "app" or module_name.startswith("app."):
             sys.modules.pop(module_name, None)
 
