@@ -13,6 +13,7 @@ from typing import Any, Callable, Coroutine, Union, Sequence, cast
 from loguru import logger
 
 from shared.core.config import settings
+from shared.services.ai.llm_overrides import get_current_llm_overrides
 
 # LLMFn accepts either a plain string or a list of ChatCompletionMessageParam
 LLMFnInput = Union[str, Sequence[dict[str, Any]]]
@@ -29,6 +30,8 @@ _RETRIEVAL_LLM_MAX_TOKENS = 2048
 
 def _has_llm_credentials() -> bool:
     """Check whether at least one LLM provider is configured."""
+    if get_current_llm_overrides() is not None:
+        return True
     if getattr(settings, 'LLM_MOCK_ENABLED', False):
         return True
     if getattr(settings, 'DS_KEY', ''):
@@ -44,6 +47,11 @@ def _has_llm_credentials() -> bool:
 
 def _resolve_default_model() -> str:
     """Pick a model name that matches the configured LLM provider."""
+    overrides = get_current_llm_overrides()
+    if overrides is not None:
+        provider = overrides.text_effective()
+        if provider is not None:
+            return provider.model
     if getattr(settings, 'DS_KEY', ''):
         return 'deepseek-v4-flash'
     if getattr(settings, 'ALI_API_KEYS', ''):
@@ -56,6 +64,11 @@ def _resolve_default_model() -> str:
 
 
 def _resolve_planner_model(*, thinking: bool) -> str:
+    overrides = get_current_llm_overrides()
+    if overrides is not None:
+        provider = overrides.text_effective()
+        if provider is not None:
+            return provider.model
     configured = getattr(settings, 'RETRIEVAL_PLANNER_MODEL', '') or ''
     if configured:
         return configured
@@ -68,6 +81,29 @@ def _resolve_planner_model(*, thinking: bool) -> str:
     if getattr(settings, 'GPT_API_KEY', ''):
         return 'o3-mini' if thinking else 'gpt-4o-mini'
     return getattr(settings, 'NORMOL_MODEL', None) or 'deepseek-v4-flash'
+
+
+def _resolve_vlm_model(model: str | None = None) -> str:
+    overrides = get_current_llm_overrides()
+    if overrides is not None:
+        provider = overrides.vision_effective()
+        if provider is not None:
+            return provider.model
+    return model or getattr(settings, 'IMAGE_MODEL', '') or 'qwen3.6-flash'
+
+
+def _build_client_for_channel(*, channel: str, model: str):
+    """Build an OpenAI-compatible client, honoring active BYOK overrides."""
+    from shared.services.ai.openai_compatible_client_sync import get_openai_client
+    from shared.services.ai.llm_overrides import resolve_text, resolve_vision
+
+    resolve = resolve_vision if channel == 'vision' else resolve_text
+    effective_model, api_key, api_url = resolve(model)
+    return get_openai_client(
+        model=effective_model,
+        api_key=api_key,
+        api_url=api_url,
+    ), effective_model
 
 
 def create_retrieval_llm_fn(
@@ -108,9 +144,10 @@ def create_retrieval_llm_fn(
         )
 
     async def llm_fn(prompt: LLMFnInput) -> str:
-        from shared.services.ai.openai_compatible_client_sync import get_openai_client
-
-        client = get_openai_client(model=effective_model)
+        client, resolved_model = _build_client_for_channel(
+            channel='text',
+            model=effective_model,
+        )
         current_llm_usage.set(None)
 
         kwargs: dict[str, Any] = {}
@@ -124,7 +161,7 @@ def create_retrieval_llm_fn(
         result, usage = await asyncio.to_thread(
             client.chat_completion_with_usage,
             cast(Any, prompt),
-            model=effective_model,
+            model=resolved_model,
             temperature=effective_temperature,
             max_tokens=effective_max_tokens,
             **kwargs,
@@ -149,14 +186,15 @@ def create_retrieval_planner_fn(
     effective_model = model or _resolve_planner_model(thinking=thinking)
 
     async def llm_fn(prompt: LLMFnInput) -> str:
-        from shared.services.ai.openai_compatible_client_sync import get_openai_client
-
-        client = get_openai_client(model=effective_model)
+        client, resolved_model = _build_client_for_channel(
+            channel='text',
+            model=effective_model,
+        )
         current_llm_usage.set(None)
         result, usage = await asyncio.to_thread(
             client.chat_completion_with_usage,
             cast(Any, prompt),
-            model=effective_model,
+            model=resolved_model,
             temperature=0.0,
             max_tokens=max_tokens,
         )
@@ -181,23 +219,22 @@ def create_retrieval_vlm_fn(
     ``create_retrieval_llm_fn`` — callers pass either a plain string
     or a list of ChatCompletionMessageParam (including image_url parts).
     """
-    from shared.core.config import settings
-
-    effective_model = model or getattr(settings, 'IMAGE_MODEL', '') or 'qwen3.6-flash'
+    effective_model = _resolve_vlm_model(model)
 
     if not _has_llm_credentials():
         logger.debug('retrieval: no LLM credentials for VLM, image-aware answering disabled')
         return None
 
     async def vlm_fn(prompt: LLMFnInput) -> str:
-        from shared.services.ai.openai_compatible_client_sync import get_openai_client
-
-        client = get_openai_client(model=effective_model)
+        client, resolved_model = _build_client_for_channel(
+            channel='vision',
+            model=effective_model,
+        )
         current_llm_usage.set(None)
         result, usage = await asyncio.to_thread(
             client.chat_completion_with_usage,
             cast(Any, prompt),
-            model=effective_model,
+            model=resolved_model,
             temperature=temperature,
             max_tokens=max_tokens,
         )

@@ -15,7 +15,7 @@ from loguru import logger
 
 from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.response_process_service import eval_response
-from shared.services.ai.openai_compatible_client_sync import get_openai_client
+from shared.services.ai.llm_overrides import get_text_client
 from shared.utils.text_utils import remove_duplicates_orderkept
 
 
@@ -68,7 +68,8 @@ def parse_headers(
                     ttl=7200,
                 )
 
-            header_response = get_openai_client().chat_completion(
+            client, _ = get_text_client()
+            header_response = client.chat_completion(
                 messages=messages,
                 timeout=60,
                 usage_task="parser.table_detect_headers",

@@ -98,8 +98,11 @@ def test_refine_fat_leaf_skeletons_excludes_next_section_start_when_unordered(
 
     monkeypatch.setattr(
         fine_hierarchy,
-        "get_openai_client",
-        lambda model=None: _FakeClient([{"id": 1, "level": 1}]),
+        "get_text_client",
+        lambda requested_model=None: (
+            _FakeClient([{"id": 1, "level": 1}]),
+            requested_model,
+        ),
     )
 
     refined = fine_hierarchy.refine_fat_leaf_skeletons(
@@ -152,14 +155,17 @@ def test_refine_fat_leaf_skeletons_uses_page_memory_prompt_without_demoting_sibl
 
     monkeypatch.setattr(
         fine_hierarchy,
-        "get_openai_client",
-        lambda model=None: _FakeClient(
-            [
-                {"id": 1, "level": 1},
-                {"id": 2, "level": 1},
-                {"id": 3, "level": 2},
-                {"id": 4, "level": 1},
-            ]
+        "get_text_client",
+        lambda requested_model=None: (
+            _FakeClient(
+                [
+                    {"id": 1, "level": 1},
+                    {"id": 2, "level": 1},
+                    {"id": 3, "level": 2},
+                    {"id": 4, "level": 1},
+                ]
+            ),
+            requested_model,
         ),
     )
 

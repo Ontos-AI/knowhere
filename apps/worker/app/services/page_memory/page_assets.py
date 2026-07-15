@@ -109,9 +109,9 @@ def detect_page_assets(
     )
 
     try:
-        from shared.services.ai.openai_compatible_client_sync import get_openai_client
+        from shared.services.ai.llm_overrides import get_vision_client
 
-        client = get_openai_client(model=model_name)
+        client, model_name = get_vision_client(requested_model=model_name)
         raw_response, usage = client.chat_completion_with_usage(
             messages=cast(
                 Any,
@@ -829,9 +829,9 @@ def _llm_judge_table_continuity(
     )
 
     try:
-        from shared.services.ai.openai_compatible_client_sync import get_openai_client
+        from shared.services.ai.llm_overrides import get_text_client
 
-        client = get_openai_client(model=model_name)
+        client, model_name = get_text_client(requested_model=model_name)
         raw_response, usage = client.chat_completion_with_usage(
             messages=[{"role": "user", "content": prompt}],
             model=model_name,
