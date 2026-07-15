@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Protocol, cast
+from pathlib import Path
+from typing import Literal, Protocol, cast
 
 import jwt
 import pytest
@@ -14,19 +16,20 @@ from httpx import ASGITransport, AsyncClient, Response
 from loguru import logger
 from pytest import MonkeyPatch
 
-from app.core.exception_handlers import setup_exception_handlers
-from app.services.auth.dashboard_jwt_authentication_service import (
-    DashboardJWTAuthenticationService,
+from tests.support.import_environment import (
+    configure_import_environment,
+    ensure_import_paths,
 )
-from shared.core.config import settings
-from shared.core.exceptions.domain_exceptions import AuthException
-from shared.core.logging import _downgrade_expected_logfire_exception
 from tests.support.dashboard_jwt import (
     create_dashboard_rsa_jwk as _create_rsa_jwk,
     create_dashboard_rsa_private_key as _create_rsa_private_key,
     create_dashboard_rsa_token as _create_rsa_token,
     serve_dashboard_jwks as _serve_jwks,
 )
+
+configure_import_environment()
+ensure_import_paths()
+
 
 class _LoguruMessage(Protocol):
     @property
@@ -83,7 +86,57 @@ def _capture_auth_logs() -> Iterator[_AuthLogCapture]:
         logger.remove(log_sink_id)
 
 
+def _prepare_api_app_imports() -> None:
+    api_root = str(Path(__file__).resolve().parents[2])
+    if api_root in sys.path:
+        sys.path.remove(api_root)
+    sys.path.insert(0, api_root)
+
+    for module_name in list(sys.modules):
+        if module_name == "app" or module_name.startswith("app."):
+            sys.modules.pop(module_name, None)
+
+
+def _use_dashboard_endpoint(
+    monkeypatch: MonkeyPatch,
+    endpoint: str,
+) -> None:
+    from shared.core.config import settings
+
+    monkeypatch.setattr(
+        settings,
+        "INTERNAL_DASHBOARD_ENDPOINT",
+        endpoint,
+    )
+
+
+def _create_auth_exception(
+    *,
+    error_category: Literal["client", "system"] | None = None,
+    exception_context: Mapping[str, object] | None = None,
+) -> BaseException:
+    from shared.core.exceptions.domain_exceptions import AuthException
+
+    return AuthException(
+        error_category=error_category,
+        exception_context=exception_context,
+    )
+
+
+def _downgrade_logfire_exception(helper: _FakeLogfireExceptionHelper) -> None:
+    from shared.core.logging import _downgrade_expected_logfire_exception
+
+    _downgrade_expected_logfire_exception(helper)  # pyright: ignore[reportArgumentType]
+
+
 def _create_authentication_app() -> FastAPI:
+    _prepare_api_app_imports()
+
+    from app.core.exception_handlers import setup_exception_handlers
+    from app.services.auth.dashboard_jwt_authentication_service import (
+        DashboardJWTAuthenticationService,
+    )
+
     authentication_service = DashboardJWTAuthenticationService()
     app = FastAPI()
 
@@ -170,11 +223,7 @@ async def test_missing_key_id_is_a_client_warning_without_fetching_jwks(
 
     with _capture_auth_logs() as log_capture:
         with _serve_jwks() as jwks_server:
-            monkeypatch.setattr(
-                settings,
-                "INTERNAL_DASHBOARD_ENDPOINT",
-                jwks_server.endpoint,
-            )
+            _use_dashboard_endpoint(monkeypatch, jwks_server.endpoint)
             response = await _request_with_token(token)
 
     _assert_unauthenticated_response(
@@ -204,11 +253,7 @@ async def test_malformed_jwt_is_a_client_warning_without_fetching_jwks(
 
     with _capture_auth_logs() as log_capture:
         with _serve_jwks() as jwks_server:
-            monkeypatch.setattr(
-                settings,
-                "INTERNAL_DASHBOARD_ENDPOINT",
-                jwks_server.endpoint,
-            )
+            _use_dashboard_endpoint(monkeypatch, jwks_server.endpoint)
             response = await _request_with_token(token)
 
     _assert_unauthenticated_response(
@@ -245,11 +290,7 @@ async def test_unknown_key_id_refreshes_once_and_remains_a_client_warning(
             jwks_server.state.set_json_response(
                 {"keys": [_create_rsa_jwk(signing_key, key_id="known-key")]}
             )
-            monkeypatch.setattr(
-                settings,
-                "INTERNAL_DASHBOARD_ENDPOINT",
-                jwks_server.endpoint,
-            )
+            _use_dashboard_endpoint(monkeypatch, jwks_server.endpoint)
             response = await _request_with_token(token)
 
     _assert_unauthenticated_response(
@@ -283,11 +324,7 @@ async def test_unavailable_jwks_is_a_system_error_with_an_unchanged_response(
     with _capture_auth_logs() as log_capture:
         with _serve_jwks() as jwks_server:
             jwks_server.state.set_raw_response(b"unavailable", status_code=503)
-            monkeypatch.setattr(
-                settings,
-                "INTERNAL_DASHBOARD_ENDPOINT",
-                jwks_server.endpoint,
-            )
+            _use_dashboard_endpoint(monkeypatch, jwks_server.endpoint)
             response = await _request_with_token(token)
 
     _assert_unauthenticated_response(
@@ -327,11 +364,7 @@ async def test_invalid_jwks_is_a_system_error_with_an_unchanged_response(
     with _capture_auth_logs() as log_capture:
         with _serve_jwks() as jwks_server:
             jwks_server.state.set_raw_response(jwks_body)
-            monkeypatch.setattr(
-                settings,
-                "INTERNAL_DASHBOARD_ENDPOINT",
-                jwks_server.endpoint,
-            )
+            _use_dashboard_endpoint(monkeypatch, jwks_server.endpoint)
             response = await _request_with_token(token)
 
     _assert_unauthenticated_response(
@@ -369,11 +402,7 @@ async def test_valid_keyed_jwt_returns_identity_without_auth_rejection_log(
             jwks_server.state.set_json_response(
                 {"keys": [_create_rsa_jwk(signing_key, key_id=key_id)]}
             )
-            monkeypatch.setattr(
-                settings,
-                "INTERNAL_DASHBOARD_ENDPOINT",
-                jwks_server.endpoint,
-            )
+            _use_dashboard_endpoint(monkeypatch, jwks_server.endpoint)
             response = await _request_with_token(token)
 
     assert response.status_code == 200
@@ -402,11 +431,7 @@ async def test_expired_jwt_retains_response_and_logs_client_warning(
             jwks_server.state.set_json_response(
                 {"keys": [_create_rsa_jwk(signing_key, key_id=key_id)]}
             )
-            monkeypatch.setattr(
-                settings,
-                "INTERNAL_DASHBOARD_ENDPOINT",
-                jwks_server.endpoint,
-            )
+            _use_dashboard_endpoint(monkeypatch, jwks_server.endpoint)
             response = await _request_with_token(token)
 
     _assert_unauthenticated_response(
@@ -441,11 +466,7 @@ async def test_invalid_signature_retains_response_and_logs_client_warning(
             jwks_server.state.set_json_response(
                 {"keys": [_create_rsa_jwk(jwks_key, key_id=key_id)]}
             )
-            monkeypatch.setattr(
-                settings,
-                "INTERNAL_DASHBOARD_ENDPOINT",
-                jwks_server.endpoint,
-            )
+            _use_dashboard_endpoint(monkeypatch, jwks_server.endpoint)
             response = await _request_with_token(token)
 
     _assert_unauthenticated_response(
@@ -483,11 +504,7 @@ async def test_missing_user_claim_retains_response_and_logs_client_warning(
             jwks_server.state.set_json_response(
                 {"keys": [_create_rsa_jwk(signing_key, key_id=key_id)]}
             )
-            monkeypatch.setattr(
-                settings,
-                "INTERNAL_DASHBOARD_ENDPOINT",
-                jwks_server.endpoint,
-            )
+            _use_dashboard_endpoint(monkeypatch, jwks_server.endpoint)
             response = await _request_with_token(token)
 
     _assert_unauthenticated_response(
@@ -525,11 +542,7 @@ async def test_non_allowlisted_algorithm_is_not_recorded_as_safe_metadata(
             jwks_server.state.set_json_response(
                 {"keys": [_create_rsa_jwk(signing_key, key_id=key_id)]}
             )
-            monkeypatch.setattr(
-                settings,
-                "INTERNAL_DASHBOARD_ENDPOINT",
-                jwks_server.endpoint,
-            )
+            _use_dashboard_endpoint(monkeypatch, jwks_server.endpoint)
             response = await _request_with_token(token)
 
     _assert_unauthenticated_response(
@@ -551,7 +564,7 @@ async def test_non_allowlisted_algorithm_is_not_recorded_as_safe_metadata(
 
 def test_logfire_exception_callback_keeps_system_category_auth_errors_recorded() -> None:
     helper = _FakeLogfireExceptionHelper(
-        exception=AuthException(
+        exception=_create_auth_exception(
             error_category="system",
             exception_context={
                 "auth_component": "dashboard_jwt",
@@ -560,16 +573,16 @@ def test_logfire_exception_callback_keeps_system_category_auth_errors_recorded()
         )
     )
 
-    _downgrade_expected_logfire_exception(helper)  # pyright: ignore[reportArgumentType]
+    _downgrade_logfire_exception(helper)
 
     assert helper.level == "error"
     assert helper.is_recording_exception is True
 
 
 def test_logfire_exception_callback_downgrades_client_category_auth_errors() -> None:
-    helper = _FakeLogfireExceptionHelper(exception=AuthException())
+    helper = _FakeLogfireExceptionHelper(exception=_create_auth_exception())
 
-    _downgrade_expected_logfire_exception(helper)  # pyright: ignore[reportArgumentType]
+    _downgrade_logfire_exception(helper)
 
     assert helper.level == "warning"
     assert helper.is_recording_exception is False
