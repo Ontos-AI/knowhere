@@ -53,16 +53,17 @@ def _find_root_id() -> int | None:
         return _root_ids[gid]
     try:
         import gevent
-
-        g = gevent.getcurrent()
-        while g is not None:
-            pid = id(g)
-            if pid in _overrides:
-                _root_ids[gid] = pid
-                return pid
-            g = getattr(g, "parent", None)
     except ImportError:
-        pass
+        # gevent is worker-only; without it there is no parent chain to walk.
+        return None
+
+    g = gevent.getcurrent()
+    while g is not None:
+        pid = id(g)
+        if pid in _overrides:
+            _root_ids[gid] = pid
+            return pid
+        g = getattr(g, "parent", None)
     return None
 
 
