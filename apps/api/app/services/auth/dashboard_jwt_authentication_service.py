@@ -47,6 +47,30 @@ class DashboardJWTIdentity:
     permission: Permission
 
 
+@dataclass(frozen=True)
+class _DashboardJWTHeader:
+    algorithm: object
+    key_id: str
+
+
+@dataclass(frozen=True)
+class _DashboardJWTTelemetry:
+    jwt_kid_present: bool
+    jwt_algorithm: str | None = None
+    jwt_kid: str | None = None
+
+    def to_log_data(self) -> dict[str, object]:
+        log_data: dict[str, object] = {
+            "auth_component": "dashboard_jwt",
+            "jwt_kid_present": self.jwt_kid_present,
+        }
+        if self.jwt_algorithm is not None:
+            log_data["jwt_algorithm"] = self.jwt_algorithm
+        if self.jwt_kid is not None:
+            log_data["jwt_kid"] = self.jwt_kid
+        return log_data
+
+
 class DashboardJWTAuthenticationService:
     """Validate Dashboard-issued JWTs through the configured JWKS endpoint."""
 
@@ -60,55 +84,29 @@ class DashboardJWTAuthenticationService:
 
     def decode_identity(self, token: str) -> DashboardJWTIdentity:
         """Decode and validate a JWT, returning the user ID and permission."""
-        try:
-            unverified_header = cast(dict[str, object], jwt.get_unverified_header(token))
-        except jwt.InvalidTokenError:
-            _reject_client_jwt(
-                failure_reason="jwt_invalid",
-                telemetry_context=_build_telemetry_context(
-                    algorithm=None,
-                    key_id=None,
-                ),
-            )
-
-        algorithm = unverified_header.get("alg")
-        key_id_value = unverified_header.get("kid")
-        key_id = key_id_value if isinstance(key_id_value, str) else None
-        telemetry_context = _build_telemetry_context(
-            algorithm=algorithm,
-            key_id=key_id,
+        header = _parse_header_or_reject(token)
+        telemetry_context = _build_telemetry_context(header)
+        _assert_token_structure_or_reject(token, telemetry_context)
+        key = self._resolve_verification_key_or_reject(
+            key_id=header.key_id,
+            telemetry_context=telemetry_context,
         )
+        payload = _verify_payload_or_reject(
+            token=token,
+            key=key,
+            telemetry_context=telemetry_context,
+        )
+        return _build_identity_or_reject(payload, telemetry_context)
 
-        if key_id is None or not key_id.strip():
-            _reject_client_jwt(
-                failure_reason="jwt_missing_key_id",
-                telemetry_context=telemetry_context,
-            )
-
+    def _resolve_verification_key_or_reject(
+        self,
+        *,
+        key_id: str,
+        telemetry_context: _DashboardJWTTelemetry,
+    ) -> VerificationKey:
+        """Resolve a JWT verification key and classify JWKS failures locally."""
         try:
-            self._reject_malformed_token_before_jwks_lookup(token, telemetry_context)
             key = self._get_verification_key(key_id)
-            if key is None:
-                _reject_client_jwt(
-                    failure_reason="jwt_unknown_key_id",
-                    telemetry_context=telemetry_context,
-                )
-
-            payload = self._decode_payload(token, key)
-            user_id = payload.get("id")
-            if not isinstance(user_id, str) or not user_id:
-                _reject_client_jwt(
-                    failure_reason="jwt_invalid",
-                    telemetry_context=telemetry_context,
-                )
-
-            permission = _normalize_permission(payload.get("permission"))
-            return DashboardJWTIdentity(user_id=user_id, permission=permission)
-        except jwt.ExpiredSignatureError:
-            _reject_client_jwt(
-                failure_reason="jwt_expired",
-                telemetry_context=telemetry_context,
-            )
         except PyJWKClientConnectionError as error:
             _reject_jwks_dependency(
                 failure_reason="jwks_unavailable",
@@ -132,47 +130,14 @@ class DashboardJWTAuthenticationService:
                 telemetry_context=telemetry_context,
                 original_exception=error,
             )
-        except jwt.InvalidTokenError:
+
+        if key is None:
             _reject_client_jwt(
-                failure_reason="jwt_invalid",
+                failure_reason="jwt_unknown_key_id",
                 telemetry_context=telemetry_context,
             )
 
-    def _decode_payload(
-        self,
-        token: str,
-        key: VerificationKey,
-    ) -> dict[str, object]:
-        payload = cast(
-            dict[str, object],
-            jwt.decode(
-                token,
-                key,
-                algorithms=list(JWT_ALGORITHMS),
-                leeway=timedelta(seconds=30),
-                options={"verify_aud": False},
-            ),
-        )
-        return payload
-
-    def _reject_malformed_token_before_jwks_lookup(
-        self,
-        token: str,
-        telemetry_context: dict[str, object],
-    ) -> None:
-        """Reject structurally invalid JWTs before touching Dashboard JWKS."""
-        try:
-            # This decode only checks token structure; verified claims come from
-            # _decode_payload after the signing key is resolved.
-            jwt.decode(
-                token,
-                options=JWT_STRUCTURE_ONLY_DECODE_OPTIONS,
-            )
-        except (json.JSONDecodeError, UnicodeDecodeError, jwt.InvalidTokenError):
-            _reject_client_jwt(
-                failure_reason="jwt_invalid",
-                telemetry_context=telemetry_context,
-            )
+        return key
 
     def _get_verification_key(self, key_id: str) -> VerificationKey | None:
         """Resolve the JWT verification key from the Dashboard JWKS endpoint."""
@@ -210,21 +175,124 @@ class DashboardJWTAuthenticationService:
         return self._jwks_client
 
 
+def _parse_header_or_reject(token: str) -> _DashboardJWTHeader:
+    try:
+        unverified_header = cast(dict[str, object], jwt.get_unverified_header(token))
+    except jwt.InvalidTokenError:
+        _reject_client_jwt(
+            failure_reason="jwt_invalid",
+            telemetry_context=_build_telemetry_context_from_values(
+                algorithm=None,
+                key_id=None,
+            ),
+        )
+
+    algorithm = unverified_header.get("alg")
+    key_id_value = unverified_header.get("kid")
+    key_id = key_id_value if isinstance(key_id_value, str) else None
+    if key_id is None or not key_id.strip():
+        _reject_client_jwt(
+            failure_reason="jwt_missing_key_id",
+            telemetry_context=_build_telemetry_context_from_values(
+                algorithm=algorithm,
+                key_id=key_id,
+            ),
+        )
+
+    return _DashboardJWTHeader(algorithm=algorithm, key_id=key_id)
+
+
 def _build_telemetry_context(
+    header: _DashboardJWTHeader,
+) -> _DashboardJWTTelemetry:
+    return _build_telemetry_context_from_values(
+        algorithm=header.algorithm,
+        key_id=header.key_id,
+    )
+
+
+def _build_telemetry_context_from_values(
     *,
     algorithm: object,
     key_id: str | None,
-) -> dict[str, object]:
+) -> _DashboardJWTTelemetry:
     is_key_id_present = key_id is not None and bool(key_id.strip())
-    context: dict[str, object] = {
-        "auth_component": "dashboard_jwt",
-        "jwt_kid_present": is_key_id_present,
-    }
+    jwt_algorithm: str | None = None
     if isinstance(algorithm, str) and algorithm in JWT_ALGORITHMS:
-        context["jwt_algorithm"] = algorithm
+        jwt_algorithm = algorithm
+    jwt_kid: str | None = None
     if is_key_id_present and key_id is not None:
-        context["jwt_kid"] = _sanitize_key_id(key_id)
-    return context
+        jwt_kid = _sanitize_key_id(key_id)
+    return _DashboardJWTTelemetry(
+        jwt_kid_present=is_key_id_present,
+        jwt_algorithm=jwt_algorithm,
+        jwt_kid=jwt_kid,
+    )
+
+
+def _assert_token_structure_or_reject(
+    token: str,
+    telemetry_context: _DashboardJWTTelemetry,
+) -> None:
+    """Reject structurally invalid JWTs before touching Dashboard JWKS."""
+    try:
+        # This decode only checks token structure; verified claims come from
+        # _verify_payload_or_reject after the signing key is resolved.
+        jwt.decode(
+            token,
+            options=JWT_STRUCTURE_ONLY_DECODE_OPTIONS,
+        )
+    except (json.JSONDecodeError, UnicodeDecodeError, jwt.InvalidTokenError):
+        _reject_client_jwt(
+            failure_reason="jwt_invalid",
+            telemetry_context=telemetry_context,
+        )
+
+
+def _verify_payload_or_reject(
+    *,
+    token: str,
+    key: VerificationKey,
+    telemetry_context: _DashboardJWTTelemetry,
+) -> dict[str, object]:
+    try:
+        payload = cast(
+            dict[str, object],
+            jwt.decode(
+                token,
+                key,
+                algorithms=list(JWT_ALGORITHMS),
+                leeway=timedelta(seconds=30),
+                options={"verify_aud": False},
+            ),
+        )
+    except jwt.ExpiredSignatureError:
+        _reject_client_jwt(
+            failure_reason="jwt_expired",
+            telemetry_context=telemetry_context,
+        )
+    except (json.JSONDecodeError, UnicodeDecodeError, jwt.InvalidTokenError):
+        _reject_client_jwt(
+            failure_reason="jwt_invalid",
+            telemetry_context=telemetry_context,
+        )
+
+    return payload
+
+
+def _build_identity_or_reject(
+    payload: dict[str, object],
+    telemetry_context: _DashboardJWTTelemetry,
+) -> DashboardJWTIdentity:
+    user_id = payload.get("id")
+    if not isinstance(user_id, str) or not user_id:
+        _reject_client_jwt(
+            failure_reason="jwt_invalid",
+            telemetry_context=telemetry_context,
+        )
+
+    permission = _normalize_permission(payload.get("permission"))
+    return DashboardJWTIdentity(user_id=user_id, permission=permission)
 
 
 def _sanitize_key_id(key_id: str) -> str:
@@ -235,7 +303,7 @@ def _sanitize_key_id(key_id: str) -> str:
 def _reject_client_jwt(
     *,
     failure_reason: JWTFailureReason,
-    telemetry_context: dict[str, object],
+    telemetry_context: _DashboardJWTTelemetry,
 ) -> NoReturn:
     _log_dashboard_jwt_auth_failure(
         failure_reason=failure_reason,
@@ -248,7 +316,7 @@ def _reject_client_jwt(
 def _reject_jwks_dependency(
     *,
     failure_reason: JWTFailureReason,
-    telemetry_context: dict[str, object],
+    telemetry_context: _DashboardJWTTelemetry,
     original_exception: Exception,
 ) -> NoReturn:
     _log_dashboard_jwt_auth_failure(
@@ -263,12 +331,12 @@ def _reject_jwks_dependency(
 def _log_dashboard_jwt_auth_failure(
     *,
     failure_reason: JWTFailureReason,
-    telemetry_context: dict[str, object],
+    telemetry_context: _DashboardJWTTelemetry,
     is_jwks_dependency_failure: bool,
     original_exception: Exception | None = None,
 ) -> None:
     log_data: dict[str, object] = {
-        **telemetry_context,
+        **telemetry_context.to_log_data(),
         "failure_reason": failure_reason,
     }
     message = f"Dashboard JWT authentication failed: {failure_reason}"
