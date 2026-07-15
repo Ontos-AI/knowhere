@@ -26,10 +26,10 @@ class RetrievalQueryRequestV2(RetrievalQueryRequest):
         None,
         description=(
             "Optional bring-your-own-key OpenAI-compatible LLM credentials. "
-            "Provide text and/or vision provider configs; each slot overrides "
-            "only its own channel (missing slots keep server defaults). "
-            "To use one multimodal model for both, set text and vision to the "
-            "same credentials. When omitted, server defaults are used."
+            "Use `provider` for a single multimodal model (both channels). "
+            "Use `text` / `vision` to override one channel (or both). "
+            "Missing channels without `provider` keep server defaults. "
+            "When omitted, server defaults are used."
         ),
     )
 

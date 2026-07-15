@@ -59,18 +59,18 @@ echo "HTTP $code"
 cat /tmp/byok_empty.json | head -c 400; echo
 test "$code" = "422" || test "$code" = "400"
 
-echo "== v2 jobs: accept llm_config.text-only (partial override) shape =="
+echo "== v2 jobs: accept llm_config.provider (multimodal shorthand) shape =="
 # Expect waiting-file or pending-ish success, not 422
 code=$(curl -sS -o /tmp/byok_ok.json -w '%{http_code}' "${auth_hdr[@]}" \
   -d '{
     "source_type":"url",
     "source_url":"https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
     "file_name":"dummy.pdf",
-    "data_id":"byok-smoke-text-only",
+    "data_id":"byok-smoke-provider",
     "llm_config":{
-      "text":{
+      "provider":{
         "api_key":"sk-smoke-test-key-not-real",
-        "model":"gpt-4o-mini",
+        "model":"gpt-4o",
         "base_url":"https://api.openai.com/v1"
       }
     }
@@ -92,6 +92,26 @@ if [[ -n "${JOB_ID}" ]]; then
   fi
   echo "No raw key in job response OK"
 fi
+
+echo "== v2 jobs: accept llm_config.text-only (partial override) shape =="
+code=$(curl -sS -o /tmp/byok_text.json -w '%{http_code}' "${auth_hdr[@]}" \
+  -d '{
+    "source_type":"url",
+    "source_url":"https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+    "file_name":"dummy.pdf",
+    "data_id":"byok-smoke-text-only",
+    "llm_config":{
+      "text":{
+        "api_key":"sk-smoke-test-key-not-real",
+        "model":"gpt-4o-mini",
+        "base_url":"https://api.openai.com/v1"
+      }
+    }
+  }' \
+  "${BASE_URL}/api/v2/jobs")
+echo "HTTP $code"
+cat /tmp/byok_text.json | head -c 400; echo
+test "$code" = "200" || test "$code" = "201"
 
 echo "== v1 jobs: llm_config should be rejected as unsupported extra =="
 code=$(curl -sS -o /tmp/byok_v1.json -w '%{http_code}' "${auth_hdr[@]}" \

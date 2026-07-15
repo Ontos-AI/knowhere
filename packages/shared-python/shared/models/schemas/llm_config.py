@@ -22,36 +22,47 @@ class LLMProviderConfig(BaseModel):
 class LLMConfig(BaseModel):
     """Optional text + vision provider configs for BYOK.
 
-    Semantics (partial override per channel):
-    - ``text`` set -> overrides text / planning LLM calls only
-    - ``vision`` set -> overrides vision / VLM calls only
-    - a missing slot keeps the server default for that channel
-    - neither set -> invalid when the object itself is present
+    Semantics:
+    - ``provider`` set -> baseline for both text and vision channels
+    - ``text`` / ``vision`` override that channel (and win over ``provider``)
+    - a channel with neither a slot nor ``provider`` keeps server defaults
+    - none of ``provider`` / ``text`` / ``vision`` set -> invalid when present
 
-    To drive both channels with one multimodal model, set both ``text`` and
-    ``vision`` to the same credentials.
+    Multimodal shorthand (one model for both channels)::
+
+        {"provider": {"api_key": "...", "model": "gpt-4o", "base_url": "..."}}
     """
 
+    provider: Optional[LLMProviderConfig] = Field(
+        None,
+        description=(
+            "Shared OpenAI-compatible credentials for both text and vision. "
+            "Use this for a single multimodal model; override with text/vision "
+            "when channels need different endpoints."
+        ),
+    )
     text: Optional[LLMProviderConfig] = Field(
-        None, description="Text / planning LLM credentials"
+        None, description="Text / planning LLM credentials (overrides provider)"
     )
     vision: Optional[LLMProviderConfig] = Field(
-        None, description="Vision / VLM credentials"
+        None, description="Vision / VLM credentials (overrides provider)"
     )
 
     @model_validator(mode="after")
     def _require_at_least_one_provider(self) -> "LLMConfig":
-        if self.text is None and self.vision is None:
-            raise ValueError("llm_config requires at least one of text or vision")
+        if self.provider is None and self.text is None and self.vision is None:
+            raise ValueError(
+                "llm_config requires at least one of provider, text, or vision"
+            )
         return self
 
     def text_effective(self) -> LLMProviderConfig | None:
         """Return the text-channel override, or None to keep server defaults."""
-        return self.text
+        return self.text if self.text is not None else self.provider
 
     def vision_effective(self) -> LLMProviderConfig | None:
         """Return the vision-channel override, or None to keep server defaults."""
-        return self.vision
+        return self.vision if self.vision is not None else self.provider
 
     def masked_dump(self) -> dict[str, Any]:
         """Serialize with api_key values redacted for snapshots / responses."""
@@ -67,6 +78,7 @@ class LLMConfig(BaseModel):
             }
 
         return {
+            "provider": _mask_provider(self.provider),
             "text": _mask_provider(self.text),
             "vision": _mask_provider(self.vision),
         }

@@ -268,7 +268,7 @@ def _mask_llm_config_in_request(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     masked = dict(payload)
     masked_llm: Dict[str, Any] = {}
-    for slot in ("text", "vision"):
+    for slot in ("provider", "text", "vision"):
         provider = llm_config.get(slot)
         if isinstance(provider, dict):
             provider_copy = dict(provider)
