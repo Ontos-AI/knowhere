@@ -26,13 +26,6 @@ JWT_KEY_ID_UNSAFE_PATTERN = re.compile(r"[^A-Za-z0-9._:-]")
 JWT_ALGORITHMS: tuple[str, ...] = ("HS256", "RS256", "EdDSA")
 JWT_STRUCTURE_ONLY_DECODE_OPTIONS: Options = {
     "verify_signature": False,
-    "verify_exp": False,
-    "verify_nbf": False,
-    "verify_iat": False,
-    "verify_aud": False,
-    "verify_iss": False,
-    "verify_sub": False,
-    "verify_jti": False,
 }
 READ_ONLY_PERMISSION: Literal["read_only"] = "read_only"
 FULL_ACCESS_PERMISSION: Literal["full_access"] = "full_access"
