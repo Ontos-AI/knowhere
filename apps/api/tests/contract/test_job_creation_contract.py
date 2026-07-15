@@ -1,12 +1,11 @@
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import json
 import socket
 from typing import cast
 from uuid import uuid4
 
-import jwt
 import pytest
 from httpx import AsyncClient
 from pytest import MonkeyPatch
@@ -15,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from shared.testing.contract_runtime import get_contract_database_url
 from tests.support.contract_database import ContractDatabase
+from tests.support.dashboard_jwt import use_dashboard_jwks_token
 
 
 async def _create_contract_engine() -> AsyncEngine:
@@ -695,15 +695,6 @@ async def test_should_reject_authenticated_user_id_missing_from_user_table(
     monkeypatch: MonkeyPatch,
 ) -> None:
     user_id = f"contract-missing-user-{uuid4().hex[:12]}"
-    jwt_secret = f"contract-jwt-secret-{uuid4().hex[:12]}"
-    token = jwt.encode(
-        {
-            "id": user_id,
-            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
-        },
-        jwt_secret,
-        algorithm="HS256",
-    )
     payload: dict[str, str] = {
         "namespace": "contract-jobs",
         "source_type": "file",
@@ -712,18 +703,12 @@ async def test_should_reject_authenticated_user_id_missing_from_user_table(
     }
 
     async with api_client_factory() as api_client:
-        from app.services.auth.dashboard_jwt_authentication_service import (
-            get_dashboard_jwt_authentication_service,
-        )
-
-        monkeypatch.setattr(
-            get_dashboard_jwt_authentication_service(),
-            "_get_verification_key",
-            lambda _token: jwt_secret,
-        )
-
-        api_client.headers.update({"Authorization": f"Bearer {token}"})
-        response = await api_client.post("/api/v1/jobs", json=payload)
+        with use_dashboard_jwks_token(
+            api_client,
+            monkeypatch,
+            user_id=user_id,
+        ):
+            response = await api_client.post("/api/v1/jobs", json=payload)
 
     assert response.status_code == 401
     assert response.headers["x-request-id"]
