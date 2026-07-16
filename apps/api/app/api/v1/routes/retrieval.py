@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from app.api.dependencies.current_user import with_current_user
 from app.services.rate_limit.data_structures import CurrentUser
@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.database import get_db
+from shared.models.schemas.llm_config import LLMConfig
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.app_service import run_retrieval_query
 from shared.services.retrieval.settings import DEFAULT_TOP_K, VALID_CHUNK_TYPES, normalize_chunk_types
@@ -129,12 +130,14 @@ class RetrievalQueryResponse(BaseModel):
     )
 
 
-@router.post("/query", response_model=RetrievalQueryResponse)
-async def query_retrieval(
+async def execute_retrieval_query(
     payload: RetrievalQueryRequest,
-    current_user: CurrentUser = Depends(with_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+    current_user: CurrentUser,
+    db: AsyncSession,
+    *,
+    llm_config: LLMConfig | None = None,
+) -> dict[str, Any]:
+    """Shared retrieval execution used by v1 and v2 route handlers."""
     # Resolve chunk_types: explicit field takes precedence over legacy data_type
     if payload.chunk_types is not None:
         resolved_chunk_types = normalize_chunk_types(payload.chunk_types)
@@ -166,4 +169,19 @@ async def query_retrieval(
         threshold=payload.threshold,
         internal_recall_k=payload.internal_recall_k,
         use_agentic=payload.use_agentic,
+        llm_config=llm_config,
+    )
+
+
+@router.post("/query", response_model=RetrievalQueryResponse)
+async def query_retrieval(
+    payload: RetrievalQueryRequest,
+    current_user: CurrentUser = Depends(with_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await execute_retrieval_query(
+        payload,
+        current_user,
+        db,
+        llm_config=None,
     )

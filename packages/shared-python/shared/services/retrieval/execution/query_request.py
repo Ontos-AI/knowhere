@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.models.schemas.llm_config import LLMConfig
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.execution.route_types import RetrievalRouteContext
 from shared.services.retrieval.settings import (
@@ -30,6 +31,7 @@ class RetrievalQuery:
     threshold: float = 0.0
     internal_recall_k: int | None = None
     use_agentic: bool | None = None
+    llm_config: LLMConfig | None = None
 
     @classmethod
     def from_parameters(
@@ -51,6 +53,7 @@ class RetrievalQuery:
         threshold: float = 0.0,
         internal_recall_k: int | None = None,
         use_agentic: bool | None = None,
+        llm_config: LLMConfig | None = None,
     ) -> "RetrievalQuery":
         return cls(
             db=db,
@@ -69,9 +72,17 @@ class RetrievalQuery:
             threshold=threshold,
             internal_recall_k=internal_recall_k,
             use_agentic=use_agentic,
+            llm_config=llm_config,
         )
 
     def build_cache_extra(self) -> dict[str, Any]:
+        text_model: str | None = None
+        vision_model: str | None = None
+        if self.llm_config is not None:
+            text_provider = self.llm_config.text_effective()
+            vision_provider = self.llm_config.vision_effective()
+            text_model = text_provider.model if text_provider is not None else None
+            vision_model = vision_provider.model if vision_provider is not None else None
         return {
             "chunk_types": sorted(self.chunk_types) if self.chunk_types else None,
             "signal_paths": self.signal_paths,
@@ -83,6 +94,8 @@ class RetrievalQuery:
             "internal_recall_k": self.internal_recall_k,
             "use_agentic": self.use_agentic,
             "decomposition_enabled": True,
+            "llm_text_model": text_model,
+            "llm_vision_model": vision_model,
         }
 
     def resolve_allowed_chunk_types(self) -> set[str] | None:

@@ -30,10 +30,8 @@ from shared.utils.chunk_refs import build_chunk_ref
 from app.services.common.file_loading import is_remote, load_file_bytes
 from app.services.common.file_utils import path_handle
 from shared.services.ai.summary.engine import summarize, transcribe
-from shared.services.ai.openai_compatible_client_sync import (
-    OpenAICompatibleClientSync,
-    get_openai_client,
-)
+from shared.services.ai.llm_overrides import get_vision_client
+from shared.services.ai.openai_compatible_client_sync import OpenAICompatibleClientSync
 
 MD_IMAGE_PATTERN = r"!\[[^\]]*?\]\((.*?\.(?:png|jpe?g|gif))\)"
 g_img_lock = threading.Lock()
@@ -61,7 +59,8 @@ def perceptual_hash(data: bytes) -> str:
 def _get_vision_client() -> OpenAICompatibleClientSync:
     """Create OpenAI-compatible client for vision models, auto-routing by IMAGE_MODEL name."""
     image_model = settings.IMAGE_MODEL or "qwen3.6-flash"
-    return get_openai_client(model=image_model)
+    client, _ = get_vision_client(requested_model=image_model)
+    return client
 
 
 def image_bytes_to_base64(img_data: bytes, ext: str) -> str:
@@ -151,6 +150,7 @@ def ask_image(
         image_model = settings.IMAGE_MODEL_MAX or "qwen3.6-flash"
 
     if len(urls_) > 0:
+        client, image_model = get_vision_client(requested_model=image_model)
         prompt, temperature, top_p, max_tokens = build_prompt(
             task=task, texts=title_text, query=query, paras={"max_tokens": max_tokens}
         )

@@ -6,6 +6,11 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.models.schemas.llm_config import LLMConfig
+from shared.services.ai.llm_overrides import (
+    reset_llm_overrides_async,
+    set_llm_overrides_async,
+)
 from shared.services.retrieval.cache_service import (
     get_cached_retrieval_query_result,
     set_cached_retrieval_query_result,
@@ -38,6 +43,7 @@ async def run_retrieval_query(
     threshold: float = 0.0,
     internal_recall_k: int | None = None,
     use_agentic: bool | None = None,
+    llm_config: LLMConfig | None = None,
 ) -> dict[str, Any]:
     """Run retrieval through the plan module."""
     return await RetrievalExecutionPlan(
@@ -58,6 +64,7 @@ async def run_retrieval_query(
             threshold=threshold,
             internal_recall_k=internal_recall_k,
             use_agentic=use_agentic,
+            llm_config=llm_config,
         )
     ).execute()
 
@@ -68,7 +75,14 @@ class RetrievalExecutionPlan:
 
     async def execute(self) -> dict[str, Any]:
         request = self.request
+        override_token = set_llm_overrides_async(request.llm_config)
 
+        try:
+            return await self._execute_with_overrides(request)
+        finally:
+            reset_llm_overrides_async(override_token)
+
+    async def _execute_with_overrides(self, request: RetrievalQuery) -> dict[str, Any]:
         # TODO(intent-step): Insert Intent Understanding step here.
         # Before any retrieval runs, parse `request.query` with LLM +
         # KG overview + section tree to extract structured navigation

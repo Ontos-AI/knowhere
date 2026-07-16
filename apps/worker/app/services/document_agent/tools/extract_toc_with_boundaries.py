@@ -70,7 +70,7 @@ def _vlm_confirm_anchors(
     budget: Any | None = None,
 ) -> tuple[list[TocAnchorPage], bool, list[TocEvidence]]:
     """Phase 1: send all anchor PNGs to VLM, ask which are real TOC starts."""
-    from shared.services.ai.openai_compatible_client_sync import get_openai_client
+    from shared.services.ai.llm_overrides import get_vision_client
 
     if not anchor_pages:
         return [], False, []
@@ -125,7 +125,8 @@ def _vlm_confirm_anchors(
         return [], True, []
 
     try:
-        client = get_openai_client(model=model)
+        client, resolved_model = get_vision_client(requested_model=model)
+        model = resolved_model or model
         raw, usage = client.chat_completion_with_usage(
             messages=messages,
             model=model,

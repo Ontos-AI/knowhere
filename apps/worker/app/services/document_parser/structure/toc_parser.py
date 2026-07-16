@@ -21,7 +21,7 @@ from loguru import logger
 
 from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.response_process_service import eval_response
-from shared.services.ai.openai_compatible_client_sync import get_openai_client
+from shared.services.ai.llm_overrides import get_text_client
 
 
 # ==================== Markdown TOC Detection Functions ====================
@@ -230,7 +230,9 @@ def llm_judge_toc_range(
             model_name=model_name,
             total_candidates=total_candidates,
         ):
-            answer = get_openai_client(model=model_name).chat_completion(
+            client, resolved_model = get_text_client(requested_model=model_name)
+            model_name = resolved_model or model_name
+            answer = client.chat_completion(
                 messages=messages,
                 model=model_name,
                 max_tokens=max_tokens,

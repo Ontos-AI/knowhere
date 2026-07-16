@@ -40,7 +40,7 @@ def _llm_summarize(snippets_text: str, node_name: str, max_tokens: int = 100) ->
     """
     try:
         from shared.services.ai.prompt_service import build_prompt, _detect_text_language
-        from shared.services.ai.openai_compatible_client_sync import get_openai_client
+        from shared.services.ai.llm_overrides import get_text_client
 
         # Deterministic language lock — see prompt_service._language_directive
         detected_lang = _detect_text_language(snippets_text)
@@ -58,7 +58,8 @@ def _llm_summarize(snippets_text: str, node_name: str, max_tokens: int = 100) ->
             {"role": "system", "content": "you are a helpful assistant"},
             {"role": "user", "content": prompt},
         ]
-        resp = get_openai_client().chat_completion(
+        client, _ = get_text_client()
+        resp = client.chat_completion(
             messages=messages,
             timeout=60,
             max_tokens=max_tokens,

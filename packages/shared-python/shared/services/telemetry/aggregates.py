@@ -13,7 +13,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .api_metrics import ApiRequestTelemetryMetrics, ApiRequestMetricsSnapshot
 from .client import TelemetryClient
 from .config import TelemetryRuntimeConfig, TelemetrySettings
-from .events import TelemetryProperties, build_base_event_properties
+from .events import (
+    TelemetryProperties,
+    build_base_event_properties,
+    compute_success_rate,
+    count_to_bucket,
+    normalize_client_name,
+    normalize_document_type,
+    normalize_source_type,
+)
 
 AGGREGATE_WINDOW_SECONDS = 24 * 60 * 60
 AGGREGATE_ADVISORY_LOCK_ID = 0x4B4E4F5748455245
@@ -52,14 +60,14 @@ class SelfHostedAggregateTelemetryRunner:
 
     async def emit_once(self) -> None:
         """Collect and emit all aggregate snapshots once."""
-        event_properties = await collect_self_hosted_aggregate_event_properties(
+        event_captures = await collect_self_hosted_aggregate_event_captures(
             config=self._config,
             db_session_factory=self._db_session_factory,
             api_metrics=self._api_metrics,
             window_seconds=AGGREGATE_WINDOW_SECONDS,
             api_window_seconds=self._interval_seconds,
         )
-        for event_name, properties in event_properties.items():
+        for event_name, properties in event_captures:
             self._telemetry_client.capture(event_name, properties)
 
     def start(self) -> None:
@@ -126,6 +134,75 @@ async def stop_self_hosted_aggregate_telemetry(
     await runner.stop()
 
 
+async def collect_self_hosted_aggregate_event_captures(
+    *,
+    config: TelemetryRuntimeConfig,
+    db_session_factory: DatabaseSessionFactory,
+    api_metrics: ApiRequestTelemetryMetrics,
+    window_seconds: int = AGGREGATE_WINDOW_SECONDS,
+    api_window_seconds: int = AGGREGATE_WINDOW_SECONDS,
+) -> list[tuple[str, TelemetryProperties]]:
+    """Collect aggregate captures without including customer content."""
+    captures: list[tuple[str, TelemetryProperties]] = [
+        (
+            "oss_api_aggregate",
+            _collect_api_aggregate(
+                config,
+                api_metrics.snapshot_and_reset(),
+                api_window_seconds,
+            ),
+        )
+    ]
+    async with db_session_factory() as session:
+        lock_acquired = await _try_aggregate_advisory_lock(session)
+        if not lock_acquired:
+            return captures
+        try:
+            captures.append(
+                (
+                    "oss_usage_aggregate",
+                    await _collect_usage_aggregate(session, config, window_seconds),
+                )
+            )
+            captures.append(
+                (
+                    "oss_retrieval_aggregate",
+                    await _collect_retrieval_aggregate(
+                        session,
+                        config,
+                        window_seconds,
+                    ),
+                )
+            )
+            captures.append(
+                (
+                    "oss_worker_aggregate",
+                    await _collect_worker_aggregate(session, config, window_seconds),
+                )
+            )
+            captures.append(
+                (
+                    "oss_provider_aggregate",
+                    await _collect_provider_aggregate(session, config, window_seconds),
+                )
+            )
+            for properties in await _collect_document_type_aggregates(
+                session,
+                config,
+                window_seconds,
+            ):
+                captures.append(("oss_document_type_aggregate", properties))
+            for properties in await _collect_client_aggregates(
+                session,
+                config,
+                window_seconds,
+            ):
+                captures.append(("oss_client_aggregate", properties))
+            return captures
+        finally:
+            await _release_aggregate_advisory_lock(session)
+
+
 async def collect_self_hosted_aggregate_event_properties(
     *,
     config: TelemetryRuntimeConfig,
@@ -134,46 +211,25 @@ async def collect_self_hosted_aggregate_event_properties(
     window_seconds: int = AGGREGATE_WINDOW_SECONDS,
     api_window_seconds: int = AGGREGATE_WINDOW_SECONDS,
 ) -> dict[str, TelemetryProperties]:
-    """Collect aggregate event properties without including customer content."""
-    event_properties = {
-        "self_hosted_api_aggregate": _collect_api_aggregate(
-            config,
-            api_metrics.snapshot_and_reset(),
-            api_window_seconds,
-        ),
-    }
-    async with db_session_factory() as session:
-        lock_acquired = await _try_aggregate_advisory_lock(session)
-        if not lock_acquired:
-            return event_properties
-        try:
-            event_properties.update(
-                {
-                    "self_hosted_usage_aggregate": await _collect_usage_aggregate(
-                        session,
-                        config,
-                        window_seconds,
-                    ),
-                    "self_hosted_retrieval_aggregate": await _collect_retrieval_aggregate(
-                        session,
-                        config,
-                        window_seconds,
-                    ),
-                    "self_hosted_worker_aggregate": await _collect_worker_aggregate(
-                        session,
-                        config,
-                        window_seconds,
-                    ),
-                    "self_hosted_provider_aggregate": await _collect_provider_aggregate(
-                        session,
-                        config,
-                        window_seconds,
-                    ),
-                }
-            )
-            return event_properties
-        finally:
-            await _release_aggregate_advisory_lock(session)
+    """Collect singleton aggregate event properties (compat helper for tests)."""
+    captures = await collect_self_hosted_aggregate_event_captures(
+        config=config,
+        db_session_factory=db_session_factory,
+        api_metrics=api_metrics,
+        window_seconds=window_seconds,
+        api_window_seconds=api_window_seconds,
+    )
+    event_properties: dict[str, TelemetryProperties] = {}
+    for event_name, properties in captures:
+        # Keep first capture for singleton events; multi-row events are omitted
+        # from this dict helper (use collect_self_hosted_aggregate_event_captures).
+        if event_name in {
+            "oss_document_type_aggregate",
+            "oss_client_aggregate",
+        }:
+            continue
+        event_properties[event_name] = properties
+    return event_properties
 
 
 async def _collect_usage_aggregate(
@@ -181,6 +237,61 @@ async def _collect_usage_aggregate(
     config: TelemetryRuntimeConfig,
     window_seconds: int,
 ) -> TelemetryProperties:
+    completed_jobs_24h = await _int_scalar(
+        session,
+        _windowed_count_sql("jobs", "updated_at", "status = 'done'"),
+        window_seconds,
+    )
+    failed_jobs_24h = await _int_scalar(
+        session,
+        _windowed_count_sql("jobs", "updated_at", "status = 'failed'"),
+        window_seconds,
+    )
+    jobs_created_24h = await _int_scalar(
+        session,
+        _windowed_count_sql("jobs", "created_at"),
+        window_seconds,
+    )
+    pages_processed_24h = await _int_scalar(
+        session,
+        f"""
+        SELECT COALESCE(SUM(page_count), 0)
+        FROM jobs
+        WHERE updated_at >= {_window_start_expression()}
+          AND status = 'done'
+        """,
+        window_seconds,
+    )
+    source_counts = await _collect_source_type_counts(session, window_seconds)
+    has_webhooks_24h = (
+        await _int_scalar(
+            session,
+            f"""
+            SELECT CASE
+              WHEN EXISTS (
+                SELECT 1 FROM jobs
+                WHERE created_at >= {_window_start_expression()}
+                  AND webhook_enabled = true
+              )
+              OR EXISTS (
+                SELECT 1 FROM webhook_logs
+                WHERE created_at >= {_window_start_expression()}
+              )
+              THEN 1 ELSE 0
+            END
+            """,
+            window_seconds,
+        )
+        > 0
+    )
+    has_retrieval_24h = (
+        await _int_scalar(
+            session,
+            _windowed_count_sql("retrieval_runs", "created_at"),
+            window_seconds,
+        )
+        > 0
+    )
     properties = _base_aggregate_properties(config, window_seconds)
     properties.update(
         {
@@ -190,23 +301,31 @@ async def _collect_usage_aggregate(
                 "SELECT COUNT(*) FROM api_keys WHERE is_active = true",
             ),
             "total_jobs": await _int_scalar(session, "SELECT COUNT(*) FROM jobs"),
-            "jobs_created_24h": await _int_scalar(
-                session,
-                _windowed_count_sql("jobs", "created_at"),
-                window_seconds,
-            ),
+            "jobs_created_24h": jobs_created_24h,
+            "jobs_created_bucket": count_to_bucket(jobs_created_24h),
             "active_jobs": await _int_scalar(
                 session,
                 "SELECT COUNT(*) FROM jobs WHERE status IN ('waiting-file', 'pending', 'running', 'converting')",
             ),
-            "completed_jobs_24h": await _int_scalar(
-                session,
-                _windowed_count_sql("jobs", "updated_at", "status = 'done'"),
-                window_seconds,
+            "completed_jobs_24h": completed_jobs_24h,
+            "failed_jobs_24h": failed_jobs_24h,
+            "success_rate_24h": compute_success_rate(
+                completed_jobs_24h,
+                failed_jobs_24h,
             ),
-            "failed_jobs_24h": await _int_scalar(
+            "job_duration_p95_seconds_24h": await _float_scalar(
                 session,
-                _windowed_count_sql("jobs", "updated_at", "status = 'failed'"),
+                f"""
+                SELECT COALESCE(
+                  percentile_cont(0.95) WITHIN GROUP (
+                    ORDER BY EXTRACT(EPOCH FROM (updated_at - created_at))
+                  ),
+                  0
+                )
+                FROM jobs
+                WHERE updated_at >= {_window_start_expression()}
+                  AND status IN ('done', 'failed')
+                """,
                 window_seconds,
             ),
             "total_documents": await _int_scalar(
@@ -225,16 +344,8 @@ async def _collect_usage_aggregate(
                 session,
                 "SELECT COUNT(*) FROM job_chunks",
             ),
-            "pages_processed_24h": await _int_scalar(
-                session,
-                f"""
-                SELECT COALESCE(SUM(page_count), 0)
-                FROM jobs
-                WHERE updated_at >= {_window_start_expression()}
-                  AND status = 'done'
-                """,
-                window_seconds,
-            ),
+            "pages_processed_24h": pages_processed_24h,
+            "pages_processed_bucket": count_to_bucket(pages_processed_24h),
             "credits_charged_24h": await _int_scalar(
                 session,
                 f"""
@@ -244,9 +355,186 @@ async def _collect_usage_aggregate(
                 """,
                 window_seconds,
             ),
+            "has_webhooks_24h": has_webhooks_24h,
+            "has_retrieval_24h": has_retrieval_24h,
+            "source_file_jobs_24h": source_counts["file"],
+            "source_url_jobs_24h": source_counts["url"],
+            "source_other_jobs_24h": source_counts["other"],
         }
     )
     return properties
+
+
+async def _collect_source_type_counts(
+    session: AsyncSession,
+    window_seconds: int,
+) -> dict[str, int]:
+    counts = {"file": 0, "url": 0, "other": 0}
+    result = await session.execute(
+        text(
+            f"""
+            SELECT source_type, COUNT(*) AS job_count
+            FROM jobs
+            WHERE created_at >= {_window_start_expression()}
+            GROUP BY source_type
+            """
+        ),
+        {"window_seconds": window_seconds},
+    )
+    for row in result.mappings():
+        source_type = normalize_source_type(cast(str | None, row["source_type"]))
+        counts[source_type] = counts.get(source_type, 0) + int(row["job_count"] or 0)
+    return counts
+
+
+async def _collect_document_type_aggregates(
+    session: AsyncSession,
+    config: TelemetryRuntimeConfig,
+    window_seconds: int,
+) -> list[TelemetryProperties]:
+    """Collect one aggregate per allowlisted document type with activity."""
+    result = await session.execute(
+        text(
+            f"""
+            SELECT
+              job_metadata->>'source_file_name' AS source_file_name,
+              COUNT(*) FILTER (
+                WHERE created_at >= {_window_start_expression()}
+              ) AS jobs_created_24h,
+              COUNT(*) FILTER (
+                WHERE updated_at >= {_window_start_expression()}
+                  AND status = 'done'
+              ) AS jobs_done_24h,
+              COUNT(*) FILTER (
+                WHERE updated_at >= {_window_start_expression()}
+                  AND status = 'failed'
+              ) AS jobs_failed_24h,
+              COALESCE(
+                SUM(page_count) FILTER (
+                  WHERE updated_at >= {_window_start_expression()}
+                    AND status = 'done'
+                ),
+                0
+              ) AS pages_processed_24h
+            FROM jobs
+            WHERE created_at >= {_window_start_expression()}
+               OR (
+                 updated_at >= {_window_start_expression()}
+                 AND status IN ('done', 'failed')
+               )
+            GROUP BY job_metadata->>'source_file_name'
+            """
+        ),
+        {"window_seconds": window_seconds},
+    )
+    merged: dict[str, dict[str, int]] = {}
+    for row in result.mappings():
+        document_type = normalize_document_type(
+            cast(str | None, row["source_file_name"])
+        )
+        bucket = merged.setdefault(
+            document_type,
+            {
+                "jobs_created_24h": 0,
+                "jobs_done_24h": 0,
+                "jobs_failed_24h": 0,
+                "pages_processed_24h": 0,
+            },
+        )
+        bucket["jobs_created_24h"] += int(row["jobs_created_24h"] or 0)
+        bucket["jobs_done_24h"] += int(row["jobs_done_24h"] or 0)
+        bucket["jobs_failed_24h"] += int(row["jobs_failed_24h"] or 0)
+        bucket["pages_processed_24h"] += int(row["pages_processed_24h"] or 0)
+
+    properties_list: list[TelemetryProperties] = []
+    for document_type, counts in sorted(merged.items()):
+        if not any(counts.values()):
+            continue
+        properties = _base_aggregate_properties(config, window_seconds)
+        properties.update(
+            {
+                "document_type": document_type,
+                "jobs_created_24h": counts["jobs_created_24h"],
+                "jobs_done_24h": counts["jobs_done_24h"],
+                "jobs_failed_24h": counts["jobs_failed_24h"],
+                "pages_processed_24h": counts["pages_processed_24h"],
+                "success_rate_24h": compute_success_rate(
+                    counts["jobs_done_24h"],
+                    counts["jobs_failed_24h"],
+                ),
+            }
+        )
+        properties_list.append(properties)
+    return properties_list
+
+
+async def _collect_client_aggregates(
+    session: AsyncSession,
+    config: TelemetryRuntimeConfig,
+    window_seconds: int,
+) -> list[TelemetryProperties]:
+    """Collect one aggregate per allowlisted created_by_client with activity."""
+    result = await session.execute(
+        text(
+            f"""
+            SELECT
+              job_metadata #>> '{{document_metadata,created_by_client}}' AS created_by_client,
+              COUNT(*) FILTER (
+                WHERE created_at >= {_window_start_expression()}
+              ) AS jobs_created_24h,
+              COUNT(*) FILTER (
+                WHERE updated_at >= {_window_start_expression()}
+                  AND status = 'done'
+              ) AS jobs_done_24h,
+              COUNT(*) FILTER (
+                WHERE updated_at >= {_window_start_expression()}
+                  AND status = 'failed'
+              ) AS jobs_failed_24h
+            FROM jobs
+            WHERE created_at >= {_window_start_expression()}
+               OR (
+                 updated_at >= {_window_start_expression()}
+                 AND status IN ('done', 'failed')
+               )
+            GROUP BY job_metadata #>> '{{document_metadata,created_by_client}}'
+            """
+        ),
+        {"window_seconds": window_seconds},
+    )
+    merged: dict[str, dict[str, int]] = {}
+    for row in result.mappings():
+        client_name = normalize_client_name(cast(str | None, row["created_by_client"]))
+        bucket = merged.setdefault(
+            client_name,
+            {
+                "jobs_created_24h": 0,
+                "jobs_done_24h": 0,
+                "jobs_failed_24h": 0,
+            },
+        )
+        bucket["jobs_created_24h"] += int(row["jobs_created_24h"] or 0)
+        bucket["jobs_done_24h"] += int(row["jobs_done_24h"] or 0)
+        bucket["jobs_failed_24h"] += int(row["jobs_failed_24h"] or 0)
+
+    properties_list: list[TelemetryProperties] = []
+    for client_name, counts in sorted(merged.items()):
+        if not any(counts.values()):
+            continue
+        properties = _base_aggregate_properties(config, window_seconds)
+        properties.update(
+            {
+                "created_by_client": client_name,
+                "jobs_created_24h": counts["jobs_created_24h"],
+                "jobs_done_24h": counts["jobs_done_24h"],
+                "jobs_failed_24h": counts["jobs_failed_24h"],
+                "success_rate_24h": compute_success_rate(
+                    counts["jobs_done_24h"],
+                    counts["jobs_failed_24h"],
+                ),
+            }
+        )
+        properties_list.append(properties)
+    return properties_list
 
 
 async def _collect_retrieval_aggregate(

@@ -1,47 +1,15 @@
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
-from datetime import datetime, timedelta, timezone
-from typing import Literal, cast
+from typing import cast
 from uuid import uuid4
 
-import jwt
 import pytest
 from httpx import AsyncClient
 from pytest import MonkeyPatch
 
 from shared.testing.contract_runtime import seed_contract_developer
 from tests.support.contract_database import ContractDatabase
-
-Permission = Literal["read_only", "full_access"]
-
-
-def _use_dashboard_token(
-    api_client: AsyncClient,
-    monkeypatch: MonkeyPatch,
-    *,
-    user_id: str,
-    permission: Permission | None,
-) -> None:
-    jwt_secret = f"contract-jwt-secret-{uuid4().hex[:12]}"
-    payload: dict[str, object] = {
-        "id": user_id,
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
-    }
-    if permission is not None:
-        payload["permission"] = permission
-
-    token = jwt.encode(payload, jwt_secret, algorithm="HS256")
-
-    from app.services.auth.dashboard_jwt_authentication_service import (
-        get_dashboard_jwt_authentication_service,
-    )
-
-    monkeypatch.setattr(
-        get_dashboard_jwt_authentication_service(),
-        "_get_verification_key",
-        lambda _token: jwt_secret,
-    )
-    api_client.headers.update({"Authorization": f"Bearer {token}"})
+from tests.support.dashboard_jwt import use_dashboard_jwks_token
 
 
 async def _seed_dashboard_user() -> str:
@@ -105,19 +73,21 @@ async def test_read_only_dashboard_token_can_read_but_cannot_parse_or_archive(
             user_id=user_id,
             namespace="contract-permission",
         )
-        _use_dashboard_token(
+
+        with use_dashboard_jwks_token(
             api_client,
             monkeypatch,
             user_id=user_id,
             permission="read_only",
-        )
-
-        list_jobs_response = await api_client.get("/api/v1/jobs")
-        get_document_response = await api_client.get(f"/api/v1/documents/{document_id}")
-        create_job_response = await api_client.post("/api/v1/jobs", json=payload)
-        archive_document_response = await api_client.post(
-            f"/api/v1/documents/{document_id}/archive"
-        )
+        ):
+            list_jobs_response = await api_client.get("/api/v1/jobs")
+            get_document_response = await api_client.get(
+                f"/api/v1/documents/{document_id}"
+            )
+            create_job_response = await api_client.post("/api/v1/jobs", json=payload)
+            archive_document_response = await api_client.post(
+                f"/api/v1/documents/{document_id}/archive"
+            )
 
     assert list_jobs_response.status_code == 200
     assert get_document_response.status_code == 200
@@ -146,14 +116,13 @@ async def test_dashboard_token_without_permission_claim_keeps_full_access(
 
     async with api_client_factory() as api_client:
         user_id = await _seed_dashboard_user()
-        _use_dashboard_token(
+
+        with use_dashboard_jwks_token(
             api_client,
             monkeypatch,
             user_id=user_id,
-            permission=None,
-        )
-
-        response = await api_client.post("/api/v1/jobs", json=payload)
+        ):
+            response = await api_client.post("/api/v1/jobs", json=payload)
 
     assert response.status_code == 200
     response_json = cast(dict[str, object], response.json())

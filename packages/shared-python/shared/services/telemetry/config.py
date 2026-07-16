@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+SCHEMA_VERSION = "2026-07-telemetry-v2"
+
 
 class TelemetrySettings(Protocol):
     """Subset of app settings required by anonymous telemetry."""
@@ -41,7 +43,7 @@ class TelemetryRuntimeConfig:
     environment: str
     app_env: str
     service_name: str
-    schema_version: str = "2026-06-telemetry-v1"
+    schema_version: str = SCHEMA_VERSION
 
     @property
     def is_ready(self) -> bool:

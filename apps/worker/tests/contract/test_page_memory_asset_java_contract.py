@@ -46,7 +46,7 @@ def test_page_asset_detection_uses_lowest_temperature(monkeypatch, tmp_path) -> 
     import shared.services.ai.openai_compatible_client_sync as client_mod
 
     monkeypatch.setattr(
-        client_mod, "get_openai_client", lambda model=None: _FakeClient()
+        client_mod, "get_openai_client", lambda model=None, **_kwargs: _FakeClient()
     )
 
     image_path = tmp_path / "page.png"

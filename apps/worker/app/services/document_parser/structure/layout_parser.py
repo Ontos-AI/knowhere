@@ -37,7 +37,7 @@ from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.response_process_service import eval_response
 
 # ARQ dependency is removed, use Celery instead
-from shared.services.ai.openai_compatible_client_sync import get_openai_client
+from shared.services.ai.llm_overrides import get_text_client
 
 # ==================== Helper Functions ====================
 
@@ -230,7 +230,8 @@ def hiearchy_llm(
             candidate_count=n_candidates,
             max_tokens=max_tokens,
         ):
-            answer = get_openai_client(model=model_name).chat_completion(
+            client, model_name = get_text_client(requested_model=model_name)
+            answer = client.chat_completion(
                 messages=messages,
                 model=model_name,
                 max_tokens=max_tokens,
