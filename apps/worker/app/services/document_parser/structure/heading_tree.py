@@ -3,6 +3,8 @@ from __future__ import annotations
 import pandas as pd
 from loguru import logger
 
+from shared.services.chunks.path_segments import append_document_path
+
 
 def build_tree_from_dataframe(
     heading_preds: pd.DataFrame,
@@ -33,9 +35,7 @@ def build_tree_from_dataframe(
         node_to_id[node_key] = row_id
 
         parent_dict[tree_node_key] = {}
-        current_path = (
-            f"{parent_path}/{tree_node_key}" if parent_path else tree_node_key
-        )
+        current_path = append_document_path(parent_path, tree_node_key)
         stack.append((level, parent_dict[tree_node_key], tree_node_key, current_path))
 
     return root, node_to_id, id_to_row
@@ -114,9 +114,7 @@ def _extract_headings_from_tree(
             )
 
             if isinstance(children, dict) and children:
-                current_path = (
-                    f"{parent_path}/{tree_node_key}" if parent_path else tree_node_key
-                )
+                current_path = append_document_path(parent_path, tree_node_key)
                 results.extend(
                     _extract_headings_from_tree(
                         children,
@@ -150,12 +148,12 @@ def _remove_isolated_nodes_recursive(
             else:
                 result_dict[heading] = _remove_isolated_nodes_recursive(
                     children,
-                    parent_path=f"{parent_path}/{heading}" if parent_path else heading,
+                    parent_path=append_document_path(parent_path, heading),
                 )
         elif isinstance(children, dict) and children:
             result_dict[heading] = _remove_isolated_nodes_recursive(
                 children,
-                parent_path=f"{parent_path}/{heading}" if parent_path else heading,
+                parent_path=append_document_path(parent_path, heading),
             )
         else:
             result_dict[heading] = children

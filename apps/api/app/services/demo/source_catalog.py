@@ -69,7 +69,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 ),
                 citations=(
                     DemoCitationDefinition(
-                        section_path=("TSLA-Q4-2025-Update.pdf-->OTHER UPDATES"),
+                        section_path=("TSLA-Q4-2025-Update.pdf/OTHER UPDATES"),
                         description="xAI investment",
                         content=(
                             "On January 16, 2026, Tesla entered into an agreement "
@@ -92,7 +92,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 citations=(
                     DemoCitationDefinition(
                         section_path=(
-                            "TSLA-Q4-2025-Update.pdf-->SUMMARY-->"
+                            "TSLA-Q4-2025-Update.pdf/SUMMARY/"
                             "Energy generation and storage"
                         ),
                         description="Storage deployment growth",
@@ -115,7 +115,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 ),
                 citations=(
                     DemoCitationDefinition(
-                        section_path=("TSLA-Q4-2025-Update.pdf-->OUTLOOK-->Product"),
+                        section_path=("TSLA-Q4-2025-Update.pdf/OUTLOOK/Product"),
                         description="2026 production plans",
                         content=(
                             "Cybercab, Tesla Semi and Megapack 3 are on schedule "

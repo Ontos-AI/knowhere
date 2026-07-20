@@ -157,6 +157,7 @@ def _enrich_document_navigation(
                 document_root_for_enrich,
                 source_file=source_file_name,
                 use_llm=summary_use_llm,
+                chunks=chunks,
             )
             section_summaries = build_section_summary_lookup(str(add_dir))
         except Exception as exc:

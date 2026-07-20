@@ -10,6 +10,7 @@ from app.services.page_memory._utils import (
     collapse_page_ranges,
     page_scope_info,
 )
+from shared.services.chunks.path_segments import split_escaped_document_path
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -99,7 +100,9 @@ def build_hierarchy_tree(skeletons: list[Any]) -> dict[str, Any]:
     """
     hierarchy: dict[str, Any] = {}
     for skel in skeletons:
-        parts = str(getattr(skel, "section_path", "") or "").split("/")
+        parts = split_escaped_document_path(
+            getattr(skel, "section_path", "") or ""
+        )
         section_parts = parts[1:] if len(parts) > 1 else parts
         current = hierarchy
         for part in section_parts:

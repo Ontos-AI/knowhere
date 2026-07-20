@@ -187,3 +187,55 @@ def test_refine_fat_leaf_skeletons_uses_page_memory_prompt_without_demoting_sibl
     assert refined[1].end_page == 227
     assert refined[2].parent_path.endswith("/2 术语")
     assert all(item.title != skeleton.title for item in refined)
+
+
+def test_refine_fat_leaf_keeps_slash_in_title_as_single_path_segment(
+    monkeypatch,
+) -> None:
+    skeleton = SectionSkeleton(
+        section_path="manual.pdf/Index",
+        level=1,
+        start_page=10,
+        end_page=14,
+        title="Index",
+        parent_path="manual.pdf",
+    )
+    tags = [
+        PageTagResult(
+            page_index=10,
+            observed_titles=[
+                {"text": "Index", "prominence": 1.0},
+                {"text": "Symbols/Numbers", "prominence": 1.0},
+            ],
+        ),
+        PageTagResult(
+            page_index=12,
+            observed_titles=[{"text": "A entries", "prominence": 1.0}],
+        ),
+    ]
+
+    monkeypatch.setattr(
+        fine_hierarchy,
+        "get_text_client",
+        lambda requested_model=None: (
+            _FakeClient(
+                [
+                    {"id": 1, "level": 1},
+                    {"id": 2, "level": 1},
+                ]
+            ),
+            requested_model,
+        ),
+    )
+
+    refined = fine_hierarchy.refine_fat_leaf_skeletons(
+        coarse_skeletons=[skeleton],
+        tag_results=tags,
+        fat_leaf_pages={10, 11, 12, 13, 14},
+        model_name="test-model",
+    )
+
+    assert [item.title for item in refined] == ["Symbols/Numbers", "A entries"]
+    assert refined[0].section_path == "manual.pdf/Index/Symbols\u2215Numbers"
+    assert refined[1].parent_path == "manual.pdf/Index"
+    assert refined[0].section_path.count("/") == 2

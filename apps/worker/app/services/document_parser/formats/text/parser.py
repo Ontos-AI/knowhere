@@ -8,6 +8,11 @@ from gevent.pool import Pool as GeventPool
 from loguru import logger
 
 from shared.core.config import settings
+from shared.services.chunks.path_segments import (
+    append_document_path,
+    join_document_path,
+    split_escaped_document_path,
+)
 from shared.utils.chunk_refs import CHUNK_REF_PATTERN
 from app.services.common.file_loading import load_file_bytes
 
@@ -102,9 +107,8 @@ def postprocess_leaf_dics(
         summary_len = ProcessingConstants.POSTPROCESS_SUMMARY_LEN
 
     merged_dict = {}
-    split_char = settings.SPLIT_CHAR or "/"
     for identifier, d in dict_list:
-        identifier = split_char.join(identifier)
+        identifier = join_document_path(identifier)
 
         if identifier in merged_dict:
             merged_dict[identifier][content_key].extend(d[content_key])
@@ -116,7 +120,7 @@ def postprocess_leaf_dics(
 
     merged_list = [(identifier, v["content"]) for identifier, v in merged_dict.items()]
     merge_df = pd.DataFrame(merged_list, columns=["path_identifier", "content_lst"])
-    merge_df["path"] = merge_df["path_identifier"].apply(lambda x: x.split(split_char))
+    merge_df["path"] = merge_df["path_identifier"].apply(split_escaped_document_path)
     merge_df = merge_df[["path", "content_lst", "path_identifier"]]
 
     # TODO rough dividing of contents (need more smart dividing)
@@ -139,16 +143,13 @@ def postprocess_leaf_dics(
             head = row["path_identifier"]
             if not head:
                 head = "**Preface**"
+            head_parts = split_escaped_document_path(head)
+            leaf_title = head_parts[-1] if head_parts else head
             for k in range(num):
-                sub_head = (
-                    head
-                    + split_char
-                    + head.split(split_char)[-1]
-                    + " part "
-                    + str(k + 1)
-                )
+                part_title = f"{leaf_title} part {k + 1}"
+                sub_head = append_document_path(head, part_title)
                 df_with_divides.loc[len(df_with_divides)] = {
-                    "path": sub_head.split(split_char),
+                    "path": split_escaped_document_path(sub_head),
                     "content_lst": sublists[k],
                     "path_identifier": sub_head,
                 }

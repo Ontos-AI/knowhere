@@ -29,6 +29,7 @@ class PageMemoryConfig:
     table_engine: str = "tabula"
     table_merge_enabled: bool = True
     node_summary_max_pages: int = 5
+    scan_direction: str = "top_to_bottom_left_to_right"
 
     @classmethod
     def default(cls) -> Self:
@@ -121,6 +122,9 @@ class PageMemoryConfig:
             node_summary_max_pages=_as_int(
                 value.get("node_summary_max_pages"),
                 default.node_summary_max_pages,
+            ),
+            scan_direction=_as_str(
+                value.get("scan_direction"), default.scan_direction
             ),
         )
 
