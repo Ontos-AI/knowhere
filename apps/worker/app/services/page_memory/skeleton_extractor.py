@@ -149,15 +149,6 @@ def extract_section_skeletons(
             ]
         nodes = toc_nodes
 
-    # TODO(page-memory): locate null-page coarse TOC parents (self-only spans).
-    # Leaf-only closed-closed ranges currently end at the next leaf start, so
-    # content under a null-page parent (e.g. "Section A Governing requirements")
-    # before its first child is attributed to the previous leaf. Candidate fix:
-    # after calibration, place each null-page coarse node A in
-    # (last leaf under previous same-level coarse, first leaf under A], then
-    # bound fine-hierarchy scopes with current_leaf → next_coarse.
-    # See skill pdf-page-based-track Open TODOs.
-
     # Collapse degenerate single-child intermediate chains before locate.
     # Rule: only merge a parent with its only child when that child is NOT a
     # leaf (i.e. the child still has children of its own). This preserves the
