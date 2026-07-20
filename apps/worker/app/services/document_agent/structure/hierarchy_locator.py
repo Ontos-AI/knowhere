@@ -1,13 +1,14 @@
 """Locate hierarchy titles on PDF pages and resolve page ranges.
 
-This module is intentionally deterministic: it performs strict title anchoring
-and range assembly. Titles are accepted only via strict exact anchoring or
-offset-guided ``match_overrides``; weaker candidate collection has been removed
-in favor of VLM-verified calibration upstream.
+Deterministic title anchoring and range assembly. Leaf starts come from
+offset-guided ``match_overrides`` or per-line strict exact. Null-page parents
+are located upstream via compact-strict (cross-line) + optional VLM, then
+resolved here including parent self-only spans for interstitial pages.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -89,10 +90,82 @@ def locate_title_strict_exact(
     return _choose_best_hit(
         hits,
         source="anchored",
-        printed_page=None,
-        page_offset_hint=None,
         extra_evidence={"accept": "strict_exact_unique"},
     )
+
+
+def locate_title_compact_strict(
+    title: str,
+    *,
+    scope_pages: list[int],
+    page_texts: dict[int, str],
+) -> TitleMatch | None:
+    """Locate *title* after cross-line compact cleanup; accept only a unique page.
+
+    Pipeline: compact(page text) → contiguous strict match of compact(title) →
+    accept iff exactly one page in ``scope_pages`` hits. Handles PyMuPDF line
+    splits; does not use token/normalized weak matching.
+    """
+    needle = _compact_match_text(clean_toc_title(title) or title)
+    if not needle or not scope_pages:
+        return None
+
+    hit_pages: list[int] = []
+    matched_preview = ""
+    for page in scope_pages:
+        haystack = _compact_match_text(page_texts.get(page, ""))
+        if not haystack or needle not in haystack:
+            continue
+        hit_pages.append(page)
+        if not matched_preview:
+            matched_preview = needle[:160]
+
+    unique_pages = sorted(set(hit_pages))
+    if len(unique_pages) != 1:
+        return None
+
+    page = unique_pages[0]
+    return TitleMatch(
+        page=page,
+        confidence=0.92,
+        source="anchored",
+        matched_line=matched_preview,
+        score=0.96,
+        candidates=[page],
+        evidence={"accept": "compact_strict_unique"},
+    )
+
+
+def last_leaf_start_under(
+    node: TitleNode,
+    parent_titles: tuple[str, ...],
+    match_overrides: dict[tuple[str, ...], TitleMatch],
+) -> int | None:
+    """Max start page among located leaves under *node*; None if none located."""
+    max_page: int | None = None
+    for leaf_path, _leaf in iter_leaf_title_nodes([node], parent_titles=parent_titles):
+        match = match_overrides.get(leaf_path)
+        if match is None:
+            continue
+        if max_page is None or match.page > max_page:
+            max_page = match.page
+    return max_page
+
+
+def first_leaf_start_under(
+    node: TitleNode,
+    parent_titles: tuple[str, ...],
+    match_overrides: dict[tuple[str, ...], TitleMatch],
+) -> int | None:
+    """Min start page among located leaves under *node*; None if none located."""
+    min_page: int | None = None
+    for leaf_path, _leaf in iter_leaf_title_nodes([node], parent_titles=parent_titles):
+        match = match_overrides.get(leaf_path)
+        if match is None:
+            continue
+        if min_page is None or match.page < min_page:
+            min_page = match.page
+    return min_page
 
 
 def resolve_hierarchy_page_ranges(
@@ -101,14 +174,12 @@ def resolve_hierarchy_page_ranges(
     page_count: int,
     page_texts: dict[int, str],
     body_pages: list[int] | None = None,
-    page_offset_hint: int | None = None,
     match_overrides: dict[tuple[str, ...], TitleMatch] | None = None,
 ) -> list[ResolvedHierarchyRange]:
-    """Resolve leaf hierarchy nodes into closed page ranges.
+    """Resolve hierarchy nodes into closed page ranges.
 
-    The emitted ranges are leaf-first and intentionally closed-closed: if the
-    next leaf starts on page N, the previous leaf may also include page N. This
-    preserves page-to-section many-to-many mapping for dense documents.
+    Emits leaf ranges and parent self-only spans when a parent start is strictly
+    before its first located descendant leaf. Ranges are closed-closed.
     """
     if page_count <= 0 or not nodes:
         return []
@@ -127,7 +198,6 @@ def resolve_hierarchy_page_ranges(
         allowed_pages=allowed_pages,
         parent_titles=(),
         page_texts=page_texts,
-        page_offset_hint=page_offset_hint,
         match_overrides=match_overrides or {},
         resolved=resolved,
     )
@@ -152,7 +222,6 @@ def _resolve_siblings(
     allowed_pages: set[int],
     parent_titles: tuple[str, ...],
     page_texts: dict[int, str],
-    page_offset_hint: int | None,
     match_overrides: dict[tuple[str, ...], TitleMatch],
     resolved: list[ResolvedHierarchyRange],
 ) -> None:
@@ -162,19 +231,13 @@ def _resolve_siblings(
     for index, node in enumerate(nodes):
         path_titles = (*parent_titles, node.title)
         pages = _allowed_pages_between(lower_bound, parent_scope.end, allowed_pages)
-        match = _match_override(path_titles, match_overrides, pages)
-        if match is None:
-            match = _match_physical_hint(node=node, scope_pages=pages)
-        if match is None:
-            match = locate_title_strict_exact(
-                node.title,
-                scope_pages=pages,
-                page_texts=page_texts,
-            )
-        if match is None and node.children and match_overrides:
-            match = _infer_start_from_descendant_overrides(
-                node, parent_titles, match_overrides, pages,
-            )
+        match = _locate_match_for_node(
+            node,
+            path_titles=path_titles,
+            scope_pages=pages,
+            page_texts=page_texts,
+            match_overrides=match_overrides,
+        )
         if match is None:
             start_page = lower_bound
         else:
@@ -190,7 +253,6 @@ def _resolve_siblings(
                 parent_end=parent_scope.end,
                 allowed_pages=allowed_pages,
                 page_texts=page_texts,
-                page_offset_hint=page_offset_hint,
                 match_overrides=match_overrides,
                 parent_titles=parent_titles,
             )
@@ -217,13 +279,31 @@ def _resolve_siblings(
             )
 
         if node.children:
+            first_child_start = first_leaf_start_under(
+                node, parent_titles, match_overrides
+            )
+            if (
+                match is not None
+                and first_child_start is not None
+                and start_page < first_child_start
+            ):
+                resolved.append(
+                    ResolvedHierarchyRange(
+                        title=node.title,
+                        level=node.level,
+                        start_page=start_page,
+                        end_page=first_child_start,
+                        path_titles=path_titles,
+                        match=match,
+                        evidence={**evidence, "skeleton_kind": "parent_self_only"},
+                    )
+                )
             _resolve_siblings(
                 node.children,
                 parent_scope=PageRange(start_page, end_page),
                 allowed_pages=allowed_pages,
                 parent_titles=path_titles,
                 page_texts=page_texts,
-                page_offset_hint=page_offset_hint,
                 match_overrides=match_overrides,
                 resolved=resolved,
             )
@@ -242,6 +322,34 @@ def _resolve_siblings(
         )
 
 
+def _locate_match_for_node(
+    node: TitleNode,
+    *,
+    path_titles: tuple[str, ...],
+    scope_pages: list[int],
+    page_texts: dict[int, str],
+    match_overrides: dict[tuple[str, ...], TitleMatch],
+) -> TitleMatch | None:
+    match = _match_override(path_titles, match_overrides, scope_pages)
+    if match is not None:
+        return match
+    match = _match_physical_hint(node=node, scope_pages=scope_pages)
+    if match is not None:
+        return match
+    if node.children:
+        # Parent active locate is upstream (compact-strict / visual). Wide-window
+        # strict_exact is intentionally not used here.
+        return _infer_start_from_descendant_overrides(
+            node, parent_titles=path_titles[:-1], match_overrides=match_overrides,
+            scope_pages=scope_pages,
+        )
+    return locate_title_strict_exact(
+        node.title,
+        scope_pages=scope_pages,
+        page_texts=page_texts,
+    )
+
+
 def _find_next_located_sibling(
     *,
     nodes: list[TitleNode],
@@ -250,27 +358,19 @@ def _find_next_located_sibling(
     parent_end: int,
     allowed_pages: set[int],
     page_texts: dict[int, str],
-    page_offset_hint: int | None,
     match_overrides: dict[tuple[str, ...], TitleMatch],
     parent_titles: tuple[str, ...],
 ) -> TitleMatch | None:
     pages = _allowed_pages_between(lower_bound, parent_end, allowed_pages)
     for sibling in nodes[start_index:]:
         path_titles = (*parent_titles, sibling.title)
-        match = _match_override(path_titles, match_overrides, pages)
-        if match is None:
-            match = _match_physical_hint(node=sibling, scope_pages=pages)
-        if match is not None:
-            return match
-        match = locate_title_strict_exact(
-            sibling.title,
+        match = _locate_match_for_node(
+            sibling,
+            path_titles=path_titles,
             scope_pages=pages,
             page_texts=page_texts,
+            match_overrides=match_overrides,
         )
-        if match is None and sibling.children and match_overrides:
-            match = _infer_start_from_descendant_overrides(
-                sibling, parent_titles, match_overrides, pages,
-            )
         if match is not None:
             return match
     return None
@@ -282,13 +382,7 @@ def _infer_start_from_descendant_overrides(
     match_overrides: dict[tuple[str, ...], TitleMatch],
     scope_pages: list[int],
 ) -> TitleMatch | None:
-    """Infer a parent node's start page from its earliest located descendant leaf.
-
-    When a non-leaf node cannot be directly located (no printed_page, no grep
-    match), its descendant leaves may already be in match_overrides from
-    offset-guided bulk anchoring. Use the minimum page among those descendants
-    as a synthetic match so the resolver can cap the previous sibling's end_page.
-    """
+    """Final fallback: parent start = earliest located descendant leaf page."""
     if not node.children or not match_overrides:
         return None
     leaves = iter_leaf_title_nodes([node], parent_titles=parent_titles)
@@ -315,6 +409,7 @@ def _infer_start_from_descendant_overrides(
         evidence={
             "inferred_from": "descendant_leaf_override",
             "original_confidence": min_match.confidence,
+            "status": "degraded",
         },
     )
 
@@ -418,6 +513,10 @@ def _allowed_pages_between(start: int, end: int, allowed_pages: set[int]) -> lis
     return [page for page in range(start, end + 1) if page in allowed_pages]
 
 
+def _compact_match_text(text: str) -> str:
+    return re.sub(r"\s+", "", normalize_heading_text(text)).casefold()
+
+
 def _find_anchored_hits(
     title: str,
     scope_pages: list[int],
@@ -446,23 +545,13 @@ def _choose_best_hit(
     hits: list[_LineHit],
     *,
     source: TitleMatchSource,
-    printed_page: int | None,
-    page_offset_hint: int | None,
     extra_evidence: dict[str, Any] | None = None,
 ) -> TitleMatch:
-    expected_page = (
-        printed_page + page_offset_hint
-        if printed_page is not None and page_offset_hint is not None
-        else None
+    ordered = sorted(
+        hits,
+        key=lambda hit: (hit.score, -hit.line_index, -hit.page),
+        reverse=True,
     )
-
-    def sort_key(hit: _LineHit) -> tuple[float, int, int, int]:
-        printed_bonus = 0
-        if expected_page is not None:
-            printed_bonus = -abs(hit.page - expected_page)
-        return (hit.score, printed_bonus, -hit.line_index, -hit.page)
-
-    ordered = sorted(hits, key=sort_key, reverse=True)
     best = ordered[0]
     pages = sorted({hit.page for hit in ordered})
     confidence_by_source = {
@@ -481,8 +570,6 @@ def _choose_best_hit(
         evidence={
             "line_index": best.line_index,
             "candidate_count": len(pages),
-            "printed_page": printed_page,
-            "page_offset_hint": page_offset_hint,
             **(extra_evidence or {}),
         },
     )

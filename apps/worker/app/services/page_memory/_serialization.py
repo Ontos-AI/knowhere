@@ -9,7 +9,6 @@ from typing import Any
 from app.services.page_memory._utils import (
     collapse_page_ranges,
     page_scope_info,
-    sort_skeletons,
 )
 
 
@@ -92,8 +91,14 @@ def serialize_skeletons(skeletons: list[Any]) -> list[dict[str, Any]]:
 
 
 def build_hierarchy_tree(skeletons: list[Any]) -> dict[str, Any]:
+    """Build a nested title tree preserving ``skeletons`` list order.
+
+    Sibling key order follows first-seen order in ``skeletons`` (dict
+    insertion order). Callers that need cross-page ordering should
+    ``sort_skeletons`` first; same-page order must remain VLM/TOC order.
+    """
     hierarchy: dict[str, Any] = {}
-    for skel in sort_skeletons(skeletons):
+    for skel in skeletons:
         parts = str(getattr(skel, "section_path", "") or "").split("/")
         section_parts = parts[1:] if len(parts) > 1 else parts
         current = hierarchy
@@ -109,6 +114,7 @@ def serialize_hierarchy_artifact(
     *,
     scope_manifest_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    # Keep nodes and HIERARCHY on the same list order — do not re-sort here.
     nodes = serialize_skeletons(skeletons)
     artifact: dict[str, Any] = {
         "HIERARCHY": build_hierarchy_tree(skeletons),

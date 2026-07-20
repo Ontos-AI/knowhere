@@ -22,7 +22,10 @@ from app.services.document_agent.structure.hierarchy_locator import (
     TitleMatch,
     TitleNode,
     extract_toc_nodes,
+    first_leaf_start_under,
     iter_leaf_title_nodes,
+    last_leaf_start_under,
+    locate_title_compact_strict,
     resolve_hierarchy_page_ranges,
 )
 from app.services.document_parser.structure.body_boundary import (
@@ -188,7 +191,7 @@ def extract_section_skeletons(
                 )
             ]
 
-    # Phase A3: try offset-guided bulk anchoring before expensive residual agent.
+    # Phase A3: offset-guided bulk anchoring for printed-page leaves.
     offset_matches: dict[tuple[str, ...], TitleMatch] | None = None
     if offset_hint is not None and ctx is not None:
         offset_matches = _offset_guided_anchoring(
@@ -217,13 +220,30 @@ def extract_section_skeletons(
         }
     resolve_nodes = nodes
 
+    match_overrides, null_page_report = locate_null_page_parent_overrides(
+        nodes=resolve_nodes,
+        match_overrides=match_overrides,
+        page_texts=page_texts,
+        body_pages=primary_body_pages,
+        ctx=ctx,
+    )
+    locate_summary["null_page_parent_locate"] = {
+        "attempted": len(null_page_report),
+        "located": sum(1 for row in null_page_report if row.get("page") is not None),
+        "unresolved": sum(
+            1 for row in null_page_report if row.get("result") == "unresolved"
+        ),
+        "visual_verify_calls": sum(
+            int(row.get("visual_verify_calls") or 0) for row in null_page_report
+        ),
+        "entries": null_page_report,
+    }
 
     ranges = resolve_hierarchy_page_ranges(
         resolve_nodes,
         page_count=primary_page_count,
         page_texts=page_texts,
         body_pages=primary_body_pages,
-        page_offset_hint=offset_hint,
         match_overrides=match_overrides,
     )
     if not ranges:
@@ -473,8 +493,207 @@ def _body_pages(*, anatomy: Any | None, page_count: int) -> list[int]:
     return [page for page in range(1, page_count + 1) if page not in excluded]
 
 
-# ── VLM offset calibration (Phase A1) ───────────────────────────────────────
+# ── Null-page parent locate (compact-strict + RTL visual) ───────────────────
 
+_NULL_PARENT_VISUAL_CONFIDENCE = 0.6
+
+
+def locate_null_page_parent_overrides(
+    *,
+    nodes: list[TitleNode],
+    match_overrides: dict[tuple[str, ...], TitleMatch],
+    page_texts: dict[int, str],
+    body_pages: list[int],
+    ctx: ToolContext | None,
+) -> tuple[dict[tuple[str, ...], TitleMatch], list[dict[str, Any]]]:
+    """Locate TOC parents with ``printed_page=None`` into ``match_overrides``.
+
+    Window for parent P: ``[last leaf start under previous same-level sibling,
+    first leaf start under P]``. Text path is compact→strict unique page; on
+    miss/ambiguity, scan right→left with ``verify_section_page_choice``.
+
+    Returns ``(overrides, report)`` where *report* lists every null-page parent
+    attempt (for debug / LLM-call accounting).
+    """
+    if not nodes or not body_pages:
+        return dict(match_overrides), []
+
+    out = dict(match_overrides)
+    body_set = set(body_pages)
+    parent_scope_start = body_pages[0]
+    report: list[dict[str, Any]] = []
+
+    def walk(
+        sibling_nodes: list[TitleNode],
+        parent_titles: tuple[str, ...],
+        scope_start: int,
+    ) -> None:
+        for index, node in enumerate(sibling_nodes):
+            path_titles = (*parent_titles, node.title)
+            if (
+                node.children
+                and node.printed_page is None
+                and path_titles not in out
+            ):
+                if index > 0:
+                    left = last_leaf_start_under(
+                        sibling_nodes[index - 1], parent_titles, out
+                    )
+                    if left is None:
+                        left = scope_start
+                else:
+                    left = scope_start
+                right = first_leaf_start_under(node, parent_titles, out)
+                entry: dict[str, Any] = {
+                    "path_titles": list(path_titles),
+                    "title": node.title,
+                    "printed_page": None,
+                    "window": None,
+                    "result": "skipped_no_right",
+                    "page": None,
+                    "accept": None,
+                    "visual_verify_calls": 0,
+                }
+                if right is None or right < left:
+                    report.append(entry)
+                    logger.info(
+                        "[page_memory.skeleton] null-page parent skipped: "
+                        "title={!r} reason=no_located_first_child left={}",
+                        node.title,
+                        left,
+                    )
+                else:
+                    entry["window"] = [left, right]
+                    scope_pages = [
+                        page for page in body_pages if left <= page <= right
+                    ]
+                    match = locate_title_compact_strict(
+                        node.title,
+                        scope_pages=scope_pages,
+                        page_texts=page_texts,
+                    )
+                    visual_calls = 0
+                    if match is None and ctx is not None:
+                        match, visual_calls = _visual_rtl_locate_parent(
+                            title=node.title,
+                            left=left,
+                            right=right,
+                            body_set=body_set,
+                            ctx=ctx,
+                        )
+                    entry["visual_verify_calls"] = visual_calls
+                    if match is not None and match.page in body_set:
+                        out[path_titles] = match
+                        entry["result"] = str(match.evidence.get("accept") or match.source)
+                        entry["page"] = match.page
+                        entry["accept"] = match.evidence.get("accept")
+                        logger.info(
+                            "[page_memory.skeleton] null-page parent located: "
+                            "title={!r} page={} window={} accept={} visual_calls={}",
+                            node.title,
+                            match.page,
+                            [left, right],
+                            match.evidence.get("accept"),
+                            visual_calls,
+                        )
+                    else:
+                        entry["result"] = "unresolved"
+                        logger.info(
+                            "[page_memory.skeleton] null-page parent unresolved: "
+                            "title={!r} window={} visual_calls={}",
+                            node.title,
+                            [left, right],
+                            visual_calls,
+                        )
+                    report.append(entry)
+            if node.children:
+                child_scope_start = (
+                    out[path_titles].page if path_titles in out else scope_start
+                )
+                walk(node.children, path_titles, child_scope_start)
+
+    walk(nodes, (), parent_scope_start)
+    logger.info(
+        "[page_memory.skeleton] null-page parent locate summary: "
+        "attempted={} located={} unresolved={} visual_verify_calls={}",
+        len(report),
+        sum(1 for row in report if row.get("page") is not None),
+        sum(1 for row in report if row.get("result") == "unresolved"),
+        sum(int(row.get("visual_verify_calls") or 0) for row in report),
+    )
+    return out, report
+
+
+def _visual_rtl_locate_parent(
+    *,
+    title: str,
+    left: int,
+    right: int,
+    body_set: set[int],
+    ctx: ToolContext,
+) -> tuple[TitleMatch | None, int]:
+    """Confirm parent title from right boundary toward left via VLM verify."""
+    visual_calls = 0
+    for page in range(right, left - 1, -1):
+        if page not in body_set:
+            continue
+        candidate = TitleMatch(
+            page=page,
+            confidence=0.4,
+            source="agent_heuristic",
+            matched_line="",
+            score=0.4,
+            candidates=[page],
+            evidence={"null_page_parent_probe": True},
+        )
+        visual_calls += 1
+        result = verify_section_page_choice(
+            ctx=ctx,
+            title=title,
+            candidate_matches=[candidate],
+            candidate_page_cap=1,
+        )
+        selected = result.get("selected_page")
+        confidence = float(result.get("confidence") or 0.0)
+        if selected != page or confidence < _NULL_PARENT_VISUAL_CONFIDENCE:
+            continue
+        if result.get("source") == "agent_vlm":
+            return (
+                TitleMatch(
+                    page=page,
+                    confidence=confidence,
+                    source="agent_vlm",
+                    matched_line="",
+                    score=confidence,
+                    candidates=[page],
+                    evidence={
+                        "accept": "visual_rtl",
+                        "reason": result.get("reason", ""),
+                        "visual_verify_calls": visual_calls,
+                    },
+                ),
+                visual_calls,
+            )
+        return (
+            TitleMatch(
+                page=page,
+                confidence=confidence,
+                source="agent_heuristic",
+                matched_line="",
+                score=confidence,
+                candidates=[page],
+                evidence={
+                    "accept": "visual_rtl",
+                    "reason": result.get("reason", ""),
+                    "visual_verify_calls": visual_calls,
+                },
+            ),
+            visual_calls,
+        )
+    return None, visual_calls
+
+
+# ── VLM offset calibration (Phase A1) ───────────────────────────────────────
 _CALIBRATION_WINDOW_PAGES = 10
 _CALIBRATION_LEAF_PROBE_COUNT = 3
 
@@ -974,12 +1193,30 @@ def _resolve_pending_tocs(
                 "reason": "offset_guided_anchoring_skipped_or_empty",
             }
 
+        match_overrides, null_page_report = locate_null_page_parent_overrides(
+            nodes=nodes,
+            match_overrides=match_overrides,
+            page_texts=page_texts,
+            body_pages=toc_body_pages,
+            ctx=ctx,
+        )
+        locate_summary["null_page_parent_locate"] = {
+            "attempted": len(null_page_report),
+            "located": sum(1 for row in null_page_report if row.get("page") is not None),
+            "unresolved": sum(
+                1 for row in null_page_report if row.get("result") == "unresolved"
+            ),
+            "visual_verify_calls": sum(
+                int(row.get("visual_verify_calls") or 0) for row in null_page_report
+            ),
+            "entries": null_page_report,
+        }
+
         ranges = resolve_hierarchy_page_ranges(
             nodes,
             page_count=toc_scope_end,
             page_texts=page_texts,
             body_pages=toc_body_pages,
-            page_offset_hint=offset,
             match_overrides=match_overrides,
         )
 
