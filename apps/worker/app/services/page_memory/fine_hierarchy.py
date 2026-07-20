@@ -19,7 +19,7 @@ from loguru import logger
 from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
 from app.services.page_memory._utils import page_scope_info
-from shared.services.ai.openai_compatible_client_sync import get_openai_client
+from shared.services.ai.llm_overrides import get_text_client
 from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.response_process_service import eval_response
 
@@ -226,7 +226,8 @@ def _run_hierarchy_on_candidates(
                 os.environ.get("NORMOL_MODEL"),
             )
         )
-        answer = get_openai_client(model=resolved_model).chat_completion(
+        client, resolved_model = get_text_client(requested_model=resolved_model)
+        answer = client.chat_completion(
             messages=[
                 {"role": "system", "content": "you are a document structure expert"},
                 {"role": "user", "content": prompt},

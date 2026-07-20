@@ -70,10 +70,23 @@ async def lifespan(app: FastAPI):
         await load_rules(session)
     logger.info("rate limit rules loaded at startup; restart the pod to apply changes")
 
+    import time
+
     from shared.services.telemetry.aggregates import (
         start_self_hosted_aggregate_telemetry,
     )
-    from shared.services.telemetry.runtime import start_self_hosted_telemetry
+    from shared.services.telemetry.runtime import (
+        build_postgres_health_probe,
+        build_redis_health_probe,
+        start_self_hosted_heartbeat_telemetry,
+        start_self_hosted_telemetry,
+    )
+
+    telemetry_started_at = time.monotonic()
+
+    async def _redis_ping() -> bool:
+        redis_service = redis_pool_manager.get_redis_service()
+        return await redis_service.ping()
 
     telemetry_runtime = await start_self_hosted_telemetry(
         settings,
@@ -86,6 +99,7 @@ async def lifespan(app: FastAPI):
         app.state.self_hosted_telemetry_client = None
         app.state.self_hosted_telemetry_config = None
         app.state.self_hosted_aggregate_telemetry_runner = None
+        app.state.self_hosted_heartbeat_telemetry_runner = None
     else:
         telemetry_client, telemetry_config = telemetry_runtime
         app.state.self_hosted_telemetry_client = telemetry_client
@@ -97,6 +111,16 @@ async def lifespan(app: FastAPI):
                 config=telemetry_config,
                 db_session_factory=get_db_context,
                 api_metrics=app.state.self_hosted_api_telemetry_metrics,
+            )
+        )
+        app.state.self_hosted_heartbeat_telemetry_runner = (
+            await start_self_hosted_heartbeat_telemetry(
+                settings,
+                telemetry_client=telemetry_client,
+                config=telemetry_config,
+                started_at_monotonic=telemetry_started_at,
+                postgres_probe=build_postgres_health_probe(get_db_context),
+                redis_probe=build_redis_health_probe(_redis_ping),
             )
         )
 
@@ -114,13 +138,20 @@ async def lifespan(app: FastAPI):
         from shared.services.telemetry.aggregates import (
             stop_self_hosted_aggregate_telemetry,
         )
-        from shared.services.telemetry.runtime import stop_self_hosted_telemetry
+        from shared.services.telemetry.runtime import (
+            stop_self_hosted_heartbeat_telemetry,
+            stop_self_hosted_telemetry,
+        )
 
+        await stop_self_hosted_heartbeat_telemetry(
+            getattr(app.state, "self_hosted_heartbeat_telemetry_runner", None)
+        )
         await stop_self_hosted_aggregate_telemetry(
             getattr(app.state, "self_hosted_aggregate_telemetry_runner", None)
         )
         await stop_self_hosted_telemetry(
-            getattr(app.state, "self_hosted_telemetry_client", None)
+            getattr(app.state, "self_hosted_telemetry_client", None),
+            config=getattr(app.state, "self_hosted_telemetry_config", None),
         )
     except Exception as e:
         logger.error(f"self-hosted telemetry shutdown failed: {e}")

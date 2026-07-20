@@ -108,6 +108,7 @@ def _call_llm(
     budget: Any | None,
     budget_pool: str,
     budget_stage: str | None,
+    channel: Literal["text", "vision"] = "text",
 ) -> Any | None:
     """One text-or-vision call with budget accounting and a single JSON retry.
 
@@ -115,7 +116,11 @@ def _call_llm(
     failure / exhausted budget. Budget is reserved before the call, committed on
     success, refunded on failure — matching the prior per-caller bookkeeping but
     in one place.
+
+    ``channel`` selects BYOK text vs vision credentials when overrides are active.
     """
+    from shared.services.ai.llm_overrides import resolve_text, resolve_vision
+
     content_parts: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
     for path in image_paths:
         img_b64 = _read_image_b64(path)
@@ -142,12 +147,23 @@ def _call_llm(
     if expect_json:
         api_kwargs["response_format"] = {"type": "json_object"}
 
-    client = _client_mod.get_openai_client(model=model)
+    resolve = resolve_vision if channel == "vision" else resolve_text
+    effective_model, api_key, api_url = resolve(model)
+    if not effective_model:
+        if budget is not None:
+            budget.refund(budget_pool, est=est, stage=budget_stage)
+        return None
+
+    client = _client_mod.get_openai_client(
+        model=effective_model,
+        api_key=api_key,
+        api_url=api_url,
+    )
     for attempt in range(_MAX_JSON_RETRIES + 1):
         try:
             raw, usage = client.chat_completion_with_usage(
                 messages=cast(Any, [{"role": "user", "content": content_parts}]),
-                model=model,
+                model=effective_model,
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
@@ -337,6 +353,7 @@ def _summarize_body(
             budget=budget,
             budget_pool=budget_pool,
             budget_stage=budget_stage,
+            channel="vision",
         )
     else:
         # Text summary: the shared summary-full prompt with deterministic lang lock.
@@ -366,6 +383,7 @@ def _summarize_body(
             budget=budget,
             budget_pool="plan",
             budget_stage=None,
+            channel="text",
         )
 
     if not isinstance(parsed, dict):
@@ -416,6 +434,7 @@ def _summarize_asset(
             budget=budget,
             budget_pool="plan",
             budget_stage=None,
+            channel="text",
         )
         if isinstance(raw, str) and raw.strip():
             return _parse_linesplit_asset(raw, asset_title_hint)
@@ -444,6 +463,7 @@ def _summarize_asset(
         budget=budget,
         budget_pool=budget_pool,
         budget_stage=budget_stage,
+        channel="vision",
     )
     if isinstance(parsed, dict):
         return AssetSummary(
@@ -492,6 +512,7 @@ def transcribe(
         budget=budget,
         budget_pool=budget_pool,
         budget_stage=budget_stage,
+        channel="vision",
     )
     if isinstance(parsed, dict):
         return str(parsed.get("text", "")).strip()

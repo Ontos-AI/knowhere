@@ -184,9 +184,9 @@ def _tag_text_only(
     )
 
     try:
-        from shared.services.ai.openai_compatible_client_sync import get_openai_client
+        from shared.services.ai.llm_overrides import get_text_client
 
-        client = get_openai_client(model=model)
+        client, model = get_text_client(requested_model=model)
         raw_response, usage = client.chat_completion_with_usage(
             messages=cast(Any, [{"role": "user", "content": prompt}]),
             model=model,
@@ -458,9 +458,10 @@ def _tag_vlm_titles(
         },
     ]
 
-    from shared.services.ai.openai_compatible_client_sync import get_openai_client
+    from shared.services.ai.llm_overrides import get_vision_client
 
-    client = get_openai_client(model=model)
+    client, resolved_model = get_vision_client(requested_model=model)
+    model = resolved_model or model
 
     for attempt in range(_MAX_JSON_RETRIES + 1):
         try:

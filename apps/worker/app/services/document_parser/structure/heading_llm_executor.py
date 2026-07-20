@@ -179,7 +179,7 @@ def run_merge_pre_pass(
 
     # ── 3. Call LLM directly (bypass df2md — texts is already formatted) ──
     from shared.services.ai.prompt_service import build_prompt
-    from shared.services.ai.openai_compatible_client_sync import get_openai_client
+    from shared.services.ai.llm_overrides import get_text_client
     from shared.services.ai.response_process_service import eval_response
 
     try:
@@ -194,7 +194,8 @@ def run_merge_pre_pass(
             {"role": "user", "content": prompt},
         ]
         with stage_timer("heading.merge_pre_pass_llm", group_count=len(groups), model_name=model_name):
-            answer = get_openai_client(model=model_name).chat_completion(
+            client, model_name = get_text_client(requested_model=model_name)
+            answer = client.chat_completion(
                 messages=messages,
                 model=model_name,
                 max_tokens=max_tokens,

@@ -59,13 +59,14 @@ Wrong Usage:
     raise KnowhereException(code=ErrorCode.INVALID_ARGUMENT, ...)
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from shared.core.response.ErrorCode import ErrorCode, ErrorCodeMapper
 
 # Default messages for auto-sanitization
 DEFAULT_5XX_USER_MESSAGE = "An internal system error occurred. Please contact support."
 DEFAULT_4XX_USER_MESSAGE = "Invalid request. Please check your input."
+LogErrorCategory = Literal["client", "system"]
 
 
 class KnowhereException(Exception):
@@ -215,13 +216,10 @@ class KnowhereException(Exception):
             - details: Additional structured data
             - original_exception: Wrapped exception info
         """
-        # Determine error category based on HTTP status
-        error_category = "system" if self.http_status_code >= 500 else "client"
-
         log_data: Dict[str, Any] = {
             "error_code": self.code.value,
             "http_status": self.http_status_code,
-            "error_category": error_category,
+            "error_category": _get_error_category(self.http_status_code),
             "exception_class": self.__class__.__name__,
             "internal_message": self.internal_message,
             "user_message": self.user_message,
@@ -324,3 +322,11 @@ def _reconstruct_knowhere_exception(cls, state):
     obj = cls.__new__(cls)
     obj.__setstate__(state)
     return obj
+
+
+def _get_error_category(http_status_code: int) -> LogErrorCategory:
+    """Return the stable log category derived from the public HTTP status."""
+    if http_status_code >= 500:
+        return "system"
+
+    return "client"

@@ -17,7 +17,7 @@ from shared.core.config.base import (
     BaseConfig,
 )
 from shared.services.telemetry.client import TelemetryClient
-from shared.services.telemetry.config import TelemetryRuntimeConfig
+from shared.services.telemetry.config import SCHEMA_VERSION, TelemetryRuntimeConfig
 from shared.services.telemetry.api_metrics import ApiRequestTelemetryMetrics
 from shared.services.telemetry.aggregates import (
     TelemetryAggregateSettings,
@@ -26,11 +26,21 @@ from shared.services.telemetry.aggregates import (
     stop_self_hosted_aggregate_telemetry,
 )
 from shared.services.telemetry.events import (
+    build_base_event_properties,
+    compute_success_rate,
+    count_to_bucket,
     get_allowed_telemetry_event_names,
+    normalize_client_name,
+    normalize_document_type,
+    normalize_source_type,
     sanitize_event_properties,
+    uptime_seconds_to_bucket,
 )
 from shared.services.telemetry.identity import get_or_create_installation_id
-
+from shared.services.telemetry.runtime import (
+    SelfHostedHeartbeatTelemetryRunner,
+    stop_self_hosted_telemetry,
+)
 
 def test_installation_id_is_generated_once(tmp_path: Path) -> None:
     installation_id_path = tmp_path / "telemetry-installation-id"
@@ -75,7 +85,7 @@ def test_explicit_installation_id_must_be_uuid(tmp_path: Path) -> None:
 
 def test_telemetry_properties_strip_unknown_and_non_scalar_values() -> None:
     properties = sanitize_event_properties(
-        "self_hosted_instance_heartbeat",
+        "oss_instance_heartbeat",
         {
             "app_version": "1.2.3",
             "api_healthy": True,
@@ -94,12 +104,178 @@ def test_telemetry_properties_strip_unknown_and_non_scalar_values() -> None:
 
 def test_aggregate_event_names_are_allowed() -> None:
     assert {
-        "self_hosted_usage_aggregate",
-        "self_hosted_retrieval_aggregate",
-        "self_hosted_worker_aggregate",
-        "self_hosted_api_aggregate",
-        "self_hosted_provider_aggregate",
+        "oss_usage_aggregate",
+        "oss_retrieval_aggregate",
+        "oss_worker_aggregate",
+        "oss_api_aggregate",
+        "oss_provider_aggregate",
+        "oss_document_type_aggregate",
+        "oss_client_aggregate",
     }.issubset(get_allowed_telemetry_event_names())
+
+
+def test_normalize_document_type_and_client_name() -> None:
+    assert normalize_document_type("report.PDF") == "pdf"
+    assert normalize_document_type("photo.jpeg") == "image"
+    assert normalize_document_type("notes.htm") == "html"
+    assert normalize_document_type("secret.xyz") == "other"
+    assert normalize_document_type(None) == "other"
+    assert normalize_client_name("node-sdk") == "node-sdk"
+    assert normalize_client_name("CLI") == "cli"
+    assert normalize_client_name("custom-bot") == "other"
+    assert normalize_source_type("direct_upload") == "file"
+    assert normalize_source_type("url") == "url"
+    assert normalize_source_type("demo") == "other"
+
+
+def test_success_rate_and_count_buckets() -> None:
+    assert compute_success_rate(9, 1) == 0.9
+    assert compute_success_rate(0, 0) == 0.0
+    assert count_to_bucket(0) == "0"
+    assert count_to_bucket(7) == "1-10"
+    assert count_to_bucket(50) == "11-100"
+    assert count_to_bucket(101) == "100+"
+    assert uptime_seconds_to_bucket(30) == "0m-5m"
+    assert uptime_seconds_to_bucket(3600) == "1h-24h"
+
+
+def test_usage_and_document_type_properties_strip_sensitive_values() -> None:
+    usage_properties = sanitize_event_properties(
+        "oss_usage_aggregate",
+        {
+            "app_version": "1.2.3",
+            "window_seconds": 86_400,
+            "success_rate_24h": 0.9,
+            "source_file_jobs_24h": 2,
+            "email": "user@example.com",
+            "document_name": "private.pdf",
+            "source_file_name": "private.pdf",
+        },
+    )
+    document_type_properties = sanitize_event_properties(
+        "oss_document_type_aggregate",
+        {
+            "document_type": "pdf",
+            "jobs_created_24h": 1,
+            "source_file_name": "private.pdf",
+            "email": "user@example.com",
+        },
+    )
+    client_properties = sanitize_event_properties(
+        "oss_client_aggregate",
+        {
+            "created_by_client": "cli",
+            "jobs_created_24h": 1,
+            "client_version": "9.9.9",
+            "email": "user@example.com",
+        },
+    )
+
+    assert usage_properties == {
+        "app_version": "1.2.3",
+        "window_seconds": 86_400,
+        "success_rate_24h": 0.9,
+        "source_file_jobs_24h": 2,
+    }
+    assert document_type_properties == {
+        "document_type": "pdf",
+        "jobs_created_24h": 1,
+    }
+    assert client_properties == {
+        "created_by_client": "cli",
+        "jobs_created_24h": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_emit_once_includes_health_and_uptime(
+    tmp_path: Path,
+) -> None:
+    posthog_client = _FakePostHogClient()
+    config = _build_config(tmp_path)
+    telemetry_client = TelemetryClient(config, posthog_client=posthog_client)
+    await telemetry_client.start()
+
+    async def postgres_probe() -> bool:
+        return True
+
+    async def redis_probe() -> bool:
+        return False
+
+    runner = SelfHostedHeartbeatTelemetryRunner(
+        config=config,
+        telemetry_client=telemetry_client,
+        settings=_HeartbeatSettings(),
+        interval_seconds=60,
+        started_at_monotonic=0.0,
+        postgres_probe=postgres_probe,
+        redis_probe=redis_probe,
+    )
+    await runner.emit_once()
+    await telemetry_client.stop()
+
+    assert len(posthog_client.captured_events) == 1
+    captured = posthog_client.captured_events[0]
+    assert captured.event_name == "oss_instance_heartbeat"
+    properties = cast(dict[str, object], captured.kwargs["properties"])
+    assert properties["api_healthy"] is True
+    assert properties["postgres_healthy"] is True
+    assert properties["redis_healthy"] is False
+    assert properties["uptime_bucket"] in {
+        "0m-5m",
+        "5m-1h",
+        "1h-24h",
+        "24h-7d",
+        "7d+",
+    }
+    assert properties["schema_version"] == SCHEMA_VERSION
+
+
+@pytest.mark.asyncio
+async def test_shutdown_includes_base_event_properties(tmp_path: Path) -> None:
+    posthog_client = _FakePostHogClient()
+    config = _build_config(tmp_path)
+    telemetry_client = TelemetryClient(config, posthog_client=posthog_client)
+    await telemetry_client.start()
+
+    await stop_self_hosted_telemetry(telemetry_client, config=config)
+
+    assert len(posthog_client.captured_events) == 1
+    captured = posthog_client.captured_events[0]
+    assert captured.event_name == "oss_instance_shutdown"
+    assert captured.kwargs["properties"] == {
+        **build_base_event_properties(config),
+        "$process_person_profile": False,
+    }
+
+
+def test_usage_aggregate_allowlist_includes_v2_keys() -> None:
+    properties = sanitize_event_properties(
+        "oss_usage_aggregate",
+        {
+            "success_rate_24h": 1.0,
+            "job_duration_p95_seconds_24h": 12.5,
+            "has_webhooks_24h": True,
+            "has_retrieval_24h": False,
+            "jobs_created_bucket": "1-10",
+            "pages_processed_bucket": "0",
+            "source_file_jobs_24h": 1,
+            "source_url_jobs_24h": 0,
+            "source_other_jobs_24h": 0,
+            "filename": "secret.pdf",
+        },
+    )
+    assert set(properties) == {
+        "success_rate_24h",
+        "job_duration_p95_seconds_24h",
+        "has_webhooks_24h",
+        "has_retrieval_24h",
+        "jobs_created_bucket",
+        "pages_processed_bucket",
+        "source_file_jobs_24h",
+        "source_url_jobs_24h",
+        "source_other_jobs_24h",
+    }
 
 
 def test_self_hosted_telemetry_defaults_to_enabled(
@@ -132,7 +308,7 @@ def test_self_hosted_telemetry_env_can_disable_and_override_key(
 
 def test_aggregate_properties_strip_sensitive_values() -> None:
     properties = sanitize_event_properties(
-        "self_hosted_usage_aggregate",
+        "oss_usage_aggregate",
         {
             "app_version": "1.2.3",
             "window_seconds": 86_400,
@@ -184,8 +360,8 @@ async def test_api_aggregate_uses_interval_window_when_global_lock_unavailable(
         api_window_seconds=300,
     )
 
-    assert set(properties) == {"self_hosted_api_aggregate"}
-    api_properties = properties["self_hosted_api_aggregate"]
+    assert set(properties) == {"oss_api_aggregate"}
+    api_properties = properties["oss_api_aggregate"]
     assert api_properties["window_seconds"] == 300
     assert api_properties["api_requests_total"] == 1
     assert api_properties["api_requests_2xx"] == 1
@@ -198,7 +374,7 @@ def test_telemetry_client_filters_posthog_sdk_properties_after_capture(
 
     sanitized_message = telemetry_client._sanitize_posthog_message(
         {
-            "event": "self_hosted_api_aggregate",
+            "event": "oss_api_aggregate",
             "properties": {
                 "app_version": "1.2.3",
                 "api_requests_total": 1,
@@ -243,7 +419,7 @@ async def test_telemetry_client_sends_anonymous_posthog_capture(
 
     await telemetry_client.start()
     queued = telemetry_client.capture(
-        "self_hosted_instance_heartbeat",
+        "oss_instance_heartbeat",
         {
             "app_version": "1.2.3",
             "api_healthy": True,
@@ -255,7 +431,7 @@ async def test_telemetry_client_sends_anonymous_posthog_capture(
     assert queued is True
     assert len(posthog_client.captured_events) == 1
     captured_event = posthog_client.captured_events[0]
-    assert captured_event.event_name == "self_hosted_instance_heartbeat"
+    assert captured_event.event_name == "oss_instance_heartbeat"
     assert captured_event.kwargs["distinct_id"] == (
         "550e8400-e29b-41d4-a716-446655440000"
     )
@@ -278,7 +454,7 @@ async def test_telemetry_client_sends_aggregate_events(tmp_path: Path) -> None:
 
     await telemetry_client.start()
     queued = telemetry_client.capture(
-        "self_hosted_api_aggregate",
+        "oss_api_aggregate",
         {
             "app_version": "1.2.3",
             "window_seconds": 86_400,
@@ -292,7 +468,7 @@ async def test_telemetry_client_sends_aggregate_events(tmp_path: Path) -> None:
     assert queued is True
     assert len(posthog_client.captured_events) == 1
     captured_event = posthog_client.captured_events[0]
-    assert captured_event.event_name == "self_hosted_api_aggregate"
+    assert captured_event.event_name == "oss_api_aggregate"
     assert captured_event.kwargs["properties"] == {
         "app_version": "1.2.3",
         "window_seconds": 86_400,
@@ -339,7 +515,7 @@ async def test_telemetry_client_respects_batch_size(tmp_path: Path) -> None:
     await telemetry_client.start()
     for index in range(3):
         telemetry_client.capture(
-            "self_hosted_instance_heartbeat",
+            "oss_instance_heartbeat",
             {
                 "app_version": f"1.2.{index}",
             },
@@ -347,9 +523,9 @@ async def test_telemetry_client_respects_batch_size(tmp_path: Path) -> None:
     await telemetry_client.stop()
 
     assert [event.event_name for event in posthog_client.captured_events] == [
-        "self_hosted_instance_heartbeat",
-        "self_hosted_instance_heartbeat",
-        "self_hosted_instance_heartbeat",
+        "oss_instance_heartbeat",
+        "oss_instance_heartbeat",
+        "oss_instance_heartbeat",
     ]
     assert posthog_client.flush_count == 1
 
@@ -365,7 +541,7 @@ async def test_telemetry_client_flush_before_start_does_not_deadlock(
     )
 
     telemetry_client.capture(
-        "self_hosted_instance_heartbeat",
+        "oss_instance_heartbeat",
         {
             "app_version": "1.2.3",
         },
@@ -373,7 +549,7 @@ async def test_telemetry_client_flush_before_start_does_not_deadlock(
     await telemetry_client.flush()
     await telemetry_client.start()
     telemetry_client.capture(
-        "self_hosted_instance_heartbeat",
+        "oss_instance_heartbeat",
         {
             "app_version": "1.2.4",
         },
@@ -393,7 +569,7 @@ async def test_telemetry_client_does_not_restart_after_stop(tmp_path: Path) -> N
 
     await telemetry_client.start()
     telemetry_client.capture(
-        "self_hosted_instance_heartbeat",
+        "oss_instance_heartbeat",
         {
             "app_version": "1.2.3",
         },
@@ -401,7 +577,7 @@ async def test_telemetry_client_does_not_restart_after_stop(tmp_path: Path) -> N
     await telemetry_client.stop()
     await telemetry_client.start()
     queued_after_stop = telemetry_client.capture(
-        "self_hosted_instance_heartbeat",
+        "oss_instance_heartbeat",
         {
             "app_version": "1.2.4",
         },
@@ -425,6 +601,13 @@ class _CapturedPostHogEvent:
 
 @dataclass(frozen=True)
 class _AggregateSettings:
+    TELEMETRY_AGGREGATE_INTERVAL_SECONDS: int = 60
+
+
+@dataclass(frozen=True)
+class _HeartbeatSettings:
+    API_STANDALONE_MODE_ENABLED: bool = False
+    BILLING_ENABLED: bool = False
     TELEMETRY_AGGREGATE_INTERVAL_SECONDS: int = 60
 
 
@@ -517,4 +700,5 @@ def _build_config(
         environment="production",
         app_env="production",
         service_name="knowhere-api",
+        schema_version=SCHEMA_VERSION,
     )

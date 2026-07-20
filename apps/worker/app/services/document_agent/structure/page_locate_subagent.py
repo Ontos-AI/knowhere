@@ -299,9 +299,9 @@ def decide_next_action(
         logger.warning("[page_locate.subagent] planner budget exhausted for title={!r}", title)
         return None
     try:
-        from shared.services.ai.openai_compatible_client_sync import get_openai_client
+        from shared.services.ai.llm_overrides import get_text_client
 
-        client = get_openai_client(model=model)
+        client, model = get_text_client(requested_model=model)
         raw, usage = client.chat_completion_with_usage(
             messages=[{"role": "user", "content": prompt}],
             model=model,
