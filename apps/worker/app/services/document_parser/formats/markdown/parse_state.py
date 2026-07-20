@@ -13,6 +13,7 @@ from app.services.document_parser.formats.markdown.deferred_task import (
     TextDeferredSummaryTask,
 )
 from app.services.document_parser.support.parser_rows import ParsedRow, ParsedRowsBuilder
+from shared.services.chunks.path_segments import escape_path_segment
 
 ParserRowValues = list[str | int]
 
@@ -98,11 +99,7 @@ class MarkdownParseState:
             if item_level < adjusted_level
         ]
 
-        current_heading = (
-            heading.replace(self.split_char, "∕")
-            if self.split_char in heading
-            else heading
-        )
+        current_heading = escape_path_segment(heading)
         tentative_names = [item_heading for item_heading, _ in self.path_stack]
         tentative_names.append(current_heading)
         tentative_path_parts = [self.relative_root] if self.relative_root else []

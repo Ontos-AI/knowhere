@@ -516,24 +516,41 @@ def build_prompt(task, texts, query, **kwargs):
     elif task == "page-memory-vlm-title":
         temperature = 0
         top_p = 0.01
-        max_tokens = kwargs.get("paras", {}).get("max_tokens", 300)
-        prompt = """\
+        paras = kwargs.get("paras", {})
+        max_tokens = paras.get("max_tokens", 300)
+        scan_direction = paras.get("scan_direction", "top_to_bottom_left_to_right")
+
+        if "right_to_left" in scan_direction:
+            reading_order_upper = "TOP-TO-BOTTOM, RIGHT-TO-LEFT"
+            column_order = "right to left (i.e. finish the right column before starting the left column)"
+        else:
+            reading_order_upper = "TOP-TO-BOTTOM, LEFT-TO-RIGHT"
+            column_order = "left to right (i.e. finish the left column before starting the right column)"
+
+        prompt = f"""\
         You are extracting document-outline-level headings from a PDF page screenshot.
-        Your goal is to find ONLY the headings that would appear in a Table of Contents.
-        Most pages will have ZERO such headings — returning an empty list is expected
-        and correct for the majority of pages.
+        Your goal is to find ONLY the section headings that structure the document.
+        If no text on this page qualifies as a section heading, return an empty list.
+
+        READING ORDER:
+        This page may contain one or more readable columns.
+        Within each column, read from top to bottom.
+        Between columns, read from {column_order}.
+        Return every qualifying heading on this page in that reading order.
+        Do not skip a heading just because it looks like a known section title;
+        extract all outline-level headings that appear on the page.
 
         Return strict JSON:
-        {
+        {{
         "titles": [
-            {
+            {{
             "text": "<exact verbatim heading>",
             "prominence": <0.0-1.0>,
             "is_in_table": <boolean>,
             "is_in_header_footer": <boolean>
-            }
+            }}
         ]
-        }
+        }}
 
         ═══ MANDATORY BOOLEAN FLAGS (CRITICAL) ═══
         For EVERY extracted heading, you MUST accurately evaluate these two flags:
@@ -557,10 +574,11 @@ def build_prompt(task, texts, query, **kwargs):
 
         3. VISUAL DISTINCTION (supporting):
         The text is visually set apart from body text — larger font, bold,
-        centered, or has extra vertical spacing.
+        centered, extra vertical spacing, or wrapped in a distinctive
+        background color block.
 
         "prominence": 1.0 = most prominent; 0.5 = medium; 0.1 = minor.
-        Return titles in TOP-TO-BOTTOM order. Text must be EXACT verbatim.
+        Return titles in {reading_order_upper} order. Text must be EXACT verbatim.
 
         ═══ WHAT TO EXCLUDE (critical — read carefully) ═══
 
@@ -576,8 +594,8 @@ def build_prompt(task, texts, query, **kwargs):
         organization/document names repeated as running headers, page numbers,
         book/volume titles used as running headers or footers.
 
-        3. BODY TEXT — Numbered clauses, list items, paragraphs, or running
-        prose, even if bold or indented.
+        3. INLINE TEXT — bullet list items, numbered clauses, or text that continues a paragraph.
+        These are content items, not section headings, even if bold.
 
         4. CAPTIONS — Figure/table captions, footnotes.
 
@@ -586,9 +604,9 @@ def build_prompt(task, texts, query, **kwargs):
         with page numbers — those entries are references, not headings.
 
         ═══ IMPORTANT ═══
-        Many pages consist entirely of tables, body text, or appendix forms.
-        These pages have NO qualifying headings. Return {"titles": []} for them.
-        Do NOT force-extract table labels or body text as headings.
+        Many pages consist entirely of tables, numbered clauses, or appendix forms.
+        These pages have NO qualifying headings. Return {{"titles": []}} for them.
+        Do NOT force-extract table labels or numbered items as headings.
 
         Return ONLY the JSON object, no markdown fences.
         """
@@ -600,20 +618,29 @@ def build_prompt(task, texts, query, **kwargs):
         max_tokens = kwargs["paras"].get("max_tokens", 2000)
         coarse_context = kwargs["paras"].get("coarse_context", "")
         coarse_section = f"""
-Confirmed coarse parent section:
+Confirmed coarse parent section (the scope of this subtree):
 '''
 {coarse_context}
 '''
+
+The input candidates already lie strictly INSIDE this coarse parent. The parent's
+own title and the next coarse sibling title (if any) have already been removed.
+Do NOT restate or invent those coarse endpoint titles.
+
+Level 1 means the first heading level under this coarse parent. Nest deeper
+headings relative to that parent only.
 
 """ if coarse_context else ""
         prompt = f"""
 You are constructing a fine-grained document hierarchy for ONE already-bounded
 PDF segment. The input rows are NOT raw body text. They are clean title
-candidates observed directly from page screenshots by a VLM.
+candidates observed directly from page screenshots by a VLM, then trimmed to
+the interior of one coarse TOC leaf.
 
 Your task:
 - Assign a relative hierarchy level to each real section/table/form heading.
-- Level 1 means top-level inside this segment, level 2 is its child, etc.
+- Level 1 means top-level under the confirmed coarse parent, level 2 is its
+  child, etc.
 - Preserve all legitimate sibling headings. Consecutive same-level headings are
   normal and MUST NOT be demoted just because no body text appears between rows.
 - Use page order as reading order. The "prominence" value is visual strength,
@@ -1023,6 +1050,14 @@ header_rows_to_skip: integer, the number of leading rows in Table B that duplica
         max_tokens = kwargs["paras"].get("max_tokens", 100)
         node_name = kwargs["paras"].get("node_name", "")
         lang = kwargs["paras"].get("lang")
+        has_self_only = bool(kwargs["paras"].get("has_self_only"))
+        child_titles = kwargs["paras"].get("child_titles") or []
+        self_only_content = kwargs["paras"].get("self_only_content", "(none)")
+        covered_nodes = kwargs["paras"].get("covered_nodes", "(none)")
+        if isinstance(child_titles, list):
+            children_repr = ", ".join(str(t) for t in child_titles) if child_titles else "(none)"
+        else:
+            children_repr = str(child_titles) or "(none)"
         lang_directive = _language_directive(lang)
         lang_rule = (
             f"- **LANGUAGE (HARD CONSTRAINT)**: {lang_directive}"
@@ -1030,13 +1065,20 @@ header_rows_to_skip: integer, the number of leading rows in Table B that duplica
             else "- Your response must be in the SAME LANGUAGE as the input text"
         )
 
-        prompt = f"""You will receive summaries of sub-sections from a document section called "{node_name}":
-        '''
-        {texts}
-        '''
+        prompt = f"""SCOPE_TITLE: {node_name}
+        SCOPE_STRUCTURE:
+        - self_only: {"yes" if has_self_only else "no"}
+        - children: [{children_repr}]
+        
+        SELF_ONLY_CONTENT:
+        {self_only_content}
+
+        COVERED_NODES:
+        {covered_nodes}
+
         Your task:
         {lang_rule}
-        - Produce ONE concise sentence summarizing ALL sub-sections, no more than {max_tokens} characters
+        - Produce ONE concise top-level summary of THIS scope (self_only content plus covered nodes), no more than {max_tokens} characters
         - Output the summary DIRECTLY, no prefixes, no explanations
         - If the input lacks meaningful text, return exactly: null
         """

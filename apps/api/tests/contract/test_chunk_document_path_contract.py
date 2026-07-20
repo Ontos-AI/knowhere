@@ -89,38 +89,6 @@ def test_should_not_treat_dotted_section_titles_as_legacy_document_files() -> No
     assert children[0]["path"] == chunk_path
 
 
-def test_should_read_arrow_delimited_document_paths_as_section_paths() -> None:
-    chunk_path = "report.pdf-->Intro-->Subsection"
-
-    doc_nav = ZipResultSchemaBuilder().build_doc_nav(
-        [
-            {
-                "chunk_id": "chunk_arrow_delimited_path",
-                "type": "text",
-                "content": "arrow delimited content",
-                "path": chunk_path,
-                "metadata": {"summary": "arrow delimited summary"},
-            }
-        ],
-        "report.pdf",
-    )
-
-    sections = cast(list[dict[str, object]], doc_nav["sections"])
-    children = cast(list[dict[str, object]], sections[0]["children"])
-
-    assert (
-        section_path_from_chunk_path(
-            chunk_path,
-            source_file_name="report.pdf",
-        )
-        == "Intro / Subsection"
-    )
-    assert sections[0]["title"] == "Intro"
-    assert sections[0]["path"] == "report.pdf/Intro"
-    assert children[0]["title"] == "Subsection"
-    assert children[0]["path"] == "report.pdf/Intro/Subsection"
-
-
 def test_should_preserve_literal_arrow_text_in_slash_paths() -> None:
     chunk_path = "report.pdf/Inputs --> Outputs/Details"
 

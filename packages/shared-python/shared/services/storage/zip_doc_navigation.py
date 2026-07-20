@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from shared.services.chunks.document_path import split_document_path
+from shared.services.chunks.path_segments import join_document_path
 from shared.utils.text_utils import truncate_content_preview
 
 
@@ -144,7 +145,7 @@ class ZipDocNavigationBuilder:
                 if key not in root_children:
                     root_children[key] = {
                         "title": "Root",
-                        "path": "/".join(root_parts) if root_parts else path,
+                        "path": join_document_path(root_parts) if root_parts else path,
                         "summary": chunk.get("summary", ""),
                         "chunk_count": 0,
                         "_children_map": {},
@@ -161,7 +162,7 @@ class ZipDocNavigationBuilder:
                 if part not in current_level:
                     current_level[part] = {
                         "title": part,
-                        "path": "/".join(full_section_path_parts),
+                        "path": join_document_path(full_section_path_parts),
                         "summary": "",
                         "chunk_count": 0,
                         "_children_map": {},

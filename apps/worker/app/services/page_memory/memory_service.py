@@ -220,8 +220,8 @@ def _build_page_dataframe(
       C1  page_renderer       → PageRenderResult[]
       C2  page_plan           → PagePlan[]
       C3  page_tagger         → PageTagResult[]
-      C3b title detection     → observed_titles
-      C4b fine_hierarchy      → refined SectionSkeleton[]
+      C3b title detection     → observed_titles (reading-order, untrimmed)
+      C4b fine_hierarchy      → start/end anchor trim + refined SectionSkeleton[]
       C5  page_assets          → assets anchored to refined hierarchy pages
       C7  assemble node-granularity DataFrame
     """
@@ -230,6 +230,7 @@ def _build_page_dataframe(
         collapse_single_child_chains,
         extract_section_skeletons,
     )
+    from shared.services.chunks.path_segments import join_document_path
     anatomy = getattr(profile, "anatomy", None)
     page_count = max(int(profile.page_count or 0), 0)
     if page_count <= 0:
@@ -269,7 +270,7 @@ def _build_page_dataframe(
     if not skeletons:
         skeletons = [
             SectionSkeleton(
-                section_path=f"{filename}/Root",
+                section_path=join_document_path([filename, "Root"]),
                 level=1,
                 start_page=1,
                 end_page=page_count,
@@ -279,6 +280,9 @@ def _build_page_dataframe(
             )
         ]
 
+    from app.services.page_memory.fine_hierarchy import build_next_title_by_path
+
+    next_title_by_path = build_next_title_by_path(skeletons)
     coarse_scopes = _build_hierarchy_scopes(
         skeletons=skeletons,
         filename=filename,
@@ -340,6 +344,7 @@ def _build_page_dataframe(
         asset_extraction_enabled=asset_extraction_enabled,
         trace_recorder=trace_recorder,
         page_memory_config=page_memory_config,
+        next_title_by_path=next_title_by_path,
     )
 
     if scope_concurrency <= 1 or len(coarse_scopes) <= 1:
@@ -579,6 +584,7 @@ def _run_hierarchy_scope(
     asset_max_pages: int,
     trace_recorder: Any | None,
     page_memory_config: PageMemoryConfig,
+    next_title_by_path: dict[str, str | None] | None = None,
 ) -> _ScopeRunResult:
     from app.services.page_memory.fine_hierarchy import (
         compute_fat_leaf_pages,
@@ -651,6 +657,7 @@ def _run_hierarchy_scope(
                 fat_leaf_pages=fat_leaf_pages,
                 budget=None,
                 vlm_model=vlm_model,
+                scan_direction=page_memory_config.scan_direction,
                 max_concurrent=page_memory_config.title_detection_concurrency,
             )
         _record_trace_stage(
@@ -667,6 +674,7 @@ def _run_hierarchy_scope(
                 coarse_skeletons=scope_skeletons,
                 tag_results=title_tags,
                 fat_leaf_pages=fat_leaf_pages,
+                next_title_by_path=next_title_by_path,
                 model_name=_resolve_hierarchy_model(page_memory_config),
                 max_tokens=page_memory_config.hierarchy_max_tokens,
                 max_depth=page_memory_config.max_heading_depth,

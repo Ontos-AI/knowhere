@@ -8,6 +8,7 @@ import re
 from typing import Any, Optional
 
 from shared.services.chunks.document_path import split_document_path
+from shared.services.chunks.path_segments import split_escaped_document_path
 from shared.utils.text_utils import tokenize_contents_for_retrieval
 
 _SAME_AS_RE = re.compile(r"\[SAME-AS [^\]]+\]")
@@ -35,7 +36,7 @@ def split_section_path(path: Optional[str]) -> list[str]:
         return []
     if " / " in raw:
         return [p.strip() for p in raw.split(" / ") if p.strip()]
-    return [p.strip() for p in raw.split("/") if p.strip()]
+    return split_escaped_document_path(raw)
 
 
 def build_lexical_text(value: str) -> str:

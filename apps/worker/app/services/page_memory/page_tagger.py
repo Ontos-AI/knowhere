@@ -6,10 +6,9 @@ For ``text_only`` pages, calls the existing ``summary-full`` LLM prompt
 to extract summary + keywords from raw text.
 For ``skip_tagging`` pages, content is preserved but summary is omitted.
 
-Step 2 of page-memory native hierarchy adds:
-- Independent VLM title candidate extraction (``observed_titles``)
-- Fat-leaf gating: only pages in TOC leaves with > N pages trigger title detection
-- Title extraction uses a dedicated verbatim-only prompt (temp=0, small max_tokens)
+Title detection (``tag_page_titles``) extracts outline-level headings in
+reading order on fat-leaf pages. Coarse start/end trimming is applied later
+in ``fine_hierarchy._collect_candidates``.
 """
 
 from __future__ import annotations
@@ -267,9 +266,13 @@ def tag_page_titles(
     fat_leaf_pages: set[int],
     budget: Any | None = None,
     vlm_model: str | None = None,
+    scan_direction: str = "top_to_bottom_left_to_right",
     max_concurrent: int | None = None,
 ) -> list[PageTagResult]:
     """Run independent VLM title detection on fat-leaf pages.
+
+    Extracts all outline-level headings in reading order. Coarse start/end
+    trimming happens later in ``fine_hierarchy._collect_candidates``.
 
     Parameters
     ----------
@@ -284,6 +287,8 @@ def tag_page_titles(
         Deprecated, ignored. Kept for call-site compatibility.
     vlm_model:
         VLM model name; falls back to ``$IMAGE_MODEL``.
+    scan_direction:
+        Reading-order wording for the title prompt.
     max_concurrent:
         Maximum concurrent title-detection calls.
 
@@ -291,6 +296,7 @@ def tag_page_titles(
     -------
     list[PageTagResult]
         Updated tag results with ``observed_titles`` populated for fat-leaf pages.
+        Title lists preserve VLM reading order (no re-sort).
     """
     if not fat_leaf_pages:
         return tag_results
@@ -323,7 +329,11 @@ def tag_page_titles(
         page_idx: int,
         page: PageRenderResult,
     ) -> tuple[int, list[dict[str, Any]]]:
-        return page_idx, _tag_vlm_titles(page, model=model)
+        return page_idx, _tag_vlm_titles(
+            page,
+            model=model,
+            scan_direction=scan_direction,
+        )
 
     import gevent
     from gevent.pool import Pool as GeventPool
@@ -361,13 +371,17 @@ def _tag_vlm_titles(
     page: PageRenderResult,
     *,
     model: str,
+    scan_direction: str = "top_to_bottom_left_to_right",
 ) -> list[dict[str, Any]]:
     """Send page PNG to VLM with the title-only prompt and parse results."""
     prompt, temperature, _top_p, max_tokens = build_prompt(
         "page-memory-vlm-title",
         "",
         "",
-        paras={"max_tokens": 300},
+        paras={
+            "max_tokens": 300,
+            "scan_direction": scan_direction,
+        },
     )
 
     try:
