@@ -1,14 +1,13 @@
 """Locate hierarchy titles on PDF pages and resolve page ranges.
 
-This module is intentionally deterministic: it performs strict title anchoring,
-candidate collection, and range assembly. The page-memory residual agent calls
-into these primitives for grep-like tools and adds VLM verification outside this
-module.
+This module is intentionally deterministic: it performs strict title anchoring
+and range assembly. Titles are accepted only via strict exact anchoring or
+offset-guided ``match_overrides``; weaker candidate collection has been removed
+in favor of VLM-verified calibration upstream.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -19,10 +18,6 @@ from app.services.document_parser.structure.body_boundary import (
 
 TitleMatchSource = Literal[
     "anchored",
-    "page_compact",
-    "normalized",
-    "token",
-    "printed_prior",
     "h1_result",
     "agent_vlm",
     "agent_heuristic",
@@ -80,47 +75,6 @@ class _LineHit:
     score: float
 
 
-_STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "as",
-    "for",
-    "in",
-    "of",
-    "on",
-    "or",
-    "the",
-    "to",
-    "with",
-}
-
-
-def locate_title_start_page(
-    title: str,
-    *,
-    scope_pages: list[int],
-    page_texts: dict[int, str],
-    printed_page: int | None = None,
-    page_offset_hint: int | None = None,
-) -> TitleMatch | None:
-    """Locate *title* using deterministic weak evidence.
-
-    This is a candidate-gathering primitive. The C4 page-memory path should only
-    directly accept :func:`locate_title_strict_exact`; weak results from this
-    function are meant for residual agent/VLM arbitration.
-    """
-    matches = collect_title_candidate_matches(
-        title,
-        scope_pages=scope_pages,
-        page_texts=page_texts,
-        printed_page=printed_page,
-        page_offset_hint=page_offset_hint,
-    )
-    return matches[0] if matches else None
-
-
 def locate_title_strict_exact(
     title: str,
     *,
@@ -141,80 +95,6 @@ def locate_title_strict_exact(
     )
 
 
-def collect_title_candidate_matches(
-    title: str,
-    *,
-    scope_pages: list[int],
-    page_texts: dict[int, str],
-    printed_page: int | None = None,
-    page_offset_hint: int | None = None,
-    limit: int | None = None,
-) -> list[TitleMatch]:
-    """Collect grep-style candidate pages for a title without final arbitration."""
-    normalized_title = normalize_heading_text(title)
-    if not normalized_title or not scope_pages:
-        return []
-
-    hits: list[_LineHit] = []
-    for _source, finder in (
-        ("anchored", _find_anchored_hits),
-        ("page_compact", _find_page_compact_hits),
-        ("normalized", _find_normalized_hits),
-        ("token", _find_token_hits),
-    ):
-        hits.extend(finder(normalized_title, scope_pages, page_texts))
-
-    by_page: dict[int, list[_LineHit]] = {}
-    for hit in hits:
-        by_page.setdefault(hit.page, []).append(hit)
-
-    matches = [
-        _choose_best_hit(
-            page_hits,
-            source=_preferred_source(page_hits),
-            printed_page=printed_page,
-            page_offset_hint=page_offset_hint,
-        )
-        for page_hits in by_page.values()
-    ]
-
-    prior_page = _resolve_printed_prior(
-        printed_page=printed_page,
-        page_offset_hint=page_offset_hint,
-        scope_pages=scope_pages,
-    )
-    if prior_page is not None and prior_page not in by_page:
-        matches.append(
-            TitleMatch(
-                page=prior_page,
-                confidence=0.35,
-                source="printed_prior",
-                matched_line="",
-                score=0.35,
-                candidates=[prior_page],
-                evidence={
-                    "printed_page": printed_page,
-                    "page_offset_hint": page_offset_hint,
-                },
-            )
-        )
-
-    matches.sort(
-        key=lambda match: (
-            match.score,
-            match.confidence,
-            -abs(match.page - (printed_page + page_offset_hint))
-            if printed_page is not None and page_offset_hint is not None
-            else 0,
-            -match.page,
-        ),
-        reverse=True,
-    )
-    if limit is not None:
-        return matches[: max(int(limit), 0)]
-    return matches
-
-
 def resolve_hierarchy_page_ranges(
     nodes: list[TitleNode],
     *,
@@ -223,7 +103,6 @@ def resolve_hierarchy_page_ranges(
     body_pages: list[int] | None = None,
     page_offset_hint: int | None = None,
     match_overrides: dict[tuple[str, ...], TitleMatch] | None = None,
-    use_weak_fallback: bool = False,
 ) -> list[ResolvedHierarchyRange]:
     """Resolve leaf hierarchy nodes into closed page ranges.
 
@@ -250,7 +129,6 @@ def resolve_hierarchy_page_ranges(
         page_texts=page_texts,
         page_offset_hint=page_offset_hint,
         match_overrides=match_overrides or {},
-        use_weak_fallback=use_weak_fallback,
         resolved=resolved,
     )
     return resolved
@@ -276,7 +154,6 @@ def _resolve_siblings(
     page_texts: dict[int, str],
     page_offset_hint: int | None,
     match_overrides: dict[tuple[str, ...], TitleMatch],
-    use_weak_fallback: bool,
     resolved: list[ResolvedHierarchyRange],
 ) -> None:
     located: list[tuple[TitleNode, int, TitleMatch | None]] = []
@@ -293,14 +170,6 @@ def _resolve_siblings(
                 node.title,
                 scope_pages=pages,
                 page_texts=page_texts,
-            )
-        if match is None and use_weak_fallback:
-            match = locate_title_start_page(
-                node.title,
-                scope_pages=pages,
-                page_texts=page_texts,
-                printed_page=node.printed_page,
-                page_offset_hint=page_offset_hint,
             )
         if match is None and node.children and match_overrides:
             match = _infer_start_from_descendant_overrides(
@@ -323,7 +192,6 @@ def _resolve_siblings(
                 page_texts=page_texts,
                 page_offset_hint=page_offset_hint,
                 match_overrides=match_overrides,
-                use_weak_fallback=use_weak_fallback,
                 parent_titles=parent_titles,
             )
             if next_match is not None:
@@ -357,7 +225,6 @@ def _resolve_siblings(
                 page_texts=page_texts,
                 page_offset_hint=page_offset_hint,
                 match_overrides=match_overrides,
-                use_weak_fallback=use_weak_fallback,
                 resolved=resolved,
             )
             continue
@@ -385,7 +252,6 @@ def _find_next_located_sibling(
     page_texts: dict[int, str],
     page_offset_hint: int | None,
     match_overrides: dict[tuple[str, ...], TitleMatch],
-    use_weak_fallback: bool,
     parent_titles: tuple[str, ...],
 ) -> TitleMatch | None:
     pages = _allowed_pages_between(lower_bound, parent_end, allowed_pages)
@@ -401,14 +267,6 @@ def _find_next_located_sibling(
             scope_pages=pages,
             page_texts=page_texts,
         )
-        if match is None and use_weak_fallback:
-            match = locate_title_start_page(
-                sibling.title,
-                scope_pages=pages,
-                page_texts=page_texts,
-                printed_page=sibling.printed_page,
-                page_offset_hint=page_offset_hint,
-            )
         if match is None and sibling.children and match_overrides:
             match = _infer_start_from_descendant_overrides(
                 sibling, parent_titles, match_overrides, pages,
@@ -485,50 +343,6 @@ def iter_leaf_title_nodes(
         else:
             leaves.append((path_titles, node))
     return leaves
-
-
-def max_title_depth(nodes: list[TitleNode]) -> int:
-    if not nodes:
-        return 0
-    return max(
-        max(node.level, max_title_depth(node.children))
-        if node.children
-        else node.level
-        for node in nodes
-    )
-
-
-def prune_title_nodes_for_emit_depth(
-    nodes: list[TitleNode],
-    *,
-    emit_depth: int,
-) -> list[TitleNode]:
-    pruned: list[TitleNode] = []
-    for node in nodes:
-        if node.level >= emit_depth or not node.children:
-            pruned.append(
-                TitleNode(
-                    title=node.title,
-                    level=node.level,
-                    printed_page=node.printed_page,
-                    physical_page_hint=node.physical_page_hint,
-                    children=[],
-                )
-            )
-            continue
-        pruned.append(
-            TitleNode(
-                title=node.title,
-                level=node.level,
-                printed_page=node.printed_page,
-                physical_page_hint=node.physical_page_hint,
-                children=prune_title_nodes_for_emit_depth(
-                    node.children,
-                    emit_depth=emit_depth,
-                ),
-            )
-        )
-    return pruned
 
 
 def _next_located_start(
@@ -628,93 +442,6 @@ def _find_anchored_hits(
     return hits
 
 
-def _find_page_compact_hits(
-    title: str,
-    scope_pages: list[int],
-    page_texts: dict[int, str],
-) -> list[_LineHit]:
-    hits: list[_LineHit] = []
-    needles = _compact_title_variants(title)
-    if not needles:
-        return hits
-
-    for page in scope_pages:
-        raw_text = page_texts.get(page, "")
-        compact_text = _compact_match_text(raw_text)
-        if not compact_text:
-            continue
-        matched_needle = next((needle for needle in needles if needle in compact_text), None)
-        if matched_needle is None:
-            continue
-        line_index, evidence = _compact_match_evidence(raw_text, matched_needle)
-        hits.append(
-            _LineHit(
-                page=page,
-                line_index=line_index,
-                line=evidence,
-                source="page_compact",
-                score=_line_score(line=evidence, line_index=line_index, base=0.94),
-            )
-        )
-    return hits
-
-
-def _find_normalized_hits(
-    title: str,
-    scope_pages: list[int],
-    page_texts: dict[int, str],
-) -> list[_LineHit]:
-    hits: list[_LineHit] = []
-    needle = normalize_heading_text(clean_toc_title(title)).casefold()
-    if len(needle) < 2:
-        return hits
-    for page, line_index, line in _iter_lines(scope_pages, page_texts):
-        cleaned_line = normalize_heading_text(clean_toc_title(line)).casefold()
-        if not cleaned_line:
-            continue
-        if needle in cleaned_line or _is_strong_reverse_match(cleaned_line, needle):
-            hits.append(
-                _LineHit(
-                    page=page,
-                    line_index=line_index,
-                    line=line.strip(),
-                    source="normalized",
-                    score=_line_score(line=line, line_index=line_index, base=0.9),
-                )
-            )
-    return hits
-
-
-def _find_token_hits(
-    title: str,
-    scope_pages: list[int],
-    page_texts: dict[int, str],
-) -> list[_LineHit]:
-    title_tokens = _significant_tokens(clean_toc_title(title) or title)
-    if not title_tokens:
-        return []
-
-    hits: list[_LineHit] = []
-    for page, line_index, line in _iter_lines(scope_pages, page_texts):
-        line_tokens = _significant_tokens(line)
-        if not line_tokens:
-            continue
-        coverage = len(title_tokens & line_tokens) / len(title_tokens)
-        if coverage < 0.8:
-            continue
-        hits.append(
-            _LineHit(
-                page=page,
-                line_index=line_index,
-                line=line.strip(),
-                source="token",
-                score=_line_score(line=line, line_index=line_index, base=0.78)
-                + coverage,
-            )
-        )
-    return hits
-
-
 def _choose_best_hit(
     hits: list[_LineHit],
     *,
@@ -740,11 +467,9 @@ def _choose_best_hit(
     pages = sorted({hit.page for hit in ordered})
     confidence_by_source = {
         "anchored": 0.92,
-        "page_compact": 0.9,
-        "normalized": 0.84,
-        "token": 0.72,
-        "printed_prior": 0.35,
         "h1_result": 0.88,
+        "agent_vlm": 0.75,
+        "agent_heuristic": 0.5,
     }
     return TitleMatch(
         page=best.page,
@@ -761,34 +486,6 @@ def _choose_best_hit(
             **(extra_evidence or {}),
         },
     )
-
-
-def _preferred_source(hits: list[_LineHit]) -> TitleMatchSource:
-    priority = {
-        "anchored": 50,
-        "page_compact": 40,
-        "normalized": 30,
-        "token": 20,
-        "printed_prior": 10,
-        "h1_result": 60,
-        "agent_vlm": 70,
-        "agent_heuristic": 15,
-    }
-    return max(hits, key=lambda hit: (priority.get(hit.source, 0), hit.score)).source
-
-
-def _resolve_printed_prior(
-    *,
-    printed_page: int | None,
-    page_offset_hint: int | None,
-    scope_pages: list[int],
-) -> int | None:
-    if printed_page is None or page_offset_hint is None or not scope_pages:
-        return None
-    page = printed_page + page_offset_hint
-    if page in scope_pages:
-        return page
-    return None
 
 
 def _line_score(*, line: str, line_index: int, base: float) -> float:
@@ -808,55 +505,6 @@ def _iter_lines(
             if line.strip():
                 rows.append((page, line_index, line))
     return rows
-
-
-def _compact_title_variants(title: str) -> list[str]:
-    normalized = normalize_heading_text(clean_toc_title(title) or title).casefold()
-    compacted: list[str] = []
-    compact = _compact_match_text(normalized)
-    if compact:
-        compacted.append(compact)
-    return compacted
-
-
-def _compact_match_text(text: str) -> str:
-    return re.sub(r"\s+", "", normalize_heading_text(text)).casefold()
-
-
-def _compact_match_evidence(raw_text: str, compact_needle: str) -> tuple[int, str]:
-    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
-    if not lines:
-        return 0, ""
-
-    compact_so_far = ""
-    start_index = 0
-    for index, line in enumerate(lines):
-        line_compact = _compact_match_text(line)
-        if not compact_so_far:
-            start_index = index
-        compact_so_far += line_compact
-        if compact_needle in compact_so_far:
-            return start_index, " ".join(lines[start_index : index + 1])[:160]
-        if len(compact_so_far) > len(compact_needle) * 3:
-            compact_so_far = line_compact
-            start_index = index
-
-    return 0, " ".join(lines[:3])[:160]
-
-
-def _is_strong_reverse_match(fragment: str, title: str) -> bool:
-    return len(fragment) >= 6 and fragment in title
-
-
-def _significant_tokens(text: str) -> set[str]:
-    normalized = normalize_heading_text(clean_toc_title(text) or text).casefold()
-    latin = {
-        token
-        for token in re.findall(r"[a-z0-9][a-z0-9_-]+", normalized)
-        if token not in _STOPWORDS
-    }
-    cjk = set(re.findall(r"[\u4e00-\u9fff]", normalized))
-    return latin | cjk
 
 
 def _extract_flat_entries(payload: Any) -> list[dict[str, Any]]:

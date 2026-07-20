@@ -29,11 +29,6 @@ class PageMemoryConfig:
     table_engine: str = "tabula"
     table_merge_enabled: bool = True
     node_summary_max_pages: int = 5
-    page_locate_residual_agent_limit: int = 50
-    page_locate_max_emit_depth: int = 5
-    page_locate_min_emit_depth: int = 2
-    page_locate_vlm_candidate_page_cap: int = 4
-    page_locate_full_leaf_sections: bool = False
 
     @classmethod
     def default(cls) -> Self:
@@ -126,26 +121,6 @@ class PageMemoryConfig:
             node_summary_max_pages=_as_int(
                 value.get("node_summary_max_pages"),
                 default.node_summary_max_pages,
-            ),
-            page_locate_residual_agent_limit=_as_int(
-                value.get("page_locate_residual_agent_limit"),
-                default.page_locate_residual_agent_limit,
-            ),
-            page_locate_max_emit_depth=_as_int(
-                value.get("page_locate_max_emit_depth"),
-                default.page_locate_max_emit_depth,
-            ),
-            page_locate_min_emit_depth=_as_int(
-                value.get("page_locate_min_emit_depth"),
-                default.page_locate_min_emit_depth,
-            ),
-            page_locate_vlm_candidate_page_cap=_as_int(
-                value.get("page_locate_vlm_candidate_page_cap"),
-                default.page_locate_vlm_candidate_page_cap,
-            ),
-            page_locate_full_leaf_sections=_as_bool(
-                value.get("page_locate_full_leaf_sections"),
-                default.page_locate_full_leaf_sections,
             ),
         )
 
