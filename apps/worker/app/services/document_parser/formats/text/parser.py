@@ -9,6 +9,7 @@ from loguru import logger
 
 from shared.core.config import settings
 from shared.services.chunks.path_segments import (
+    append_document_path,
     join_document_path,
     split_escaped_document_path,
 )
@@ -142,16 +143,13 @@ def postprocess_leaf_dics(
             head = row["path_identifier"]
             if not head:
                 head = "**Preface**"
+            head_parts = split_escaped_document_path(head)
+            leaf_title = head_parts[-1] if head_parts else head
             for k in range(num):
-                sub_head = (
-                    head
-                    + split_char
-                    + head.split(split_char)[-1]
-                    + " part "
-                    + str(k + 1)
-                )
+                part_title = f"{leaf_title} part {k + 1}"
+                sub_head = append_document_path(head, part_title)
                 df_with_divides.loc[len(df_with_divides)] = {
-                    "path": sub_head.split(split_char),
+                    "path": split_escaped_document_path(sub_head),
                     "content_lst": sublists[k],
                     "path_identifier": sub_head,
                 }

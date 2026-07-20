@@ -200,8 +200,6 @@ class TestPromptPayload:
     def test_file_summary_prompt_contains_scope_blocks(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from shared.services.ai import prompt_service
-
         captured: Dict[str, Any] = {}
 
         def _fake_client() -> Any:

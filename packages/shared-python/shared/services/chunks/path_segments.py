@@ -11,6 +11,8 @@ markdown parse-state behavior.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 # Deterministic hierarchy separator used in parser chunk / section paths.
 DOCUMENT_PATH_SEP = "/"
 
@@ -51,7 +53,7 @@ def unescape_path_segment(segment: object) -> str:
     return "".join(out)
 
 
-def join_document_path(parts: list[object] | tuple[object, ...]) -> str:
+def join_document_path(parts: Sequence[object]) -> str:
     """Join hierarchy parts with ``/``, escaping each part first."""
     escaped = [escape_path_segment(part) for part in parts if str(part or "")]
     return DOCUMENT_PATH_SEP.join(escaped)
