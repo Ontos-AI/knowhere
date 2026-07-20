@@ -95,8 +95,7 @@ class ZipResourceCollector:
             original_path = chunk.get("path", "")
             if original_path:
                 _add_candidate(candidate_names, original_path)
-                normalized_path = original_path.replace("-->", "/")
-                original_name = os.path.basename(normalized_path)
+                original_name = os.path.basename(original_path)
 
             source_path, matched_name, ext = _resolve_image_source_path(
                 image_files_map,
@@ -178,8 +177,7 @@ class ZipResourceCollector:
 
             original_path = chunk.get("path", "")
             if original_path:
-                normalized_path = original_path.replace("-->", "/")
-                original_name = os.path.basename(normalized_path)
+                original_name = os.path.basename(original_path)
                 _add_candidate(candidate_names, original_path)
             else:
                 original_name = None
@@ -317,7 +315,7 @@ def _normalize_page_citation_ref(value: Any) -> str | None:
 def _add_candidate(candidates: list[str], value: str | None) -> None:
     if not value:
         return
-    candidate = os.path.basename(str(value).strip().replace("-->", "/"))
+    candidate = os.path.basename(str(value).strip())
     if not candidate:
         return
     if candidate.startswith("[") and candidate.endswith("]"):

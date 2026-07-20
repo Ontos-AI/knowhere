@@ -29,6 +29,10 @@ from app.services.document_parser.structure.body_boundary import (
     clean_toc_title,
 )
 from loguru import logger
+from shared.services.chunks.path_segments import (
+    append_document_path,
+    join_document_path,
+)
 
 _FRONT_TOC_REGION_GAP_PAGES = 5
 
@@ -141,6 +145,15 @@ def extract_section_skeletons(
                 )
             ]
         nodes = toc_nodes
+
+    # TODO(page-memory): locate null-page coarse TOC parents (self-only spans).
+    # Leaf-only closed-closed ranges currently end at the next leaf start, so
+    # content under a null-page parent (e.g. "Section A Governing requirements")
+    # before its first child is attributed to the previous leaf. Candidate fix:
+    # after calibration, place each null-page coarse node A in
+    # (last leaf under previous same-level coarse, first leaf under A], then
+    # bound fine-hierarchy scopes with current_leaf → next_coarse.
+    # See skill pdf-page-based-track Open TODOs.
 
     # Collapse degenerate single-child intermediate chains before locate.
     # Rule: only merge a parent with its only child when that child is NOT a
@@ -275,8 +288,12 @@ def _range_to_skeleton(
     start_page = _clamp_page(item.start_page, page_count)
     end_page = _clamp_page(item.end_page, page_count)
     path_titles = [clean_toc_title(title) or title for title in item.path_titles]
-    section_path = "/".join([filename, *path_titles])
-    parent_path = "/".join([filename, *path_titles[:-1]]) if len(path_titles) > 1 else filename
+    section_path = join_document_path([filename, *path_titles])
+    parent_path = (
+        join_document_path([filename, *path_titles[:-1]])
+        if len(path_titles) > 1
+        else filename
+    )
     evidence = {
         **item.evidence,
         "resolver": "hierarchy_locator",
@@ -1158,7 +1175,7 @@ def collapse_single_child_chains(
             new_children: list[str] = []
             for gc_path in grandchild_paths:
                 gc = by_path[gc_path]
-                new_path = f"{node.section_path}/{gc.title}"
+                new_path = append_document_path(node.section_path, gc.title)
                 promoted = SectionSkeleton(
                     section_path=new_path,
                     level=gc.level - 1,

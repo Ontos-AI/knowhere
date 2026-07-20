@@ -1,14 +1,15 @@
 """
 summary_builder: Bottom-up recursive summarization for document navigation.
 
-Reads doc_nav.json + chunks.json for a file and generates ``summary`` fields
-at every intermediate node via LLM aggregation.
-The enriched doc_nav.json is written back to disk.
+Reads doc_nav.json and in-memory chunks, generates ``summary`` at every
+non-leaf via deterministic covers assembly or LLM aggregation (with self_only).
 
 Usage (standalone):
     from app.services.connect_builder.summary_builder import enrich_doc_nav_summaries
-    enrich_doc_nav_summaries(document_workspace_dir, source_file="report.pdf")
+    enrich_doc_nav_summaries(document_workspace_dir, source_file="report.pdf", chunks=chunks)
 """
+
+from __future__ import annotations
 
 import json
 import os
@@ -20,38 +21,78 @@ from openai.types.chat import ChatCompletionMessageParam
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-# Summary output max length for recursive LLM aggregation (≤100 chars per node)
+# LLM trigger: sum of child contribution lengths + self_only must exceed this
 SUMMARY_MAX_LEN = 100
-# Navigation top-summary budget measured in semantic tokens (count_cn_en)
+# Deterministic (and top-level LLM output) head…tail token budget
+DETERMINISTIC_SUMMARY_HEAD = 100
+DETERMINISTIC_SUMMARY_TAIL = 100
+# Navigation top-summary LLM max_tokens
 NAVIGATION_TOP_SUMMARY_MAX_TOKENS = 200
-# TODO: revisit this cap after we collect more real-world prompt/token budget data.
-NON_LLM_TOP_SUMMARY_MAX_SECTIONS = 20
-NON_LLM_TOP_SUMMARY_MAX_DEPTH = 2
+
+SECTION_COVERS_PREFIX = "This section covers: "
+DOCUMENT_INCLUDES_PREFIX = "This document includes: "
 
 
 # ─── LLM Interface ───────────────────────────────────────────────────────────
 
 
-def _llm_summarize(snippets_text: str, node_name: str, max_tokens: int = 100) -> str:
-    """
-    Call LLM to produce a concise summary from aggregated child snippets.
+def _build_scope_payload_text(
+    *,
+    node_name: str,
+    self_only: str,
+    child_rows: List[Tuple[str, str]],
+) -> str:
+    """Flatten SCOPE fields for language detection / logging."""
+    titles = [title for title, _ in child_rows]
+    covered = "\n".join(f"- [{title}] {contrib}" for title, contrib in child_rows)
+    return "\n".join(
+        [
+            f"SCOPE_TITLE: {node_name}",
+            f"self_only: {'yes' if self_only.strip() else 'no'}",
+            f"children: {', '.join(titles)}",
+            f"SELF_ONLY_CONTENT:\n{self_only.strip() or '(none)'}",
+            f"COVERED_NODES:\n{covered or '(none)'}",
+        ]
+    )
 
-    Returns plain text summary, or "" on failure.
+
+def _llm_summarize(
+    *,
+    node_name: str,
+    self_only: str,
+    child_rows: List[Tuple[str, str]],
+    max_tokens: int = 100,
+) -> str:
+    """Call LLM to produce a concise summary for one scope.
+
+    Returns plain text summary, or "" on failure / null.
     """
     try:
         from shared.services.ai.prompt_service import build_prompt, _detect_text_language
         from shared.services.ai.llm_overrides import get_text_client
 
-        # Deterministic language lock — see prompt_service._language_directive
-        detected_lang = _detect_text_language(snippets_text)
+        payload_text = _build_scope_payload_text(
+            node_name=node_name,
+            self_only=self_only,
+            child_rows=child_rows,
+        )
+        detected_lang = _detect_text_language(payload_text)
+        child_titles = [title for title, _ in child_rows]
+        covered_nodes = "\n".join(
+            f"- [{title}] {contrib}" for title, contrib in child_rows
+        )
         prompt, temperature, top_p, _prompt_max_tokens = build_prompt(
             task="file-summary",
-            texts=snippets_text,
+            texts=payload_text,
             query="",
             paras={
                 "max_tokens": max_tokens,
                 "node_name": node_name,
                 "lang": detected_lang,
+                "has_self_only": bool(self_only.strip()),
+                "child_titles": child_titles,
+                "self_only_content": self_only.strip() or "(none)",
+                "covered_nodes": covered_nodes or "(none)",
             },
         )
         messages: list[ChatCompletionMessageParam] = [
@@ -78,11 +119,7 @@ def _llm_summarize(snippets_text: str, node_name: str, max_tokens: int = 100) ->
         return ""
 
 
-
-#
-# Uses explicit children arrays:
-#   [{"title": "Section A", "summary": "...", "children": [{"title": "SubA1", ...}]}]
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── doc_nav I/O ─────────────────────────────────────────────────────────────
 
 
 DOC_NAV_FILENAME = "doc_nav.json"
@@ -130,6 +167,113 @@ def ensure_doc_nav_json(
     return nav_path
 
 
+# ─── self_only + deterministic assembly ──────────────────────────────────────
+
+
+def build_self_only_lookup(
+    chunks: List[Dict[str, Any]],
+    *,
+    source_file_name: str = "",
+) -> Dict[str, str]:
+    """Map canonical section_path → concatenated exact-path chunk content.
+
+    Exact path only (no descendants): same semantics as hydrate ``self_only``.
+    """
+    from shared.services.retrieval.search.lexical_text import section_path_from_chunk_path
+
+    by_path: Dict[str, List[str]] = {}
+    for chunk in chunks or []:
+        if not isinstance(chunk, dict):
+            continue
+        raw_path = str(chunk.get("path") or "").strip()
+        if not raw_path:
+            continue
+        section_path = section_path_from_chunk_path(
+            raw_path,
+            source_file_name=source_file_name,
+        )
+        if not section_path or section_path == "Root":
+            continue
+        content = str(chunk.get("content") or chunk.get("text") or "").strip()
+        if not content:
+            metadata = chunk.get("metadata") or {}
+            if isinstance(metadata, dict):
+                content = str(metadata.get("summary") or "").strip()
+        if not content:
+            continue
+        by_path.setdefault(section_path, []).append(content)
+    return {path: "\n".join(parts) for path, parts in by_path.items()}
+
+
+def _node_section_path(node: Dict[str, Any], source_file_name: str) -> str:
+    from shared.services.retrieval.search.lexical_text import section_path_from_chunk_path
+
+    nav_path = str(node.get("path") or "").strip()
+    if not nav_path:
+        return ""
+    return section_path_from_chunk_path(nav_path, source_file_name=source_file_name)
+
+
+def _deterministic_section_summary(
+    *,
+    is_top_level: bool,
+    self_only: str,
+    child_titles: List[str],
+) -> str:
+    """covers/includes prefix → self_only → child titles; then head…tail whole string."""
+    from shared.utils.text_utils import truncate_content_preview
+
+    prefix = DOCUMENT_INCLUDES_PREFIX if is_top_level else SECTION_COVERS_PREFIX
+    segments: List[str] = []
+    self_text = (self_only or "").strip()
+    if self_text:
+        segments.append(self_text)
+    if child_titles:
+        segments.append(", ".join(child_titles))
+    assembled = prefix + " ".join(segments) if segments else prefix.rstrip()
+    return truncate_content_preview(
+        assembled,
+        head=DETERMINISTIC_SUMMARY_HEAD,
+        tail=DETERMINISTIC_SUMMARY_TAIL,
+    )
+
+
+def _child_title_list(
+    children: List[Dict[str, Any]],
+    *,
+    is_top_level: bool,
+) -> List[str]:
+    """All direct child titles (empty titles omitted); top-level skips 'root'."""
+    titles: List[str] = []
+    for child in children:
+        title = str(child.get("title") or "").strip()
+        if not title:
+            continue
+        if is_top_level and title.lower() == "root":
+            continue
+        titles.append(title)
+    return titles
+
+
+def _child_contribution_rows(
+    children: List[Dict[str, Any]],
+    *,
+    is_top_level: bool,
+) -> List[Tuple[str, str]]:
+    """(title, contribution) where contribution = summary or title."""
+    rows: List[Tuple[str, str]] = []
+    for child in children:
+        title = str(child.get("title") or "").strip()
+        if is_top_level and title.lower() == "root":
+            continue
+        summary = str(child.get("summary") or "").strip()
+        contrib = summary or title
+        if not title and not contrib:
+            continue
+        rows.append((title or contrib, contrib))
+    return rows
+
+
 # ─── Recursive summarization on doc_nav sections ─────────────────────────────
 
 
@@ -137,92 +281,86 @@ def _recursive_summarize_nav(
     node: Dict[str, Any],
     use_llm: bool = True,
     is_top_level: bool = False,
+    *,
+    self_only_lookup: Optional[Dict[str, str]] = None,
+    source_file_name: str = "",
 ) -> str:
     """Bottom-up recursive summarization on a doc_nav section node.
 
-    Operates on the children-array tree structure of doc_nav.json.
-
-    For each node:
-    - Leaf (children==[]) → keep existing summary (set during ZIP creation).
-    - Non-leaf → recursively summarize children, then aggregate.
-
-    Writes summary in-place into ``node["summary"]``.
-    Returns the summary string.
+    - Leaf → keep existing summary.
+    - Non-leaf → recurse children, then:
+      - use_llm=False → always deterministic covers (titles ± self_only); ignore 100
+      - use_llm=True → LLM only if sum(contrib lens)+len(self_only) > SUMMARY_MAX_LEN;
+        otherwise same deterministic covers path
     """
-    children = node.get("children", [])
-    title = node.get("title", "")
+    children = list(node.get("children") or [])
+    title = str(node.get("title") or "")
 
     if not children:
-        # Leaf node — keep existing summary
-        existing = (node.get("summary") or "").strip()
+        existing = str(node.get("summary") or "").strip()
         if existing:
             node["summary"] = existing
-        return node.get("summary", "")
+        return str(node.get("summary") or "")
 
-    # Recurse into children
-    child_summaries: List[Tuple[str, str]] = []
+    lookup = self_only_lookup or {}
     for child in children:
-        child_summary = _recursive_summarize_nav(child, use_llm, is_top_level=False)
-        if child_summary:
-            child_summaries.append((child.get("title", ""), child_summary))
+        _recursive_summarize_nav(
+            child,
+            use_llm=use_llm,
+            is_top_level=False,
+            self_only_lookup=lookup,
+            source_file_name=source_file_name,
+        )
 
-    if not child_summaries:
-        return node.get("summary", "")
+    section_path = _node_section_path(node, source_file_name)
+    self_only = ""
+    if section_path and section_path != "Root":
+        self_only = str(lookup.get(section_path) or "")
+    if self_only.strip():
+        node["self_summary"] = self_only.strip()
+    elif "self_summary" in node:
+        node.pop("self_summary", None)
 
-    # Aggregate child summaries without hard truncation
-    aggregated_parts = []
-    for name, summary in child_summaries:
-        aggregated_parts.append(f"[{name}] {summary}")
+    child_titles = _child_title_list(children, is_top_level=is_top_level)
+    child_rows = _child_contribution_rows(children, is_top_level=is_top_level)
+    contrib_len = sum(len(contrib) for _, contrib in child_rows) + len(self_only)
 
-    aggregated_text = "\n".join(aggregated_parts)
+    deterministic = _deterministic_section_summary(
+        is_top_level=is_top_level,
+        self_only=self_only,
+        child_titles=child_titles,
+    )
 
-    max_len = NAVIGATION_TOP_SUMMARY_MAX_TOKENS if is_top_level else SUMMARY_MAX_LEN
-
-    if len(child_summaries) <= 1 and not is_top_level:
-        result = child_summaries[0][1]
+    # use_llm=False → always title/covers path; 100-threshold only applies when LLM is on
+    if not use_llm:
+        result = deterministic
+    elif contrib_len > SUMMARY_MAX_LEN:
+        max_tokens = (
+            NAVIGATION_TOP_SUMMARY_MAX_TOKENS if is_top_level else SUMMARY_MAX_LEN
+        )
+        result = _llm_summarize(
+            node_name=title,
+            self_only=self_only,
+            child_rows=child_rows,
+            max_tokens=max_tokens,
+        )
     else:
-        if is_top_level and not use_llm:
-            titles = [name for name, _ in child_summaries if name.lower() != "root"]
-        else:
-            titles = [name for name, _ in child_summaries]
-
-        enum_prefix = "This document includes: " if is_top_level else "This section covers: "
-        title_enum = enum_prefix + ", ".join(titles)
-
-        if not use_llm:
-            result = title_enum
-        else:
-            total_len = sum(len(s) for _, s in child_summaries)
-            if total_len > SUMMARY_MAX_LEN:
-                result = _llm_summarize(aggregated_text, title, max_tokens=max_len)
-                if not result:
-                    result = title_enum
-            else:
-                result = title_enum
+        result = deterministic
 
     node["summary"] = result
     return result
 
 
 def _doc_nav_has_enriched_summaries(doc_nav: Dict[str, Any]) -> bool:
-    """Check if enrichment has already been run on this doc_nav.
+    """True iff every non-leaf has a non-empty summary."""
 
-    Aligned with original enrichment logic:
-    In doc_nav.json, leaf nodes already have summary from ZIP creation,
-    so only non-leaf (parent) summaries are set by enrichment.
-    We recursively check that ALL non-leaf nodes across all depths
-    have a non-empty summary — if any is missing, enrichment is incomplete.
-    """
     def _check_sections(sections: List[Dict[str, Any]]) -> bool:
-        """Returns True if all non-leaf nodes in sections have summaries."""
         for section in sections:
             children = section.get("children", [])
             if not children:
                 continue
-            # This is a non-leaf node — must have summary from enrichment
             if not section.get("summary"):
                 return False
-            # Recurse into children to check deeper non-leaf nodes
             if not _check_sections(children):
                 return False
         return True
@@ -230,7 +368,6 @@ def _doc_nav_has_enriched_summaries(doc_nav: Dict[str, Any]) -> bool:
     sections = doc_nav.get("sections", [])
     if not sections:
         return False
-    # Must have at least one non-leaf to be considered enriched
     has_non_leaf = any(s.get("children") for s in sections)
     if not has_non_leaf:
         return False
@@ -238,31 +375,29 @@ def _doc_nav_has_enriched_summaries(doc_nav: Dict[str, Any]) -> bool:
 
 
 def _build_nav_top_summary(
-    doc_nav: Dict[str, Any], 
-    use_llm: bool = True
+    doc_nav: Dict[str, Any],
+    use_llm: bool = True,
+    *,
+    self_only_lookup: Optional[Dict[str, str]] = None,
+    source_file_name: str = "",
 ) -> str:
-    """Build navigation-facing top summary from enriched doc_nav.json.
-
-    Strategy:
-    Treat all sections as children of a virtual Document node and recursively summarize.
-    """
+    """Build navigation-facing top summary from enriched doc_nav.json."""
     sections = doc_nav.get("sections", [])
     if not sections:
         return ""
 
-
+    file_name = source_file_name or str(doc_nav.get("file_name") or "")
     virtual_doc_node = {
         "title": "Document Overview",
-        "children": sections
+        "children": sections,
     }
-    
-    top_summary = _recursive_summarize_nav(
-        virtual_doc_node, 
-        use_llm=use_llm, 
-        is_top_level=True
+    return _recursive_summarize_nav(
+        virtual_doc_node,
+        use_llm=use_llm,
+        is_top_level=True,
+        self_only_lookup=self_only_lookup,
+        source_file_name=file_name,
     )
-    
-    return top_summary
 
 
 def enrich_doc_nav_summaries(
@@ -270,6 +405,7 @@ def enrich_doc_nav_summaries(
     source_file: Optional[str] = None,
     force: bool = False,
     use_llm: bool = True,
+    chunks: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, str]:
     """Enrich doc_nav.json with bottom-up recursive summaries.
 
@@ -277,7 +413,8 @@ def enrich_doc_nav_summaries(
         document_workspace_dir: Absolute path to the temporary document workspace.
         source_file: If given, only process this file. Otherwise process all.
         force: If True, regenerate even if summaries already exist.
-        use_llm: If True, use LLM for multi-child aggregation.
+        use_llm: If True, use LLM when contribution length sum exceeds threshold.
+        chunks: In-memory parse chunks for exact-path self_only extraction.
 
     Returns:
         Dict mapping file_name → top-level summary string.
@@ -302,9 +439,22 @@ def enrich_doc_nav_summaries(
             logger.debug(f"No {DOC_NAV_FILENAME} for {file_name}, skipping")
             continue
 
+        source_file_name = str(doc_nav.get("file_name") or file_name)
+        self_only_lookup = build_self_only_lookup(
+            list(chunks or []),
+            source_file_name=source_file_name,
+        )
+
         if not force and _doc_nav_has_enriched_summaries(doc_nav):
-            logger.debug(f"Summaries already exist in {DOC_NAV_FILENAME} for {file_name}, skipping")
-            results[file_name] = _build_nav_top_summary(doc_nav, use_llm=use_llm)
+            logger.debug(
+                f"Summaries already exist in {DOC_NAV_FILENAME} for {file_name}, skipping"
+            )
+            results[file_name] = _build_nav_top_summary(
+                doc_nav,
+                use_llm=use_llm,
+                self_only_lookup=self_only_lookup,
+                source_file_name=source_file_name,
+            )
             continue
 
         logger.info(
@@ -312,14 +462,23 @@ def enrich_doc_nav_summaries(
             f"(mode={mode_label})"
         )
 
-        # Recursively summarize each top-level section
         for section in doc_nav.get("sections", []):
-            _recursive_summarize_nav(section, use_llm=use_llm)
+            _recursive_summarize_nav(
+                section,
+                use_llm=use_llm,
+                self_only_lookup=self_only_lookup,
+                source_file_name=source_file_name,
+            )
 
         _save_doc_nav(file_dir, doc_nav)
         logger.info(f"✅ doc_nav summaries saved for {file_name}")
 
-        top_summary = _build_nav_top_summary(doc_nav, use_llm=use_llm)
+        top_summary = _build_nav_top_summary(
+            doc_nav,
+            use_llm=use_llm,
+            self_only_lookup=self_only_lookup,
+            source_file_name=source_file_name,
+        )
         results[file_name] = top_summary
 
     return results
@@ -329,7 +488,12 @@ def load_nav_top_summary(file_dir: str, file_name: str = "") -> str:
     """Load doc_nav.json and extract the navigation top summary."""
     doc_nav = _load_doc_nav(file_dir)
     if doc_nav is not None:
-        return _build_nav_top_summary(doc_nav, use_llm=False)
+        source_file_name = file_name or str(doc_nav.get("file_name") or "")
+        return _build_nav_top_summary(
+            doc_nav,
+            use_llm=False,
+            source_file_name=source_file_name,
+        )
     return ""
 
 
@@ -339,16 +503,6 @@ def build_section_summary_lookup(file_dir: str) -> Dict[str, str]:
     Keys use the DocumentSection.section_path format produced by
     ``section_path_from_chunk_path`` (strips the filename prefix,
     joins remaining parts with ``" / "``).
-
-    Traverses the full section tree at all depths.  Used by the publication
-    pipeline to backfill DocumentSection.summary rows.
-
-    Args:
-        file_dir: Absolute path to the file-level directory
-                  inside the task-scoped parse workspace.
-
-    Returns:
-        Dict mapping section_path → summary string (empty dict on any error).
     """
     from shared.services.retrieval.search.lexical_text import section_path_from_chunk_path
 
@@ -375,11 +529,12 @@ def build_section_summary_lookup(file_dir: str) -> Dict[str, str]:
     for section in doc_nav.get("sections", []):
         _walk(section)
 
-    # Populate Root with the document-level top_summary (tree preview).
-    # This mirrors GraphNode.properties.top_summary and ensures the
-    # DocumentSection Root row has a summary for data completeness.
     if "Root" not in lookup:
-        top_summary = _build_nav_top_summary(doc_nav, use_llm=False)
+        top_summary = _build_nav_top_summary(
+            doc_nav,
+            use_llm=False,
+            source_file_name=source_file_name,
+        )
         if top_summary:
             lookup["Root"] = top_summary
 

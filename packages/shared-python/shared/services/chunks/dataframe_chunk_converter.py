@@ -337,11 +337,8 @@ def dataframe_to_chunks(df: _ParserDataFrame | None) -> list[Dict[str, JsonValue
                 metadata["file_path"] = embedded_image_path
                 metadata["original_name"] = image_name
             else:
-                normalized_path = path.replace("-->", "/")
                 image_name = (
-                    os.path.basename(normalized_path)
-                    if normalized_path
-                    else f"image_{chunk_id}.jpg"
+                    os.path.basename(path) if path else f"image_{chunk_id}.jpg"
                 )
                 _, image_extension = os.path.splitext(image_name)
                 if not image_extension:
@@ -355,11 +352,8 @@ def dataframe_to_chunks(df: _ParserDataFrame | None) -> list[Dict[str, JsonValue
             if embedded_table_path:
                 metadata["file_path"] = embedded_table_path
             else:
-                normalized_path = path.replace("-->", "/")
                 table_name = (
-                    os.path.basename(normalized_path)
-                    if normalized_path
-                    else f"table_{chunk_id}.html"
+                    os.path.basename(path) if path else f"table_{chunk_id}.html"
                 )
                 metadata["file_path"] = f"tables/{table_name}"
 

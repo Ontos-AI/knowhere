@@ -32,7 +32,7 @@ def test_title_detection_preserves_page_index_assignment_under_concurrency(
         page: PageRenderResult,
         *,
         model: str,
-        title_ctx=None,
+        scan_direction: str = "top_to_bottom_left_to_right",
     ) -> list[dict[str, object]]:
         gevent.sleep(0.01 * (4 - page.page_index))
         return [{"text": f"title-{page.page_index}", "prominence": 0.8}]
@@ -83,7 +83,7 @@ def test_title_detection_failed_greenlet_fails_stage(monkeypatch, tmp_path) -> N
         page: PageRenderResult,
         *,
         model: str,
-        title_ctx=None,
+        scan_direction: str = "top_to_bottom_left_to_right",
     ) -> list[dict[str, object]]:
         if page.page_index == 2:
             raise RuntimeError("title detection failed")
@@ -125,7 +125,7 @@ def test_title_detection_unavailable_exception_propagates(
         page: PageRenderResult,
         *,
         model: str,
-        title_ctx=None,
+        scan_direction: str = "top_to_bottom_left_to_right",
     ) -> list[dict[str, object]]:
         raise UnavailableException(
             internal_message="capacity busy",

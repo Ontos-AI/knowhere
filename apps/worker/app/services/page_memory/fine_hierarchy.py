@@ -5,6 +5,10 @@ They must not run through the chunk-track heading executor, whose compact/body
 row semantics are designed for raw text.  This module calls a dedicated
 ``page-memory-hierarchy`` prompt and builds deeper ``SectionSkeleton`` entries
 under each coarse TOC leaf.
+
+Boundary trimming is code-side: VLM extracts all outline titles in reading
+order; ``_collect_candidates`` then drops titles at/before the coarse start
+anchor and at/after the next-leaf end anchor.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from app.services.page_memory._utils import page_scope_info
 from shared.services.ai.llm_overrides import get_text_client
 from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.response_process_service import eval_response
+from shared.services.chunks.path_segments import append_document_path
 
 
 def refine_fat_leaf_skeletons(
@@ -29,6 +34,7 @@ def refine_fat_leaf_skeletons(
     coarse_skeletons: list[SectionSkeleton],
     tag_results: list[PageTagResult],
     fat_leaf_pages: set[int],
+    next_title_by_path: dict[str, str | None] | None = None,
     model_name: str | None = None,
     max_tokens: int = 2000,
     max_depth: int = 6,
@@ -37,8 +43,8 @@ def refine_fat_leaf_skeletons(
     """Refine coarse TOC leaf skeletons using VLM-observed title candidates.
 
     For each coarse skeleton that overlaps fat-leaf pages:
-    1. Collect real ``observed_titles`` from that leaf using exclusive end
-       boundaries.
+    1. Collect ``observed_titles`` in reading order and trim by start/end
+       coarse anchors.
     2. Ask the page-memory hierarchy prompt to assign relative levels.
     3. Rebuild the nested tree and graft it under the coarse leaf.
 
@@ -47,6 +53,7 @@ def refine_fat_leaf_skeletons(
     if not fat_leaf_pages:
         return coarse_skeletons
 
+    next_map = next_title_by_path or {}
     refined: list[SectionSkeleton] = []
 
     for index, skeleton in enumerate(coarse_skeletons):
@@ -58,19 +65,20 @@ def refine_fat_leaf_skeletons(
             refined.append(skeleton)
             continue
 
-        # Collect observed titles from tagged pages within this skeleton
+        end_title = next_map.get(skeleton.section_path)
         candidates = _collect_candidates(
             skeleton=skeleton,
             exclusive_end=exclusive_end,
             tag_results=tag_results,
             fat_leaf_pages=fat_leaf_pages,
+            start_title=skeleton.title,
+            end_title=end_title,
         )
 
         if not candidates:
             refined.append(skeleton)
             continue
 
-        # Run hierarchy LLM and graft the resulting tree under the coarse leaf
         deeper = _run_hierarchy_on_candidates(
             candidates=candidates,
             skeleton=skeleton,
@@ -103,10 +111,9 @@ def compute_fat_leaf_pages(
     A "fat leaf" is a coarse skeleton (TOC leaf node) whose page range
     exceeds ``min_pages``.  Only these pages get VLM title detection.
 
-    Uses exclusive end boundaries: each skeleton's scan range ends at
-    ``next_skeleton.start_page - 1`` to avoid scanning pages that belong
-    to the next sibling skeleton (the raw ``end_page`` from the hierarchy
-    locator uses closed-closed intervals that can overlap at boundaries).
+    Uses exclusive end boundaries when sibling starts are visible in
+    ``skeletons``. For single-leaf scopes the closed ``end_page`` is used,
+    which includes the shared boundary page with the next leaf.
     """
     fat_pages: set[int] = set()
     for idx, skel in enumerate(skeletons):
@@ -115,6 +122,31 @@ def compute_fat_leaf_pages(
         if page_span > min_pages:
             fat_pages.update(range(skel.start_page, exclusive_end + 1))
     return fat_pages
+
+
+def build_next_title_by_path(
+    skeletons: list[SectionSkeleton],
+) -> dict[str, str | None]:
+    """Map each leaf ``section_path`` to the next leaf's title (by start_page)."""
+    ordered = sorted(
+        skeletons,
+        key=lambda item: (
+            int(getattr(item, "start_page", 0) or 0),
+            str(getattr(item, "section_path", "") or ""),
+        ),
+    )
+    next_map: dict[str, str | None] = {}
+    for index, skeleton in enumerate(ordered):
+        next_title: str | None = None
+        start_page = int(getattr(skeleton, "start_page", 0) or 0)
+        for later in ordered[index + 1 :]:
+            later_start = int(getattr(later, "start_page", 0) or 0)
+            if later_start > start_page:
+                title = str(getattr(later, "title", "") or "").strip()
+                next_title = title or None
+                break
+        next_map[str(skeleton.section_path)] = next_title
+    return next_map
 
 
 # ── Internal helpers ─────────────────────────────────────────────────
@@ -126,17 +158,21 @@ def _collect_candidates(
     exclusive_end: int,
     tag_results: list[PageTagResult],
     fat_leaf_pages: set[int],
+    start_title: str,
+    end_title: str | None,
 ) -> list[dict[str, Any]]:
     """Gather VLM-observed titles within a skeleton's page range.
 
-    Returns list of ``{id, heading, page, prominence}`` sorted by page then
-    prominence (strongest first within page).
+    Preserves page ascending order and within-page VLM reading order, then
+    trims by coarse start/end anchors:
+
+    - Drop the start anchor and everything before it.
+    - Drop the end anchor (next leaf title) and everything after it.
+
+    Returns list of ``{id, heading, page, prominence}``.
     """
-    candidates: list[dict[str, Any]] = []
+    raw: list[dict[str, Any]] = []
     tag_by_page = {t.page_index: t for t in tag_results}
-    candidate_id = 0
-    seen: set[str] = set()
-    parent_key = _title_key(skeleton.title)
 
     for page in range(skeleton.start_page, exclusive_end + 1):
         if page not in fat_leaf_pages:
@@ -144,29 +180,90 @@ def _collect_candidates(
         tag = tag_by_page.get(page)
         if tag is None or not tag.observed_titles:
             continue
-
-        # Sort by prominence descending within page
-        sorted_titles = sorted(
-            tag.observed_titles,
-            key=lambda t: -(t.get("prominence") or 0.5),
-        )
-        for title_entry in sorted_titles:
-            text = title_entry.get("text", "").strip()
+        # Keep VLM reading order; do not re-sort by prominence.
+        for title_entry in tag.observed_titles:
+            text = str(title_entry.get("text", "") or "").strip()
             if not text or len(text) < 2:
                 continue
             key = _title_key(text)
-            if not key or key == parent_key or key in seen:
+            if not key:
                 continue
-            seen.add(key)
-            candidate_id += 1
-            candidates.append({
-                "id": candidate_id,
+            raw.append({
                 "heading": text,
                 "page": page,
                 "prominence": title_entry.get("prominence"),
+                "key": key,
             })
 
+    trimmed = _trim_by_coarse_anchors(
+        raw,
+        start_title=start_title,
+        end_title=end_title,
+        section_path=skeleton.section_path,
+    )
+
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    candidate_id = 0
+    for item in trimmed:
+        key = str(item["key"])
+        if key in seen:
+            continue
+        seen.add(key)
+        candidate_id += 1
+        candidates.append({
+            "id": candidate_id,
+            "heading": item["heading"],
+            "page": item["page"],
+            "prominence": item.get("prominence"),
+        })
     return candidates
+
+
+def _trim_by_coarse_anchors(
+    raw: list[dict[str, Any]],
+    *,
+    start_title: str,
+    end_title: str | None,
+    section_path: str,
+) -> list[dict[str, Any]]:
+    """Hard-trim reading-order titles by start/end coarse anchors."""
+    start_key = _title_key(start_title)
+    end_key = _title_key(end_title) if end_title else ""
+
+    trimmed = list(raw)
+    if start_key:
+        start_idx = next(
+            (i for i, item in enumerate(trimmed) if item.get("key") == start_key),
+            None,
+        )
+        if start_idx is None:
+            logger.warning(
+                "[page_memory.fine_hierarchy] start anchor not found for {}; "
+                "keeping all candidates before end trim",
+                section_path,
+            )
+            # Fallback: drop exact parent-title duplicates if present.
+            trimmed = [item for item in trimmed if item.get("key") != start_key]
+        else:
+            trimmed = trimmed[start_idx + 1 :]
+
+    if end_key:
+        end_idx = next(
+            (i for i, item in enumerate(trimmed) if item.get("key") == end_key),
+            None,
+        )
+        if end_idx is None:
+            logger.warning(
+                "[page_memory.fine_hierarchy] end anchor {!r} not found for {}; "
+                "skipping back trim",
+                end_title,
+                section_path,
+            )
+        else:
+            trimmed = trimmed[:end_idx]
+
+    return trimmed
 
 
 def _run_hierarchy_on_candidates(
@@ -285,7 +382,7 @@ def _run_hierarchy_on_candidates(
         while stack and stack[-1][0] >= rel_level:
             stack.pop()
         parent_path = stack[-1][1] if stack else skeleton.section_path
-        section_path = f"{parent_path}/{heading}"
+        section_path = append_document_path(parent_path, heading)
         stack.append((rel_level, section_path))
         nodes.append({
             "section_path": section_path,
@@ -341,7 +438,7 @@ def _exclusive_end(skeletons: list[SectionSkeleton], index: int) -> int:
     return min(skeleton.end_page, min(later_starts) - 1)
 
 
-def _title_key(title: str) -> str:
+def _title_key(title: str | None) -> str:
     normalized = re.sub(r"\s+", "", str(title or "")).casefold()
     normalized = re.sub(r"[^\w\u4e00-\u9fff]+", "", normalized)
     return normalized
