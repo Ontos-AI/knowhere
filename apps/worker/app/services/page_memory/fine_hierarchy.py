@@ -7,8 +7,9 @@ row semantics are designed for raw text.  This module calls a dedicated
 under each coarse TOC leaf.
 
 Boundary trimming is code-side: VLM extracts all outline titles in reading
-order; ``_collect_candidates`` then drops titles at/before the coarse start
-anchor and at/after the next-leaf end anchor.
+order; ``_collect_candidates`` drops titles at/before the coarse start anchor
+and at/after the next-skeleton end anchor. If the end anchor is missing,
+candidates on the scan boundary page are dropped (page-level fallback).
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from loguru import logger
 
 from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
-from app.services.page_memory._utils import page_scope_info
+from app.services.page_memory._utils import page_scope_info, sort_skeletons
 from shared.services.ai.llm_overrides import get_text_client
 from shared.services.ai.prompt_service import build_prompt
 from shared.services.ai.response_process_service import eval_response
@@ -44,7 +45,7 @@ def refine_fat_leaf_skeletons(
 
     For each coarse skeleton that overlaps fat-leaf pages:
     1. Collect ``observed_titles`` in reading order and trim by start/end
-       coarse anchors.
+       coarse anchors (tail miss → drop the boundary page).
     2. Ask the page-memory hierarchy prompt to assign relative levels.
     3. Rebuild the nested tree and graft it under the coarse leaf.
 
@@ -127,24 +128,21 @@ def compute_fat_leaf_pages(
 def build_next_title_by_path(
     skeletons: list[SectionSkeleton],
 ) -> dict[str, str | None]:
-    """Map each leaf ``section_path`` to the next leaf's title (by start_page)."""
-    ordered = sorted(
-        skeletons,
-        key=lambda item: (
-            int(getattr(item, "start_page", 0) or 0),
-            str(getattr(item, "section_path", "") or ""),
-        ),
-    )
+    """Map each skeleton ``section_path`` to the next title in reading order.
+
+    Order matches ``sort_skeletons``: by ``start_page`` only, stable so
+    same-page relative order (TOC emit / parent-before-child) is preserved.
+    The next title is the immediately following skeleton — including a
+    same-page sibling or a ``parent_self_only`` node's first child — used as
+    the tail trim anchor in ``_trim_by_coarse_anchors``.
+    """
+    ordered = sort_skeletons(skeletons)
     next_map: dict[str, str | None] = {}
     for index, skeleton in enumerate(ordered):
         next_title: str | None = None
-        start_page = int(getattr(skeleton, "start_page", 0) or 0)
-        for later in ordered[index + 1 :]:
-            later_start = int(getattr(later, "start_page", 0) or 0)
-            if later_start > start_page:
-                title = str(getattr(later, "title", "") or "").strip()
-                next_title = title or None
-                break
+        if index + 1 < len(ordered):
+            title = str(getattr(ordered[index + 1], "title", "") or "").strip()
+            next_title = title or None
         next_map[str(skeleton.section_path)] = next_title
     return next_map
 
@@ -163,11 +161,14 @@ def _collect_candidates(
 ) -> list[dict[str, Any]]:
     """Gather VLM-observed titles within a skeleton's page range.
 
-    Preserves page ascending order and within-page VLM reading order, then
-    trims by coarse start/end anchors:
+    Preserves page ascending order and within-page VLM reading order
+    (``observed_titles`` as returned by the VLM; prominence is metadata only).
+    Then trims by coarse start/end anchors:
 
     - Drop the start anchor and everything before it.
-    - Drop the end anchor (next leaf title) and everything after it.
+    - Drop the end anchor (next skeleton title) and everything after it.
+    - If the end anchor is missing, drop all candidates on ``exclusive_end``
+      (page-level fallback so the next section cannot bleed in).
 
     Returns list of ``{id, heading, page, prominence}``.
     """
@@ -180,7 +181,6 @@ def _collect_candidates(
         tag = tag_by_page.get(page)
         if tag is None or not tag.observed_titles:
             continue
-        # Keep VLM reading order; do not re-sort by prominence.
         for title_entry in tag.observed_titles:
             text = str(title_entry.get("text", "") or "").strip()
             if not text or len(text) < 2:
@@ -200,6 +200,7 @@ def _collect_candidates(
         start_title=start_title,
         end_title=end_title,
         section_path=skeleton.section_path,
+        boundary_page=exclusive_end,
     )
 
     candidates: list[dict[str, Any]] = []
@@ -226,8 +227,14 @@ def _trim_by_coarse_anchors(
     start_title: str,
     end_title: str | None,
     section_path: str,
+    boundary_page: int,
 ) -> list[dict[str, Any]]:
-    """Hard-trim reading-order titles by start/end coarse anchors."""
+    """Hard-trim reading-order titles by start/end coarse anchors.
+
+    Tail miss policy: if ``end_title`` is set but not found among candidates,
+    drop every entry on ``boundary_page`` (the scope's last scanned page).
+    Head miss stays lenient — only drop exact parent-title duplicates.
+    """
     start_key = _title_key(start_title)
     end_key = _title_key(end_title) if end_title else ""
 
@@ -243,7 +250,6 @@ def _trim_by_coarse_anchors(
                 "keeping all candidates before end trim",
                 section_path,
             )
-            # Fallback: drop exact parent-title duplicates if present.
             trimmed = [item for item in trimmed if item.get("key") != start_key]
         else:
             trimmed = trimmed[start_idx + 1 :]
@@ -256,10 +262,14 @@ def _trim_by_coarse_anchors(
         if end_idx is None:
             logger.warning(
                 "[page_memory.fine_hierarchy] end anchor {!r} not found for {}; "
-                "skipping back trim",
+                "dropping all candidates on boundary page {}",
                 end_title,
                 section_path,
+                boundary_page,
             )
+            trimmed = [
+                item for item in trimmed if int(item.get("page") or 0) != boundary_page
+            ]
         else:
             trimmed = trimmed[:end_idx]
 
@@ -427,6 +437,18 @@ def _run_hierarchy_on_candidates(
 
 
 def _exclusive_end(skeletons: list[SectionSkeleton], index: int) -> int:
+    """Last page to *scan* for title candidates under ``skeletons[index]``.
+
+    When later starts are visible in ``skeletons``, the span stops before the
+    next start (``next.start - 1``). For a single-leaf scope list the closed
+    ``end_page`` is returned, which may be the shared boundary page with the
+    next coarse leaf — that page is scanned here; candidate ownership on it is
+    decided later by ``_trim_by_coarse_anchors`` via the global next-title
+    anchor (not by this helper).
+
+    Distinct from ``node_assembler._exclusive_end``, which decides body-text
+    ownership / summary slices at assembly time.
+    """
     skeleton = skeletons[index]
     later_starts = [
         skel.start_page
