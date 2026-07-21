@@ -49,6 +49,8 @@ class PageTagResult:
 
 _MAX_JSON_RETRIES = 1
 _DEFAULT_FINE_MIN_PAGES = 4
+# Dense section-start pages can emit long title JSON; escalate only on truncation.
+_TITLE_TOKEN_BUDGETS: tuple[int, ...] = (300, 600, 1200)
 
 
 def tag_pages(
@@ -367,19 +369,92 @@ def tag_page_titles(
     return tag_results
 
 
+def _completion_tokens(usage: Any) -> int:
+    if isinstance(usage, dict):
+        return int(usage.get("completion_tokens") or 0)
+    return int(getattr(usage, "completion_tokens", 0) or 0)
+
+
+def _title_response_truncated(
+    raw_response: str,
+    *,
+    usage: Any,
+    max_tokens: int,
+) -> bool:
+    """True when the completion likely hit the budget mid-JSON."""
+    if max_tokens > 0 and _completion_tokens(usage) >= max_tokens:
+        return True
+    stripped = (raw_response or "").rstrip()
+    if not stripped:
+        return False
+    return not stripped.endswith("}")
+
+
+def _parse_observed_titles(
+    raw_response: str,
+    *,
+    page_index: int,
+) -> list[dict[str, Any]]:
+    data = json.loads(raw_response)
+    titles_raw = data.get("titles", [])
+    if not isinstance(titles_raw, list):
+        return []
+
+    observed: list[dict[str, Any]] = []
+    for item in titles_raw:
+        if not isinstance(item, dict) or not item.get("text"):
+            continue
+        text = str(item["text"]).strip()
+        is_table = item.get("is_in_table") is True
+        is_header = item.get("is_in_header_footer") is True
+        if is_table or is_header:
+            logger.debug(
+                "[page_tagger] filtered CoT title on page {}: '{}' (table={}, header={})",
+                page_index,
+                text,
+                is_table,
+                is_header,
+            )
+            continue
+        if not text:
+            continue
+        prominence = None
+        try:
+            prominence = float(item.get("prominence", 0.5))
+        except (TypeError, ValueError) as exc:
+            logger.debug(
+                "[page_tagger] ignored non-numeric title prominence {}: {}",
+                item.get("prominence"),
+                exc,
+            )
+        observed.append(
+            {
+                "text": text,
+                "prominence": prominence,
+                "is_in_table": is_table,
+                "is_in_header_footer": is_header,
+            }
+        )
+    return observed
+
+
 def _tag_vlm_titles(
     page: PageRenderResult,
     *,
     model: str,
     scan_direction: str = "top_to_bottom_left_to_right",
 ) -> list[dict[str, Any]]:
-    """Send page PNG to VLM with the title-only prompt and parse results."""
-    prompt, temperature, _top_p, max_tokens = build_prompt(
+    """Send page PNG to VLM with the title-only prompt and parse results.
+
+    Starts at a small completion budget and escalates only when the response
+    is truncated (budget hit / incomplete JSON that fails to parse).
+    """
+    prompt, temperature, _top_p, _default_max_tokens = build_prompt(
         "page-memory-vlm-title",
         "",
         "",
         paras={
-            "max_tokens": 300,
+            "max_tokens": _TITLE_TOKEN_BUDGETS[0],
             "scan_direction": scan_direction,
         },
     )
@@ -407,70 +482,71 @@ def _tag_vlm_titles(
     client, resolved_model = get_vision_client(requested_model=model)
     model = resolved_model or model
 
-    for attempt in range(_MAX_JSON_RETRIES + 1):
-        try:
-            raw_response, usage = client.chat_completion_with_usage(
-                messages=cast(Any, [{"role": "user", "content": content_parts}]),
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                response_format={"type": "json_object"},
-                usage_task="page_memory.title_detection",
-            )
-
-            data = json.loads(raw_response)
-            titles_raw = data.get("titles", [])
-            if not isinstance(titles_raw, list):
+    last_truncated = False
+    for budget_index, max_tokens in enumerate(_TITLE_TOKEN_BUDGETS):
+        for attempt in range(_MAX_JSON_RETRIES + 1):
+            try:
+                raw_response, usage = client.chat_completion_with_usage(
+                    messages=cast(Any, [{"role": "user", "content": content_parts}]),
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    response_format={"type": "json_object"},
+                    usage_task="page_memory.title_detection",
+                )
+            except UnavailableException:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "[page_tagger] title VLM failed for page {}: {}",
+                    page.page_index,
+                    exc,
+                )
                 return []
 
-            observed: list[dict[str, Any]] = []
-            for item in titles_raw:
-                if isinstance(item, dict) and item.get("text"):
-                    text = str(item["text"]).strip()
+            try:
+                observed = _parse_observed_titles(
+                    raw_response,
+                    page_index=page.page_index,
+                )
+            except json.JSONDecodeError:
+                truncated = _title_response_truncated(
+                    raw_response,
+                    usage=usage,
+                    max_tokens=max_tokens,
+                )
+                if truncated and budget_index + 1 < len(_TITLE_TOKEN_BUDGETS):
+                    last_truncated = True
+                    logger.info(
+                        "[page_tagger] title JSON truncated on page {} "
+                        "(budget={}, completion_tokens={}); escalating",
+                        page.page_index,
+                        max_tokens,
+                        _completion_tokens(usage),
+                    )
+                    break  # next budget
+                if attempt < _MAX_JSON_RETRIES:
+                    continue
+                logger.warning(
+                    "[page_tagger] title JSON retry exhausted for page {}",
+                    page.page_index,
+                )
+                return []
 
-                    is_table = item.get("is_in_table") is True
-                    is_header = item.get("is_in_header_footer") is True
-
-                    if is_table or is_header:
-                        logger.debug(
-                            "[page_tagger] filtered CoT title on page {}: '{}' (table={}, header={})",
-                            page.page_index, text, is_table, is_header
-                        )
-                        continue
-
-                    if text:
-                        prominence = None
-                        try:
-                            prominence = float(item.get("prominence", 0.5))
-                        except (TypeError, ValueError) as exc:
-                            logger.debug(
-                                "[page_tagger] ignored non-numeric title prominence {}: {}",
-                                item.get("prominence"),
-                                exc,
-                            )
-                        observed.append({
-                            "text": text,
-                            "prominence": prominence,
-                            "is_in_table": is_table,
-                            "is_in_header_footer": is_header
-                        })
+            if last_truncated:
+                logger.info(
+                    "[page_tagger] title detection recovered on page {} with budget={}",
+                    page.page_index,
+                    max_tokens,
+                )
             return observed
+        else:
+            continue
 
-        except json.JSONDecodeError:
-            if attempt < _MAX_JSON_RETRIES:
-                continue
-            logger.warning(
-                "[page_tagger] title JSON retry exhausted for page {}",
-                page.page_index,
-            )
-            return []
-        except UnavailableException:
-            raise
-        except Exception as exc:
-            logger.warning(
-                "[page_tagger] title VLM failed for page {}: {}",
-                page.page_index, exc,
-            )
-            return []
-
+    if last_truncated:
+        logger.warning(
+            "[page_tagger] title JSON still truncated on page {} after budgets {}",
+            page.page_index,
+            list(_TITLE_TOKEN_BUDGETS),
+        )
     return []

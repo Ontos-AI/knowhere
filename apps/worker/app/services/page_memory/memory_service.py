@@ -799,6 +799,7 @@ def _run_hierarchy_scope(
             },
         },
     )
+    # Refresh hierarchy/tags and write assets without wiping unrelated slots.
     _write_scope_artifacts(
         output_dir=output_dir,
         scope_id=scope.scope_id,
@@ -878,34 +879,29 @@ def _record_trace_stage(
 
 def _cleanup_page_memory_artifacts(output_dir: str) -> None:
     root = Path(output_dir)
-    legacy_files = {
+    stale_files = {
         "assets.json",
         "chunks.json",
-        "coarse_tag_scope.json",
+        "coarse_scopes.json",
         "doc_nav.json",
         "hierarchy.json",
         "manifest.json",
         "node_rows.csv",
         "node_rows.json",
-        "page_memory_fine_hierarchy.json",
         "page_plans.json",
         "page_rendered.json",
         "page_tags.json",
-        "page_tags_after_titles.json",
-        "page_tags_pre_hierarchy.json",
         "report.md",
-        "skeletons.json",
-        "tag_scope.json",
         "trace.json",
     }
-    for name in legacy_files:
+    for name in stale_files:
         path = root / name
         try:
             if path.is_file():
                 path.unlink()
         except Exception:
             logger.debug("[page_memory] failed to cleanup artifact {}", path)
-    for name in ("asset_annotate", "debug", "fine_hierarchy", "images", "pages", "scopes", "tables"):
+    for name in ("asset_annotate", "debug", "images", "pages", "scopes", "tables"):
         path = root / name
         try:
             if path.is_dir():

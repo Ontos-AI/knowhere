@@ -149,6 +149,7 @@ def serialize_page_tags(tags: list[Any]) -> list[dict[str, Any]]:
             "keywords": list(item.keywords),
             "entities": list(getattr(item, "entities", []) or []),
             "strategy_used": item.strategy_used,
+            "observed_titles": list(getattr(item, "observed_titles", []) or []),
         }
         for item in tags
     ]
@@ -178,23 +179,68 @@ def serialize_assets(assets_by_page: dict[int, list[Any]]) -> list[dict[str, Any
     return rows
 
 
+def serialize_scope_skeletons(
+    *,
+    scope_id: str,
+    start_page: int,
+    end_page: int,
+    strategy: str,
+    skeletons: list[Any],
+) -> dict[str, Any]:
+    """Coarse scope input artifact (Stage3 → Stage4 handoff).
+
+    Closed-closed ``start_page``/``end_page`` plus coarse skeleton rows
+    (including ``evidence``). Downstream stages read this file; refined
+    hierarchy lives in ``fine_hierarchy.json``.
+    """
+    start = max(1, int(start_page))
+    end = max(start, int(end_page))
+    rows = [
+        {
+            "section_path": getattr(item, "section_path", ""),
+            "title": getattr(item, "title", ""),
+            "level": int(getattr(item, "level", 0) or 0),
+            "start_page": int(getattr(item, "start_page", 0) or 0),
+            "end_page": int(getattr(item, "end_page", 0) or 0),
+            "parent_path": getattr(item, "parent_path", None),
+            "evidence": dict(getattr(item, "evidence", {}) or {}),
+        }
+        for item in skeletons
+    ]
+    return {
+        "scope_id": scope_id,
+        "start_page": start,
+        "end_page": end,
+        "page_count": end - start + 1,
+        "strategy": strategy,
+        "skeleton_count": len(rows),
+        "skeletons": rows,
+    }
+
+
 def write_scope_artifacts(
     *,
     output_dir: str,
     scope_id: str,
     scope_manifest_data: dict[str, Any],
     hierarchy: list[Any],
-    tags: list[Any],
+    tags: list[Any] | None = None,
     assets_by_page: dict[int, list[Any]] | None = None,
 ) -> None:
+    """Write per-scope viewing artifacts.
+
+    Always refreshes ``fine_hierarchy.json`` (embeds ``scope`` manifest).
+    ``tags`` / ``assets_by_page`` of ``None`` leave the existing file untouched
+    so later stages do not wipe earlier placeholders or results.
+    """
     scope_dir = Path(output_dir) / "scopes" / scope_id
-    write_json(scope_dir / "scope.json", scope_manifest_data)
     write_json(
         scope_dir / "fine_hierarchy.json",
         serialize_hierarchy_artifact(hierarchy, scope_manifest_data=scope_manifest_data),
     )
-    write_json(scope_dir / "page_tags.json", serialize_page_tags(tags))
-    if assets_by_page:
+    if tags is not None:
+        write_json(scope_dir / "page_tags.json", serialize_page_tags(tags))
+    if assets_by_page is not None:
         write_json(scope_dir / "assets.json", serialize_assets(assets_by_page))
 
 
@@ -208,7 +254,7 @@ def write_top_level_artifacts(
     root = Path(output_dir)
     write_json(root / "hierarchy.json", serialize_hierarchy_artifact(hierarchy))
     write_json(root / "page_tags.json", serialize_page_tags(tags))
-    if assets_by_page:
+    if assets_by_page is not None:
         write_json(root / "assets.json", serialize_assets(assets_by_page))
     else:
         (root / "assets.json").unlink(missing_ok=True)
