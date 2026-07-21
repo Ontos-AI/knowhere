@@ -69,7 +69,6 @@ def build_markdown_table_asset(
             table_html=request.table_html,
             table_dir=request.table_dir,
             table_name=table_name,
-            table_count=request.table_count - 1,
         )
 
     return MarkdownTableAsset(

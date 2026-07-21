@@ -83,20 +83,46 @@ def apply_markdown_deferred_summaries(
 def replace_chunk_ref_in_rows(
     rows: list[list[str | int]], old_path: str, new_path: str
 ) -> None:
+    """Rewrite asset paths after deferred rename.
+
+    Text/image rows store bracketed refs (``[tables/...]`` / ``[images/...]``).
+    Table rows store the bare relative path as ``content``. Both forms must move
+    with the renamed file; historically only the bracketed form was updated,
+    leaving table ``content`` stuck on the pre-rename path.
+    """
+    if not old_path or old_path == new_path:
+        return
+
     old_ref = build_chunk_ref(old_path)
     new_ref = build_chunk_ref(new_path)
-    if not old_ref or old_ref == new_ref:
-        return
 
     for row in rows:
         if len(row) > 0 and isinstance(row[0], str):
-            row[0] = row[0].replace(old_ref, new_ref)
+            updated = row[0]
+            if old_ref and new_ref and old_ref != new_ref:
+                updated = updated.replace(old_ref, new_ref)
+            # Table asset rows use the bare path as content (no brackets).
+            if updated == old_path:
+                updated = new_path
+            elif old_path in updated:
+                updated = updated.replace(old_path, new_path)
+            row[0] = updated
         if len(row) > 1 and row[1] == old_path:
             row[1] = new_path
         if len(row) > 2 and isinstance(row[2], str):
-            row[2] = row[2].replace(old_ref, new_ref)
+            updated_type = row[2]
+            if old_ref and new_ref and old_ref != new_ref:
+                updated_type = updated_type.replace(old_ref, new_ref)
+            if old_path in updated_type:
+                updated_type = updated_type.replace(old_path, new_path)
+            row[2] = updated_type
         if len(row) > 8 and isinstance(row[8], str):
-            row[8] = row[8].replace(old_ref, new_ref)
+            updated_connect = row[8]
+            if old_ref and new_ref and old_ref != new_ref:
+                updated_connect = updated_connect.replace(old_ref, new_ref)
+            if old_path in updated_connect:
+                updated_connect = updated_connect.replace(old_path, new_path)
+            row[8] = updated_connect
 
 
 def _run_deferred_summary_tasks(
@@ -285,10 +311,20 @@ def _apply_table_summary_result(
 
     table_dir = original_task.table_dir
     old_table_name = original_task.table_name
-    table_count = original_task.table_count
+    # Keep the original table-N index (same pattern as image rename). Do not
+    # re-derive from a separate counter — the legacy ``table_count - 1`` path
+    # produced off-by-one filenames vs text-chunk refs.
+    table_num_match = re.match(r"table-(\d+)", str(old_table_name))
+    table_num = (
+        table_num_match.group(1)
+        if table_num_match
+        else str(old_table_name).split("-")[1]
+        if "-" in str(old_table_name)
+        else "0"
+    )
     safe_title = sanitize_table_name_from_header(str(title))
     new_table_name = path_handle(
-        f"table-{table_count} {safe_title}", mode="clean_single"
+        f"table-{table_num} {safe_title}", mode="clean_single"
     )
     old_path = os.path.join(table_dir, f"{old_table_name}.html")
     new_path = os.path.join(table_dir, f"{new_table_name}.html")
@@ -296,6 +332,8 @@ def _apply_table_summary_result(
         return
 
     os.rename(old_path, new_path)
+    old_relative_path = str(row[1]) if len(row) > 1 else f"tables/{old_table_name}.html"
     new_relative_path = f"tables/{new_table_name}.html"
-    replace_chunk_ref_in_rows(rows, str(row[1]), new_relative_path)
+    replace_chunk_ref_in_rows(rows, old_relative_path, new_relative_path)
+    row[0] = new_relative_path
     row[1] = new_relative_path

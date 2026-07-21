@@ -140,9 +140,6 @@ def _base_chunk_metadata(
         "summary": existing_metadata.get("summary") or chunk.get("summary", ""),
         "page_nums": existing_metadata.get("page_nums", []),
     }
-    document_top_summary = str(existing_metadata.get("document_top_summary") or "").strip()
-    if document_top_summary:
-        metadata["document_top_summary"] = document_top_summary
     return metadata
 
 

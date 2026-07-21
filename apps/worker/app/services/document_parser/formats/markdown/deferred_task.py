@@ -19,7 +19,6 @@ class TableDeferredSummaryTask:
     table_html: str
     table_dir: str
     table_name: str
-    table_count: int
 
 
 @dataclass(frozen=True)
