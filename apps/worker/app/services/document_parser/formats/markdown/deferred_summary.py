@@ -268,6 +268,11 @@ def _apply_image_summary_result(
     row = rows[row_index]
     _apply_asset_result_preserving_index(row, result)
 
+    # Table-embedded images keep a stable filename so <img src> in
+    # tables/*.html stays valid after summary generation.
+    if not original_task.rename_file:
+        return
+
     img_title = result.title
     if not img_title:
         return
@@ -311,9 +316,7 @@ def _apply_table_summary_result(
 
     table_dir = original_task.table_dir
     old_table_name = original_task.table_name
-    # Keep the original table-N index (same pattern as image rename). Do not
-    # re-derive from a separate counter — the legacy ``table_count - 1`` path
-    # produced off-by-one filenames vs text-chunk refs.
+    # Keep the original table-N index (same pattern as image rename).
     table_num_match = re.match(r"table-(\d+)", str(old_table_name))
     table_num = (
         table_num_match.group(1)

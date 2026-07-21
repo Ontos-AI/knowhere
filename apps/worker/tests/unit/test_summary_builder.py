@@ -249,6 +249,7 @@ class TestDocNavTopSummaryPersistence:
         def _fake_llm(**kwargs: Any) -> str:
             captured["is_top"] = kwargs.get("node_name") == "Document Overview"
             captured["max_tokens"] = kwargs.get("max_tokens")
+            captured["calls"] = int(captured.get("calls") or 0) + 1
             return "LLM document overview"
 
         monkeypatch.setattr(
@@ -293,10 +294,13 @@ class TestDocNavTopSummaryPersistence:
             top_summary_use_llm=True,
         )
         assert results["report.pdf"] == "LLM document overview"
+        assert captured["calls"] == 1
         assert captured["is_top"] is True
 
         saved = json.loads((file_dir / "doc_nav.json").read_text(encoding="utf-8"))
         assert saved["top_summary"] == "LLM document overview"
+        # Section leaves keep original summaries; top LLM must not rewrite them.
+        assert saved["sections"][0]["summary"] == long_leaf
         assert load_nav_top_summary(str(file_dir), "report.pdf") == (
             "LLM document overview"
         )

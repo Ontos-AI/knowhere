@@ -11,6 +11,7 @@ class ImageDeferredSummaryTask:
     image_dir: str
     image_name: str
     image_suffix: str
+    rename_file: bool = True
 
 
 @dataclass(frozen=True)

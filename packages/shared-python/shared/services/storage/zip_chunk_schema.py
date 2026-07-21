@@ -78,13 +78,19 @@ class ZipChunkSchemaBuilder:
 
             if chunk_type == "text":
                 metadata.update(
-                    _format_text_metadata(
-                        chunk=chunk,
-                        chunk_type_str=chunk_type_str,
-                        content=str(content),
-                        existing_metadata=existing_metadata,
-                        resource_target_map=resource_target_map,
-                    )
+                    {
+                        "tokens": existing_metadata.get("tokens")
+                        or chunk.get("tokens", 0),
+                        "keywords": existing_metadata.get("keywords")
+                        or chunk.get("keywords", []),
+                        "connect_to": _build_embed_connect_to(
+                            chunk=chunk,
+                            chunk_type_str=chunk_type_str,
+                            content=str(content),
+                            existing_metadata=existing_metadata,
+                            resource_target_map=resource_target_map,
+                        ),
+                    }
                 )
             elif chunk_type == "image":
                 if image_info:
@@ -105,6 +111,13 @@ class ZipChunkSchemaBuilder:
                     "keywords", []
                 )
                 metadata["tokens"] = []
+                metadata["connect_to"] = _build_embed_connect_to(
+                    chunk=chunk,
+                    chunk_type_str=chunk_type_str,
+                    content=str(content),
+                    existing_metadata=existing_metadata,
+                    resource_target_map=resource_target_map,
+                )
             elif chunk_type == "page":
                 metadata["keywords"] = existing_metadata.get("keywords") or []
                 metadata["connect_to"] = existing_metadata.get("connect_to") or []
@@ -143,14 +156,14 @@ def _base_chunk_metadata(
     return metadata
 
 
-def _format_text_metadata(
+def _build_embed_connect_to(
     *,
     chunk: dict[str, Any],
     chunk_type_str: Any,
     content: str,
     existing_metadata: dict[str, Any],
     resource_target_map: dict[str, str],
-) -> dict[str, Any]:
+) -> list[Any]:
     relationship_refs = parse_relationship_refs(
         chunk.get("type_raw") or chunk_type_str,
         content,
@@ -165,11 +178,7 @@ def _format_text_metadata(
         or chunk.get("connectto"),
         resource_target_map,
     )
-    return {
-        "tokens": existing_metadata.get("tokens") or chunk.get("tokens", 0),
-        "keywords": existing_metadata.get("keywords") or chunk.get("keywords", []),
-        "connect_to": merge_connections(embed_connections, related_connections),
-    }
+    return merge_connections(embed_connections, related_connections)
 
 
 def _resolve_table_file_path(

@@ -183,6 +183,9 @@ def render_leaf_chunks(
                 table_lines = render_table_chunk_lines(
                     target,
                     display_ref=display_ref,
+                    chunk_by_id=chunk_by_id,
+                    asset_lookup=asset_lookup,
+                    rendered_ids=rendered_ids,
                 )
                 content = content.replace(ref_str, "\n" + "\n".join(table_lines) + "\n")
             elif target_type == "image":
@@ -227,6 +230,9 @@ def render_leaf_chunks(
             for line in render_table_chunk_lines(
                 chunk,
                 display_ref=display_ref,
+                chunk_by_id=chunk_by_id,
+                asset_lookup=asset_lookup,
+                rendered_ids=rendered_ids,
             ):
                 if line.strip():
                     parts.append(f"{indent}┈ {line}")
@@ -262,6 +268,9 @@ def render_table_chunk_lines(
     chunk: dict[str, Any],
     *,
     display_ref: str,
+    chunk_by_id: dict[str, dict[str, Any]] | None = None,
+    asset_lookup: dict[str, AssetLookupValue] | None = None,
+    rendered_ids: set[str] | None = None,
 ) -> list[str]:
     header = f"[Table: {display_ref}]" if display_ref else "[Table]"
     lines = [header]
@@ -292,6 +301,65 @@ def render_table_chunk_lines(
     if caption:
         lines.append("Caption:")
         lines.append(str(caption).strip())
+
+    lines.extend(
+        _render_table_embedded_image_lines(
+            chunk,
+            chunk_by_id=chunk_by_id or {},
+            asset_lookup=asset_lookup,
+            rendered_ids=rendered_ids,
+        )
+    )
+    return lines
+
+
+def _render_table_embedded_image_lines(
+    table_chunk: dict[str, Any],
+    *,
+    chunk_by_id: dict[str, dict[str, Any]],
+    asset_lookup: dict[str, AssetLookupValue] | None,
+    rendered_ids: set[str] | None,
+) -> list[str]:
+    metadata = table_chunk.get("chunk_metadata") or table_chunk.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        return []
+
+    lines: list[str] = []
+    for connection in metadata.get("connect_to") or []:
+        if not isinstance(connection, dict):
+            continue
+        if str(connection.get("relation") or "").strip() != "embeds":
+            continue
+        target_id = str(connection.get("target") or "").strip()
+        if not target_id:
+            continue
+        target = chunk_by_id.get(target_id)
+        if not target:
+            continue
+        target_type = (
+            target.get("chunk_type") or target.get("type") or ""
+        ).strip().lower()
+        if target_type != "image":
+            continue
+        if rendered_ids is not None:
+            rendered_ids.add(target_id)
+
+        file_path = target.get("file_path") or ""
+        asset_url = _lookup_asset_url(asset_lookup, target_id)
+        display_ref = asset_url or file_path
+        image_description = str(target.get("content") or "").strip()
+        ref_str = str(connection.get("ref") or "").strip()
+        if ref_str and ref_str in image_description:
+            image_description = image_description.replace(ref_str, "").strip()
+
+        if display_ref:
+            lines.append(f"[Image: {display_ref}]")
+        elif image_description:
+            lines.append("[Image description]")
+        if image_description:
+            lines.extend(
+                line for line in image_description.split("\n") if line.strip()
+            )
     return lines
 
 

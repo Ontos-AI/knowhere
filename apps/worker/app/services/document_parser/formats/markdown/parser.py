@@ -19,6 +19,9 @@ from app.services.document_parser.formats.markdown.table_asset import (
     MarkdownTableAssetRequest,
     build_markdown_table_asset,
 )
+from app.services.document_parser.formats.markdown.table_embedded_images import (
+    extract_table_embedded_images,
+)
 from app.services.document_parser.support.parser_rows import ParsedRow
 from app.services.document_parser.support.path_helpers import find_matches_parsing
 from app.services.document_parser.formats.html.parser import (
@@ -417,8 +420,6 @@ def parse_md(
                 if image_asset.should_advance_image_count:
                     parser_state.image_count += 1
 
-            # TODO for large and dense tables, such as "Epstein flight logs",
-            # integrate tabula-py as an independent extraction path to solve VLM hallucinations and misplacement
             # b. handle lines containing tables
             tb_bool, form, _ = identify_tables(line)
             if tb_bool:
@@ -447,14 +448,30 @@ def parse_md(
                 else:
                     continue  # Unknown form, skip
 
+                embedded = extract_table_embedded_images(
+                    table_html=tb_str,
+                    parser_state=parser_state,
+                    output_dir=output_dir,
+                    image_dir=img_dir,
+                    summary_image=bool(base_llm_paras["summary_image"]),
+                )
+                for image_asset in embedded.image_assets:
+                    if image_asset.row_values is not None:
+                        parser_state.append_row(image_asset.row_values)
+                    if image_asset.deferred_task is not None:
+                        parser_state.schedule_deferred_task(image_asset.deferred_task)
+                for image_ref in embedded.image_refs:
+                    parser_state.append_content_item(f"\n{image_ref}\n")
+
                 table_asset = build_markdown_table_asset(
                     MarkdownTableAssetRequest(
-                        table_html=tb_str,
+                        table_html=embedded.rewritten_html,
                         table_dir=tb_dir,
                         table_count=parser_state.table_count,
                         timestamp=parser_state.timestamp,
                         summary_table=bool(base_llm_paras["summary_table"]),
                         row_index=len(parser_state.rows),
+                        image_refs=embedded.image_refs,
                     )
                 )
                 parser_state.append_content_item(table_asset.content_item)

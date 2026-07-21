@@ -383,23 +383,45 @@ def _build_nav_top_summary(
     self_only_lookup: Optional[Dict[str, str]] = None,
     source_file_name: str = "",
 ) -> str:
-    """Build navigation-facing top summary from enriched doc_nav.json."""
-    sections = doc_nav.get("sections", [])
+    """Build document-level top summary from already-enriched section nodes.
+
+    Children are never re-summarized with LLM here — section LLM is controlled
+    only by ``enrich_doc_nav_summaries(use_llm=...)``. This path may optionally
+    LLM-aggregate the document overview from child contributions.
+    """
+    sections = list(doc_nav.get("sections") or [])
     if not sections:
         return ""
 
     file_name = source_file_name or str(doc_nav.get("file_name") or "")
-    virtual_doc_node = {
-        "title": "Document Overview",
-        "children": sections,
-    }
-    return _recursive_summarize_nav(
-        virtual_doc_node,
-        use_llm=use_llm,
+    # Fill any missing child summaries deterministically without enabling LLM.
+    for section in sections:
+        if isinstance(section, dict):
+            _recursive_summarize_nav(
+                section,
+                use_llm=False,
+                self_only_lookup=self_only_lookup,
+                source_file_name=file_name,
+            )
+
+    child_titles = _child_title_list(sections, is_top_level=True)
+    child_rows = _child_contribution_rows(sections, is_top_level=True)
+    contrib_len = sum(len(contrib) for _, contrib in child_rows)
+    deterministic = _deterministic_section_summary(
         is_top_level=True,
-        self_only_lookup=self_only_lookup,
-        source_file_name=file_name,
+        self_only="",
+        child_titles=child_titles,
     )
+    if not use_llm or contrib_len <= SUMMARY_MAX_LEN:
+        return deterministic
+
+    llm_result = _llm_summarize(
+        node_name="Document Overview",
+        self_only="",
+        child_rows=child_rows,
+        max_tokens=NAVIGATION_TOP_SUMMARY_MAX_TOKENS,
+    )
+    return llm_result or deterministic
 
 
 def _persist_doc_nav_top_summary(
