@@ -20,7 +20,7 @@ class PageMemoryConfig:
     hierarchy_model: str | None = None
     hierarchy_max_tokens: int = 2000
     max_heading_depth: int = 6
-    asset_extraction_enabled: bool = False
+    asset_extraction_enabled: bool = True
     asset_summary_enabled: bool = False
     asset_model: str = "qwen3.6-flash"
     asset_max_pages: int | None = None

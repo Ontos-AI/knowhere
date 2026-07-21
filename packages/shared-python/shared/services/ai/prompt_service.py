@@ -747,47 +747,7 @@ Output requirements:
         top_p = 0.01
         max_tokens = kwargs.get("paras", {}).get("max_tokens", 1200)
         grid_size = kwargs.get("paras", {}).get("grid_size", 1000)
-        # Previous production prompt kept for comparison:
-        # prompt = f"""\
-        # You are a precise document layout detector. The attached image is a single PDF
-        # page screenshot.
-        #
-        # Find visually distinct tables, charts, and figures that should become reusable
-        # document assets. Return strict JSON:
-        # {{
-        # "regions": [
-        #     {{
-        #     "kind": "table|chart|figure",
-        #     "bbox": [x1, y1, x2, y2],
-        #     "caption": "<visible caption or nearby label, if any>",
-        #     "title": "<short asset title>",
-        #     "summary": "<1 sentence searchable summary>",
-        #     "keywords": ["<keyword_1>", "<keyword_2>"],
-        #     "confidence": 0.0
-        #     }}
-        # ]
-        # }}
-        #
-        # Coordinate system:
-        # - Treat the page image as a {grid_size}x{grid_size} grid.
-        # - Origin is the top-left corner.
-        # - bbox values must be integers in [0, {grid_size}].
-        # - bbox must tightly include the whole asset: title, caption, legend, axes,
-        # labels, table headers, and footnotes that are part of the asset.
-        # - Exclude surrounding body paragraphs, page headers, page footers, and page
-        # numbers.
-        #
-        # Rules:
-        # - "table": rows/columns of data, forms, financial tables, appendix tables.
-        # - "chart": plotted data such as bar/line/pie/scatter charts.
-        # - "figure": distinct diagrams, flowcharts, architecture drawings, embedded images.
-        #
-        # - Do not transcribe entire tables. Summarize the topic and extreme values based on main columns or rows.
-        # - "keywords" must be an array of up to 5 strings in the same language as the visible asset text.
-        # - Use confidence 0.0-1.0. Only include assets you can localize.
-        # - If there are no assets, return {{"regions":[]}}.
-        # - Return ONLY the JSON object, no markdown fences or explanations.
-        # """
+        
         prompt = f"""\
         You are a precise document layout detector. The attached image is a single
         rendered PDF page.
@@ -822,9 +782,20 @@ Output requirements:
         - "figure": any non-table visual asset - bar/line/pie/scatter charts,
         plots, diagrams, flowcharts, architecture drawings, schematics, or embedded
         images.
-        - Do not mark ordinary paragraphs, bullet lists, title blocks, or loose
-        multi-line text as tables.
-        - Do not split a single coherent table or figure into sub-parts.
+        - Prefer one bbox for the whole figure. When multiple visual parts clearly
+        form one composition (shared caption or a multi-panel explanation of the same concept/process), 
+        return them as a single figure, not separate images.
+        - Treat a flowchart or process diagram as one figure, including its nodes,
+        edges, labels, and legend when they belong together.
+
+        - Do NOT extract page backgrounds, watermarks, stamps, or decorative underlays.
+        - Do NOT extract small logos, icons, bullets, or other scattered decorative
+        marks that are not standalone informative figures.
+        - Do NOT extract ornamental digits/letters placed before a heading title as figures.
+
+        - Do NOT mark ordinary paragraphs, bullet lists, title blocks, or loose multi-line text as tables.
+        - Do NOT split a single coherent table or figure into sub-parts.
+
         - "title" is one short label only (single line). Do not duplicate it into
         other fields and do not write a summary. Use an empty string when there is
         no visible title or caption.
