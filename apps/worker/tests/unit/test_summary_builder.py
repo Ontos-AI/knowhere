@@ -202,7 +202,7 @@ class TestPromptPayload:
     ) -> None:
         captured: Dict[str, Any] = {}
 
-        def _fake_client() -> Any:
+        def _fake_client(**_kwargs: Any) -> Any:
             class _C:
                 def chat_completion(self, **kwargs: Any) -> str:
                     captured["messages"] = kwargs.get("messages")
