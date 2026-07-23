@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -17,17 +17,16 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from app.services.codex_export.package_builder import (
-    ReviewPackageRequest,
-    build_codex_review_package,
-)
-from app.services.document_parser.providers.mineru.artifact_contract import (
-    MinerUArtifactBundle,
-    MinerUArtifactManifest,
-)
-from app.services.document_parser.providers.mineru.local_process import (
-    LocalMinerURequest,
-)
+if TYPE_CHECKING:
+    from app.services.codex_export.package_builder import ReviewPackageRequest
+    from app.services.document_parser.providers.mineru.artifact_contract import (
+        MinerUArtifactBundle,
+        MinerUArtifactManifest,
+    )
+    from app.services.document_parser.providers.mineru.local_process import (
+        LocalMinerURequest,
+    )
+
 FIXTURE_ROOT = Path(__file__).parents[1] / "fixtures" / "codex_export"
 PDF_ARTIFACTS = FIXTURE_ROOT / "mineru_pdf_artifacts"
 sys.path.insert(0, str(FIXTURE_ROOT))
@@ -40,6 +39,11 @@ class StaticPDFMinerURunner:
         pass
 
     def run(self, request: LocalMinerURequest) -> MinerUArtifactBundle:
+        from app.services.document_parser.providers.mineru.artifact_contract import (
+            MinerUArtifactBundle,
+            MinerUArtifactManifest,
+        )
+
         pages = json.loads(
             (PDF_ARTIFACTS / "synthetic_content_list_v2.json").read_text(
                 encoding="utf-8"
@@ -83,6 +87,8 @@ class StaticPDFMinerURunner:
 
 
 def _request(source: Path, output: Path, project: Path) -> ReviewPackageRequest:
+    from app.services.codex_export.package_builder import ReviewPackageRequest
+
     return ReviewPackageRequest(
         source_path=source,
         output_root=output,
@@ -127,8 +133,12 @@ def test_static_pdf_fixture_build_is_complete_and_reproducible(
     monkeypatch.setattr(package_builder, "LocalMinerURunner", StaticPDFMinerURunner)
     monkeypatch.setattr(page_selection, "render_document_pages", _fake_page_renderer)
 
-    first = build_codex_review_package(_request(source, tmp_path / "first", project))
-    second = build_codex_review_package(_request(source, tmp_path / "second", project))
+    first = package_builder.build_codex_review_package(
+        _request(source, tmp_path / "first", project)
+    )
+    second = package_builder.build_codex_review_package(
+        _request(source, tmp_path / "second", project)
+    )
 
     first_blocks = _jsonl(first.package_root / "structured" / "blocks.jsonl")
     second_blocks = _jsonl(second.package_root / "structured" / "blocks.jsonl")
