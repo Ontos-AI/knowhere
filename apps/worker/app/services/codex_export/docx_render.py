@@ -105,4 +105,3 @@ def render_docx_to_normalized_pdf(
             normalized_pdf.unlink()
         shutil.move(str(produced_pdf), normalized_pdf)
     return normalized_pdf
-

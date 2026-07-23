@@ -176,4 +176,3 @@ def build_document_tree(blocks: Sequence[DocumentBlock]) -> DocumentTree:
 
     _assign_page_ranges(nodes, ordered_blocks)
     return DocumentTree(document_id=document_id, nodes=nodes, findings=findings)
-

@@ -516,4 +516,3 @@ def build_codex_review_package(
             if work_root.exists():
                 shutil.rmtree(work_root)
         raise
-

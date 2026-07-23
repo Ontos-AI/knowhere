@@ -238,4 +238,3 @@ def validate_mineru_artifact_bundle(
         images_dir=images_dir,
         manifest=manifest,
     )
-

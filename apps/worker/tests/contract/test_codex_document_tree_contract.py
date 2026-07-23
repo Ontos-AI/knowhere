@@ -188,4 +188,3 @@ def test_tree_contract_is_navigation_only_and_serializable() -> None:
     assert payload["navigation_only"] is True
     assert payload["root_node_id"] == "sec_root"
     assert "summary" not in payload["nodes"][1]
-

@@ -330,4 +330,3 @@ def normalize_content_list_v2(
             blocks.append(block)
             sequence += 1
     return blocks
-

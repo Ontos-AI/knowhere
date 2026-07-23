@@ -209,4 +209,3 @@ def test_existing_mineru_table_image_is_copied_and_linked(tmp_path: Path) -> Non
     assert result.html_path.relative_to(tmp_path).as_posix() in linked_paths
     assert result.metadata_path.relative_to(tmp_path).as_posix() in linked_paths
     assert result.image_path.relative_to(tmp_path).as_posix() in linked_paths
-

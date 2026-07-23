@@ -26,4 +26,3 @@ Document ID: `{document_id}`
    they are not stable native DOCX page numbers and are not automatically
    mapped from MinerU logical pages.
 """
-
