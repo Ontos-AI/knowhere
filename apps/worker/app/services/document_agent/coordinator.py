@@ -97,13 +97,6 @@ class ProfileCoordinator:
         self.round_index = 0
         self._planner_cache: tuple[DocumentProfile, Any, ToolResult] | None = None
 
-    def run(self) -> PageAnatomyMap:
-        try:
-            return self._run_structural()
-        except Exception as exc:
-            self._record_failure(exc)
-            raise
-
     def run_coarse(self) -> DocumentProfile:
         try:
             return self._run_coarse()
@@ -111,9 +104,9 @@ class ProfileCoordinator:
             self._record_failure(exc)
             raise
 
-    def run_structural(self) -> PageAnatomyMap:
+    def run_structural(self, *, skip_shard_plan: bool = False) -> PageAnatomyMap:
         try:
-            return self._run_structural()
+            return self._run_structural(skip_shard_plan=skip_shard_plan)
         except Exception as exc:
             self._record_failure(exc)
             raise
@@ -155,7 +148,7 @@ class ProfileCoordinator:
         self._ensure_asset_probe()
         return profile
 
-    def _run_structural(self) -> PageAnatomyMap:
+    def _run_structural(self, *, skip_shard_plan: bool = False) -> PageAnatomyMap:
         self.state = DocumentAgentState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
@@ -167,14 +160,21 @@ class ProfileCoordinator:
             actor="planner"
         )
         self._ensure_asset_probe()
-        executor_result = ReActExecutor(
-            self.ctx,
-            registry=REGISTRY,
-            max_rounds=int(self.ctx.settings.get("max_rounds", 30)),
-            initial_decision=initial_decision,
-        ).run()
-        if executor_result.verdict.status != "success":
-            raise RuntimeError(f"profile aborted: {executor_result.verdict.rationale}")
+        if skip_shard_plan:
+            # Page-memory oversized path never consumes shard_plan; only
+            # build_anatomy_map's invariant needs a non-empty plan.
+            self._apply_single_shard_placeholder()
+        else:
+            executor_result = ReActExecutor(
+                self.ctx,
+                registry=REGISTRY,
+                max_rounds=int(self.ctx.settings.get("max_rounds", 30)),
+                initial_decision=initial_decision,
+            ).run()
+            if executor_result.verdict.status != "success":
+                raise RuntimeError(
+                    f"profile aborted: {executor_result.verdict.rationale}"
+                )
         anatomy = build_anatomy_map(self.ctx)
         self._persist_ready_anatomy(anatomy)
         return anatomy
@@ -218,9 +218,7 @@ class ProfileCoordinator:
             # it. Populate a single-shard placeholder to skip the LLM shard
             # decision + H2 refinement (kept global for chunk-track oversized
             # MinerU sharding).
-            self.blackboard.shard_plan = single_shard_plan(
-                self.blackboard.page_count
-            )
+            self._apply_single_shard_placeholder()
         else:
             result = REGISTRY.dispatch("propose.shard_plan", self.ctx, {})
             self.trace.record_step(
@@ -237,6 +235,9 @@ class ProfileCoordinator:
         anatomy = build_anatomy_map(self.ctx)
         self._persist_ready_anatomy(anatomy)
         return anatomy
+
+    def _apply_single_shard_placeholder(self) -> None:
+        self.blackboard.shard_plan = single_shard_plan(self.blackboard.page_count)
 
     def _persist_ready_anatomy(self, anatomy: PageAnatomyMap) -> None:
         persist_result = persist_anatomy_map(self.ctx, {})

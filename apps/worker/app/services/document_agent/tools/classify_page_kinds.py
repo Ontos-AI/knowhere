@@ -39,7 +39,6 @@ def classify_page_kinds(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
                 "confidence": label.confidence,
                 "evidence": label.evidence,
                 "raw_text_length": feature.raw_text_length if feature else None,
-                "text_preview": (feature.text_lines_preview[:4] if feature else []),
             }
         )
     return ToolResult(

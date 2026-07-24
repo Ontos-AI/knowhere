@@ -9,7 +9,6 @@ from collections import defaultdict
 from typing import Any
 
 from app.services.document_agent.manifest import PageFeature, ToolContext, ToolResult
-from app.services.document_agent.pdf_text import top_lines
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
     worker,
@@ -295,7 +294,6 @@ def _probe_text_one(page: Any, page_number: int) -> dict[str, Any]:
         "width": round(float(rect.width), 2),
         "height": round(float(rect.height), 2),
         "is_blank_like": raw_text_length < 50,
-        "text_lines_preview": top_lines(text, max_lines=30),
     }
 
 
@@ -367,7 +365,6 @@ def probe_page_features(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
                 has_asset=False,
                 is_blank_like=bool(item.get("is_blank_like")),
                 asset_bboxes=None,
-                text_lines_preview=list(item.get("text_lines_preview") or []),
             )
             for item in (result.get("features") or [])
         ]
@@ -435,7 +432,6 @@ def probe_page_assets(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
                         if isinstance(visual.get("asset_bboxes"), list)
                         else None
                     ),
-                    text_lines_preview=feature.text_lines_preview,
                 )
             )
         ctx.blackboard.page_features = sorted(updated, key=lambda f: f.page)

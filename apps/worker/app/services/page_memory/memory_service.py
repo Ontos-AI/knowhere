@@ -771,10 +771,13 @@ def _run_hierarchy_scope(
 
     assets_by_page: dict[int, list[Any]] = {}
     if asset_extraction_enabled and asset_max_pages > 0:
+        asset_rendered = _select_rendered_pages_with_assets(
+            rendered, page_features
+        )
         with stage_timer("page_memory.assets", page_count=asset_max_pages):
             assets_by_page = extract_page_assets_from_renders(
                 pdf_path=pdf_path,
-                rendered_pages=rendered,
+                rendered_pages=asset_rendered,
                 output_dir=output_dir,
                 model_name=page_memory_config.asset_model,
                 budget=None,
@@ -816,6 +819,22 @@ def _run_hierarchy_scope(
         rendered=rendered,
         final_pages=final_pages,
     )
+
+
+# ── helpers ───────────────────────────────────────────────────────────
+
+
+def _select_rendered_pages_with_assets(
+    rendered: list[Any],
+    page_features: list[Any],
+) -> list[Any]:
+    """Keep only rendered pages that coarse profile marked ``has_asset``."""
+    asset_pages = {
+        int(getattr(feature, "page", 0) or 0)
+        for feature in page_features
+        if getattr(feature, "has_asset", False)
+    }
+    return [item for item in rendered if item.page_index in asset_pages]
 
 
 # ── whole_doc builder (PR3, unchanged) ────────────────────────────────

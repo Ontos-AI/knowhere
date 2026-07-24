@@ -30,7 +30,6 @@ class PageFeature:
     is_blank_like: bool
     # PDF-space boxes for detected assets; None when none were extracted.
     asset_bboxes: list[dict[str, Any]] | None = None
-    text_lines_preview: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -236,6 +235,7 @@ class PageAnatomyMap:
     def to_dict(self) -> dict[str, Any]:
         return {
             "version": self.version,
+            "toc_hierarchies": self.toc_hierarchies,
             "job_id": self.job_id,
             "file_path": self.file_path,
             "page_count": self.page_count,
@@ -247,7 +247,6 @@ class PageAnatomyMap:
             "document_profile": self.document_profile.to_dict()
             if self.document_profile
             else None,
-            "toc_hierarchies": self.toc_hierarchies,
             "toc_page_offset": self.toc_page_offset,
             "global_signals": dict(self.global_signals),
             "trace_summary": dict(self.trace_summary),
