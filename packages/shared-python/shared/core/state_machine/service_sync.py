@@ -36,7 +36,10 @@ from shared.core.state_machine.transition_runner import (
 )
 from shared.models.database.job import Job
 from shared.models.database.job_state_audit_log import JobStateAuditLog
-from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
+from shared.services.redis.redis_sync_service import (
+    SyncJobMetadataService,
+    SyncRedisServiceFactory,
+)
 from shared.services.redis.key_builder import RedisKeyType, redis_key_builder
 
 
@@ -412,6 +415,7 @@ class SyncStateMachineService:
                 "error_message": error_message,
                 "error_code": error_code,
             }
+            metadata_updates: Dict[str, Any] = {}
 
             if error_details:
                 import json as _json
@@ -425,8 +429,14 @@ class SyncStateMachineService:
                     pg_array(["error_details"]),
                     cast(literal(_json.dumps(error_details)), JSONB),
                 )
+                metadata_updates["error_details"] = error_details
 
             db.execute(update(Job).where(Job.job_id == job_id).values(**update_values))
+            if metadata_updates:
+                SyncJobMetadataService(self.redis).update_metadata(
+                    job_id,
+                    metadata_updates,
+                )
         except Exception as e:
             logger.error(f"Failed to update Job {job_id} error info: {e}")
 
