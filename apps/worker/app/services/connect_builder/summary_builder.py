@@ -3,6 +3,8 @@ summary_builder: Bottom-up recursive summarization for document navigation.
 
 Reads doc_nav.json and in-memory chunks, generates ``summary`` at every
 non-leaf via deterministic covers assembly or LLM aggregation (with self_only).
+Persists document-level ``top_summary`` on doc_nav (default LLM); section-level
+LLM remains opt-in via ``use_llm``.
 
 Usage (standalone):
     from app.services.connect_builder.summary_builder import enrich_doc_nav_summaries
@@ -381,30 +383,70 @@ def _build_nav_top_summary(
     self_only_lookup: Optional[Dict[str, str]] = None,
     source_file_name: str = "",
 ) -> str:
-    """Build navigation-facing top summary from enriched doc_nav.json."""
-    sections = doc_nav.get("sections", [])
+    """Build document-level top summary from already-enriched section nodes.
+
+    Children are never re-summarized with LLM here — section LLM is controlled
+    only by ``enrich_doc_nav_summaries(use_llm=...)``. This path may optionally
+    LLM-aggregate the document overview from child contributions.
+    """
+    sections = list(doc_nav.get("sections") or [])
     if not sections:
         return ""
 
     file_name = source_file_name or str(doc_nav.get("file_name") or "")
-    virtual_doc_node = {
-        "title": "Document Overview",
-        "children": sections,
-    }
-    return _recursive_summarize_nav(
-        virtual_doc_node,
-        use_llm=use_llm,
+    # Fill any missing child summaries deterministically without enabling LLM.
+    for section in sections:
+        if isinstance(section, dict):
+            _recursive_summarize_nav(
+                section,
+                use_llm=False,
+                self_only_lookup=self_only_lookup,
+                source_file_name=file_name,
+            )
+
+    child_titles = _child_title_list(sections, is_top_level=True)
+    child_rows = _child_contribution_rows(sections, is_top_level=True)
+    contrib_len = sum(len(contrib) for _, contrib in child_rows)
+    deterministic = _deterministic_section_summary(
         is_top_level=True,
-        self_only_lookup=self_only_lookup,
-        source_file_name=file_name,
+        self_only="",
+        child_titles=child_titles,
     )
+    if not use_llm or contrib_len <= SUMMARY_MAX_LEN:
+        return deterministic
+
+    llm_result = _llm_summarize(
+        node_name="Document Overview",
+        self_only="",
+        child_rows=child_rows,
+        max_tokens=NAVIGATION_TOP_SUMMARY_MAX_TOKENS,
+    )
+    return llm_result or deterministic
+
+
+def _persist_doc_nav_top_summary(
+    *,
+    file_dir: str,
+    doc_nav: Dict[str, Any],
+    top_summary: str,
+) -> str:
+    """Write document-level top_summary once onto doc_nav and save."""
+    cleaned = str(top_summary or "").strip()
+    if cleaned:
+        doc_nav["top_summary"] = cleaned
+    elif "top_summary" in doc_nav:
+        doc_nav.pop("top_summary", None)
+    _save_doc_nav(file_dir, doc_nav)
+    return cleaned
 
 
 def enrich_doc_nav_summaries(
     document_workspace_dir: str,
     source_file: Optional[str] = None,
     force: bool = False,
-    use_llm: bool = True,
+    use_llm: bool = False,
+    *,
+    top_summary_use_llm: bool = True,
     chunks: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, str]:
     """Enrich doc_nav.json with bottom-up recursive summaries.
@@ -413,14 +455,16 @@ def enrich_doc_nav_summaries(
         document_workspace_dir: Absolute path to the temporary document workspace.
         source_file: If given, only process this file. Otherwise process all.
         force: If True, regenerate even if summaries already exist.
-        use_llm: If True, use LLM when contribution length sum exceeds threshold.
+        use_llm: Section-level LLM summaries (default off).
+        top_summary_use_llm: Document-level top summary LLM (default on).
         chunks: In-memory parse chunks for exact-path self_only extraction.
 
     Returns:
         Dict mapping file_name → top-level summary string.
     """
     results: Dict[str, str] = {}
-    mode_label = "LLM" if use_llm else "title-concat"
+    section_mode = "LLM" if use_llm else "title-concat"
+    top_mode = "LLM" if top_summary_use_llm else "title-concat"
 
     if source_file:
         targets = [source_file]
@@ -445,21 +489,39 @@ def enrich_doc_nav_summaries(
             source_file_name=source_file_name,
         )
 
-        if not force and _doc_nav_has_enriched_summaries(doc_nav):
+        existing_top = str(doc_nav.get("top_summary") or "").strip()
+        if (
+            not force
+            and _doc_nav_has_enriched_summaries(doc_nav)
+            and existing_top
+        ):
             logger.debug(
                 f"Summaries already exist in {DOC_NAV_FILENAME} for {file_name}, skipping"
             )
-            results[file_name] = _build_nav_top_summary(
+            results[file_name] = existing_top
+            continue
+
+        if not force and _doc_nav_has_enriched_summaries(doc_nav):
+            logger.info(
+                f"📝 Building missing {DOC_NAV_FILENAME} top_summary for {file_name} "
+                f"(top_mode={top_mode})"
+            )
+            top_summary = _build_nav_top_summary(
                 doc_nav,
-                use_llm=use_llm,
+                use_llm=top_summary_use_llm,
                 self_only_lookup=self_only_lookup,
                 source_file_name=source_file_name,
+            )
+            results[file_name] = _persist_doc_nav_top_summary(
+                file_dir=file_dir,
+                doc_nav=doc_nav,
+                top_summary=top_summary,
             )
             continue
 
         logger.info(
             f"📝 Enriching {DOC_NAV_FILENAME} summaries for {file_name} "
-            f"(mode={mode_label})"
+            f"(section_mode={section_mode}, top_mode={top_mode})"
         )
 
         for section in doc_nav.get("sections", []):
@@ -470,31 +532,36 @@ def enrich_doc_nav_summaries(
                 source_file_name=source_file_name,
             )
 
-        _save_doc_nav(file_dir, doc_nav)
-        logger.info(f"✅ doc_nav summaries saved for {file_name}")
-
         top_summary = _build_nav_top_summary(
             doc_nav,
-            use_llm=use_llm,
+            use_llm=top_summary_use_llm,
             self_only_lookup=self_only_lookup,
             source_file_name=source_file_name,
         )
-        results[file_name] = top_summary
+        results[file_name] = _persist_doc_nav_top_summary(
+            file_dir=file_dir,
+            doc_nav=doc_nav,
+            top_summary=top_summary,
+        )
+        logger.info(f"✅ doc_nav summaries saved for {file_name}")
 
     return results
 
 
 def load_nav_top_summary(file_dir: str, file_name: str = "") -> str:
-    """Load doc_nav.json and extract the navigation top summary."""
+    """Load persisted doc_nav top_summary, with deterministic fallback."""
     doc_nav = _load_doc_nav(file_dir)
-    if doc_nav is not None:
-        source_file_name = file_name or str(doc_nav.get("file_name") or "")
-        return _build_nav_top_summary(
-            doc_nav,
-            use_llm=False,
-            source_file_name=source_file_name,
-        )
-    return ""
+    if doc_nav is None:
+        return ""
+    existing = str(doc_nav.get("top_summary") or "").strip()
+    if existing:
+        return existing
+    source_file_name = file_name or str(doc_nav.get("file_name") or "")
+    return _build_nav_top_summary(
+        doc_nav,
+        use_llm=False,
+        source_file_name=source_file_name,
+    )
 
 
 def build_section_summary_lookup(file_dir: str) -> Dict[str, str]:
@@ -530,11 +597,7 @@ def build_section_summary_lookup(file_dir: str) -> Dict[str, str]:
         _walk(section)
 
     if "Root" not in lookup:
-        top_summary = _build_nav_top_summary(
-            doc_nav,
-            use_llm=False,
-            source_file_name=source_file_name,
-        )
+        top_summary = load_nav_top_summary(file_dir, source_file_name)
         if top_summary:
             lookup["Root"] = top_summary
 

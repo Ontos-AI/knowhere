@@ -584,9 +584,6 @@ def parse_docx(
                 headings_stack[-1]["content"].append(text)
 
         elif label == "IMAGE":
-            if meta and meta.get("size", 0) < 10 * 1024:
-                continue
-
             headings_stack = asset_accumulator.append_image(
                 meta,
                 headings_stack,

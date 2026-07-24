@@ -51,6 +51,7 @@ class SyncJobPublicationFinalizer:
         job_result_id: str,
         chunks: list[dict[str, Any]],
         section_summaries: dict[str, str] | None,
+        document_top_summary: str | None = None,
     ) -> JobPublicationOutcome:
         previous_document_scope = self._retrieval_publication.get_existing_document_scope(
             db,
@@ -69,6 +70,7 @@ class SyncJobPublicationFinalizer:
                 db,
                 job_id=job_id,
                 job_result_id=job_result_id,
+                top_summary=document_top_summary,
             )
 
         cache_invalidation = self._build_cache_invalidation(

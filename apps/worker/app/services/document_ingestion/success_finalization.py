@@ -48,7 +48,6 @@ def finalize_parse_success(
         job_context=job_context,
         source_file_name=source_file_name,
     )
-    _attach_document_top_summary(result_package.chunks, document_top_summary)
     _refresh_processing_stages(job_context)
 
     lifecycle_service.update_progress(
@@ -92,6 +91,7 @@ def finalize_parse_success(
         stored_count=stored_count,
         delivery_mode="url",
         section_summaries=section_summaries,
+        document_top_summary=document_top_summary,
     )
     if finalization_response.get("status") != "success":
         logger.error(
@@ -137,6 +137,7 @@ def _enrich_document_navigation(
 ) -> tuple[str, dict[str, str]]:
     document_top_summary = ""
     section_summaries: dict[str, str] = {}
+    enrich_results: dict[str, str] = {}
     add_dir = artifact.add_dir
     parsed_contents_df = artifact.dataframe
     if add_dir and source_file_name:
@@ -153,16 +154,27 @@ def _enrich_document_navigation(
                 "summary_use_llm",
                 False,
             )
-            enrich_doc_nav_summaries(
+            top_summary_use_llm = JobMetadataHelper.get_parsing_param(
+                job_context.job_metadata,
+                "top_summary_use_llm",
+                True,
+            )
+            enrich_results = enrich_doc_nav_summaries(
                 document_root_for_enrich,
                 source_file=source_file_name,
                 use_llm=summary_use_llm,
+                top_summary_use_llm=top_summary_use_llm,
                 chunks=chunks,
             )
             section_summaries = build_section_summary_lookup(str(add_dir))
         except Exception as exc:
             logger.warning(f"doc_nav enrichment failed (non-fatal): {exc}")
-        document_top_summary = load_nav_top_summary(str(add_dir), source_file_name)
+            enrich_results = {}
+        document_top_summary = str(
+            enrich_results.get(source_file_name) or ""
+        ).strip()
+        if not document_top_summary:
+            document_top_summary = load_nav_top_summary(str(add_dir), source_file_name)
     return document_top_summary, section_summaries
 
 
@@ -179,21 +191,6 @@ def _refresh_processing_stages(job_context: ParseJobContext) -> None:
     if timing_ms is not None:
         stages["timing_ms"] = dict(timing_ms)
     job_context.job_metadata["stages"] = stages
-
-
-def _attach_document_top_summary(
-    chunks: list[dict[str, Any]],
-    document_top_summary: str,
-) -> None:
-    if not document_top_summary:
-        return
-
-    for chunk in chunks:
-        metadata = chunk.get("metadata")
-        if not isinstance(metadata, dict):
-            metadata = {}
-            chunk["metadata"] = metadata
-        metadata["document_top_summary"] = document_top_summary
 
 
 def _record_processing_completion(
