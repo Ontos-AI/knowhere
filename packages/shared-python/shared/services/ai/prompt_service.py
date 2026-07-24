@@ -483,36 +483,6 @@ def build_prompt(task, texts, query, **kwargs):
         - Return ONLY the JSON object, with no markdown fences or extra text.
         """
 
-    elif task == "page-memory-text-tag":
-        temperature = 0
-        top_p = 0.01
-        max_tokens = kwargs.get("paras", {}).get("max_tokens", 600)
-        entity_line = _entity_instruction()
-        page_text = kwargs.get("paras", {}).get("page_text", "")
-        prompt = f"""\
-        You are annotating a single document page for a document memory system.
-        The following is the extracted text from the page:
-        \"\"\"
-        {page_text}
-        \"\"\"
-
-        Return one strict JSON object with exactly these keys:
-
-        {{
-        "summary": "<concise summary of what this page contains>",
-        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
-        }}
-
-        Rules:
-        - "summary": describe the main content in a few sentences, in the same
-          language as the text. If the text contains a table, state its topic
-          and key columns; if it describes a figure or chart, describe what it
-          depicts and any standout values. If the text is empty or carries no
-          meaningful content, set summary to an empty string.
-        {entity_line}
-        - Return ONLY the JSON object, with no markdown fences or extra text.
-        """
-
     elif task == "page-memory-vlm-title":
         temperature = 0
         top_p = 0.01
@@ -747,47 +717,7 @@ Output requirements:
         top_p = 0.01
         max_tokens = kwargs.get("paras", {}).get("max_tokens", 1200)
         grid_size = kwargs.get("paras", {}).get("grid_size", 1000)
-        # Previous production prompt kept for comparison:
-        # prompt = f"""\
-        # You are a precise document layout detector. The attached image is a single PDF
-        # page screenshot.
-        #
-        # Find visually distinct tables, charts, and figures that should become reusable
-        # document assets. Return strict JSON:
-        # {{
-        # "regions": [
-        #     {{
-        #     "kind": "table|chart|figure",
-        #     "bbox": [x1, y1, x2, y2],
-        #     "caption": "<visible caption or nearby label, if any>",
-        #     "title": "<short asset title>",
-        #     "summary": "<1 sentence searchable summary>",
-        #     "keywords": ["<keyword_1>", "<keyword_2>"],
-        #     "confidence": 0.0
-        #     }}
-        # ]
-        # }}
-        #
-        # Coordinate system:
-        # - Treat the page image as a {grid_size}x{grid_size} grid.
-        # - Origin is the top-left corner.
-        # - bbox values must be integers in [0, {grid_size}].
-        # - bbox must tightly include the whole asset: title, caption, legend, axes,
-        # labels, table headers, and footnotes that are part of the asset.
-        # - Exclude surrounding body paragraphs, page headers, page footers, and page
-        # numbers.
-        #
-        # Rules:
-        # - "table": rows/columns of data, forms, financial tables, appendix tables.
-        # - "chart": plotted data such as bar/line/pie/scatter charts.
-        # - "figure": distinct diagrams, flowcharts, architecture drawings, embedded images.
-        #
-        # - Do not transcribe entire tables. Summarize the topic and extreme values based on main columns or rows.
-        # - "keywords" must be an array of up to 5 strings in the same language as the visible asset text.
-        # - Use confidence 0.0-1.0. Only include assets you can localize.
-        # - If there are no assets, return {{"regions":[]}}.
-        # - Return ONLY the JSON object, no markdown fences or explanations.
-        # """
+        
         prompt = f"""\
         You are a precise document layout detector. The attached image is a single
         rendered PDF page.
@@ -816,15 +746,38 @@ Output requirements:
         numbers.
 
         Rules:
-        - "table": data arranged in clear rows and columns - grid lines, cell
-        borders, or strongly aligned cells (data tables, forms, financial tables,
-        appendix tables).
-        - "figure": any non-table visual asset - bar/line/pie/scatter charts,
-        plots, diagrams, flowcharts, architecture drawings, schematics, or embedded
-        images.
-        - Do not mark ordinary paragraphs, bullet lists, title blocks, or loose
-        multi-line text as tables.
-        - Do not split a single coherent table or figure into sub-parts.
+        - "table": ONLY a conventional data table with visible grid and strongly regular cell alignment.
+        Require ALL of:
+          (1) an explicit header row and/or header column that labels the fields.
+          (2) one intact axis-aligned rectangular footprint: all four corners of
+          the table body are present, every data row spans that full width, and
+          the cell grid fills the rectangle without cutouts, protruding corner
+          panels, or L-shaped outlines.
+        typical table cases: forms, financial tables, data rows with field headers.
+
+        - Do NOT mark as "table": process boards, flowchart-like matrices, cards
+        connected by arrows, multi-column visual layouts, comparison panels, or
+        any region whose meaning depends on icons/arrows/color blocks rather than
+        plain headered cells. Those must be "figure".
+        - If unsure whether it meets this bar, prefer "figure".
+
+        - "figure": any non-table visual asset - charts, plots, diagrams,
+        flowcharts, architecture drawings, schematics, embedded images, and the
+        table-like visuals excluded above.
+        - Prefer one bbox for the whole figure. When multiple visual parts clearly
+        form one composition (shared caption or a multi-panel explanation of the
+        same concept/process), return them as a single figure, not separate images.
+        - Treat a flowchart or process diagram as one figure, including its nodes,
+        edges, labels, and legend when they belong together.
+
+        - Do NOT extract page backgrounds, watermarks, stamps, or decorative underlays.
+        - Do NOT extract small logos, icons, bullets, or other scattered decorative
+        marks that are not standalone informative figures.
+        - Do NOT extract ornamental digits/letters placed before a heading title as figures.
+
+        - Do NOT mark ordinary paragraphs, bullet lists, title blocks, or loose multi-line text as tables.
+        - Do NOT split a single coherent table or figure into sub-parts.
+
         - "title" is one short label only (single line). Do not duplicate it into
         other fields and do not write a summary. Use an empty string when there is
         no visible title or caption.

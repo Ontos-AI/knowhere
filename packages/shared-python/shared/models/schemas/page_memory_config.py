@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Literal, Self
+from typing import Self
 
 
 @dataclass(frozen=True)
@@ -15,12 +15,11 @@ class PageMemoryConfig:
     tag_concurrency: int = 4
     title_detection_concurrency: int = 3
     node_assembly_concurrency: int = 3
-    tag_mode: Literal["vlm", "text"] = "vlm"
     fine_min_pages: int = 4
     hierarchy_model: str | None = None
     hierarchy_max_tokens: int = 2000
     max_heading_depth: int = 6
-    asset_extraction_enabled: bool = False
+    asset_extraction_enabled: bool = True
     asset_summary_enabled: bool = False
     asset_model: str = "qwen3.6-flash"
     asset_max_pages: int | None = None
@@ -60,10 +59,6 @@ class PageMemoryConfig:
             return cls.default()
 
         default = cls.default()
-        tag_mode = str(value.get("tag_mode", default.tag_mode)).strip().lower()
-        resolved_tag_mode: Literal["vlm", "text"] = (
-            "text" if tag_mode == "text" else "vlm"
-        )
         return cls(
             max_pages=_as_int(value.get("max_pages"), default.max_pages),
             scope_concurrency=_as_int(
@@ -82,7 +77,6 @@ class PageMemoryConfig:
                 value.get("node_assembly_concurrency"),
                 default.node_assembly_concurrency,
             ),
-            tag_mode=resolved_tag_mode,
             fine_min_pages=_as_int(
                 value.get("fine_min_pages"),
                 default.fine_min_pages,

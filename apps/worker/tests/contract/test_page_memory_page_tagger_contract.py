@@ -12,7 +12,13 @@ os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 from app.services.page_memory.page_renderer import PageRenderResult
-from app.services.page_memory.page_tagger import PageTagResult, tag_page_titles
+from app.services.page_memory.page_tagger import (
+    PageTagResult,
+    _completion_tokens,
+    _tag_vlm_titles,
+    _title_response_truncated,
+    tag_page_titles,
+)
 from shared.core.exceptions.domain_exceptions import UnavailableException
 
 
@@ -20,6 +26,81 @@ def _write_page_image(tmp_path, page_index: int) -> str:
     image_path = tmp_path / f"page-{page_index}.png"
     image_path.write_bytes(b"png")
     return str(image_path)
+
+
+def test_title_response_truncated_detects_budget_hit_and_incomplete_json() -> None:
+    assert _title_response_truncated(
+        '{"titles":[',
+        usage={"completion_tokens": 300},
+        max_tokens=300,
+    )
+    assert _title_response_truncated(
+        '{"titles":[{"text":"A"',
+        usage={"completion_tokens": 120},
+        max_tokens=300,
+    )
+    assert not _title_response_truncated(
+        '{"titles":[]}',
+        usage={"completion_tokens": 40},
+        max_tokens=300,
+    )
+    assert _completion_tokens({"completion_tokens": 12}) == 12
+
+
+def test_title_detection_escalates_token_budget_on_truncated_json(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    truncated = (
+        '{\n  "titles": [\n'
+        "    {\n"
+        '      "text": "Section A Governing requirements",\n'
+        '      "prominence": 1.0,\n'
+        '      "is_in_table": false,\n'
+    )
+    complete = (
+        '{\n  "titles": [\n'
+        "    {\n"
+        '      "text": "Section A Governing requirements",\n'
+        '      "prominence": 1.0,\n'
+        '      "is_in_table": false,\n'
+        '      "is_in_header_footer": false\n'
+        "    }\n"
+        "  ]\n"
+        "}"
+    )
+    calls: list[int] = []
+
+    class _FakeClient:
+        def chat_completion_with_usage(self, **kwargs):
+            max_tokens = int(kwargs["max_tokens"])
+            calls.append(max_tokens)
+            if max_tokens == 300:
+                return truncated, {"completion_tokens": 300, "prompt_tokens": 10}
+            return complete, {"completion_tokens": 180, "prompt_tokens": 10}
+
+    monkeypatch.setattr(
+        "shared.services.ai.llm_overrides.get_vision_client",
+        lambda requested_model=None: (_FakeClient(), requested_model or "fake-vlm"),
+    )
+    monkeypatch.setattr(
+        "app.services.page_memory.page_tagger.build_prompt",
+        lambda *args, **kwargs: ("prompt", 0.0, 0.01, 300),
+    )
+
+    page = PageRenderResult(
+        page_index=38,
+        image_path=_write_page_image(tmp_path, 38),
+        raw_text="",
+        width=100,
+        height=200,
+        is_landscape=False,
+    )
+    observed = _tag_vlm_titles(page, model="fake-vlm")
+    assert calls == [300, 600]
+    assert [item["text"] for item in observed] == [
+        "Section A Governing requirements"
+    ]
 
 
 def test_title_detection_preserves_page_index_assignment_under_concurrency(

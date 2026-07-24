@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from types import SimpleNamespace
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
@@ -175,3 +176,45 @@ def test_page_assets_adds_java_home_to_path(monkeypatch, tmp_path) -> None:
 
     assert page_assets._has_working_java() is True  # noqa: SLF001
     assert os.environ["PATH"].split(os.pathsep)[0] == str(java_bin)
+
+
+def test_select_rendered_pages_with_assets_keeps_only_has_asset_pages() -> None:
+    from app.services.page_memory.memory_service import (
+        _select_rendered_pages_with_assets,
+    )
+
+    rendered = [
+        PageRenderResult(
+            page_index=1,
+            image_path="/tmp/1.png",
+            raw_text="",
+            width=10,
+            height=10,
+            is_landscape=False,
+        ),
+        PageRenderResult(
+            page_index=2,
+            image_path="/tmp/2.png",
+            raw_text="",
+            width=10,
+            height=10,
+            is_landscape=False,
+        ),
+        PageRenderResult(
+            page_index=3,
+            image_path="/tmp/3.png",
+            raw_text="",
+            width=10,
+            height=10,
+            is_landscape=False,
+        ),
+    ]
+    page_features = [
+        SimpleNamespace(page=1, has_asset=False),
+        SimpleNamespace(page=2, has_asset=True),
+        SimpleNamespace(page=3, has_asset=True),
+    ]
+
+    selected = _select_rendered_pages_with_assets(rendered, page_features)
+
+    assert [item.page_index for item in selected] == [2, 3]
