@@ -228,7 +228,7 @@ def _probe_visual_assets(
             )
             if not _valid_bbox(box):
                 continue
-            key = tuple(box)
+            key = (box[0], box[1], box[2], box[3])
             if key in seen_image_rects:
                 continue
             seen_image_rects.add(key)
