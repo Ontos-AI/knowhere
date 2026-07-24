@@ -737,7 +737,6 @@ def _run_hierarchy_scope(
         page_count=page_count,
         page_labels=page_labels,
         page_features=page_features,
-        tag_mode=page_memory_config.tag_mode,
     )
     final_page_set = set(final_pages)
     plans = [plan for plan in plans if plan.page_index in final_page_set]

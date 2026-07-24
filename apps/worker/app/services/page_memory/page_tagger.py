@@ -2,8 +2,6 @@
 
 For ``vlm_lite`` pages, sends the page PNG to the VLM and expects a JSON
 response with ``summary`` and ``keywords``.
-For ``text_only`` pages, calls the existing ``summary-full`` LLM prompt
-to extract summary + keywords from raw text.
 For ``skip_tagging`` pages, content is preserved but summary is omitted.
 
 Title detection (``tag_page_titles``) extracts outline-level headings in
@@ -102,15 +100,12 @@ def tag_pages(
         if strategy == PageProcessingStrategy.SKIP_TAGGING:
             return _tag_skip(page)
 
-        if strategy == PageProcessingStrategy.TEXT_ONLY:
-            return _tag_text_only(page)
-
         if not model:
             logger.warning(
-                "[page_tagger] no VLM model configured for page {}; using text_only",
+                "[page_tagger] no VLM model configured for page {}; skipping tag",
                 page.page_index,
             )
-            return _tag_text_only(page)
+            return _tag_skip(page)
 
         return _tag_vlm_lite(page, model=model)
 
@@ -121,10 +116,9 @@ def tag_pages(
     results = [cast(PageTagResult, g.value) for g in greenlets]
     vlm_calls = sum(1 for r in results if r.strategy_used == "vlm_lite")
     logger.info(
-        "[page_tagger] tagged {} pages ({} VLM calls, {} text_only, {} skipped, {} failed) concurrency={}",
+        "[page_tagger] tagged {} pages ({} VLM calls, {} skipped, {} failed) concurrency={}",
         len(results),
         vlm_calls,
-        sum(1 for r in results if r.strategy_used == "text_only"),
         sum(1 for r in results if r.strategy_used == "skip_tagging"),
         len(greenlets) - len(results),
         resolved_max_concurrent,
@@ -146,85 +140,6 @@ def _tag_skip(page: PageRenderResult) -> PageTagResult:
     )
 
 
-def _tag_text_only(
-    page: PageRenderResult,
-) -> PageTagResult:
-    """Extract summary + entities from raw page text via page-memory-text-tag.
-
-    Uses the same output spec ({summary, entities}) as the VLM path so
-    downstream consumers need no special-casing. Returns an EMPTY-marked
-    result when the page has no extractable text.
-    """
-    raw = page.raw_text.strip()
-    if not raw:
-        return PageTagResult(
-            page_index=page.page_index,
-            summary="EMPTY",
-            keywords=[],
-            strategy_used="text_only",
-        )
-
-    model = os.environ.get("NORMOL_MODEL", "deepseek-v4-flash")
-    text_input = raw[:4000]  # cap to avoid token overflow
-    prompt, temperature, top_p, max_tokens = build_prompt(
-        "page-memory-text-tag",
-        "",
-        "",
-        paras={"max_tokens": 600, "page_text": text_input},
-    )
-
-    try:
-        from shared.services.ai.llm_overrides import get_text_client
-
-        client, model = get_text_client(requested_model=model)
-        raw_response, usage = client.chat_completion_with_usage(
-            messages=cast(Any, [{"role": "user", "content": prompt}]),
-            model=model,
-            temperature=temperature,
-            top_p=top_p,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},
-            usage_task="page_memory.text_tag",
-        )
-    except UnavailableException:
-        raise
-    except Exception as exc:
-        logger.warning(
-            "[page_tagger] text_only LLM failed for page {}: {}",
-            page.page_index,
-            exc,
-        )
-        return PageTagResult(
-            page_index=page.page_index,
-            summary="",
-            keywords=[],
-            strategy_used="text_only",
-        )
-
-    try:
-        data = json.loads(raw_response)
-    except json.JSONDecodeError:
-        return PageTagResult(
-            page_index=page.page_index,
-            summary="",
-            keywords=[],
-            strategy_used="text_only",
-        )
-
-    entities_raw = data.get("entities") or []
-    entities = [
-        e for e in entities_raw
-        if isinstance(e, dict) and e.get("text")
-    ]
-    return PageTagResult(
-        page_index=page.page_index,
-        summary=str(data.get("summary") or "").strip(),
-        keywords=[str(e["text"]) for e in entities],
-        entities=entities,
-        strategy_used="text_only",
-    )
-
-
 def _tag_vlm_lite(
     page: PageRenderResult,
     *,
@@ -233,10 +148,10 @@ def _tag_vlm_lite(
     """Send page PNG to the VLM via the unified engine."""
     if not page.image_path or not os.path.exists(page.image_path):
         logger.warning(
-            "[page_tagger] no PNG for page {}; text_only fallback",
+            "[page_tagger] no PNG for page {}; skipping tag",
             page.page_index,
         )
-        return _tag_text_only(page)
+        return _tag_skip(page)
 
     result = summarize(
         mode="page",

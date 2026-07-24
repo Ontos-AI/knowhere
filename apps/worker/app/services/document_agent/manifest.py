@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 
-PageKind = Literal["normal", "table_heavy", "image_heavy", "low_content", "landscape"]
+PageKind = Literal["normal", "landscape"]
 TocFailureKind = Literal["none", "confirm_failed", "rejected_all", "degraded"]
 
 ReflexionAction = Literal["tool_call", "verdict_now"]
@@ -26,7 +26,10 @@ class PageFeature:
     orientation: Literal["portrait", "landscape"]
     width: float
     height: float
+    has_asset: bool
     is_blank_like: bool
+    # PDF-space boxes for detected assets; None when none were extracted.
+    asset_bboxes: list[dict[str, Any]] | None = None
     text_lines_preview: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -52,6 +55,10 @@ class DocumentProfile:
     category_rationale: str = ""
     language: str = "unknown"
     rationale: str = ""
+    # Content-band margins as fractions of page height (top origin, y down).
+    # header_y: lowest header line among sample pages; footer_y: highest footer.
+    header_y: float | None = None
+    footer_y: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

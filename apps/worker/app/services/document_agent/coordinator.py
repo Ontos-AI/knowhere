@@ -10,6 +10,7 @@ from loguru import logger
 from app.services.document_agent.bootstrap import (
     aggregate_doc_stats,
     classify_page_kinds,
+    probe_page_assets,
     probe_page_features,
 )
 from app.services.document_agent.budget import BudgetTracker, StageEnvelope
@@ -151,6 +152,7 @@ class ProfileCoordinator:
         profile, _initial_decision, _planner_result = self._propose_profile(
             actor="planner:coarse"
         )
+        self._ensure_asset_probe()
         return profile
 
     def _run_structural(self) -> PageAnatomyMap:
@@ -164,6 +166,7 @@ class ProfileCoordinator:
         profile, initial_decision, _planner_result = self._propose_profile(
             actor="planner"
         )
+        self._ensure_asset_probe()
         executor_result = ReActExecutor(
             self.ctx,
             registry=REGISTRY,
@@ -200,6 +203,7 @@ class ProfileCoordinator:
         self.state = DocumentAgentState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
+        self._ensure_asset_probe()
         if self.blackboard.toc_result is None:
             if self._toc_profile_enabled():
                 self.blackboard.toc_result = TocResult(
@@ -269,6 +273,28 @@ class ProfileCoordinator:
         for tool_name, handler in (
             ("probe.page_features", probe_page_features),
             ("classify.page_kinds", classify_page_kinds),
+            ("aggregate.doc_stats", aggregate_doc_stats),
+        ):
+            result = handler(self.ctx, {})
+            self.trace.record_step(
+                round_index=self.round_index,
+                actor=f"bootstrap:{tool_name}",
+                action_type="bootstrap",
+                result=result,
+                tool_name=tool_name,
+                tool_args={},
+            )
+            if result.status != "ok":
+                raise RuntimeError(result.error or f"{tool_name} failed")
+            self.round_index += 1
+
+    def _ensure_asset_probe(self) -> None:
+        if self.blackboard.global_signals.get("assets_probed"):
+            return
+        if not self.blackboard.page_features:
+            raise RuntimeError("page_features missing; run text bootstrap first")
+        for tool_name, handler in (
+            ("probe.page_assets", probe_page_assets),
             ("aggregate.doc_stats", aggregate_doc_stats),
         ):
             result = handler(self.ctx, {})

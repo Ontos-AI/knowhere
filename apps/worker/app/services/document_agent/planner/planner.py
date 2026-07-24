@@ -26,18 +26,6 @@ PAGE_KIND_DEFINITIONS = {
         "Page with enough extractable native text and no dominant table/image "
         "structure."
     ),
-    "table_heavy": (
-        "Page with detected tables or many vector drawings, often financial "
-        "tables or dense tabular layout."
-    ),
-    "image_heavy": (
-        "Page dominated by image coverage with little extractable native text; "
-        "may be scanned, infographic, photo, or rendered page."
-    ),
-    "low_content": (
-        "Page with very little extractable text and little visual/table content; "
-        "may be blank, separator, short heading page, or sparse transition page."
-    ),
     "landscape": "Landscape-oriented page, often wide tables, drawings, slides, or diagrams.",
 }
 
@@ -56,11 +44,9 @@ def _feature_rows(ctx: ToolContext, pages: list[int]) -> list[dict[str, Any]]:
                 "confidence": label.confidence if label else None,
                 "raw_text_length": feature.raw_text_length,
                 "text_density": feature.text_density,
-                "image_coverage": feature.image_coverage,
-                "image_count": feature.image_count,
-                "table_count": feature.table_count,
-                "drawings_count": feature.drawings_count,
                 "orientation": feature.orientation,
+                "width": feature.width,
+                "height": feature.height,
                 "is_blank_like": feature.is_blank_like,
             }
         )
@@ -78,6 +64,11 @@ def _segment_sample(candidates: list[int], count: int) -> list[int]:
     return [candidates[round(index * step)] for index in range(count)]
 
 
+# Coarse VLM budget: extrema first, then front/mid/back fill, hard cap 10.
+_COARSE_SAMPLE_CAP = 10
+_COARSE_SEGMENT_QUOTAS = (2, 2, 2)  # front, middle, back
+
+
 def _sample_pages(
     page_count: int,
     extrema_pages: list[int],
@@ -85,9 +76,16 @@ def _sample_pages(
 ) -> list[int]:
     """Select representative pages for VLM profiling.
 
+    Strategy (cap 10):
+      1. Text extrema first (length/density min+max, ≤4 unique).
+      2. Fill remaining slots with 2/2/2 stratified samples from
+         front/middle/back of the non-extrema pool.
+      3. Hard truncate to ``_COARSE_SAMPLE_CAP``.
+
     Args:
         page_count: Total number of pages.
-        extrema_pages: Pages with statistical extrema (min/max text, tables, etc.).
+        extrema_pages: Pages with text extrema (min/max raw_text_length /
+            text_density). Low-text extrema already surface chart/asset pages.
         exclude_pages: Pages to skip entirely (e.g. TOC pages already detected
             by the TOC pipeline). These inflate text-density metrics without
             adding profiling value.
@@ -98,21 +96,34 @@ def _sample_pages(
     extrema = [page for page in extrema_pages if 1 <= page <= page_count and page not in skip]
     pool = [page for page in range(1, page_count + 1) if page not in set(extrema) and page not in skip]
     if not pool:
-        return sorted(set(extrema))
+        return sorted(set(extrema))[:_COARSE_SAMPLE_CAP]
     third = max(len(pool) // 3, 1)
     front = pool[:third]
     middle = pool[third : third * 2]
     back = pool[third * 2 :]
+    front_n, middle_n, back_n = _COARSE_SEGMENT_QUOTAS
     sampled = (
-        _segment_sample(front, 4)
-        + _segment_sample(middle or pool, 3)
-        + _segment_sample(back or pool, 3)
+        _segment_sample(front, front_n)
+        + _segment_sample(middle or pool, middle_n)
+        + _segment_sample(back or pool, back_n)
     )
     ordered = []
     for page in extrema + sampled:
         if page not in ordered:
             ordered.append(page)
-    return ordered[:20]
+    return ordered[:_COARSE_SAMPLE_CAP]
+
+
+def _parse_margin_ratio(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        ratio = float(value)
+    except (TypeError, ValueError):
+        return None
+    if 0.0 <= ratio <= 1.0:
+        return ratio
+    return None
 
 
 def _parse_profile_and_decision(raw: str) -> tuple[DocumentProfile, ReflexionDecision]:
@@ -130,6 +141,11 @@ def _parse_profile_and_decision(raw: str) -> tuple[DocumentProfile, ReflexionDec
         is_scanned = raw_is_scanned.strip().lower() in {"true", "yes", "1", "scanned"}
     else:
         is_scanned = bool(raw_is_scanned)
+    header_y = _parse_margin_ratio(data.get("header_y"))
+    footer_y = _parse_margin_ratio(data.get("footer_y"))
+    if header_y is not None and footer_y is not None and header_y >= footer_y:
+        header_y = None
+        footer_y = None
     profile = DocumentProfile(
         is_scanned=is_scanned,
         category=category or "unknown document",
@@ -137,6 +153,8 @@ def _parse_profile_and_decision(raw: str) -> tuple[DocumentProfile, ReflexionDec
         category_rationale=str(data.get("category_rationale") or ""),
         language=str(data.get("language") or "unknown"),
         rationale=str(data.get("rationale") or ""),
+        header_y=header_y,
+        footer_y=footer_y,
     )
     next_action = str(data.get("next_action") or "ready_to_shard")
     tool_name: str | None = None

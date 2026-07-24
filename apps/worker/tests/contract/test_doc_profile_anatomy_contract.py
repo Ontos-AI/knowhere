@@ -56,7 +56,9 @@ def _page_feature(page: int = 1) -> PageFeature:
         orientation="portrait",
         width=72.0,
         height=72.0,
+        has_asset=False,
         is_blank_like=False,
+        asset_bboxes=None,
         text_lines_preview=["Section 1"],
     )
 

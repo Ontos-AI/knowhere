@@ -483,36 +483,6 @@ def build_prompt(task, texts, query, **kwargs):
         - Return ONLY the JSON object, with no markdown fences or extra text.
         """
 
-    elif task == "page-memory-text-tag":
-        temperature = 0
-        top_p = 0.01
-        max_tokens = kwargs.get("paras", {}).get("max_tokens", 600)
-        entity_line = _entity_instruction()
-        page_text = kwargs.get("paras", {}).get("page_text", "")
-        prompt = f"""\
-        You are annotating a single document page for a document memory system.
-        The following is the extracted text from the page:
-        \"\"\"
-        {page_text}
-        \"\"\"
-
-        Return one strict JSON object with exactly these keys:
-
-        {{
-        "summary": "<concise summary of what this page contains>",
-        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
-        }}
-
-        Rules:
-        - "summary": describe the main content in a few sentences, in the same
-          language as the text. If the text contains a table, state its topic
-          and key columns; if it describes a figure or chart, describe what it
-          depicts and any standout values. If the text is empty or carries no
-          meaningful content, set summary to an empty string.
-        {entity_line}
-        - Return ONLY the JSON object, with no markdown fences or extra text.
-        """
-
     elif task == "page-memory-vlm-title":
         temperature = 0
         top_p = 0.01
@@ -776,15 +746,27 @@ Output requirements:
         numbers.
 
         Rules:
-        - "table": data arranged in clear rows and columns - grid lines, cell
-        borders, or strongly aligned cells (data tables, forms, financial tables,
-        appendix tables).
-        - "figure": any non-table visual asset - bar/line/pie/scatter charts,
-        plots, diagrams, flowcharts, architecture drawings, schematics, or embedded
-        images.
+        - "table": ONLY a conventional data table with visible grid and strongly regular cell alignment.
+        Require ALL of:
+          (1) an explicit header row and/or header column that labels the fields.
+          (2) one intact axis-aligned rectangular footprint: all four corners of
+          the table body are present, every data row spans that full width, and
+          the cell grid fills the rectangle without cutouts, protruding corner
+          panels, or L-shaped outlines.
+        typical table cases: forms, financial tables, data rows with field headers.
+
+        - Do NOT mark as "table": process boards, flowchart-like matrices, cards
+        connected by arrows, multi-column visual layouts, comparison panels, or
+        any region whose meaning depends on icons/arrows/color blocks rather than
+        plain headered cells. Those must be "figure".
+        - If unsure whether it meets this bar, prefer "figure".
+
+        - "figure": any non-table visual asset - charts, plots, diagrams,
+        flowcharts, architecture drawings, schematics, embedded images, and the
+        table-like visuals excluded above.
         - Prefer one bbox for the whole figure. When multiple visual parts clearly
-        form one composition (shared caption or a multi-panel explanation of the same concept/process), 
-        return them as a single figure, not separate images.
+        form one composition (shared caption or a multi-panel explanation of the
+        same concept/process), return them as a single figure, not separate images.
         - Treat a flowchart or process diagram as one figure, including its nodes,
         edges, labels, and legend when they belong together.
 
