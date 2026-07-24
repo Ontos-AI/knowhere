@@ -5,6 +5,7 @@ import io
 import zipfile
 
 from app.services.document_parser.formats.docx.toc import detect_doc_tocs, detect_sdt_toc
+from app.services.document_parser.assets.image_size_filter import is_below_img_min_size
 from docx import Document
 from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
@@ -134,6 +135,8 @@ def iter_block_items(doc_data):
                         continue
                     seen_rids.add(rid)
                     data = docx.read("word/" + target)
+                    if is_below_img_min_size(len(data)):
+                        continue
                     yield (
                         ele_num,
                         None,
@@ -234,9 +237,7 @@ def iter_block_items(doc_data):
                                 continue
                             cell_seen_rids.add(rid)
                             data = docx.read("word/" + target)
-                            if (
-                                len(data) < 10 * 1024
-                            ):  # Skip small images (<10KB, likely icons)
+                            if is_below_img_min_size(len(data)):
                                 continue
                             imgs_in_cell.append(
                                 {
@@ -271,7 +272,7 @@ def iter_block_items(doc_data):
                                     f"Failed to convert VML cell image to PNG: {e}"
                                 )
                                 continue
-                            if len(png_data) < 10 * 1024:
+                            if is_below_img_min_size(len(png_data)):
                                 continue
                             orig_name = target.split("/")[-1]
                             png_name = os.path.splitext(orig_name)[0] + ".png"

@@ -11,6 +11,15 @@ from app.services.document_parser.assets.image_compressor import (
 from app.services.document_parser.support.stage_profiler import stage_timer
 from loguru import logger
 
+_IMG_SRC_BASENAME_RE = re.compile(
+    r"""<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']""",
+    re.IGNORECASE,
+)
+_HASH_IMAGE_RE = re.compile(
+    r"^[a-f0-9]{64}\.(?:jpg|jpeg|png|gif|webp)$",
+    re.IGNORECASE,
+)
+
 
 def apply_parse_postprocess(
     output_dir: str,
@@ -39,19 +48,23 @@ def apply_parse_postprocess(
 
 
 def cleanup_unreferenced_images(output_dir: str) -> int:
-    """Remove UUID-named images that are not referenced by final parsed output."""
+    """Remove hash-named MinerU images that are not referenced by table HTML.
+
+    Images extracted as ``image-N-*`` are never matched by the hash pattern and
+    are always kept. Hash-named files still referenced from ``tables/*.html``
+    (e.g. failed extraction) are also preserved.
+    """
     image_dir = os.path.join(output_dir, "images")
     if not os.path.isdir(image_dir):
         return 0
 
-    uuid_pattern = re.compile(
-        r"^[a-f0-9]{64}\.(?:jpg|jpeg|png|gif|webp)$",
-        re.IGNORECASE,
-    )
+    protected_basenames = _collect_table_img_basenames(output_dir)
     removed_count = 0
 
     for filename in os.listdir(image_dir):
-        if not uuid_pattern.match(filename):
+        if not _HASH_IMAGE_RE.match(filename):
+            continue
+        if filename in protected_basenames:
             continue
 
         file_path = os.path.join(image_dir, filename)
@@ -68,3 +81,26 @@ def cleanup_unreferenced_images(output_dir: str) -> int:
         )
 
     return removed_count
+
+
+def _collect_table_img_basenames(output_dir: str) -> set[str]:
+    tables_dir = os.path.join(output_dir, "tables")
+    if not os.path.isdir(tables_dir):
+        return set()
+
+    basenames: set[str] = set()
+    for filename in os.listdir(tables_dir):
+        if not filename.endswith(".html"):
+            continue
+        table_path = os.path.join(tables_dir, filename)
+        try:
+            with open(table_path, encoding="utf-8") as table_file:
+                html = table_file.read()
+        except OSError as exc:
+            logger.warning(f"Failed to read table HTML {table_path}: {exc}")
+            continue
+        for match in _IMG_SRC_BASENAME_RE.finditer(html):
+            src = match.group(1).strip()
+            if src:
+                basenames.add(os.path.basename(src))
+    return basenames

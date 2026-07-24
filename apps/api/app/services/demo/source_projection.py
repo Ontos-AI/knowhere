@@ -5,6 +5,11 @@ from __future__ import annotations
 from typing import Any, Protocol
 from urllib.parse import quote
 
+from shared.services.chunks.path_segments import (
+    join_document_path,
+    split_escaped_document_path,
+)
+
 _SOURCE_FILE_EXTENSIONS = (
     ".csv",
     ".doc",
@@ -241,22 +246,18 @@ def _publication_path(
     if not raw:
         return prefix
 
-    if "-->" in raw:
-        sections = [part.strip() for part in raw.split("-->")[1:] if part.strip()]
-        return "/".join([prefix, *sections]) if sections else prefix
-
     if raw.startswith("images/") or raw.startswith("tables/"):
         return f"{prefix}/Assets/{raw}"
 
-    parts = [part.strip() for part in raw.split("/") if part.strip()]
+    parts = split_escaped_document_path(raw)
     if parts and parts[0] == source.title:
-        return raw
+        return join_document_path(parts)
     if len(parts) >= 2 and parts[0] == "Default_Root":
         section_parts = parts[2:] if parts[1] == source.title else parts[1:]
-        return "/".join([prefix, *section_parts]) if section_parts else prefix
+        return join_document_path([prefix, *section_parts]) if section_parts else prefix
     if parts and _is_source_file_root(parts[0]):
         section_parts = parts[1:]
-        return "/".join([prefix, *section_parts]) if section_parts else prefix
+        return join_document_path([prefix, *section_parts]) if section_parts else prefix
     return prefix
 
 

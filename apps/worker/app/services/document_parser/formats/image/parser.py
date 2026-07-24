@@ -87,7 +87,7 @@ def local_image_to_data_url(path, cut=True, min_size=None, max_size=None):
 
     if cut:
         file_size = path.stat().st_size  # Bytes.
-        if file_size < min_size:  # Smaller than 10 KB.
+        if file_size < min_size:
             logger.debug(f"Skipping {path} (too small: {file_size / 1024:.1f} KB)")
             return None
         if file_size >= max_size:  # Larger than 5 MB.
@@ -232,15 +232,13 @@ def parse_image(
         img_obj = Image.open(io.BytesIO(img_bytes))
         img_obj.save(img_path)
 
-        # Early exit: skip images smaller than 10KB
+        # Early exit: skip images smaller than IMG_MIN_SIZE before VLM work.
+        from app.services.document_parser.assets.image_size_filter import (
+            discard_undersized_image_file,
+        )
         from shared.core.constants import ProcessingConstants
 
-        saved_size = os.path.getsize(img_path)
-        if saved_size < ProcessingConstants.IMG_MIN_SIZE:
-            logger.debug(
-                f"Skipping image {filename} (too small: {saved_size / 1024:.1f} KB)"
-            )
-            os.remove(img_path)
+        if discard_undersized_image_file(img_path, label=f"image {filename}"):
             return pd.DataFrame(columns=list(PARSER_ROW_COLUMNS))
 
         # Extract image content

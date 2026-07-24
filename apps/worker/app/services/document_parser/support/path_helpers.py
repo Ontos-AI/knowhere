@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from shared.utils.chunk_refs import extract_chunk_refs
+from shared.services.chunks.path_segments import join_document_path
 from app.services.common.file_utils import path_handle
 
 SUMMARY_PATH_MARKERS: tuple[str, ...] = ("summary", "\u6458\u8981\u603b\u7ed3")
@@ -56,8 +57,7 @@ def flatten_dic2paths(
         if isinstance(value, dict) and value:
             flatten_dic2paths(value, new_path, result)
         else:
-            split_char = os.getenv("SPLIT_CHAR", "/")
-            result.append(split_char.join(new_path))
+            result.append(join_document_path(new_path))
     return result
 
 

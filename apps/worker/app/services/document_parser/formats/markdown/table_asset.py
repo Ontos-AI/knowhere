@@ -34,6 +34,7 @@ class MarkdownTableAssetRequest:
     timestamp: str
     summary_table: bool
     row_index: int
+    image_refs: list[str] | None = None
 
 
 def build_markdown_table_asset(
@@ -60,6 +61,7 @@ def build_markdown_table_asset(
         keywords="",
         know_id=gen_str_codes((request.table_html + str(request.table_count))),
         addtime=request.timestamp,
+        image_refs=request.image_refs or [],
     )
 
     deferred_task = None
@@ -69,7 +71,6 @@ def build_markdown_table_asset(
             table_html=request.table_html,
             table_dir=request.table_dir,
             table_name=table_name,
-            table_count=request.table_count - 1,
         )
 
     return MarkdownTableAsset(

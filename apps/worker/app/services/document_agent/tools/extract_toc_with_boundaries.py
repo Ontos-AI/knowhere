@@ -447,16 +447,6 @@ def extract_toc_with_boundaries(
         "batch_meta": batch_meta,
     }
 
-    # Persist toc_hierarchies to disk for inspection / downstream reuse
-    if toc_hierarchies and ctx.output_dir:
-        toc_json_path = os.path.join(ctx.output_dir, "toc_hierarchies.json")
-        try:
-            with open(toc_json_path, "w", encoding="utf-8") as f:
-                json.dump(toc_hierarchies, f, ensure_ascii=False, indent=2)
-            logger.info("[extract.toc] wrote toc_hierarchies to {}", toc_json_path)
-        except Exception as exc:
-            logger.warning("[extract.toc] failed to write toc_hierarchies: {}", exc)
-
     # Build toc_ranges from confirmed TOC pages for summary
     toc_ranges_out: list[list[int]] = []
     if toc_hierarchies:

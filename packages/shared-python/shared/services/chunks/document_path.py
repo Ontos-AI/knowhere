@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+from shared.services.chunks.path_segments import unescape_path_segment
+
 _DOCUMENT_FILE_EXTENSIONS = {
     ".csv",
     ".atlas",
@@ -38,7 +40,7 @@ def split_document_path(
     source_file_name: str | None = None,
 ) -> tuple[list[str], list[str]]:
     """Return ``(root_parts, section_parts)`` for new and legacy chunk paths."""
-    parts = _split_path(path, source_file_name=source_file_name)
+    parts = _split_path(path)
     if not parts:
         return [], []
     if parts[0] in _MEDIA_ROOT_SEGMENTS and not _is_legacy_namespace_path(
@@ -51,63 +53,16 @@ def split_document_path(
     return parts[: document_index + 1], parts[document_index + 1 :]
 
 
-def _split_path(path: str | None, *, source_file_name: str | None) -> list[str]:
+def _split_path(path: str | None) -> list[str]:
     raw = str(path or "").strip()
-    raw_segments = raw.split("/")
-    source_segment = _normalize_document_file_name(source_file_name)
-    parts: list[str] = []
-    for index, segment in enumerate(raw_segments):
-        parts.extend(
-            _split_arrow_document_segment(
-                segment,
-                can_split=_can_split_arrow_document_segment(
-                    index=index,
-                    raw_segments=raw_segments,
-                    segment=segment,
-                    source_segment=source_segment,
-                ),
-            )
-        )
-    return parts
-
-
-def _can_split_arrow_document_segment(
-    *,
-    index: int,
-    raw_segments: list[str],
-    segment: str,
-    source_segment: str,
-) -> bool:
-    if index == 0:
-        return True
-    if index != 1:
-        return False
-
-    first_segment = raw_segments[0].strip() if raw_segments else ""
-    if not _is_document_file_segment(first_segment):
-        return True
-
-    arrow_document_segment = _normalize_document_file_name(
-        segment.split("-->", 1)[0]
-    )
-    return bool(source_segment and arrow_document_segment == source_segment)
-
-
-def _split_arrow_document_segment(segment: str, *, can_split: bool) -> list[str]:
-    normalized_segment = segment.strip()
-    if not normalized_segment:
-        return []
-    if not can_split or "-->" not in normalized_segment:
-        return [normalized_segment]
-
-    arrow_parts = [
-        part.strip()
-        for part in normalized_segment.split("-->")
-        if part.strip()
+    # Chunk paths use ``/`` as the sole hierarchy separator. Titles that contain
+    # a semantic ``/`` are escaped at construction time (``∕``) and restored here
+    # so publication/retrieval see one segment per title.
+    return [
+        unescape_path_segment(segment.strip())
+        for segment in raw.split("/")
+        if segment.strip()
     ]
-    if arrow_parts and _is_document_file_segment(arrow_parts[0]):
-        return arrow_parts
-    return [normalized_segment]
 
 
 def _find_document_index(

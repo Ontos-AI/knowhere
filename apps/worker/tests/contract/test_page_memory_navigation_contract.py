@@ -44,6 +44,7 @@ def test_page_doc_nav_uses_path_based_leaf_summaries_and_page_counts() -> None:
 
 def test_zip_result_service_builds_navigation_from_chunk_paths() -> None:
     doc_nav, hierarchy = ZipResultService()._build_navigation_outputs(  # noqa: SLF001
+        add_dir="",
         formatted_chunks=_page_chunks(),
         source_file_name="demo.pdf",
     )
@@ -55,6 +56,41 @@ def test_zip_result_service_builds_navigation_from_chunk_paths() -> None:
             "3.2 管理规定": {},
         }
     }
+
+
+def test_zip_result_service_prefers_enriched_on_disk_doc_nav(tmp_path) -> None:
+    enriched = {
+        "version": "1.0",
+        "file_name": "demo.pdf",
+        "top_summary": "Document overview from enrich",
+        "stats": {},
+        "sections": [
+            {
+                "title": "Kept From Disk",
+                "path": "demo.pdf/Kept From Disk",
+                "summary": "enriched section",
+                "chunk_count": 1,
+                "children": [],
+            }
+        ],
+        "resources": {"images": [], "tables": []},
+    }
+    (tmp_path / "doc_nav.json").write_text(
+        __import__("json").dumps(enriched, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    doc_nav, hierarchy = ZipResultService()._build_navigation_outputs(  # noqa: SLF001
+        add_dir=str(tmp_path),
+        formatted_chunks=_page_chunks(),
+        source_file_name="demo.pdf",
+    )
+
+    assert doc_nav is not None
+    assert doc_nav["top_summary"] == "Document overview from enrich"
+    assert doc_nav["sections"][0]["title"] == "Kept From Disk"
+    assert hierarchy == {"Kept From Disk": {}}
+
 
 
 def _page_chunks() -> list[dict[str, object]]:

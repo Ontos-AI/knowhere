@@ -52,7 +52,7 @@ class PageAsset:
 
 
 def page_asset_extraction_enabled() -> bool:
-    return False
+    return True
 
 
 def page_asset_summary_enabled() -> bool:

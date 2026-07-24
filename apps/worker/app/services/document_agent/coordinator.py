@@ -10,6 +10,7 @@ from loguru import logger
 from app.services.document_agent.bootstrap import (
     aggregate_doc_stats,
     classify_page_kinds,
+    probe_page_assets,
     probe_page_features,
 )
 from app.services.document_agent.budget import BudgetTracker, StageEnvelope
@@ -96,13 +97,6 @@ class ProfileCoordinator:
         self.round_index = 0
         self._planner_cache: tuple[DocumentProfile, Any, ToolResult] | None = None
 
-    def run(self) -> PageAnatomyMap:
-        try:
-            return self._run_structural()
-        except Exception as exc:
-            self._record_failure(exc)
-            raise
-
     def run_coarse(self) -> DocumentProfile:
         try:
             return self._run_coarse()
@@ -110,9 +104,9 @@ class ProfileCoordinator:
             self._record_failure(exc)
             raise
 
-    def run_structural(self) -> PageAnatomyMap:
+    def run_structural(self, *, skip_shard_plan: bool = False) -> PageAnatomyMap:
         try:
-            return self._run_structural()
+            return self._run_structural(skip_shard_plan=skip_shard_plan)
         except Exception as exc:
             self._record_failure(exc)
             raise
@@ -151,9 +145,10 @@ class ProfileCoordinator:
         profile, _initial_decision, _planner_result = self._propose_profile(
             actor="planner:coarse"
         )
+        self._ensure_asset_probe()
         return profile
 
-    def _run_structural(self) -> PageAnatomyMap:
+    def _run_structural(self, *, skip_shard_plan: bool = False) -> PageAnatomyMap:
         self.state = DocumentAgentState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
@@ -164,14 +159,22 @@ class ProfileCoordinator:
         profile, initial_decision, _planner_result = self._propose_profile(
             actor="planner"
         )
-        executor_result = ReActExecutor(
-            self.ctx,
-            registry=REGISTRY,
-            max_rounds=int(self.ctx.settings.get("max_rounds", 30)),
-            initial_decision=initial_decision,
-        ).run()
-        if executor_result.verdict.status != "success":
-            raise RuntimeError(f"profile aborted: {executor_result.verdict.rationale}")
+        self._ensure_asset_probe()
+        if skip_shard_plan:
+            # Page-memory oversized path never consumes shard_plan; only
+            # build_anatomy_map's invariant needs a non-empty plan.
+            self._apply_single_shard_placeholder()
+        else:
+            executor_result = ReActExecutor(
+                self.ctx,
+                registry=REGISTRY,
+                max_rounds=int(self.ctx.settings.get("max_rounds", 30)),
+                initial_decision=initial_decision,
+            ).run()
+            if executor_result.verdict.status != "success":
+                raise RuntimeError(
+                    f"profile aborted: {executor_result.verdict.rationale}"
+                )
         anatomy = build_anatomy_map(self.ctx)
         self._persist_ready_anatomy(anatomy)
         return anatomy
@@ -200,6 +203,7 @@ class ProfileCoordinator:
         self.state = DocumentAgentState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
+        self._ensure_asset_probe()
         if self.blackboard.toc_result is None:
             if self._toc_profile_enabled():
                 self.blackboard.toc_result = TocResult(
@@ -214,9 +218,7 @@ class ProfileCoordinator:
             # it. Populate a single-shard placeholder to skip the LLM shard
             # decision + H2 refinement (kept global for chunk-track oversized
             # MinerU sharding).
-            self.blackboard.shard_plan = single_shard_plan(
-                self.blackboard.page_count
-            )
+            self._apply_single_shard_placeholder()
         else:
             result = REGISTRY.dispatch("propose.shard_plan", self.ctx, {})
             self.trace.record_step(
@@ -233,6 +235,9 @@ class ProfileCoordinator:
         anatomy = build_anatomy_map(self.ctx)
         self._persist_ready_anatomy(anatomy)
         return anatomy
+
+    def _apply_single_shard_placeholder(self) -> None:
+        self.blackboard.shard_plan = single_shard_plan(self.blackboard.page_count)
 
     def _persist_ready_anatomy(self, anatomy: PageAnatomyMap) -> None:
         persist_result = persist_anatomy_map(self.ctx, {})
@@ -269,6 +274,28 @@ class ProfileCoordinator:
         for tool_name, handler in (
             ("probe.page_features", probe_page_features),
             ("classify.page_kinds", classify_page_kinds),
+            ("aggregate.doc_stats", aggregate_doc_stats),
+        ):
+            result = handler(self.ctx, {})
+            self.trace.record_step(
+                round_index=self.round_index,
+                actor=f"bootstrap:{tool_name}",
+                action_type="bootstrap",
+                result=result,
+                tool_name=tool_name,
+                tool_args={},
+            )
+            if result.status != "ok":
+                raise RuntimeError(result.error or f"{tool_name} failed")
+            self.round_index += 1
+
+    def _ensure_asset_probe(self) -> None:
+        if self.blackboard.global_signals.get("assets_probed"):
+            return
+        if not self.blackboard.page_features:
+            raise RuntimeError("page_features missing; run text bootstrap first")
+        for tool_name, handler in (
+            ("probe.page_assets", probe_page_assets),
             ("aggregate.doc_stats", aggregate_doc_stats),
         ):
             result = handler(self.ctx, {})

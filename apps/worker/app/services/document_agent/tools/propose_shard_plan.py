@@ -651,20 +651,20 @@ def _deterministic_no_toc_plan(
     *,
     page_count: int,
     max_pages: int,
-    low_content_pages: list[int],
+    blank_pages: list[int],
 ) -> tuple[list[tuple[int, str, str, float]], str]:
-    """Deterministic shard plan using low-content pages as split candidates."""
+    """Deterministic shard plan using blank-like pages as split candidates."""
     cuts: list[tuple[int, str, str, float]] = []
     previous = 0
     while page_count - previous > max_pages:
         target = previous + max_pages
-        # Look for a low-content page near the max boundary
+        # Look for a blank-like page near the max boundary
         eligible = [
-            p for p in low_content_pages if previous + (max_pages - 20) < p <= target
+            p for p in blank_pages if previous + (max_pages - 20) < p <= target
         ]
         if eligible:
             chosen = max(eligible)
-            cuts.append((chosen, "blank_separator", f"low-content page at {chosen}", 0.5))
+            cuts.append((chosen, "blank_separator", f"blank-like page at {chosen}", 0.5))
             previous = chosen
         else:
             cut_page = previous + max_pages
@@ -673,10 +673,10 @@ def _deterministic_no_toc_plan(
     return cuts, "too_large"
 
 
-def _get_low_content_pages(ctx: ToolContext) -> list[int]:
-    """Extract low-content page numbers from page labels."""
-    labels = ctx.blackboard.page_labels or []
-    return sorted(label.page for label in labels if label.kind == "low_content")
+def _get_blank_pages(ctx: ToolContext) -> list[int]:
+    """Extract blank-like page numbers from page features."""
+    features = ctx.blackboard.page_features or []
+    return sorted(feature.page for feature in features if feature.is_blank_like)
 
 
 @register_tool(
@@ -781,14 +781,14 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
             )
             rationale = "Deterministic chapter plan (no LLM)."
     else:
-        # Path B: No TOC — purely deterministic using low-content pages
-        low_content_pages = _get_low_content_pages(ctx)
+        # Path B: No TOC — purely deterministic using blank-like pages
+        blank_pages = _get_blank_pages(ctx)
         cuts, reason = _deterministic_no_toc_plan(
             page_count=page_count,
             max_pages=max_pages,
-            low_content_pages=low_content_pages,
+            blank_pages=blank_pages,
         )
-        rationale = "Deterministic plan from low-content page boundaries (no TOC)."
+        rationale = "Deterministic plan from blank-like page boundaries (no TOC)."
 
     shards = _cuts_to_shards(cuts, page_count)
     enabled = len(shards) > 1

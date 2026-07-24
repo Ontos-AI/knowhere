@@ -213,8 +213,8 @@ def test_generic_label_merges_regardless_of_content() -> None:
 # ── Test 5: result is sorted consistently ────────────────────────────
 
 
-def test_result_sorted_by_start_page_level_path() -> None:
-    """Output respects ``_sort_skeletons`` ordering so downstream is stable."""
+def test_result_sorted_by_start_page_preserving_same_page_order() -> None:
+    """Output is ordered by start_page; same-page relative order is preserved."""
     skeletons = [
         _skel(
             "doc.pdf/Z",
