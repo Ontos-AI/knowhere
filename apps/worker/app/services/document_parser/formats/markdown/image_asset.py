@@ -7,6 +7,9 @@ from typing import cast
 
 from app.services.document_parser.support.identifiers import gen_str_codes
 from app.services.document_parser.formats.image.parser import perceptual_hash
+from app.services.document_parser.assets.image_size_filter import (
+    discard_undersized_image_file,
+)
 from app.services.document_parser.assets.inline_asset import build_image_asset_row
 from app.services.document_parser.formats.markdown.deferred_task import (
     ImageDeferredSummaryTask,
@@ -27,6 +30,8 @@ class MarkdownImageAsset:
     cache_entry: dict[str, str] | None
     deferred_task: MarkdownDeferredSummaryTask | None
     should_advance_image_count: bool
+    relative_path: str | None
+    discarded_undersized: bool = False
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,7 @@ class MarkdownImageAssetRequest:
     seen_images: dict[str, dict[str, str]]
     summary_image: bool
     row_index: int
+    rename_on_summary: bool = True
 
 
 def build_markdown_image_asset(
@@ -55,6 +61,13 @@ def build_markdown_image_asset(
     if source_path is None or not source_path.exists():
         logger.warning(f"Image file not found, skipping rename: {request.image_path}")
         return _empty_asset(should_advance_image_count=True)
+
+    # Gate before rename / perceptual hash / deferred VLM summary.
+    if discard_undersized_image_file(source_path, label="markdown image"):
+        return _empty_asset(
+            should_advance_image_count=False,
+            discarded_undersized=True,
+        )
 
     with open(source_path, "rb") as image_file:
         image_binary_hash = perceptual_hash(image_file.read())
@@ -105,6 +118,7 @@ def build_markdown_image_asset(
             image_dir=request.image_dir,
             image_name=request.image_name,
             image_suffix=image_suffix,
+            rename_file=request.rename_on_summary,
         )
 
     return MarkdownImageAsset(
@@ -114,12 +128,15 @@ def build_markdown_image_asset(
         cache_entry=cache_entry,
         deferred_task=deferred_task,
         should_advance_image_count=True,
+        relative_path=relative_image_path,
     )
 
 
 def build_markdown_image_name(*, image_count: int, last_context: str) -> str:
-    image_name_context = path_handle(last_context[:10], mode="clean_single")
-    return f"image-{str(image_count)}-{image_name_context}"
+    image_name_context = path_handle(last_context.strip(), mode="clean_single")
+    if image_name_context:
+        return f"image-{image_count}-{image_name_context}"
+    return f"image-{image_count}"
 
 
 def resolve_workspace_image_path(
@@ -164,9 +181,10 @@ def _build_duplicate_image_asset(
     cache_entry: dict[str, str],
     timestamp: str,
 ) -> MarkdownImageAsset:
+    relative_path = cache_entry["relative_img_path"]
     row_values = _build_image_row_values(
         content=cache_entry["img_content"],
-        relative_path=cache_entry["relative_img_path"],
+        relative_path=relative_path,
         summary=cache_entry["img_summary_field"],
         know_id=cache_entry["temp_uid"],
         timestamp=timestamp,
@@ -183,6 +201,7 @@ def _build_duplicate_image_asset(
         cache_entry=None,
         deferred_task=None,
         should_advance_image_count=False,
+        relative_path=relative_path,
     )
 
 
@@ -211,7 +230,11 @@ def _build_image_row_values(
     return cast(ParserRowValues, image_row.to_list())
 
 
-def _empty_asset(*, should_advance_image_count: bool) -> MarkdownImageAsset:
+def _empty_asset(
+    *,
+    should_advance_image_count: bool,
+    discarded_undersized: bool = False,
+) -> MarkdownImageAsset:
     return MarkdownImageAsset(
         content_item=None,
         row_values=None,
@@ -219,4 +242,6 @@ def _empty_asset(*, should_advance_image_count: bool) -> MarkdownImageAsset:
         cache_entry=None,
         deferred_task=None,
         should_advance_image_count=should_advance_image_count,
+        relative_path=None,
+        discarded_undersized=discarded_undersized,
     )

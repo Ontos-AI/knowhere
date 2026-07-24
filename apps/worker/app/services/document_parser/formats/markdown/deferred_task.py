@@ -11,6 +11,7 @@ class ImageDeferredSummaryTask:
     image_dir: str
     image_name: str
     image_suffix: str
+    rename_file: bool = True
 
 
 @dataclass(frozen=True)
@@ -19,7 +20,6 @@ class TableDeferredSummaryTask:
     table_html: str
     table_dir: str
     table_name: str
-    table_count: int
 
 
 @dataclass(frozen=True)

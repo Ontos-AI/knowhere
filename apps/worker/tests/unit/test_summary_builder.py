@@ -202,7 +202,7 @@ class TestPromptPayload:
     ) -> None:
         captured: Dict[str, Any] = {}
 
-        def _fake_client() -> Any:
+        def _fake_client(**_kwargs: Any) -> Any:
             class _C:
                 def chat_completion(self, **kwargs: Any) -> str:
                     captured["messages"] = kwargs.get("messages")
@@ -231,3 +231,76 @@ class TestPromptPayload:
         assert "[ChildB] ChildB" in user
         # legacy flat blob prompt removed
         assert "You will receive summaries of sub-sections" not in user
+
+
+class TestDocNavTopSummaryPersistence:
+    def test_enrich_persists_top_summary_and_defaults_top_llm(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from app.services.connect_builder.summary_builder import (
+            enrich_doc_nav_summaries,
+            load_nav_top_summary,
+        )
+
+        captured: Dict[str, Any] = {}
+
+        def _fake_llm(**kwargs: Any) -> str:
+            captured["is_top"] = kwargs.get("node_name") == "Document Overview"
+            captured["max_tokens"] = kwargs.get("max_tokens")
+            captured["calls"] = int(captured.get("calls") or 0) + 1
+            return "LLM document overview"
+
+        monkeypatch.setattr(
+            "app.services.connect_builder.summary_builder._llm_summarize",
+            _fake_llm,
+        )
+
+        file_dir = tmp_path / "report.pdf"
+        file_dir.mkdir()
+        long_leaf = "L" * (SUMMARY_MAX_LEN + 5)
+        doc_nav = {
+            "version": "1.0",
+            "file_name": "report.pdf",
+            "stats": {},
+            "sections": [
+                {
+                    "title": "Chapter 1",
+                    "path": "report.pdf/Chapter 1",
+                    "summary": long_leaf,
+                    "chunk_count": 1,
+                    "children": [],
+                },
+                {
+                    "title": "Chapter 2",
+                    "path": "report.pdf/Chapter 2",
+                    "summary": long_leaf,
+                    "chunk_count": 1,
+                    "children": [],
+                },
+            ],
+            "resources": {"images": [], "tables": []},
+        }
+        (file_dir / "doc_nav.json").write_text(
+            json.dumps(doc_nav, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        results = enrich_doc_nav_summaries(
+            str(tmp_path),
+            source_file="report.pdf",
+            use_llm=False,
+            top_summary_use_llm=True,
+        )
+        assert results["report.pdf"] == "LLM document overview"
+        assert captured["calls"] == 1
+        assert captured["is_top"] is True
+
+        saved = json.loads((file_dir / "doc_nav.json").read_text(encoding="utf-8"))
+        assert saved["top_summary"] == "LLM document overview"
+        # Section leaves keep original summaries; top LLM must not rewrite them.
+        assert saved["sections"][0]["summary"] == long_leaf
+        assert load_nav_top_summary(str(file_dir), "report.pdf") == (
+            "LLM document overview"
+        )

@@ -237,12 +237,18 @@ class RetrievalPublicationService:
         *,
         job_id: str,
         job_result_id: str,
+        top_summary: str | None = None,
     ) -> None:
         job = db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
         if not job:
             raise RuntimeError(f"Job not found for graph publication: {job_id}")
 
-        self._publish_document_graph_for_job(db, job=job, job_result_id=job_result_id)
+        self._publish_document_graph_for_job(
+            db,
+            job=job,
+            job_result_id=job_result_id,
+            top_summary=top_summary,
+        )
 
     def _publish_document_graph_for_job(
         self,
@@ -250,6 +256,7 @@ class RetrievalPublicationService:
         *,
         job: Job,
         job_result_id: str,
+        top_summary: str | None = None,
     ) -> None:
 
         metadata = job.job_metadata or {}
@@ -271,6 +278,7 @@ class RetrievalPublicationService:
             namespace=namespace,
             document_id=document_id,
             job_result_id=job_result_id,
+            top_summary=top_summary,
         )
 
     def remove_document_graph(

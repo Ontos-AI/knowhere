@@ -79,6 +79,7 @@ class SyncJobSuccessFinalizer:
         stored_count: int,
         delivery_mode: str,
         section_summaries: dict[str, str] | None,
+        document_top_summary: str | None = None,
     ) -> JobSuccessFinalization:
         job_result = self._result_writer.upsert_job_result(
             db,
@@ -95,6 +96,7 @@ class SyncJobSuccessFinalizer:
             job_result_id=job_result.id,
             chunks=chunks,
             section_summaries=section_summaries,
+            document_top_summary=document_top_summary,
         )
 
         transition_outcome = self._state_machine.mark_completed_outcome(
