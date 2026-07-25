@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import datetime, timezone
 
@@ -11,11 +10,11 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.config import redis_pool_manager
-from shared.core.database import get_db_context
 from shared.services.redis.redis_service import RedisService
 from shared.utils.api_keys import hash_api_key
 
 _API_KEY_USER_CACHE_TTL_SECONDS: int = 3600
+_LAST_USED_DEBOUNCE_SECONDS: int = 300
 
 
 class APIKeyAuthenticationService:
@@ -44,8 +43,12 @@ class APIKeyAuthenticationService:
         if not api_key_record or not api_key_record.is_valid():
             return None
 
-        self._schedule_last_used_update(str(api_key_record.id))
         user_id = str(api_key_record.user_id)
+        await self._update_last_used_best_effort(
+            session,
+            redis_service,
+            str(api_key_record.id),
+        )
         await self._set_cached_user_id(
             redis_service,
             key_hash,
@@ -74,6 +77,10 @@ class APIKeyAuthenticationService:
     @staticmethod
     def _get_user_api_keys_key(user_id: str) -> str:
         return f"api-key:user-hashes:{user_id}"
+
+    @staticmethod
+    def _get_last_used_debounce_key(api_key_id: str) -> str:
+        return f"api-key:last-used-debounce:{api_key_id}"
 
     async def _get_cached_user_id(
         self,
@@ -159,20 +166,48 @@ class APIKeyAuthenticationService:
         remaining_seconds = int((expires_at_utc - now).total_seconds())
         return max(1, min(_API_KEY_USER_CACHE_TTL_SECONDS, remaining_seconds))
 
-    def _schedule_last_used_update(self, api_key_id: str) -> None:
+    async def _update_last_used_best_effort(
+        self,
+        session: AsyncSession,
+        redis_service: RedisService,
+        api_key_id: str,
+    ) -> None:
+        """Update last_used_at on the request session without a nested checkout.
+
+        Redis debounce skips redundant writes within the debounce window so job
+        polls do not compete for QueuePool capacity via create_task+get_db_context.
+        """
+        debounce_key = self._get_last_used_debounce_key(api_key_id)
         try:
-            asyncio.create_task(
-                self._update_last_used_best_effort(api_key_id),
-                name=f"api_key_last_used:{api_key_id}",
-            )
-        except Exception as exc:
+            if await redis_service.exists(debounce_key):
+                return
+        except Exception:
             logger.warning(
-                f"Failed to schedule API key last-used update (ignored): {exc}"
+                "api_key_authentication: failed to read last-used debounce for api_key_id={}",
+                api_key_id,
             )
 
-    async def _update_last_used_best_effort(self, api_key_id: str) -> None:
         try:
-            async with get_db_context() as db:
-                await self._repository.update_last_used(db, api_key_id)
+            await self._repository.update_last_used(session, api_key_id)
+            await session.commit()
         except Exception as exc:
-            logger.warning(f"Failed to update API key last-used time (ignored): {exc}")
+            logger.warning(
+                f"Failed to update API key last-used time (ignored): {exc}"
+            )
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+            return
+
+        try:
+            await redis_service.set(
+                debounce_key,
+                "1",
+                ttl=_LAST_USED_DEBOUNCE_SECONDS,
+            )
+        except Exception:
+            logger.warning(
+                "api_key_authentication: failed to write last-used debounce for api_key_id={}",
+                api_key_id,
+            )

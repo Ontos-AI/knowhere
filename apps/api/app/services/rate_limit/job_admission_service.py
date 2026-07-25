@@ -33,8 +33,9 @@ class JobAdmissionService:
         *,
         route_context: RouteAdmissionContext,
         user_id: str,
+        db: AsyncSession | None = None,
     ) -> CurrentUser:
-        user_tier = await TierService.get_tier(user_id)
+        user_tier = await TierService.get_tier(user_id, session=db)
         self._route_policy_service.enforce_guest_api_key_scope(
             route_context=route_context,
             user_tier=user_tier,
