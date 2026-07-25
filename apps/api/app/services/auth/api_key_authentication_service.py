@@ -204,4 +204,6 @@ class APIKeyAuthenticationService:
             try:
                 await session.rollback()
             except Exception:
+                # Rollback itself can fail if the session is already closed;
+                # ignore so last-used remains best-effort.
                 pass
