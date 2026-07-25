@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import declarative_base
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import NullPool, QueuePool
 
 from shared.core.config import settings
 from shared.core.constants import ProcessingConstants
@@ -208,9 +208,12 @@ def setup_pool_event_listeners():
     def on_checkout(dbapi_connection, connection_record, connection_proxy):
         """Handle connection checkout events and surface pool pressure."""
         pool = engine.sync_engine.pool
+        if not isinstance(pool, QueuePool):
+            logger.debug("Connection checked out from pool")
+            return
         checked_out = pool.checkedout()
         overflow = pool.overflow()
-        pool_size = pool.size() if hasattr(pool, "size") else settings.DB_POOL_SIZE
+        pool_size = pool.size()
         logger.debug(
             "Connection checked out from pool "
             "(checkedout=%s overflow=%s pool_size=%s)",

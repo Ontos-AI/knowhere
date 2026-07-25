@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,23 +12,35 @@ from tests.support.import_environment import (
     ensure_import_paths,
 )
 
+# Defer importing apps/api `app` until test bodies run. Module-level imports
+# would cache API's `app` package and break apps/worker contract collection in
+# the same pytest process (both packages are named `app`).
 configure_import_environment()
 ensure_import_paths()
 
-from app.services.auth.api_key_authentication_service import (  # noqa: E402
-    APIKeyAuthenticationService,
-)
-from app.services.rate_limit.data_structures import (  # noqa: E402
-    RouteAdmissionContext,
-)
-from app.services.rate_limit.job_admission_service import (  # noqa: E402
-    JobAdmissionService,
-)
-from app.services.rate_limit.tier_service import TierService  # noqa: E402
+
+def _load_api_modules() -> tuple[ModuleType, ModuleType, ModuleType, ModuleType]:
+    ensure_import_paths()
+    from app.services.auth import api_key_authentication_service
+    from app.services.rate_limit import (
+        data_structures,
+        job_admission_service,
+        tier_service,
+    )
+
+    return (
+        api_key_authentication_service,
+        data_structures,
+        job_admission_service,
+        tier_service,
+    )
 
 
 @pytest.mark.asyncio
 async def test_get_tier_reuses_provided_session_without_get_db_context() -> None:
+    _, _, _, tier_service = _load_api_modules()
+    TierService = tier_service.TierService
+
     session = AsyncMock()
     redis_service = AsyncMock()
     redis_service.get = AsyncMock(return_value=None)
@@ -57,6 +69,11 @@ async def test_get_tier_reuses_provided_session_without_get_db_context() -> None
 
 @pytest.mark.asyncio
 async def test_resolve_current_user_passes_request_session_to_get_tier() -> None:
+    _, data_structures, job_admission_service, tier_service = _load_api_modules()
+    RouteAdmissionContext = data_structures.RouteAdmissionContext
+    JobAdmissionService = job_admission_service.JobAdmissionService
+    TierService = tier_service.TierService
+
     session = AsyncMock()
     route_context = RouteAdmissionContext(
         method="GET",
@@ -94,6 +111,11 @@ async def test_resolve_current_user_passes_request_session_to_get_tier() -> None
 
 @pytest.mark.asyncio
 async def test_validate_api_key_updates_last_used_on_same_session() -> None:
+    api_key_authentication_service, _, _, _ = _load_api_modules()
+    APIKeyAuthenticationService = (
+        api_key_authentication_service.APIKeyAuthenticationService
+    )
+
     session = AsyncMock()
     session.commit = AsyncMock()
     redis_service = AsyncMock()
@@ -142,6 +164,11 @@ async def test_validate_api_key_updates_last_used_on_same_session() -> None:
 
 @pytest.mark.asyncio
 async def test_validate_api_key_skips_last_used_when_debounced() -> None:
+    api_key_authentication_service, _, _, _ = _load_api_modules()
+    APIKeyAuthenticationService = (
+        api_key_authentication_service.APIKeyAuthenticationService
+    )
+
     session = AsyncMock()
     session.commit = AsyncMock()
     redis_service = AsyncMock()
@@ -184,6 +211,19 @@ async def test_validate_api_key_skips_last_used_when_debounced() -> None:
 @pytest.mark.asyncio
 async def test_job_poll_auth_path_uses_single_session_factory_checkout() -> None:
     """End-to-end hygiene: tier + last-used must not call get_db_context."""
+    (
+        api_key_authentication_service,
+        data_structures,
+        job_admission_service,
+        tier_service,
+    ) = _load_api_modules()
+    APIKeyAuthenticationService = (
+        api_key_authentication_service.APIKeyAuthenticationService
+    )
+    RouteAdmissionContext = data_structures.RouteAdmissionContext
+    JobAdmissionService = job_admission_service.JobAdmissionService
+    TierService = tier_service.TierService
+
     session = AsyncMock()
     session.commit = AsyncMock()
     checkout_count = {"n": 0}
