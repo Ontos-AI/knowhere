@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -18,9 +20,49 @@ from tests.support.import_environment import (
 configure_import_environment()
 ensure_import_paths()
 
+_API_ROOT = str(Path(__file__).resolve().parents[2])
+
+
+def _prioritize_api_import_root() -> None:
+    """Keep apps/api ahead of apps/worker for the shared `app` package name."""
+    ensure_import_paths()
+    if _API_ROOT in sys.path:
+        sys.path.remove(_API_ROOT)
+    sys.path.insert(0, _API_ROOT)
+
+
+def _is_api_app_module(module: ModuleType | None) -> bool:
+    if module is None:
+        return False
+    module_file = getattr(module, "__file__", None)
+    if isinstance(module_file, str) and module_file.startswith(_API_ROOT):
+        return True
+    module_paths = getattr(module, "__path__", ())
+    try:
+        return any(str(path).startswith(_API_ROOT) for path in module_paths)
+    except KeyError:
+        return False
+
+
+def _drop_non_api_app_modules() -> None:
+    for module_name in sorted(sys.modules, key=len, reverse=True):
+        if module_name != "app" and not module_name.startswith("app."):
+            continue
+        if not _is_api_app_module(sys.modules.get(module_name)):
+            sys.modules.pop(module_name, None)
+
+
+def _drop_api_app_modules() -> None:
+    for module_name in sorted(sys.modules, key=len, reverse=True):
+        if module_name != "app" and not module_name.startswith("app."):
+            continue
+        if _is_api_app_module(sys.modules.get(module_name)):
+            sys.modules.pop(module_name, None)
+
 
 def _load_api_modules() -> tuple[ModuleType, ModuleType, ModuleType, ModuleType]:
-    ensure_import_paths()
+    _prioritize_api_import_root()
+    _drop_non_api_app_modules()
     from app.services.auth import api_key_authentication_service
     from app.services.rate_limit import (
         data_structures,
@@ -34,6 +76,14 @@ def _load_api_modules() -> tuple[ModuleType, ModuleType, ModuleType, ModuleType]
         job_admission_service,
         tier_service,
     )
+
+
+@pytest.fixture(autouse=True)
+def _clear_api_app_modules_after_unit_test():
+    """Avoid leaving API's `app` package cached for later worker contract tests."""
+    yield
+    _drop_api_app_modules()
+
 
 
 @pytest.mark.asyncio
