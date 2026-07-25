@@ -174,21 +174,28 @@ class APIKeyAuthenticationService:
     ) -> None:
         """Update last_used_at on the request session without a nested checkout.
 
-        Redis debounce skips redundant writes within the debounce window so job
-        polls do not compete for QueuePool capacity via create_task+get_db_context.
+        Redis SET NX debounce skips redundant writes within the debounce window
+        so job polls do not compete for QueuePool via create_task+get_db_context.
         """
         debounce_key = self._get_last_used_debounce_key(api_key_id)
         try:
-            if await redis_service.exists(debounce_key):
+            acquired = await redis_service.set_nx(
+                debounce_key,
+                "1",
+                ex=_LAST_USED_DEBOUNCE_SECONDS,
+            )
+            if not acquired:
                 return
         except Exception:
             logger.warning(
-                "api_key_authentication: failed to read last-used debounce for api_key_id={}",
+                "api_key_authentication: last-used debounce failed for api_key_id={}; "
+                "updating anyway",
                 api_key_id,
             )
 
         try:
             await self._repository.update_last_used(session, api_key_id)
+            # Request-scoped sessions do not auto-commit.
             await session.commit()
         except Exception as exc:
             logger.warning(
@@ -198,16 +205,3 @@ class APIKeyAuthenticationService:
                 await session.rollback()
             except Exception:
                 pass
-            return
-
-        try:
-            await redis_service.set(
-                debounce_key,
-                "1",
-                ttl=_LAST_USED_DEBOUNCE_SECONDS,
-            )
-        except Exception:
-            logger.warning(
-                "api_key_authentication: failed to write last-used debounce for api_key_id={}",
-                api_key_id,
-            )
