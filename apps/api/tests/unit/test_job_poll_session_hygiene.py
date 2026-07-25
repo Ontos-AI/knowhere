@@ -98,7 +98,7 @@ async def test_validate_api_key_updates_last_used_on_same_session() -> None:
     session.commit = AsyncMock()
     redis_service = AsyncMock()
     redis_service.get = AsyncMock(return_value=None)
-    redis_service.exists = AsyncMock(return_value=False)
+    redis_service.set_nx = AsyncMock(return_value=True)
     redis_service.set = AsyncMock()
     redis_service.sadd = AsyncMock()
     redis_service.ttl = AsyncMock(return_value=-2)
@@ -125,10 +125,6 @@ async def test_validate_api_key_updates_last_used_on_same_session() -> None:
             "app.services.auth.api_key_authentication_service.hash_api_key",
             return_value="hash-1",
         ),
-        patch(
-            "app.services.auth.api_key_authentication_service.get_db_context",
-            create=True,
-        ) as get_db_context_mock,
         patch("asyncio.create_task") as create_task_mock,
     ):
         user_id = await service.validate_api_key(session, "kw_test_key")
@@ -137,11 +133,10 @@ async def test_validate_api_key_updates_last_used_on_same_session() -> None:
     repository.update_last_used.assert_awaited_once_with(session, "key-1")
     session.commit.assert_awaited_once()
     create_task_mock.assert_not_called()
-    get_db_context_mock.assert_not_called()
-    redis_service.set.assert_any_await(
+    redis_service.set_nx.assert_awaited_once_with(
         "api-key:last-used-debounce:key-1",
         "1",
-        ttl=300,
+        ex=300,
     )
 
 
@@ -151,7 +146,7 @@ async def test_validate_api_key_skips_last_used_when_debounced() -> None:
     session.commit = AsyncMock()
     redis_service = AsyncMock()
     redis_service.get = AsyncMock(return_value=None)
-    redis_service.exists = AsyncMock(return_value=True)
+    redis_service.set_nx = AsyncMock(return_value=False)
     redis_service.set = AsyncMock()
     redis_service.sadd = AsyncMock()
     redis_service.ttl = AsyncMock(return_value=-2)
@@ -203,7 +198,7 @@ async def test_job_poll_auth_path_uses_single_session_factory_checkout() -> None
 
     redis_service = AsyncMock()
     redis_service.get = AsyncMock(side_effect=[None, None])  # api-key miss, tier miss
-    redis_service.exists = AsyncMock(return_value=False)
+    redis_service.set_nx = AsyncMock(return_value=True)
     redis_service.set = AsyncMock()
     redis_service.sadd = AsyncMock()
     redis_service.ttl = AsyncMock(return_value=-2)

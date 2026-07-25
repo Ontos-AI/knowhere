@@ -49,19 +49,29 @@ class TierService:
             return cached_tier
 
         if session is not None:
-            user_tier = await TierService._resolve_tier_from_db(session, user_id)
+            user_tier = await TierService._resolve_tier_from_db(
+                session,
+                user_id,
+                commit_on_initialize=True,
+            )
         else:
             async with get_db_context() as owned_session:
                 user_tier = await TierService._resolve_tier_from_db(
                     owned_session,
                     user_id,
+                    commit_on_initialize=False,
                 )
 
         await TierService._set_cached_tier(redis_service, user_id, user_tier)
         return user_tier
 
     @staticmethod
-    async def _resolve_tier_from_db(session: AsyncSession, user_id: str) -> str:
+    async def _resolve_tier_from_db(
+        session: AsyncSession,
+        user_id: str,
+        *,
+        commit_on_initialize: bool,
+    ) -> str:
         """Load tier from DB, initializing missing first-use billing state."""
         try:
             return await TierService._get_tier_from_db(session, user_id)
@@ -70,9 +80,9 @@ class TierService:
                 session,
                 user_id,
             )
-            # Persist first-use init when reusing the request session
-            # (get_db_context commits on exit when we own the session).
-            await session.commit()
+            # Request-scoped sessions do not auto-commit; get_db_context does.
+            if commit_on_initialize:
+                await session.commit()
             return user_tier
 
     @staticmethod
