@@ -56,9 +56,34 @@ def _page_feature(page: int = 1) -> PageFeature:
         orientation="portrait",
         width=72.0,
         height=72.0,
+        has_asset=False,
         is_blank_like=False,
-        text_lines_preview=["Section 1"],
+        asset_bboxes=None,
     )
+
+
+def _seed_preprobed_pages(
+    coordinator: ProfileCoordinator,
+    *,
+    page_count: int,
+    pages: list[int] | None = None,
+) -> None:
+    """Seed text-bootstrap state for coordinator tests without a real PDF.
+
+    Marks assets as already probed so `_ensure_asset_probe` does not spawn a
+    PyMuPDF child against a missing fixture path.
+    """
+    probed_pages = pages or list(range(1, page_count + 1))
+    coordinator.blackboard.page_count = page_count
+    coordinator.blackboard.page_features = [_page_feature(page) for page in probed_pages]
+    coordinator.blackboard.page_labels = [
+        PageLabel(page=page, kind="normal", confidence=1.0) for page in probed_pages
+    ]
+    coordinator.blackboard.doc_stats = {"page_count": page_count}
+    coordinator.blackboard.global_signals["page_kind_counts"] = {
+        "normal": page_count
+    }
+    coordinator.blackboard.global_signals["assets_probed"] = True
 
 
 def test_toc_anchor_text_scan_matches_full_page_and_cross_line_keywords() -> None:
@@ -112,14 +137,7 @@ def test_run_lightweight_anatomy_builds_single_shard_without_planner_llm(
         output_dir=str(output_dir),
         settings={"shard_threshold": 200},
     )
-    coordinator.blackboard.page_count = 2
-    coordinator.blackboard.page_features = [_page_feature(1), _page_feature(2)]
-    coordinator.blackboard.page_labels = [
-        PageLabel(page=1, kind="normal", confidence=1.0),
-        PageLabel(page=2, kind="normal", confidence=1.0),
-    ]
-    coordinator.blackboard.doc_stats = {"page_count": 2}
-    coordinator.blackboard.global_signals["page_kind_counts"] = {"normal": 2}
+    _seed_preprobed_pages(coordinator, page_count=2)
     coordinator.blackboard.document_profile = DocumentProfile(
         is_scanned=False,
         category="Research Report",
@@ -135,8 +153,63 @@ def test_run_lightweight_anatomy_builds_single_shard_without_planner_llm(
     assert anatomy.shard_plan.shards[0].page_end == 2
     assert anatomy.toc_result.method == "none"
     assert (output_dir / "anatomy_map.json").exists()
+    anatomy_data = json.loads(
+        (output_dir / "anatomy_map.json").read_text(encoding="utf-8")
+    )
+    assert list(anatomy_data)[:2] == ["version", "toc_hierarchies"]
+    assert "text_lines_preview" not in anatomy_data["page_features"][0]
     trace_data = json.loads((output_dir / "trace.json").read_text(encoding="utf-8"))
     assert "visual_stages" in trace_data["summary"]["budget"]
+
+
+def test_run_coarse_runs_asset_probe_after_planner(monkeypatch, tmp_path: Path) -> None:
+    coordinator = ProfileCoordinator(
+        pdf_path=str(tmp_path / "doc.pdf"),
+        job_id="job-asset-probe-after-coarse",
+        output_dir=str(tmp_path / "profile"),
+    )
+    (tmp_path / "profile").mkdir()
+    coordinator.blackboard.page_count = 2
+    coordinator.blackboard.page_features = [_page_feature(1), _page_feature(2)]
+    coordinator.blackboard.page_labels = [
+        PageLabel(page=1, kind="normal", confidence=1.0),
+        PageLabel(page=2, kind="normal", confidence=1.0),
+    ]
+    coordinator.blackboard.doc_stats = {"page_count": 2}
+    coordinator.blackboard.global_signals["page_kind_counts"] = {"normal": 2}
+
+    calls: list[str] = []
+
+    def fake_propose(_self):
+        calls.append("planner")
+        return (
+            DocumentProfile(
+                is_scanned=False,
+                category="Research Report",
+                routing_category=PdfRoutingCategory.GENERIC.value,
+            ),
+            None,
+            ToolResult(status="ok", payload={}),
+        )
+
+    def fake_probe_page_assets(ctx, _args):
+        calls.append("probe.page_assets")
+        ctx.blackboard.global_signals["assets_probed"] = True
+        return ToolResult(status="ok", payload={"page_count": 2})
+
+    def fake_aggregate(ctx, _args):
+        calls.append("aggregate.doc_stats")
+        return ToolResult(status="ok", payload={})
+
+    monkeypatch.setattr(coordinator_module.ProfilePlanner, "propose", fake_propose)
+    monkeypatch.setattr(coordinator_module, "probe_page_assets", fake_probe_page_assets)
+    monkeypatch.setattr(coordinator_module, "aggregate_doc_stats", fake_aggregate)
+
+    profile = coordinator.run_coarse()
+
+    assert profile.category == "Research Report"
+    assert calls == ["planner", "probe.page_assets", "aggregate.doc_stats"]
+    assert coordinator.blackboard.global_signals["assets_probed"] is True
 
 
 def test_parse_run_recorder_doc_profile_uses_final_anatomy_toc() -> None:
@@ -234,14 +307,7 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
         output_dir=str(tmp_path / "profile"),
     )
     (tmp_path / "profile").mkdir()
-    coordinator.blackboard.page_count = 3
-    coordinator.blackboard.page_features = [_page_feature(1), _page_feature(2)]
-    coordinator.blackboard.page_labels = [
-        PageLabel(page=1, kind="normal", confidence=1.0),
-        PageLabel(page=2, kind="normal", confidence=1.0),
-    ]
-    coordinator.blackboard.doc_stats = {"page_count": 3}
-    coordinator.blackboard.global_signals["page_kind_counts"] = {"normal": 3}
+    _seed_preprobed_pages(coordinator, page_count=3, pages=[1, 2])
     coordinator.blackboard.document_profile = DocumentProfile(
         is_scanned=False,
         category="Prospectus",
@@ -323,6 +389,71 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
     assert anatomy.toc_result.toc_pages == [17]
 
 
+def test_run_structural_skip_shard_plan_uses_placeholder_without_executor(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    coordinator = ProfileCoordinator(
+        pdf_path=str(tmp_path / "oversized.pdf"),
+        job_id="job-structural-skip-shard",
+        output_dir=str(tmp_path / "profile"),
+    )
+    (tmp_path / "profile").mkdir()
+    _seed_preprobed_pages(coordinator, page_count=4)
+    coordinator.blackboard.document_profile = DocumentProfile(
+        is_scanned=False,
+        category="Prospectus",
+        routing_category=PdfRoutingCategory.GENERIC.value,
+    )
+    coordinator.blackboard.toc_result = TocResult(
+        toc_pages=[1],
+        method="vlm_batch",
+        notes="ok",
+    )
+    coordinator.blackboard.toc_hierarchies = [
+        {"toc_range": [1, 1], "toc_range_unit": "page", "toc_tree": {}}
+    ]
+
+    monkeypatch.setattr(
+        coordinator,
+        "_run_toc_extraction_pipeline",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("existing TOC should not be re-extracted")
+        ),
+    )
+    monkeypatch.setattr(
+        coordinator,
+        "_persist_ready_anatomy",
+        lambda _anatomy: None,
+    )
+    monkeypatch.setattr(
+        coordinator_module.ProfilePlanner,
+        "propose",
+        lambda self: (
+            coordinator.blackboard.document_profile,
+            None,
+            ToolResult(status="ok", payload={}),
+        ),
+    )
+
+    class BoomExecutor:
+        def __init__(self, *_args, **_kwargs) -> None:
+            raise AssertionError("ReActExecutor must not run when skip_shard_plan")
+
+        def run(self):  # pragma: no cover
+            raise AssertionError("unreachable")
+
+    monkeypatch.setattr(coordinator_module, "ReActExecutor", BoomExecutor)
+
+    anatomy = coordinator.run_structural(skip_shard_plan=True)
+
+    assert anatomy.shard_plan.enabled is False
+    assert len(anatomy.shard_plan.shards) == 1
+    assert anatomy.shard_plan.shards[0].page_start == 1
+    assert anatomy.shard_plan.shards[0].page_end == 4
+    assert anatomy.toc_result.toc_pages == [1]
+
+
 def test_run_structural_trusts_rejected_all_toc_and_fails_open(
     monkeypatch,
     tmp_path: Path,
@@ -333,14 +464,7 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
         output_dir=str(tmp_path / "profile"),
     )
     (tmp_path / "profile").mkdir()
-    coordinator.blackboard.page_count = 3
-    coordinator.blackboard.page_features = [_page_feature(1), _page_feature(2)]
-    coordinator.blackboard.page_labels = [
-        PageLabel(page=1, kind="normal", confidence=1.0),
-        PageLabel(page=2, kind="normal", confidence=1.0),
-    ]
-    coordinator.blackboard.doc_stats = {"page_count": 3}
-    coordinator.blackboard.global_signals["page_kind_counts"] = {"normal": 3}
+    _seed_preprobed_pages(coordinator, page_count=3, pages=[1, 2])
     coordinator.blackboard.document_profile = DocumentProfile(
         is_scanned=False,
         category="Prospectus",
@@ -426,14 +550,7 @@ def test_run_coarse_runs_toc_before_planner_for_oversized_and_reuses_planner(
         settings={"toc_before_coarse": True},
     )
     (tmp_path / "profile").mkdir()
-    coordinator.blackboard.page_count = 3
-    coordinator.blackboard.page_features = [_page_feature(1), _page_feature(2)]
-    coordinator.blackboard.page_labels = [
-        PageLabel(page=1, kind="normal", confidence=1.0),
-        PageLabel(page=2, kind="normal", confidence=1.0),
-    ]
-    coordinator.blackboard.doc_stats = {"page_count": 3}
-    coordinator.blackboard.global_signals["page_kind_counts"] = {"normal": 3}
+    _seed_preprobed_pages(coordinator, page_count=3, pages=[1, 2])
 
     calls: list[str] = []
 
@@ -658,6 +775,57 @@ def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
     assert profile.anatomy is fake_anatomy
 
 
+def test_page_memory_forces_toc_profiling_despite_kill_switch(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    fake_anatomy = object()
+    init_settings: list[dict[str, object]] = []
+
+    class FakeCoordinator:
+        def __init__(self, **kwargs) -> None:
+            self.calls: list[str] = []
+            init_settings.append(kwargs["settings"])
+            self.blackboard = SimpleNamespace(
+                page_count=2,
+                doc_stats={"page_count": 2},
+                global_signals={},
+                toc_result=None,
+                toc_hierarchies=None,
+            )
+
+        def run_coarse(self) -> DocumentProfile:
+            self.calls.append("run_coarse")
+            self.blackboard.toc_result = TocResult(method="none")
+            return DocumentProfile(
+                is_scanned=False,
+                category="Research Report",
+                routing_category=PdfRoutingCategory.GENERIC.value,
+            )
+
+        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
+            self.calls.append("run_lightweight_anatomy")
+            return fake_anatomy
+
+    monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
+    monkeypatch.setattr(doc_profiler.settings, "MAX_PDF_PAGE_LIMIT", 200)
+    # Global kill switch OFF; page_memory track must still enable TOC.
+    monkeypatch.setattr(doc_profiler.settings, "PDF_PROFILE_TOC_ENABLED", False)
+
+    profile = profile_document(
+        str(tmp_path / "standard.pdf"),
+        "standard.pdf",
+        job_id="job-page-memory-toc-forced",
+        output_dir=str(tmp_path),
+        skip_shard_plan=True,
+        oversized_policy="page_memory",
+    )
+
+    assert init_settings[0]["toc_profile_enabled"] is True
+    assert init_settings[0]["toc_before_coarse"] is True
+    assert profile.anatomy is fake_anatomy
+
+
 def test_page_memory_profile_bypasses_chunk_oversized_gate(
     monkeypatch,
     tmp_path: Path,
@@ -685,8 +853,9 @@ def test_page_memory_profile_bypasses_chunk_oversized_gate(
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
-        def run_structural(self):
+        def run_structural(self, *, skip_shard_plan: bool = False):
             self.calls.append("run_structural")
+            self.skip_shard_plan = skip_shard_plan
             return fake_anatomy
 
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
@@ -698,11 +867,13 @@ def test_page_memory_profile_bypasses_chunk_oversized_gate(
         "oversized.pdf",
         job_id="job-page-memory-oversized",
         output_dir=str(tmp_path),
+        skip_shard_plan=True,
         oversized_policy="page_memory",
     )
 
     assert profile.anatomy is fake_anatomy
     assert fake_instances[0].calls == ["run_coarse", "run_structural"]
+    assert fake_instances[0].skip_shard_plan is True
 
 
 def test_standard_pdf_profile_maps_page_toc_evidence(
@@ -820,10 +991,10 @@ def test_oversized_atlas_surfaces_profile_toc_without_structural_anatomy(
                 routing_category=PdfRoutingCategory.ATLAS.value,
             )
 
-        def run_structural(self):
+        def run_structural(self, *, skip_shard_plan: bool = False):
             raise AssertionError("oversized atlas should not run structural anatomy")
 
-        def run_lightweight_anatomy(self):
+        def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
             raise AssertionError("oversized atlas should not run lightweight anatomy")
 
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)

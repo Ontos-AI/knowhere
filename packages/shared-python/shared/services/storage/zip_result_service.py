@@ -6,6 +6,8 @@ Generates ZIP packages according to the Knowhere API ZIP result format.
 
 from __future__ import annotations
 
+import json
+import os
 from typing import Any
 
 from loguru import logger
@@ -69,6 +71,7 @@ class ZipResultService:
             statistics = self._schema.calculate_statistics(formatted_chunks)
 
             doc_nav, hierarchy = self._build_navigation_outputs(
+                add_dir=add_dir,
                 formatted_chunks=formatted_chunks,
                 source_file_name=source_file_name,
             )
@@ -120,13 +123,42 @@ class ZipResultService:
     def _build_navigation_outputs(
         self,
         *,
+        add_dir: str,
         formatted_chunks: list[dict[str, Any]],
         source_file_name: str,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        """Prefer the already-enriched on-disk doc_nav; rebuild only as fallback."""
         try:
+            existing = self._load_existing_doc_nav(add_dir)
+            if existing is not None:
+                hierarchy = self._schema.build_hierarchy_dict(
+                    existing.get("sections", [])
+                )
+                logger.info("Using enriched on-disk doc_nav.json for ZIP package")
+                return existing, hierarchy
+
             doc_nav = self._schema.build_doc_nav(formatted_chunks, source_file_name)
             hierarchy = self._schema.build_hierarchy_dict(doc_nav.get("sections", []))
             return doc_nav, hierarchy
         except Exception as exc:
             logger.warning(f"generate doc_nav.json fail {exc}")
             return None, {}
+
+    @staticmethod
+    def _load_existing_doc_nav(add_dir: str) -> dict[str, Any] | None:
+        if not add_dir:
+            return None
+        path = os.path.join(add_dir, "doc_nav.json")
+        if not os.path.isfile(path):
+            return None
+        try:
+            with open(path, encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except Exception as exc:
+            logger.warning(f"Failed to read existing doc_nav.json: {exc}")
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if not isinstance(payload.get("sections"), list):
+            return None
+        return payload

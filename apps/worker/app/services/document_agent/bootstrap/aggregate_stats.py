@@ -8,28 +8,22 @@ from typing import Any
 
 from app.services.document_agent.manifest import PageFeature, ToolContext, ToolResult
 
+# Coarse sampling extrema are text-only. Low text / density already proxy
+# chart-heavy or asset-heavy pages; table/drawing counts are not used to
+# nominate extrema pages for VLM coarse classification.
 PROFILE_METRICS = (
     "raw_text_length",
     "text_density",
-    "image_coverage",
-    "table_count",
-    "drawings_count",
 )
 
 EXTREMA_ROLES = {
     "raw_text_length": ("min", "max"),
     "text_density": ("min", "max"),
-    "image_coverage": ("max",),
-    "table_count": ("max",),
-    "drawings_count": ("max",),
 }
 
 EXTREMA_LABELS = {
     "raw_text_length": "text_length",
     "text_density": "text_density",
-    "image_coverage": "image_heavy",
-    "table_count": "table_heavy",
-    "drawings_count": "drawing_heavy",
 }
 
 
@@ -97,38 +91,30 @@ def aggregate_doc_stats(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
 
     deduped_extrema = sorted(set(extrema_pages))
     landscape_pages = sum(1 for feature in features if feature.orientation == "landscape")
-    scan_like_pages = sum(
-        1
-        for feature in features
-        if feature.raw_text_length < 50 and feature.image_coverage >= 0.5
-    )
-    image_heavy_pages = sum(
-        1 for feature in features if feature.image_coverage >= 0.35
-    )
-    table_signal_pages = sum(
-        1
-        for feature in features
-        if feature.table_count > 0 or feature.drawings_count >= 25
-    )
-    doc_shape = {
+    doc_shape: dict[str, Any] = {
         "page_count": page_count,
         "landscape_pages": landscape_pages,
         "landscape_ratio": round(landscape_pages / page_count, 4)
         if page_count
         else 0.0,
-        "scan_like_pages": scan_like_pages,
-        "scan_like_ratio": round(scan_like_pages / page_count, 4)
-        if page_count
-        else 0.0,
-        "image_heavy_pages": image_heavy_pages,
-        "image_heavy_ratio": round(image_heavy_pages / page_count, 4)
-        if page_count
-        else 0.0,
-        "table_signal_pages": table_signal_pages,
-        "table_signal_ratio": round(table_signal_pages / page_count, 4)
-        if page_count
-        else 0.0,
     }
+    if ctx.blackboard.global_signals.get("assets_probed"):
+        scan_like_pages = sum(
+            1
+            for feature in features
+            if feature.raw_text_length < 50 and feature.image_coverage >= 0.5
+        )
+        asset_pages = sum(1 for feature in features if feature.has_asset)
+        doc_shape.update(
+            {
+                "scan_like_pages": scan_like_pages,
+                "scan_like_ratio": round(scan_like_pages / page_count, 4)
+                if page_count
+                else 0.0,
+                "asset_pages": asset_pages,
+                "asset_ratio": round(asset_pages / page_count, 4) if page_count else 0.0,
+            }
+        )
     ctx.blackboard.doc_stats = stats
     ctx.blackboard.extrema_pages = deduped_extrema
     ctx.blackboard.global_signals["doc_stats"] = stats

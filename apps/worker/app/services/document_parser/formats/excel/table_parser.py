@@ -27,6 +27,7 @@ from loguru import logger
 
 from shared.core.exceptions.domain_exceptions import TableParsingException
 from shared.core.exceptions.knowhere_exception import KnowhereException
+from shared.services.chunks.path_segments import join_document_path
 from app.services.common.file_loading import load_file_bytes
 from app.services.common.file_utils import path_handle
 from shared.utils.text_utils import tokenize2stw_remove
@@ -296,11 +297,13 @@ def _build_excel_table_path(
     ]
     if subtable_title:
         parts.append(_clean_path_segment(subtable_title))
-    return "/".join(part for part in parts if part)
+    return join_document_path(parts)
 
 
 def _clean_path_segment(value: str) -> str:
-    return str(value).strip().replace("/", "_").replace("\\", "_")
+    # Keep semantic ``/`` for join_document_path escaping; only neutralize
+    # filesystem-hostile backslashes in sheet/subtable labels.
+    return str(value).strip().replace("\\", "_")
 
 
 def _summarize_excel_table(

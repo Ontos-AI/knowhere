@@ -38,6 +38,14 @@ class ParsingParams(BaseModel):
             "Increases parse time and API token cost."
         ),
     )
+    top_summary_use_llm: bool = Field(
+        True,
+        description=(
+            "Use LLM for the document-level top_summary written to doc_nav. "
+            "Defaults to True because agentic document selection consumes this "
+            "field. Section-level summaries remain controlled by summary_use_llm."
+        ),
+    )
 
 
 class JobCreateBase(BaseModel):

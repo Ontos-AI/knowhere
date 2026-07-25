@@ -220,8 +220,8 @@ def _build_page_dataframe(
       C1  page_renderer       → PageRenderResult[]
       C2  page_plan           → PagePlan[]
       C3  page_tagger         → PageTagResult[]
-      C3b title detection     → observed_titles
-      C4b fine_hierarchy      → refined SectionSkeleton[]
+      C3b title detection     → observed_titles (reading-order, untrimmed)
+      C4b fine_hierarchy      → start/end anchor trim + refined SectionSkeleton[]
       C5  page_assets          → assets anchored to refined hierarchy pages
       C7  assemble node-granularity DataFrame
     """
@@ -230,6 +230,7 @@ def _build_page_dataframe(
         collapse_single_child_chains,
         extract_section_skeletons,
     )
+    from shared.services.chunks.path_segments import join_document_path
     anatomy = getattr(profile, "anatomy", None)
     page_count = max(int(profile.page_count or 0), 0)
     if page_count <= 0:
@@ -269,7 +270,7 @@ def _build_page_dataframe(
     if not skeletons:
         skeletons = [
             SectionSkeleton(
-                section_path=f"{filename}/Root",
+                section_path=join_document_path([filename, "Root"]),
                 level=1,
                 start_page=1,
                 end_page=page_count,
@@ -279,6 +280,9 @@ def _build_page_dataframe(
             )
         ]
 
+    from app.services.page_memory.fine_hierarchy import build_next_title_by_path
+
+    next_title_by_path = build_next_title_by_path(skeletons)
     coarse_scopes = _build_hierarchy_scopes(
         skeletons=skeletons,
         filename=filename,
@@ -340,6 +344,7 @@ def _build_page_dataframe(
         asset_extraction_enabled=asset_extraction_enabled,
         trace_recorder=trace_recorder,
         page_memory_config=page_memory_config,
+        next_title_by_path=next_title_by_path,
     )
 
     if scope_concurrency <= 1 or len(coarse_scopes) <= 1:
@@ -579,6 +584,7 @@ def _run_hierarchy_scope(
     asset_max_pages: int,
     trace_recorder: Any | None,
     page_memory_config: PageMemoryConfig,
+    next_title_by_path: dict[str, str | None] | None = None,
 ) -> _ScopeRunResult:
     from app.services.page_memory.fine_hierarchy import (
         compute_fat_leaf_pages,
@@ -651,6 +657,7 @@ def _run_hierarchy_scope(
                 fat_leaf_pages=fat_leaf_pages,
                 budget=None,
                 vlm_model=vlm_model,
+                scan_direction=page_memory_config.scan_direction,
                 max_concurrent=page_memory_config.title_detection_concurrency,
             )
         _record_trace_stage(
@@ -667,6 +674,7 @@ def _run_hierarchy_scope(
                 coarse_skeletons=scope_skeletons,
                 tag_results=title_tags,
                 fat_leaf_pages=fat_leaf_pages,
+                next_title_by_path=next_title_by_path,
                 model_name=_resolve_hierarchy_model(page_memory_config),
                 max_tokens=page_memory_config.hierarchy_max_tokens,
                 max_depth=page_memory_config.max_heading_depth,
@@ -729,7 +737,6 @@ def _run_hierarchy_scope(
         page_count=page_count,
         page_labels=page_labels,
         page_features=page_features,
-        tag_mode=page_memory_config.tag_mode,
     )
     final_page_set = set(final_pages)
     plans = [plan for plan in plans if plan.page_index in final_page_set]
@@ -764,10 +771,13 @@ def _run_hierarchy_scope(
 
     assets_by_page: dict[int, list[Any]] = {}
     if asset_extraction_enabled and asset_max_pages > 0:
+        asset_rendered = _select_rendered_pages_with_assets(
+            rendered, page_features
+        )
         with stage_timer("page_memory.assets", page_count=asset_max_pages):
             assets_by_page = extract_page_assets_from_renders(
                 pdf_path=pdf_path,
-                rendered_pages=rendered,
+                rendered_pages=asset_rendered,
                 output_dir=output_dir,
                 model_name=page_memory_config.asset_model,
                 budget=None,
@@ -791,6 +801,7 @@ def _run_hierarchy_scope(
             },
         },
     )
+    # Refresh hierarchy/tags and write assets without wiping unrelated slots.
     _write_scope_artifacts(
         output_dir=output_dir,
         scope_id=scope.scope_id,
@@ -808,6 +819,22 @@ def _run_hierarchy_scope(
         rendered=rendered,
         final_pages=final_pages,
     )
+
+
+# ── helpers ───────────────────────────────────────────────────────────
+
+
+def _select_rendered_pages_with_assets(
+    rendered: list[Any],
+    page_features: list[Any],
+) -> list[Any]:
+    """Keep only rendered pages that coarse profile marked ``has_asset``."""
+    asset_pages = {
+        int(getattr(feature, "page", 0) or 0)
+        for feature in page_features
+        if getattr(feature, "has_asset", False)
+    }
+    return [item for item in rendered if item.page_index in asset_pages]
 
 
 # ── whole_doc builder (PR3, unchanged) ────────────────────────────────
@@ -870,34 +897,29 @@ def _record_trace_stage(
 
 def _cleanup_page_memory_artifacts(output_dir: str) -> None:
     root = Path(output_dir)
-    legacy_files = {
+    stale_files = {
         "assets.json",
         "chunks.json",
-        "coarse_tag_scope.json",
+        "coarse_scopes.json",
         "doc_nav.json",
         "hierarchy.json",
         "manifest.json",
         "node_rows.csv",
         "node_rows.json",
-        "page_memory_fine_hierarchy.json",
         "page_plans.json",
         "page_rendered.json",
         "page_tags.json",
-        "page_tags_after_titles.json",
-        "page_tags_pre_hierarchy.json",
         "report.md",
-        "skeletons.json",
-        "tag_scope.json",
         "trace.json",
     }
-    for name in legacy_files:
+    for name in stale_files:
         path = root / name
         try:
             if path.is_file():
                 path.unlink()
         except Exception:
             logger.debug("[page_memory] failed to cleanup artifact {}", path)
-    for name in ("asset_annotate", "debug", "fine_hierarchy", "images", "pages", "scopes", "tables"):
+    for name in ("asset_annotate", "debug", "images", "pages", "scopes", "tables"):
         path = root / name
         try:
             if path.is_dir():

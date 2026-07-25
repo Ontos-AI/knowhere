@@ -60,28 +60,14 @@ async def assemble_retrieval_results(
             assembled_row['content'] = _page_summary(row)
             assembled_row['content_source'] = 'summary'
         elif chunk_type == 'table':
-            assembled_row['content'] = _table_summary_content(row)
+            assembled_row['content'] = _compose_table_content(row, rows_by_chunk_id)
             assembled_row['content_source'] = 'summary'
         elif chunk_type == 'text':
-            connected_targets: list[tuple[int, str]] = []
-            for target_id in iter_connected_target_ids(row):
-                target_row = rows_by_chunk_id.get(target_id)
-                if not target_row:
-                    continue
-                if normalize_chunk_type(target_row.get('chunk_type')) != 'table':
-                    continue
-                target_content = _table_summary_content(target_row)
-                if target_content:
-                    sort_key = int(target_row.get('sort_order', 0) or 0)
-                    connected_targets.append((sort_key, target_content))
-            connected_targets.sort(key=lambda item: item[0])
-            related_parts = [content for _, content in connected_targets]
-
-            # TODO: Dedicated Large Table Agent
-            # For the Notebook/Agent environment, consider introducing a dedicated 
-            # "Large Table Agent" that can fetch and query oversized tables via URL.
+            related_parts = _connected_media_parts(row, rows_by_chunk_id)
             if base_content and related_parts:
                 assembled_row['content'] = '\n\n'.join([base_content, *related_parts])
+            elif related_parts:
+                assembled_row['content'] = '\n\n'.join(related_parts)
             else:
                 assembled_row['content'] = base_content
             assembled_row['content_source'] = 'content'
@@ -98,6 +84,71 @@ def _page_summary(row: dict[str, Any]) -> str:
     if not isinstance(metadata, dict):
         return ''
     return str(metadata.get('summary') or '').strip()
+
+
+def _compose_table_content(
+    row: dict[str, Any],
+    rows_by_chunk_id: dict[str, dict[str, Any]],
+) -> str:
+    parts = [_table_summary_content(row)]
+    parts.extend(_connected_image_parts(row, rows_by_chunk_id))
+    return '\n\n'.join(part for part in parts if part)
+
+
+def _connected_media_parts(
+    row: dict[str, Any],
+    rows_by_chunk_id: dict[str, dict[str, Any]],
+) -> list[str]:
+    connected_targets: list[tuple[int, str]] = []
+    for target_id in iter_connected_target_ids(row):
+        target_row = rows_by_chunk_id.get(target_id)
+        if not target_row:
+            continue
+        target_type = normalize_chunk_type(target_row.get('chunk_type'))
+        if target_type == 'table':
+            target_content = _compose_table_content(target_row, rows_by_chunk_id)
+        elif target_type == 'image':
+            target_content = _image_display_content(target_row)
+        else:
+            continue
+        if target_content:
+            sort_key = int(target_row.get('sort_order', 0) or 0)
+            connected_targets.append((sort_key, target_content))
+    connected_targets.sort(key=lambda item: item[0])
+    return [content for _, content in connected_targets]
+
+
+def _connected_image_parts(
+    row: dict[str, Any],
+    rows_by_chunk_id: dict[str, dict[str, Any]],
+) -> list[str]:
+    parts: list[str] = []
+    for target_id in iter_connected_target_ids(row):
+        target_row = rows_by_chunk_id.get(target_id)
+        if not target_row:
+            continue
+        if normalize_chunk_type(target_row.get('chunk_type')) != 'image':
+            continue
+        content = _image_display_content(target_row)
+        if content:
+            parts.append(content)
+    return parts
+
+
+def _image_display_content(row: dict[str, Any]) -> str:
+    display_ref = (
+        str(row.get('asset_url') or '').strip()
+        or str(row.get('file_path') or '').strip()
+    )
+    description = str(row.get('content') or '').strip()
+    lines: list[str] = []
+    if display_ref:
+        lines.append(f'[Image: {display_ref}]')
+    elif description:
+        lines.append('[Image description]')
+    if description:
+        lines.extend(line for line in description.split('\n') if line.strip())
+    return '\n'.join(lines)
 
 
 def _table_summary_content(row: dict[str, Any]) -> str:

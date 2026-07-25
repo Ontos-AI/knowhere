@@ -43,6 +43,7 @@ from loguru import logger
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import DocxParsingException
 from shared.core.exceptions.knowhere_exception import KnowhereException
+from shared.services.chunks.path_segments import escape_path_segment
 from shared.utils.chunk_refs import build_chunk_ref, has_chunk_ref
 from app.services.common.file_loading import load_file_bytes
 from app.services.common.file_utils import path_handle
@@ -583,9 +584,6 @@ def parse_docx(
                 headings_stack[-1]["content"].append(text)
 
         elif label == "IMAGE":
-            if meta and meta.get("size", 0) < 10 * 1024:
-                continue
-
             headings_stack = asset_accumulator.append_image(
                 meta,
                 headings_stack,
@@ -670,7 +668,8 @@ def convert_doc2dics(
             continue
 
         # Build tentative path to check for duplicates
-        tentative_path = doc_name + split_char + key
+        escaped_doc_name = escape_path_segment(doc_name)
+        tentative_path = escaped_doc_name + split_char + key
 
         # Deduplicate: if path already exists, add suffix
         if tentative_path in path_counter:
@@ -680,7 +679,7 @@ def convert_doc2dics(
         else:
             path_counter[tentative_path] = 1
 
-        path_keys.append((doc_name + split_char + key))
+        path_keys.append((escaped_doc_name + split_char + key))
         bottom_content = joined
         bottom_tokens = tokenize2stw_remove(
             [bottom_content], base_llm_paras["stopwords"]
@@ -699,11 +698,14 @@ def convert_doc2dics(
             know_id = gen_str_codes(pure_text)
             # Use relative_root for path instead of the absolute output directory.
             path_suffix = key if key.strip() else ""
-            know_path = (
-                split_char.join([relative_root, path_suffix])
-                if relative_root and path_suffix
-                else (relative_root or path_suffix)
-            )
+            if relative_root and path_suffix:
+                know_path = f"{escape_path_segment(relative_root)}/{path_suffix}"
+            else:
+                know_path = (
+                    escape_path_segment(relative_root)
+                    if relative_root
+                    else path_suffix
+                )
             df_list.append(
                 ParsedRow(
                     content=bottom_content,

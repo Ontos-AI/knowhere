@@ -417,7 +417,7 @@ async def test_should_create_a_v2_page_memory_job_for_pdf_uploads(
     assert job_metadata["processing_generation"] == "page_memory"
     assert job_metadata["source_file_name"] == payload["file_name"]
     assert page_memory_config["max_pages"] == 1500
-    assert page_memory_config["asset_extraction_enabled"] is False
+    assert page_memory_config["asset_extraction_enabled"] is True
     assert original_request["file_name"] == payload["file_name"]
     assert "parse_track" not in original_request
 

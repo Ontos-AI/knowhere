@@ -38,12 +38,18 @@ def build_table_asset_row(
     addtime: str,
     entities: str = "",
     asset_title: str = "",
+    image_refs: list[str] | None = None,
 ) -> ParsedRow:
     row_content = relative_path
+    # Multiline type channel carries table→image embeds
+    # (same pattern as PTXT\n[tables/...] for text rows).
+    type_value = "table"
+    if image_refs:
+        type_value = "\n".join(["table", *image_refs])
     return ParsedRow(
         content=row_content,
         path=relative_path,
-        type="table",
+        type=type_value,
         keywords=keywords,
         summary=summary,
         know_id=know_id,

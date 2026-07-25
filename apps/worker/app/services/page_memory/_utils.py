@@ -2,26 +2,22 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, replace
 from typing import Any
 
-_NATURAL_RE = re.compile(r"(\d+)")
-
-
-def _natural_key(path: str) -> list[int | str]:
-    """Split a string into a list of int/str segments for natural ordering."""
-    return [int(c) if c.isdigit() else c.lower() for c in _NATURAL_RE.split(path)]
-
 
 def sort_skeletons(skeletons: list[Any]) -> list[Any]:
+    """Order skeletons by start page only.
+
+    Same-page relative order is preserved (Python ``sorted`` is stable). That
+    relative order is authoritative: coarse TOC emit order, or VLM observed
+    title order from fine hierarchy. Do **not** tie-break by ``section_path`` /
+    title — alphabetical path order reverses real reading order (e.g. Open
+    access before Separation on the same page).
+    """
     return sorted(
         skeletons,
-        key=lambda item: (
-            int(getattr(item, "start_page", 0) or 0),
-            int(getattr(item, "level", 0) or 0),
-            _natural_key(str(getattr(item, "section_path", "") or "")),
-        ),
+        key=lambda item: int(getattr(item, "start_page", 0) or 0),
     )
 
 

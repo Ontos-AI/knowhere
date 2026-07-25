@@ -138,6 +138,10 @@ class XlsxParseAdapter:
 @dataclass(frozen=True)
 class PptxParseAdapter:
     # Deprecated: prefer page_memory track for PPTX (parse_track="page_memory").
+    # TODO(pptx): convert PPTX→PDF first, then reuse the standard PDF PROFILE
+    # path instead of a separate PPTX PROFILE; keep page_memory input schema
+    # stable (fields may expand later). page_memory/normalizer.py already
+    # converts before PROFILE.
     document_format: object
 
     def parse(self, session: ParseSession) -> ParseOutput:

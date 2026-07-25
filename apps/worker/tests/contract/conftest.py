@@ -37,7 +37,14 @@ def _module_loaded_from(module_name: str, root: Path) -> bool:
         return True
 
     module_paths = getattr(module, "__path__", ())
-    return any(str(module_path).startswith(root_value) for module_path in module_paths)
+    try:
+        return any(
+            str(module_path).startswith(root_value) for module_path in module_paths
+        )
+    except KeyError:
+        # Namespace path iteration can raise if a parent package was already
+        # removed from sys.modules mid-eviction.
+        return False
 
 
 def _ensure_worker_import_context() -> None:
@@ -46,11 +53,16 @@ def _ensure_worker_import_context() -> None:
         sys.path.remove(worker_root_value)
     sys.path.insert(0, worker_root_value)
 
-    cached_module_names = list(sys.modules)
-    for module_name in cached_module_names:
-        if module_name == "app" or module_name.startswith("app."):
-            if _module_loaded_from(module_name, _API_ROOT):
-                sys.modules.pop(module_name, None)
+    cached_module_names = [
+        module_name
+        for module_name in sys.modules
+        if module_name == "app" or module_name.startswith("app.")
+    ]
+    # Evict deepest modules first so namespace __path__ checks never observe a
+    # missing parent `app` entry while walking API-shadowed packages.
+    for module_name in sorted(cached_module_names, key=len, reverse=True):
+        if _module_loaded_from(module_name, _API_ROOT):
+            sys.modules.pop(module_name, None)
 
 
 @pytest.fixture(autouse=True)

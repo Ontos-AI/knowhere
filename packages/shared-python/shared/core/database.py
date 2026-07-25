@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import declarative_base
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import NullPool, QueuePool
 
 from shared.core.config import settings
 from shared.core.constants import ProcessingConstants
@@ -25,7 +25,7 @@ is_async_database_pool_disabled: bool = (
     os.getenv("DB_USE_NULL_POOL", "false").lower() == "true"
 )
 engine_options: dict[str, Any] = {
-    "pool_recycle": ProcessingConstants.DB_POOL_RECYCLE,
+    "pool_recycle": settings.DB_POOL_RECYCLE,
     "pool_pre_ping": ProcessingConstants.DB_POOL_PRE_PING,
     "pool_reset_on_return": ProcessingConstants.DB_POOL_RESET_ON_RETURN,
     "connect_args": {
@@ -46,9 +46,9 @@ if is_async_database_pool_disabled:
 else:
     engine_options.update(
         {
-            "pool_size": ProcessingConstants.DB_POOL_SIZE,
-            "max_overflow": ProcessingConstants.DB_MAX_OVERFLOW,
-            "pool_timeout": ProcessingConstants.DB_POOL_TIMEOUT,
+            "pool_size": settings.DB_POOL_SIZE,
+            "max_overflow": settings.DB_MAX_OVERFLOW,
+            "pool_timeout": settings.DB_POOL_TIMEOUT,
         }
     )
 
@@ -204,12 +204,36 @@ def setup_pool_event_listeners():
         """Handle new connection events."""
         logger.info("New database connection established")
 
-    @event.listens_for(engine.sync_engine, "checkout")
+    @event.listens_for(engine.sync_engine.pool, "checkout")
     def on_checkout(dbapi_connection, connection_record, connection_proxy):
-        """Handle connection checkout events."""
-        logger.debug("Connection checked out from pool")
+        """Handle connection checkout events and surface pool pressure."""
+        pool = engine.sync_engine.pool
+        if not isinstance(pool, QueuePool):
+            logger.debug("Connection checked out from pool")
+            return
+        checked_out = pool.checkedout()
+        overflow = pool.overflow()
+        pool_size = pool.size()
+        logger.debug(
+            "Connection checked out from pool "
+            "(checkedout=%s overflow=%s pool_size=%s)",
+            checked_out,
+            overflow,
+            pool_size,
+        )
+        # QueuePool does not expose a first-party wait-started hook; treat
+        # checkedout >= pool_size (overflow in use) as pressure / likely wait.
+        if checked_out >= pool_size:
+            logger.warning(
+                "Database pool under pressure: checkedout=%s overflow=%s "
+                "pool_size=%s max_overflow=%s (checkout waits may exceed 1s)",
+                checked_out,
+                overflow,
+                pool_size,
+                settings.DB_MAX_OVERFLOW,
+            )
 
-    @event.listens_for(engine.sync_engine, "checkin")
+    @event.listens_for(engine.sync_engine.pool, "checkin")
     def on_checkin(dbapi_connection, connection_record):
         """Handle connection check-in events."""
         logger.debug("Connection checked in to pool")
@@ -218,6 +242,7 @@ def setup_pool_event_listeners():
     def on_invalidate(dbapi_connection, connection_record, exception):
         """Handle connection invalidation events."""
         logger.warning(f"Database connection invalidated: {exception}")
+
 
 setup_pool_event_listeners()
 
@@ -231,7 +256,7 @@ async def prewarm_connection_pool():
     logger.info("Starting connection pool prewarming...")
     try:
         # Warm the base connection pool.
-        connections_to_warm = min(ProcessingConstants.DB_POOL_SIZE, 5)
+        connections_to_warm = min(settings.DB_POOL_SIZE, 5)
         tasks = []
 
         for _ in range(connections_to_warm):

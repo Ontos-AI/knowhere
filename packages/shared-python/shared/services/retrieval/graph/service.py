@@ -75,6 +75,7 @@ class DocumentGraphService:
         namespace: str,
         document_id: str,
         job_result_id: str,
+        top_summary: str | None = None,
     ) -> None:
         document = db.execute(
             select(Document).where(Document.document_id == document_id)
@@ -103,7 +104,11 @@ class DocumentGraphService:
             types_breakdown[chunk_type or 'text'] += 1
         chunks_count = len(chunk_meta_rows)
 
-        top_summary = extract_document_top_summary(chunk_metadata_list)
+        resolved_top_summary = str(top_summary or "").strip()
+        if not resolved_top_summary:
+            # Backward compatible fallback for older chunks that still carry
+            # per-chunk document_top_summary copies.
+            resolved_top_summary = extract_document_top_summary(chunk_metadata_list)
 
         # ── Clean up old graph data for this document ──
         self.remove_document_graph(
@@ -137,7 +142,7 @@ class DocumentGraphService:
                     'top_entities': top_entities,
                     'chunks_count': chunks_count,
                     'types': dict(types_breakdown),
-                    'top_summary': top_summary,
+                    'top_summary': resolved_top_summary,
                 },
             )
         )

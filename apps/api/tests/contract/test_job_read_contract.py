@@ -133,6 +133,46 @@ async def test_should_return_job_details_for_an_existing_waiting_file_job(
 
 
 @pytest.mark.asyncio
+async def test_should_report_zero_credits_spent_for_refunded_failed_job(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    async with developer_api_client_factory() as api_client:
+        created_job = await _create_waiting_file_job(api_client)
+        job_id = cast(str, created_job["job_id"])
+
+        await ContractDatabase.execute(
+            """
+            UPDATE jobs
+            SET
+                status = 'failed',
+                error_code = 'INVALID_ARGUMENT',
+                error_message = 'Invalid file: the uploaded .docx file is not a valid Word document. Please check the file and upload again.',
+                credits_charged = 15000,
+                billing_status = 'refunded'
+            WHERE job_id = :job_id
+            """,
+            {"job_id": job_id},
+        )
+
+        response = await api_client.get(f"/api/v1/jobs/{job_id}")
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    error = cast(dict[str, object], response_json["error"])
+
+    assert response_json["status"] == "failed"
+    assert error["code"] == "INVALID_ARGUMENT"
+    assert (
+        error["message"]
+        == "Invalid file: the uploaded .docx file is not a valid Word document. Please check the file and upload again."
+    )
+    assert response_json["credits_spent"] == 0.0
+
+
+@pytest.mark.asyncio
 async def test_should_return_not_found_when_requesting_an_unknown_job(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
