@@ -25,8 +25,10 @@ class DatabaseConfig(BaseModel):
     )
 
     # Async database pool configuration for the API.
-    DB_POOL_SIZE: int = Field(default=20, description="Connection-pool size")
-    DB_MAX_OVERFLOW: int = Field(default=30, description="Maximum overflow connections")
+    # Defaults sized for legal job-poll bursts after nested-checkout hygiene
+    # (pool_size + max_overflow = 100 checkouts per API process).
+    DB_POOL_SIZE: int = Field(default=50, description="Connection-pool size")
+    DB_MAX_OVERFLOW: int = Field(default=50, description="Maximum overflow connections")
     DB_POOL_RECYCLE: int = Field(
         default=1800, description="Connection recycle interval in seconds"
     )
