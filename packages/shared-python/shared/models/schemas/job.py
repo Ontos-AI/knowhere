@@ -200,6 +200,26 @@ class JobList(BaseModel):
     total_pages: int = Field(..., description="Total page count")
 
 
+class JobDeleteResponse(BaseModel):
+    """Job-deletion response."""
+
+    job_id: str = Field(..., description="Deleted job ID")
+    deleted: bool = Field(
+        ..., description="Always true; deletion is idempotent for the owner"
+    )
+    document_id: Optional[str] = Field(
+        None, description="Document the deleted job targeted, when it had one"
+    )
+    document_archived: bool = Field(
+        False,
+        description=(
+            "Whether the linked document was archived as part of this call. "
+            "False when archiving was not requested or another live job still "
+            "targets the document."
+        ),
+    )
+
+
 class ConfirmUploadRequest(BaseModel):
     """Request payload for confirming a file upload."""
 
