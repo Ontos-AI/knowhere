@@ -18,6 +18,27 @@ except (ImportError, OSError):  # blingfire ships a native lib; fall back to syn
     _blingfire_text_to_words = None
 
 
+try:
+    from opencc import OpenCC as _OpenCC
+
+    _T2S_CONVERTER = _OpenCC("t2s")
+except (ImportError, OSError):
+    _T2S_CONVERTER = None
+
+
+def _normalize_cjk_to_simplified(text: str) -> str:
+    """Normalize Traditional Chinese characters to Simplified.
+
+    Applied before jieba tokenization so that 繁/简 variants produce the same
+    tokens on both ingest and query sides, letting BM25 cross-match. OpenCC
+    only converts CJK characters — English, numbers, and punctuation are
+    untouched. Falls through unchanged when ``opencc`` is not installed.
+    """
+    if _T2S_CONVERTER is None or not text:
+        return text
+    return _T2S_CONVERTER.convert(text)
+
+
 class _JiebaModule(Protocol):
     def lcut(self, sentence: str) -> list[str]: ...
     def cut(self, sentence: str) -> list[str]: ...
@@ -200,10 +221,11 @@ def _tokenize_english_segment(text: str) -> list[str]:
 def _tokenize_cjk_segment(text: str) -> list[str]:
     if not text.strip():
         return []
+    normalized = _normalize_cjk_to_simplified(text)
     try:
-        return list(_jieba.lcut(text))
+        return list(_jieba.lcut(normalized))
     except AttributeError:
-        return list(_jieba.cut(text))
+        return list(_jieba.cut(normalized))
 
 
 def _resolve_retrieval_stopwords(
@@ -302,10 +324,11 @@ def tokenize2stw_remove(contents: List[str], stopwords: Optional[List[str]] = No
     for content in contents:
         # Pre-clean: remove IMAGE_/TABLE_ markers and reference labels
         content = _CHUNK_MARKER_RE.sub('', content)
+        normalized = _normalize_cjk_to_simplified(content)
         try:
-            raw_tokens = _jieba.lcut(content)
+            raw_tokens = _jieba.lcut(normalized)
         except AttributeError:
-            raw_tokens = list(_jieba.cut(content))
+            raw_tokens = list(_jieba.cut(normalized))
         # Filter: keep only tokens with meaningful characters (Chinese/English/numbers)
         tokens = [t for t in raw_tokens if _is_meaningful_token(t)]
         # Remove stopwords

@@ -68,6 +68,7 @@ dependencies = [
     # Text processing
     "blingfire>=0.1.8",
     "syntok>=1.4.4",
+    "opencc-python-reimplemented>=0.1.7",
 
     # Image processing (used by ZipResultService)
     "pillow==12.2.0",
