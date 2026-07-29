@@ -111,6 +111,28 @@ class RedisService:
                 original_exception=e,
             )
 
+    async def set_nx(self, key: str, value: str, ex: int) -> bool:
+        """Atomic SET NX EX — set only if the key does not already exist.
+
+        Returns ``True`` if the key was written, ``False`` if it already existed.
+        Does not JSON-encode the value and does not fall back to a default TTL.
+        """
+        try:
+            client = await self._get_client()
+            full_key = self._build_key(key)
+
+            async def _operation():
+                return await client.set(full_key, value, nx=True, ex=ex)
+
+            return bool(await self._execute_with_retry(_operation))
+        except Exception as e:
+            logger.error(f"Redis SET NX operation failed: {e}")
+            raise RedisOperationError(
+                internal_message=f"SET NX operation failed: {str(e)}",
+                operation="SET_NX",
+                original_exception=e,
+            )
+
     async def get(self, key: str, default: Any = None) -> Any:
         """Get a key value."""
         try:

@@ -15,6 +15,7 @@ from shared.utils.error_details import normalize_error_details
 JobStatusValue = Literal[
     "pending", "waiting-file", "running", "converting", "done", "failed"
 ]
+_CHARGED_BILLING_STATUS: str = "charged"
 
 
 def build_error_response(
@@ -112,6 +113,17 @@ def _resolve_duration_seconds(job: Any) -> float | None:
     return None
 
 
+def _resolve_credits_spent(job: Any) -> float:
+    if to_job_status_value(job.status) == "failed":
+        return 0.0
+
+    billing_status = getattr(job, "billing_status", None)
+    if billing_status != _CHARGED_BILLING_STATUS:
+        return 0.0
+
+    return MicroDollar(getattr(job, "credits_charged", 0) or 0).to_credit()
+
+
 async def _resolve_result_delivery(
     job: Any,
 ) -> tuple[dict[str, Any] | None, str | None, datetime]:
@@ -162,9 +174,5 @@ async def build_job_result_response(
         model=parsing_params.get("model"),
         ocr_enabled=parsing_params.get("ocr_enabled"),
         duration_seconds=_resolve_duration_seconds(job),
-        credits_spent=(
-            MicroDollar(job.credits_charged).to_credit()
-            if hasattr(job, "credits_charged")
-            else 0
-        ),
+        credits_spent=_resolve_credits_spent(job),
     )

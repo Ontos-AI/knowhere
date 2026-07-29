@@ -483,6 +483,58 @@ def test_parse_task_should_refund_charged_job_when_uploaded_file_cannot_be_parse
     ]
 
 
+def test_parse_task_should_report_invalid_docx_as_client_file_error(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    contract = WorkerParseContract.create()
+    contract.use_workspace_root(monkeypatch, tmp_path)
+    contract.use_billing(monkeypatch, is_enabled=True)
+
+    invalid_docx_path = tmp_path / "invalid.docx"
+    invalid_docx_path.write_bytes(b"this is not a docx package")
+    job = contract.create_file_job(
+        source_file_name="contract-invalid.docx",
+        job_id_prefix="job_invalid_docx",
+    )
+    contract.upload_source_file(
+        local_file_path=invalid_docx_path,
+        s3_key=job["s3_key"],
+    )
+
+    celery_result = contract.enqueue_parse_task(
+        job_id=job["job_id"],
+        user_id=job["user_id"],
+    )
+
+    assert celery_result.failed()
+    assert contract.find_task_workspaces(tmp_path, job["job_id"]) == []
+
+    job_row = contract.observe_job_status(job["job_id"])
+    assert job_row["status"] == "failed"
+    assert job_row["billing_status"] == "refunded"
+    assert job_row["credits_charged"] == int(contract.settings.MICRO_DOLLARS_PER_PAGE)
+    assert job_row["error_code"] == "INVALID_ARGUMENT"
+    assert (
+        job_row["error_message"]
+        == "Invalid file: the uploaded .docx file is not a valid Word document. Please check the file and upload again."
+    )
+    assert contract.count_job_results(job["job_id"]) == 0
+
+    metadata = contract.get_job_metadata(job["job_id"])
+    assert metadata["error_details"] == {
+        "violations": [
+            {
+                "field": "file",
+                "description": (
+                    "Expected a valid DOCX ZIP package containing word/document.xml"
+                ),
+            }
+        ]
+    }
+
+
 def test_should_reject_pdf_when_page_count_exceeds_configured_limit(
     worker_contract_environment: None,
     monkeypatch: pytest.MonkeyPatch,

@@ -339,8 +339,8 @@ def _probe_assets_worker(
     finally:
         try:
             doc.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[document_agent] failed to close PDF document in assets probe worker: {}", exc)
         gc.collect()
     queue.put({"ok": True, "assets": assets})
 
