@@ -612,24 +612,67 @@ def parse_via_local(
             status_code=response.status_code,
         )
 
-    import io
-    import zipfile
+    local_logger.info("Local MinerU /file_parse completed")
 
-    local_logger.info("Local MinerU /file_parse completed, extracting ZIP")
-    try:
-        with zipfile.ZipFile(io.BytesIO(response.content)) as extracted_zip:
-            extracted_zip.extractall(output_dir)
-    except zipfile.BadZipFile as exc:
-        local_logger.bind(error_type=type(exc).__name__).error(
-            "Local MinerU response was not a valid ZIP"
-        )
+    result_payload = response.json()
+    results = result_payload.get("results") or {}
+    if not results:
         raise MinerUServiceException(
-            internal_message=f"Local MinerU returned a non-ZIP body: {exc}",
-            original_exception=exc,
-        ) from exc
+            internal_message=(
+                "Local MinerU /file_parse response missing results; "
+                f"keys: {list(result_payload.keys())}"
+            ),
+        )
 
-    _flatten_extracted_zip(output_dir)
-    local_logger.info("Local MinerU parse completed and ZIP flattened")
+    file_names = result_payload.get("file_names") or list(results.keys())
+    if len(results) > 1:
+        raise MinerUServiceException(
+            internal_message=(
+                f"Local MinerU returned {len(results)} result files; "
+                f"expected exactly one: {file_names}"
+            ),
+        )
+
+    result_key = next(iter(results))
+    result = results[result_key]
+    md_content = result.get("md_content") or ""
+    images = result.get("images") or {}
+
+    import base64
+    from pathlib import Path
+
+    destination = Path(output_dir)
+    destination.mkdir(parents=True, exist_ok=True)
+
+    (destination / "full.md").write_text(md_content, encoding="utf-8")
+
+    if images:
+        images_dir = destination / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        for image_name, image_data in images.items():
+            if not isinstance(image_data, str) or not image_data:
+                continue
+            image_path = images_dir / image_name
+            try:
+                if image_data.startswith("http"):
+                    img_response = _get_local_mineru_session_cached().get(
+                        image_data,
+                        timeout=settings.MINERU_API_TIMEOUT,
+                    )
+                    img_response.raise_for_status()
+                    image_path.write_bytes(img_response.content)
+                else:
+                    image_path.write_bytes(base64.b64decode(image_data))
+            except Exception as exc:
+                local_logger.bind(
+                    image_name=image_name,
+                    error_type=type(exc).__name__,
+                ).warning("Failed to save local MinerU image, skipping")
+
+    local_logger.bind(
+        md_chars=len(md_content),
+        image_count=len(images),
+    ).info("Local MinerU parse completed")
 
 
 def parse_via_full(
