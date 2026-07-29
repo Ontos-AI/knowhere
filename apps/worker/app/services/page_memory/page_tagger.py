@@ -40,7 +40,7 @@ class PageTagResult:
     observed_titles: list[dict[str, Any]] = field(default_factory=list)
     """Step 2: verbatim title candidates observed on this page.
 
-    Each entry is ``{"text": str, "prominence": float | None}``.
+    Each entry is ``{"text": str}`` (plus optional filter flags when present).
     Empty list means no titles were detected (or title detection was skipped).
     """
 
@@ -58,6 +58,7 @@ def tag_pages(
     budget: Any | None = None,
     vlm_model: str | None = None,
     max_concurrent: int | None = None,
+    body_start_by_page: dict[int, str] | None = None,
 ) -> list[PageTagResult]:
     """Tag all pages according to their processing plan.
 
@@ -73,6 +74,8 @@ def tag_pages(
         VLM model name; falls back to ``$IMAGE_MODEL``.
     max_concurrent:
         Maximum concurrent page-tagging calls.
+    body_start_by_page:
+        Optional mixed-page body-start anchors keyed by page index.
 
     Returns
     -------
@@ -86,6 +89,7 @@ def tag_pages(
 
     plan_map = {plan.page_index: plan for plan in plans}
     model = vlm_model or os.environ.get("IMAGE_MODEL")
+    anchors = body_start_by_page or {}
 
     resolved_max_concurrent = max_concurrent or int(
         getattr(settings, "SUMMARY_LLM_MAX_CONCURRENT", 4)
@@ -107,7 +111,11 @@ def tag_pages(
             )
             return _tag_skip(page)
 
-        return _tag_vlm_lite(page, model=model)
+        return _tag_vlm_lite(
+            page,
+            model=model,
+            body_start_text=anchors.get(page.page_index, ""),
+        )
 
     pool = GeventPool(size=min(resolved_max_concurrent, len(pages)))
     greenlets = [pool.spawn(_tag_one, page) for page in pages]
@@ -144,6 +152,7 @@ def _tag_vlm_lite(
     page: PageRenderResult,
     *,
     model: str,
+    body_start_text: str = "",
 ) -> PageTagResult:
     """Send page PNG to the VLM via the unified engine."""
     if not page.image_path or not os.path.exists(page.image_path):
@@ -153,11 +162,15 @@ def _tag_vlm_lite(
         )
         return _tag_skip(page)
 
+    prompt_paras: dict[str, Any] = {"max_tokens": 600}
+    if body_start_text:
+        prompt_paras["body_start_text"] = body_start_text
     result = summarize(
         mode="page",
         image_paths=[page.image_path],
         model=model,
         usage_task="page_memory.tag",
+        prompt_paras=prompt_paras,
     )
     return PageTagResult(
         page_index=page.page_index,
@@ -185,6 +198,7 @@ def tag_page_titles(
     vlm_model: str | None = None,
     scan_direction: str = "top_to_bottom_left_to_right",
     max_concurrent: int | None = None,
+    body_start_by_page: dict[int, str] | None = None,
 ) -> list[PageTagResult]:
     """Run independent VLM title detection on fat-leaf pages.
 
@@ -208,6 +222,8 @@ def tag_page_titles(
         Reading-order wording for the title prompt.
     max_concurrent:
         Maximum concurrent title-detection calls.
+    body_start_by_page:
+        Optional mixed-page body-start anchors keyed by page index.
 
     Returns
     -------
@@ -223,6 +239,7 @@ def tag_page_titles(
         logger.warning("[page_tagger] no VLM model for title detection; skipping")
         return tag_results
 
+    anchors = body_start_by_page or {}
     tag_map = {t.page_index: t for t in tag_results}
     page_map = {p.page_index: p for p in pages}
     work_items = [
@@ -250,6 +267,7 @@ def tag_page_titles(
             page,
             model=model,
             scan_direction=scan_direction,
+            body_start_text=anchors.get(page_idx, ""),
         )
 
     import gevent
@@ -333,19 +351,9 @@ def _parse_observed_titles(
             continue
         if not text:
             continue
-        prominence = None
-        try:
-            prominence = float(item.get("prominence", 0.5))
-        except (TypeError, ValueError) as exc:
-            logger.debug(
-                "[page_tagger] ignored non-numeric title prominence {}: {}",
-                item.get("prominence"),
-                exc,
-            )
         observed.append(
             {
                 "text": text,
-                "prominence": prominence,
                 "is_in_table": is_table,
                 "is_in_header_footer": is_header,
             }
@@ -358,20 +366,24 @@ def _tag_vlm_titles(
     *,
     model: str,
     scan_direction: str = "top_to_bottom_left_to_right",
+    body_start_text: str = "",
 ) -> list[dict[str, Any]]:
     """Send page PNG to VLM with the title-only prompt and parse results.
 
     Starts at a small completion budget and escalates only when the response
     is truncated (budget hit / incomplete JSON that fails to parse).
     """
+    paras: dict[str, Any] = {
+        "max_tokens": _TITLE_TOKEN_BUDGETS[0],
+        "scan_direction": scan_direction,
+    }
+    if body_start_text:
+        paras["body_start_text"] = body_start_text
     prompt, temperature, _top_p, _default_max_tokens = build_prompt(
         "page-memory-vlm-title",
         "",
         "",
-        paras={
-            "max_tokens": _TITLE_TOKEN_BUDGETS[0],
-            "scan_direction": scan_direction,
-        },
+        paras=paras,
     )
 
     try:

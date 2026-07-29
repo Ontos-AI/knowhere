@@ -83,14 +83,13 @@ def test_refine_fat_leaf_skeletons_excludes_next_section_start_when_unordered(
     tags = [
         PageTagResult(
             page_index=301,
-            observed_titles=[{"text": "A.1 Last Heading", "prominence": 1.0}],
+            observed_titles=[{"text": "A.1 Last Heading"}],
         ),
         PageTagResult(
             page_index=302,
             observed_titles=[
                 {
-                    "text": "B.1 Boundary Heading",
-                    "prominence": 1.0,
+                    "text": "B.1 Boundary Heading"
                 }
             ],
         ),
@@ -136,20 +135,20 @@ def test_refine_fat_leaf_skeletons_uses_page_memory_prompt_without_demoting_sibl
         PageTagResult(
             page_index=225,
             observed_titles=[
-                {"text": "安全风险分级管控", "prominence": 1.0},
-                {"text": "1 总则", "prominence": 1.0},
+                {"text": "安全风险分级管控"},
+                {"text": "1 总则"},
             ],
         ),
         PageTagResult(
             page_index=226,
             observed_titles=[
-                {"text": "2 术语", "prominence": 1.0},
-                {"text": "2.1 定义", "prominence": 0.8},
+                {"text": "2 术语"},
+                {"text": "2.1 定义"},
             ],
         ),
         PageTagResult(
             page_index=228,
-            observed_titles=[{"text": "3 基本规定", "prominence": 1.0}],
+            observed_titles=[{"text": "3 基本规定"}],
         ),
     ]
 
@@ -204,13 +203,13 @@ def test_refine_fat_leaf_keeps_slash_in_title_as_single_path_segment(
         PageTagResult(
             page_index=10,
             observed_titles=[
-                {"text": "Index", "prominence": 1.0},
-                {"text": "Symbols/Numbers", "prominence": 1.0},
+                {"text": "Index"},
+                {"text": "Symbols/Numbers"},
             ],
         ),
         PageTagResult(
             page_index=12,
-            observed_titles=[{"text": "A entries", "prominence": 1.0}],
+            observed_titles=[{"text": "A entries"}],
         ),
     ]
 
@@ -315,13 +314,13 @@ def test_refine_fat_leaf_drops_boundary_page_on_tail_miss(monkeypatch) -> None:
     tags = [
         PageTagResult(
             page_index=22,
-            observed_titles=[{"text": "NCC 2022", "prominence": 1.0}],
+            observed_titles=[{"text": "NCC 2022"}],
         ),
         PageTagResult(
             page_index=23,
             observed_titles=[
-                {"text": "Not The Next Title", "prominence": 1.0},
-                {"text": "Another Boundary Title", "prominence": 0.9},
+                {"text": "Not The Next Title"},
+                {"text": "Another Boundary Title"},
             ],
         ),
     ]

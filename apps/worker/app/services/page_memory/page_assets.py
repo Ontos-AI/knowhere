@@ -52,16 +52,20 @@ class PageAsset:
 
 
 def page_asset_extraction_enabled() -> bool:
-    return True
+    from shared.models.schemas.page_memory_config import PageMemoryConfig
+
+    return PageMemoryConfig.default().asset_extraction_enabled
 
 
 def page_asset_summary_enabled() -> bool:
     """Whether detected page assets are summarized via the engine (§4.3).
 
     Gated separately from detection so the richer chart/figure summarization can
-    be rolled out independently. Defaults off.
+    be rolled out independently. Defaults on via ``PageMemoryConfig``.
     """
-    return False
+    from shared.models.schemas.page_memory_config import PageMemoryConfig
+
+    return PageMemoryConfig.default().asset_summary_enabled
 
 
 def get_asset_confidence_threshold() -> float:
@@ -372,7 +376,7 @@ def extract_page_assets_from_renders(
     budget: Any | None = None,
     max_pages: int,
     confidence_threshold: float,
-    summary_enabled: bool = False,
+    summary_enabled: bool = True,
     summary_concurrency: int = 4,
     table_engine: str = "tabula",
     table_merge_enabled: bool = True,

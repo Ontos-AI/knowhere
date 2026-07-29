@@ -63,8 +63,17 @@ def scope_manifest(
     skeletons: list[Any],
     page_count: int,
     strategy: str,
+    processing_pages: list[int] | None = None,
+    excluded_toc_pages: list[int] | None = None,
 ) -> dict[str, Any]:
-    pages = derive_hierarchy_page_scope(skeletons=skeletons, page_count=page_count)
+    structural_pages = derive_hierarchy_page_scope(
+        skeletons=skeletons, page_count=page_count
+    )
+    pages = (
+        list(processing_pages)
+        if processing_pages is not None
+        else structural_pages
+    )
     parent_paths = sorted({str(getattr(item, "parent_path", "") or "") for item in skeletons})
     return {
         "scope_id": scope_id,
@@ -72,6 +81,11 @@ def scope_manifest(
         "document_page_count": page_count,
         "page_count": len(pages),
         "page_ranges": collapse_page_ranges(pages),
+        "structural_page_ranges": collapse_page_ranges(structural_pages),
+        "processing_page_ranges": collapse_page_ranges(pages),
+        "excluded_toc_page_ranges": collapse_page_ranges(
+            sorted({int(page) for page in (excluded_toc_pages or [])})
+        ),
         "skeleton_count": len(skeletons),
         "parent_paths": parent_paths,
     }

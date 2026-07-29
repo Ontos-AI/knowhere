@@ -20,7 +20,7 @@ class PageMemoryConfig:
     hierarchy_max_tokens: int = 2000
     max_heading_depth: int = 6
     asset_extraction_enabled: bool = True
-    asset_summary_enabled: bool = False
+    asset_summary_enabled: bool = True
     asset_model: str = "qwen3.6-flash"
     asset_max_pages: int | None = None
     asset_confidence_threshold: float = 0.3
@@ -50,6 +50,14 @@ class PageMemoryConfig:
             node_assembly_concurrency=_as_int(
                 getattr(settings, "PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY", 3),
                 3,
+            ),
+            asset_extraction_enabled=_as_bool(
+                getattr(settings, "PAGE_MEMORY_ASSET_EXTRACTION_ENABLED", None),
+                True,
+            ),
+            asset_summary_enabled=_as_bool(
+                getattr(settings, "PAGE_MEMORY_ASSET_SUMMARY_ENABLED", None),
+                True,
             ),
         )
 

@@ -280,6 +280,174 @@ def vlm_extract_toc_batch(
 
 
 
+# ---------------------------------------------------------------------------
+# Tail probe: last confirmed TOC page + following non-TOC page.
+# Detects mixed TOC/body pages the batch classifier may miss.
+# ---------------------------------------------------------------------------
+
+VLM_TOC_TAIL_PROBE_PROMPT = """\
+You will receive one or two consecutive page screenshots near the end of a
+Table of Contents (TOC) region.
+
+Decide whether any of these pages mixes TOC listing content with the start of
+real body content on the SAME page.
+
+A mixed page has BOTH:
+- a TOC listing region (section titles paired with page numbers / leaders), AND
+- body content that begins after that listing (narrative text, a real section
+  heading followed by explanatory content, definitions, etc.)
+
+A page that is only TOC, only body, blank, or a divider is NOT mixed.
+
+If a page is mixed, return the verbatim start of the body content as it appears
+on the page (the first body heading or first body sentence after the TOC
+region). Do not paraphrase. Prefer a short but unambiguous contiguous phrase.
+
+If a page previously looks non-TOC but still contains a TOC listing region at
+the top, treat it as mixed when body content follows on that page, and also
+extract TOC entries from that TOC region only.
+
+Return strict JSON (no markdown fences):
+{{
+  "mixed_page": <page_number or null>,
+  "body_start_text": "<verbatim body-start text, or empty string>",
+  "toc_entries": [
+    {{"title": "...", "page_number": ..., "level": ...}}
+  ],
+  "reason": "<brief reason>"
+}}
+
+Rules:
+- Set mixed_page to null and body_start_text to "" when no mixed page exists.
+- toc_entries may be empty when no additional TOC entries need to be recovered.
+- Only set mixed_page when the mix is clear from the screenshots.
+"""
+
+
+@dataclass
+class TocTailProbeResult:
+    """Result from a TOC/body tail boundary probe."""
+
+    mixed_page: int | None
+    body_start_text: str
+    toc_entries: list[dict[str, Any]]
+    reason: str
+    meta: dict[str, Any]
+
+
+def vlm_probe_toc_tail(
+    *,
+    page_pngs: list[tuple[int, str]],
+    model: str,
+) -> TocTailProbeResult:
+    """Probe the TOC tail for a mixed TOC/body page.
+
+    Args:
+        page_pngs: (page_number, png_path) pairs, typically the last TOC page
+            and the following page when available.
+        model: VLM model name.
+    """
+    from loguru import logger
+    from shared.services.ai.llm_overrides import get_vision_client
+
+    if not page_pngs:
+        return TocTailProbeResult(
+            mixed_page=None,
+            body_start_text="",
+            toc_entries=[],
+            reason="no_pages",
+            meta={},
+        )
+
+    content_parts: list[dict[str, Any]] = [
+        {"type": "text", "text": VLM_TOC_TAIL_PROBE_PROMPT},
+    ]
+    for page_num, png_path in page_pngs:
+        with open(png_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode()
+        content_parts.append({"type": "text", "text": f"\n--- Page {page_num} ---"})
+        content_parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{img_b64}"},
+            }
+        )
+
+    start = time.monotonic()
+    client, resolved_model = get_vision_client(requested_model=model)
+    model = resolved_model or model
+    raw, usage = client.chat_completion_with_usage(
+        messages=cast(Any, [{"role": "user", "content": content_parts}]),
+        model=model,
+        temperature=0.1,
+        max_tokens=2048,
+        response_format={"type": "json_object"},
+        usage_task="document_agent.toc_tail_probe",
+    )
+    elapsed_ms = int((time.monotonic() - start) * 1000)
+
+    data = json.loads(raw) if isinstance(raw, str) else {}
+    if not isinstance(data, dict):
+        data = {}
+
+    allowed_pages = {page for page, _ in page_pngs}
+    mixed_page: int | None = None
+    raw_mixed = data.get("mixed_page")
+    if raw_mixed is not None and str(raw_mixed).strip().lower() not in {"", "null", "none"}:
+        try:
+            candidate = int(raw_mixed)
+        except (TypeError, ValueError):
+            candidate = None
+        if candidate in allowed_pages:
+            mixed_page = candidate
+
+    body_start_text = str(data.get("body_start_text") or "").strip()
+    if mixed_page is None:
+        body_start_text = ""
+
+    toc_entries: list[dict[str, Any]] = []
+    for entry_item in data.get("toc_entries") or []:
+        if not isinstance(entry_item, dict):
+            continue
+        title = str(entry_item.get("title") or "").strip()
+        if not title:
+            continue
+        try:
+            level = int(entry_item.get("level") or 1)
+        except (TypeError, ValueError):
+            level = 1
+        toc_entries.append(
+            {
+                "title": title,
+                "page_number": entry_item.get("page_number"),
+                "level": level,
+            }
+        )
+
+    reason = str(data.get("reason") or "").strip()
+    logger.info(
+        "[vlm_toc_tail_probe] pages={} mixed_page={} body_start_len={} "
+        "extra_entries={} elapsed={}ms",
+        [p for p, _ in page_pngs],
+        mixed_page,
+        len(body_start_text),
+        len(toc_entries),
+        elapsed_ms,
+    )
+    return TocTailProbeResult(
+        mixed_page=mixed_page,
+        body_start_text=body_start_text,
+        toc_entries=toc_entries,
+        reason=reason,
+        meta={
+            "pages_sent": [p for p, _ in page_pngs],
+            "model": model,
+            "elapsed_ms": elapsed_ms,
+            "usage": dict(usage),
+        },
+    )
+
+
 def build_toc_tree(entries: list[dict[str, Any]]) -> dict[str, Any]:
     root: dict[str, Any] = {}
     stack: list[tuple[dict[str, Any], int]] = [(root, 0)]

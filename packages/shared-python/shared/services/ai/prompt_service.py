@@ -115,6 +115,18 @@ def _entity_instruction() -> str:
     )
 
 
+def _body_start_boundary_instruction(paras: dict | None) -> str:
+    """Optional mixed TOC/body page instruction when an anchor is known."""
+    text = str((paras or {}).get("body_start_text") or "").strip()
+    if not text:
+        return ""
+    return (
+        "BOUNDARY PAGE: This page mixes a Table of Contents region with body "
+        "content. Body content begins at this verbatim text: "
+        f'"{text}". Ignore everything before that body start. Only extract or '
+        "summarize content from that point onward.\n"
+    )
+
 
 def build_prompt(task, texts, query, **kwargs):
     from loguru import logger
@@ -463,8 +475,10 @@ def build_prompt(task, texts, query, **kwargs):
     elif task == "page-memory-vlm-tag":
         temperature = 0
         top_p = 0.01
-        max_tokens = kwargs.get("paras", {}).get("max_tokens", 600)
+        paras = kwargs.get("paras", {}) or {}
+        max_tokens = paras.get("max_tokens", 600)
         entity_line = _entity_instruction()
+        boundary_line = _body_start_boundary_instruction(paras)
         prompt = f"""\
         You are annotating a single rendered document page for a document memory
         system. Return one strict JSON object with exactly these keys:
@@ -475,7 +489,7 @@ def build_prompt(task, texts, query, **kwargs):
         }}
 
         Rules:
-        - "summary": describe the main content visible on the page in a few
+        {boundary_line}- "summary": describe the main content visible on the page in a few
           sentences, in the same language as the page. If the page contains a
           table, state its topic and key columns; if it contains a figure or
           chart, describe what it depicts and any standout values.
@@ -487,8 +501,9 @@ def build_prompt(task, texts, query, **kwargs):
         temperature = 0
         top_p = 0.01
         paras = kwargs.get("paras", {})
-        max_tokens = paras.get("max_tokens", 300)
+        max_tokens = paras.get("max_tokens", 900)
         scan_direction = paras.get("scan_direction", "top_to_bottom_left_to_right")
+        boundary_line = _body_start_boundary_instruction(paras)
 
         if "right_to_left" in scan_direction:
             reading_order_upper = "TOP-TO-BOTTOM, RIGHT-TO-LEFT"
@@ -499,23 +514,20 @@ def build_prompt(task, texts, query, **kwargs):
 
         prompt = f"""\
         You are extracting document-outline-level headings from a PDF page screenshot.
-        Your goal is to find ONLY the section headings that structure the document.
+        Your goal is to find ONLY the section headings that structure the page content.
         If no text on this page qualifies as a section heading, return an empty list.
 
-        READING ORDER:
+        {boundary_line}READING ORDER:
         This page may contain one or more readable columns.
         Within each column, read from top to bottom.
         Between columns, read from {column_order}.
         Return every qualifying heading on this page in that reading order.
-        Do not skip a heading just because it looks like a known section title;
-        extract all outline-level headings that appear on the page.
 
         Return strict JSON:
         {{
         "titles": [
             {{
             "text": "<exact verbatim heading>",
-            "prominence": <0.0-1.0>,
             "is_in_table": <boolean>,
             "is_in_header_footer": <boolean>
             }}
@@ -532,33 +544,27 @@ def build_prompt(task, texts, query, **kwargs):
         Only extract text that satisfies ALL three criteria:
 
         1. HEADING FUNCTION (primary — must be true):
-        The text serves as a TITLE for the body content that follows it.
-        It introduces or labels a block of subsequent paragraphs, clauses,
-        or sub-sections. If you removed this text, the following body content
-        would lose its topic label.
+        The text serves as a TITLE for the body content following it according to the reading order.
+        If you removed this text, the following body content would lose its topic label.
 
         2. STANDALONE LINE (must be true):
         The text occupies its own line, clearly separated from surrounding
-        body paragraphs. It is NOT inside a table, NOT part of a list,
-        and NOT embedded within a sentence.
+        body paragraphs. It is NOT inside a table, NOT part of a list, and NOT embedded within a sentence.
 
         3. VISUAL DISTINCTION (supporting):
         The text is visually set apart from body text — larger font, bold,
-        centered, extra vertical spacing, or wrapped in a distinctive
-        background color block.
+        centered, extra vertical spacing, or wrapped in a distinctive background color block.
 
-        "prominence": 1.0 = most prominent; 0.5 = medium; 0.1 = minor.
         Return titles in {reading_order_upper} order. Text must be EXACT verbatim.
 
         ═══ WHAT TO EXCLUDE (critical — read carefully) ═══
 
         1. TABLE CONTENT — Any text that is part of a table. If the
-        text is surrounded by grid lines, borders, or cell boundaries, or if
-        its neighboring content is arranged in rows and columns, it is table
+        text is surrounded by grid lines, borders, or cell boundaries, it is table
         content and MUST BE EXCLUDED. This applies even when the text is bold,
-        large, or spans a merged cell. Specifically exclude:
+        large, or spans a merged cell. Typical examples include:
         - Column headers, row category labels, merged-cell group labels
-        - Any label inside a tabular layout, regardless of visual prominence
+        - Any label inside a tabular layout, regardless of font size or boldness
 
         2. PAGE PERIPHERY — Text in margins or corners of the page:
         organization/document names repeated as running headers, page numbers,
@@ -569,14 +575,16 @@ def build_prompt(task, texts, query, **kwargs):
 
         4. CAPTIONS — Figure/table captions, footnotes.
 
-        5. TOC ENTRIES — If the page is itself a Table of Contents or index,
-        do NOT extract its listed entries. A TOC page lists other sections
-        with page numbers — those entries are references, not headings.
-
         ═══ IMPORTANT ═══
-        Many pages consist entirely of tables, numbered clauses, or appendix forms.
+        1. Many pages consist entirely of tables, numbered clauses, or appendix forms.
         These pages have NO qualifying headings. Return {{"titles": []}} for them.
-        Do NOT force-extract table labels or numbered items as headings.
+
+        2. COMPLETENESS — Each heading must be the full heading as printed:
+        include its complete numbering/code AND exact title text; do not
+        abbreviate, truncate, or omit either part. 
+        
+        3. If a single heading wraps across more than one lines, merge the lines into ONE heading;
+        never split one wrapped heading into multiple results.
 
         Return ONLY the JSON object, no markdown fences.
         """
@@ -613,8 +621,8 @@ Your task:
   child, etc.
 - Preserve all legitimate sibling headings. Consecutive same-level headings are
   normal and MUST NOT be demoted just because no body text appears between rows.
-- Use page order as reading order. The "prominence" value is visual strength,
-  but numbering and structural pattern are more important.
+- Use page order as reading order. Numbering and structural pattern are the
+  primary signals for level assignment.
 
 {coarse_section}
 
@@ -650,9 +658,11 @@ Output requirements:
     elif task == "page-memory-node-summary":
         temperature = 0
         top_p = 0.01
-        max_tokens = kwargs.get("paras", {}).get("max_tokens", 400)
-        node_title = kwargs.get("paras", {}).get("node_title", "")
-        next_title = kwargs.get("paras", {}).get("next_title", "")
+        paras = kwargs.get("paras", {}) or {}
+        max_tokens = paras.get("max_tokens", 400)
+        node_title = paras.get("node_title", "")
+        next_title = paras.get("next_title", "")
+        boundary_line = _body_start_boundary_instruction(paras)
         if next_title:
             scope = (
                 f"Summarize ONLY the content that belongs to the section titled "
@@ -670,7 +680,7 @@ Output requirements:
         You are summarizing one section of a document for a navigation/memory
         system. You are given the page image(s) that this section spans.
 
-        {scope}
+        {boundary_line}{scope}
 
         Return one strict JSON object with exactly these keys:
         {{

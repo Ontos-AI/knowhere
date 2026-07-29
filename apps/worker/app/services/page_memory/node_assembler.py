@@ -38,7 +38,10 @@ from app.services.page_memory.page_assets import (
 )
 from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
+from app.services.page_memory._utils import slice_text_from_anchor
+from app.services.page_memory.toc_page_policy import TocPagePolicy
 from shared.services.ai.summary.engine import summarize, transcribe
+from shared.services.chunks.path_segments import join_document_path
 
 SAME_AS_PREFIX = "SAME-AS"
 
@@ -250,23 +253,33 @@ def resolve_page_text(
     image_path: str | None,
     vlm_model: str | None,
     budget: Any | None = None,
+    body_start_text: str = "",
 ) -> str:
     """Body text for an owned page: PyMuPDF text, or VLM OCR for scanned pages.
 
     Electronic PDFs already have PyMuPDF text; scanned pages have (near) empty
     text and fall back to the shared ``transcribe()`` OCR primitive (§4.2).
+    When ``body_start_text`` is set, keep only content from that anchor onward.
     """
     text = (raw_text or "").strip()
-    if text:
+    if not text:
+        if not vlm_model or not image_path or not os.path.exists(image_path):
+            return ""
+        text = transcribe(
+            image_paths=[image_path],
+            model=vlm_model,
+            max_tokens=1500,
+            usage_task="page_memory.node_ocr",
+        )
+    if not body_start_text:
         return text
-    if not vlm_model or not image_path or not os.path.exists(image_path):
-        return ""
-    return transcribe(
-        image_paths=[image_path],
-        model=vlm_model,
-        max_tokens=1500,
-        usage_task="page_memory.node_ocr",
-    )
+    sliced, matched = slice_text_from_anchor(text, body_start_text)
+    if not matched:
+        logger.warning(
+            "[node_assembler] body_start_text not found on page {}; keeping full text",
+            page,
+        )
+    return sliced
 
 
 def compute_node_summary(
@@ -278,6 +291,7 @@ def compute_node_summary(
     vlm_model: str | None,
     budget: Any | None = None,
     node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,
+    body_start_by_page: dict[int, str] | None = None,
 ) -> tuple[str, list[str], list[dict[str, str]]]:
     """Settle a node's summary, keywords, and typed entities (§4.4).
 
@@ -310,6 +324,7 @@ def compute_node_summary(
             image_path_by_page=image_path_by_page,
             vlm_model=vlm_model,
             node_summary_max_pages=node_summary_max_pages,
+            body_start_by_page=body_start_by_page,
         )
         if result is not None:
             return result
@@ -359,6 +374,7 @@ def _vlm_node_summary(
     image_path_by_page: dict[int, str],
     vlm_model: str,
     node_summary_max_pages: int,
+    body_start_by_page: dict[int, str] | None = None,
 ) -> tuple[str, list[str], list[dict[str, str]]] | None:
     leaf = view.leaf
     pages = view.pages[:node_summary_max_pages]
@@ -379,18 +395,30 @@ def _vlm_node_summary(
     if not image_paths:
         return None
 
+    anchors = body_start_by_page or {}
+    body_start_text = ""
+    for page in pages:
+        text = anchors.get(page, "")
+        if text:
+            body_start_text = text
+            break
+
+    prompt_paras: dict[str, Any] = {
+        "max_tokens": 400,
+        "node_title": leaf.title,
+        "next_title": next_title or "",
+        "kw_num": 5,
+    }
+    if body_start_text:
+        prompt_paras["body_start_text"] = body_start_text
+
     result = summarize(
         mode="page",
         image_paths=image_paths,
         model=vlm_model,
         usage_task="page_memory.node_summary",
         prompt_task="page-memory-node-summary",
-        prompt_paras={
-            "max_tokens": 400,
-            "node_title": leaf.title,
-            "next_title": next_title or "",
-            "kw_num": 5,
-        },
+        prompt_paras=prompt_paras,
     )
     if not result.summary and not result.entities:
         return None
@@ -418,6 +446,7 @@ def build_node_rows(
     page_assets_by_page: dict[int, list[PageAsset]] | None = None,
     node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,
     node_assembly_concurrency: int = 3,
+    body_start_by_page: dict[int, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Assemble one row per leaf section node (node-granularity chunks)."""
     available_pages = set(raw_text_by_page.keys())
@@ -425,6 +454,7 @@ def build_node_rows(
     views, page_owner = assign_pages_to_leaves(leaves, available_pages=available_pages)
     page_to_leaves = pages_by_leaf_count(views)
     resolved_concurrency = max(1, node_assembly_concurrency)
+    anchors = body_start_by_page or {}
 
     # Resolve body text once per owned page (PyMuPDF, OCR fallback for scanned).
     resolved_text: dict[int, str] = {}
@@ -439,6 +469,7 @@ def build_node_rows(
                 raw_text=raw_text_by_page.get(page, ""),
                 image_path=image_path_by_page.get(page),
                 vlm_model=vlm_model,
+                body_start_text=anchors.get(page, ""),
             )
 
         with stage_timer(
@@ -470,6 +501,7 @@ def build_node_rows(
                 image_path_by_page=image_path_by_page,
                 vlm_model=vlm_model,
                 node_summary_max_pages=node_summary_max_pages,
+                body_start_by_page=anchors,
             )
 
         with stage_timer(
@@ -544,6 +576,141 @@ def build_node_rows(
         len(available_pages),
     )
     return asset_rows + rows
+
+
+def format_toc_entries_content(entries: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    for entry in entries:
+        heading = str(entry.get("heading") or entry.get("title") or "").strip()
+        if not heading:
+            continue
+        level = entry.get("level", 1)
+        try:
+            depth = max(int(level), 1)
+        except (TypeError, ValueError):
+            depth = 1
+        page_number = entry.get("page_number")
+        suffix = f" ...... {page_number}" if page_number is not None else ""
+        lines.append(f"{'  ' * (depth - 1)}{heading}{suffix}")
+    return "\n".join(lines).strip()
+
+
+def build_toc_nav_skeletons(
+    *,
+    anatomy: Any | None,
+    filename: str,
+) -> list[SectionSkeleton]:
+    """Navigation-only skeletons for TOC regions (not used by body ownership)."""
+    policy = TocPagePolicy.from_anatomy(anatomy)
+    if not policy.regions:
+        return []
+
+    skeletons: list[SectionSkeleton] = []
+    for index, region in enumerate(policy.regions, start=1):
+        pages = sorted({int(page) for page in region.toc_pages if int(page) > 0})
+        if not pages:
+            continue
+        title = "Table of Contents" if index == 1 else f"Table of Contents ({index})"
+        skeletons.append(
+            SectionSkeleton(
+                section_path=join_document_path([filename, title]),
+                level=1,
+                start_page=pages[0],
+                end_page=pages[-1],
+                title=title,
+                parent_path=filename,
+                evidence={
+                    "source": "toc_static",
+                    "content_kind": "table_of_contents",
+                    "pure_toc_pages": list(region.pure_toc_pages),
+                    "mixed_page": region.mixed_page,
+                },
+            )
+        )
+    return skeletons
+
+
+def build_toc_node_rows(
+    *,
+    anatomy: Any | None,
+    filename: str,
+) -> list[dict[str, Any]]:
+    """Synthetic TOC rows from Stage-1 entries; bypass SAME-AS ownership."""
+    hierarchies = list(getattr(anatomy, "toc_hierarchies", None) or [])
+    policy = TocPagePolicy.from_anatomy(anatomy)
+    regions = list(policy.regions)
+    if not regions and not hierarchies:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    count = max(len(regions), len(hierarchies), 1 if hierarchies else 0)
+    for index in range(count):
+        region = regions[index] if index < len(regions) else None
+        hierarchy = hierarchies[index] if index < len(hierarchies) else {}
+        entries = list((hierarchy or {}).get("toc_with_level") or [])
+        content = format_toc_entries_content(entries)
+        if region is not None:
+            pages = sorted({int(page) for page in region.toc_pages if int(page) > 0})
+        else:
+            toc_range = (hierarchy or {}).get("toc_range") or []
+            pages = sorted({int(page) for page in toc_range if int(page) > 0})
+        if not pages and not content:
+            continue
+        title = "Table of Contents" if index == 0 else f"Table of Contents ({index + 1})"
+        path = join_document_path([filename, title])
+        know_id = f"node_{gen_str_codes(f'{filename}::{path}')}"
+        rows.append(
+            {
+                "content": content,
+                "path": path,
+                "type": "page",
+                "length": len(content),
+                "keywords": "",
+                "summary": "Table of Contents",
+                "know_id": know_id,
+                "tokens": "",
+                "connectto": "",
+                "addtime": get_str_time(),
+                "page_nums": ",".join(str(page) for page in pages),
+                "entities": "",
+                "asset_title": "",
+                "extra_metadata": {
+                    "content_kind": "table_of_contents",
+                    "pure_toc_pages": list(region.pure_toc_pages) if region else pages,
+                    "mixed_page": region.mixed_page if region else None,
+                    "body_start_text": (
+                        region.body_start_text if region else hierarchy.get("body_start_text", "")
+                    ),
+                },
+            }
+        )
+    return rows
+
+
+def merge_rows_by_first_page(
+    toc_rows: list[dict[str, Any]],
+    body_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Insert TOC rows by first physical page while preserving body order."""
+
+    def _first_page(row: dict[str, Any]) -> int:
+        raw = str(row.get("page_nums") or "").split(",")[0].strip()
+        try:
+            return int(raw)
+        except ValueError:
+            return 0
+
+    asset_rows = [row for row in body_rows if row.get("type") != "page"]
+    page_rows = [row for row in body_rows if row.get("type") == "page"]
+    merged = sorted(
+        [*toc_rows, *page_rows],
+        key=lambda row: (
+            _first_page(row),
+            0 if (row.get("extra_metadata") or {}).get("content_kind") == "table_of_contents" else 1,
+            str(row.get("path") or ""),
+        ),
+    )
+    return asset_rows + merged
 
 
 def _build_page_extra_metadata(

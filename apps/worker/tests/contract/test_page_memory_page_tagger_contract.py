@@ -55,14 +55,12 @@ def test_title_detection_escalates_token_budget_on_truncated_json(
         '{\n  "titles": [\n'
         "    {\n"
         '      "text": "Section A Governing requirements",\n'
-        '      "prominence": 1.0,\n'
         '      "is_in_table": false,\n'
     )
     complete = (
         '{\n  "titles": [\n'
         "    {\n"
         '      "text": "Section A Governing requirements",\n'
-        '      "prominence": 1.0,\n'
         '      "is_in_table": false,\n'
         '      "is_in_header_footer": false\n'
         "    }\n"
@@ -116,7 +114,7 @@ def test_title_detection_preserves_page_index_assignment_under_concurrency(
         scan_direction: str = "top_to_bottom_left_to_right",
     ) -> list[dict[str, object]]:
         gevent.sleep(0.01 * (4 - page.page_index))
-        return [{"text": f"title-{page.page_index}", "prominence": 0.8}]
+        return [{"text": f"title-{page.page_index}"}]
 
     monkeypatch.setitem(
         tag_page_titles.__globals__,

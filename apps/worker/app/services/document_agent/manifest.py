@@ -126,10 +126,30 @@ class TocEvidence:
 
 
 @dataclass
+class TocRegionBoundary:
+    """One TOC region after optional mixed-tail probing.
+
+    ``pure_toc_pages`` are excluded from page_memory processing.
+    ``mixed_page`` (if set) stays in body processing; ``body_start_text`` is the
+    verbatim body-start anchor on that page when known.
+    """
+
+    toc_pages: list[int] = field(default_factory=list)
+    pure_toc_pages: list[int] = field(default_factory=list)
+    mixed_page: int | None = None
+    body_start_text: str = ""
+    reason: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class TocResult:
     toc_pages: list[int] = field(default_factory=list)
     candidates: list[TocAnchorPage] = field(default_factory=list)
     evidence: list[TocEvidence] = field(default_factory=list)
+    regions: list[TocRegionBoundary] = field(default_factory=list)
     method: Literal["toc_marker", "vlm_progressive", "vlm_batch", "visual_scan", "none"] = "none"
     notes: str = ""
     failure_kind: TocFailureKind = "none"
@@ -138,6 +158,7 @@ class TocResult:
         data = asdict(self)
         data["candidates"] = [candidate.to_dict() for candidate in self.candidates]
         data["evidence"] = [item.to_dict() for item in self.evidence]
+        data["regions"] = [region.to_dict() for region in self.regions]
         return data
 
 
