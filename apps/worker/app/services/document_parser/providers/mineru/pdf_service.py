@@ -566,7 +566,7 @@ def parse_via_local(
 
     try:
         with open(local_file_path, "rb") as file_obj:
-            files = {"file": (filename, file_obj, "application/pdf")}
+            files = {"files": (filename, file_obj, "application/pdf")}
             local_logger.info("Posting PDF to local MinerU /file_parse")
             try:
                 response = _get_local_mineru_session_cached().post(
