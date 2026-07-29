@@ -48,7 +48,7 @@ JobMetadata = dict[str, object]
 _PUBLIC_MODE_SELECTOR_FIELDS = {"mode", "processing"}
 _PARSE_TRACK_FIELD = "parse_track"
 _PAGE_MEMORY_FIELD_PREFIX = "page_memory"
-_PUBLIC_COMPATIBILITY_EXTRA_FIELDS = frozenset({_PARSE_TRACK_FIELD})
+_PUBLIC_COMPATIBILITY_EXTRA_FIELDS = frozenset({_PARSE_TRACK_FIELD, "result_mode"})
 IngestionCommandFactory = Callable[[str], DocumentIngestionCommand]
 
 
