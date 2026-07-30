@@ -138,8 +138,13 @@ def _detect_mock_task(prompt_text: str) -> str:
         return "atlas-page-info"
     if "you are transcribing a document page or image" in normalized_prompt:
         return "transcribe"
-    if "annotating a single rendered document page" in normalized_prompt:
-        return "page-memory-vlm-tag"
+    if (
+        "annotating one pdf page" in normalized_prompt
+        and '"titles"' in normalized_prompt
+        and '"summary"' in normalized_prompt
+        and '"entities"' in normalized_prompt
+    ):
+        return "page-memory-vlm-page"
     if "you are summarizing one section of a document" in normalized_prompt:
         return "page-memory-node-summary"
 
@@ -295,7 +300,9 @@ def _build_mock_response(task_name: str) -> str:
             '{"title": "Mock Image Title", "summary": "Mock image summary", '
             '"entities": [], "chart": null}'
         ),
-        "page-memory-vlm-tag": '{"summary": "Mock page summary", "entities": []}',
+        "page-memory-vlm-page": (
+            '{"titles": [], "summary": "Mock page summary", "entities": []}'
+        ),
         "page-memory-node-summary": (
             '{"summary": "Mock section summary", "entities": []}'
         ),

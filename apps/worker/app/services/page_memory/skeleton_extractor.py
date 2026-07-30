@@ -507,9 +507,8 @@ def _body_start_page_for_hierarchies(
     """Prefer a probed mixed-page body start when available."""
     pages: list[int] = []
     for hierarchy in toc_hierarchies or []:
-        text = str(hierarchy.get("body_start_text") or "").strip()
         page = hierarchy.get("body_start_page")
-        if not text or page is None:
+        if page is None:
             continue
         try:
             pages.append(int(page))
@@ -1154,9 +1153,8 @@ def _resolve_pending_tocs(
 
         # Each TOC's content scope: prefer probed body_start_page when present.
         toc_end = _toc_range_end(pending_toc)
-        body_start_text = str(pending_toc.get("body_start_text") or "").strip()
         body_start_page = pending_toc.get("body_start_page")
-        if body_start_text and body_start_page is not None:
+        if body_start_page is not None:
             try:
                 toc_scope_start = int(body_start_page)
             except (TypeError, ValueError):

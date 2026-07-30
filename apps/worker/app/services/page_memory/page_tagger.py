@@ -1,12 +1,8 @@
-"""Page tagger: VLM per-page annotation for summary, keywords, and title candidates.
+"""Single-pass VLM page annotation.
 
-For ``vlm_lite`` pages, sends the page PNG to the VLM and expects a JSON
-response with ``summary`` and ``keywords``.
-For ``skip_tagging`` pages, content is preserved but summary is omitted.
-
-Title detection (``tag_page_titles``) extracts outline-level headings in
-reading order on fat-leaf pages. Coarse start/end trimming is applied later
-in ``fine_hierarchy._collect_candidates``.
+Each non-blank processing page produces summary, typed entities, and verbatim
+title candidates in one call. Fine hierarchy consumes ``observed_titles``;
+node assembly consumes summary/entities from the same result.
 """
 
 from __future__ import annotations
@@ -22,7 +18,6 @@ from loguru import logger
 from app.services.page_memory.page_plan import PagePlan, PageProcessingStrategy
 from app.services.page_memory.page_renderer import PageRenderResult
 from shared.services.ai.prompt_service import build_prompt
-from shared.services.ai.summary.engine import summarize
 from shared.core.exceptions.domain_exceptions import UnavailableException
 
 
@@ -46,9 +41,8 @@ class PageTagResult:
 
 
 _MAX_JSON_RETRIES = 1
-_DEFAULT_FINE_MIN_PAGES = 4
-# Dense section-start pages can emit long title JSON; escalate only on truncation.
-_TITLE_TOKEN_BUDGETS: tuple[int, ...] = (300, 600, 1200)
+# Dense pages can emit long combined JSON; escalate only on truncation.
+_PAGE_TAG_TOKEN_BUDGETS: tuple[int, ...] = (800, 1200, 2000)
 
 
 def tag_pages(
@@ -59,6 +53,7 @@ def tag_pages(
     vlm_model: str | None = None,
     max_concurrent: int | None = None,
     body_start_by_page: dict[int, str] | None = None,
+    scan_direction: str = "top_to_bottom_left_to_right",
 ) -> list[PageTagResult]:
     """Tag all pages according to their processing plan.
 
@@ -99,7 +94,7 @@ def tag_pages(
 
     def _tag_one(page: PageRenderResult) -> PageTagResult:
         plan = plan_map.get(page.page_index)
-        strategy = plan.strategy if plan else PageProcessingStrategy.VLM_LITE
+        strategy = plan.strategy if plan else PageProcessingStrategy.VLM_PAGE
 
         if strategy == PageProcessingStrategy.SKIP_TAGGING:
             return _tag_skip(page)
@@ -111,9 +106,10 @@ def tag_pages(
             )
             return _tag_skip(page)
 
-        return _tag_vlm_lite(
+        return _tag_vlm_page(
             page,
             model=model,
+            scan_direction=scan_direction,
             body_start_text=anchors.get(page.page_index, ""),
         )
 
@@ -122,7 +118,7 @@ def tag_pages(
     gevent.joinall(greenlets, raise_error=True)
 
     results = [cast(PageTagResult, g.value) for g in greenlets]
-    vlm_calls = sum(1 for r in results if r.strategy_used == "vlm_lite")
+    vlm_calls = sum(1 for r in results if r.strategy_used == "vlm_page")
     logger.info(
         "[page_tagger] tagged {} pages ({} VLM calls, {} skipped, {} failed) concurrency={}",
         len(results),
@@ -148,167 +144,13 @@ def _tag_skip(page: PageRenderResult) -> PageTagResult:
     )
 
 
-def _tag_vlm_lite(
-    page: PageRenderResult,
-    *,
-    model: str,
-    body_start_text: str = "",
-) -> PageTagResult:
-    """Send page PNG to the VLM via the unified engine."""
-    if not page.image_path or not os.path.exists(page.image_path):
-        logger.warning(
-            "[page_tagger] no PNG for page {}; skipping tag",
-            page.page_index,
-        )
-        return _tag_skip(page)
-
-    prompt_paras: dict[str, Any] = {"max_tokens": 600}
-    if body_start_text:
-        prompt_paras["body_start_text"] = body_start_text
-    result = summarize(
-        mode="page",
-        image_paths=[page.image_path],
-        model=model,
-        usage_task="page_memory.tag",
-        prompt_paras=prompt_paras,
-    )
-    return PageTagResult(
-        page_index=page.page_index,
-        summary=result.summary,
-        keywords=[e.text for e in result.entities],
-        entities=[e.to_dict() for e in result.entities],
-        strategy_used="vlm_lite",
-    )
-
-
-# ── Step 2: Independent title candidate extraction ───────────────────
-
-
-def get_fine_min_pages() -> int:
-    """Default fat-leaf gating threshold."""
-    return _DEFAULT_FINE_MIN_PAGES
-
-
-def tag_page_titles(
-    *,
-    pages: list[PageRenderResult],
-    tag_results: list[PageTagResult],
-    fat_leaf_pages: set[int],
-    budget: Any | None = None,
-    vlm_model: str | None = None,
-    scan_direction: str = "top_to_bottom_left_to_right",
-    max_concurrent: int | None = None,
-    body_start_by_page: dict[int, str] | None = None,
-) -> list[PageTagResult]:
-    """Run independent VLM title detection on fat-leaf pages.
-
-    Extracts all outline-level headings in reading order. Coarse start/end
-    trimming happens later in ``fine_hierarchy._collect_candidates``.
-
-    Parameters
-    ----------
-    pages:
-        Rendered page results.
-    tag_results:
-        Existing tag results from ``tag_pages()`` (will be updated in-place).
-    fat_leaf_pages:
-        Set of page indices belonging to fat-leaf TOC sections
-        (those with more than the configured fine-min-page threshold).
-    budget:
-        Deprecated, ignored. Kept for call-site compatibility.
-    vlm_model:
-        VLM model name; falls back to ``$IMAGE_MODEL``.
-    scan_direction:
-        Reading-order wording for the title prompt.
-    max_concurrent:
-        Maximum concurrent title-detection calls.
-    body_start_by_page:
-        Optional mixed-page body-start anchors keyed by page index.
-
-    Returns
-    -------
-    list[PageTagResult]
-        Updated tag results with ``observed_titles`` populated for fat-leaf pages.
-        Title lists preserve VLM reading order (no re-sort).
-    """
-    if not fat_leaf_pages:
-        return tag_results
-
-    model = vlm_model or os.environ.get("IMAGE_MODEL")
-    if not model:
-        logger.warning("[page_tagger] no VLM model for title detection; skipping")
-        return tag_results
-
-    anchors = body_start_by_page or {}
-    tag_map = {t.page_index: t for t in tag_results}
-    page_map = {p.page_index: p for p in pages}
-    work_items = [
-        (page_idx, page, tag_map[page_idx])
-        for page_idx in sorted(fat_leaf_pages)
-        if (page := page_map.get(page_idx)) is not None
-        and page_idx in tag_map
-        and page.image_path
-        and os.path.exists(page.image_path)
-    ]
-    if not work_items:
-        return tag_results
-
-    from shared.core.config import settings
-
-    resolved_max_concurrent = max_concurrent or int(
-        getattr(settings, "PAGE_MEMORY_TITLE_DETECTION_CONCURRENCY", 3)
-    )
-
-    def _detect_one(
-        page_idx: int,
-        page: PageRenderResult,
-    ) -> tuple[int, list[dict[str, Any]]]:
-        return page_idx, _tag_vlm_titles(
-            page,
-            model=model,
-            scan_direction=scan_direction,
-            body_start_text=anchors.get(page_idx, ""),
-        )
-
-    import gevent
-    from gevent.pool import Pool as GeventPool
-
-    pool = GeventPool(size=min(resolved_max_concurrent, len(work_items)))
-    greenlets = [
-        pool.spawn(_detect_one, page_idx, page)
-        for page_idx, page, _tag in work_items
-    ]
-    gevent.joinall(greenlets, raise_error=True)
-
-    title_pairs = [
-        cast(tuple[int, list[dict[str, Any]]], greenlet.value)
-        for greenlet in greenlets
-    ]
-    titles_by_page: dict[int, list[dict[str, Any]]] = dict(title_pairs)
-    for page_idx, _page, tag in work_items:
-        observed = titles_by_page.get(page_idx, [])
-        tag.observed_titles = observed
-
-    vlm_calls = len(work_items)
-    titles_found = sum(len(titles) for titles in titles_by_page.values())
-
-    logger.info(
-        "[page_tagger] title detection: {} VLM calls on {} fat-leaf pages, {} titles found concurrency={}",
-        vlm_calls,
-        len(fat_leaf_pages),
-        titles_found,
-        resolved_max_concurrent,
-    )
-    return tag_results
-
-
 def _completion_tokens(usage: Any) -> int:
     if isinstance(usage, dict):
         return int(usage.get("completion_tokens") or 0)
     return int(getattr(usage, "completion_tokens", 0) or 0)
 
 
-def _title_response_truncated(
+def _response_truncated(
     raw_response: str,
     *,
     usage: Any,
@@ -361,26 +203,70 @@ def _parse_observed_titles(
     return observed
 
 
-def _tag_vlm_titles(
+def _parse_page_tag_response(
+    raw_response: str,
+    *,
+    page_index: int,
+) -> PageTagResult:
+    data = json.loads(raw_response)
+    if not isinstance(data, dict):
+        raise ValueError("page tag response must be a JSON object")
+
+    entities: list[dict[str, str]] = []
+    entities_raw = data.get("entities")
+    if isinstance(entities_raw, list):
+        for item in entities_raw:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text") or "").strip()
+            if not text:
+                continue
+            entities.append(
+                {
+                    "text": text,
+                    "type": str(item.get("type") or "").strip(),
+                }
+            )
+
+    return PageTagResult(
+        page_index=page_index,
+        summary=str(data.get("summary") or "").strip(),
+        keywords=[entity["text"] for entity in entities],
+        entities=entities,
+        observed_titles=_parse_observed_titles(
+            raw_response,
+            page_index=page_index,
+        ),
+        strategy_used="vlm_page",
+    )
+
+
+def _tag_vlm_page(
     page: PageRenderResult,
     *,
     model: str,
     scan_direction: str = "top_to_bottom_left_to_right",
     body_start_text: str = "",
-) -> list[dict[str, Any]]:
-    """Send page PNG to VLM with the title-only prompt and parse results.
+) -> PageTagResult:
+    """Extract titles, summary, and entities from one rendered page.
 
-    Starts at a small completion budget and escalates only when the response
-    is truncated (budget hit / incomplete JSON that fails to parse).
+    Completion budget escalates only when the combined JSON is truncated.
     """
+    if not page.image_path or not os.path.exists(page.image_path):
+        logger.warning(
+            "[page_tagger] no PNG for page {}; skipping tag",
+            page.page_index,
+        )
+        return _tag_skip(page)
+
     paras: dict[str, Any] = {
-        "max_tokens": _TITLE_TOKEN_BUDGETS[0],
+        "max_tokens": _PAGE_TAG_TOKEN_BUDGETS[0],
         "scan_direction": scan_direction,
     }
     if body_start_text:
         paras["body_start_text"] = body_start_text
     prompt, temperature, _top_p, _default_max_tokens = build_prompt(
-        "page-memory-vlm-title",
+        "page-memory-vlm-page",
         "",
         "",
         paras=paras,
@@ -391,10 +277,10 @@ def _tag_vlm_titles(
             img_b64 = base64.b64encode(f.read()).decode()
     except Exception as exc:
         logger.warning(
-            "[page_tagger] failed to read PNG for title detection page {}: {}",
+            "[page_tagger] failed to read PNG for page {}: {}",
             page.page_index, exc,
         )
-        return []
+        return _tag_skip(page)
 
     content_parts: list[dict[str, Any]] = [
         {"type": "text", "text": prompt},
@@ -410,7 +296,7 @@ def _tag_vlm_titles(
     model = resolved_model or model
 
     last_truncated = False
-    for budget_index, max_tokens in enumerate(_TITLE_TOKEN_BUDGETS):
+    for budget_index, max_tokens in enumerate(_PAGE_TAG_TOKEN_BUDGETS):
         for attempt in range(_MAX_JSON_RETRIES + 1):
             try:
                 raw_response, usage = client.chat_completion_with_usage(
@@ -419,33 +305,33 @@ def _tag_vlm_titles(
                     temperature=temperature,
                     max_tokens=max_tokens,
                     response_format={"type": "json_object"},
-                    usage_task="page_memory.title_detection",
+                    usage_task="page_memory.page_tag",
                 )
             except UnavailableException:
                 raise
             except Exception as exc:
                 logger.warning(
-                    "[page_tagger] title VLM failed for page {}: {}",
+                    "[page_tagger] page VLM failed for page {}: {}",
                     page.page_index,
                     exc,
                 )
-                return []
+                return _tag_skip(page)
 
             try:
-                observed = _parse_observed_titles(
+                result = _parse_page_tag_response(
                     raw_response,
                     page_index=page.page_index,
                 )
-            except json.JSONDecodeError:
-                truncated = _title_response_truncated(
+            except (json.JSONDecodeError, ValueError):
+                truncated = _response_truncated(
                     raw_response,
                     usage=usage,
                     max_tokens=max_tokens,
                 )
-                if truncated and budget_index + 1 < len(_TITLE_TOKEN_BUDGETS):
+                if truncated and budget_index + 1 < len(_PAGE_TAG_TOKEN_BUDGETS):
                     last_truncated = True
                     logger.info(
-                        "[page_tagger] title JSON truncated on page {} "
+                        "[page_tagger] page JSON truncated on page {} "
                         "(budget={}, completion_tokens={}); escalating",
                         page.page_index,
                         max_tokens,
@@ -455,25 +341,25 @@ def _tag_vlm_titles(
                 if attempt < _MAX_JSON_RETRIES:
                     continue
                 logger.warning(
-                    "[page_tagger] title JSON retry exhausted for page {}",
+                    "[page_tagger] page JSON retry exhausted for page {}",
                     page.page_index,
                 )
-                return []
+                return _tag_skip(page)
 
             if last_truncated:
                 logger.info(
-                    "[page_tagger] title detection recovered on page {} with budget={}",
+                    "[page_tagger] page tagging recovered on page {} with budget={}",
                     page.page_index,
                     max_tokens,
                 )
-            return observed
+            return result
         else:
             continue
 
     if last_truncated:
         logger.warning(
-            "[page_tagger] title JSON still truncated on page {} after budgets {}",
+            "[page_tagger] page JSON still truncated on page {} after budgets {}",
             page.page_index,
-            list(_TITLE_TOKEN_BUDGETS),
+            list(_PAGE_TAG_TOKEN_BUDGETS),
         )
-    return []
+    return _tag_skip(page)

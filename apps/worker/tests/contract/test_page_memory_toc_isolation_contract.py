@@ -5,14 +5,23 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.services.document_agent.manifest import TocRegionBoundary, TocResult
+from app.services.document_agent.tools.extract_toc_with_boundaries import (
+    _build_region_boundary,
+)
+from app.services.page_memory._serialization import serialize_scope_skeletons
 from app.services.page_memory._utils import slice_text_from_anchor
 from app.services.page_memory.fine_hierarchy import compute_fat_leaf_pages
+from app.services.page_memory.memory_service import _merge_static_toc_tags
 from app.services.page_memory.node_assembler import (
     build_toc_node_rows,
     format_toc_entries_content,
     merge_rows_by_first_page,
 )
-from app.services.page_memory.skeleton_extractor import SectionSkeleton
+from app.services.page_memory.page_tagger import PageTagResult
+from app.services.page_memory.skeleton_extractor import (
+    SectionSkeleton,
+    _body_start_page_for_hierarchies,
+)
 from app.services.page_memory.toc_page_policy import TocPagePolicy
 
 
@@ -45,6 +54,22 @@ def test_toc_page_policy_fallback_excludes_all_toc_pages() -> None:
     policy = TocPagePolicy.from_anatomy(anatomy)
     assert policy.pure_toc_pages == frozenset({2, 3})
     assert policy.filter_processing_pages([1, 2, 3, 4]) == [1, 4]
+
+
+def test_tail_probe_failure_keeps_last_toc_page_without_confidence() -> None:
+    boundary = _build_region_boundary(region_toc_pages=[3, 4, 5], probe=None)
+
+    assert boundary.pure_toc_pages == [3, 4]
+    assert boundary.mixed_page == 5
+    assert boundary.body_start_text == ""
+    assert boundary.reason == "probe_failed_keep_last_toc_in_body"
+    assert "confidence" not in boundary.to_dict()
+
+
+def test_body_start_page_is_consumed_without_text_anchor() -> None:
+    assert _body_start_page_for_hierarchies(
+        [{"body_start_page": 5, "body_start_text": ""}]
+    ) == 5
 
 
 def test_fat_leaf_pages_exclude_pure_toc() -> None:
@@ -131,6 +156,38 @@ def test_merge_rows_inserts_toc_before_body_on_shared_page() -> None:
         "doc/Table of Contents",
         "doc/1 Scope",
     ]
+
+
+def test_static_toc_tags_restore_only_excluded_pages() -> None:
+    policy = TocPagePolicy(
+        pure_toc_pages=frozenset({3, 4}),
+        mixed_boundary_by_page={5: "1 Scope"},
+        regions=(),
+    )
+    tags = _merge_static_toc_tags(
+        [PageTagResult(page_index=5, summary="Scope", strategy_used="vlm_page")],
+        policy,
+    )
+
+    assert [tag.page_index for tag in tags] == [3, 4, 5]
+    assert [tag.strategy_used for tag in tags[:2]] == ["toc_static", "toc_static"]
+    assert tags[2].strategy_used == "vlm_page"
+
+
+def test_scope_handoff_preserves_empty_processing_set() -> None:
+    artifact = serialize_scope_skeletons(
+        scope_id="p3-4",
+        start_page=3,
+        end_page=4,
+        strategy="leaf_scope",
+        skeletons=[],
+        processing_pages=[],
+        excluded_toc_pages=[3, 4],
+    )
+
+    assert artifact["processing_pages"] == []
+    assert artifact["processing_page_ranges"] == []
+    assert artifact["excluded_toc_pages"] == [3, 4]
 
 
 def test_format_toc_entries_content_indents_by_level() -> None:

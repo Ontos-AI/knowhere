@@ -24,9 +24,8 @@ def _arithmetic_body_start_page(hierarchy: dict[str, Any], toc_end_page: int) ->
 
     Prefer a probed mixed-page body start when the hierarchy carries one.
     """
-    body_start_text = str(hierarchy.get("body_start_text") or "").strip()
     body_start_page = hierarchy.get("body_start_page")
-    if body_start_text and body_start_page is not None:
+    if body_start_page is not None:
         try:
             return int(body_start_page)
         except (TypeError, ValueError):

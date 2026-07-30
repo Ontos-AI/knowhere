@@ -335,7 +335,7 @@ def _summarize_body(
 
     if image_paths:
         # Vision page tag (or a bounded node-summary override): image → {summary, ...}.
-        task = prompt_task or "page-memory-vlm-tag"
+        task = prompt_task or "page-memory-vlm-page"
         paras = prompt_paras or {"max_tokens": 600}
         prompt, temperature, top_p, max_tokens = build_prompt(task, "", "", paras=paras)
         resolved_model = model or os.environ.get("IMAGE_MODEL")

@@ -472,38 +472,14 @@ def build_prompt(task, texts, query, **kwargs):
 
     # ==================== Page-Memory Native Hierarchy Prompts ====================
 
-    elif task == "page-memory-vlm-tag":
+    elif task == "page-memory-vlm-page":
         temperature = 0
         top_p = 0.01
         paras = kwargs.get("paras", {}) or {}
-        max_tokens = paras.get("max_tokens", 600)
-        entity_line = _entity_instruction()
-        boundary_line = _body_start_boundary_instruction(paras)
-        prompt = f"""\
-        You are annotating a single rendered document page for a document memory
-        system. Return one strict JSON object with exactly these keys:
-
-        {{
-        "summary": "<concise summary of what this page contains>",
-        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
-        }}
-
-        Rules:
-        {boundary_line}- "summary": describe the main content visible on the page in a few
-          sentences, in the same language as the page. If the page contains a
-          table, state its topic and key columns; if it contains a figure or
-          chart, describe what it depicts and any standout values.
-        {entity_line}
-        - Return ONLY the JSON object, with no markdown fences or extra text.
-        """
-
-    elif task == "page-memory-vlm-title":
-        temperature = 0
-        top_p = 0.01
-        paras = kwargs.get("paras", {})
-        max_tokens = paras.get("max_tokens", 900)
+        max_tokens = paras.get("max_tokens", 800)
         scan_direction = paras.get("scan_direction", "top_to_bottom_left_to_right")
         boundary_line = _body_start_boundary_instruction(paras)
+        entity_line = _entity_instruction()
 
         if "right_to_left" in scan_direction:
             reading_order_upper = "TOP-TO-BOTTOM, RIGHT-TO-LEFT"
@@ -513,17 +489,23 @@ def build_prompt(task, texts, query, **kwargs):
             column_order = "left to right (i.e. finish the left column before starting the right column)"
 
         prompt = f"""\
-        You are extracting document-outline-level headings from a PDF page screenshot.
-        Your goal is to find ONLY the section headings that structure the page content.
-        If no text on this page qualifies as a section heading, return an empty list.
+        You are annotating one PDF page for a document memory system. In one
+        pass, independently:
+        1. extract document-outline-level headings;
+        2. summarize the page;
+        3. extract typed entities.
 
-        {boundary_line}READING ORDER:
+        Summary and entity extraction MUST NOT change which titles qualify.
+        If no text qualifies as a section heading, return an empty titles list.
+
+        {boundary_line}
+        READING ORDER:
         This page may contain one or more readable columns.
         Within each column, read from top to bottom.
         Between columns, read from {column_order}.
         Return every qualifying heading on this page in that reading order.
 
-        Return strict JSON:
+        Return one strict JSON object with exactly these keys:
         {{
         "titles": [
             {{
@@ -531,10 +513,12 @@ def build_prompt(task, texts, query, **kwargs):
             "is_in_table": <boolean>,
             "is_in_header_footer": <boolean>
             }}
-        ]
+        ],
+        "summary": "<concise summary of what this page contains>",
+        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
         }}
 
-        ═══ MANDATORY BOOLEAN FLAGS (CRITICAL) ═══
+        ═══ TITLE RULES (CRITICAL) ═══
         For EVERY extracted heading, you MUST accurately evaluate these two flags:
         1. is_in_table (boolean): Set to `true` if the text is ANYWHERE inside a table.
         2. is_in_header_footer (boolean): Set to `true` if the text is located in the top margin (header) or bottom margin (footer) of the page.
@@ -586,7 +570,14 @@ def build_prompt(task, texts, query, **kwargs):
         3. If a single heading wraps across more than one lines, merge the lines into ONE heading;
         never split one wrapped heading into multiple results.
 
-        Return ONLY the JSON object, no markdown fences.
+        ═══ SUMMARY AND ENTITIES ═══
+        - "summary": describe the main content visible on the page in a few
+          sentences, in the same language as the page. If the page contains a
+          table, state its topic and key columns; if it contains a figure or
+          chart, describe what it depicts and any standout values.
+        {entity_line}
+
+        Return ONLY the JSON object, with no markdown fences or extra text.
         """
 
     elif task == "page-memory-hierarchy":

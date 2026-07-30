@@ -105,10 +105,6 @@ class AIConfig(BaseModel):
         default=4,
         description="Local per-job page tagging concurrency for page-memory.",
     )
-    PAGE_MEMORY_TITLE_DETECTION_CONCURRENCY: int = Field(
-        default=3,
-        description="Local per-job title detection concurrency for page-memory.",
-    )
     PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY: int = Field(
         default=3,
         description="Local per-job node OCR and summary concurrency for page-memory.",

@@ -11,15 +11,18 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
+from app.services.page_memory.page_plan import PagePlan, PageProcessingStrategy
 from app.services.page_memory.page_renderer import PageRenderResult
 from app.services.page_memory.page_tagger import (
     PageTagResult,
     _completion_tokens,
-    _tag_vlm_titles,
-    _title_response_truncated,
-    tag_page_titles,
+    _parse_page_tag_response,
+    _response_truncated,
+    _tag_vlm_page,
+    tag_pages,
 )
 from shared.core.exceptions.domain_exceptions import UnavailableException
+from shared.services.ai.prompt_service import build_prompt
 
 
 def _write_page_image(tmp_path, page_index: int) -> str:
@@ -28,44 +31,94 @@ def _write_page_image(tmp_path, page_index: int) -> str:
     return str(image_path)
 
 
-def test_title_response_truncated_detects_budget_hit_and_incomplete_json() -> None:
-    assert _title_response_truncated(
-        '{"titles":[',
-        usage={"completion_tokens": 300},
-        max_tokens=300,
+def _page(tmp_path, page_index: int) -> PageRenderResult:
+    return PageRenderResult(
+        page_index=page_index,
+        image_path=_write_page_image(tmp_path, page_index),
+        raw_text="",
+        width=100,
+        height=200,
+        is_landscape=False,
     )
-    assert _title_response_truncated(
+
+
+def _plan(page_index: int) -> PagePlan:
+    return PagePlan(
+        page_index=page_index,
+        strategy=PageProcessingStrategy.VLM_PAGE,
+        reason="test",
+    )
+
+
+def test_response_truncated_detects_budget_hit_and_incomplete_json() -> None:
+    assert _response_truncated(
+        '{"titles":[',
+        usage={"completion_tokens": 800},
+        max_tokens=800,
+    )
+    assert _response_truncated(
         '{"titles":[{"text":"A"',
         usage={"completion_tokens": 120},
-        max_tokens=300,
+        max_tokens=800,
     )
-    assert not _title_response_truncated(
-        '{"titles":[]}',
+    assert not _response_truncated(
+        '{"titles":[],"summary":"","entities":[]}',
         usage={"completion_tokens": 40},
-        max_tokens=300,
+        max_tokens=800,
     )
     assert _completion_tokens({"completion_tokens": 12}) == 12
 
 
-def test_title_detection_escalates_token_budget_on_truncated_json(
+def test_combined_response_populates_all_page_fields() -> None:
+    result = _parse_page_tag_response(
+        """
+        {
+          "titles": [
+            {"text": "1 Scope", "is_in_table": false, "is_in_header_footer": false},
+            {"text": "Table Header", "is_in_table": true, "is_in_header_footer": false}
+          ],
+          "summary": "Scope requirements.",
+          "entities": [{"text": "Authority", "type": "organization"}]
+        }
+        """,
+        page_index=8,
+    )
+
+    assert result.page_index == 8
+    assert result.summary == "Scope requirements."
+    assert result.keywords == ["Authority"]
+    assert result.entities == [{"text": "Authority", "type": "organization"}]
+    assert [item["text"] for item in result.observed_titles] == ["1 Scope"]
+    assert result.strategy_used == "vlm_page"
+
+
+def test_combined_prompt_applies_mixed_page_boundary_once() -> None:
+    prompt, *_ = build_prompt(
+        "page-memory-vlm-page",
+        "",
+        "",
+        paras={
+            "body_start_text": "1 Introduction",
+            "scan_direction": "top_to_bottom_left_to_right",
+        },
+    )
+
+    assert prompt.count("BOUNDARY PAGE:") == 1
+    assert '"1 Introduction"' in prompt
+    assert '"titles"' in prompt
+    assert '"summary"' in prompt
+    assert '"entities"' in prompt
+
+
+def test_combined_tag_escalates_budget_on_truncated_json(
     monkeypatch,
     tmp_path,
 ) -> None:
-    truncated = (
-        '{\n  "titles": [\n'
-        "    {\n"
-        '      "text": "Section A Governing requirements",\n'
-        '      "is_in_table": false,\n'
-    )
+    truncated = '{"titles":[{"text":"Section A"'
     complete = (
-        '{\n  "titles": [\n'
-        "    {\n"
-        '      "text": "Section A Governing requirements",\n'
-        '      "is_in_table": false,\n'
-        '      "is_in_header_footer": false\n'
-        "    }\n"
-        "  ]\n"
-        "}"
+        '{"titles":[{"text":"Section A","is_in_table":false,'
+        '"is_in_header_footer":false}],'
+        '"summary":"Summary","entities":[]}'
     )
     calls: list[int] = []
 
@@ -73,8 +126,8 @@ def test_title_detection_escalates_token_budget_on_truncated_json(
         def chat_completion_with_usage(self, **kwargs):
             max_tokens = int(kwargs["max_tokens"])
             calls.append(max_tokens)
-            if max_tokens == 300:
-                return truncated, {"completion_tokens": 300, "prompt_tokens": 10}
+            if max_tokens == 800:
+                return truncated, {"completion_tokens": 800, "prompt_tokens": 10}
             return complete, {"completion_tokens": 180, "prompt_tokens": 10}
 
     monkeypatch.setattr(
@@ -83,153 +136,96 @@ def test_title_detection_escalates_token_budget_on_truncated_json(
     )
     monkeypatch.setattr(
         "app.services.page_memory.page_tagger.build_prompt",
-        lambda *args, **kwargs: ("prompt", 0.0, 0.01, 300),
+        lambda *args, **kwargs: ("prompt", 0.0, 0.01, 800),
     )
 
-    page = PageRenderResult(
-        page_index=38,
-        image_path=_write_page_image(tmp_path, 38),
-        raw_text="",
-        width=100,
-        height=200,
-        is_landscape=False,
-    )
-    observed = _tag_vlm_titles(page, model="fake-vlm")
-    assert calls == [300, 600]
-    assert [item["text"] for item in observed] == [
-        "Section A Governing requirements"
-    ]
+    result = _tag_vlm_page(_page(tmp_path, 38), model="fake-vlm")
+
+    assert calls == [800, 1200]
+    assert [item["text"] for item in result.observed_titles] == ["Section A"]
+    assert result.summary == "Summary"
 
 
-def test_title_detection_preserves_page_index_assignment_under_concurrency(
+def test_combined_tagging_preserves_page_assignment_under_concurrency(
     monkeypatch,
     tmp_path,
 ) -> None:
     import gevent
 
-    def _fake_tag_vlm_titles(
+    def _fake_tag_vlm_page(
         page: PageRenderResult,
         *,
         model: str,
         scan_direction: str = "top_to_bottom_left_to_right",
-    ) -> list[dict[str, object]]:
+        body_start_text: str = "",
+    ) -> PageTagResult:
         gevent.sleep(0.01 * (4 - page.page_index))
-        return [{"text": f"title-{page.page_index}"}]
+        return PageTagResult(
+            page_index=page.page_index,
+            summary=f"summary-{page.page_index}",
+            observed_titles=[{"text": f"title-{page.page_index}"}],
+            strategy_used="vlm_page",
+        )
 
     monkeypatch.setitem(
-        tag_page_titles.__globals__,
-        "_tag_vlm_titles",
-        _fake_tag_vlm_titles,
+        tag_pages.__globals__,
+        "_tag_vlm_page",
+        _fake_tag_vlm_page,
     )
-    pages = [
-        PageRenderResult(
-            page_index=page_index,
-            image_path=_write_page_image(tmp_path, page_index),
-            raw_text="",
-            width=100,
-            height=200,
-            is_landscape=False,
-        )
-        for page_index in [1, 2, 3]
-    ]
-    tag_results = [
-        PageTagResult(page_index=3),
-        PageTagResult(page_index=1),
-        PageTagResult(page_index=2),
-    ]
+    pages = [_page(tmp_path, page_index) for page_index in [1, 2, 3]]
 
-    results = tag_page_titles(
+    results = tag_pages(
         pages=pages,
-        tag_results=tag_results,
-        fat_leaf_pages={1, 2, 3},
+        plans=[_plan(page_index) for page_index in [1, 2, 3]],
         vlm_model="fake-vlm",
         max_concurrent=2,
     )
 
-    observed_by_page = {
-        tag.page_index: tag.observed_titles[0]["text"]
-        for tag in results
-    }
-    assert observed_by_page == {
-        1: "title-1",
-        2: "title-2",
-        3: "title-3",
-    }
+    assert [result.page_index for result in results] == [1, 2, 3]
+    assert {
+        result.page_index: result.observed_titles[0]["text"] for result in results
+    } == {1: "title-1", 2: "title-2", 3: "title-3"}
 
 
-def test_title_detection_failed_greenlet_fails_stage(monkeypatch, tmp_path) -> None:
-    def _fake_tag_vlm_titles(
+def test_combined_tagging_failed_greenlet_fails_stage(monkeypatch, tmp_path) -> None:
+    def _fake_tag_vlm_page(
         page: PageRenderResult,
-        *,
-        model: str,
-        scan_direction: str = "top_to_bottom_left_to_right",
-    ) -> list[dict[str, object]]:
+        **_kwargs,
+    ) -> PageTagResult:
         if page.page_index == 2:
-            raise RuntimeError("title detection failed")
-        return [{"text": f"title-{page.page_index}"}]
+            raise RuntimeError("page tagging failed")
+        return PageTagResult(page_index=page.page_index, strategy_used="vlm_page")
 
-    monkeypatch.setitem(
-        tag_page_titles.__globals__,
-        "_tag_vlm_titles",
-        _fake_tag_vlm_titles,
-    )
-    pages = [
-        PageRenderResult(
-            page_index=page_index,
-            image_path=_write_page_image(tmp_path, page_index),
-            raw_text="",
-            width=100,
-            height=200,
-            is_landscape=False,
-        )
-        for page_index in [1, 2]
-    ]
-    tag_results = [PageTagResult(page_index=1), PageTagResult(page_index=2)]
+    monkeypatch.setitem(tag_pages.__globals__, "_tag_vlm_page", _fake_tag_vlm_page)
 
     with pytest.raises(RuntimeError):
-        tag_page_titles(
-            pages=pages,
-            tag_results=tag_results,
-            fat_leaf_pages={1, 2},
+        tag_pages(
+            pages=[_page(tmp_path, 1), _page(tmp_path, 2)],
+            plans=[_plan(1), _plan(2)],
             vlm_model="fake-vlm",
             max_concurrent=2,
         )
 
 
-def test_title_detection_unavailable_exception_propagates(
+def test_combined_tagging_unavailable_exception_propagates(
     monkeypatch,
     tmp_path,
 ) -> None:
-    def _fake_tag_vlm_titles(
+    def _fake_tag_vlm_page(
         page: PageRenderResult,
-        *,
-        model: str,
-        scan_direction: str = "top_to_bottom_left_to_right",
-    ) -> list[dict[str, object]]:
+        **_kwargs,
+    ) -> PageTagResult:
         raise UnavailableException(
             internal_message="capacity busy",
             retry_after=5,
         )
 
-    monkeypatch.setitem(
-        tag_page_titles.__globals__,
-        "_tag_vlm_titles",
-        _fake_tag_vlm_titles,
-    )
-    page = PageRenderResult(
-        page_index=1,
-        image_path=_write_page_image(tmp_path, 1),
-        raw_text="",
-        width=100,
-        height=200,
-        is_landscape=False,
-    )
+    monkeypatch.setitem(tag_pages.__globals__, "_tag_vlm_page", _fake_tag_vlm_page)
 
     with pytest.raises(UnavailableException):
-        tag_page_titles(
-            pages=[page],
-            tag_results=[PageTagResult(page_index=1)],
-            fat_leaf_pages={1},
+        tag_pages(
+            pages=[_page(tmp_path, 1)],
+            plans=[_plan(1)],
             vlm_model="fake-vlm",
             max_concurrent=1,
         )

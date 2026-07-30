@@ -200,6 +200,8 @@ def serialize_scope_skeletons(
     end_page: int,
     strategy: str,
     skeletons: list[Any],
+    processing_pages: list[int] | None = None,
+    excluded_toc_pages: list[int] | None = None,
 ) -> dict[str, Any]:
     """Coarse scope input artifact (Stage3 → Stage4 handoff).
 
@@ -209,6 +211,11 @@ def serialize_scope_skeletons(
     """
     start = max(1, int(start_page))
     end = max(start, int(end_page))
+    processing_source = (
+        range(start, end + 1) if processing_pages is None else processing_pages
+    )
+    processing = sorted({int(page) for page in processing_source})
+    excluded = sorted({int(page) for page in (excluded_toc_pages or [])})
     rows = [
         {
             "section_path": getattr(item, "section_path", ""),
@@ -226,6 +233,10 @@ def serialize_scope_skeletons(
         "start_page": start,
         "end_page": end,
         "page_count": end - start + 1,
+        "processing_pages": processing,
+        "processing_page_ranges": collapse_page_ranges(processing),
+        "excluded_toc_pages": excluded,
+        "excluded_toc_page_ranges": collapse_page_ranges(excluded),
         "strategy": strategy,
         "skeleton_count": len(rows),
         "skeletons": rows,

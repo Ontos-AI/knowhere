@@ -571,7 +571,6 @@ def extract_toc_with_boundaries(
                     hier["body_start_page"] = boundary.mixed_page
                 if boundary.body_start_text:
                     hier["body_start_text"] = boundary.body_start_text
-                hier["pure_toc_pages"] = list(boundary.pure_toc_pages)
             toc_hierarchies.extend(region_hierarchies)
         else:
             logger.warning(

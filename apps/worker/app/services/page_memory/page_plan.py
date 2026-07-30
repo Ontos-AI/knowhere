@@ -3,7 +3,7 @@
 Reads ``PageLabel.kind`` + ``PageFeature`` and assigns each page
 one of two strategies:
 
-- ``vlm_lite``  — send the page image to VLM for summary/entities
+- ``vlm_page``  — send the page image once for titles/summary/entities
 - ``skip_tagging`` — blank-like page, preserve image only
 """
 
@@ -18,7 +18,7 @@ from app.services.document_agent.manifest import PageFeature, PageLabel
 class PageProcessingStrategy(str, Enum):
     """Tagging strategy for a single page."""
 
-    VLM_LITE = "vlm_lite"
+    VLM_PAGE = "vlm_page"
     SKIP_TAGGING = "skip_tagging"
 
 
@@ -41,7 +41,7 @@ def derive_page_processing_plan(
 
     Rules:
     - ``is_blank_like`` → ``skip_tagging``
-    - everything else → ``vlm_lite``
+    - everything else → ``vlm_page``
 
     Returns one ``PagePlan`` per page (1-indexed), ordered by page_index.
     """
@@ -69,4 +69,4 @@ def _classify_page(
     if is_blank:
         return PageProcessingStrategy.SKIP_TAGGING, "blank_like"
 
-    return PageProcessingStrategy.VLM_LITE, f"kind={kind}"
+    return PageProcessingStrategy.VLM_PAGE, f"kind={kind}"
