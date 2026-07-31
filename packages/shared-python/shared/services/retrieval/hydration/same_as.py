@@ -472,6 +472,8 @@ def _coerce_page_list(value: object) -> list[int]:
 
 def _connection_page(connection: Mapping[str, Any]) -> int | None:
     page = connection.get("page")
+    if page is None:
+        return None
     try:
         value = int(page)
     except (TypeError, ValueError):
