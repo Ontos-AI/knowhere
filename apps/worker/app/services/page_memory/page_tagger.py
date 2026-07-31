@@ -87,44 +87,53 @@ def tag_pages(
     anchors = body_start_by_page or {}
 
     resolved_max_concurrent = max_concurrent or int(
-        getattr(settings, "SUMMARY_LLM_MAX_CONCURRENT", 4)
+        getattr(settings, "PAGE_MEMORY_TAG_CONCURRENCY", 5)
     )
     if not pages:
         return []
+
+    total_pages = len(pages)
+    completed = {"count": 0}
 
     def _tag_one(page: PageRenderResult) -> PageTagResult:
         plan = plan_map.get(page.page_index)
         strategy = plan.strategy if plan else PageProcessingStrategy.VLM_PAGE
 
         if strategy == PageProcessingStrategy.SKIP_TAGGING:
-            return _tag_skip(page)
-
-        if not model:
+            result = _tag_skip(page)
+        elif not model:
             logger.warning(
                 "[page_tagger] no VLM model configured for page {}; skipping tag",
                 page.page_index,
             )
-            return _tag_skip(page)
-
-        return _tag_vlm_page(
-            page,
-            model=model,
-            scan_direction=scan_direction,
-            body_start_text=anchors.get(page.page_index, ""),
+            result = _tag_skip(page)
+        else:
+            result = _tag_vlm_page(
+                page,
+                model=model,
+                scan_direction=scan_direction,
+                body_start_text=anchors.get(page.page_index, ""),
+            )
+        completed["count"] += 1
+        logger.info(
+            "[page_tagger] progress {}/{} page={}",
+            completed["count"],
+            total_pages,
+            page.page_index,
         )
+        return result
 
-    pool = GeventPool(size=min(resolved_max_concurrent, len(pages)))
+    pool = GeventPool(size=min(resolved_max_concurrent, total_pages))
     greenlets = [pool.spawn(_tag_one, page) for page in pages]
     gevent.joinall(greenlets, raise_error=True)
 
     results = [cast(PageTagResult, g.value) for g in greenlets]
     vlm_calls = sum(1 for r in results if r.strategy_used == "vlm_page")
     logger.info(
-        "[page_tagger] tagged {} pages ({} VLM calls, {} skipped, {} failed) concurrency={}",
+        "[page_tagger] tagged {} pages ({} VLM calls, {} skipped) concurrency={}",
         len(results),
         vlm_calls,
         sum(1 for r in results if r.strategy_used == "skip_tagging"),
-        len(greenlets) - len(results),
         resolved_max_concurrent,
     )
     return results

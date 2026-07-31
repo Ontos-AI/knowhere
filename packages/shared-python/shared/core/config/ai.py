@@ -99,11 +99,17 @@ class AIConfig(BaseModel):
     )
     PAGE_MEMORY_SCOPE_CONCURRENCY: int = Field(
         default=5,
-        description="Local per-job hierarchy scope concurrency for page-memory.",
+        description=(
+            "Local per-job concurrency for page-memory scope fine hierarchy "
+            "and asset extraction."
+        ),
     )
     PAGE_MEMORY_TAG_CONCURRENCY: int = Field(
-        default=4,
-        description="Local per-job page tagging concurrency for page-memory.",
+        default=5,
+        description=(
+            "Local per-document concurrency for page-memory combined page "
+            "tagging (one VLM call per physical page)."
+        ),
     )
     PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY: int = Field(
         default=3,

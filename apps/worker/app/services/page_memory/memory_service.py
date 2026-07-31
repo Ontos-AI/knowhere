@@ -218,10 +218,10 @@ def _build_page_dataframe(
 
     Steps:
       C4  skeleton_extractor  → SectionSkeleton[]
-      C1  page_renderer       → PageRenderResult[]
-      C2  page_plan           → PagePlan[]
-      C3  page_tagger         → titles + summary + entities in PageTagResult[]
-      C4b fine_hierarchy      → start/end anchor trim + refined SectionSkeleton[]
+      C1  page_renderer       → document-level PageRenderResult[] (deduped)
+      C2  page_plan           → PagePlan[] for processing pages
+      C3  page_tagger         → titles + summary + entities (global page pool)
+      C4b fine_hierarchy      → per-scope start/end trim + refined skeletons
       C5  page_assets          → assets anchored to refined hierarchy pages
       C7  assemble node-granularity DataFrame
     """
@@ -329,9 +329,24 @@ def _build_page_dataframe(
     page_labels = anatomy.page_labels if anatomy else []
     vlm_model = os.environ.get("IMAGE_MODEL")
 
+    processing_pages = _union_scope_processing_pages(coarse_scopes)
+    rendered_by_page, tags_by_page = _render_and_tag_document_pages(
+        pdf_path=pdf_path,
+        output_dir=output_dir,
+        page_count=page_count,
+        processing_pages=processing_pages,
+        page_texts=page_texts,
+        page_features=page_features,
+        page_labels=page_labels,
+        vlm_model=vlm_model,
+        toc_policy=toc_policy,
+        page_memory_config=page_memory_config,
+        trace_recorder=trace_recorder,
+    )
+
     scope_concurrency = page_memory_config.scope_concurrency
     logger.info(
-        "[page_memory] processing {} hierarchy scopes (concurrency={})",
+        "[page_memory] refining {} hierarchy scopes (scope_concurrency={})",
         len(coarse_scopes),
         scope_concurrency,
     )
@@ -342,16 +357,13 @@ def _build_page_dataframe(
         else 0
     )
 
-    # Common keyword arguments shared by every scope invocation.
     _scope_kwargs = dict(
         pdf_path=pdf_path,
-        filename=filename,
         output_dir=output_dir,
         page_count=page_count,
-        page_texts=page_texts,
         page_features=page_features,
-        page_labels=page_labels,
-        vlm_model=vlm_model,
+        rendered_by_page=rendered_by_page,
+        tags_by_page=tags_by_page,
         asset_extraction_enabled=asset_extraction_enabled,
         trace_recorder=trace_recorder,
         page_memory_config=page_memory_config,
@@ -360,7 +372,6 @@ def _build_page_dataframe(
     )
 
     if scope_concurrency <= 1 or len(coarse_scopes) <= 1:
-        # ── serial path (identical to previous behaviour) ─────────────
         for index, scope in enumerate(coarse_scopes, start=1):
             result = _run_scope_with_retry(
                 scope=scope,
@@ -376,7 +387,6 @@ def _build_page_dataframe(
                     0,
                 )
     else:
-        # ── concurrent path (GeventPool) ──────────────────────────────
         import gevent
         from gevent.pool import Pool as GeventPool
 
@@ -408,15 +418,12 @@ def _build_page_dataframe(
         ]
     )
     skeletons = collapse_single_child_chains(skeletons)
-    tags = _merge_page_tags(result.tags for result in scope_results)
+    tags = [tags_by_page[page] for page in sorted(tags_by_page)]
     tags = _merge_static_toc_tags(tags, toc_policy)
     page_assets_by_page = _merge_assets_by_page(
         result.assets_by_page for result in scope_results
     )
-    rendered_map: dict[int, Any] = {}
-    for result in scope_results:
-        for rendered_page in result.rendered:
-            rendered_map.setdefault(rendered_page.page_index, rendered_page)
+    rendered_map = dict(rendered_by_page)
 
     nav_skeletons = _append_toc_nav_skeletons(
         body_skeletons=skeletons,
@@ -569,6 +576,96 @@ def _allocate_asset_pages(
     return allocations
 
 
+def _union_scope_processing_pages(scopes: list[_HierarchyScope]) -> list[int]:
+    """Deduplicate processing pages across coarse scopes (stable ascending)."""
+    pages: set[int] = set()
+    for scope in scopes:
+        pages.update(int(page) for page in scope.processing_pages)
+    return sorted(pages)
+
+
+def _render_and_tag_document_pages(
+    *,
+    pdf_path: str,
+    output_dir: str,
+    page_count: int,
+    processing_pages: list[int],
+    page_texts: dict[int, str],
+    page_features: list[Any],
+    page_labels: list[Any],
+    vlm_model: str | None,
+    toc_policy: TocPagePolicy,
+    page_memory_config: PageMemoryConfig,
+    trace_recorder: Any | None = None,
+) -> tuple[dict[int, Any], dict[int, Any]]:
+    """Render and combined-tag each processing page once at document level."""
+    from app.services.page_memory.page_plan import derive_page_processing_plan
+    from app.services.page_memory.page_renderer import render_document_pages
+    from app.services.page_memory.page_tagger import tag_pages
+
+    pages = [int(page) for page in processing_pages]
+    if not pages:
+        return {}, {}
+
+    logger.info(
+        "[page_memory] document page stage: {} pages (tag_concurrency={})",
+        len(pages),
+        page_memory_config.tag_concurrency,
+    )
+    with stage_timer("page_memory.render", page_count=len(pages)):
+        rendered = render_document_pages(
+            pdf_path=pdf_path,
+            page_count=page_count,
+            output_dir=output_dir,
+            pages=pages,
+            page_features=page_features,
+            page_texts=page_texts,
+        )
+    _record_trace_stage(
+        trace_recorder,
+        "C1.render_pages",
+        page_info=page_scope_info([item.page_index for item in rendered]),
+        variables={"rendered_count": len(rendered)},
+    )
+
+    plans = [
+        plan
+        for plan in derive_page_processing_plan(
+            page_count=page_count,
+            page_labels=page_labels,
+            page_features=page_features,
+        )
+        if plan.page_index in set(pages)
+    ]
+    _record_trace_stage(
+        trace_recorder,
+        "C2.page_plan",
+        page_info=page_scope_info([plan.page_index for plan in plans]),
+        variables={"plan_count": len(plans)},
+    )
+
+    with stage_timer("page_memory.tag", page_count=len(rendered)):
+        tags = tag_pages(
+            pages=rendered,
+            plans=plans,
+            budget=None,
+            vlm_model=vlm_model,
+            max_concurrent=page_memory_config.tag_concurrency,
+            body_start_by_page=toc_policy.body_start_by_page(),
+            scan_direction=page_memory_config.scan_direction,
+        )
+    _record_trace_stage(
+        trace_recorder,
+        "C3.page_tagger",
+        page_info=page_scope_info([tag.page_index for tag in tags]),
+        variables={"tags": _summarize_tags(tags)},
+    )
+
+    rendered_by_page = {item.page_index: item for item in rendered}
+    tags_by_page = {tag.page_index: tag for tag in tags}
+    return rendered_by_page, tags_by_page
+
+
 _SCOPE_RETRY_DELAY_SECONDS = 10.0
 
 
@@ -610,13 +707,11 @@ def _run_hierarchy_scope(
     scope_index: int,
     scope_count: int,
     pdf_path: str,
-    filename: str,
     output_dir: str,
     page_count: int,
-    page_texts: dict[int, str],
     page_features: list[Any],
-    page_labels: list[Any],
-    vlm_model: str | None,
+    rendered_by_page: dict[int, Any],
+    tags_by_page: dict[int, Any],
     asset_extraction_enabled: bool,
     asset_max_pages: int,
     trace_recorder: Any | None,
@@ -629,39 +724,30 @@ def _run_hierarchy_scope(
         refine_fat_leaf_skeletons,
     )
     from app.services.page_memory.page_assets import extract_page_assets_from_renders
-    from app.services.page_memory.page_plan import derive_page_processing_plan
-    from app.services.page_memory.page_renderer import render_document_pages
-    from app.services.page_memory.page_tagger import tag_pages
 
     policy = toc_policy or TocPagePolicy(frozenset(), {}, ())
-    body_start_by_page = policy.body_start_by_page()
     scope_skeletons = sort_skeletons(scope.skeletons)
+    processing_pages = [int(page) for page in scope.processing_pages]
     scope_manifest = _scope_manifest(
         scope_id=scope.scope_id,
         skeletons=scope_skeletons,
         page_count=page_count,
         strategy=scope.strategy,
-        processing_pages=list(scope.processing_pages),
+        processing_pages=processing_pages,
         excluded_toc_pages=list(scope.excluded_toc_pages),
-    )
-    coarse_pages = policy.filter_processing_pages(
-        _derive_hierarchy_page_scope(
-            skeletons=scope_skeletons,
-            page_count=page_count,
-        )
     )
     logger.info(
         "[page_memory] scope {}/{} {} coarse ranges={} excluded_toc={}",
         scope_index,
         scope_count,
         scope.scope_id,
-        collapse_page_ranges(coarse_pages),
+        collapse_page_ranges(processing_pages),
         collapse_page_ranges(list(scope.excluded_toc_pages)),
     )
     _record_trace_stage(
         trace_recorder,
         "C4.coarse_scope",
-        page_info=page_scope_info(coarse_pages),
+        page_info=page_scope_info(processing_pages),
         variables={
             "scope_index": scope_index,
             "scope_count": scope_count,
@@ -669,7 +755,7 @@ def _run_hierarchy_scope(
         },
     )
 
-    if not coarse_pages:
+    if not processing_pages:
         logger.info(
             "[page_memory] scope {} has no processing pages after TOC exclusion; skip",
             scope.scope_id,
@@ -683,62 +769,16 @@ def _run_hierarchy_scope(
             final_pages=[],
         )
 
-    processing_pages = coarse_pages
-    tag_scope_summary = _summarize_tag_scope(
-        skeletons=scope_skeletons,
-        page_count=page_count,
-        pages=processing_pages,
-    )
-    with stage_timer("page_memory.render", page_count=len(processing_pages)):
-        rendered = render_document_pages(
-            pdf_path=pdf_path,
-            page_count=page_count,
-            output_dir=output_dir,
-            pages=processing_pages,
-            page_features=page_features,
-            page_texts=page_texts,
-        )
-    _record_trace_stage(
-        trace_recorder,
-        "C1.render_pages",
-        page_info=page_scope_info([item.page_index for item in rendered]),
-        variables={
-            "scope_id": scope.scope_id,
-            "rendered_count": len(rendered),
-            "tag_scope": tag_scope_summary,
-        },
-    )
-
-    plans = derive_page_processing_plan(
-        page_count=page_count,
-        page_labels=page_labels,
-        page_features=page_features,
-    )
-    processing_page_set = set(processing_pages)
-    plans = [plan for plan in plans if plan.page_index in processing_page_set]
-    _record_trace_stage(
-        trace_recorder,
-        "C2.page_plan",
-        page_info=page_scope_info([getattr(plan, "page_index", None) for plan in plans]),
-        variables={"scope_id": scope.scope_id, "plan_count": len(plans)},
-    )
-
-    with stage_timer("page_memory.tag", page_count=len(rendered)):
-        tags = tag_pages(
-            pages=rendered,
-            plans=plans,
-            budget=None,
-            vlm_model=vlm_model,
-            max_concurrent=page_memory_config.tag_concurrency,
-            body_start_by_page=body_start_by_page,
-            scan_direction=page_memory_config.scan_direction,
-        )
-    _record_trace_stage(
-        trace_recorder,
-        "C3.page_tagger",
-        page_info=page_scope_info([tag.page_index for tag in tags]),
-        variables={"scope_id": scope.scope_id, "tags": _summarize_tags(tags)},
-    )
+    rendered = [
+        rendered_by_page[page]
+        for page in processing_pages
+        if page in rendered_by_page
+    ]
+    tags = [
+        tags_by_page[page]
+        for page in processing_pages
+        if page in tags_by_page
+    ]
 
     fine_min = page_memory_config.fine_min_pages
     fat_leaf_pages = compute_fat_leaf_pages(
@@ -823,7 +863,6 @@ def _run_hierarchy_scope(
             },
         },
     )
-    # Refresh hierarchy/tags and write assets without wiping unrelated slots.
     _write_scope_artifacts(
         output_dir=output_dir,
         scope_id=scope.scope_id,
@@ -957,14 +996,6 @@ def _remove_nested_doc_agent_trace(output_dir: str) -> None:
         logger.debug("[page_memory] failed to remove nested doc-agent trace: {}", exc)
 
 
-def _merge_page_tags(tag_groups: Any) -> list[Any]:
-    by_page: dict[int, Any] = {}
-    for tags in tag_groups:
-        for tag in tags:
-            by_page[int(getattr(tag, "page_index", 0) or 0)] = tag
-    return [by_page[page] for page in sorted(by_page) if page > 0]
-
-
 def _merge_static_toc_tags(tags: list[Any], toc_policy: TocPagePolicy) -> list[Any]:
     from app.services.page_memory.page_tagger import PageTagResult
 
@@ -1023,20 +1054,6 @@ def _summarize_skeletons(skeletons: list[Any]) -> list[dict[str, Any]]:
         }
         for item in skeletons
     ]
-
-
-def _summarize_tag_scope(
-    *,
-    skeletons: list[Any],
-    page_count: int,
-    pages: list[int],
-) -> dict[str, Any]:
-    return {
-        "strategy": "hierarchy_anchored_pages",
-        "document_page_count": page_count,
-        "skeleton_count": len(skeletons),
-        **page_scope_info(pages),
-    }
 
 
 def _summarize_tags(tags: list[Any]) -> list[dict[str, Any]]:

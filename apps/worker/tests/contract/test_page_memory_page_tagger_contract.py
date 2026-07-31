@@ -187,6 +187,35 @@ def test_combined_tagging_preserves_page_assignment_under_concurrency(
     } == {1: "title-1", 2: "title-2", 3: "title-3"}
 
 
+def test_combined_tagging_respects_max_concurrent_cap(monkeypatch, tmp_path) -> None:
+    import gevent
+
+    inflight = {"count": 0, "peak": 0}
+
+    def _fake_tag_vlm_page(
+        page: PageRenderResult,
+        **_kwargs,
+    ) -> PageTagResult:
+        inflight["count"] += 1
+        inflight["peak"] = max(inflight["peak"], inflight["count"])
+        gevent.sleep(0.02)
+        inflight["count"] -= 1
+        return PageTagResult(page_index=page.page_index, strategy_used="vlm_page")
+
+    monkeypatch.setitem(tag_pages.__globals__, "_tag_vlm_page", _fake_tag_vlm_page)
+    pages = [_page(tmp_path, page_index) for page_index in range(1, 9)]
+
+    results = tag_pages(
+        pages=pages,
+        plans=[_plan(page_index) for page_index in range(1, 9)],
+        vlm_model="fake-vlm",
+        max_concurrent=5,
+    )
+
+    assert [result.page_index for result in results] == list(range(1, 9))
+    assert inflight["peak"] <= 5
+
+
 def test_combined_tagging_failed_greenlet_fails_stage(monkeypatch, tmp_path) -> None:
     def _fake_tag_vlm_page(
         page: PageRenderResult,
