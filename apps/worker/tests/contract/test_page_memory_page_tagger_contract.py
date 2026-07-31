@@ -18,7 +18,9 @@ from app.services.page_memory.page_tagger import (
     _completion_tokens,
     _parse_combined_page_tag_response as _parse_page_tag_response,
     _response_truncated,
+    _summarize_page_text,
     _tag_vlm_combined,
+    _tag_vlm_titles,
     tag_pages,
 )
 from shared.core.exceptions.domain_exceptions import UnavailableException
@@ -309,3 +311,164 @@ def test_text_mode_uses_title_vlm_and_text_summary(monkeypatch, tmp_path) -> Non
     assert results[0].entities == [{"text": "Alice", "type": "person"}]
     assert results[0].keywords == ["Alice"]
     assert [item["text"] for item in results[0].observed_titles] == ["Title 1"]
+
+
+def test_text_mode_summarizes_when_title_detection_skips(monkeypatch, tmp_path) -> None:
+    summary_pages: list[int] = []
+
+    monkeypatch.setitem(
+        tag_pages.__globals__,
+        "_tag_vlm_titles",
+        lambda page, **_kwargs: PageTagResult(
+            page_index=page.page_index,
+            strategy_used="skip_tagging",
+            tagging_mode="text",
+        ),
+    )
+
+    def _fake_summary(page, **_kwargs):
+        summary_pages.append(page.page_index)
+        return "body summary", []
+
+    monkeypatch.setitem(tag_pages.__globals__, "_summarize_page_text", _fake_summary)
+    page = PageRenderResult(
+        page_index=1,
+        image_path=_write_page_image(tmp_path, 1),
+        raw_text="readable body",
+        width=100,
+        height=200,
+        is_landscape=False,
+    )
+
+    result = tag_pages(
+        pages=[page],
+        plans=[_plan(1)],
+        vlm_model="fake-vlm",
+        tagging_mode="text",
+        max_concurrent=1,
+        text_summary_concurrency=1,
+    )[0]
+
+    assert summary_pages == [1]
+    assert result.strategy_used == "text_page"
+    assert result.tagging_mode == "text"
+    assert result.summary == "body summary"
+
+
+def test_text_mode_respects_summary_concurrency(monkeypatch, tmp_path) -> None:
+    import gevent
+
+    inflight = {"count": 0, "peak": 0}
+    monkeypatch.setitem(
+        tag_pages.__globals__,
+        "_tag_vlm_titles",
+        lambda page, **_kwargs: PageTagResult(
+            page_index=page.page_index,
+            strategy_used="vlm_titles",
+            tagging_mode="text",
+        ),
+    )
+
+    def _fake_summary(page, **_kwargs):
+        inflight["count"] += 1
+        inflight["peak"] = max(inflight["peak"], inflight["count"])
+        gevent.sleep(0.02)
+        inflight["count"] -= 1
+        return f"summary-{page.page_index}", []
+
+    monkeypatch.setitem(tag_pages.__globals__, "_summarize_page_text", _fake_summary)
+    pages = [
+        PageRenderResult(
+            page_index=page_index,
+            image_path=_write_page_image(tmp_path, page_index),
+            raw_text=f"body {page_index}",
+            width=100,
+            height=200,
+            is_landscape=False,
+        )
+        for page_index in range(1, 7)
+    ]
+
+    tag_pages(
+        pages=pages,
+        plans=[_plan(page_index) for page_index in range(1, 7)],
+        vlm_model="fake-vlm",
+        tagging_mode="text",
+        max_concurrent=5,
+        text_summary_concurrency=2,
+    )
+
+    assert inflight["peak"] <= 2
+
+
+def test_text_summary_unavailable_degrades_to_empty(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "shared.services.ai.summary.engine.summarize",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            UnavailableException(
+                internal_message="text capacity busy",
+                retry_after=5,
+            )
+        ),
+    )
+
+    summary, entities = _summarize_page_text(
+        _page(tmp_path, 1),
+        model="fake-text-model",
+        text="readable body",
+    )
+
+    assert summary == ""
+    assert entities == []
+
+
+def test_text_title_skip_preserves_text_mode(tmp_path) -> None:
+    page = PageRenderResult(
+        page_index=1,
+        image_path=str(tmp_path / "missing.png"),
+        raw_text="readable body",
+        width=100,
+        height=200,
+        is_landscape=False,
+    )
+
+    result = _tag_vlm_titles(page, model="fake-vlm")
+
+    assert result.strategy_used == "skip_tagging"
+    assert result.tagging_mode == "text"
+
+
+def test_text_mode_exposes_transient_ocr_text_for_node_assembly(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setitem(
+        tag_pages.__globals__,
+        "_tag_vlm_titles",
+        lambda page, **_kwargs: PageTagResult(
+            page_index=page.page_index,
+            strategy_used="vlm_titles",
+            tagging_mode="text",
+        ),
+    )
+    monkeypatch.setitem(
+        tag_pages.__globals__,
+        "_resolve_page_text",
+        lambda page, **_kwargs: f"ocr-body-{page.page_index}",
+    )
+    monkeypatch.setitem(
+        tag_pages.__globals__,
+        "_summarize_page_text",
+        lambda page, **_kwargs: ("summary", []),
+    )
+
+    result = tag_pages(
+        pages=[_page(tmp_path, 1)],
+        plans=[_plan(1)],
+        vlm_model="fake-vlm",
+        tagging_mode="text",
+        max_concurrent=1,
+        text_summary_concurrency=1,
+    )[0]
+
+    assert result.resolved_body_text == "ocr-body-1"

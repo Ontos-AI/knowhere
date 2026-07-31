@@ -253,7 +253,7 @@ def aggregate_owned_page_tags(
         if tag is None:
             return "", [], []
         entities = normalize_entities(tag.entities)
-        keywords = [entity["text"] for entity in entities] or list(tag.keywords)
+        keywords = [entity["text"] for entity in entities]
         summary = (tag.summary or "").strip()
         if summary.upper() == "EMPTY":
             summary = ""
@@ -571,6 +571,7 @@ def build_toc_node_rows(
                 "connectto": "",
                 "addtime": get_str_time(),
                 "page_nums": ",".join(str(page) for page in pages),
+                "owned_page_nums": "",
                 "entities": "",
                 "asset_title": "",
                 "extra_metadata": {

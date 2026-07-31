@@ -70,7 +70,7 @@ def run(request: PageMemoryInput) -> tuple[str, list[ChunkPayload]]:
 
     Supports two granularity verdicts:
     - ``whole_doc`` (≤6 pages, no TOC) → single whole-document chunk
-    - ``page`` → per-page chunks via the full C1-C7 pipeline
+    - ``page`` → leaf-node chunks assembled from page-owned evidence via C1-C7
     """
     full_output_dir = _resolve_output_dir(request)
     page_memory_config = request.page_memory_config
@@ -457,7 +457,12 @@ def _build_page_chunks(
     )
     for page in final_pages_scope:
         rend = render_map.get(page)
-        raw_text_by_page[page] = (rend.raw_text if rend else page_texts.get(page, "")) or ""
+        tag = tag_map.get(page)
+        raw_text_by_page[page] = _resolve_assembly_page_text(
+            rendered=rend,
+            tag=tag,
+            fallback_text=page_texts.get(page, ""),
+        )
         if rend and rend.image_path and os.path.exists(rend.image_path):
             image_path_by_page[page] = rend.image_path
 
@@ -582,6 +587,21 @@ def _union_scope_processing_pages(scopes: list[_HierarchyScope]) -> list[int]:
     return sorted(pages)
 
 
+def _resolve_assembly_page_text(
+    *,
+    rendered: Any | None,
+    tag: Any | None,
+    fallback_text: str,
+) -> str:
+    """Prefer extracted text, then transient tagging OCR, without repeating OCR."""
+    return str(
+        (getattr(rendered, "raw_text", "") if rendered is not None else "")
+        or getattr(tag, "resolved_body_text", None)
+        or fallback_text
+        or ""
+    )
+
+
 def _render_and_tag_document_pages(
     *,
     pdf_path: str,
@@ -653,6 +673,7 @@ def _render_and_tag_document_pages(
             scan_direction=page_memory_config.scan_direction,
             tagging_mode=page_memory_config.tagging_mode,
             text_summary_concurrency=page_memory_config.text_summary_concurrency,
+            text_summary_model=page_memory_config.text_summary_model,
         )
     _record_trace_stage(
         trace_recorder,
@@ -829,6 +850,7 @@ def _run_hierarchy_scope(
         scope_manifest_data=scope_manifest,
         hierarchy=scope_skeletons,
         tags=tags,
+        tagging_mode=page_memory_config.tagging_mode,
     )
 
     assets_by_page: dict[int, list[Any]] = {}
@@ -870,6 +892,7 @@ def _run_hierarchy_scope(
         hierarchy=scope_skeletons,
         tags=tags,
         assets_by_page=assets_by_page,
+        tagging_mode=page_memory_config.tagging_mode,
     )
 
     return _ScopeRunResult(

@@ -340,7 +340,7 @@ def summarize_page_asset(
             mode="asset",
             text=table_html,
             model=model_name,
-            usage_task="page_memory.asset_summary",
+            usage_task="page_memory.asset_summary_text",
             asset_title_hint=asset.title,
         )
     elif asset.image_path and os.path.exists(asset.image_path):
@@ -349,7 +349,7 @@ def summarize_page_asset(
             image_paths=[asset.image_path],
             text=asset.title,
             model=model_name,
-            usage_task="page_memory.asset_summary",
+            usage_task="page_memory.asset_summary_visual",
             asset_title_hint=asset.title,
         )
     else:

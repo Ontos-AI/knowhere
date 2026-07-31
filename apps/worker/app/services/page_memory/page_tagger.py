@@ -26,9 +26,6 @@ from shared.core.exceptions.domain_exceptions import UnavailableException
 
 TaggingMode = Literal["visual", "text"]
 
-PAGE_TAGS_SCHEMA_VERSION = "2.0"
-
-
 @dataclass
 class PageTagResult:
     """Tagging output for a single page."""
@@ -47,6 +44,8 @@ class PageTagResult:
     Empty list means no titles were detected (or title detection was skipped).
     """
     tagging_mode: str = "visual"
+    resolved_body_text: str | None = field(default=None, repr=False, compare=False)
+    """Transient OCR cache for node assembly; never serialized to artifacts."""
 
 
 _MAX_JSON_RETRIES = 1
@@ -235,15 +234,34 @@ def _tag_pages_text_mode(
 
     summary_completed = {"count": 0}
 
-    def _summary_one(page: PageRenderResult) -> tuple[int, str, list[dict[str, str]]]:
-        base = by_page[page.page_index]
-        if base.strategy_used == "skip_tagging":
-            return page.page_index, "", []
+    def _summary_one(
+        page: PageRenderResult,
+    ) -> tuple[int, str, list[dict[str, str]], str | None]:
+        plan = plan_map.get(page.page_index)
+        strategy = plan.strategy if plan else PageProcessingStrategy.VLM_PAGE
+        if strategy == PageProcessingStrategy.SKIP_TAGGING:
+            return page.page_index, "", [], None
+        try:
+            resolved_text = _resolve_page_text(
+                page,
+                vlm_model=vlm_model,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[page_tagger] text extraction failed for page {}: {}",
+                page.page_index,
+                exc,
+            )
+            return page.page_index, "", [], None
+        body_text = _slice_page_body_text(
+            page_index=page.page_index,
+            text=resolved_text,
+            body_start_text=body_start_by_page.get(page.page_index, ""),
+        )
         summary, entities = _summarize_page_text(
             page,
             model=text_summary_model,
-            body_start_text=body_start_by_page.get(page.page_index, ""),
-            vlm_model=vlm_model,
+            text=body_text,
         )
         summary_completed["count"] += 1
         logger.info(
@@ -252,7 +270,9 @@ def _tag_pages_text_mode(
             total_pages,
             page.page_index,
         )
-        return page.page_index, summary, entities
+        return page.page_index, summary, entities, (
+            resolved_text if not page.raw_text.strip() else None
+        )
 
     summary_pool = GeventPool(
         size=min(max(1, text_summary_concurrency), total_pages)
@@ -261,18 +281,21 @@ def _tag_pages_text_mode(
     gevent.joinall(summary_greenlets, raise_error=True)
 
     for greenlet in summary_greenlets:
-        page_index, summary, entities = cast(
-            tuple[int, str, list[dict[str, str]]],
+        page_index, summary, entities, resolved_body_text = cast(
+            tuple[int, str, list[dict[str, str]], str | None],
             greenlet.value,
         )
         base = by_page[page_index]
-        if base.strategy_used == "skip_tagging":
+        plan = plan_map.get(page_index)
+        strategy = plan.strategy if plan else PageProcessingStrategy.VLM_PAGE
+        if strategy == PageProcessingStrategy.SKIP_TAGGING:
             continue
         base.summary = summary
         base.entities = entities
         base.keywords = [entity["text"] for entity in entities]
         base.strategy_used = "text_page"
         base.tagging_mode = "text"
+        base.resolved_body_text = resolved_body_text
 
     results = [by_page[page.page_index] for page in pages]
     logger.info(
@@ -419,6 +442,7 @@ def _tag_vlm_combined(
         token_budgets=_PAGE_TAG_TOKEN_BUDGETS,
         parse_response=_parse_combined_page_tag_response,
         usage_task="page_memory.page_tag",
+        tagging_mode="visual",
     )
 
 
@@ -438,6 +462,7 @@ def _tag_vlm_titles(
         token_budgets=_TITLE_ONLY_TOKEN_BUDGETS,
         parse_response=_parse_titles_only_response,
         usage_task="page_memory.page_titles",
+        tagging_mode="text",
     )
 
 
@@ -451,13 +476,14 @@ def _run_vlm_json_page(
     token_budgets: tuple[int, ...],
     parse_response: Any,
     usage_task: str,
+    tagging_mode: TaggingMode,
 ) -> PageTagResult:
     if not page.image_path or not os.path.exists(page.image_path):
         logger.warning(
             "[page_tagger] no PNG for page {}; skipping tag",
             page.page_index,
         )
-        return _tag_skip(page)
+        return _tag_skip(page, tagging_mode=tagging_mode)
 
     paras: dict[str, Any] = {
         "max_tokens": token_budgets[0],
@@ -480,7 +506,7 @@ def _run_vlm_json_page(
             "[page_tagger] failed to read PNG for page {}: {}",
             page.page_index, exc,
         )
-        return _tag_skip(page)
+        return _tag_skip(page, tagging_mode=tagging_mode)
 
     content_parts: list[dict[str, Any]] = [
         {"type": "text", "text": prompt},
@@ -515,7 +541,7 @@ def _run_vlm_json_page(
                     page.page_index,
                     exc,
                 )
-                return _tag_skip(page)
+                return _tag_skip(page, tagging_mode=tagging_mode)
 
             try:
                 result = parse_response(
@@ -544,7 +570,7 @@ def _run_vlm_json_page(
                     "[page_tagger] page JSON retry exhausted for page {}",
                     page.page_index,
                 )
-                return _tag_skip(page)
+                return _tag_skip(page, tagging_mode=tagging_mode)
 
             if last_truncated:
                 logger.info(
@@ -562,13 +588,12 @@ def _run_vlm_json_page(
             page.page_index,
             list(token_budgets),
         )
-    return _tag_skip(page)
+    return _tag_skip(page, tagging_mode=tagging_mode)
 
 
-def _resolve_page_body_text(
+def _resolve_page_text(
     page: PageRenderResult,
     *,
-    body_start_text: str,
     vlm_model: str | None,
 ) -> str:
     text = (page.raw_text or "").strip()
@@ -581,13 +606,22 @@ def _resolve_page_body_text(
             max_tokens=1500,
             usage_task="page_memory.page_tag_ocr",
         ).strip()
+    return text
+
+
+def _slice_page_body_text(
+    *,
+    page_index: int,
+    text: str,
+    body_start_text: str,
+) -> str:
     if not body_start_text:
         return text
     sliced, matched = slice_text_from_anchor(text, body_start_text)
     if not matched:
         logger.warning(
             "[page_tagger] body_start_text not found on page {}; keeping full text",
-            page.page_index,
+            page_index,
         )
         return text
     return sliced
@@ -597,16 +631,10 @@ def _summarize_page_text(
     page: PageRenderResult,
     *,
     model: str,
-    body_start_text: str,
-    vlm_model: str | None,
+    text: str,
 ) -> tuple[str, list[dict[str, str]]]:
     from shared.services.ai.summary.engine import summarize
 
-    text = _resolve_page_body_text(
-        page,
-        body_start_text=body_start_text,
-        vlm_model=vlm_model,
-    )
     if not text:
         return "", []
 
@@ -617,17 +645,8 @@ def _summarize_page_text(
             model=model,
             usage_task="page_memory.page_text_summary",
             prompt_task="page-memory-text-page",
-            prompt_paras={
-                "max_tokens": 600,
-                **(
-                    {"body_start_text": body_start_text}
-                    if body_start_text
-                    else {}
-                ),
-            },
+            prompt_paras={"max_tokens": 600},
         )
-    except UnavailableException:
-        raise
     except Exception as exc:
         logger.warning(
             "[page_tagger] text summary failed for page {}: {}",

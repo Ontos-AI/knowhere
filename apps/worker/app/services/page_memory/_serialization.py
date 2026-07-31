@@ -158,11 +158,23 @@ def serialize_hierarchy_artifact(
 def serialize_page_tags(
     tags: list[Any],
     *,
-    tagging_mode: str = "visual",
+    tagging_mode: str | None = None,
 ) -> dict[str, Any]:
+    resolved_mode = str(
+        tagging_mode
+        or next(
+            (
+                getattr(item, "tagging_mode", None)
+                for item in tags
+                if getattr(item, "tagging_mode", None)
+            ),
+            None,
+        )
+        or "visual"
+    )
     return {
         "version": "2.0",
-        "tagging_mode": tagging_mode,
+        "tagging_mode": resolved_mode,
         "tags": [
             {
                 "page_index": item.page_index,
@@ -171,7 +183,7 @@ def serialize_page_tags(
                 "entities": list(getattr(item, "entities", []) or []),
                 "strategy_used": item.strategy_used,
                 "observed_titles": list(getattr(item, "observed_titles", []) or []),
-                "tagging_mode": getattr(item, "tagging_mode", tagging_mode),
+                "tagging_mode": getattr(item, "tagging_mode", resolved_mode),
             }
             for item in tags
         ],
@@ -188,6 +200,38 @@ def load_page_tags_payload(payload: object) -> tuple[str, list[dict[str, Any]]]:
         if isinstance(tags, list):
             return mode, [item for item in tags if isinstance(item, dict)]
     return "visual", []
+
+
+def deserialize_page_tags(payload: object) -> tuple[str, list[Any]]:
+    """Deserialize v2 or legacy page-tag payloads into stable page order."""
+    from app.services.page_memory.page_tagger import PageTagResult
+
+    tagging_mode, rows = load_page_tags_payload(payload)
+    tags = [
+        PageTagResult(
+            page_index=int(item.get("page_index") or 0),
+            summary=str(item.get("summary") or ""),
+            keywords=[
+                str(keyword)
+                for keyword in (item.get("keywords") or [])
+                if str(keyword).strip()
+            ],
+            strategy_used=str(item.get("strategy_used") or "loaded"),
+            entities=[
+                {
+                    "text": str(entity.get("text") or "").strip(),
+                    "type": str(entity.get("type") or "").strip(),
+                }
+                for entity in (item.get("entities") or [])
+                if isinstance(entity, dict)
+                and str(entity.get("text") or "").strip()
+            ],
+            observed_titles=list(item.get("observed_titles") or []),
+            tagging_mode=str(item.get("tagging_mode") or tagging_mode),
+        )
+        for item in rows
+    ]
+    return tagging_mode, sorted(tags, key=lambda item: item.page_index)
 
 
 def serialize_assets(assets_by_page: dict[int, list[Any]]) -> list[dict[str, Any]]:
@@ -264,6 +308,53 @@ def serialize_scope_skeletons(
     }
 
 
+def deserialize_scope_skeletons(payload: object) -> tuple[dict[str, Any], list[Any]]:
+    """Deserialize a Stage3 scope envelope for production/debug parity."""
+    from app.services.page_memory._utils import sort_skeletons
+    from app.services.page_memory.skeleton_extractor import SectionSkeleton
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("skeletons"), list):
+        raise ValueError("scope skeletons artifact must be an object with skeletons[]")
+    skeletons = sort_skeletons(
+        [
+            SectionSkeleton(
+                section_path=str(row.get("section_path") or ""),
+                title=str(row.get("title") or ""),
+                level=int(row.get("level") or 0),
+                start_page=int(row.get("start_page") or 0),
+                end_page=int(row.get("end_page") or 0),
+                parent_path=row.get("parent_path"),
+                evidence=dict(row.get("evidence") or {}),
+            )
+            for row in payload["skeletons"]
+            if isinstance(row, dict)
+        ]
+    )
+    start = int(payload.get("start_page") or 0)
+    end = int(payload.get("end_page") or 0)
+    if (start <= 0 or end <= 0) and skeletons:
+        start = min(int(item.start_page) for item in skeletons)
+        end = max(int(item.end_page) for item in skeletons)
+    meta = {
+        "scope_id": str(payload.get("scope_id") or ""),
+        "start_page": start,
+        "end_page": end,
+        "page_count": int(
+            payload.get("page_count")
+            or (max(end - start + 1, 0) if start and end else 0)
+        ),
+        "strategy": str(payload.get("strategy") or ""),
+        "skeleton_count": int(payload.get("skeleton_count") or len(skeletons)),
+        "processing_pages": [
+            int(page) for page in (payload.get("processing_pages") or [])
+        ],
+        "excluded_toc_pages": [
+            int(page) for page in (payload.get("excluded_toc_pages") or [])
+        ],
+    }
+    return meta, skeletons
+
+
 def write_scope_artifacts(
     *,
     output_dir: str,
@@ -272,6 +363,7 @@ def write_scope_artifacts(
     hierarchy: list[Any],
     tags: list[Any] | None = None,
     assets_by_page: dict[int, list[Any]] | None = None,
+    tagging_mode: str | None = None,
 ) -> None:
     """Write per-scope viewing artifacts.
 
@@ -287,7 +379,7 @@ def write_scope_artifacts(
     if tags is not None:
         write_json(
             scope_dir / "page_tags.json",
-            serialize_page_tags(tags),
+            serialize_page_tags(tags, tagging_mode=tagging_mode),
         )
     if assets_by_page is not None:
         write_json(scope_dir / "assets.json", serialize_assets(assets_by_page))

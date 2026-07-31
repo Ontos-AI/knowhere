@@ -160,6 +160,49 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
     assert leaf_a["know_id"] in leaf_b["connectto"]
 
 
+def test_pure_same_as_alias_has_no_duplicate_summary_or_entities() -> None:
+    skeletons = [
+        SectionSkeleton(
+            section_path=f"demo.pdf/{title}",
+            level=1,
+            start_page=1,
+            end_page=1,
+            title=title,
+            parent_path="demo.pdf",
+        )
+        for title in ("First", "Second")
+    ]
+    rows = node_assembler.build_node_rows(
+        skeletons=skeletons,
+        raw_text_by_page={1: "owned body"},
+        image_path_by_page={},
+        kind_by_page={},
+        tag_by_page={
+            1: PageTagResult(
+                page_index=1,
+                summary="owned summary",
+                keywords=["legacy-keyword"],
+                entities=[{"text": "Acme", "type": "organization"}],
+            )
+        },
+        filename="demo.pdf",
+        verdict="page",
+        vlm_model=None,
+    )
+    by_path = {row["path"]: row for row in rows}
+
+    owner = by_path["demo.pdf/First"]
+    alias = by_path["demo.pdf/Second"]
+    assert owner["summary"] == "owned summary"
+    assert owner["keywords"] == "Acme"
+    assert alias["owned_page_nums"] == ""
+    assert alias["summary"] == ""
+    assert alias["entities"] == ""
+    assert alias["keywords"] == ""
+    assert node_assembler.SAME_AS_PREFIX in alias["content"]
+    assert '"relation": "same_as"' in alias["connectto"]
+
+
 def test_build_node_rows_preserves_order_under_ocr_concurrency(
     monkeypatch,
 ) -> None:

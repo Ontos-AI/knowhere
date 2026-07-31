@@ -13,10 +13,17 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from app.services.page_memory._serialization import serialize_scope_skeletons
+from app.services.page_memory._serialization import (
+    deserialize_page_tags,
+    deserialize_scope_skeletons,
+    load_page_tags_payload,
+    serialize_page_tags,
+    serialize_scope_skeletons,
+)
 from app.services.page_memory._utils import build_hierarchy_scopes
 from app.services.page_memory.memory_service import (
     _render_and_tag_document_pages,
+    _resolve_assembly_page_text,
     _union_scope_processing_pages,
 )
 from app.services.page_memory.page_renderer import PageRenderResult
@@ -167,3 +174,75 @@ def test_scope_skeletons_artifact_roundtrips_processing_pages(tmp_path: Path) ->
     assert data["processing_pages"] == [2, 9]
     assert data["excluded_toc_pages"] == [3, 4, 5, 6, 7, 8]
     assert data["skeletons"][0]["title"] == "Copyright"
+
+
+def test_debug_loaders_roundtrip_production_artifacts(tmp_path: Path) -> None:
+    skeleton_payload = serialize_scope_skeletons(
+        scope_id="p2-9",
+        start_page=2,
+        end_page=9,
+        strategy="leaf_scope",
+        skeletons=[_skel(title="Copyright", start=2, end=9)],
+        processing_pages=[2, 9],
+        excluded_toc_pages=[3, 4, 5, 6, 7, 8],
+    )
+    meta, skeletons = deserialize_scope_skeletons(skeleton_payload)
+    _mode, tags = deserialize_page_tags(
+        serialize_page_tags(
+            [
+                PageTagResult(
+                    page_index=2,
+                    summary="summary",
+                    strategy_used="text_page",
+                    tagging_mode="text",
+                )
+            ],
+            tagging_mode="text",
+        )
+    )
+
+    assert meta["processing_pages"] == [2, 9]
+    assert meta["excluded_toc_pages"] == [3, 4, 5, 6, 7, 8]
+    assert skeletons[0].title == "Copyright"
+    assert tags[0].summary == "summary"
+    assert tags[0].tagging_mode == "text"
+
+
+def test_page_tags_payload_loader_supports_v2_and_legacy() -> None:
+    mode, tags = load_page_tags_payload(
+        serialize_page_tags(
+            [PageTagResult(page_index=1, tagging_mode="text")],
+            tagging_mode="text",
+        )
+    )
+    legacy_mode, legacy_tags = load_page_tags_payload([{"page_index": 1}])
+
+    assert mode == "text"
+    assert tags[0]["tagging_mode"] == "text"
+    assert legacy_mode == "visual"
+    assert legacy_tags == [{"page_index": 1}]
+
+
+def test_node_assembly_reuses_transient_tagging_ocr(tmp_path: Path) -> None:
+    rendered = PageRenderResult(
+        page_index=1,
+        image_path=str(tmp_path / "page-1.png"),
+        raw_text="",
+        width=100,
+        height=200,
+        is_landscape=False,
+    )
+    tag = PageTagResult(
+        page_index=1,
+        tagging_mode="text",
+        resolved_body_text="ocr body",
+    )
+
+    assert (
+        _resolve_assembly_page_text(
+            rendered=rendered,
+            tag=tag,
+            fallback_text="",
+        )
+        == "ocr body"
+    )

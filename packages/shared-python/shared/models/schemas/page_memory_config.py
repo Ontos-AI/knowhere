@@ -16,6 +16,7 @@ class PageMemoryConfig:
     scope_concurrency: int = 5
     tag_concurrency: int = 5
     text_summary_concurrency: int = 5
+    text_summary_model: str = "deepseek-v4-flash"
     node_assembly_concurrency: int = 3
     fine_min_pages: int = 4
     hierarchy_model: str | None = None
@@ -48,6 +49,10 @@ class PageMemoryConfig:
             text_summary_concurrency=_as_int(
                 getattr(settings, "PAGE_MEMORY_TEXT_SUMMARY_CONCURRENCY", 5),
                 5,
+            ),
+            text_summary_model=_as_str(
+                getattr(settings, "PAGE_MEMORY_TEXT_SUMMARY_MODEL", None),
+                getattr(settings, "NORMOL_MODEL", "deepseek-v4-flash"),
             ),
             node_assembly_concurrency=_as_int(
                 getattr(settings, "PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY", 3),
@@ -86,6 +91,10 @@ class PageMemoryConfig:
             text_summary_concurrency=_as_int(
                 value.get("text_summary_concurrency"),
                 default.text_summary_concurrency,
+            ),
+            text_summary_model=_as_str(
+                value.get("text_summary_model"),
+                default.text_summary_model,
             ),
             node_assembly_concurrency=_as_int(
                 value.get("node_assembly_concurrency"),

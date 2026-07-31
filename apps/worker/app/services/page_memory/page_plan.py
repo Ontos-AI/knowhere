@@ -3,7 +3,7 @@
 Reads ``PageLabel.kind`` + ``PageFeature`` and assigns each page
 one of two strategies:
 
-- ``vlm_page``  — send the page image once for titles/summary/entities
+- ``vlm_page``  — process the page once in the configured visual/text tagging mode
 - ``skip_tagging`` — blank-like page, preserve image only
 """
 

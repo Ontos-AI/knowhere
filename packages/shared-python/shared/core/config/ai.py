@@ -118,6 +118,13 @@ class AIConfig(BaseModel):
             "DeepSeek page summary/entity extraction."
         ),
     )
+    PAGE_MEMORY_TEXT_SUMMARY_MODEL: str = Field(
+        default="",
+        description=(
+            "Optional page-memory text summary model override; falls back to "
+            "NORMOL_MODEL when empty."
+        ),
+    )
     PAGE_MEMORY_TAGGING_MODE: str = Field(
         default="visual",
         description=(

@@ -75,7 +75,7 @@ def test_page_memory_vlm_limiter_acquire_release_updates_inflight_count() -> Non
     redis = _FakeRedis()
     limiter = _build_limiter(redis)
 
-    lease = limiter.acquire(usage_task="page_memory.tag")
+    lease = limiter.acquire(usage_task="page_memory.page_tag")
     assert lease.current_inflight == 1
     assert limiter.get_inflight_count() == 1
 
@@ -87,7 +87,7 @@ def test_page_memory_vlm_limiter_waits_then_succeeds() -> None:
     redis = _DelayedCapacityRedis()
     limiter = _build_limiter(redis)
 
-    lease = limiter.acquire(usage_task="page_memory.title_detection")
+    lease = limiter.acquire(usage_task="page_memory.page_titles")
 
     assert lease.current_inflight == 1
     assert redis.acquire_attempts == 2
@@ -111,7 +111,7 @@ def test_page_memory_vlm_limiter_redis_failure_raises_unavailable() -> None:
     limiter = _build_limiter(_FakeRedis(fail_eval=True))
 
     with pytest.raises(UnavailableException):
-        limiter.acquire(usage_task="page_memory.node_summary")
+        limiter.acquire(usage_task="page_memory.page_tag")
 
 
 def test_page_memory_provider_exception_still_releases_lease(monkeypatch) -> None:
@@ -156,7 +156,7 @@ def test_page_memory_provider_exception_still_releases_lease(monkeypatch) -> Non
     with pytest.raises(LLMServiceException):
         client.chat_completion_with_usage(
             messages="hello",
-            usage_task="page_memory.tag",
+            usage_task="page_memory.page_tag",
         )
 
     assert fake_limiter.release_count == 1
@@ -187,7 +187,7 @@ def test_page_memory_summary_unavailable_exception_propagates(
             mode="page",
             image_paths=[str(image_path)],
             model="fake-vlm",
-            usage_task="page_memory.node_summary",
+            usage_task="page_memory.page_tag",
         )
 
 
@@ -217,3 +217,27 @@ def test_page_memory_transcription_unavailable_exception_propagates(
             model="fake-vlm",
             usage_task="page_memory.node_ocr",
         )
+
+
+@pytest.mark.parametrize(
+    ("usage_task", "expected"),
+    [
+        ("page_memory.page_tag", True),
+        ("page_memory.page_titles", True),
+        ("page_memory.page_tag_ocr", True),
+        ("page_memory.node_ocr", True),
+        ("page_memory.asset_detect", True),
+        ("page_memory.asset_summary_visual", True),
+        ("page_memory.page_text_summary", False),
+        ("page_memory.hierarchy", False),
+        ("page_memory.asset_summary_text", False),
+        ("page_memory.table_continuity", False),
+        ("summary.text", False),
+        (None, False),
+    ],
+)
+def test_only_visual_page_memory_tasks_use_vlm_gate(
+    usage_task: str | None,
+    expected: bool,
+) -> None:
+    assert client_mod._is_page_memory_vlm_usage_task(usage_task) is expected
