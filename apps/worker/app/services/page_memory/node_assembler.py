@@ -21,9 +21,7 @@ connection to the owner chunk.
 from __future__ import annotations
 
 import os
-import shutil
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, cast
 
 from loguru import logger
@@ -49,9 +47,6 @@ from shared.services.chunks.chunk_connections import ConnectionValue
 from shared.services.chunks.path_segments import join_document_path
 
 SAME_AS_PREFIX = "SAME-AS"
-
-_PAGE_CITATION_ASSET_SOURCE = "knowhere-rendered-page-citation-source"
-_PAGE_CITATION_ASSET_CONTENT_TYPE = "image/png"
 
 
 @dataclass(frozen=True)
@@ -404,11 +399,6 @@ def build_node_chunks(
                 "owned_page_nums": list(view.owned_pages),
                 "content_kind": "body",
             }
-            page_metadata = _build_page_extra_metadata(
-                pages=view.pages,
-                image_path_by_page=image_path_by_page,
-            )
-            metadata.update(page_metadata)
             chunk: ChunkPayload = {
                 "chunk_id": chunk_id,
                 "type": "page",
@@ -615,88 +605,6 @@ def merge_chunks_by_first_page(
     for order, chunk in enumerate(ordered):
         chunk["order"] = order
     return finalize_chunk_connections(ordered)
-
-
-def _build_page_extra_metadata(
-    *,
-    pages: list[int],
-    image_path_by_page: dict[int, str],
-) -> ChunkMetadata:
-    page_assets = _build_page_citation_assets(
-        pages=pages,
-        image_path_by_page=image_path_by_page,
-    )
-    if not page_assets:
-        return {}
-    return {"page_assets": page_assets}
-
-
-def _build_page_citation_assets(
-    *,
-    pages: list[int],
-    image_path_by_page: dict[int, str],
-) -> list[dict[str, Any]]:
-    assets: list[dict[str, Any]] = []
-    seen_pages: set[int] = set()
-    for page in pages:
-        if page in seen_pages:
-            continue
-        seen_pages.add(page)
-        image_path = image_path_by_page.get(page)
-        if not image_path or not os.path.exists(image_path):
-            continue
-        artifact_ref = _promote_page_citation_asset(page=page, image_path=image_path)
-        if not artifact_ref:
-            continue
-        width, height = _read_image_dimensions(image_path)
-        asset = {
-            "page_num": page,
-            "artifact_ref": artifact_ref,
-            "content_type": _PAGE_CITATION_ASSET_CONTENT_TYPE,
-            "source": _PAGE_CITATION_ASSET_SOURCE,
-        }
-        if width is not None:
-            asset["width"] = width
-        if height is not None:
-            asset["height"] = height
-        assets.append(asset)
-    return assets
-
-
-def _promote_page_citation_asset(*, page: int, image_path: str) -> str:
-    source_path = Path(image_path)
-    output_dir = source_path.parent.parent
-    target_dir = output_dir / "page_citation_assets"
-    target_path = target_dir / f"page-{page}.png"
-    artifact_ref = f"page_citation_assets/page-{page}.png"
-    try:
-        target_dir.mkdir(parents=True, exist_ok=True)
-        if source_path.resolve() != target_path.resolve():
-            shutil.copyfile(source_path, target_path)
-        return artifact_ref
-    except Exception as exc:
-        logger.warning(
-            "[node_assembler] failed to promote page citation asset page={} path={}: {}",
-            page,
-            image_path,
-            exc,
-        )
-        return ""
-
-
-def _read_image_dimensions(image_path: str) -> tuple[int | None, int | None]:
-    try:
-        from PIL import Image
-
-        with Image.open(image_path) as image:
-            return int(image.width), int(image.height)
-    except Exception as exc:
-        logger.debug(
-            "[node_assembler] failed to read page citation image dimensions {}: {}",
-            image_path,
-            exc,
-        )
-        return None, None
 
 
 def _attach_asset_connections(

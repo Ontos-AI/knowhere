@@ -1093,7 +1093,15 @@ def _cleanup_page_memory_artifacts(output_dir: str) -> None:
                 path.unlink()
         except Exception:
             logger.debug("[page_memory] failed to cleanup artifact {}", path)
-    for name in ("asset_annotate", "debug", "images", "pages", "scopes", "tables"):
+    for name in (
+        "asset_annotate",
+        "debug",
+        "images",
+        "page_citation_assets",
+        "pages",
+        "scopes",
+        "tables",
+    ):
         path = root / name
         try:
             if path.is_dir():

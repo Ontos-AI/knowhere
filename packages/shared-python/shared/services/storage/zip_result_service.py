@@ -47,6 +47,9 @@ class ZipResultService:
         data_id: str | None,
         job_metadata: dict[str, Any],
         temp_dir: str | None = None,
+        *,
+        parse_track: str | None = None,
+        zip_file_name: str | None = None,
     ) -> tuple[str, dict[str, str], dict[str, Any], int]:
         """
         Generate ZIP result package.
@@ -59,6 +62,14 @@ class ZipResultService:
             - zip_size: ZIP file size in bytes
         """
         try:
+            resolved_track = str(
+                parse_track
+                or (job_metadata or {}).get("parse_track")
+                or "chunk"
+            ).strip().lower()
+            package_profile = (
+                "page_memory" if resolved_track == "page_memory" else "chunk"
+            )
             resources = self._resources.collect(chunks=chunks, add_dir=add_dir)
             formatted_chunks = self._schema.format_chunks(
                 chunks,
@@ -87,10 +98,11 @@ class ZipResultService:
                     formatted_chunks=formatted_chunks,
                     image_files=resources.image_files,
                     table_files=resources.table_files,
-                    page_citation_files=resources.page_citation_files,
                     doc_nav=doc_nav,
                     manifest=manifest,
                     temp_dir=temp_dir,
+                    package_profile=package_profile,
+                    zip_file_name=zip_file_name,
                 )
             )
 

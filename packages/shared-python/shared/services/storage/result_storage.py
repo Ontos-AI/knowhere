@@ -13,7 +13,7 @@ from shared.services.storage.storage_adapter import StorageAdapter
 
 _EXCLUDED_FILE_NAMES = {".DS_Store", "Thumbs.db"}
 _EXCLUDED_DIR_NAMES = {"tmp", "temp", "__pycache__"}
-_CLIENT_ARTIFACT_DIRS = {"images", "tables", "page_pdfs", "page_citation_assets"}
+_CLIENT_ARTIFACT_DIRS = {"images", "tables", "page_pdfs"}
 _INTERNAL_RAW_FILES = {"source.pdf"}
 
 

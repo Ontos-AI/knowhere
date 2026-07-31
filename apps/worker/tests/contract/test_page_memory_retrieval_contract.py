@@ -180,36 +180,18 @@ async def test_page_asset_url_is_generated_from_page_nums(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_page_citation_asset_precedes_lazy_page_pdf_fallback(monkeypatch) -> None:
+async def test_stale_page_assets_metadata_ignored_uses_lazy_page_pdf(
+    monkeypatch,
+) -> None:
     page_pdf_calls: list[tuple[str, list[int]]] = []
 
     def fake_crop_source_pdf_pages(*, job_id, pages):
         page_pdf_calls.append((job_id, pages))
         return f"https://assets.example.com/{job_id}/page_pdfs/{'-'.join(map(str, pages))}.pdf"
 
-    class FakeResultStorage:
-        def normalize_artifact_ref(self, artifact_ref: str | None) -> str | None:
-            if artifact_ref == "page_citation_assets/page-225.png":
-                return artifact_ref
-            return None
-
-        def generate_artifact_url(
-            self,
-            *,
-            job_id: str,
-            artifact_ref: str,
-            expires_in: int = 3600,
-        ) -> str:
-            del expires_in
-            return f"https://assets.example.com/{job_id}/{artifact_ref}"
-
     monkeypatch.setattr(
         "shared.services.retrieval.hydration.assets.crop_source_pdf_pages",
         fake_crop_source_pdf_pages,
-    )
-    monkeypatch.setattr(
-        "shared.services.retrieval.hydration.assets.get_result_storage",
-        lambda: FakeResultStorage(),
     )
 
     rows = [
@@ -239,21 +221,20 @@ async def test_page_citation_asset_precedes_lazy_page_pdf_fallback(monkeypatch) 
     )
     url_map = await build_retrieval_asset_url_map(rows, log_context="contract")
 
-    expected_url = "https://assets.example.com/job-1/page_citation_assets/page-225.png"
+    expected_url = "https://assets.example.com/job-1/page_pdfs/225-226.pdf"
     assert enriched[0]["asset_url"] == expected_url
-    assert enriched[0]["metadata"]["page_assets"][0]["asset_url"] == expected_url
+    assert "page_assets" not in enriched[0]["metadata"]
+    assert "page_assets" not in enriched[0]["chunk_metadata"]
     assert url_map["page-node-1"] == expected_url
-    assert page_pdf_calls == []
+    assert page_pdf_calls
+    assert all(call == ("job-1", [225, 226]) for call in page_pdf_calls)
 
 
-def test_result_storage_allows_page_citation_and_page_pdf_artifact_refs_not_debug_page_pngs() -> None:
+def test_result_storage_rejects_page_citation_assets_but_allows_page_pdfs() -> None:
     storage = JobResultStorage(results_bucket="test-results")
 
     assert storage.normalize_artifact_ref("pages/page-225.png") is None
-    assert (
-        storage.normalize_artifact_ref("page_citation_assets/page-225.png")
-        == "page_citation_assets/page-225.png"
-    )
+    assert storage.normalize_artifact_ref("page_citation_assets/page-225.png") is None
     assert (
         storage.normalize_artifact_ref("page_pdfs/page-225.pdf")
         == "page_pdfs/page-225.pdf"
@@ -308,14 +289,13 @@ def test_result_storage_upload_filters_to_referenced_artifacts(tmp_path) -> None
 
     assert set(bundle.raw_files) == {
         "source.pdf",
-        "page_citation_assets/page-225.png",
         "tables/table-1.html",
     }
     assert "results/job-1/source.pdf" in adapter.uploaded_keys
     assert "results/job-1/tables/table-1.html" in adapter.uploaded_keys
-    assert "results/job-1/page_citation_assets/page-225.png" in adapter.uploaded_keys
     assert "results/job-1/pages/page-225.png" not in adapter.uploaded_keys
     assert "results/job-1/pages/page-999.png" not in adapter.uploaded_keys
+    assert "results/job-1/page_citation_assets/page-225.png" not in adapter.uploaded_keys
     assert "results/job-1/page_citation_assets/page-999.png" not in adapter.uploaded_keys
     assert "results/job-1/debug.csv" not in adapter.uploaded_keys
 

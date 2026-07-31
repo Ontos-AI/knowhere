@@ -8,11 +8,14 @@ import os
 import tempfile
 import zipfile
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
 
 from shared.services.storage.zip_result_resources import ZipResourceFileInfo
+
+PackageProfile = Literal["chunk", "page_memory"]
+DOC_PROFILE_FILENAME = "doc_profile.json"
 
 
 @dataclass(frozen=True)
@@ -22,10 +25,11 @@ class ZipPackageWriteRequest:
     formatted_chunks: list[dict[str, Any]]
     image_files: tuple[ZipResourceFileInfo, ...]
     table_files: tuple[ZipResourceFileInfo, ...]
-    page_citation_files: tuple[ZipResourceFileInfo, ...]
     doc_nav: dict[str, Any] | None
     manifest: dict[str, Any]
     temp_dir: str | None
+    package_profile: PackageProfile = "chunk"
+    zip_file_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -41,7 +45,8 @@ class ZipPackageWriter:
     def write(self, request: ZipPackageWriteRequest) -> ZipPackageArtifact:
         effective_temp_dir = request.temp_dir or tempfile.gettempdir()
         os.makedirs(effective_temp_dir, exist_ok=True)
-        zip_file_path = os.path.join(effective_temp_dir, f"result_{request.job_id}.zip")
+        zip_name = request.zip_file_name or f"result_{request.job_id}.zip"
+        zip_file_path = os.path.join(effective_temp_dir, zip_name)
 
         with zipfile.ZipFile(zip_file_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
             chunks_json = json.dumps(
@@ -51,36 +56,32 @@ class ZipPackageWriter:
             )
             zip_file.writestr("chunks.json", chunks_json.encode("utf-8"))
 
-            self._write_optional_file(zip_file, request.add_dir, "full.md")
             if self._write_optional_file(
                 zip_file,
                 request.add_dir,
-                "toc_hierarchies.json",
+                DOC_PROFILE_FILENAME,
             ):
-                logger.info("Added toc_hierarchies.json to ZIP")
-            if self._write_optional_json_file(
-                zip_file,
-                request.add_dir,
-                "_doc_agent/trace.json",
-                "debug/trace.json",
-                compact_trace=True,
-            ):
-                logger.info("Added debug/trace.json to ZIP")
-            if self._write_optional_json_file(
-                zip_file,
-                request.add_dir,
-                "_doc_agent/anatomy_map.json",
-                "debug/anatomy_map.json",
-            ):
-                logger.info("Added debug/anatomy_map.json to ZIP")
+                logger.info("Added doc_profile.json to ZIP")
+
+            if request.package_profile != "page_memory":
+                self._write_optional_file(zip_file, request.add_dir, "full.md")
+                if self._write_optional_file(
+                    zip_file,
+                    request.add_dir,
+                    "toc_hierarchies.json",
+                ):
+                    logger.info("Added toc_hierarchies.json to ZIP")
+                if self._write_optional_json_file(
+                    zip_file,
+                    request.add_dir,
+                    "_doc_agent/trace.json",
+                    "debug/trace.json",
+                    compact_trace=True,
+                ):
+                    logger.info("Added debug/trace.json to ZIP")
 
             self._write_resource_files(zip_file, request.image_files, label="Image")
             self._write_resource_files(zip_file, request.table_files, label="Table")
-            self._write_resource_files(
-                zip_file,
-                request.page_citation_files,
-                label="Page citation asset",
-            )
 
             if request.doc_nav is not None:
                 doc_nav_json = json.dumps(request.doc_nav, ensure_ascii=False, indent=2)

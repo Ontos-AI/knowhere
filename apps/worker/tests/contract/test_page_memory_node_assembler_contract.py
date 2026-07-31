@@ -315,7 +315,7 @@ def test_aggregate_owned_page_tags_formats_multi_page_summary() -> None:
     assert keywords == ["Alice"]
 
 
-def test_build_node_chunks_attaches_page_citation_assets_for_rendered_pages(tmp_path) -> None:
+def test_build_node_chunks_does_not_emit_page_citation_assets(tmp_path) -> None:
     page_image = tmp_path / "pages" / "page-231.png"
     page_image.parent.mkdir()
     Image.new("RGB", (2, 3), color=(255, 255, 255)).save(page_image)
@@ -333,19 +333,8 @@ def test_build_node_chunks_attaches_page_citation_assets_for_rendered_pages(tmp_
     )
 
     first_page_chunk = next(row for row in rows if row["type"] == "page")
-    page_assets = first_page_chunk["metadata"]["page_assets"]
-
-    assert page_assets == [
-        {
-            "page_num": 231,
-            "artifact_ref": "page_citation_assets/page-231.png",
-            "content_type": "image/png",
-            "width": 2,
-            "height": 3,
-            "source": "knowhere-rendered-page-citation-source",
-        }
-    ]
-    assert (tmp_path / "page_citation_assets" / "page-231.png").is_file()
+    assert "page_assets" not in first_page_chunk["metadata"]
+    assert not (tmp_path / "page_citation_assets").exists()
 
 
 def test_build_node_chunks_keeps_internal_section_body_pages() -> None:

@@ -46,7 +46,6 @@ class ChunkMetadata(TypedDict, total=False):
     pure_toc_pages: list[int]
     mixed_page: int | None
     body_start_text: str
-    page_assets: list[dict[str, JsonValue]]
     _relationship_refs: list[RelationshipRef]
 
 

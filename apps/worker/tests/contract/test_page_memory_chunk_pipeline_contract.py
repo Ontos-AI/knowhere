@@ -46,14 +46,6 @@ def test_page_memory_chunks_stay_aligned_through_zip_and_publication(tmp_path) -
                 "page_nums": [1, 2],
                 "owned_page_nums": [1],
                 "content_kind": "body",
-                "page_assets": [
-                    {
-                        "page_num": 1,
-                        "artifact_ref": "page_citation_assets/page-1.png",
-                        "content_type": "image/png",
-                        "source": "knowhere-rendered-page-citation-source",
-                    }
-                ],
             },
         }
     ]
@@ -79,7 +71,6 @@ def test_page_memory_chunks_stay_aligned_through_zip_and_publication(tmp_path) -
         "page_nums",
         "owned_page_nums",
         "connect_to",
-        "page_assets",
         "content_kind",
     ):
         assert zip_metadata[key] == canonical_metadata[key]

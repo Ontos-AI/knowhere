@@ -227,6 +227,7 @@ def _generate_result_package(
     task_workspace_dir: str,
 ) -> GeneratedResultPackage:
     data_id = JobMetadataHelper.get_data_id(job_context.job_metadata)
+    parse_track = JobMetadataHelper.get_parse_track(job_context.job_metadata)
     zip_service = ZipResultService()
     return build_generated_result_package(
         *zip_service.generate_zip_package(
@@ -239,6 +240,7 @@ def _generate_result_package(
             data_id=data_id,
             job_metadata=job_context.job_metadata,
             temp_dir=task_workspace_dir,
+            parse_track=parse_track,
         )
     )
 

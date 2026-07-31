@@ -36,14 +36,6 @@ def test_zip_formatter_preserves_page_memory_metadata_fields() -> None:
                 "page_nums": [1, 2],
                 "owned_page_nums": [1],
                 "content_kind": "body",
-                "page_assets": [
-                    {
-                        "page_num": 1,
-                        "artifact_ref": "page_citation_assets/page-1.png",
-                        "content_type": "image/png",
-                        "source": "knowhere-rendered-page-citation-source",
-                    }
-                ],
             },
         }
     ]
@@ -57,9 +49,7 @@ def test_zip_formatter_preserves_page_memory_metadata_fields() -> None:
     assert metadata["page_nums"] == [1, 2]
     assert metadata["owned_page_nums"] == [1]
     assert metadata["content_kind"] == "body"
-    assert metadata["page_assets"][0]["artifact_ref"] == (
-        "page_citation_assets/page-1.png"
-    )
+    assert "page_assets" not in metadata
     assert metadata["connect_to"][0]["relation"] == "same_as"
     assert metadata["connect_to"][0]["target"] == "node_other"
     assert metadata["connect_to"][0]["page"] == 2

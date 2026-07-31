@@ -121,9 +121,6 @@ class ZipChunkSchemaBuilder:
             elif chunk_type == "page":
                 metadata["keywords"] = existing_metadata.get("keywords") or []
                 metadata["connect_to"] = existing_metadata.get("connect_to") or []
-                page_assets = _normalize_page_assets(existing_metadata.get("page_assets"))
-                if page_assets:
-                    metadata["page_assets"] = page_assets
 
             formatted_chunk = {
                 "chunk_id": chunk_id,
@@ -163,7 +160,6 @@ def _base_chunk_metadata(
         "original_name",
         "tokens",
         "connect_to",
-        "page_assets",
         "content_kind",
     ):
         if key in existing_metadata and existing_metadata[key] not in (None, "", []):
@@ -183,8 +179,8 @@ def _base_chunk_metadata(
         "original_name",
         "tokens",
         "connect_to",
-        "page_assets",
         "content_kind",
+        "page_assets",
         "_relationship_refs",
     }
     for key, value in existing_metadata.items():
@@ -237,40 +233,3 @@ def _resolve_table_file_path(
 
     table_name = path.split("/")[-1] if "/" in path else f"table_{chunk_id}.html"
     return f"tables/{table_name}"
-
-
-def _normalize_page_assets(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    assets: list[dict[str, Any]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        page_num = _positive_int_or_none(item.get("page_num"))
-        artifact_ref = str(item.get("artifact_ref") or "").strip()
-        content_type = str(item.get("content_type") or "").strip()
-        source = str(item.get("source") or "").strip()
-        if page_num is None or not artifact_ref or not content_type or not source:
-            continue
-        asset = {
-            "page_num": page_num,
-            "artifact_ref": artifact_ref,
-            "content_type": content_type,
-            "source": source,
-        }
-        if (asset_url := str(item.get("asset_url") or "").strip()):
-            asset["asset_url"] = asset_url
-        if (width := _positive_int_or_none(item.get("width"))) is not None:
-            asset["width"] = width
-        if (height := _positive_int_or_none(item.get("height"))) is not None:
-            asset["height"] = height
-        assets.append(asset)
-    return assets
-
-
-def _positive_int_or_none(value: Any) -> int | None:
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return None
-    return number if number > 0 else None

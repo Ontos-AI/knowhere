@@ -96,16 +96,6 @@ def test_zip_chunk_schema_preserves_page_memory_node_metadata() -> None:
             "metadata": {
                 "summary": "page summary",
                 "page_nums": [231],
-                "page_assets": [
-                    {
-                        "page_num": 231,
-                        "artifact_ref": "page_citation_assets/page-231.png",
-                        "content_type": "image/png",
-                        "width": 1200,
-                        "height": 1800,
-                        "source": "knowhere-rendered-page-citation-source",
-                    }
-                ],
             },
         }
     ]
@@ -118,16 +108,7 @@ def test_zip_chunk_schema_preserves_page_memory_node_metadata() -> None:
 
     metadata = formatted[0]["metadata"]
     assert metadata["page_nums"] == [231]
-    assert metadata["page_assets"] == [
-        {
-            "page_num": 231,
-            "artifact_ref": "page_citation_assets/page-231.png",
-            "content_type": "image/png",
-            "width": 1200,
-            "height": 1800,
-            "source": "knowhere-rendered-page-citation-source",
-        }
-    ]
+    assert "page_assets" not in metadata
     assert "page_assets" not in formatted[0]
     assert "page_image_uris" not in metadata
     assert "granularity" not in metadata

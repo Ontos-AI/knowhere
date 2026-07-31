@@ -3,19 +3,34 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any
 
 from app.services.document_agent.manifest import PageAnatomyMap, ToolContext, ToolResult
 
+DOC_PROFILE_FILENAME = "doc_profile.json"
+
 
 def _artifact_dir(ctx: ToolContext) -> Path:
     if ctx.output_dir:
         return Path(ctx.output_dir)
+    import os
+
     base = Path(os.path.expanduser("~/.knowhere/_debug_profile"))
     return base / Path(ctx.pdf_path).stem
+
+
+def resolve_doc_profile_path(agent_or_package_dir: Path) -> Path:
+    """Return the package-root path for the production doc profile artifact.
+
+    ProfileCoordinator writes under ``_doc_agent/``; the client-facing file lives
+    one level up at the result package root. When the coordinator output dir is
+    already the package root (tests / standalone profiling), write in-place.
+    """
+    if agent_or_package_dir.name == "_doc_agent":
+        return agent_or_package_dir.parent / DOC_PROFILE_FILENAME
+    return agent_or_package_dir / DOC_PROFILE_FILENAME
 
 
 def build_anatomy_map(ctx: ToolContext) -> PageAnatomyMap:
@@ -47,13 +62,12 @@ def build_anatomy_map(ctx: ToolContext) -> PageAnatomyMap:
 def persist_anatomy_map(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()
     anatomy = build_anatomy_map(ctx)
-    output_dir = _artifact_dir(ctx)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    artifact_path = output_dir / "anatomy_map.json"
-    artifact_path.write_text(
-        json.dumps(anatomy.to_dict(), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    agent_dir = _artifact_dir(ctx)
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = resolve_doc_profile_path(agent_dir)
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(anatomy.to_dict(), ensure_ascii=False, indent=2)
+    artifact_path.write_text(payload, encoding="utf-8")
     if ctx.trace:
         ctx.trace.set_anatomy_map(anatomy, str(artifact_path))
     return ToolResult(

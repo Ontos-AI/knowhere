@@ -18,7 +18,6 @@ ZipResourceFileInfo = dict[str, Any]
 class ZipPackageResources:
     image_files: tuple[ZipResourceFileInfo, ...]
     table_files: tuple[ZipResourceFileInfo, ...]
-    page_citation_files: tuple[ZipResourceFileInfo, ...]
 
     @property
     def image_files_map(self) -> dict[str, ZipResourceFileInfo]:
@@ -40,16 +39,9 @@ class ZipResourceCollector:
     ) -> ZipPackageResources:
         images_dir = os.path.join(add_dir, "images")
         tables_dir = os.path.join(add_dir, "tables")
-        page_citation_assets_dir = os.path.join(add_dir, "page_citation_assets")
         return ZipPackageResources(
             image_files=tuple(self._collect_image_files(chunks, images_dir)),
             table_files=tuple(self._collect_table_files(chunks, tables_dir)),
-            page_citation_files=tuple(
-                self._collect_page_citation_files(
-                    chunks,
-                    page_citation_assets_dir,
-                )
-            ),
         )
 
     def _collect_image_files(
@@ -219,50 +211,6 @@ class ZipResourceCollector:
 
         return table_files
 
-    def _collect_page_citation_files(
-        self,
-        chunks: list[dict[str, Any]],
-        page_citation_assets_dir: str,
-    ) -> list[ZipResourceFileInfo]:
-        page_citation_refs = _collect_page_citation_refs(chunks)
-        if not page_citation_refs:
-            return []
-        if not os.path.exists(page_citation_assets_dir):
-            raise StorageServiceException(
-                internal_message=(
-                    "Page citation asset directory not found for ZIP packaging: "
-                    f"page_citation_assets_dir={page_citation_assets_dir}"
-                ),
-                operation="collect_page_citation_files",
-            )
-
-        page_citation_files: list[ZipResourceFileInfo] = []
-        for artifact_ref in page_citation_refs:
-            source_path = os.path.join(
-                page_citation_assets_dir,
-                os.path.basename(artifact_ref),
-            )
-            if not os.path.isfile(source_path):
-                raise StorageServiceException(
-                    internal_message=(
-                        "Cannot resolve page citation asset for ZIP packaging: "
-                        f"artifact_ref={artifact_ref}, source_path={source_path}"
-                    ),
-                    operation="collect_page_citation_files",
-                )
-            page_citation_files.append(
-                {
-                    "id": artifact_ref,
-                    "file_path": artifact_ref,
-                    "original_name": os.path.basename(artifact_ref),
-                    "size_bytes": os.path.getsize(source_path),
-                    "format": os.path.splitext(artifact_ref)[1].lstrip("."),
-                    "source_path": source_path,
-                    "zip_path": artifact_ref,
-                }
-            )
-
-        return page_citation_files
 
 def _collect_files_by_name(directory_path: str) -> dict[str, str]:
     files: dict[str, str] = {}
@@ -271,45 +219,6 @@ def _collect_files_by_name(directory_path: str) -> dict[str, str]:
         if os.path.isfile(file_path):
             files[filename] = file_path
     return files
-
-
-def _collect_page_citation_refs(chunks: list[dict[str, Any]]) -> list[str]:
-    refs: list[str] = []
-    seen_refs: set[str] = set()
-    for chunk in chunks:
-        chunk_type = str(chunk.get("type") or "").strip().lower()
-        if chunk_type != "page":
-            continue
-        metadata = chunk.get("metadata")
-        if not isinstance(metadata, dict):
-            continue
-        page_assets = metadata.get("page_assets")
-        if not isinstance(page_assets, list):
-            continue
-        for page_asset in page_assets:
-            if not isinstance(page_asset, dict):
-                continue
-            artifact_ref = _normalize_page_citation_ref(
-                page_asset.get("artifact_ref"),
-            )
-            if artifact_ref and artifact_ref not in seen_refs:
-                seen_refs.add(artifact_ref)
-                refs.append(artifact_ref)
-    return refs
-
-
-def _normalize_page_citation_ref(value: Any) -> str | None:
-    if value is None:
-        return None
-    normalized = str(value).strip().replace("\\", "/").lstrip("/")
-    parts = [
-        part
-        for part in normalized.split("/")
-        if part and part not in {".", ".."}
-    ]
-    if len(parts) != 2 or parts[0] != "page_citation_assets":
-        return None
-    return "/".join(parts)
 
 
 def _add_candidate(candidates: list[str], value: str | None) -> None:
