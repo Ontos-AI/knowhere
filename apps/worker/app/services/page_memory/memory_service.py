@@ -60,7 +60,6 @@ class _ScopeRunResult:
     scope_id: str
     hierarchy: list[Any]
     tags: list[Any]
-    assets_by_page: dict[int, list[Any]]
     rendered: list[Any]
     final_pages: list[int]
 
@@ -220,7 +219,7 @@ def _build_page_chunks(
       C2  page_plan           → PagePlan[] for processing pages
       C3  page_tagger         → titles + summary + entities (global page pool)
       C4b fine_hierarchy      → per-scope start/end trim + refined skeletons
-      C5  page_assets          → assets anchored to refined hierarchy pages
+      C5  page_assets          → document-level unique-page extraction (∥ C3)
       C7  assemble node-granularity chunks
     """
     from app.services.page_memory.skeleton_extractor import (
@@ -328,12 +327,22 @@ def _build_page_chunks(
     vlm_model = os.environ.get("IMAGE_MODEL")
 
     processing_pages = _union_scope_processing_pages(coarse_scopes)
-    rendered_by_page, tags_by_page = _render_and_tag_document_pages(
+    rendered_by_page = _render_document_pages(
         pdf_path=pdf_path,
         output_dir=output_dir,
         page_count=page_count,
         processing_pages=processing_pages,
         page_texts=page_texts,
+        page_features=page_features,
+        trace_recorder=trace_recorder,
+    )
+
+    import gevent
+
+    tag_job = gevent.spawn(
+        _tag_document_pages,
+        page_count=page_count,
+        rendered_by_page=rendered_by_page,
         page_features=page_features,
         page_labels=page_labels,
         vlm_model=vlm_model,
@@ -341,6 +350,20 @@ def _build_page_chunks(
         page_memory_config=page_memory_config,
         trace_recorder=trace_recorder,
     )
+    asset_job = None
+    if asset_extraction_enabled:
+        asset_job = gevent.spawn(
+            _extract_document_assets,
+            pdf_path=pdf_path,
+            output_dir=output_dir,
+            rendered_by_page=rendered_by_page,
+            page_features=page_features,
+            page_count=page_count,
+            page_memory_config=page_memory_config,
+            trace_recorder=trace_recorder,
+        )
+
+    tags_by_page = tag_job.get()
 
     scope_concurrency = page_memory_config.scope_concurrency
     logger.info(
@@ -349,20 +372,12 @@ def _build_page_chunks(
         scope_concurrency,
     )
     scope_results: list[_ScopeRunResult] = []
-    asset_pages_remaining = (
-        _resolve_asset_max_pages(page_count, page_memory_config)
-        if asset_extraction_enabled
-        else 0
-    )
 
     _scope_kwargs = dict(
-        pdf_path=pdf_path,
         output_dir=output_dir,
         page_count=page_count,
-        page_features=page_features,
         rendered_by_page=rendered_by_page,
         tags_by_page=tags_by_page,
-        asset_extraction_enabled=asset_extraction_enabled,
         trace_recorder=trace_recorder,
         page_memory_config=page_memory_config,
         next_title_by_path=next_title_by_path,
@@ -375,22 +390,12 @@ def _build_page_chunks(
                 scope=scope,
                 scope_index=index,
                 scope_count=len(coarse_scopes),
-                asset_max_pages=asset_pages_remaining,
                 **_scope_kwargs,
             )
             scope_results.append(result)
-            if asset_extraction_enabled:
-                asset_pages_remaining = max(
-                    asset_pages_remaining - len(result.final_pages),
-                    0,
-                )
     else:
-        import gevent
         from gevent.pool import Pool as GeventPool
 
-        asset_allocations = _allocate_asset_pages(
-            coarse_scopes, asset_pages_remaining,
-        )
         pool = GeventPool(
             size=min(scope_concurrency, len(coarse_scopes)),
         )
@@ -400,7 +405,6 @@ def _build_page_chunks(
                 scope=scope,
                 scope_index=idx,
                 scope_count=len(coarse_scopes),
-                asset_max_pages=asset_allocations[idx - 1],
                 **_scope_kwargs,
             )
             for idx, scope in enumerate(coarse_scopes, start=1)
@@ -418,9 +422,7 @@ def _build_page_chunks(
     skeletons = collapse_single_child_chains(skeletons)
     tags = [tags_by_page[page] for page in sorted(tags_by_page)]
     tags = _merge_static_toc_tags(tags, toc_policy)
-    page_assets_by_page = _merge_assets_by_page(
-        result.assets_by_page for result in scope_results
-    )
+    page_assets_by_page = asset_job.get() if asset_job is not None else {}
     rendered_map = dict(rendered_by_page)
 
     nav_skeletons = _append_toc_nav_skeletons(
@@ -547,29 +549,6 @@ def _build_hierarchy_scopes(
     )
 
 
-def _allocate_asset_pages(
-    scopes: list[_HierarchyScope], total_budget: int,
-) -> list[int]:
-    """Pre-allocate asset page budget proportionally to avoid concurrency races."""
-    if total_budget <= 0 or not scopes:
-        return [0] * len(scopes)
-    page_counts = [
-        max(len(scope.processing_pages) or (scope.end_page - scope.start_page + 1), 1)
-        for scope in scopes
-    ]
-    total_pages = sum(page_counts)
-    allocations: list[int] = []
-    remaining = total_budget
-    for i, count in enumerate(page_counts):
-        if i == len(page_counts) - 1:
-            allocations.append(remaining)
-        else:
-            share = min(int(total_budget * count / total_pages), remaining)
-            allocations.append(share)
-            remaining -= share
-    return allocations
-
-
 def _union_scope_processing_pages(scopes: list[_HierarchyScope]) -> list[int]:
     """Deduplicate processing pages across coarse scopes (stable ascending)."""
     pages: set[int] = set()
@@ -593,7 +572,7 @@ def _resolve_assembly_page_text(
     )
 
 
-def _render_and_tag_document_pages(
+def _render_document_pages(
     *,
     pdf_path: str,
     output_dir: str,
@@ -601,26 +580,16 @@ def _render_and_tag_document_pages(
     processing_pages: list[int],
     page_texts: dict[int, str],
     page_features: list[Any],
-    page_labels: list[Any],
-    vlm_model: str | None,
-    toc_policy: TocPagePolicy,
-    page_memory_config: PageMemoryConfig,
     trace_recorder: Any | None = None,
-) -> tuple[dict[int, Any], dict[int, Any]]:
-    """Render and combined-tag each processing page once at document level."""
-    from app.services.page_memory.page_plan import derive_page_processing_plan
+) -> dict[int, Any]:
+    """Render each processing page once at document level (C1)."""
     from app.services.page_memory.page_renderer import render_document_pages
-    from app.services.page_memory.page_tagger import tag_pages
 
     pages = [int(page) for page in processing_pages]
     if not pages:
-        return {}, {}
+        return {}
 
-    logger.info(
-        "[page_memory] document page stage: {} pages (tag_concurrency={})",
-        len(pages),
-        page_memory_config.tag_concurrency,
-    )
+    logger.info("[page_memory] document render stage: {} pages", len(pages))
     with stage_timer("page_memory.render", page_count=len(pages)):
         rendered = render_document_pages(
             pdf_path=pdf_path,
@@ -636,7 +605,29 @@ def _render_and_tag_document_pages(
         page_info=page_scope_info([item.page_index for item in rendered]),
         variables={"rendered_count": len(rendered)},
     )
+    return {item.page_index: item for item in rendered}
 
+
+def _tag_document_pages(
+    *,
+    page_count: int,
+    rendered_by_page: dict[int, Any],
+    page_features: list[Any],
+    page_labels: list[Any],
+    vlm_model: str | None,
+    toc_policy: TocPagePolicy,
+    page_memory_config: PageMemoryConfig,
+    trace_recorder: Any | None = None,
+) -> dict[int, Any]:
+    """Tag rendered pages once at document level (C3)."""
+    from app.services.page_memory.page_plan import derive_page_processing_plan
+    from app.services.page_memory.page_tagger import tag_pages
+
+    if not rendered_by_page:
+        return {}
+
+    pages = sorted(rendered_by_page)
+    rendered = [rendered_by_page[page] for page in pages]
     plans = [
         plan
         for plan in derive_page_processing_plan(
@@ -653,7 +644,13 @@ def _render_and_tag_document_pages(
         variables={"plan_count": len(plans)},
     )
 
+    logger.info(
+        "[page_memory] document tag stage: {} pages (tag_concurrency={})",
+        len(rendered),
+        page_memory_config.tag_concurrency,
+    )
     with stage_timer("page_memory.tag", page_count=len(rendered)):
+        branch_stats: dict[str, Any] = {}
         tags = tag_pages(
             pages=rendered,
             plans=plans,
@@ -665,16 +662,109 @@ def _render_and_tag_document_pages(
             tagging_mode=page_memory_config.tagging_mode,
             text_summary_concurrency=page_memory_config.text_summary_concurrency,
             text_summary_model=page_memory_config.text_summary_model,
+            branch_stats=branch_stats,
         )
     _record_trace_stage(
         trace_recorder,
         "C3.page_tagger",
         page_info=page_scope_info([tag.page_index for tag in tags]),
-        variables={"tags": _summarize_tags(tags)},
+        variables={"tags": _summarize_tags(tags), "branch_stats": branch_stats},
     )
+    return {tag.page_index: tag for tag in tags}
 
-    rendered_by_page = {item.page_index: item for item in rendered}
-    tags_by_page = {tag.page_index: tag for tag in tags}
+
+def _extract_document_assets(
+    *,
+    pdf_path: str,
+    output_dir: str,
+    rendered_by_page: dict[int, Any],
+    page_features: list[Any],
+    page_count: int,
+    page_memory_config: PageMemoryConfig,
+    trace_recorder: Any | None = None,
+) -> dict[int, list[Any]]:
+    """Extract assets once for the document-level unique render set (C5)."""
+    from app.services.page_memory.page_assets import extract_page_assets_from_renders
+
+    if not page_memory_config.asset_extraction_enabled or not rendered_by_page:
+        return {}
+
+    asset_max_pages = _resolve_asset_max_pages(page_count, page_memory_config)
+    if asset_max_pages <= 0:
+        return {}
+
+    rendered = [rendered_by_page[page] for page in sorted(rendered_by_page)]
+    asset_rendered = _select_rendered_pages_with_assets(rendered, page_features)
+    logger.info(
+        "[page_memory] document asset stage: {}/{} rendered pages have has_asset "
+        "(asset_max_pages={})",
+        len(asset_rendered),
+        len(rendered),
+        asset_max_pages,
+    )
+    with stage_timer("page_memory.assets", page_count=min(len(asset_rendered), asset_max_pages)):
+        assets_by_page = extract_page_assets_from_renders(
+            pdf_path=pdf_path,
+            rendered_pages=asset_rendered,
+            output_dir=output_dir,
+            model_name=page_memory_config.asset_model,
+            budget=None,
+            max_pages=asset_max_pages,
+            confidence_threshold=page_memory_config.asset_confidence_threshold,
+            summary_enabled=page_memory_config.asset_summary_enabled,
+            summary_concurrency=page_memory_config.asset_summary_concurrency,
+            table_engine=page_memory_config.table_engine,
+            table_merge_enabled=page_memory_config.table_merge_enabled,
+        )
+    _record_trace_stage(
+        trace_recorder,
+        "C5.page_assets",
+        page_info=page_scope_info(sorted(assets_by_page)),
+        variables={
+            "asset_count": sum(len(items) for items in assets_by_page.values()),
+            "assets_by_page": {
+                page: [asset.asset_id for asset in assets]
+                for page, assets in assets_by_page.items()
+            },
+        },
+    )
+    return assets_by_page
+
+
+def _render_and_tag_document_pages(
+    *,
+    pdf_path: str,
+    output_dir: str,
+    page_count: int,
+    processing_pages: list[int],
+    page_texts: dict[int, str],
+    page_features: list[Any],
+    page_labels: list[Any],
+    vlm_model: str | None,
+    toc_policy: TocPagePolicy,
+    page_memory_config: PageMemoryConfig,
+    trace_recorder: Any | None = None,
+) -> tuple[dict[int, Any], dict[int, Any]]:
+    """Render and combined-tag each processing page once at document level."""
+    rendered_by_page = _render_document_pages(
+        pdf_path=pdf_path,
+        output_dir=output_dir,
+        page_count=page_count,
+        processing_pages=processing_pages,
+        page_texts=page_texts,
+        page_features=page_features,
+        trace_recorder=trace_recorder,
+    )
+    tags_by_page = _tag_document_pages(
+        page_count=page_count,
+        rendered_by_page=rendered_by_page,
+        page_features=page_features,
+        page_labels=page_labels,
+        vlm_model=vlm_model,
+        toc_policy=toc_policy,
+        page_memory_config=page_memory_config,
+        trace_recorder=trace_recorder,
+    )
     return rendered_by_page, tags_by_page
 
 
@@ -718,14 +808,10 @@ def _run_hierarchy_scope(
     scope: _HierarchyScope,
     scope_index: int,
     scope_count: int,
-    pdf_path: str,
     output_dir: str,
     page_count: int,
-    page_features: list[Any],
     rendered_by_page: dict[int, Any],
     tags_by_page: dict[int, Any],
-    asset_extraction_enabled: bool,
-    asset_max_pages: int,
     trace_recorder: Any | None,
     page_memory_config: PageMemoryConfig,
     next_title_by_path: dict[str, str | None] | None = None,
@@ -735,7 +821,6 @@ def _run_hierarchy_scope(
         compute_fat_leaf_pages,
         refine_fat_leaf_skeletons,
     )
-    from app.services.page_memory.page_assets import extract_page_assets_from_renders
 
     policy = toc_policy or TocPagePolicy(frozenset(), {}, ())
     scope_skeletons = sort_skeletons(scope.skeletons)
@@ -776,7 +861,6 @@ def _run_hierarchy_scope(
             scope_id=scope.scope_id,
             hierarchy=scope_skeletons,
             tags=[],
-            assets_by_page={},
             rendered=[],
             final_pages=[],
         )
@@ -844,53 +928,10 @@ def _run_hierarchy_scope(
         tagging_mode=page_memory_config.tagging_mode,
     )
 
-    assets_by_page: dict[int, list[Any]] = {}
-    if asset_extraction_enabled and asset_max_pages > 0:
-        asset_rendered = _select_rendered_pages_with_assets(
-            rendered, page_features
-        )
-        with stage_timer("page_memory.assets", page_count=asset_max_pages):
-            assets_by_page = extract_page_assets_from_renders(
-                pdf_path=pdf_path,
-                rendered_pages=asset_rendered,
-                output_dir=output_dir,
-                model_name=page_memory_config.asset_model,
-                budget=None,
-                max_pages=asset_max_pages,
-                confidence_threshold=page_memory_config.asset_confidence_threshold,
-                summary_enabled=page_memory_config.asset_summary_enabled,
-                summary_concurrency=page_memory_config.asset_summary_concurrency,
-                table_engine=page_memory_config.table_engine,
-                table_merge_enabled=page_memory_config.table_merge_enabled,
-            )
-    _record_trace_stage(
-        trace_recorder,
-        "C5.page_assets",
-        page_info=page_scope_info(sorted(assets_by_page)),
-        variables={
-            "scope_id": scope.scope_id,
-            "asset_count": sum(len(items) for items in assets_by_page.values()),
-            "assets_by_page": {
-                page: [asset.asset_id for asset in assets]
-                for page, assets in assets_by_page.items()
-            },
-        },
-    )
-    _write_scope_artifacts(
-        output_dir=output_dir,
-        scope_id=scope.scope_id,
-        scope_manifest_data=scope_manifest,
-        hierarchy=scope_skeletons,
-        tags=tags,
-        assets_by_page=assets_by_page,
-        tagging_mode=page_memory_config.tagging_mode,
-    )
-
     return _ScopeRunResult(
         scope_id=scope.scope_id,
         hierarchy=scope_skeletons,
         tags=tags,
-        assets_by_page=assets_by_page,
         rendered=rendered,
         final_pages=processing_pages,
     )
@@ -912,7 +953,63 @@ def _select_rendered_pages_with_assets(
     return [item for item in rendered if item.page_index in asset_pages]
 
 
-# ── whole_doc builder (PR3, unchanged) ────────────────────────────────
+def _project_assets_for_pages(
+    assets_by_page: dict[int, list[Any]],
+    pages: set[int],
+) -> dict[int, list[Any]]:
+    """Project document assets onto a page set without re-extracting."""
+    from app.services.page_memory.page_assets import asset_source_pages
+
+    if not pages or not assets_by_page:
+        return {}
+    projected: dict[int, list[Any]] = {}
+    seen_ids: set[str] = set()
+    for page_index in sorted(assets_by_page):
+        for asset in assets_by_page[page_index]:
+            asset_id = str(getattr(asset, "asset_id", "") or "")
+            if asset_id and asset_id in seen_ids:
+                continue
+            source_pages = set(asset_source_pages(asset))
+            if not source_pages.intersection(pages):
+                continue
+            if asset_id:
+                seen_ids.add(asset_id)
+            projected.setdefault(int(page_index), []).append(asset)
+    return projected
+
+
+def _merge_assets_by_page(asset_groups: Any) -> dict[int, list[Any]]:
+    """Merge asset groups with ``asset_id`` dedupe (legacy scope fallback)."""
+    merged: dict[int, list[Any]] = {}
+    seen_ids: set[str] = set()
+    for assets_by_page in asset_groups:
+        for page, assets in assets_by_page.items():
+            for asset in assets:
+                asset_id = str(getattr(asset, "asset_id", "") or "")
+                if asset_id and asset_id in seen_ids:
+                    continue
+                if asset_id:
+                    seen_ids.add(asset_id)
+                merged.setdefault(int(page), []).append(asset)
+    return {page: merged[page] for page in sorted(merged)}
+
+
+def _page_to_node_map(chunks: list[ChunkPayload]) -> dict[int, str]:
+    """Map each owned physical page to its owner node path."""
+    mapping: dict[int, str] = {}
+    for chunk in chunks:
+        if chunk["type"] != "page":
+            continue
+        path = chunk["path"]
+        owned_pages = chunk["metadata"].get("owned_page_nums")
+        pages = (
+            owned_pages
+            if isinstance(owned_pages, list)
+            else chunk["metadata"].get("page_nums", [])
+        )
+        for page in pages:
+            mapping[int(page)] = path
+    return mapping
 
 
 def _build_whole_doc_chunks(
@@ -1045,21 +1142,6 @@ def _append_toc_nav_skeletons(
     return sort_skeletons([*toc_skeletons, *body_skeletons])
 
 
-def _merge_assets_by_page(asset_groups: Any) -> dict[int, list[Any]]:
-    merged: dict[int, list[Any]] = {}
-    seen_ids: set[str] = set()
-    for assets_by_page in asset_groups:
-        for page, assets in assets_by_page.items():
-            for asset in assets:
-                asset_id = str(getattr(asset, "asset_id", "") or "")
-                if asset_id and asset_id in seen_ids:
-                    continue
-                if asset_id:
-                    seen_ids.add(asset_id)
-                merged.setdefault(int(page), []).append(asset)
-    return {page: merged[page] for page in sorted(merged)}
-
-
 def _summarize_skeletons(skeletons: list[Any]) -> list[dict[str, Any]]:
     return [
         {
@@ -1082,14 +1164,3 @@ def _summarize_tags(tags: list[Any]) -> list[dict[str, Any]]:
         }
         for item in tags
     ]
-
-
-def _page_to_node_map(chunks: list[ChunkPayload]) -> dict[int, str]:
-    mapping: dict[int, str] = {}
-    for chunk in chunks:
-        if chunk["type"] != "page":
-            continue
-        path = chunk["path"]
-        for page in chunk["metadata"].get("page_nums", []):
-            mapping[int(page)] = path
-    return mapping

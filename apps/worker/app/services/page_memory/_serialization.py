@@ -242,6 +242,9 @@ def serialize_assets(assets_by_page: dict[int, list[Any]]) -> list[dict[str, Any
     rows: list[dict[str, Any]] = []
     for page_index in sorted(assets_by_page):
         for asset in assets_by_page[page_index]:
+            source_pages = list(
+                getattr(asset, "source_page_nums", None) or [asset.page_index]
+            )
             rows.append(
                 {
                     "asset_id": asset.asset_id,
@@ -257,6 +260,7 @@ def serialize_assets(assets_by_page: dict[int, list[Any]]) -> list[dict[str, Any
                     "image_uri": asset.image_uri,
                     "html_uri": asset.html_uri,
                     "extraction_status": asset.extraction_status,
+                    "source_page_nums": source_pages,
                 }
             )
     return rows

@@ -21,6 +21,8 @@ from app.services.page_memory.page_tagger import (
     _summarize_page_text,
     _tag_vlm_combined,
     _tag_vlm_titles,
+    detect_repeated_chrome_lines,
+    strip_chrome_lines,
     tag_pages,
 )
 from shared.core.exceptions.domain_exceptions import UnavailableException
@@ -496,3 +498,309 @@ def test_text_mode_exposes_transient_ocr_text_for_node_assembly(
     )[0]
 
     assert result.resolved_body_text == "ocr-body-1"
+
+
+def test_text_mode_title_and_semantic_branches_overlap(monkeypatch, tmp_path) -> None:
+    import gevent
+    from gevent.event import Event
+
+    title_started = Event()
+    semantic_started = Event()
+
+    def _fake_titles(page, **_kwargs):
+        title_started.set()
+        assert semantic_started.wait(timeout=2.0)
+        gevent.sleep(0.01)
+        return PageTagResult(
+            page_index=page.page_index,
+            observed_titles=[{"text": f"Title {page.page_index}"}],
+            strategy_used="vlm_titles",
+            tagging_mode="text",
+        )
+
+    def _fake_resolve(page, **_kwargs):
+        semantic_started.set()
+        assert title_started.wait(timeout=2.0)
+        return page.raw_text
+
+    monkeypatch.setitem(tag_pages.__globals__, "_tag_vlm_titles", _fake_titles)
+    monkeypatch.setitem(tag_pages.__globals__, "_resolve_page_text", _fake_resolve)
+    monkeypatch.setitem(
+        tag_pages.__globals__,
+        "_summarize_page_text",
+        lambda page, **_kwargs: (f"summary-{page.page_index}", []),
+    )
+
+    pages = [
+        PageRenderResult(
+            page_index=page_index,
+            image_path=_write_page_image(tmp_path, page_index),
+            raw_text=f"body {page_index}",
+            width=100,
+            height=200,
+            is_landscape=False,
+        )
+        for page_index in (1, 2)
+    ]
+    results = tag_pages(
+        pages=pages,
+        plans=[_plan(1), _plan(2)],
+        vlm_model="fake-vlm",
+        tagging_mode="text",
+        max_concurrent=2,
+        text_summary_concurrency=2,
+    )
+
+    assert [result.page_index for result in results] == [1, 2]
+    assert [result.summary for result in results] == ["summary-1", "summary-2"]
+    assert title_started.is_set() and semantic_started.is_set()
+
+
+def test_text_mode_respects_title_concurrency(monkeypatch, tmp_path) -> None:
+    import gevent
+
+    inflight = {"count": 0, "peak": 0}
+    monkeypatch.setitem(
+        tag_pages.__globals__,
+        "_summarize_page_text",
+        lambda page, **_kwargs: ("summary", []),
+    )
+
+    def _fake_titles(page, **_kwargs):
+        inflight["count"] += 1
+        inflight["peak"] = max(inflight["peak"], inflight["count"])
+        gevent.sleep(0.02)
+        inflight["count"] -= 1
+        return PageTagResult(
+            page_index=page.page_index,
+            strategy_used="vlm_titles",
+            tagging_mode="text",
+        )
+
+    monkeypatch.setitem(tag_pages.__globals__, "_tag_vlm_titles", _fake_titles)
+    pages = [
+        PageRenderResult(
+            page_index=page_index,
+            image_path=_write_page_image(tmp_path, page_index),
+            raw_text=f"body {page_index}",
+            width=100,
+            height=200,
+            is_landscape=False,
+        )
+        for page_index in range(1, 7)
+    ]
+
+    tag_pages(
+        pages=pages,
+        plans=[_plan(page_index) for page_index in range(1, 7)],
+        vlm_model="fake-vlm",
+        tagging_mode="text",
+        max_concurrent=2,
+        text_summary_concurrency=5,
+    )
+
+    assert inflight["peak"] <= 2
+
+
+def test_text_mode_skip_tagging_noops_both_branches(monkeypatch, tmp_path) -> None:
+    title_calls: list[int] = []
+    summary_calls: list[int] = []
+
+    monkeypatch.setitem(
+        tag_pages.__globals__,
+        "_tag_vlm_titles",
+        lambda page, **_kwargs: title_calls.append(page.page_index)
+        or PageTagResult(page_index=page.page_index, strategy_used="vlm_titles"),
+    )
+    monkeypatch.setitem(
+        tag_pages.__globals__,
+        "_summarize_page_text",
+        lambda page, **_kwargs: summary_calls.append(page.page_index) or ("s", []),
+    )
+
+    page = PageRenderResult(
+        page_index=1,
+        image_path=_write_page_image(tmp_path, 1),
+        raw_text="body",
+        width=100,
+        height=200,
+        is_landscape=False,
+    )
+    result = tag_pages(
+        pages=[page],
+        plans=[
+            PagePlan(
+                page_index=1,
+                strategy=PageProcessingStrategy.SKIP_TAGGING,
+                reason="test",
+            )
+        ],
+        vlm_model="fake-vlm",
+        tagging_mode="text",
+        max_concurrent=1,
+        text_summary_concurrency=1,
+    )[0]
+
+    assert title_calls == []
+    assert summary_calls == []
+    assert result.strategy_used == "skip_tagging"
+    assert result.summary == ""
+    assert result.observed_titles == []
+
+
+def test_text_mode_without_vlm_still_runs_semantic_branch(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    summary_pages: list[int] = []
+    monkeypatch.delenv("IMAGE_MODEL", raising=False)
+
+    def _fake_summary(page, **_kwargs):
+        summary_pages.append(page.page_index)
+        return "body summary", [{"text": "Acme", "type": "organization"}]
+
+    monkeypatch.setitem(tag_pages.__globals__, "_summarize_page_text", _fake_summary)
+    page = PageRenderResult(
+        page_index=1,
+        image_path=_write_page_image(tmp_path, 1),
+        raw_text="readable body",
+        width=100,
+        height=200,
+        is_landscape=False,
+    )
+
+    result = tag_pages(
+        pages=[page],
+        plans=[_plan(1)],
+        vlm_model=None,
+        tagging_mode="text",
+        max_concurrent=1,
+        text_summary_concurrency=1,
+    )[0]
+
+    assert summary_pages == [1]
+    assert result.strategy_used == "text_page"
+    assert result.summary == "body summary"
+    assert result.entities == [{"text": "Acme", "type": "organization"}]
+    assert result.observed_titles == []
+
+
+def test_text_mode_records_branch_stats(monkeypatch, tmp_path) -> None:
+    monkeypatch.setitem(
+        tag_pages.__globals__,
+        "_tag_vlm_titles",
+        lambda page, **_kwargs: PageTagResult(
+            page_index=page.page_index,
+            observed_titles=[{"text": "T"}],
+            strategy_used="vlm_titles",
+            tagging_mode="text",
+        ),
+    )
+    monkeypatch.setitem(
+        tag_pages.__globals__,
+        "_summarize_page_text",
+        lambda page, **_kwargs: ("summary", []),
+    )
+
+    page = PageRenderResult(
+        page_index=1,
+        image_path=_write_page_image(tmp_path, 1),
+        raw_text="body",
+        width=100,
+        height=200,
+        is_landscape=False,
+    )
+    branch_stats: dict = {}
+    tag_pages(
+        pages=[page],
+        plans=[_plan(1)],
+        vlm_model="fake-vlm",
+        tagging_mode="text",
+        max_concurrent=1,
+        text_summary_concurrency=1,
+        branch_stats=branch_stats,
+    )
+
+    assert branch_stats["mode"] == "text"
+    assert branch_stats["titles"]["success"] == 1
+    assert branch_stats["semantics"]["success"] == 1
+    assert "elapsed_ms" in branch_stats["titles"]
+    assert "elapsed_ms" in branch_stats["semantics"]
+
+
+def test_detect_repeated_chrome_lines_requires_min_pages_and_ratio() -> None:
+    texts = {
+        1: "NCC 2022 Volume One\nBody one\nPage footer",
+        2: "NCC 2022 Volume One\nBody two\nPage footer",
+        3: "NCC 2022 Volume One\nBody three\nPage footer",
+        4: "Different header\nBody four\nOther footer",
+    }
+    headers, footers = detect_repeated_chrome_lines(texts)
+
+    assert "NCC 2022 Volume One" in headers
+    assert "Page footer" in footers
+    assert "Different header" not in headers
+    assert "Body one" not in headers
+
+
+def test_strip_chrome_lines_only_removes_edges() -> None:
+    text = (
+        "NCC 2022 Volume One\n"
+        "Body mentions NCC 2022 Volume One again\n"
+        "Page footer"
+    )
+    stripped = strip_chrome_lines(
+        text,
+        header_lines={"NCC 2022 Volume One"},
+        footer_lines={"Page footer"},
+    )
+
+    assert stripped == "Body mentions NCC 2022 Volume One again"
+
+
+def test_text_mode_strips_chrome_before_summary_prompt(monkeypatch, tmp_path) -> None:
+    seen_texts: list[str] = []
+
+    monkeypatch.setitem(
+        tag_pages.__globals__,
+        "_tag_vlm_titles",
+        lambda page, **_kwargs: PageTagResult(
+            page_index=page.page_index,
+            strategy_used="vlm_titles",
+            tagging_mode="text",
+        ),
+    )
+
+    def _fake_summary(page, *, text, **_kwargs):
+        seen_texts.append(text)
+        return "summary", []
+
+    monkeypatch.setitem(tag_pages.__globals__, "_summarize_page_text", _fake_summary)
+
+    pages = [
+        PageRenderResult(
+            page_index=page_index,
+            image_path=_write_page_image(tmp_path, page_index),
+            raw_text=f"NCC 2022 Volume One\nBody {page_index}\nPage footer",
+            width=100,
+            height=200,
+            is_landscape=False,
+        )
+        for page_index in range(1, 4)
+    ]
+    results = tag_pages(
+        pages=pages,
+        plans=[_plan(page_index) for page_index in range(1, 4)],
+        vlm_model="fake-vlm",
+        tagging_mode="text",
+        max_concurrent=2,
+        text_summary_concurrency=2,
+    )
+
+    assert all("NCC 2022 Volume One" not in text for text in seen_texts)
+    assert all("Page footer" not in text for text in seen_texts)
+    assert all(f"Body {page_index}" in text for page_index, text in enumerate(seen_texts, start=1))
+    assert all(result.resolved_body_text is None for result in results)
+    assert all(
+        page.raw_text.startswith("NCC 2022 Volume One") for page in pages
+    )

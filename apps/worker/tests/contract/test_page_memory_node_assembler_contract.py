@@ -140,6 +140,7 @@ def test_build_node_chunks_reuses_tags_without_vlm() -> None:
     leaf_a = by_path["demo.pdf/3 基本规定/3.1 职责"]
     assert leaf_a["metadata"]["page_nums"] == [231]
     assert leaf_a["metadata"]["owned_page_nums"] == [231]
+    assert leaf_a["metadata"]["content_kind"] == "body"
     assert leaf_a["content"] == "text-231"
     assert leaf_a["metadata"]["summary"] == "s231"
     assert leaf_a["metadata"]["keywords"] == ["k1"]
@@ -147,6 +148,7 @@ def test_build_node_chunks_reuses_tags_without_vlm() -> None:
     leaf_b = by_path["demo.pdf/3 基本规定/3.2 管理规定"]
     assert leaf_b["metadata"]["page_nums"] == [231, 232]
     assert leaf_b["metadata"]["owned_page_nums"] == [232]
+    assert leaf_b["metadata"]["content_kind"] == "body"
     assert node_assembler.SAME_AS_PREFIX in leaf_b["content"]
     assert "text-232" in leaf_b["content"]
     assert leaf_b["metadata"]["summary"] == "s232"
@@ -466,14 +468,72 @@ def test_build_node_chunks_prepends_asset_chunks_and_links_page_nodes() -> None:
     by_path = {row["path"]: row for row in rows}
     owner = by_path["demo.pdf/3 基本规定/3.1 职责"]
     shared = by_path["demo.pdf/3 基本规定/3.2 管理规定"]
+    assert rows[0]["metadata"]["page_nums"] == [231]
     assert owner["metadata"]["connect_to"][0]["relation"] == "embeds"
     assert owner["metadata"]["connect_to"][0]["target"] == "tables/table_page_231_1.html"
+    assert owner["metadata"]["connect_to"][0]["page"] == 231
     related = next(
         item
         for item in shared["metadata"]["connect_to"]
         if item["relation"] == "related"
     )
-    assert related["same_as_owner"] == "demo.pdf/3 基本规定/3.1 职责"
+    assert related["page"] == 231
+    assert "same_as_owner" not in related
+
+
+def test_cross_page_asset_span_connects_every_source_page() -> None:
+    asset = PageAsset(
+        asset_id="asset_table_span",
+        page_index=231,
+        asset_index=1,
+        kind="table",
+        bbox_px=[10, 20, 200, 120],
+        width_px=1000,
+        height_px=1400,
+        width_pt=500,
+        height_pt=700,
+        title="跨页表",
+        summary="跨页表摘要",
+        image_uri="images/image_page_231_table_1.png",
+        html_uri="tables/table_page_231_1.html",
+        extraction_status="table_html_extracted",
+        source_page_nums=[231, 232],
+    )
+
+    rows = node_assembler.build_node_chunks(
+        skeletons=_same_page_sibling_skeletons(),
+        raw_text_by_page={231: "text-231", 232: "text-232"},
+        image_path_by_page={},
+        tag_by_page={
+            231: PageTagResult(page_index=231, summary="s231", keywords=["k1"]),
+            232: PageTagResult(page_index=232, summary="s232", keywords=["k2"]),
+        },
+        filename="demo.pdf",
+        vlm_model=None,
+        page_assets_by_page={231: [asset]},
+    )
+
+    by_path = {row["path"]: row for row in rows}
+    asset_chunk = next(row for row in rows if row["type"] == "table")
+    owner_231 = by_path["demo.pdf/3 基本规定/3.1 职责"]
+    owner_232 = by_path["demo.pdf/3 基本规定/3.2 管理规定"]
+
+    assert asset_chunk["metadata"]["page_nums"] == [231, 232]
+    assert [
+        item["page"]
+        for item in owner_231["metadata"]["connect_to"]
+        if item["relation"] == "embeds"
+    ] == [231]
+    assert [
+        item["page"]
+        for item in owner_232["metadata"]["connect_to"]
+        if item["relation"] == "embeds"
+    ] == [232]
+    assert [
+        item["page"]
+        for item in owner_232["metadata"]["connect_to"]
+        if item["relation"] == "related"
+    ] == [231]
 
 
 def test_page_connectto_normalizes_to_asset_chunk_id() -> None:

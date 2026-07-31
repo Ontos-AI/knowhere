@@ -22,16 +22,23 @@ from app.services.page_memory._serialization import (
 )
 from app.services.page_memory._utils import build_hierarchy_scopes
 from app.services.page_memory.memory_service import (
+    _extract_document_assets,
+    _merge_assets_by_page,
+    _page_to_node_map,
+    _project_assets_for_pages,
     _render_and_tag_document_pages,
     _resolve_assembly_page_text,
+    _select_rendered_pages_with_assets,
     _union_scope_processing_pages,
 )
+from app.services.page_memory.page_assets import PageAsset
 from app.services.page_memory.page_renderer import PageRenderResult
 from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
 from app.services.page_memory.toc_page_policy import TocPagePolicy
 from shared.models.schemas.page_memory_config import PageMemoryConfig
 from shared.services.ai.prompt_service import build_prompt
+from types import SimpleNamespace
 
 
 def _skel(
@@ -246,3 +253,144 @@ def test_node_assembly_reuses_transient_tagging_ocr(tmp_path: Path) -> None:
         )
         == "ocr body"
     )
+
+
+def _page_render(page: int, tmp_path: Path) -> PageRenderResult:
+    return PageRenderResult(
+        page_index=page,
+        image_path=str(tmp_path / f"p{page}.png"),
+        raw_text=f"text-{page}",
+        width=10,
+        height=10,
+        is_landscape=False,
+    )
+
+
+def test_extract_document_assets_filters_has_asset_and_calls_once(
+    monkeypatch, tmp_path
+) -> None:
+    extract_calls: list[list[int]] = []
+
+    def _fake_extract(**kwargs):
+        pages = [item.page_index for item in kwargs["rendered_pages"]]
+        extract_calls.append(pages)
+        assert kwargs["max_pages"] == 2
+        return {
+            pages[0]: [
+                PageAsset(
+                    asset_id="asset_a",
+                    page_index=pages[0],
+                    asset_index=1,
+                    kind="table",
+                    bbox_px=[0, 0, 1, 1],
+                    width_px=10,
+                    height_px=10,
+                    width_pt=1.0,
+                    height_pt=1.0,
+                    html_uri=f"tables/t{pages[0]}.html",
+                )
+            ]
+        }
+
+    monkeypatch.setattr(
+        "app.services.page_memory.page_assets.extract_page_assets_from_renders",
+        _fake_extract,
+    )
+
+    rendered_by_page = {
+        9: _page_render(9, tmp_path),
+        10: _page_render(10, tmp_path),
+        11: _page_render(11, tmp_path),
+    }
+    assets = _extract_document_assets(
+        pdf_path=str(tmp_path / "doc.pdf"),
+        output_dir=str(tmp_path),
+        rendered_by_page=rendered_by_page,
+        page_features=[
+            SimpleNamespace(page=9, has_asset=False),
+            SimpleNamespace(page=10, has_asset=True),
+            SimpleNamespace(page=11, has_asset=True),
+        ],
+        page_count=20,
+        page_memory_config=PageMemoryConfig(asset_max_pages=2),
+    )
+
+    assert extract_calls == [[10, 11]]
+    assert sorted(assets) == [10]
+
+
+def test_shared_boundary_page_projected_without_duplicate_ids() -> None:
+    shared = PageAsset(
+        asset_id="asset_shared",
+        page_index=153,
+        asset_index=1,
+        kind="table",
+        bbox_px=[0, 0, 1, 1],
+        width_px=10,
+        height_px=10,
+        width_pt=1.0,
+        height_pt=1.0,
+        html_uri="tables/t153.html",
+        source_page_nums=[153],
+    )
+    document_assets = {153: [shared]}
+
+    left = _project_assets_for_pages(document_assets, {149, 150, 151, 152, 153})
+    right = _project_assets_for_pages(document_assets, {153, 154, 155})
+    merged = _merge_assets_by_page([left, right])
+
+    assert list(left) == [153]
+    assert list(right) == [153]
+    assert len(merged[153]) == 1
+    assert merged[153][0].asset_id == "asset_shared"
+
+
+def test_page_to_node_map_uses_owned_pages_only() -> None:
+    mapping = _page_to_node_map(
+        [
+            {
+                "chunk_id": "owner",
+                "type": "page",
+                "content": "owned",
+                "path": "doc.pdf/Owner",
+                "metadata": {
+                    "page_nums": [1, 2],
+                    "owned_page_nums": [1],
+                    "connect_to": [],
+                },
+                "order": 0,
+            },
+            {
+                "chunk_id": "alias",
+                "type": "page",
+                "content": "alias",
+                "path": "doc.pdf/Alias",
+                "metadata": {
+                    "page_nums": [1, 2],
+                    "owned_page_nums": [2],
+                    "connect_to": [],
+                },
+                "order": 1,
+            },
+        ]
+    )
+
+    assert mapping == {1: "doc.pdf/Owner", 2: "doc.pdf/Alias"}
+
+
+def test_select_rendered_pages_with_assets_keeps_only_has_asset_pages() -> None:
+    rendered = [
+        _page_render(1, Path("/tmp")),
+        _page_render(2, Path("/tmp")),
+        _page_render(3, Path("/tmp")),
+    ]
+    page_features = [
+        SimpleNamespace(page=1, has_asset=False),
+        SimpleNamespace(page=2, has_asset=True),
+        SimpleNamespace(page=3, has_asset=True),
+    ]
+
+    selected = _select_rendered_pages_with_assets(rendered, page_features)
+
+    assert [item.page_index for item in selected] == [2, 3]
+

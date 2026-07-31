@@ -49,6 +49,45 @@ class PageAsset:
     image_path: str = ""
     html_path: str = ""
     extraction_status: str = "pending"
+    source_page_nums: list[int] = field(default_factory=list)
+    """Physical pages this asset spans (defaults to ``[page_index]``)."""
+
+    def __post_init__(self) -> None:
+        self.source_page_nums = normalize_asset_source_pages(
+            self.source_page_nums,
+            fallback_page=self.page_index,
+        )
+
+
+def normalize_asset_source_pages(
+    pages: list[int] | None,
+    *,
+    fallback_page: int,
+) -> list[int]:
+    """Return sorted unique positive page numbers, falling back to one page."""
+    normalized: set[int] = set()
+    for page in pages or []:
+        try:
+            value = int(page)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            normalized.add(value)
+    if normalized:
+        return sorted(normalized)
+    try:
+        fallback = int(fallback_page)
+    except (TypeError, ValueError):
+        return []
+    return [fallback] if fallback > 0 else []
+
+
+def asset_source_pages(asset: PageAsset) -> list[int]:
+    """Pages covered by an asset, including cross-page merged tables."""
+    return normalize_asset_source_pages(
+        asset.source_page_nums,
+        fallback_page=asset.page_index,
+    )
 
 
 def page_asset_extraction_enabled() -> bool:
@@ -531,7 +570,7 @@ def build_asset_chunks(
                 "entities": list(asset.entities),
                 "tokens": [],
                 "connect_to": [],
-                "page_nums": [asset.page_index],
+                "page_nums": asset_source_pages(asset),
                 "file_path": ref_uri,
                 "original_name": os.path.basename(ref_uri),
             }
@@ -757,6 +796,10 @@ def merge_cross_page_tables(
             head_asset=head_table,
             header_rows_to_skip=header_rows_to_skip,
         )
+        tail_table.source_page_nums = normalize_asset_source_pages(
+            [*asset_source_pages(tail_table), *asset_source_pages(head_table)],
+            fallback_page=tail_table.page_index,
+        )
         assets_by_page[next_page].remove(head_table)
         if not assets_by_page[next_page]:
             del assets_by_page[next_page]
@@ -910,12 +953,14 @@ __all__ = [
     "PageAsset",
     "annotate_page_assets",
     "asset_reference",
+    "asset_source_pages",
     "build_asset_chunks",
     "extract_page_assets_from_renders",
     "get_asset_confidence_threshold",
     "get_asset_max_pages",
     "get_asset_model",
     "merge_cross_page_tables",
+    "normalize_asset_source_pages",
     "page_asset_extraction_enabled",
     "page_asset_summary_enabled",
     "summarize_page_asset",

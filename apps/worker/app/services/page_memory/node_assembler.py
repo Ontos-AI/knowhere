@@ -32,6 +32,7 @@ from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.document_parser.support.identifiers import gen_str_codes
 from app.services.page_memory.page_assets import (
     PageAsset,
+    asset_source_pages,
     build_asset_chunks,
 )
 from app.services.page_memory.page_tagger import PageTagResult, normalize_entities
@@ -44,7 +45,7 @@ from shared.services.chunks.canonical_chunk_builder import (
     ChunkPayload,
     finalize_chunk_connections,
 )
-from shared.services.chunks.chunk_connections import ConnectionPayload, ConnectionValue
+from shared.services.chunks.chunk_connections import ConnectionValue
 from shared.services.chunks.path_segments import join_document_path
 
 SAME_AS_PREFIX = "SAME-AS"
@@ -401,6 +402,7 @@ def build_node_chunks(
                 "connect_to": [],
                 "page_nums": list(view.pages),
                 "owned_page_nums": list(view.owned_pages),
+                "content_kind": "body",
             }
             page_metadata = _build_page_extra_metadata(
                 pages=view.pages,
@@ -704,10 +706,18 @@ def _attach_asset_connections(
     page_to_leaves: dict[int, list[LeafNode]],
     chunks_by_path: dict[str, ChunkPayload],
 ) -> None:
-    for page_index, assets in page_assets_by_page.items():
-        owner_leaf = page_owner.get(page_index)
-        leaves_on_page = page_to_leaves.get(page_index, [])
+    """Link assets to page owners (embeds) and same-page aliases (related).
+
+    Connections are emitted for every page in ``asset.source_page_nums`` so a
+    cross-page merged table attaches once per spanned page. Ownership still
+    comes solely from ``page_owner`` / ``page_to_leaves``.
+    """
+    seen_asset_ids: set[str] = set()
+    for assets in page_assets_by_page.values():
         for asset in assets:
+            if asset.asset_id in seen_asset_ids:
+                continue
+            seen_asset_ids.add(asset.asset_id)
             # target = bare URI path (resolvable via target_map → chunk_id)
             # ref = bracketed display reference (matches chunk-track convention)
             uri = (
@@ -718,34 +728,39 @@ def _attach_asset_connections(
             if not uri:
                 continue
             ref = f"[{uri}]"
-            if owner_leaf is not None:
-                owner_chunk = chunks_by_path.get(owner_leaf.section_path)
-                if owner_chunk is not None:
+            for page in asset_source_pages(asset):
+                owner_leaf = page_owner.get(page)
+                leaves_on_page = page_to_leaves.get(page, [])
+                if owner_leaf is not None:
+                    owner_chunk = chunks_by_path.get(owner_leaf.section_path)
+                    if owner_chunk is not None:
+                        _append_connect_to(
+                            owner_chunk,
+                            {
+                                "target": uri,
+                                "relation": "embeds",
+                                "ref": ref,
+                                "page": page,
+                            },
+                        )
+                for leaf in leaves_on_page:
+                    if (
+                        owner_leaf is not None
+                        and leaf.section_path == owner_leaf.section_path
+                    ):
+                        continue
+                    chunk = chunks_by_path.get(leaf.section_path)
+                    if chunk is None:
+                        continue
                     _append_connect_to(
-                        owner_chunk,
+                        chunk,
                         {
                             "target": uri,
-                            "relation": "embeds",
+                            "relation": "related",
                             "ref": ref,
+                            "page": page,
                         },
                     )
-            for leaf in leaves_on_page:
-                if (
-                    owner_leaf is not None
-                    and leaf.section_path == owner_leaf.section_path
-                ):
-                    continue
-                chunk = chunks_by_path.get(leaf.section_path)
-                if chunk is None:
-                    continue
-                connection: ConnectionPayload = {
-                    "target": uri,
-                    "relation": "related",
-                    "ref": ref,
-                }
-                if owner_leaf is not None:
-                    connection["same_as_owner"] = owner_leaf.section_path
-                _append_connect_to(chunk, connection)
 
 
 def _append_connect_to(chunk: ChunkPayload, connection: ConnectionValue) -> None:

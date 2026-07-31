@@ -26,7 +26,7 @@ class ConnectionPayload(TypedDict, total=False):
 
 RelationshipRef: TypeAlias = str | ChunkRefSpan
 ConnectionValue: TypeAlias = str | ConnectionPayload
-ConnectionKey: TypeAlias = tuple[str, str, str]
+ConnectionKey: TypeAlias = tuple[str, str, str, str]
 PositionKey: TypeAlias = tuple[str, str]
 
 
@@ -210,11 +210,14 @@ def _parse_type_relationship_refs(type_value: object) -> list[str]:
 
 def _get_connection_key(item: ConnectionValue) -> ConnectionKey:
     if not isinstance(item, dict):
-        return ("", "related", "")
+        return ("", "related", "", "")
+    page = item.get("page")
+    page_key = str(page) if isinstance(page, int) and page > 0 else ""
     return (
         str(item.get("target") or ""),
         str(item.get("relation") or "related"),
         str(item.get("ref") or ""),
+        page_key,
     )
 
 
