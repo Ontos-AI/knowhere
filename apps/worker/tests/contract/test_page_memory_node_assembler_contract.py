@@ -115,8 +115,18 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
         image_path_by_page={},
         kind_by_page={},
         tag_by_page={
-            231: PageTagResult(page_index=231, summary="s231", keywords=["k1"]),
-            232: PageTagResult(page_index=232, summary="s232", keywords=["k2"]),
+            231: PageTagResult(
+                page_index=231,
+                summary="s231",
+                keywords=["k1"],
+                entities=[{"text": "k1", "type": "organization"}],
+            ),
+            232: PageTagResult(
+                page_index=232,
+                summary="s232",
+                keywords=["k2"],
+                entities=[{"text": "k2", "type": "organization"}],
+            ),
         },
         filename="demo.pdf",
         verdict="page",
@@ -132,17 +142,25 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
 
     leaf_a = by_path["demo.pdf/3 基本规定/3.1 职责"]
     assert leaf_a["page_nums"] == "231"
+    assert leaf_a["owned_page_nums"] == "231"
     assert leaf_a["content"] == "text-231"
+    assert leaf_a["summary"] == "s231"
+    assert leaf_a["keywords"] == "k1"
     assert leaf_a["extra_metadata"] == {}
 
     leaf_b = by_path["demo.pdf/3 基本规定/3.2 管理规定"]
     assert leaf_b["page_nums"] == "231,232"
+    assert leaf_b["owned_page_nums"] == "232"
     assert node_assembler.SAME_AS_PREFIX in leaf_b["content"]
     assert "text-232" in leaf_b["content"]
+    assert leaf_b["summary"] == "s232"
+    assert leaf_b["keywords"] == "k2"
     assert leaf_b["extra_metadata"] == {}
+    assert '"relation": "same_as"' in leaf_b["connectto"]
+    assert leaf_a["know_id"] in leaf_b["connectto"]
 
 
-def test_build_node_rows_preserves_order_under_ocr_and_summary_concurrency(
+def test_build_node_rows_preserves_order_under_ocr_concurrency(
     monkeypatch,
 ) -> None:
     import gevent
@@ -152,20 +170,10 @@ def test_build_node_rows_preserves_order_under_ocr_and_summary_concurrency(
         gevent.sleep(0.01 * (4 - page))
         return f"text-{page}"
 
-    def _fake_compute_node_summary(**kwargs):
-        view = kwargs["view"]
-        gevent.sleep(0.01 * view.leaf.start_page)
-        return f"summary-{view.leaf.start_page}", [f"k{view.leaf.start_page}"], []
-
     monkeypatch.setattr(
         node_assembler,
         "resolve_page_text",
         _fake_resolve_page_text,
-    )
-    monkeypatch.setattr(
-        node_assembler,
-        "compute_node_summary",
-        _fake_compute_node_summary,
     )
 
     rows = node_assembler.build_node_rows(
@@ -173,7 +181,11 @@ def test_build_node_rows_preserves_order_under_ocr_and_summary_concurrency(
         raw_text_by_page={1: "", 2: "", 3: ""},
         image_path_by_page={},
         kind_by_page={},
-        tag_by_page={},
+        tag_by_page={
+            1: PageTagResult(page_index=1, summary="summary-1"),
+            2: PageTagResult(page_index=2, summary="summary-2"),
+            3: PageTagResult(page_index=3, summary="summary-3"),
+        },
         filename="demo.pdf",
         verdict="page",
         budget=None,
@@ -249,34 +261,29 @@ def test_build_node_rows_unavailable_propagates_from_ocr(monkeypatch) -> None:
         )
 
 
-def test_build_node_rows_unavailable_propagates_from_node_summary(
-    monkeypatch,
-) -> None:
-    def _fake_compute_node_summary(**kwargs):
-        raise UnavailableException(
-            internal_message="summary capacity busy",
-            retry_after=5,
-        )
-
-    monkeypatch.setattr(
-        node_assembler,
-        "compute_node_summary",
-        _fake_compute_node_summary,
+def test_aggregate_owned_page_tags_formats_multi_page_summary() -> None:
+    summary, keywords, entities = node_assembler.aggregate_owned_page_tags(
+        owned_pages=[10, 11, 12],
+        tag_by_page={
+            10: PageTagResult(
+                page_index=10,
+                summary="first",
+                entities=[{"text": "Alice", "type": "person"}],
+            ),
+            11: PageTagResult(page_index=11, summary="second"),
+            12: PageTagResult(
+                page_index=12,
+                summary="third",
+                entities=[{"text": "Alice", "type": "person"}],
+            ),
+        },
     )
-
-    with pytest.raises(UnavailableException):
-        node_assembler.build_node_rows(
-            skeletons=_ordered_page_skeletons()[:1],
-            raw_text_by_page={1: "text-1"},
-            image_path_by_page={},
-            kind_by_page={},
-            tag_by_page={},
-            filename="demo.pdf",
-            verdict="page",
-            budget=None,
-            vlm_model="fake-vlm",
-            node_assembly_concurrency=1,
-        )
+    assert summary.startswith("This section covers pages 10-12.")
+    assert "Page 10: first" in summary
+    assert "Page 11: second" in summary
+    assert "Page 12: third" in summary
+    assert entities == [{"text": "Alice", "type": "person"}]
+    assert keywords == ["Alice"]
 
 
 def test_build_node_rows_attaches_page_citation_assets_for_rendered_pages(tmp_path) -> None:
@@ -390,52 +397,6 @@ def test_boundary_page_belongs_to_next_sibling_start() -> None:
     assert by_title["项目分类标准"].pages == [302, 303]
     assert page_owner[301].title == "风险标准"
     assert page_owner[302].title == "项目分类标准"
-
-
-def test_build_node_rows_uses_vlm_node_summary_with_boundary(
-    monkeypatch, tmp_path
-) -> None:
-    captured: dict[str, object] = {}
-
-    class _FakeClient:
-        def chat_completion_with_usage(self, **kwargs):
-            captured["messages"] = kwargs.get("messages")
-            captured["usage_task"] = kwargs.get("usage_task")
-            return (
-                '{"summary": "node summary", "keywords": "ka;kb"}',
-                {"total_tokens": 10},
-            )
-
-    # node_assembler imports get_openai_client lazily from this module.
-    import shared.services.ai.openai_compatible_client_sync as client_mod
-
-    monkeypatch.setattr(
-        client_mod, "get_openai_client", lambda model=None, **_kwargs: _FakeClient()
-    )
-
-    img = tmp_path / "page-231.png"
-    img.write_bytes(b"\x89PNG\r\n\x1a\n fake")
-
-    rows = node_assembler.build_node_rows(
-        skeletons=_same_page_sibling_skeletons(),
-        raw_text_by_page={231: "text-231", 232: "text-232"},
-        image_path_by_page={231: str(img), 232: str(img)},
-        kind_by_page={},
-        tag_by_page={
-            231: PageTagResult(page_index=231, summary="s231", keywords=["k1"]),
-            232: PageTagResult(page_index=232, summary="s232", keywords=["k2"]),
-        },
-        filename="demo.pdf",
-        verdict="page",
-        budget=None,
-        vlm_model="fake-vlm",
-    )
-
-    by_path = {r["path"]: r for r in rows}
-    leaf_a = by_path["demo.pdf/3 基本规定/3.1 职责"]
-    assert leaf_a["summary"] == "node summary"
-    assert leaf_a["keywords"] == "ka;kb"
-    assert captured["usage_task"] == "page_memory.node_summary"
 
 
 def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:

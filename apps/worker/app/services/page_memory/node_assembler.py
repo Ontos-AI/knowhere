@@ -13,9 +13,9 @@ This module switches the unit of assembly to the **leaf section node**:
   ``SAME-AS <owner path>`` marker instead of repeating the text.  Body text is
   not duplicated across page-track nodes.
 
-Summary/keywords are settled per node (see ``node_summary``): a node covering
-multiple pages is summarized as a whole, and a page hosting multiple nodes is
-summarized per node using a title boundary so the slices do not overlap.
+Summary/entities follow the same ownership: only owned pages contribute page
+tags; SAME-AS aliases keep empty summary/entities and an explicit ``same_as``
+connection to the owner chunk.
 """
 
 from __future__ import annotations
@@ -36,16 +36,15 @@ from app.services.page_memory.page_assets import (
     PageAsset,
     build_asset_rows,
 )
-from app.services.page_memory.page_tagger import PageTagResult
+from app.services.page_memory.page_tagger import PageTagResult, normalize_entities
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
 from app.services.page_memory._utils import slice_text_from_anchor
 from app.services.page_memory.toc_page_policy import TocPagePolicy
-from shared.services.ai.summary.engine import summarize, transcribe
+from shared.services.ai.summary.engine import transcribe
 from shared.services.chunks.path_segments import join_document_path
 
 SAME_AS_PREFIX = "SAME-AS"
 
-_NODE_SUMMARY_MAX_PAGES_DEFAULT = 5
 _PAGE_CITATION_ASSET_SOURCE = "knowhere-rendered-page-citation-source"
 _PAGE_CITATION_ASSET_CONTENT_TYPE = "image/png"
 
@@ -214,26 +213,6 @@ def build_node_content(
     return "\n\n".join(segment for segment in segments if segment).strip()
 
 
-def next_title_on_page(
-    leaf: LeafNode,
-    *,
-    page: int,
-    leaves_on_page: list[LeafNode],
-) -> str | None:
-    """Return the title of the next leaf starting on the same page after *leaf*.
-
-    Used to bound the summary slice when a page hosts multiple nodes.  Returns
-    ``None`` when *leaf* is the last node beginning on this page.
-    """
-    ordered = [item for item in leaves_on_page if item.start_page == page]
-    for index, item in enumerate(ordered):
-        if item.section_path == leaf.section_path:
-            if index + 1 < len(ordered):
-                return ordered[index + 1].title
-            return None
-    return None
-
-
 def pages_by_leaf_count(views: list[NodePageView]) -> dict[int, list[LeafNode]]:
     """Map each page to the leaves that cover it (reading order)."""
     page_to_leaves: dict[int, list[LeafNode]] = {}
@@ -241,6 +220,67 @@ def pages_by_leaf_count(views: list[NodePageView]) -> dict[int, list[LeafNode]]:
         for page in view.pages:
             page_to_leaves.setdefault(page, []).append(view.leaf)
     return page_to_leaves
+
+
+def format_owned_page_coverage(pages: list[int]) -> str:
+    """Readable coverage phrase for owned pages (contiguous → range)."""
+    if not pages:
+        return ""
+    if len(pages) == 1:
+        return f"page {pages[0]}"
+    contiguous = pages[-1] - pages[0] + 1 == len(pages) and pages == list(
+        range(pages[0], pages[-1] + 1)
+    )
+    if contiguous:
+        return f"pages {pages[0]}-{pages[-1]}"
+    return "pages " + ", ".join(str(page) for page in pages)
+
+
+def aggregate_owned_page_tags(
+    *,
+    owned_pages: list[int],
+    tag_by_page: dict[int, PageTagResult],
+) -> tuple[str, list[str], list[dict[str, str]]]:
+    """Aggregate page-level tags for pages this node owns.
+
+    SAME-AS shared pages are excluded: only ``owned_pages`` contribute.
+    """
+    if not owned_pages:
+        return "", [], []
+
+    if len(owned_pages) == 1:
+        tag = tag_by_page.get(owned_pages[0])
+        if tag is None:
+            return "", [], []
+        entities = normalize_entities(tag.entities)
+        keywords = [entity["text"] for entity in entities] or list(tag.keywords)
+        summary = (tag.summary or "").strip()
+        if summary.upper() == "EMPTY":
+            summary = ""
+        return summary, keywords, entities
+
+    page_lines: list[str] = []
+    entities: list[dict[str, str]] = []
+    seen_entities: set[tuple[str, str]] = set()
+    for page in owned_pages:
+        tag = tag_by_page.get(page)
+        if tag is None:
+            continue
+        summary = (tag.summary or "").strip()
+        if summary and summary.upper() != "EMPTY":
+            page_lines.append(f"Page {page}: {summary}")
+        for entity in normalize_entities(tag.entities):
+            key = (entity["type"].casefold(), entity["text"].casefold())
+            if key in seen_entities:
+                continue
+            seen_entities.add(key)
+            entities.append(entity)
+
+    keywords = [entity["text"] for entity in entities]
+    if not page_lines:
+        return "", keywords, entities
+    header = f"This section covers {format_owned_page_coverage(owned_pages)}."
+    return f"{header}\n\n" + "\n".join(page_lines), keywords, entities
 
 
 # ── VLM-backed helpers ───────────────────────────────────────────────
@@ -261,6 +301,7 @@ def resolve_page_text(
     text and fall back to the shared ``transcribe()`` OCR primitive (§4.2).
     When ``body_start_text`` is set, keep only content from that anchor onward.
     """
+    del budget
     text = (raw_text or "").strip()
     if not text:
         if not vlm_model or not image_path or not os.path.exists(image_path):
@@ -282,153 +323,6 @@ def resolve_page_text(
     return sliced
 
 
-def compute_node_summary(
-    *,
-    view: NodePageView,
-    page_to_leaves: dict[int, list[LeafNode]],
-    tag_by_page: dict[int, PageTagResult],
-    image_path_by_page: dict[int, str],
-    vlm_model: str | None,
-    budget: Any | None = None,
-    node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,
-    body_start_by_page: dict[int, str] | None = None,
-) -> tuple[str, list[str], list[dict[str, str]]]:
-    """Settle a node's summary, keywords, and typed entities (§4.4).
-
-    Reuses the per-page tag when the node is a single page that no sibling leaf
-    shares.  Otherwise asks the VLM to summarize the node as a whole, bounding
-    the slice with the next sibling title when the page hosts multiple nodes.
-    Falls back to combining per-page tags when the VLM is unavailable.
-
-    Returns ``(summary, keywords, entities)`` where ``keywords`` is the flattened
-    surface-form list (transitional) and ``entities`` is the typed
-    ``{"text","type"}`` list.
-    """
-    pages = view.pages
-    if not pages:
-        return "", [], []
-
-    single_page = len(pages) == 1
-    shared = any(len(page_to_leaves.get(page, [])) > 1 for page in pages)
-
-    if single_page and not shared:
-        tag = tag_by_page.get(pages[0])
-        if tag is not None:
-            return tag.summary, list(tag.keywords), list(tag.entities)
-        return "", [], []
-
-    if vlm_model:
-        result = _vlm_node_summary(
-            view=view,
-            page_to_leaves=page_to_leaves,
-            image_path_by_page=image_path_by_page,
-            vlm_model=vlm_model,
-            node_summary_max_pages=node_summary_max_pages,
-            body_start_by_page=body_start_by_page,
-        )
-        if result is not None:
-            return result
-
-    return _combine_page_tags(pages=pages, tag_by_page=tag_by_page)
-
-
-def _combine_page_tags(
-    *,
-    pages: list[int],
-    tag_by_page: dict[int, PageTagResult],
-) -> tuple[str, list[str], list[dict[str, str]]]:
-    summaries: list[str] = []
-    keywords: list[str] = []
-    entities: list[dict[str, str]] = []
-    seen: set[str] = set()
-    seen_entities: set[str] = set()
-    for page in pages:
-        tag = tag_by_page.get(page)
-        if tag is None:
-            continue
-        summary = (tag.summary or "").strip()
-        if summary and summary.upper() != "EMPTY":
-            summaries.append(summary)
-        for keyword in tag.keywords:
-            key = keyword.strip().casefold()
-            if key and key not in seen:
-                seen.add(key)
-                keywords.append(keyword.strip())
-        for entity in tag.entities:
-            entity_text = str(entity.get("text", "")).strip()
-            if not entity_text:
-                continue
-            entity_key = entity_text.casefold()
-            if entity_key not in seen_entities:
-                seen_entities.add(entity_key)
-                entities.append(
-                    {"text": entity_text, "type": str(entity.get("type", "")).strip()}
-                )
-    return " ".join(summaries).strip(), keywords, entities
-
-
-def _vlm_node_summary(
-    *,
-    view: NodePageView,
-    page_to_leaves: dict[int, list[LeafNode]],
-    image_path_by_page: dict[int, str],
-    vlm_model: str,
-    node_summary_max_pages: int,
-    body_start_by_page: dict[int, str] | None = None,
-) -> tuple[str, list[str], list[dict[str, str]]] | None:
-    leaf = view.leaf
-    pages = view.pages[:node_summary_max_pages]
-
-    # Boundary title: only meaningful when this node's start page hosts a later
-    # sibling node, so the VLM can stop at that boundary.
-    next_title = next_title_on_page(
-        leaf,
-        page=leaf.start_page,
-        leaves_on_page=page_to_leaves.get(leaf.start_page, []),
-    )
-
-    image_paths = [
-        path
-        for page in pages
-        if (path := image_path_by_page.get(page)) and os.path.exists(path)
-    ]
-    if not image_paths:
-        return None
-
-    anchors = body_start_by_page or {}
-    body_start_text = ""
-    for page in pages:
-        text = anchors.get(page, "")
-        if text:
-            body_start_text = text
-            break
-
-    prompt_paras: dict[str, Any] = {
-        "max_tokens": 400,
-        "node_title": leaf.title,
-        "next_title": next_title or "",
-        "kw_num": 5,
-    }
-    if body_start_text:
-        prompt_paras["body_start_text"] = body_start_text
-
-    result = summarize(
-        mode="page",
-        image_paths=image_paths,
-        model=vlm_model,
-        usage_task="page_memory.node_summary",
-        prompt_task="page-memory-node-summary",
-        prompt_paras=prompt_paras,
-    )
-    if not result.summary and not result.entities:
-        return None
-    return (
-        result.summary,
-        [e.text for e in result.entities],
-        [e.to_dict() for e in result.entities],
-    )
-
-
 # ── Orchestration ────────────────────────────────────────────────────
 
 
@@ -444,11 +338,11 @@ def build_node_rows(
     budget: Any | None = None,
     vlm_model: str | None = None,
     page_assets_by_page: dict[int, list[PageAsset]] | None = None,
-    node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,
     node_assembly_concurrency: int = 3,
     body_start_by_page: dict[int, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Assemble one row per leaf section node (node-granularity chunks)."""
+    del kind_by_page, verdict, budget
     available_pages = set(raw_text_by_page.keys())
     leaves = identify_leaf_nodes(skeletons)
     views, page_owner = assign_pages_to_leaves(leaves, available_pages=available_pages)
@@ -486,56 +380,25 @@ def build_node_rows(
             ]
             resolved_text = {page: text for page, text in resolved_pairs}
 
-    summaries: dict[int, tuple[str, list[str], list[dict[str, str]]]] = {}
-    if views:
-        import gevent
-        from gevent.pool import Pool as GeventPool
-
-        def _summarize_one(
-            index: int,
-        ) -> tuple[int, tuple[str, list[str], list[dict[str, str]]]]:
-            return index, compute_node_summary(
-                view=views[index],
-                page_to_leaves=page_to_leaves,
-                tag_by_page=tag_by_page,
-                image_path_by_page=image_path_by_page,
-                vlm_model=vlm_model,
-                node_summary_max_pages=node_summary_max_pages,
-                body_start_by_page=anchors,
-            )
-
-        with stage_timer(
-            "page_memory.node_summary",
-            node_count=len(views),
-            concurrency=resolved_concurrency,
-        ):
-            pool = GeventPool(size=min(resolved_concurrency, len(views)))
-            greenlets = [
-                pool.spawn(_summarize_one, index)
-                for index in range(len(views))
-            ]
-            gevent.joinall(greenlets, raise_error=True)
-            summary_pairs = [
-                cast(
-                    tuple[int, tuple[str, list[str], list[dict[str, str]]]],
-                    greenlet.value,
-                )
-                for greenlet in greenlets
-            ]
-            summaries = {index: result for index, result in summary_pairs}
-
     rows: list[dict[str, Any]] = []
     rows_by_path: dict[str, dict[str, Any]] = {}
     with stage_timer("page_memory.node_rows", node_count=len(views)):
-        for index, view in enumerate(views):
+        for view in views:
             leaf = view.leaf
             content = build_node_content(
                 view,
                 page_owner=page_owner,
                 page_text=resolved_text,
             )
-            summary, keywords, entities = summaries.get(index, ("", [], []))
+            summary, keywords, entities = aggregate_owned_page_tags(
+                owned_pages=view.owned_pages,
+                tag_by_page=tag_by_page,
+            )
             know_id = f"node_{gen_str_codes(f'{filename}::{leaf.section_path}')}"
+            extra_metadata = _build_page_extra_metadata(
+                pages=view.pages,
+                image_path_by_page=image_path_by_page,
+            )
             row = {
                 "content": content,
                 "path": leaf.section_path,
@@ -548,15 +411,22 @@ def build_node_rows(
                 "connectto": "",
                 "addtime": get_str_time(),
                 "page_nums": ",".join(str(page) for page in view.pages),
+                "owned_page_nums": ",".join(str(page) for page in view.owned_pages),
                 "entities": serialize_entities(entities),
                 "asset_title": "",
-                "extra_metadata": _build_page_extra_metadata(
-                    pages=view.pages,
-                    image_path_by_page=image_path_by_page,
-                ),
+                "extra_metadata": extra_metadata,
             }
             rows.append(row)
             rows_by_path[leaf.section_path] = row
+
+        for view in views:
+            row = rows_by_path[view.leaf.section_path]
+            _attach_same_as_connections(
+                row=row,
+                view=view,
+                page_owner=page_owner,
+                rows_by_path=rows_by_path,
+            )
 
     asset_rows: list[dict[str, Any]] = []
     if page_assets_by_page:
@@ -576,6 +446,35 @@ def build_node_rows(
         len(available_pages),
     )
     return asset_rows + rows
+
+
+def _attach_same_as_connections(
+    *,
+    row: dict[str, Any],
+    view: NodePageView,
+    page_owner: dict[int, LeafNode],
+    rows_by_path: dict[str, dict[str, Any]],
+) -> None:
+    """Emit explicit same_as links for pages this node references but does not own."""
+    for page in view.pages:
+        owner = page_owner.get(page)
+        if owner is None or owner.section_path == view.leaf.section_path:
+            continue
+        owner_row = rows_by_path.get(owner.section_path)
+        if owner_row is None:
+            continue
+        owner_know_id = str(owner_row.get("know_id") or "").strip()
+        if not owner_know_id:
+            continue
+        _append_connect_to(
+            row,
+            {
+                "target": owner_know_id,
+                "relation": "same_as",
+                "ref": f"[{SAME_AS_PREFIX} {owner.section_path} p{page}]",
+                "page": page,
+            },
+        )
 
 
 def format_toc_entries_content(entries: list[dict[str, Any]]) -> str:

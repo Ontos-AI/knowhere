@@ -107,13 +107,27 @@ class AIConfig(BaseModel):
     PAGE_MEMORY_TAG_CONCURRENCY: int = Field(
         default=5,
         description=(
-            "Local per-document concurrency for page-memory combined page "
-            "tagging (one VLM call per physical page)."
+            "Local per-document concurrency for page-memory page tagging "
+            "(one VLM call per physical page for titles, or combined visual tags)."
+        ),
+    )
+    PAGE_MEMORY_TEXT_SUMMARY_CONCURRENCY: int = Field(
+        default=5,
+        description=(
+            "Local per-document concurrency for page-memory text-mode "
+            "DeepSeek page summary/entity extraction."
+        ),
+    )
+    PAGE_MEMORY_TAGGING_MODE: str = Field(
+        default="visual",
+        description=(
+            "Page-memory page tagging mode: 'visual' (combined VLM titles+"
+            "summary+entities) or 'text' (VLM titles + DeepSeek page text summary)."
         ),
     )
     PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY: int = Field(
         default=3,
-        description="Local per-job node OCR and summary concurrency for page-memory.",
+        description="Local per-job node OCR concurrency for page-memory.",
     )
     TOKEN_PRICING_TABLE_JSON: str = Field(
         default="",

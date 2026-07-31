@@ -12,8 +12,6 @@ from typing import Any
 
 from loguru import logger
 
-import pandas as pd
-
 from shared.core.exceptions.domain_exceptions import (
     KnowhereException,
     StorageServiceException,
@@ -48,7 +46,6 @@ class ZipResultService:
         source_file_name: str,
         data_id: str | None,
         job_metadata: dict[str, Any],
-        parsed_df: pd.DataFrame | None = None,
         temp_dir: str | None = None,
     ) -> tuple[str, dict[str, str], dict[str, Any], int]:
         """

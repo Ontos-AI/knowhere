@@ -6,8 +6,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
 from app.services.document_agent.pdf_text import read_page_texts
 from app.services.document_agent.visual import (
     purge_debug_visual_dirs,
@@ -17,7 +15,6 @@ from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.state import AgentBlackboard
 from app.services.document_parser.profiling.doc_profiler import profile_document
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
-from app.services.document_parser.support.parser_rows import PARSER_ROW_COLUMNS
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.page_memory.normalizer import normalize_to_pdf
 from app.services.page_memory._utils import (
@@ -39,6 +36,7 @@ from loguru import logger
 
 from shared.core.exceptions.domain_exceptions import ValidationException
 from shared.models.schemas.page_memory_config import PageMemoryConfig
+from shared.services.chunks.canonical_chunk_builder import ChunkPayload, rows_to_chunks
 
 
 @dataclass(frozen=True)
@@ -67,7 +65,7 @@ class _ScopeRunResult:
     final_pages: list[int]
 
 
-def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
+def run(request: PageMemoryInput) -> tuple[str, list[ChunkPayload]]:
     """Run the page-memory track.
 
     Supports two granularity verdicts:
@@ -119,7 +117,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
         }
 
         if verdict == "whole_doc":
-            parsed_df = _build_whole_doc_dataframe(
+            chunks = _build_whole_doc_chunks(
                 pdf_path=pdf_path,
                 filename=request.filename,
                 page_count=page_count,
@@ -127,7 +125,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 trace_recorder=trace_recorder,
             )
         else:
-            parsed_df = _build_page_dataframe(
+            chunks = _build_page_chunks(
                 pdf_path=pdf_path,
                 filename=request.filename,
                 output_dir=full_output_dir,
@@ -137,8 +135,8 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
                 page_memory_config=page_memory_config,
             )
         final_status = "success"
-        trace_summary["rows_count"] = len(parsed_df)
-        return full_output_dir, parsed_df
+        trace_summary["rows_count"] = len(chunks)
+        return full_output_dir, chunks
     except Exception as exc:
         trace_summary["error"] = str(exc)
         raise
@@ -204,7 +202,7 @@ def _resolve_hierarchy_model(page_memory_config: PageMemoryConfig) -> str | None
 # ── page builder (C1→C2→C3→C4→C6→C7) ────────────────────────────────
 
 
-def _build_page_dataframe(
+def _build_page_chunks(
     *,
     pdf_path: str,
     filename: str,
@@ -213,8 +211,8 @@ def _build_page_dataframe(
     verdict: str,
     page_memory_config: PageMemoryConfig,
     trace_recorder: Any | None = None,
-) -> pd.DataFrame:
-    """Build per-page DataFrame via the full C1-C7 pipeline.
+) -> list[ChunkPayload]:
+    """Build per-page canonical chunks via the full C1-C7 pipeline.
 
     Steps:
       C4  skeleton_extractor  → SectionSkeleton[]
@@ -223,7 +221,7 @@ def _build_page_dataframe(
       C3  page_tagger         → titles + summary + entities (global page pool)
       C4b fine_hierarchy      → per-scope start/end trim + refined skeletons
       C5  page_assets          → assets anchored to refined hierarchy pages
-      C7  assemble node-granularity DataFrame
+      C7  assemble node-granularity chunks
     """
     from app.services.page_memory.skeleton_extractor import (
         SectionSkeleton,
@@ -234,7 +232,7 @@ def _build_page_dataframe(
     anatomy = getattr(profile, "anatomy", None)
     page_count = max(int(profile.page_count or 0), 0)
     if page_count <= 0:
-        return pd.DataFrame(columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
+        return []
 
     asset_extraction_enabled = page_memory_config.asset_extraction_enabled
 
@@ -435,9 +433,10 @@ def _build_page_dataframe(
         hierarchy=nav_skeletons,
         tags=tags,
         assets_by_page=page_assets_by_page,
+        tagging_mode=page_memory_config.tagging_mode,
     )
 
-    # ── C7: assemble DataFrame rows ──────────────────────────────────
+    # ── C7: assemble node-granularity chunks ─────────────────────────
     tag_map = {t.page_index: t for t in tags}
     render_map = rendered_map
 
@@ -480,7 +479,6 @@ def _build_page_dataframe(
             budget=None,
             vlm_model=vlm_model,
             page_assets_by_page=page_assets_by_page,
-            node_summary_max_pages=page_memory_config.node_summary_max_pages,
             node_assembly_concurrency=page_memory_config.node_assembly_concurrency,
             body_start_by_page=toc_policy.body_start_by_page(),
         )
@@ -503,7 +501,7 @@ def _build_page_dataframe(
             "page_to_node": _page_to_node_map(rows),
         },
     )
-    return pd.DataFrame(rows, columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
+    return rows_to_chunks(rows)
 
 
 def _build_page_ctx(
@@ -653,6 +651,8 @@ def _render_and_tag_document_pages(
             max_concurrent=page_memory_config.tag_concurrency,
             body_start_by_page=toc_policy.body_start_by_page(),
             scan_direction=page_memory_config.scan_direction,
+            tagging_mode=page_memory_config.tagging_mode,
+            text_summary_concurrency=page_memory_config.text_summary_concurrency,
         )
     _record_trace_stage(
         trace_recorder,
@@ -901,14 +901,14 @@ def _select_rendered_pages_with_assets(
 # ── whole_doc builder (PR3, unchanged) ────────────────────────────────
 
 
-def _build_whole_doc_dataframe(
+def _build_whole_doc_chunks(
     *,
     pdf_path: str,
     filename: str,
     page_count: int,
     verdict: str,
     trace_recorder: Any | None = None,
-) -> pd.DataFrame:
+) -> list[ChunkPayload]:
     pages = list(range(1, page_count + 1)) if page_count > 0 else [1]
     page_texts = read_page_texts(pdf_path, pages)
     raw_text = "\n\n".join(page_texts.get(page, "") for page in pages).strip()
@@ -927,6 +927,7 @@ def _build_whole_doc_dataframe(
         "connectto": "",
         "addtime": get_str_time(),
         "page_nums": ",".join(str(page) for page in pages),
+        "owned_page_nums": ",".join(str(page) for page in pages),
         "extra_metadata": {},
     }
     _record_trace_stage(
@@ -935,7 +936,7 @@ def _build_whole_doc_dataframe(
         page_info=page_scope_info(pages),
         variables={"summary": summary, "verdict": verdict},
     )
-    return pd.DataFrame([row], columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
+    return rows_to_chunks([row])
 
 
 def _build_summary(*, filename: str, page_count: int, raw_text: str) -> str:

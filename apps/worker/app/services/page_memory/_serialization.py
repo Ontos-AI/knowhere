@@ -155,18 +155,39 @@ def serialize_hierarchy_artifact(
     return artifact
 
 
-def serialize_page_tags(tags: list[Any]) -> list[dict[str, Any]]:
-    return [
-        {
-            "page_index": item.page_index,
-            "summary": item.summary,
-            "keywords": list(item.keywords),
-            "entities": list(getattr(item, "entities", []) or []),
-            "strategy_used": item.strategy_used,
-            "observed_titles": list(getattr(item, "observed_titles", []) or []),
-        }
-        for item in tags
-    ]
+def serialize_page_tags(
+    tags: list[Any],
+    *,
+    tagging_mode: str = "visual",
+) -> dict[str, Any]:
+    return {
+        "version": "2.0",
+        "tagging_mode": tagging_mode,
+        "tags": [
+            {
+                "page_index": item.page_index,
+                "summary": item.summary,
+                "keywords": list(item.keywords),
+                "entities": list(getattr(item, "entities", []) or []),
+                "strategy_used": item.strategy_used,
+                "observed_titles": list(getattr(item, "observed_titles", []) or []),
+                "tagging_mode": getattr(item, "tagging_mode", tagging_mode),
+            }
+            for item in tags
+        ],
+    }
+
+
+def load_page_tags_payload(payload: object) -> tuple[str, list[dict[str, Any]]]:
+    """Load page_tags.json supporting v2 object and legacy list payloads."""
+    if isinstance(payload, list):
+        return "visual", [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        mode = str(payload.get("tagging_mode") or "visual")
+        tags = payload.get("tags")
+        if isinstance(tags, list):
+            return mode, [item for item in tags if isinstance(item, dict)]
+    return "visual", []
 
 
 def serialize_assets(assets_by_page: dict[int, list[Any]]) -> list[dict[str, Any]]:
@@ -264,7 +285,10 @@ def write_scope_artifacts(
         serialize_hierarchy_artifact(hierarchy, scope_manifest_data=scope_manifest_data),
     )
     if tags is not None:
-        write_json(scope_dir / "page_tags.json", serialize_page_tags(tags))
+        write_json(
+            scope_dir / "page_tags.json",
+            serialize_page_tags(tags),
+        )
     if assets_by_page is not None:
         write_json(scope_dir / "assets.json", serialize_assets(assets_by_page))
 
@@ -275,10 +299,14 @@ def write_top_level_artifacts(
     hierarchy: list[Any],
     tags: list[Any],
     assets_by_page: dict[int, list[Any]] | None = None,
+    tagging_mode: str = "visual",
 ) -> None:
     root = Path(output_dir)
     write_json(root / "hierarchy.json", serialize_hierarchy_artifact(hierarchy))
-    write_json(root / "page_tags.json", serialize_page_tags(tags))
+    write_json(
+        root / "page_tags.json",
+        serialize_page_tags(tags, tagging_mode=tagging_mode),
+    )
     if assets_by_page is not None:
         write_json(root / "assets.json", serialize_assets(assets_by_page))
     else:

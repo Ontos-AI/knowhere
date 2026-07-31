@@ -145,8 +145,14 @@ def _detect_mock_task(prompt_text: str) -> str:
         and '"entities"' in normalized_prompt
     ):
         return "page-memory-vlm-page"
-    if "you are summarizing one section of a document" in normalized_prompt:
-        return "page-memory-node-summary"
+    if (
+        "annotating one pdf page" in normalized_prompt
+        and '"titles"' in normalized_prompt
+        and "do not summarize the page" in normalized_prompt
+    ):
+        return "page-memory-vlm-titles"
+    if "summarizing one pdf page from its extracted body text" in normalized_prompt:
+        return "page-memory-text-page"
 
     if "summaries of sub-sections from a document section" in normalized_prompt:
         return "file-summary"
@@ -303,8 +309,9 @@ def _build_mock_response(task_name: str) -> str:
         "page-memory-vlm-page": (
             '{"titles": [], "summary": "Mock page summary", "entities": []}'
         ),
-        "page-memory-node-summary": (
-            '{"summary": "Mock section summary", "entities": []}'
+        "page-memory-vlm-titles": '{"titles": []}',
+        "page-memory-text-page": (
+            '{"summary": "Mock page text summary", "entities": []}'
         ),
         "file-summary": "Mock section summary",
         "default": "Mock LLM response",

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Self
+from typing import Literal, Self
+
+TaggingMode = Literal["visual", "text"]
 
 
 @dataclass(frozen=True)
@@ -13,6 +15,7 @@ class PageMemoryConfig:
     max_pages: int = 1500
     scope_concurrency: int = 5
     tag_concurrency: int = 5
+    text_summary_concurrency: int = 5
     node_assembly_concurrency: int = 3
     fine_min_pages: int = 4
     hierarchy_model: str | None = None
@@ -26,7 +29,7 @@ class PageMemoryConfig:
     asset_summary_concurrency: int = 4
     table_engine: str = "tabula"
     table_merge_enabled: bool = True
-    node_summary_max_pages: int = 5
+    tagging_mode: TaggingMode = "visual"
     scan_direction: str = "top_to_bottom_left_to_right"
 
     @classmethod
@@ -42,9 +45,17 @@ class PageMemoryConfig:
                 getattr(settings, "PAGE_MEMORY_TAG_CONCURRENCY", 5),
                 5,
             ),
+            text_summary_concurrency=_as_int(
+                getattr(settings, "PAGE_MEMORY_TEXT_SUMMARY_CONCURRENCY", 5),
+                5,
+            ),
             node_assembly_concurrency=_as_int(
                 getattr(settings, "PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY", 3),
                 3,
+            ),
+            tagging_mode=_as_tagging_mode(
+                getattr(settings, "PAGE_MEMORY_TAGGING_MODE", None),
+                "visual",
             ),
             asset_extraction_enabled=_as_bool(
                 getattr(settings, "PAGE_MEMORY_ASSET_EXTRACTION_ENABLED", None),
@@ -71,6 +82,10 @@ class PageMemoryConfig:
             tag_concurrency=_as_int(
                 value.get("tag_concurrency"),
                 default.tag_concurrency,
+            ),
+            text_summary_concurrency=_as_int(
+                value.get("text_summary_concurrency"),
+                default.text_summary_concurrency,
             ),
             node_assembly_concurrency=_as_int(
                 value.get("node_assembly_concurrency"),
@@ -112,9 +127,9 @@ class PageMemoryConfig:
                 value.get("table_merge_enabled"),
                 default.table_merge_enabled,
             ),
-            node_summary_max_pages=_as_int(
-                value.get("node_summary_max_pages"),
-                default.node_summary_max_pages,
+            tagging_mode=_as_tagging_mode(
+                value.get("tagging_mode"),
+                default.tagging_mode,
             ),
             scan_direction=_as_str(
                 value.get("scan_direction"), default.scan_direction
@@ -171,3 +186,12 @@ def _as_optional_str(value: object) -> str | None:
         return None
     resolved = str(value).strip()
     return resolved or None
+
+
+def _as_tagging_mode(value: object, default: TaggingMode) -> TaggingMode:
+    if value is None:
+        return default
+    resolved = str(value).strip().lower()
+    if resolved in {"visual", "text"}:
+        return resolved  # type: ignore[return-value]
+    return default

@@ -8,16 +8,25 @@ from app.services.document_parser.orchestration.parse_output import ParseOutput
 from loguru import logger
 
 from shared.core.exceptions.domain_exceptions import WorkerHandlingException
+from shared.services.chunks.canonical_chunk_builder import (
+    ChunkPayload,
+    chunks_as_json,
+)
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 
 
 @dataclass(frozen=True)
 class ParseArtifact:
     add_dir: str
-    dataframe: pd.DataFrame
+    dataframe: pd.DataFrame | None = None
+    chunks: list[ChunkPayload] | None = None
 
     @property
     def contents_count(self) -> int:
+        if self.chunks is not None:
+            return len(self.chunks)
+        if self.dataframe is None:
+            return 0
         return len(self.dataframe)
 
 
@@ -46,7 +55,10 @@ def build_parse_result_package(
         filename=filename,
         parse_output=parse_output,
     )
-    chunks = dataframe_to_chunks(artifact.dataframe)
+    if artifact.chunks is not None:
+        chunks = chunks_as_json(artifact.chunks)
+    else:
+        chunks = dataframe_to_chunks(artifact.dataframe)
     return ParseResultPackage(artifact=artifact, chunks=chunks)
 
 
@@ -75,6 +87,17 @@ def _build_parse_artifact(
     filename: str,
     parse_output: ParseOutput,
 ) -> ParseArtifact:
+    if parse_output.chunks is not None:
+        if not parse_output.chunks:
+            logger.warning(
+                f"No content returned from file parsing: job_id={job_id}, filename={filename}"
+            )
+        return ParseArtifact(
+            add_dir=parse_output.output_dir,
+            chunks=list(parse_output.chunks),
+            dataframe=parse_output.parsed_df,
+        )
+
     parsed_contents_df = parse_output.parsed_df
     if parsed_contents_df is None:
         raise WorkerHandlingException(
@@ -87,4 +110,7 @@ def _build_parse_artifact(
             f"No content returned from file parsing: job_id={job_id}, filename={filename}"
         )
 
-    return ParseArtifact(add_dir=parse_output.output_dir, dataframe=parsed_contents_df)
+    return ParseArtifact(
+        add_dir=parse_output.output_dir,
+        dataframe=parsed_contents_df,
+    )

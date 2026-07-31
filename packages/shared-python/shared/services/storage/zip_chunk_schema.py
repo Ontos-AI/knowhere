@@ -148,11 +148,49 @@ def _base_chunk_metadata(
     chunk: dict[str, Any],
     content: Any,
 ) -> dict[str, Any]:
-    metadata = {
+    metadata: dict[str, Any] = {
         "length": existing_metadata.get("length") or len(content),
         "summary": existing_metadata.get("summary") or chunk.get("summary", ""),
         "page_nums": existing_metadata.get("page_nums", []),
     }
+    # Preserve canonical metadata fields instead of rebuilding a lossy subset.
+    for key in (
+        "entities",
+        "keywords",
+        "owned_page_nums",
+        "asset_title",
+        "file_path",
+        "original_name",
+        "tokens",
+        "connect_to",
+        "page_assets",
+        "content_kind",
+    ):
+        if key in existing_metadata and existing_metadata[key] not in (None, "", []):
+            metadata[key] = existing_metadata[key]
+        elif key in chunk and chunk[key] not in (None, "", []):
+            metadata[key] = chunk[key]
+
+    reserved = set(metadata) | {
+        "length",
+        "summary",
+        "page_nums",
+        "entities",
+        "keywords",
+        "owned_page_nums",
+        "asset_title",
+        "file_path",
+        "original_name",
+        "tokens",
+        "connect_to",
+        "page_assets",
+        "content_kind",
+        "_relationship_refs",
+    }
+    for key, value in existing_metadata.items():
+        if key in reserved or value in (None, ""):
+            continue
+        metadata[key] = value
     return metadata
 
 

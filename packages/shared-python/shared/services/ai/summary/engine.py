@@ -278,9 +278,8 @@ def summarize(
     budget:
         Optional ``BudgetTracker``. Visual calls reserve from ``budget_stage``.
     prompt_task / prompt_paras:
-        Override the prompt used for the image-based page path. Lets a bounded
-        node summary (``page-memory-node-summary`` with ``node_title`` /
-        ``next_title``) reuse the same call mechanics. Ignored for text/asset.
+        Override the prompt used for body summary. Visual page tagging and
+        text-mode page summaries both reuse the same call mechanics.
 
     Returns the typed contract; callers map it onto their row. On any failure the
     engine returns an empty contract of the right type (no raw-text fallbacks —
@@ -356,20 +355,35 @@ def _summarize_body(
             channel="vision",
         )
     else:
-        # Text summary: the shared summary-full prompt with deterministic lang lock.
+        # Text summary: optional page-memory override, else shared summary-full.
         if not text.strip():
             return BodySummary(kind=kind)
         detected_lang = _detect_text_language(text)
-        prompt, temperature, top_p, max_tokens = build_prompt(
-            "summary-full",
-            text,
-            "",
-            paras={
+        if prompt_task:
+            paras = {
                 "max_tokens": summary_len,
                 "kw_num": max_keywords,
                 "lang": detected_lang,
-            },
-        )
+            }
+            if prompt_paras:
+                paras.update(prompt_paras)
+            prompt, temperature, top_p, max_tokens = build_prompt(
+                prompt_task,
+                text,
+                "",
+                paras=paras,
+            )
+        else:
+            prompt, temperature, top_p, max_tokens = build_prompt(
+                "summary-full",
+                text,
+                "",
+                paras={
+                    "max_tokens": summary_len,
+                    "kw_num": max_keywords,
+                    "lang": detected_lang,
+                },
+            )
         resolved_model = model or os.environ.get("NORMOL_MODEL", "deepseek-v4-flash")
         parsed = _call_llm(
             prompt=prompt,

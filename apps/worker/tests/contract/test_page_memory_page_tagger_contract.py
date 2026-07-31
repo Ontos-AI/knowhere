@@ -16,9 +16,9 @@ from app.services.page_memory.page_renderer import PageRenderResult
 from app.services.page_memory.page_tagger import (
     PageTagResult,
     _completion_tokens,
-    _parse_page_tag_response,
+    _parse_combined_page_tag_response as _parse_page_tag_response,
     _response_truncated,
-    _tag_vlm_page,
+    _tag_vlm_combined,
     tag_pages,
 )
 from shared.core.exceptions.domain_exceptions import UnavailableException
@@ -139,7 +139,7 @@ def test_combined_tag_escalates_budget_on_truncated_json(
         lambda *args, **kwargs: ("prompt", 0.0, 0.01, 800),
     )
 
-    result = _tag_vlm_page(_page(tmp_path, 38), model="fake-vlm")
+    result = _tag_vlm_combined(_page(tmp_path, 38), model="fake-vlm")
 
     assert calls == [800, 1200]
     assert [item["text"] for item in result.observed_titles] == ["Section A"]
@@ -152,7 +152,7 @@ def test_combined_tagging_preserves_page_assignment_under_concurrency(
 ) -> None:
     import gevent
 
-    def _fake_tag_vlm_page(
+    def _fake_tag_vlm_combined(
         page: PageRenderResult,
         *,
         model: str,
@@ -169,8 +169,8 @@ def test_combined_tagging_preserves_page_assignment_under_concurrency(
 
     monkeypatch.setitem(
         tag_pages.__globals__,
-        "_tag_vlm_page",
-        _fake_tag_vlm_page,
+         "_tag_vlm_combined",
+        _fake_tag_vlm_combined,
     )
     pages = [_page(tmp_path, page_index) for page_index in [1, 2, 3]]
 
@@ -192,7 +192,7 @@ def test_combined_tagging_respects_max_concurrent_cap(monkeypatch, tmp_path) -> 
 
     inflight = {"count": 0, "peak": 0}
 
-    def _fake_tag_vlm_page(
+    def _fake_tag_vlm_combined(
         page: PageRenderResult,
         **_kwargs,
     ) -> PageTagResult:
@@ -202,7 +202,7 @@ def test_combined_tagging_respects_max_concurrent_cap(monkeypatch, tmp_path) -> 
         inflight["count"] -= 1
         return PageTagResult(page_index=page.page_index, strategy_used="vlm_page")
 
-    monkeypatch.setitem(tag_pages.__globals__, "_tag_vlm_page", _fake_tag_vlm_page)
+    monkeypatch.setitem(tag_pages.__globals__, "_tag_vlm_combined", _fake_tag_vlm_combined)
     pages = [_page(tmp_path, page_index) for page_index in range(1, 9)]
 
     results = tag_pages(
@@ -217,7 +217,7 @@ def test_combined_tagging_respects_max_concurrent_cap(monkeypatch, tmp_path) -> 
 
 
 def test_combined_tagging_failed_greenlet_fails_stage(monkeypatch, tmp_path) -> None:
-    def _fake_tag_vlm_page(
+    def _fake_tag_vlm_combined(
         page: PageRenderResult,
         **_kwargs,
     ) -> PageTagResult:
@@ -225,7 +225,7 @@ def test_combined_tagging_failed_greenlet_fails_stage(monkeypatch, tmp_path) -> 
             raise RuntimeError("page tagging failed")
         return PageTagResult(page_index=page.page_index, strategy_used="vlm_page")
 
-    monkeypatch.setitem(tag_pages.__globals__, "_tag_vlm_page", _fake_tag_vlm_page)
+    monkeypatch.setitem(tag_pages.__globals__, "_tag_vlm_combined", _fake_tag_vlm_combined)
 
     with pytest.raises(RuntimeError):
         tag_pages(
@@ -240,7 +240,7 @@ def test_combined_tagging_unavailable_exception_propagates(
     monkeypatch,
     tmp_path,
 ) -> None:
-    def _fake_tag_vlm_page(
+    def _fake_tag_vlm_combined(
         page: PageRenderResult,
         **_kwargs,
     ) -> PageTagResult:
@@ -249,7 +249,7 @@ def test_combined_tagging_unavailable_exception_propagates(
             retry_after=5,
         )
 
-    monkeypatch.setitem(tag_pages.__globals__, "_tag_vlm_page", _fake_tag_vlm_page)
+    monkeypatch.setitem(tag_pages.__globals__, "_tag_vlm_combined", _fake_tag_vlm_combined)
 
     with pytest.raises(UnavailableException):
         tag_pages(
@@ -258,3 +258,54 @@ def test_combined_tagging_unavailable_exception_propagates(
             vlm_model="fake-vlm",
             max_concurrent=1,
         )
+
+
+def test_text_mode_uses_title_vlm_and_text_summary(monkeypatch, tmp_path) -> None:
+    title_pages: list[int] = []
+    summary_pages: list[int] = []
+
+    def _fake_titles(page, **_kwargs):
+        title_pages.append(page.page_index)
+        return PageTagResult(
+            page_index=page.page_index,
+            observed_titles=[{"text": f"Title {page.page_index}"}],
+            strategy_used="vlm_titles",
+            tagging_mode="text",
+        )
+
+    def _fake_summary(page, **_kwargs):
+        summary_pages.append(page.page_index)
+        return f"summary-{page.page_index}", [
+            {"text": "Alice", "type": "person"}
+        ]
+
+    monkeypatch.setitem(tag_pages.__globals__, "_tag_vlm_titles", _fake_titles)
+    monkeypatch.setitem(tag_pages.__globals__, "_summarize_page_text", _fake_summary)
+
+    pages = [
+        PageRenderResult(
+            page_index=page_index,
+            image_path=_write_page_image(tmp_path, page_index),
+            raw_text=f"body {page_index}",
+            width=100,
+            height=200,
+            is_landscape=False,
+        )
+        for page_index in (1, 2)
+    ]
+    results = tag_pages(
+        pages=pages,
+        plans=[_plan(1), _plan(2)],
+        vlm_model="fake-vlm",
+        tagging_mode="text",
+        text_summary_concurrency=2,
+        max_concurrent=2,
+    )
+
+    assert title_pages == [1, 2]
+    assert summary_pages == [1, 2]
+    assert [result.strategy_used for result in results] == ["text_page", "text_page"]
+    assert [result.summary for result in results] == ["summary-1", "summary-2"]
+    assert results[0].entities == [{"text": "Alice", "type": "person"}]
+    assert results[0].keywords == ["Alice"]
+    assert [item["text"] for item in results[0].observed_titles] == ["Title 1"]
