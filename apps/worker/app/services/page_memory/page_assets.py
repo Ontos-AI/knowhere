@@ -321,10 +321,8 @@ def summarize_page_asset(
     """Summarize a cropped asset via the unified engine (§4.3).
 
     Routes tables (with extracted HTML) through the text asset path and figures /
-    charts through the image asset path. Populates ``summary``, ``entities``,
-    ``chart`` (statistical content), and a ``title`` when the asset had none.
-    Numbers and entities come entirely from the model reading the asset; nothing
-    is hard-coded here.
+    charts through the image asset path. Populates ``summary`` and a ``title``
+    when the asset had none. Assets do not extract entities.
     """
     from shared.services.ai.summary.engine import summarize
 
@@ -359,11 +357,9 @@ def summarize_page_asset(
         asset.title = result.title
     if result.summary:
         asset.summary = result.summary
-    if result.entities:
-        asset.entities = [e.to_dict() for e in result.entities]
-        asset.keywords = [e.text for e in result.entities if e.text]
-    if result.summary or result.entities:
         asset.extraction_status = "summarized"
+    asset.entities = []
+    asset.keywords = []
     return asset
 
 

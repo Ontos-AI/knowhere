@@ -115,7 +115,8 @@ def _detect_mock_task(prompt_text: str) -> str:
         return "judge-image-type"
     if (
         "you will receive a single image extracted from a document" in normalized_prompt
-        and '"chart"' in normalized_prompt
+        and '"title"' in normalized_prompt
+        and '"summary"' in normalized_prompt
     ):
         return "summary-images"
     if (
@@ -303,8 +304,7 @@ def _build_mock_response(task_name: str) -> str:
         "atlas-page-info": "Mock atlas page info",
         "transcribe": '{"text": "Mock transcribed text"}',
         "summary-images": (
-            '{"title": "Mock Image Title", "summary": "Mock image summary", '
-            '"entities": [], "chart": null}'
+            '{"title": "Mock Image Title", "summary": "Mock image summary"}'
         ),
         "page-memory-vlm-page": (
             '{"titles": [], "summary": "Mock page summary", "entities": []}'

@@ -313,14 +313,13 @@ def _summarize_excel_table(
     sheet_name: str,
     llm_parameters: dict[str, Any],
 ) -> tuple[str | None, str, str | None, str]:
-    from app.services.document_parser.support.parser_rows import serialize_entities
-
     mechanical_keywords = parse_tb_keywords(table_frame)
 
     if llm_parameters["summary_table"]:
         from shared.services.ai.summary.engine import summarize
 
-        # Tables are Contract B assets: title + summary + entities from HTML.
+        # Tables are Contract B assets: title + summary from HTML (no entities).
+        # Keep mechanical header keywords for retrieval; do not use LLM entities.
         result = summarize(
             mode="asset",
             text=table_html,
@@ -328,9 +327,9 @@ def _summarize_excel_table(
         )
         return (
             result.title or None,
-            result.keywords_str() or mechanical_keywords,
+            mechanical_keywords,
             result.summary or None,
-            serialize_entities(result.entities),
+            "",
         )
 
     return None, mechanical_keywords, None, ""

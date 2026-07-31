@@ -56,16 +56,13 @@ def _read_image_b64(image_path: str) -> str | None:
 
 
 def _parse_linesplit_asset(raw: str, title_hint: str) -> AssetSummary:
-    """Parse a line-split asset response: title\\nsummary\\nentities."""
+    """Parse a line-split asset response: title\\nsummary."""
     lines = raw.strip().split("\n")
     title = lines[0].strip() if len(lines) > 0 else ""
     summary = lines[1].strip() if len(lines) > 1 else ""
-    entities_str = lines[2].strip() if len(lines) > 2 else ""
-    entities = _split_entities(entities_str)
     return AssetSummary(
         title=title or title_hint,
         summary=summary,
-        entities=entities,
         kind="table",
     )
 
@@ -454,8 +451,7 @@ def _summarize_asset(
             return _parse_linesplit_asset(raw, asset_title_hint)
         return AssetSummary(title=asset_title_hint, kind="table")
 
-    # Image-based asset: the shared per-type image prompt returns one strict JSON
-    # object (title + summary + entities).
+    # Image-based asset: title + summary only (no entity extraction).
     prompt, temperature, top_p, max_tokens = build_prompt(
         "summary-images",
         text,
@@ -483,7 +479,6 @@ def _summarize_asset(
         return AssetSummary(
             title=str(parsed.get("title", "")).strip() or asset_title_hint,
             summary=str(parsed.get("summary", "")).strip(),
-            entities=_split_entities(parsed.get("entities") or parsed.get("keywords")),
             kind="figure",
         )
     return AssetSummary(title=asset_title_hint)

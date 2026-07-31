@@ -8,8 +8,9 @@ ingestion tracks (see audit §4.1):
   its section title via the hierarchy (``path`` / ``section_title``), and the
   summary layer must never regenerate it.
 - ``AssetSummary`` (Contract B) — tables, images, figures, charts. Carries the
-  asset's *own* ``title`` (caption/label), a ``summary``, and ``entities``.
-  For statistical content the summary naturally incorporates key numbers.
+  asset's *own* ``title`` (caption/label) and a ``summary`` only. Assets do not
+  extract entities; for statistical content the summary naturally incorporates
+  key numbers.
 """
 
 from __future__ import annotations
@@ -67,13 +68,15 @@ class AssetSummary:
     """Contract B — table / image / figure / chart output.
 
     ``title`` is the asset's own caption/label (genuinely new information), not
-    a section heading.
+    a section heading. Assets carry summary only — no entity extraction.
     """
 
     title: str = ""
     summary: str = ""
     entities: list[Entity] = field(default_factory=list)
+    """Always empty. Kept for row-schema compatibility; assets do not extract entities."""
     kind: str = "figure"  # table | image | figure
 
     def keywords_str(self, sep: str = ";") -> str:
-        return sep.join(e.text for e in self.entities if e.text)
+        """Assets do not extract entities; always returns empty."""
+        return ""

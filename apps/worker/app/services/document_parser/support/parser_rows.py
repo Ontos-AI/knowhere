@@ -129,14 +129,15 @@ def apply_body_summary(row: list[Any], result: Any) -> None:
 def apply_asset_summary(row: list[Any], result: Any) -> None:
     """Write an ``AssetSummary`` (Contract B) onto a positional raw row by name.
 
-    Sets ``asset_title``, ``summary``, ``entities`` and the transitional
-    ``keywords``. The caller owns any file-rename logic keyed off the title.
+    Sets ``asset_title`` and ``summary``. Assets do not extract entities, so
+    ``entities`` / transitional ``keywords`` are cleared. The caller owns any
+    file-rename logic keyed off the title.
     """
     _ensure_row_width(row)
     row[COL_ASSET_TITLE] = result.title or ""
     row[COL_SUMMARY] = result.summary or ""
-    row[COL_ENTITIES] = serialize_entities(getattr(result, "entities", None))
-    row[COL_KEYWORDS] = result.keywords_str()
+    row[COL_ENTITIES] = ""
+    row[COL_KEYWORDS] = ""
 
 
 def _ensure_row_width(row: list[Any]) -> None:

@@ -207,7 +207,7 @@ def build_prompt(task, texts, query, **kwargs):
         if lang_directive:
             lang_line = (
                 "**LANGUAGE (HARD CONSTRAINT, applies to EVERY field — "
-                f"title, summary, and entities)**: {lang_directive}"
+                f"title and summary)**: {lang_directive}"
             )
         else:
             lang_line = (
@@ -220,17 +220,16 @@ def build_prompt(task, texts, query, **kwargs):
         '''
         {texts}
         '''
-        Extract a title, a summary, and named entities.
+        Extract a title and a summary only. Do not extract entities or keywords.
         {lang_line}
 
-        Output exactly THREE lines (no extra lines, no blank lines, no fences):
+        Output exactly TWO lines (no extra lines, no blank lines, no fences):
         Line 1: if the asset has an explicit caption or label, output it as-is; otherwise generate a short descriptive title without any punctuation
         Line 2: a faithful summary within {max_tokens} characters. If the content
         represents statistical data, incorporate the key numbers (extremes, totals,
         notable values) directly into the summary.
-        Line 3: named entities (ONLY person names, organization names, or location names) as a semicolon-separated list. Leave empty if none present.
 
-        If the input is empty or unreadable, output exactly three empty lines.
+        If the input is empty or unreadable, output exactly two empty lines.
         Do not output JSON, markdown fences, labels, or explanations.
         """
 
@@ -946,8 +945,6 @@ header_rows_to_skip: integer, the number of leading rows in Table B that duplica
         else:
             img_context = ""
 
-        entity_line = _entity_instruction()
-
         prompt = f"""
         You will receive a single image extracted from a document (it may be a
         chart, a table, a diagram, a credential/form, a technical drawing, a
@@ -956,8 +953,7 @@ header_rows_to_skip: integer, the number of leading rows in Table B that duplica
 
         {{
         "title": "<the asset's own caption or label>",
-        "summary": "<what the asset shows and its key information>",
-        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
+        "summary": "<what the asset shows and its key information>"
         }}
 
         How to summarize, by what the image actually is (decide internally; do not
@@ -981,7 +977,7 @@ header_rows_to_skip: integer, the number of leading rows in Table B that duplica
           the image has no text). If the content represents statistical data,
           incorporate the key numbers (extremes, totals, notable values) directly
           into the summary sentence.
-        {entity_line}
+        - Do not extract entities or keywords. Summary is the only content field.
         - If the image is blank, unreadable, or carries no meaningful content,
           return exactly: null
         {img_context}

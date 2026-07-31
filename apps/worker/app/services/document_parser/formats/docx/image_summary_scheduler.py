@@ -15,7 +15,6 @@ from app.services.document_parser.support.parser_rows import (
     COL_ASSET_TITLE,
     COL_ENTITIES,
     COL_SUMMARY,
-    serialize_entities,
 )
 from shared.core.config import settings
 from shared.services.ai.summary.model import AssetSummary
@@ -184,7 +183,7 @@ class DocxImageSummaryScheduler:
         occurrence.row[1] = relative_path
         occurrence.row[3] = len(str(occurrence.row[0]))
         occurrence.row[COL_SUMMARY] = summary_field
-        occurrence.row[COL_ENTITIES] = serialize_entities(result.entities)
+        occurrence.row[COL_ENTITIES] = ""
         occurrence.row[COL_ASSET_TITLE] = asset_title
 
         if (
