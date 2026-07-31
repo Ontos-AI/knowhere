@@ -43,6 +43,7 @@ class JobResult(Base):
     )
     result_s3_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     result_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    mineru_raw_s3_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, nullable=False

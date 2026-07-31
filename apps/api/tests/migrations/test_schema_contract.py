@@ -277,3 +277,22 @@ def test_agentic_retrieval_trace_schema_matches_orm(migrated_head_engine: Engine
         "workflow_step_id",
         "workflow_plan",
     }.issubset(run_columns)
+
+
+def test_job_results_mineru_raw_s3_key_column_exists(
+    migrated_head_engine: Engine,
+) -> None:
+    with migrated_head_engine.begin() as connection:
+        result = connection.execute(
+            text(
+                """
+                SELECT column_name, is_nullable
+                FROM information_schema.columns
+                WHERE table_name = 'job_results'
+                  AND column_name = 'mineru_raw_s3_key'
+                """
+            )
+        ).mappings().first()
+
+    assert result is not None
+    assert result["is_nullable"] == "YES"
