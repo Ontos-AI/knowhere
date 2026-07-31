@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 from sqlalchemy import and_, or_, select
@@ -9,9 +10,9 @@ from shared.models.database.document import Document, DocumentChunk, DocumentSec
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.hydration.row_utils import (
     filter_excluded_rows,
-    iter_connected_target_ids,
     normalize_chunk_type,
 )
+from shared.services.retrieval.hydration.same_as import iter_connected_target_ids
 
 
 async def hydrate_connected_target_rows(
@@ -20,9 +21,32 @@ async def hydrate_connected_target_rows(
     rows: list[dict[str, Any]],
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
+    relations: Iterable[str],
+    target_chunk_types: Iterable[str] | None = None,
 ) -> list[dict[str, Any]]:
+    """Hydrate connected targets for the given relations (required).
+
+    Callers must pass relations explicitly so ``same_as`` owners and
+    ``embeds``/``related`` media are never mixed accidentally.
+    """
     if db is None:
         return []
+
+    relation_set = {
+        str(relation).strip() for relation in relations if str(relation).strip()
+    }
+    if not relation_set:
+        return []
+
+    type_filter = None
+    if target_chunk_types is not None:
+        type_filter = {
+            str(chunk_type).strip().lower()
+            for chunk_type in target_chunk_types
+            if str(chunk_type).strip()
+        }
+        if not type_filter:
+            return []
 
     existing_chunk_ids = {
         str(row.get('chunk_id') or '').strip()
@@ -37,7 +61,7 @@ async def hydrate_connected_target_rows(
         job_result_id = str(row.get('job_result_id') or '').strip()
         if not document_id or not job_result_id:
             continue
-        for target_id in iter_connected_target_ids(row):
+        for target_id in iter_connected_target_ids(row, relations=relation_set):
             if target_id in existing_chunk_ids:
                 continue
             target_ids_by_revision.setdefault((document_id, job_result_id), set()).add(
@@ -71,6 +95,8 @@ async def hydrate_connected_target_rows(
 
     hydrated_rows: list[dict[str, Any]] = []
     for document, chunk, section, job_result in result.all():
+        if type_filter is not None and normalize_chunk_type(chunk.chunk_type) not in type_filter:
+            continue
         section_path = section.section_path if section else None
         hydrated_rows.append(
             {

@@ -4,12 +4,16 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.chunks.same_as_markers import MEDIA_RELATIONS, SAME_AS_RELATION
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.row_utils import (
     clean_content,
     filter_excluded_rows,
-    iter_connected_target_ids,
     normalize_chunk_type,
+)
+from shared.services.retrieval.hydration.same_as import (
+    iter_connected_target_ids,
+    materialize_page_evidence,
 )
 
 
@@ -31,21 +35,33 @@ async def assemble_retrieval_results(
             row for row in filtered_rows
             if normalize_chunk_type(row.get('chunk_type')) in allowed_chunk_types
         ]
-    hydrated_rows = await hydrate_connected_target_rows(
+
+    same_as_rows = await hydrate_connected_target_rows(
         db=db,
         rows=filtered_rows,
         exclude_document_ids=exclude_document_ids,
         exclude_sections=exclude_sections,
+        relations={SAME_AS_RELATION},
+        target_chunk_types={'page'},
+    )
+    media_rows = await hydrate_connected_target_rows(
+        db=db,
+        rows=filtered_rows,
+        exclude_document_ids=exclude_document_ids,
+        exclude_sections=exclude_sections,
+        relations=MEDIA_RELATIONS,
+        target_chunk_types={'image', 'table'},
     )
     rows_by_chunk_id = {
         str(row.get('chunk_id') or ''): row
-        for row in [*filtered_rows, *hydrated_rows]
+        for row in [*filtered_rows, *same_as_rows, *media_rows]
         if row.get('chunk_id')
     }
 
+    # Media-only suppression: independently hit owners remain visible results.
     embedded_targets: set[str] = set()
     for row in filtered_rows:
-        for target_id in iter_connected_target_ids(row):
+        for target_id in iter_connected_target_ids(row, relations=MEDIA_RELATIONS):
             if target_id in rows_by_chunk_id:
                 embedded_targets.add(target_id)
 
@@ -54,15 +70,28 @@ async def assemble_retrieval_results(
         if row.get('chunk_id') in embedded_targets:
             continue
         assembled_row = dict(row)
-        base_content = str(row.get('content') or '')
         chunk_type = normalize_chunk_type(row.get('chunk_type'))
         if chunk_type == 'page':
-            assembled_row['content'] = _page_summary(row)
-            assembled_row['content_source'] = 'summary'
+            assembled_row = materialize_page_evidence(
+                assembled_row,
+                rows_by_chunk_id=rows_by_chunk_id,
+            )
+            page_content = _page_summary(assembled_row)
+            media_parts = _connected_media_parts(assembled_row, rows_by_chunk_id)
+            if page_content and media_parts:
+                assembled_row['content'] = '\n\n'.join([page_content, *media_parts])
+            elif media_parts:
+                assembled_row['content'] = '\n\n'.join(media_parts)
+            else:
+                assembled_row['content'] = page_content
+            assembled_row['content_source'] = str(
+                assembled_row.get('content_source') or 'summary'
+            )
         elif chunk_type == 'table':
             assembled_row['content'] = _compose_table_content(row, rows_by_chunk_id)
             assembled_row['content_source'] = 'summary'
         elif chunk_type == 'text':
+            base_content = str(row.get('content') or '')
             related_parts = _connected_media_parts(row, rows_by_chunk_id)
             if base_content and related_parts:
                 assembled_row['content'] = '\n\n'.join([base_content, *related_parts])
@@ -72,9 +101,10 @@ async def assemble_retrieval_results(
                 assembled_row['content'] = base_content
             assembled_row['content_source'] = 'content'
         else:
-            assembled_row['content'] = base_content
+            assembled_row['content'] = str(row.get('content') or '')
             assembled_row['content_source'] = 'content'
         assembled_row['content'] = clean_content(assembled_row['content'])
+        assembled_row.pop('_content_chunk_ids', None)
         assembled.append(assembled_row)
     return assembled
 
@@ -100,7 +130,7 @@ def _connected_media_parts(
     rows_by_chunk_id: dict[str, dict[str, Any]],
 ) -> list[str]:
     connected_targets: list[tuple[int, str]] = []
-    for target_id in iter_connected_target_ids(row):
+    for target_id in iter_connected_target_ids(row, relations=MEDIA_RELATIONS):
         target_row = rows_by_chunk_id.get(target_id)
         if not target_row:
             continue
@@ -123,7 +153,7 @@ def _connected_image_parts(
     rows_by_chunk_id: dict[str, dict[str, Any]],
 ) -> list[str]:
     parts: list[str] = []
-    for target_id in iter_connected_target_ids(row):
+    for target_id in iter_connected_target_ids(row, relations=MEDIA_RELATIONS):
         target_row = rows_by_chunk_id.get(target_id)
         if not target_row:
             continue

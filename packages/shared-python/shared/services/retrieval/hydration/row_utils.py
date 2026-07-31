@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from shared.services.chunks.same_as_markers import strip_same_as_markers
 from shared.services.retrieval.search.section_filters import is_excluded_section
 
 MEDIA_CHUNK_TYPES = {'image', 'table'}
@@ -23,12 +24,11 @@ PUBLIC_SOURCE_FIELDS = {
 ReferenceLookupKey = tuple[str, str, str, str]
 
 _PATH_REF_RE = re.compile(r'\[(?:images|tables)/[^\]\n]+\]')
-_SAME_AS_RE = re.compile(r'\[SAME-AS [^\]]+\]')
 
 
 def clean_content(content: str) -> str:
     text = _PATH_REF_RE.sub('', content)
-    text = _SAME_AS_RE.sub('', text)
+    text = strip_same_as_markers(text)
     return text.strip()
 
 
@@ -78,15 +78,12 @@ def filter_excluded_rows(
 
 
 def iter_connected_target_ids(row: dict[str, Any]) -> list[str]:
-    metadata = row.get('chunk_metadata') or {}
-    if not isinstance(metadata, dict):
-        return []
+    """Backward-compatible: all connected targets regardless of relation.
 
-    target_ids: list[str] = []
-    for item in metadata.get('connect_to') or []:
-        if not isinstance(item, dict):
-            continue
-        target_id = str(item.get('target') or '').strip()
-        if target_id:
-            target_ids.append(target_id)
-    return target_ids
+    Prefer ``same_as.iter_connected_target_ids(..., relations=...)`` for new code.
+    """
+    from shared.services.retrieval.hydration.same_as import (
+        iter_connected_target_ids as _iter_connected_target_ids,
+    )
+
+    return _iter_connected_target_ids(row)

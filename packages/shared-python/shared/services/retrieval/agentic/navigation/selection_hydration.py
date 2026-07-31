@@ -4,11 +4,17 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.chunks.same_as_markers import MEDIA_RELATIONS, SAME_AS_RELATION
 from shared.services.retrieval.agentic.core.types import DocTreeNode
 from shared.services.retrieval.agentic.navigation import assets as asset_tools
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.path import hydrate_paths_to_rows
 from shared.services.retrieval.hydration.reference import hydrate_referenced_chunk_rows
+from shared.services.retrieval.hydration.row_utils import normalize_chunk_type
+from shared.services.retrieval.hydration.same_as import (
+    iter_connections,
+    materialize_page_evidence,
+)
 
 
 async def hydrate_path_selections_into_node(
@@ -31,7 +37,7 @@ async def hydrate_path_selections_into_node(
     if not chunks:
         return
 
-    chunks = await _append_connected_asset_targets(db, chunks)
+    chunks = await _materialize_same_as_and_append_media(db, chunks)
     resolved_job_result_id = job_result_id or _find_job_result_id(chunks)
     if resolved_job_result_id:
         await _attach_root_asset_owners(
@@ -63,7 +69,7 @@ async def hydrate_chunk_refs_into_node(
     if not chunks:
         return
 
-    chunks = await _append_connected_asset_targets(db, chunks)
+    chunks = await _materialize_same_as_and_append_media(db, chunks)
     resolved_job_result_id = job_result_id or _find_job_result_id(chunks)
     if resolved_job_result_id:
         await _attach_root_asset_owners(
@@ -76,6 +82,40 @@ async def hydrate_chunk_refs_into_node(
     add_chunks_to_node(node, chunks)
 
 
+async def _materialize_same_as_and_append_media(
+    db: AsyncSession,
+    chunks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Resolve SAME-AS onto selected page rows, then attach media only."""
+    same_as_owners = await hydrate_connected_target_rows(
+        db=db,
+        rows=chunks,
+        exclude_document_ids=[],
+        exclude_sections=[],
+        relations={SAME_AS_RELATION},
+        target_chunk_types={"page"},
+    )
+    rows_by_chunk_id = {
+        str(row.get("chunk_id") or ""): row
+        for row in [*chunks, *same_as_owners]
+        if row.get("chunk_id")
+    }
+
+    materialized: list[dict[str, Any]] = []
+    for chunk in chunks:
+        if normalize_chunk_type(chunk.get("chunk_type")) == "page":
+            updated = materialize_page_evidence(
+                chunk,
+                rows_by_chunk_id=rows_by_chunk_id,
+            )
+            updated.pop("_content_chunk_ids", None)
+            materialized.append(updated)
+        else:
+            materialized.append(chunk)
+
+    return await _append_connected_asset_targets(db, materialized)
+
+
 async def _append_connected_asset_targets(
     db: AsyncSession, chunks: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -84,15 +124,39 @@ async def _append_connected_asset_targets(
         rows=chunks,
         exclude_document_ids=[],
         exclude_sections=[],
+        relations=MEDIA_RELATIONS,
+        target_chunk_types={"image", "table"},
     )
     if not connected:
         return chunks
 
-    owner_map = asset_tools.build_connected_owner_map(chunks)
-    for chunk in connected:
-        if not chunk.get("owner_section_path"):
-            chunk["owner_section_path"] = owner_map.get(str(chunk.get("chunk_id") or ""))
-    return [*chunks, *connected]
+    connected_by_id = {
+        str(chunk.get("chunk_id") or ""): chunk
+        for chunk in connected
+        if chunk.get("chunk_id")
+    }
+    expanded = list(chunks)
+    seen_mounts: set[tuple[str, str]] = set()
+    for selected in chunks:
+        selected_type = normalize_chunk_type(selected.get("chunk_type"))
+        if selected_type not in {"text", "page"}:
+            continue
+        section_path = str(selected.get("section_path") or "").strip()
+        if not section_path:
+            continue
+        for connection in iter_connections(selected, relations=MEDIA_RELATIONS):
+            target_id = str(connection.get("target") or "").strip()
+            asset = connected_by_id.get(target_id)
+            if asset is None:
+                continue
+            mount_key = (target_id, section_path)
+            if mount_key in seen_mounts:
+                continue
+            seen_mounts.add(mount_key)
+            mounted = dict(asset)
+            mounted["owner_section_path"] = section_path
+            expanded.append(mounted)
+    return expanded
 
 
 async def _attach_root_asset_owners(

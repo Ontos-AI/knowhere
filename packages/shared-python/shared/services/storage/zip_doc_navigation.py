@@ -6,6 +6,8 @@ from typing import Any
 
 from shared.services.chunks.document_path import split_document_path
 from shared.services.chunks.path_segments import join_document_path
+from shared.services.chunks.same_as_markers import contains_same_as_marker
+from shared.services.retrieval.hydration.same_as import resolve_navigation_summary
 from shared.utils.text_utils import truncate_content_preview
 
 
@@ -53,6 +55,12 @@ class ZipDocNavigationBuilder:
             "max_depth": 0,
         }
 
+        chunks_by_id = {
+            str(chunk.get("chunk_id") or "").strip(): chunk
+            for chunk in formatted_chunks
+            if str(chunk.get("chunk_id") or "").strip()
+        }
+
         for formatted_chunk in formatted_chunks:
             chunk_type = formatted_chunk.get("type", "text")
             path = formatted_chunk.get("path", "")
@@ -60,7 +68,14 @@ class ZipDocNavigationBuilder:
             summary_raw = (metadata.get("summary") or "").strip()
             content_raw = (formatted_chunk.get("content") or "").strip()
             summary = " ".join(summary_raw.split()) if summary_raw else ""
-            content_preview = truncate_content_preview(content_raw) if content_raw else ""
+            if chunk_type == "page" and not summary:
+                summary = resolve_navigation_summary(
+                    formatted_chunk,
+                    chunks_by_id=chunks_by_id,
+                )
+            content_preview = ""
+            if content_raw and not contains_same_as_marker(content_raw):
+                content_preview = truncate_content_preview(content_raw)
 
             stats["total_chunks"] += 1
             if chunk_type == "image":
