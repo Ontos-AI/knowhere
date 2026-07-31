@@ -20,7 +20,7 @@ def test_page_memory_config_defaults_resolve_concurrency_settings() -> None:
     assert config.text_summary_concurrency == 5
     assert config.text_summary_model == "deepseek-v4-flash"
     assert config.node_assembly_concurrency == 3
-    assert config.tagging_mode == "visual"
+    assert config.tagging_mode == "text"
     assert config.asset_extraction_enabled is True
     assert config.asset_summary_enabled is True
 

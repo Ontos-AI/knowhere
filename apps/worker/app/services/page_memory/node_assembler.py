@@ -20,7 +20,6 @@ connection to the owner chunk.
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 from dataclasses import dataclass, field
@@ -30,17 +29,22 @@ from typing import Any, cast
 from loguru import logger
 
 from app.services.document_parser.support.stage_profiler import stage_timer
-from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
-from app.services.document_parser.support.parser_rows import serialize_entities
+from app.services.document_parser.support.identifiers import gen_str_codes
 from app.services.page_memory.page_assets import (
     PageAsset,
-    build_asset_rows,
+    build_asset_chunks,
 )
 from app.services.page_memory.page_tagger import PageTagResult, normalize_entities
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
 from app.services.page_memory._utils import slice_text_from_anchor
 from app.services.page_memory.toc_page_policy import TocPagePolicy
 from shared.services.ai.summary.engine import transcribe
+from shared.services.chunks.canonical_chunk_builder import (
+    ChunkMetadata,
+    ChunkPayload,
+    finalize_chunk_connections,
+)
+from shared.services.chunks.chunk_connections import ConnectionPayload, ConnectionValue
 from shared.services.chunks.path_segments import join_document_path
 
 SAME_AS_PREFIX = "SAME-AS"
@@ -292,7 +296,6 @@ def resolve_page_text(
     raw_text: str,
     image_path: str | None,
     vlm_model: str | None,
-    budget: Any | None = None,
     body_start_text: str = "",
 ) -> str:
     """Body text for an owned page: PyMuPDF text, or VLM OCR for scanned pages.
@@ -301,7 +304,6 @@ def resolve_page_text(
     text and fall back to the shared ``transcribe()`` OCR primitive (§4.2).
     When ``body_start_text`` is set, keep only content from that anchor onward.
     """
-    del budget
     text = (raw_text or "").strip()
     if not text:
         if not vlm_model or not image_path or not os.path.exists(image_path):
@@ -326,23 +328,19 @@ def resolve_page_text(
 # ── Orchestration ────────────────────────────────────────────────────
 
 
-def build_node_rows(
+def build_node_chunks(
     *,
     skeletons: list[SectionSkeleton],
     raw_text_by_page: dict[int, str],
     image_path_by_page: dict[int, str],
-    kind_by_page: dict[int, str],
     tag_by_page: dict[int, PageTagResult],
     filename: str,
-    verdict: str,
-    budget: Any | None = None,
     vlm_model: str | None = None,
     page_assets_by_page: dict[int, list[PageAsset]] | None = None,
     node_assembly_concurrency: int = 3,
     body_start_by_page: dict[int, str] | None = None,
-) -> list[dict[str, Any]]:
-    """Assemble one row per leaf section node (node-granularity chunks)."""
-    del kind_by_page, verdict, budget
+) -> list[ChunkPayload]:
+    """Assemble one canonical chunk per leaf section node."""
     available_pages = set(raw_text_by_page.keys())
     leaves = identify_leaf_nodes(skeletons)
     views, page_owner = assign_pages_to_leaves(leaves, available_pages=available_pages)
@@ -380,9 +378,9 @@ def build_node_rows(
             ]
             resolved_text = {page: text for page, text in resolved_pairs}
 
-    rows: list[dict[str, Any]] = []
-    rows_by_path: dict[str, dict[str, Any]] = {}
-    with stage_timer("page_memory.node_rows", node_count=len(views)):
+    chunks: list[ChunkPayload] = []
+    chunks_by_path: dict[str, ChunkPayload] = {}
+    with stage_timer("page_memory.node_chunks", node_count=len(views)):
         for view in views:
             leaf = view.leaf
             content = build_node_content(
@@ -394,82 +392,80 @@ def build_node_rows(
                 owned_pages=view.owned_pages,
                 tag_by_page=tag_by_page,
             )
-            know_id = f"node_{gen_str_codes(f'{filename}::{leaf.section_path}')}"
-            extra_metadata = _build_page_extra_metadata(
+            chunk_id = f"node_{gen_str_codes(f'{filename}::{leaf.section_path}')}"
+            metadata: ChunkMetadata = {
+                "length": len(content),
+                "keywords": keywords,
+                "entities": entities,
+                "summary": summary,
+                "connect_to": [],
+                "page_nums": list(view.pages),
+                "owned_page_nums": list(view.owned_pages),
+            }
+            page_metadata = _build_page_extra_metadata(
                 pages=view.pages,
                 image_path_by_page=image_path_by_page,
             )
-            row = {
+            metadata.update(page_metadata)
+            chunk: ChunkPayload = {
+                "chunk_id": chunk_id,
+                "type": "page",
                 "content": content,
                 "path": leaf.section_path,
-                "type": "page",
-                "length": len(content),
-                "keywords": ";".join(keywords),
-                "summary": summary,
-                "know_id": know_id,
-                "tokens": "",
-                "connectto": "",
-                "addtime": get_str_time(),
-                "page_nums": ",".join(str(page) for page in view.pages),
-                "owned_page_nums": ",".join(str(page) for page in view.owned_pages),
-                "entities": serialize_entities(entities),
-                "asset_title": "",
-                "extra_metadata": extra_metadata,
+                "metadata": metadata,
+                "order": len(chunks),
             }
-            rows.append(row)
-            rows_by_path[leaf.section_path] = row
+            chunks.append(chunk)
+            chunks_by_path[leaf.section_path] = chunk
 
         for view in views:
-            row = rows_by_path[view.leaf.section_path]
+            chunk = chunks_by_path[view.leaf.section_path]
             _attach_same_as_connections(
-                row=row,
+                chunk=chunk,
                 view=view,
                 page_owner=page_owner,
-                rows_by_path=rows_by_path,
+                chunks_by_path=chunks_by_path,
             )
 
-    asset_rows: list[dict[str, Any]] = []
+    asset_chunks: list[ChunkPayload] = []
     if page_assets_by_page:
-        asset_rows = build_asset_rows(page_assets_by_page)
+        asset_chunks = build_asset_chunks(page_assets_by_page)
         _attach_asset_connections(
             page_assets_by_page=page_assets_by_page,
             page_owner=page_owner,
             page_to_leaves=page_to_leaves,
-            rows_by_path=rows_by_path,
+            chunks_by_path=chunks_by_path,
         )
 
     logger.info(
-        "[node_assembler] assembled {} asset rows + {} node rows from {} leaves ({} pages)",
-        len(asset_rows),
-        len(rows),
+        "[node_assembler] assembled {} asset chunks + {} node chunks from {} leaves ({} pages)",
+        len(asset_chunks),
+        len(chunks),
         len(leaves),
         len(available_pages),
     )
-    return asset_rows + rows
+    return asset_chunks + chunks
 
 
 def _attach_same_as_connections(
     *,
-    row: dict[str, Any],
+    chunk: ChunkPayload,
     view: NodePageView,
     page_owner: dict[int, LeafNode],
-    rows_by_path: dict[str, dict[str, Any]],
+    chunks_by_path: dict[str, ChunkPayload],
 ) -> None:
     """Emit explicit same_as links for pages this node references but does not own."""
     for page in view.pages:
         owner = page_owner.get(page)
         if owner is None or owner.section_path == view.leaf.section_path:
             continue
-        owner_row = rows_by_path.get(owner.section_path)
-        if owner_row is None:
-            continue
-        owner_know_id = str(owner_row.get("know_id") or "").strip()
-        if not owner_know_id:
+        owner_chunk = chunks_by_path.get(owner.section_path)
+        if owner_chunk is None:
             continue
         _append_connect_to(
-            row,
+            chunk,
             {
-                "target": owner_know_id,
+                "target": owner_chunk["chunk_id"],
                 "relation": "same_as",
                 "ref": f"[{SAME_AS_PREFIX} {owner.section_path} p{page}]",
                 "page": page,
@@ -529,19 +525,19 @@ def build_toc_nav_skeletons(
     return skeletons
 
 
-def build_toc_node_rows(
+def build_toc_node_chunks(
     *,
     anatomy: Any | None,
     filename: str,
-) -> list[dict[str, Any]]:
-    """Synthetic TOC rows from Stage-1 entries; bypass SAME-AS ownership."""
+) -> list[ChunkPayload]:
+    """Build synthetic canonical TOC chunks; bypass SAME-AS ownership."""
     hierarchies = list(getattr(anatomy, "toc_hierarchies", None) or [])
     policy = TocPagePolicy.from_anatomy(anatomy)
     regions = list(policy.regions)
     if not regions and not hierarchies:
         return []
 
-    rows: list[dict[str, Any]] = []
+    chunks: list[ChunkPayload] = []
     count = max(len(regions), len(hierarchies), 1 if hierarchies else 0)
     for index in range(count):
         region = regions[index] if index < len(regions) else None
@@ -557,67 +553,73 @@ def build_toc_node_rows(
             continue
         title = "Table of Contents" if index == 0 else f"Table of Contents ({index + 1})"
         path = join_document_path([filename, title])
-        know_id = f"node_{gen_str_codes(f'{filename}::{path}')}"
-        rows.append(
+        chunk_id = f"node_{gen_str_codes(f'{filename}::{path}')}"
+        metadata: ChunkMetadata = {
+            "length": len(content),
+            "keywords": [],
+            "entities": [],
+            "summary": "Table of Contents",
+            "connect_to": [],
+            "page_nums": pages,
+        }
+        metadata.update(
             {
-                "content": content,
-                "path": path,
-                "type": "page",
-                "length": len(content),
-                "keywords": "",
-                "summary": "Table of Contents",
-                "know_id": know_id,
-                "tokens": "",
-                "connectto": "",
-                "addtime": get_str_time(),
-                "page_nums": ",".join(str(page) for page in pages),
-                "owned_page_nums": "",
-                "entities": "",
-                "asset_title": "",
-                "extra_metadata": {
-                    "content_kind": "table_of_contents",
-                    "pure_toc_pages": list(region.pure_toc_pages) if region else pages,
-                    "mixed_page": region.mixed_page if region else None,
-                    "body_start_text": (
-                        region.body_start_text if region else hierarchy.get("body_start_text", "")
-                    ),
-                },
+                "content_kind": "table_of_contents",
+                "pure_toc_pages": list(region.pure_toc_pages) if region else pages,
+                "mixed_page": region.mixed_page if region else None,
+                "body_start_text": (
+                    region.body_start_text
+                    if region
+                    else hierarchy.get("body_start_text", "")
+                ),
             }
         )
-    return rows
+        chunks.append(
+            {
+                "chunk_id": chunk_id,
+                "type": "page",
+                "content": content,
+                "path": path,
+                "metadata": metadata,
+                "order": len(chunks),
+            }
+        )
+    return chunks
 
 
-def merge_rows_by_first_page(
-    toc_rows: list[dict[str, Any]],
-    body_rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Insert TOC rows by first physical page while preserving body order."""
+def merge_chunks_by_first_page(
+    toc_chunks: list[ChunkPayload],
+    body_chunks: list[ChunkPayload],
+) -> list[ChunkPayload]:
+    """Insert TOC chunks by first physical page and finalize connections."""
 
-    def _first_page(row: dict[str, Any]) -> int:
-        raw = str(row.get("page_nums") or "").split(",")[0].strip()
-        try:
-            return int(raw)
-        except ValueError:
-            return 0
+    def _first_page(chunk: ChunkPayload) -> int:
+        pages = chunk["metadata"].get("page_nums", [])
+        return int(pages[0]) if pages else 0
 
-    asset_rows = [row for row in body_rows if row.get("type") != "page"]
-    page_rows = [row for row in body_rows if row.get("type") == "page"]
+    asset_chunks = [chunk for chunk in body_chunks if chunk["type"] != "page"]
+    page_chunks = [chunk for chunk in body_chunks if chunk["type"] == "page"]
     merged = sorted(
-        [*toc_rows, *page_rows],
-        key=lambda row: (
-            _first_page(row),
-            0 if (row.get("extra_metadata") or {}).get("content_kind") == "table_of_contents" else 1,
-            str(row.get("path") or ""),
+        [*toc_chunks, *page_chunks],
+        key=lambda chunk: (
+            _first_page(chunk),
+            0
+            if chunk["metadata"].get("content_kind") == "table_of_contents"
+            else 1,
+            chunk["path"],
         ),
     )
-    return asset_rows + merged
+    ordered = asset_chunks + merged
+    for order, chunk in enumerate(ordered):
+        chunk["order"] = order
+    return finalize_chunk_connections(ordered)
 
 
 def _build_page_extra_metadata(
     *,
     pages: list[int],
     image_path_by_page: dict[int, str],
-) -> dict[str, Any]:
+) -> ChunkMetadata:
     page_assets = _build_page_citation_assets(
         pages=pages,
         image_path_by_page=image_path_by_page,
@@ -700,7 +702,7 @@ def _attach_asset_connections(
     page_assets_by_page: dict[int, list[PageAsset]],
     page_owner: dict[int, LeafNode],
     page_to_leaves: dict[int, list[LeafNode]],
-    rows_by_path: dict[str, dict[str, Any]],
+    chunks_by_path: dict[str, ChunkPayload],
 ) -> None:
     for page_index, assets in page_assets_by_page.items():
         owner_leaf = page_owner.get(page_index)
@@ -717,10 +719,10 @@ def _attach_asset_connections(
                 continue
             ref = f"[{uri}]"
             if owner_leaf is not None:
-                owner_row = rows_by_path.get(owner_leaf.section_path)
-                if owner_row is not None:
+                owner_chunk = chunks_by_path.get(owner_leaf.section_path)
+                if owner_chunk is not None:
                     _append_connect_to(
-                        owner_row,
+                        owner_chunk,
                         {
                             "target": uri,
                             "relation": "embeds",
@@ -733,29 +735,19 @@ def _attach_asset_connections(
                     and leaf.section_path == owner_leaf.section_path
                 ):
                     continue
-                row = rows_by_path.get(leaf.section_path)
-                if row is None:
+                chunk = chunks_by_path.get(leaf.section_path)
+                if chunk is None:
                     continue
-                connection: dict[str, Any] = {
+                connection: ConnectionPayload = {
                     "target": uri,
                     "relation": "related",
                     "ref": ref,
                 }
                 if owner_leaf is not None:
                     connection["same_as_owner"] = owner_leaf.section_path
-                _append_connect_to(row, connection)
+                _append_connect_to(chunk, connection)
 
 
-def _append_connect_to(row: dict[str, Any], connection: dict[str, Any]) -> None:
-    existing = row.get("connectto")
-    if isinstance(existing, str) and existing.strip():
-        try:
-            connections = json.loads(existing)
-        except json.JSONDecodeError:
-            connections = []
-    elif isinstance(existing, list):
-        connections = list(existing)
-    else:
-        connections = []
+def _append_connect_to(chunk: ChunkPayload, connection: ConnectionValue) -> None:
+    connections = chunk["metadata"].setdefault("connect_to", [])
     connections.append(connection)
-    row["connectto"] = json.dumps(connections, ensure_ascii=False)

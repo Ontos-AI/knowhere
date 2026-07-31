@@ -64,17 +64,27 @@ def _language_directive(lang) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Entity-extraction & chart-numeric directives (§4.3 / §4.4)
+# Named-entity glossary (§4.4)
 # ──────────────────────────────────────────────────────────────────────────────
-# These build the shared, GENERAL-PURPOSE instructions injected into every
-# summary prompt. The type vocabulary is read from the ``ENTITY_TYPES`` config so
-# it can be extended without editing prompts, and the wording deliberately avoids
-# baked-in examples, sample values, or magic counts — extraction must generalize
-# across arbitrary documents, not fit any one corpus.
+# Canonical type definitions live HERE. To add a type: add a key → definition
+# below, then enable the key in ``ENTITY_TYPES`` (comma-separated).
+
+ENTITY_TYPE_GLOSSARY: dict[str, str] = {
+    "person": (
+        "A specific named individual (a person name or optionally with a role)."
+    ),
+    "location": (
+        "A geographic or physical place: country, region, city, street, site, or campus."
+    ),
+    "organization": (
+        "A named institution or body: company, government agency, regulator, "
+        "university, or NGO."
+    ),
+}
 
 
-def _entity_types() -> list[str]:
-    """The configured entity type vocabulary (lower-cased, de-duplicated)."""
+def _configured_entity_type_keys() -> list[str]:
+    """Enabled type keys from ``ENTITY_TYPES`` (order preserved, de-duplicated)."""
     from shared.core.config import settings
 
     raw = getattr(settings, "ENTITY_TYPES", "") or ""
@@ -86,20 +96,37 @@ def _entity_types() -> list[str]:
     return list(seen.keys())
 
 
-def _entity_instruction(*, visual_layout_filter: bool = False) -> str:
-    """Build the ``entities`` field instruction from the configured vocabulary.
+def resolved_entity_glossary() -> dict[str, str]:
+    """Active type → definition map for the current ``ENTITY_TYPES`` setting."""
+    keys = _configured_entity_type_keys()
+    if not keys:
+        return dict(ENTITY_TYPE_GLOSSARY)
 
-    Returns a JSON-field directive that asks for typed entities and treats an
-    empty result as valid. No entity names or counts are hard-coded; the only
-    corpus-specific input is the configurable type list.
-    """
-    types = _entity_types()
-    if types:
+    glossary: dict[str, str] = {}
+    for key in keys:
+        glossary[key] = ENTITY_TYPE_GLOSSARY.get(
+            key,
+            f"A named entity that clearly fits the category '{key}'.",
+        )
+    return glossary
+
+
+def _entity_types() -> list[str]:
+    """Active entity type labels (lower-cased)."""
+    return list(resolved_entity_glossary())
+
+
+def _entity_instruction(*, visual_layout_filter: bool = False) -> str:
+    """Build the ``entities`` field instruction from the glossary + config."""
+    glossary = resolved_entity_glossary()
+    if glossary:
+        glossary_block = "\n".join(
+            f'- "{label}": {definition}' for label, definition in glossary.items()
+        )
         type_clause = (
-            "Set \"type\" to the single best-fitting label from this allowed list: "
-            + ", ".join(types)
-            + ". Include an entity only when its surface form truly belongs to "
-            "that type; if the type is uncertain, omit the entity."
+            "Set \"type\" to exactly one label from the glossary below. "
+            "If the type is uncertain, omit the entity.\n"
+            f"{glossary_block}"
         )
     else:
         type_clause = (
@@ -108,20 +135,21 @@ def _entity_instruction(*, visual_layout_filter: bool = False) -> str:
     layout_clause = ""
     if visual_layout_filter:
         layout_clause = (
-            "Using visual layout, also exclude running headers and footers, "
-            "page numbers, margin chrome, document or volume names used only as "
-            "page chrome, section headings and outline numbering codes themselves, "
-            "cross-references to other parts of the document, and generic category "
-            "labels that are not specific named entities. "
+            "Using visual layout, exclude running headers and footers, page "
+            "numbers, margin chrome, document or volume names used only as "
+            "page chrome, section headings and outline numbering codes, "
+            "cross-references to other parts of the document, and generic "
+            "category labels that are not specific named entities. "
         )
     return (
-        '- "entities": a JSON array of the salient named entities explicitly '
-        "present in the body content. Each element is an object with keys \"text\" "
-        'and "type". Use the exact surface form from the content for "text". '
-        f"{type_clause} {layout_clause}"
-        "Do not infer, translate, or invent entities. Return an empty array [] "
-        "when none are present — an empty result is valid and expected, so never "
-        "force extraction."
+        '- "entities": a JSON array of clearly named entities present in the '
+        "content. Each element is an object with keys \"text\" and \"type\". "
+        f"{type_clause}\n"
+        f"{layout_clause}"
+        "Extract only clear, explicit named entities. Do not extract "
+        "abbreviations, codes, identifiers, or clause/part/table/spec numbers. "
+        "Do not infer, translate, or invent entities. If no clear entity is "
+        "present, return an empty array []. Prefer [] over uncertain extraction."
     )
 
 
@@ -503,19 +531,16 @@ def build_prompt(task, texts, query, **kwargs):
             column_order = "left to right (i.e. finish the left column before starting the right column)"
 
         prompt = f"""\
-        You are annotating one PDF page for a document memory system. In one
-        pass, independently:
-        1. extract document-outline-level headings;
+        You are annotating one PDF page for a document memory system. You should independently:
+        1. extract outline-level headings;
         2. summarize the page;
         3. extract typed entities.
 
-        Summary and entity extraction MUST NOT change which titles qualify.
         If no text qualifies as a section heading, return an empty titles list.
 
         {boundary_line}
         READING ORDER:
-        This page may contain one or more readable columns.
-        Within each column, read from top to bottom.
+        This page may contain one or more readable columns. Within each column, read from top to bottom.
         Between columns, read from {column_order}.
         Return every qualifying heading on this page in that reading order.
 
@@ -529,7 +554,7 @@ def build_prompt(task, texts, query, **kwargs):
             }}
         ],
         "summary": "<concise summary of what this page contains>",
-        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
+        "entities": [{{"text": "<text>", "type": "<type>"}}]
         }}
 
         ═══ TITLE RULES (CRITICAL) ═══
@@ -698,11 +723,11 @@ def build_prompt(task, texts, query, **kwargs):
         entity_line = _entity_instruction(visual_layout_filter=False)
         prompt = f"""\
         You are summarizing one PDF page from its extracted body text for a
-        document memory system. The input is plain text only; you cannot see
-        visual layout, so do not claim to identify headers, footers, or margin
-        chrome by position.
+        document memory system. The input is plain text only; do not claim to
+        identify headers, footers, or margin chrome by visual position.
 
-        {boundary_line}Page text:
+        {boundary_line}
+        Page text:
         '''
         {texts}
         '''
@@ -710,14 +735,14 @@ def build_prompt(task, texts, query, **kwargs):
         Return one strict JSON object with exactly these keys:
         {{
         "summary": "<concise summary of what this page contains>",
-        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
+        "entities": [{{"text": "<text>", "type": "<type>"}}]
         }}
 
         Rules:
-        - "summary": describe the main body content of this page in a few
-          sentences, in the same language as the text. If the page is mostly a
-          table, state its topic and key columns; if it describes a figure or
-          chart, summarize what the text says about it.
+        - "summary": describe the main body content of this page in one or two
+          sentences in the same language as the text. If the page is mostly a table, state its topic;
+          if it describes a figure or chart, summarize what the text says about it.
+
         {entity_line}
         - Return ONLY the JSON object, with no markdown fences or extra text.
         """

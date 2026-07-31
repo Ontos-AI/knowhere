@@ -23,9 +23,9 @@ from typing import Any
 class Entity:
     """A typed entity extracted from content (§4.4).
 
-    ``type`` defaults to the seed set (person / location / organization) but is
-    an open string so the ``ENTITY_TYPES`` config can extend it without code
-    changes. ``text`` is the surface form as it appears in the content.
+    ``type`` should match a key in
+    ``shared.services.ai.prompt_service.ENTITY_TYPE_GLOSSARY`` (enabled via
+    ``ENTITY_TYPES``). ``text`` is the surface form as it appears in the content.
     """
 
     text: str

@@ -8,14 +8,14 @@ from app.services.document_agent.manifest import TocRegionBoundary, TocResult
 from app.services.document_agent.tools.extract_toc_with_boundaries import (
     _build_region_boundary,
 )
-from app.services.page_memory._serialization import serialize_scope_skeletons
+from app.services.page_memory._serialization import scope_manifest, serialize_scope_skeletons
 from app.services.page_memory._utils import slice_text_from_anchor
 from app.services.page_memory.fine_hierarchy import compute_fat_leaf_pages
 from app.services.page_memory.memory_service import _merge_static_toc_tags
 from app.services.page_memory.node_assembler import (
-    build_toc_node_rows,
+    build_toc_node_chunks,
     format_toc_entries_content,
-    merge_rows_by_first_page,
+    merge_chunks_by_first_page,
 )
 from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.skeleton_extractor import (
@@ -99,7 +99,7 @@ def test_slice_text_from_anchor_keeps_tail() -> None:
     assert sliced.startswith("1.2 Title")
 
 
-def test_build_toc_node_rows_bypass_same_as() -> None:
+def test_build_toc_node_chunks_bypass_same_as() -> None:
     anatomy = SimpleNamespace(
         toc_hierarchies=[
             {
@@ -124,34 +124,42 @@ def test_build_toc_node_rows_bypass_same_as() -> None:
             method="vlm_batch",
         ),
     )
-    rows = build_toc_node_rows(anatomy=anatomy, filename="doc.pdf")
+    rows = build_toc_node_chunks(anatomy=anatomy, filename="doc.pdf")
     assert len(rows) == 1
     row = rows[0]
     assert row["type"] == "page"
-    assert row["extra_metadata"]["content_kind"] == "table_of_contents"
-    assert row["page_nums"] == "3,4,5,6"
+    assert row["metadata"]["content_kind"] == "table_of_contents"
+    assert row["metadata"]["page_nums"] == [3, 4, 5, 6]
     assert "1 Scope" in row["content"]
     assert "SAME-AS" not in row["content"]
 
 
-def test_merge_rows_inserts_toc_before_body_on_shared_page() -> None:
+def test_merge_chunks_inserts_toc_before_body_on_shared_page() -> None:
     toc_rows = [
         {
+            "chunk_id": "toc",
             "path": "doc/Table of Contents",
             "type": "page",
-            "page_nums": "6",
-            "extra_metadata": {"content_kind": "table_of_contents"},
+            "content": "toc",
+            "metadata": {
+                "page_nums": [6],
+                "content_kind": "table_of_contents",
+                "connect_to": [],
+            },
+            "order": 0,
         }
     ]
     body_rows = [
         {
+            "chunk_id": "body",
             "path": "doc/1 Scope",
             "type": "page",
-            "page_nums": "6,7",
-            "extra_metadata": {},
+            "content": "body",
+            "metadata": {"page_nums": [6, 7], "connect_to": []},
+            "order": 0,
         }
     ]
-    merged = merge_rows_by_first_page(toc_rows, body_rows)
+    merged = merge_chunks_by_first_page(toc_rows, body_rows)
     assert [row["path"] for row in merged] == [
         "doc/Table of Contents",
         "doc/1 Scope",
@@ -188,6 +196,20 @@ def test_scope_handoff_preserves_empty_processing_set() -> None:
     assert artifact["processing_pages"] == []
     assert artifact["processing_page_ranges"] == []
     assert artifact["excluded_toc_pages"] == [3, 4]
+
+
+def test_fine_scope_manifest_preserves_exact_processing_and_excluded_pages() -> None:
+    manifest = scope_manifest(
+        scope_id="p2-9",
+        skeletons=[],
+        page_count=9,
+        strategy="coarse_scope:refined",
+        processing_pages=[2, 9],
+        excluded_toc_pages=[3, 4, 5, 6, 7, 8],
+    )
+
+    assert manifest["processing_pages"] == [2, 9]
+    assert manifest["excluded_toc_pages"] == [3, 4, 5, 6, 7, 8]
 
 
 def test_format_toc_entries_content_indents_by_level() -> None:

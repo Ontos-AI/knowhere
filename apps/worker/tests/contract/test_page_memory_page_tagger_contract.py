@@ -112,6 +112,30 @@ def test_combined_prompt_applies_mixed_page_boundary_once() -> None:
     assert '"entities"' in prompt
 
 
+def test_visual_entity_prompt_excludes_page_chrome_and_structure_codes() -> None:
+    prompt, *_ = build_prompt("page-memory-vlm-page", "", "", paras={})
+
+    assert "running headers and footers" in prompt
+    assert "section headings and outline numbering codes" in prompt
+    assert "cross-references to other parts" in prompt
+    assert "clause/part/table/spec numbers" in prompt
+
+
+def test_text_entity_prompt_does_not_claim_visual_layout_filtering() -> None:
+    prompt, *_ = build_prompt(
+        "page-memory-text-page",
+        "Acme operates in Sydney.",
+        "",
+        paras={},
+    )
+
+    normalized_prompt = " ".join(prompt.split())
+    assert "plain text only" in normalized_prompt
+    assert "do not claim to identify headers" in normalized_prompt
+    assert "in one or two" in normalized_prompt
+    assert "in in one or two" not in normalized_prompt
+
+
 def test_combined_tag_escalates_budget_on_truncated_json(
     monkeypatch,
     tmp_path,

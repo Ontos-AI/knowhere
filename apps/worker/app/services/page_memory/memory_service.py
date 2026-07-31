@@ -14,7 +14,7 @@ from app.services.document_agent.visual import (
 from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.state import AgentBlackboard
 from app.services.document_parser.profiling.doc_profiler import profile_document
-from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
+from app.services.document_parser.support.identifiers import gen_str_codes
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.page_memory.normalizer import normalize_to_pdf
 from app.services.page_memory._utils import (
@@ -36,7 +36,7 @@ from loguru import logger
 
 from shared.core.exceptions.domain_exceptions import ValidationException
 from shared.models.schemas.page_memory_config import PageMemoryConfig
-from shared.services.chunks.canonical_chunk_builder import ChunkPayload, rows_to_chunks
+from shared.services.chunks.canonical_chunk_builder import ChunkMetadata, ChunkPayload
 
 
 @dataclass(frozen=True)
@@ -440,12 +440,6 @@ def _build_page_chunks(
     tag_map = {t.page_index: t for t in tags}
     render_map = rendered_map
 
-    # Build page → PageLabel.kind lookup
-    label_map: dict[int, str] = {}
-    if page_labels:
-        for lbl in page_labels:
-            label_map[lbl.page] = lbl.kind
-
     # Shared per-page lookups for node-granularity assembly.
     raw_text_by_page: dict[int, str] = {}
     image_path_by_page: dict[int, str] = {}
@@ -467,46 +461,43 @@ def _build_page_chunks(
             image_path_by_page[page] = rend.image_path
 
     from app.services.page_memory.node_assembler import (
-        build_node_rows,
-        build_toc_node_rows,
-        merge_rows_by_first_page,
+        build_node_chunks,
+        build_toc_node_chunks,
+        merge_chunks_by_first_page,
     )
 
     with stage_timer("page_memory.node_assembly", page_count=len(final_pages_scope)):
-        body_rows = build_node_rows(
+        body_chunks = build_node_chunks(
             skeletons=skeletons,
             raw_text_by_page=raw_text_by_page,
             image_path_by_page=image_path_by_page,
-            kind_by_page=label_map,
             tag_by_page=tag_map,
             filename=filename,
-            verdict=verdict,
-            budget=None,
             vlm_model=vlm_model,
             page_assets_by_page=page_assets_by_page,
             node_assembly_concurrency=page_memory_config.node_assembly_concurrency,
             body_start_by_page=toc_policy.body_start_by_page(),
         )
-        toc_rows = build_toc_node_rows(
+        toc_chunks = build_toc_node_chunks(
             anatomy=anatomy,
             filename=filename,
         )
-        rows = merge_rows_by_first_page(toc_rows, body_rows)
+        chunks = merge_chunks_by_first_page(toc_chunks, body_chunks)
     logger.info(
-        "[page_memory] C7 assembled {} node rows (verdict={})",
-        len(rows), verdict,
+        "[page_memory] C7 assembled {} canonical chunks (verdict={})",
+        len(chunks), verdict,
     )
     _record_trace_stage(
         trace_recorder,
         "C7.node_assembly",
         page_info=page_scope_info(final_pages_scope),
         variables={
-            "row_count": len(rows),
+            "chunk_count": len(chunks),
             "scope_count": len(scope_results),
-            "page_to_node": _page_to_node_map(rows),
+            "page_to_node": _page_to_node_map(chunks),
         },
     )
-    return rows_to_chunks(rows)
+    return chunks
 
 
 def _build_page_ctx(
@@ -937,21 +928,22 @@ def _build_whole_doc_chunks(
     raw_text = "\n\n".join(page_texts.get(page, "") for page in pages).strip()
     summary = _build_summary(filename=filename, page_count=page_count, raw_text=raw_text)
     content = f"[SUMMARY]\n{summary}\n\n[RAW]\n{raw_text}".strip()
-    know_id = gen_str_codes(f"wholedoc::{filename}::{content}")
-    row = {
+    chunk_id = gen_str_codes(f"wholedoc::{filename}::{content}")
+    metadata: ChunkMetadata = {
+        "length": len(content),
+        "keywords": [],
+        "summary": summary,
+        "connect_to": [],
+        "page_nums": pages,
+        "owned_page_nums": pages,
+    }
+    chunk: ChunkPayload = {
+        "chunk_id": chunk_id,
+        "type": "page",
         "content": content,
         "path": f"{filename}/Root",
-        "type": "page",
-        "length": len(content),
-        "keywords": "",
-        "summary": summary,
-        "know_id": know_id,
-        "tokens": "",
-        "connectto": "",
-        "addtime": get_str_time(),
-        "page_nums": ",".join(str(page) for page in pages),
-        "owned_page_nums": ",".join(str(page) for page in pages),
-        "extra_metadata": {},
+        "metadata": metadata,
+        "order": 0,
     }
     _record_trace_stage(
         trace_recorder,
@@ -959,7 +951,7 @@ def _build_whole_doc_chunks(
         page_info=page_scope_info(pages),
         variables={"summary": summary, "verdict": verdict},
     )
-    return rows_to_chunks([row])
+    return [chunk]
 
 
 def _build_summary(*, filename: str, page_count: int, raw_text: str) -> str:
@@ -1092,15 +1084,12 @@ def _summarize_tags(tags: list[Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _page_to_node_map(rows: list[dict[str, Any]]) -> dict[int, str]:
+def _page_to_node_map(chunks: list[ChunkPayload]) -> dict[int, str]:
     mapping: dict[int, str] = {}
-    for row in rows:
-        if row.get("type") != "page":
+    for chunk in chunks:
+        if chunk["type"] != "page":
             continue
-        path = str(row.get("path") or "")
-        for raw_page in str(row.get("page_nums") or "").split(","):
-            try:
-                mapping[int(raw_page.strip())] = path
-            except ValueError:
-                continue
+        path = chunk["path"]
+        for page in chunk["metadata"].get("page_nums", []):
+            mapping[int(page)] = path
     return mapping

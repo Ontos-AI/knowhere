@@ -17,10 +17,10 @@ from loguru import logger
 from PIL import Image, ImageDraw, ImageFont
 
 from app.services.document_agent.visual import visual_debug_enabled
-from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
-from app.services.document_parser.support.parser_rows import serialize_entities
+from app.services.document_parser.support.identifiers import gen_str_codes
 from app.services.page_memory.page_renderer import PageRenderResult
 from shared.services.ai.prompt_service import build_prompt
+from shared.services.chunks.canonical_chunk_builder import ChunkMetadata, ChunkPayload
 
 _GRID_SIZE = 1000
 _VALID_KINDS = {"table", "figure"}
@@ -508,10 +508,11 @@ def _asset_box_color(kind: str) -> tuple[int, int, int]:
     return (0, 150, 0)
 
 
-def build_asset_rows(
+def build_asset_chunks(
     page_assets_by_page: dict[int, list[PageAsset]],
-) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+) -> list[ChunkPayload]:
+    """Build canonical asset chunks directly from extracted page assets."""
+    chunks: list[ChunkPayload] = []
     for page_index in sorted(page_assets_by_page):
         for asset in page_assets_by_page[page_index]:
             ref_uri = (
@@ -523,29 +524,35 @@ def build_asset_rows(
                 continue
             row_type = "table" if asset.kind == "table" and asset.html_uri else "image"
             content = _asset_content(asset, row_type=row_type)
-            rows.append(
+            metadata: ChunkMetadata = {
+                "length": len(content),
+                "summary": asset.summary.strip(),
+                "keywords": list(asset.keywords),
+                "entities": list(asset.entities),
+                "tokens": [],
+                "connect_to": [],
+                "page_nums": [asset.page_index],
+                "file_path": ref_uri,
+                "original_name": os.path.basename(ref_uri),
+            }
+            if asset.title.strip():
+                metadata["asset_title"] = asset.title.strip()
+            metadata.update(_asset_extra_metadata(asset))
+            chunks.append(
                 {
+                    "chunk_id": asset.asset_id,
+                    "type": row_type,
                     "content": content,
                     "path": ref_uri,
-                    "type": row_type,
-                    "length": len(content),
-                    "keywords": ";".join(asset.keywords),
-                    "summary": asset.summary.strip(),
-                    "know_id": asset.asset_id,
-                    "tokens": "",
-                    "connectto": "",
-                    "addtime": get_str_time(),
-                    "page_nums": str(asset.page_index),
-                    "entities": serialize_entities(asset.entities),
-                    "asset_title": asset.title.strip(),
-                    "extra_metadata": _asset_extra_metadata(asset),
+                    "metadata": metadata,
+                    "order": len(chunks),
                 }
             )
-    return rows
+    return chunks
 
 
-def _asset_extra_metadata(asset: PageAsset) -> dict[str, Any]:
-    metadata: dict[str, Any] = {
+def _asset_extra_metadata(asset: PageAsset) -> ChunkMetadata:
+    metadata: ChunkMetadata = {
         "image_uri": asset.image_uri,
     }
     return metadata
@@ -903,7 +910,7 @@ __all__ = [
     "PageAsset",
     "annotate_page_assets",
     "asset_reference",
-    "build_asset_rows",
+    "build_asset_chunks",
     "extract_page_assets_from_renders",
     "get_asset_confidence_threshold",
     "get_asset_max_pages",

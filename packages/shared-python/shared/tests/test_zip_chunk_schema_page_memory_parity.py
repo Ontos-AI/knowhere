@@ -9,41 +9,44 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from shared.services.chunks.canonical_chunk_builder import rows_to_chunks
 from shared.services.storage.zip_chunk_schema import ZipChunkSchemaBuilder
 
 
 def test_zip_formatter_preserves_page_memory_metadata_fields() -> None:
-    chunks = rows_to_chunks(
-        [
-            {
-                "content": "owned page body",
-                "path": "demo.pdf/Section",
-                "type": "page",
+    chunks = [
+        {
+            "chunk_id": "node_owner",
+            "type": "page",
+            "content": "owned page body",
+            "path": "demo.pdf/Section",
+            "order": 0,
+            "metadata": {
                 "length": 15,
-                "keywords": "Acme",
+                "keywords": ["Acme"],
+                "entities": [{"text": "Acme", "type": "organization"}],
                 "summary": "Page summary",
-                "know_id": "node_owner",
-                "tokens": "",
-                "connectto": '[{"target":"node_other","relation":"same_as","ref":"[SAME-AS demo.pdf/Other p2]","page":2}]',
-                "page_nums": "1,2",
-                "owned_page_nums": "1",
-                "entities": '[{"text":"Acme","type":"organization"}]',
-                "asset_title": "",
-                "extra_metadata": {
-                    "content_kind": "body",
-                    "page_assets": [
-                        {
-                            "page_num": 1,
-                            "artifact_ref": "page_citation_assets/page-1.png",
-                            "content_type": "image/png",
-                            "source": "knowhere-rendered-page-citation-source",
-                        }
-                    ],
-                },
-            }
-        ]
-    )
+                "connect_to": [
+                    {
+                        "target": "node_other",
+                        "relation": "same_as",
+                        "ref": "[SAME-AS demo.pdf/Other p2]",
+                        "page": 2,
+                    }
+                ],
+                "page_nums": [1, 2],
+                "owned_page_nums": [1],
+                "content_kind": "body",
+                "page_assets": [
+                    {
+                        "page_num": 1,
+                        "artifact_ref": "page_citation_assets/page-1.png",
+                        "content_type": "image/png",
+                        "source": "knowhere-rendered-page-citation-source",
+                    }
+                ],
+            },
+        }
+    ]
 
     formatted = ZipChunkSchemaBuilder().format_chunks(chunks, {}, {})
     metadata = formatted[0]["metadata"]

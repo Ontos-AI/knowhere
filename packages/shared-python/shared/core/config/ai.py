@@ -126,10 +126,11 @@ class AIConfig(BaseModel):
         ),
     )
     PAGE_MEMORY_TAGGING_MODE: str = Field(
-        default="visual",
+        default="text",
         description=(
-            "Page-memory page tagging mode: 'visual' (combined VLM titles+"
-            "summary+entities) or 'text' (VLM titles + DeepSeek page text summary)."
+            "Page-memory page tagging mode: 'text' (VLM titles + DeepSeek page "
+            "text summary/entities) or 'visual' (combined VLM titles+"
+            "summary+entities)."
         ),
     )
     PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY: int = Field(
@@ -217,10 +218,9 @@ class AIConfig(BaseModel):
     ENTITY_TYPES: str = Field(
         default="person,location,organization",
         description=(
-            "Comma-separated seed list of entity types the summarizer may emit "
-            "(§4.4). Extend this to broaden extraction (e.g. product, date, money) "
-            "without code changes. Order is not significant; matching is "
-            "case-insensitive. An empty value disables type guidance and lets the "
-            "model choose, but the seed list keeps cross-document links consistent."
+            "Comma-separated enabled entity types for summarization (§4.4). "
+            "Definitions live in "
+            "shared.services.ai.prompt_service.ENTITY_TYPE_GLOSSARY. "
+            "Empty uses the full glossary."
         ),
     )

@@ -30,7 +30,7 @@ class PageMemoryConfig:
     asset_summary_concurrency: int = 4
     table_engine: str = "tabula"
     table_merge_enabled: bool = True
-    tagging_mode: TaggingMode = "visual"
+    tagging_mode: TaggingMode = "text"
     scan_direction: str = "top_to_bottom_left_to_right"
 
     @classmethod
@@ -60,7 +60,7 @@ class PageMemoryConfig:
             ),
             tagging_mode=_as_tagging_mode(
                 getattr(settings, "PAGE_MEMORY_TAGGING_MODE", None),
-                "visual",
+                "text",
             ),
             asset_extraction_enabled=_as_bool(
                 getattr(settings, "PAGE_MEMORY_ASSET_EXTRACTION_ENABLED", None),

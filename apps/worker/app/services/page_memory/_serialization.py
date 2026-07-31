@@ -83,8 +83,12 @@ def scope_manifest(
         "page_ranges": collapse_page_ranges(pages),
         "structural_page_ranges": collapse_page_ranges(structural_pages),
         "processing_page_ranges": collapse_page_ranges(pages),
+        "processing_pages": pages,
         "excluded_toc_page_ranges": collapse_page_ranges(
             sorted({int(page) for page in (excluded_toc_pages or [])})
+        ),
+        "excluded_toc_pages": sorted(
+            {int(page) for page in (excluded_toc_pages or [])}
         ),
         "skeleton_count": len(skeletons),
         "parent_paths": parent_paths,
@@ -170,7 +174,7 @@ def serialize_page_tags(
             ),
             None,
         )
-        or "visual"
+        or "text"
     )
     return {
         "version": "2.0",
@@ -391,7 +395,7 @@ def write_top_level_artifacts(
     hierarchy: list[Any],
     tags: list[Any],
     assets_by_page: dict[int, list[Any]] | None = None,
-    tagging_mode: str = "visual",
+    tagging_mode: str = "text",
 ) -> None:
     root = Path(output_dir)
     write_json(root / "hierarchy.json", serialize_hierarchy_artifact(hierarchy))

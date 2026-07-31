@@ -1,7 +1,7 @@
 """Convert parser DataFrames into canonical chunk payloads.
 
-DataFrame conversion is the Text Track adapter. Page Memory should call
-``rows_to_chunks`` / ``row_dict_to_chunk`` directly.
+DataFrame conversion is the legacy Text Track adapter. Page Memory constructs
+canonical chunks directly and does not pass through this module.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ from shared.services.chunks.canonical_chunk_builder import (
     JsonValue,
     chunks_as_json,
     finalize_chunk_connections,
-    row_dict_to_chunk,
     rows_to_chunks,
 )
 
@@ -30,8 +29,6 @@ __all__ = [
     "JsonValue",
     "dataframe_to_chunks",
     "finalize_chunk_connections",
-    "row_dict_to_chunk",
-    "rows_to_chunks",
 ]
 
 
