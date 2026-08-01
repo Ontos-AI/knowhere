@@ -23,7 +23,6 @@ from shared.core.exceptions.domain_exceptions import (
     UnavailableException,
 )
 from shared.services.storage.job_file_storage import JobFileStorage
-from shared.utils.zip_download import download_and_extract_zip
 from app.services.common.file_loading import is_remote
 
 MINERU_UPLOAD_TIMEOUT = (
@@ -501,10 +500,39 @@ def _get_local_mineru_session_cached() -> requests.Session:
     return _local_mineru_session
 
 
+_MINERU_RAW_SIDECAR_FILE_NAME = "_mineru_raw_s3_key.txt"
+
+
+def _archive_mineru_raw_zip(
+    zip_path: str,
+    *,
+    job_id: str,
+    suffix: str,
+) -> str:
+    """Upload a raw MinerU ZIP to the results bucket and return its S3 key.
+
+    The key is ``results/{job_id}/mineru_raw{suffix}.zip`` so sharded parses
+    get unique keys (``mineru_raw_shard0.zip``, ...) while the single-parse
+    case keeps the documented ``results/{job_id}/mineru_raw.zip``.
+    """
+    from shared.services.storage.result_storage import JobResultStorage
+
+    storage = JobResultStorage()
+    relative_path = f"mineru_raw{suffix}.zip"
+    storage.upload_raw_file(
+        job_id=job_id,
+        relative_path=relative_path,
+        local_file_path=zip_path,
+    )
+    return storage.build_raw_key(job_id=job_id, relative_path=relative_path)
+
+
 def parse_via_local(
     pdf_url: str,
     filename: str,
     output_dir: str,
+    job_id: Optional[str] = None,
+    mineru_raw_suffix: str = "",
 ) -> None:
     """Parse a PDF via a local MinerU instance's synchronous /file_parse.
 
@@ -513,6 +541,15 @@ def parse_via_local(
     ``/extract-results/batch``). Local MinerU exposes a single synchronous
     ``/file_parse`` endpoint that accepts the PDF as multipart form data and
     returns a ZIP with a different layout (``{stem}/auto/{stem}.md``).
+
+    Requests the raw ZIP (``response_format_zip=true`` plus the original
+    input file via ``return_original_file=true``) and archives it to S3
+    (``results/{job_id}/mineru_raw{suffix}.zip``) before extracting, so the
+    complete raw MinerU output is permanently retained for audit and
+    re-processing. The S3 key is written to a sidecar file
+    (``{output_dir}/_mineru_raw_s3_key.txt``) for the job-result caller to
+    pick up. Older MinerU builds that ignore ``response_format_zip`` and
+    return inline JSON are handled via a fallback path that skips archival.
     """
     base_url = settings.MINERU_URL.rstrip("/")
     endpoint = f"{base_url}/file_parse"
@@ -523,12 +560,15 @@ def parse_via_local(
         endpoint=endpoint,
         lang_list=settings.MINERU_LOCAL_LANG_LIST,
         backend=settings.MINERU_LOCAL_BACKEND,
+        raw_zip_archival=bool(job_id),
     )
 
     form_fields = {
         "lang_list": settings.MINERU_LOCAL_LANG_LIST,
         "backend": settings.MINERU_LOCAL_BACKEND,
         "return_images": "true",
+        "response_format_zip": "true",
+        "return_original_file": "true",
     }
 
     if is_remote(pdf_url):
@@ -614,65 +654,120 @@ def parse_via_local(
 
     local_logger.info("Local MinerU /file_parse completed")
 
-    result_payload = response.json()
-    results = result_payload.get("results") or {}
-    if not results:
-        raise MinerUServiceException(
-            internal_message=(
-                "Local MinerU /file_parse response missing results; "
-                f"keys: {list(result_payload.keys())}"
-            ),
-        )
-
-    file_names = result_payload.get("file_names") or list(results.keys())
-    if len(results) > 1:
-        raise MinerUServiceException(
-            internal_message=(
-                f"Local MinerU returned {len(results)} result files; "
-                f"expected exactly one: {file_names}"
-            ),
-        )
-
-    result_key = next(iter(results))
-    result = results[result_key]
-    md_content = result.get("md_content") or ""
-    images = result.get("images") or {}
-
     import base64
+    import json
     from pathlib import Path
 
-    destination = Path(output_dir)
-    destination.mkdir(parents=True, exist_ok=True)
+    content_type = response.headers.get("Content-Type", "")
+    is_json_response = (
+        "application/json" in content_type
+        or response.content.lstrip().startswith(b"{")
+    )
 
-    (destination / "full.md").write_text(md_content, encoding="utf-8")
+    if is_json_response:
+        # Fallback for MinerU builds that ignore response_format_zip:
+        # handle the inline JSON response and skip raw-ZIP archival.
+        local_logger.warning(
+            "Local MinerU returned an inline JSON response despite "
+            "response_format_zip=true; skipping raw-ZIP archival"
+        )
+        result_payload = json.loads(response.content)
+        results = result_payload.get("results") or {}
+        if not results:
+            raise MinerUServiceException(
+                internal_message=(
+                    "Local MinerU /file_parse response missing results; "
+                    f"keys: {list(result_payload.keys())}"
+                ),
+            )
 
-    if images:
-        images_dir = destination / "images"
-        images_dir.mkdir(parents=True, exist_ok=True)
-        for image_name, image_data in images.items():
-            if not isinstance(image_data, str) or not image_data:
-                continue
-            image_path = images_dir / image_name
-            try:
-                if image_data.startswith("http"):
-                    img_response = _get_local_mineru_session_cached().get(
-                        image_data,
-                        timeout=settings.MINERU_API_TIMEOUT,
-                    )
-                    img_response.raise_for_status()
-                    image_path.write_bytes(img_response.content)
-                else:
-                    image_path.write_bytes(base64.b64decode(image_data))
-            except Exception as exc:
-                local_logger.bind(
-                    image_name=image_name,
-                    error_type=type(exc).__name__,
-                ).warning("Failed to save local MinerU image, skipping")
+        file_names = result_payload.get("file_names") or list(results.keys())
+        if len(results) > 1:
+            raise MinerUServiceException(
+                internal_message=(
+                    f"Local MinerU returned {len(results)} result files; "
+                    f"expected exactly one: {file_names}"
+                ),
+            )
 
-    local_logger.bind(
-        md_chars=len(md_content),
-        image_count=len(images),
-    ).info("Local MinerU parse completed")
+        result_key = next(iter(results))
+        result = results[result_key]
+        md_content = result.get("md_content") or ""
+        images = result.get("images") or {}
+
+        destination = Path(output_dir)
+        destination.mkdir(parents=True, exist_ok=True)
+
+        (destination / "full.md").write_text(md_content, encoding="utf-8")
+
+        if images:
+            images_dir = destination / "images"
+            images_dir.mkdir(parents=True, exist_ok=True)
+            for image_name, image_data in images.items():
+                if not isinstance(image_data, str) or not image_data:
+                    continue
+                image_path = images_dir / image_name
+                try:
+                    if image_data.startswith("http"):
+                        img_response = _get_local_mineru_session_cached().get(
+                            image_data,
+                            timeout=settings.MINERU_API_TIMEOUT,
+                        )
+                        img_response.raise_for_status()
+                        image_path.write_bytes(img_response.content)
+                    else:
+                        image_path.write_bytes(base64.b64decode(image_data))
+                except Exception as exc:
+                    local_logger.bind(
+                        image_name=image_name,
+                        error_type=type(exc).__name__,
+                    ).warning("Failed to save local MinerU image, skipping")
+
+        local_logger.bind(
+            md_chars=len(md_content),
+            image_count=len(images),
+        ).info("Local MinerU parse completed (inline JSON fallback)")
+        return
+
+    # ZIP response: archive the raw ZIP to S3 before extracting.
+    import tempfile
+    import zipfile
+
+    raw_zip_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+            tmp.write(response.content)
+            raw_zip_path = tmp.name
+
+        if job_id:
+            s3_key = _archive_mineru_raw_zip(
+                raw_zip_path,
+                job_id=job_id,
+                suffix=mineru_raw_suffix,
+            )
+            Path(output_dir, _MINERU_RAW_SIDECAR_FILE_NAME).write_text(
+                s3_key, encoding="utf-8"
+            )
+            local_logger.bind(raw_zip_s3_key=s3_key).info(
+                "Archived local MinerU raw ZIP to S3"
+            )
+
+        with zipfile.ZipFile(raw_zip_path) as extracted_zip:
+            extracted_zip.extractall(output_dir)
+    except zipfile.BadZipFile as exc:
+        local_logger.bind(error_type=type(exc).__name__).error(
+            "Local MinerU response was not a valid ZIP"
+        )
+        raise MinerUServiceException(
+            internal_message=f"Local MinerU returned a non-ZIP body: {exc}",
+            original_exception=exc,
+        ) from exc
+    finally:
+        if raw_zip_path is not None:
+            os.unlink(raw_zip_path)
+
+    _flatten_extracted_zip(output_dir)
+    local_logger.info("Local MinerU parse completed and ZIP flattened")
 
 
 def parse_via_full(
@@ -680,12 +775,20 @@ def parse_via_full(
     filename: str,
     output_dir: str,
     s3_key: Optional[str] = None,
+    job_id: Optional[str] = None,
+    mineru_raw_suffix: str = "",
 ) -> None:
     if settings.MINERU_LOCAL_MODE:
         mineru_logger("ingestion_mode", mode="local").info(
             "Using local MinerU mode for ingestion"
         )
-        parse_via_local(pdf_url=pdf_url, filename=filename, output_dir=output_dir)
+        parse_via_local(
+            pdf_url=pdf_url,
+            filename=filename,
+            output_dir=output_dir,
+            job_id=job_id,
+            mineru_raw_suffix=mineru_raw_suffix,
+        )
         return
 
     batch_id: str | None = None
