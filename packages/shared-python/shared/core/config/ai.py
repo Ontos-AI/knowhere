@@ -68,6 +68,10 @@ class AIConfig(BaseModel):
         default=3,
         description="Maximum concurrent workflow steps in the same DAG batch.",
     )
+    RETRIEVAL_WORKFLOW_PLANNER_TIMEOUT_SECONDS: float = Field(
+        default=25.0,
+        description="Timeout for the optional retrieval workflow planner LLM call.",
+    )
 
     # Runtime LLM controls.
     LLM_MOCK_ENABLED: bool = Field(

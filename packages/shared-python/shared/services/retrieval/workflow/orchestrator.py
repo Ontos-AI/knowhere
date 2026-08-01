@@ -104,6 +104,7 @@ class WorkflowOrchestrator:
         request: WorkflowRunRequest,
         llm_fn=None,
     ) -> WorkflowResult:
+        _ = db
         t0 = time.monotonic()
         config = WorkflowRuntimeConfig.from_env()
         llm_fn = llm_fn or create_retrieval_llm_fn()
@@ -115,12 +116,14 @@ class WorkflowOrchestrator:
             bootstrap=config.planner_budget,
             per_doc_min_share=0,
         )
-        total_chunks, total_docs, _chunks_count_by_doc = await _load_budget_inventory(
-            db,
-            user_id=request.user_id,
-            namespace=request.namespace,
-            exclude_document_ids=request.exclude_document_ids,
-        )
+        db_factory = self._get_db_factory()
+        async with db_factory() as inventory_db:
+            total_chunks, total_docs, _chunks_count_by_doc = await _load_budget_inventory(
+                inventory_db,
+                user_id=request.user_id,
+                namespace=request.namespace,
+                exclude_document_ids=request.exclude_document_ids,
+            )
         planner_ledger.total_chunks = total_chunks
         planner_ledger.total_docs = total_docs
         plan = await self._plan_service.load_or_create(
@@ -137,6 +140,7 @@ class WorkflowOrchestrator:
             per_retrieve=config.per_retrieve_step_budget,
             corpus_total_docs=total_docs,
             corpus_total_chunks=total_chunks,
+            planner_timeout_seconds=config.planner_timeout_seconds,
         )
         # TODO(retrieval-agentic-nav): redesign this outer workflow as a real
         # observe-act agent that can pass evidence between steps, decide whether
@@ -152,7 +156,7 @@ class WorkflowOrchestrator:
         results_by_id: dict[str, StepResult] = {}
         sem = asyncio.Semaphore(config.parallel_max)
         step_runner = self._step_runner_factory(
-            self._get_db_factory(),
+            db_factory,
             self.parent_run_id,
         )
 

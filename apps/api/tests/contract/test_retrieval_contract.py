@@ -782,6 +782,82 @@ async def test_agentic_retrieval_should_drop_references_that_do_not_match_the_hy
 
 
 @pytest.mark.asyncio
+async def test_agentic_retrieval_should_fail_when_final_hydration_db_fails(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    class FakeWorkflowOrchestrator:
+        async def run_request(
+            self,
+            _db: AsyncSession,
+            *,
+            request: WorkflowRunRequest,
+        ) -> WorkflowResult:
+            return WorkflowResult(
+                namespace=request.namespace,
+                query=request.query,
+                router_used="workflow_single_step",
+                answer_text="",
+                referenced_chunks=[
+                    {
+                        "chunk_id": visible_document["chunk_id"],
+                        "document_id": visible_document["document_id"],
+                        "chunk_type": "text",
+                        "section_path": visible_document["section_path"],
+                        "file_path": None,
+                        "job_id": visible_document["job_id"],
+                    }
+                ],
+            )
+
+    async def fail_final_hydration(**_kwargs: object) -> object:
+        raise RuntimeError("forced final hydration database failure")
+
+    async with developer_api_client_factory() as api_client:
+        visible_document = await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-final-hydration-failure",
+            source_file_name="visible.pdf",
+            section_path="visible/section",
+            content="visible scoped content",
+        )
+        await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-final-hydration-failure",
+            source_file_name="filler.pdf",
+            section_path="filler/section",
+            content="filler content",
+        )
+        from shared.services.retrieval.execution import routes as retrieval_routes
+
+        monkeypatch.setattr(
+            "shared.services.retrieval.workflow.orchestrator.WorkflowOrchestrator",
+            FakeWorkflowOrchestrator,
+        )
+        monkeypatch.setattr(
+            retrieval_routes,
+            "resolve_workflow_references",
+            fail_final_hydration,
+        )
+
+        with pytest.raises(
+            RuntimeError,
+            match="forced final hydration database failure",
+        ):
+            await api_client.post(
+                "/api/v1/retrieval/query",
+                json={
+                    "namespace": "contract-final-hydration-failure",
+                    "query": "visible",
+                    "top_k": 1,
+                    "use_agentic": True,
+                },
+            )
+
+
+@pytest.mark.asyncio
 async def test_agentic_workflow_should_preserve_references_with_the_same_chunk_id_across_documents(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]

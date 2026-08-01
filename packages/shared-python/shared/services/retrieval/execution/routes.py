@@ -36,19 +36,13 @@ async def run_retrieval_route(
 async def _try_run_small_corpus_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome | None:
-    try:
-        total_chunk_count = await count_scoped_chunks(
-            context.db,
-            user_id=context.user_id,
-            namespace=context.namespace,
-            exclude_document_ids=context.exclude_document_ids,
-            allowed_chunk_types=context.allowed_chunk_types,
-        )
-    except Exception as exc:
-        logger.warning(
-            f"Failed to count scoped chunks, skipping small corpus optimization: {exc}"
-        )
-        total_chunk_count = context.top_k + 1
+    total_chunk_count = await count_scoped_chunks(
+        context.db,
+        user_id=context.user_id,
+        namespace=context.namespace,
+        exclude_document_ids=context.exclude_document_ids,
+        allowed_chunk_types=context.allowed_chunk_types,
+    )
 
     logger.info(f"\n  Total chunks in scope: {total_chunk_count}")
     if total_chunk_count > context.top_k:
@@ -161,6 +155,8 @@ async def _run_agentic_route(
     from shared.services.retrieval.workflow.orchestrator import WorkflowOrchestrator
     from shared.services.retrieval.workflow.run_request import WorkflowRunRequest
 
+    await context.db.rollback()
+
     workflow = WorkflowOrchestrator()
     workflow_result = await workflow.run_request(
         context.db,
@@ -199,30 +195,33 @@ async def _run_agentic_route(
                         except (TypeError, ValueError):
                             pass
 
-    resolved_references = await resolve_workflow_references(
-        db=context.db,
-        user_id=context.user_id,
-        namespace=context.namespace,
-        refs=workflow_result.referenced_chunks,
-        score_by_chunk_id=score_by_chunk_id if score_by_chunk_id else None,
-    )
+    from shared.core.database import get_db_context
 
-    # Backfill doc-level confidence for chunks that have no discovery score
-    if doc_confidence:
-        for row in resolved_references.rows:
-            cid = row.get('chunk_id', '')
-            if cid and row.get('score') is None:
-                doc_id = row.get('document_id', '')
-                if doc_id in doc_confidence:
-                    row['score'] = doc_confidence[doc_id]
+    async with get_db_context() as hydration_db:
+        resolved_references = await resolve_workflow_references(
+            db=hydration_db,
+            user_id=context.user_id,
+            namespace=context.namespace,
+            refs=workflow_result.referenced_chunks,
+            score_by_chunk_id=score_by_chunk_id if score_by_chunk_id else None,
+        )
 
-    assembled_workflow_rows = await assemble_retrieval_results(
-        db=context.db,
-        rows=resolved_references.rows,
-        exclude_document_ids=context.exclude_document_ids,
-        exclude_sections=context.exclude_sections,
-        allowed_chunk_types=context.allowed_chunk_types,
-    )
+        # Backfill doc-level confidence for chunks that have no discovery score
+        if doc_confidence:
+            for row in resolved_references.rows:
+                cid = row.get('chunk_id', '')
+                if cid and row.get('score') is None:
+                    doc_id = row.get('document_id', '')
+                    if doc_id in doc_confidence:
+                        row['score'] = doc_confidence[doc_id]
+
+        assembled_workflow_rows = await assemble_retrieval_results(
+            db=hydration_db,
+            rows=resolved_references.rows,
+            exclude_document_ids=context.exclude_document_ids,
+            exclude_sections=context.exclude_sections,
+            allowed_chunk_types=context.allowed_chunk_types,
+        )
     response = workflow_result.to_api_response()
     response["answer_text"] = ""
     response["referenced_chunks"] = resolved_references.refs
