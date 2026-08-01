@@ -3,7 +3,7 @@
 import os
 import zipfile
 from pathlib import Path
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 import requests
 
@@ -19,8 +19,14 @@ def download_and_extract_zip(
     keep_exts: tuple[str, ...] = (".md", ".json"),
     exclude_patterns: tuple[str, ...] = (),
     clean_empty_dirs: bool = True,
+    on_zip_downloaded: Callable[[Path], None] | None = None,
 ) -> None:
-    """Download a ZIP file, extract it, and keep only the requested artifacts."""
+    """Download a ZIP file, extract it, and keep only the requested artifacts.
+
+    ``on_zip_downloaded`` (if given) is invoked with the downloaded ZIP's
+    path after the download completes but before extraction, so callers can
+    archive the raw artifact before it is deleted.
+    """
     import fnmatch
 
     from shared.core.constants import APIConstants, ProcessingConstants
@@ -46,6 +52,9 @@ def download_and_extract_zip(
             for chunk in response.iter_content(chunk_size=chunk_size):
                 if chunk:
                     zip_file.write(chunk)
+
+    if on_zip_downloaded is not None:
+        on_zip_downloaded(zip_path)
 
     with zipfile.ZipFile(zip_path, "r") as extracted_zip:
         extracted_zip.extractall(destination)

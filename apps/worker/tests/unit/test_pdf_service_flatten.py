@@ -243,3 +243,82 @@ def test_aggregate_mineru_raw_sidecars_skips_when_none(tmp_path: Path) -> None:
     _aggregate_mineru_raw_sidecars([str(empty_dir)], str(tmp_path))
 
     assert not (tmp_path / "_mineru_raw_s3_key.txt").exists()
+
+
+def test_download_and_extract_zip_invokes_on_zip_downloaded_before_extract(
+    tmp_path: Path,
+) -> None:
+    """The cloud-mode callback sees the raw ZIP before extraction deletes it."""
+    import zipfile
+
+    from shared.utils.zip_download import download_and_extract_zip
+
+    zip_buffer = __import__("io").BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("full.md", "# Cloud doc")
+    zip_buffer.seek(0)
+
+    callback_paths: list[Path] = []
+
+    def _on_zip_downloaded(zip_path: Path) -> None:
+        callback_paths.append(zip_path)
+        assert zip_path.exists()
+        assert zipfile.is_zipfile(zip_path)
+
+    from unittest.mock import patch
+
+    with patch(
+        "shared.utils.zip_download.requests.get"
+    ) as mock_get:
+        mock_response = mock_get.return_value.__enter__.return_value
+        mock_response.iter_content.return_value = [zip_buffer.getvalue()]
+        download_and_extract_zip(
+            "https://mineru.example/full.zip",
+            str(tmp_path),
+            on_zip_downloaded=_on_zip_downloaded,
+        )
+
+    assert len(callback_paths) == 1
+    assert (tmp_path / "full.md").read_text() == "# Cloud doc"
+    assert not (tmp_path / "parsed.zip").exists()
+
+
+def test_on_zip_downloaded_can_archive_to_s3(tmp_path: Path) -> None:
+    """Callback wiring mirrors parse_via_full: upload + sidecar write."""
+    import io
+    import zipfile
+
+    from app.services.document_parser.providers.mineru.pdf_service import (
+        _archive_mineru_raw_zip,
+    )
+    from shared.utils.zip_download import download_and_extract_zip
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("full.md", "# Cloud doc")
+    zip_buffer.seek(0)
+
+    captured_keys: list[str] = []
+
+    def _on_zip_downloaded(zip_path: Path) -> None:
+        captured_keys.append(
+            _archive_mineru_raw_zip(
+                str(zip_path),
+                job_id="job-cloud-1",
+                suffix="",
+            )
+        )
+
+    from unittest.mock import patch
+
+    with patch("shared.utils.zip_download.requests.get") as mock_get:
+        mock_response = mock_get.return_value.__enter__.return_value
+        mock_response.iter_content.return_value = [zip_buffer.getvalue()]
+        download_and_extract_zip(
+            "https://mineru.example/full.zip",
+            str(tmp_path),
+            on_zip_downloaded=_on_zip_downloaded,
+        )
+
+    assert captured_keys == ["results/job-cloud-1/mineru_raw.zip"]
+    assert not (tmp_path / "parsed.zip").exists()

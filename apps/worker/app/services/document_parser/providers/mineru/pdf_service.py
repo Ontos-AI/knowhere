@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -829,10 +830,34 @@ def parse_via_full(
             internal_message="MinerU task setup completed without a batch id or token"
         )
 
+    archived_raw_s3_key: Optional[str] = None
+
+    def _on_zip_downloaded(zip_path: Path) -> None:
+        nonlocal archived_raw_s3_key
+        if not job_id:
+            return
+        archived_raw_s3_key = _archive_mineru_raw_zip(
+            str(zip_path),
+            job_id=job_id,
+            suffix=mineru_raw_suffix,
+        )
+        mineru_logger(
+            "raw_zip_archive",
+            operation="poll_status",
+            task_id=batch_id,
+            raw_zip_s3_key=archived_raw_s3_key,
+        ).info("Archived cloud MinerU raw ZIP to S3")
+
     poll_mineru_task(
         status_url=f"{settings.MINERU_URL}/extract-results/batch/{batch_id}",
         task_id=batch_id,
         output_dir=output_dir,
         get_status=get_batch_status,
         preferred_token_id=token_id,
+        on_zip_downloaded=_on_zip_downloaded,
     )
+
+    if archived_raw_s3_key:
+        Path(output_dir, _MINERU_RAW_SIDECAR_FILE_NAME).write_text(
+            archived_raw_s3_key, encoding="utf-8"
+        )
