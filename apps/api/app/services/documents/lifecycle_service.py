@@ -23,6 +23,8 @@ _PAGE_CITATION_SOURCE_EXPIRES_SECONDS = 60 * 60
 _PAGE_CITATION_SOURCE_FILE_NAME = "source.pdf"
 _PAGE_CITATION_SOURCE_VARIANT = "normalized_pdf"
 _PAGE_MEMORY_PARSE_TRACK = "page_memory"
+_MINERU_RAW_EXPIRES_SECONDS = 7 * 24 * 60 * 60
+_MINERU_RAW_FILE_NAME = "mineru_raw.zip"
 
 
 def _datetime_payload(value: datetime | None) -> str | None:
@@ -381,6 +383,48 @@ class DocumentService:
             "file_name": _PAGE_CITATION_SOURCE_FILE_NAME,
             "content_type": "application/pdf",
             "url": source_url,
+            "expires_at": expires_at.isoformat(),
+        }
+
+    async def get_document_mineru_raw(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: str,
+        document_id: str,
+    ) -> dict[str, Any] | None:
+        row = await self._repository.get_current_document_job_revision(
+            db,
+            user_id=user_id,
+            document_id=document_id,
+        )
+        if row is None:
+            return None
+
+        document, job_result, job = row
+        raw_s3_key = job_result.mineru_raw_s3_key
+        if not raw_s3_key:
+            return None
+
+        result_storage = self._result_storage or get_result_storage()
+        download_url = result_storage.generate_url(
+            storage_key=raw_s3_key,
+            expires_in=_MINERU_RAW_EXPIRES_SECONDS,
+        )
+        if not download_url:
+            return None
+
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            seconds=_MINERU_RAW_EXPIRES_SECONDS,
+        )
+        return {
+            "document_id": document.document_id,
+            "namespace": document.namespace,
+            "job_id": job.job_id,
+            "job_result_id": job_result.id,
+            "file_name": _MINERU_RAW_FILE_NAME,
+            "content_type": "application/zip",
+            "url": download_url,
             "expires_at": expires_at.isoformat(),
         }
 

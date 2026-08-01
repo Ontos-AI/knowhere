@@ -45,6 +45,11 @@ class ResultStorage(Protocol):
     ) -> str | None:
         raise NotImplementedError
 
+    def generate_url(
+        self, *, storage_key: str, expires_in: int = 3600
+    ) -> str | None:
+        raise NotImplementedError
+
     def verify_raw_exists(self, *, job_id: str, relative_path: str) -> bool:
         raise NotImplementedError
 

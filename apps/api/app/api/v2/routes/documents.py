@@ -37,4 +37,24 @@ async def get_document_page_citation_source(
         )
     return response
 
+
+@router.get("/{document_id}/files/mineru-raw")
+async def get_document_mineru_raw(
+    document_id: str,
+    current_user: CurrentUser = Depends(with_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    response = await _document_service.get_document_mineru_raw(
+        db,
+        user_id=current_user.user_id,
+        document_id=document_id,
+    )
+    if response is None:
+        raise NotFoundException(
+            resource="Document MinerU raw output",
+            resource_id=document_id,
+            internal_message="Document MinerU raw output not found",
+        )
+    return response
+
 __all__ = ["router"]

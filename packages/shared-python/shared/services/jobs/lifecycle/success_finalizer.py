@@ -80,6 +80,7 @@ class SyncJobSuccessFinalizer:
         delivery_mode: str,
         section_summaries: dict[str, str] | None,
         document_top_summary: str | None = None,
+        mineru_raw_s3_key: str | None = None,
     ) -> JobSuccessFinalization:
         job_result = self._result_writer.upsert_job_result(
             db,
@@ -88,6 +89,7 @@ class SyncJobSuccessFinalizer:
             inline_payload={"checksum": checksum},
             result_s3_key=result_s3_key,
             result_size=zip_size,
+            mineru_raw_s3_key=mineru_raw_s3_key,
         )
         self._result_writer.replace_chunks(db, job_result.id, chunks)
         publication_outcome = self._publication_finalizer.publish_result(
