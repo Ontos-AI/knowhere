@@ -31,6 +31,18 @@ def _datetime_payload(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
+def _split_mineru_raw_s3_keys(value: str | None) -> list[str]:
+    """Split the stored MinerU raw key(s) into individual S3 keys.
+
+    Single-parse jobs store one key. Sharded jobs store the per-shard keys
+    newline-joined (one per line), merged by the worker from each shard's
+    sidecar file.
+    """
+    if not value:
+        return []
+    return [key.strip() for key in value.splitlines() if key.strip()]
+
+
 def _document_chunk_asset_url(
     *,
     chunk_type: str,
@@ -402,31 +414,39 @@ class DocumentService:
             return None
 
         document, job_result, job = row
-        raw_s3_key = job_result.mineru_raw_s3_key
-        if not raw_s3_key:
+        raw_s3_keys = _split_mineru_raw_s3_keys(job_result.mineru_raw_s3_key)
+        if not raw_s3_keys:
             return None
 
         result_storage = self._result_storage or get_result_storage()
-        download_url = result_storage.generate_url(
-            storage_key=raw_s3_key,
-            expires_in=_MINERU_RAW_EXPIRES_SECONDS,
-        )
-        if not download_url:
+        download_urls = []
+        for raw_s3_key in raw_s3_keys:
+            download_url = result_storage.generate_url(
+                storage_key=raw_s3_key,
+                expires_in=_MINERU_RAW_EXPIRES_SECONDS,
+            )
+            if download_url:
+                download_urls.append(download_url)
+        if not download_urls:
             return None
 
         expires_at = datetime.now(timezone.utc) + timedelta(
             seconds=_MINERU_RAW_EXPIRES_SECONDS,
         )
-        return {
+        response: dict[str, Any] = {
             "document_id": document.document_id,
             "namespace": document.namespace,
             "job_id": job.job_id,
             "job_result_id": job_result.id,
             "file_name": _MINERU_RAW_FILE_NAME,
             "content_type": "application/zip",
-            "url": download_url,
             "expires_at": expires_at.isoformat(),
         }
+        if len(download_urls) == 1:
+            response["url"] = download_urls[0]
+        else:
+            response["urls"] = download_urls
+        return response
 
     def _chunk_payload(
         self,

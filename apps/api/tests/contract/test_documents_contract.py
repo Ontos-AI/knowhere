@@ -270,6 +270,11 @@ async def _insert_document_revision_with_chunks(
     section_id = f"sec_{uuid4().hex[:12]}"
     if mineru_raw_s3_key == "auto":
         mineru_raw_s3_key = f"results/{job_id}/mineru_raw.zip"
+    elif mineru_raw_s3_key == "sharded":
+        mineru_raw_s3_key = (
+            f"results/{job_id}/mineru_raw_shard0.zip\n"
+            f"results/{job_id}/mineru_raw_shard1.zip"
+        )
 
     try:
         async with engine.begin() as connection:
@@ -981,6 +986,48 @@ async def test_should_return_not_found_when_mineru_raw_key_is_missing(
         )
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_should_return_multiple_mineru_raw_urls_for_sharded_document(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory() as api_client:
+        revision = await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            chunks=[
+                {
+                    "id": f"dchk_{uuid4().hex[:12]}",
+                    "chunk_id": "chunk-text",
+                    "chunk_type": "text",
+                    "content": "Chunk content",
+                    "source_chunk_path": "Chunk 1",
+                    "metadata": {"page_nums": []},
+                }
+            ],
+            mineru_raw_s3_key="sharded",
+        )
+        response = await api_client.get(
+            f"/api/v2/documents/{document_id}/files/mineru-raw"
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    assert response_json["job_id"] == revision["job_id"]
+    assert response_json["urls"] == [
+        "filesystem://knowhere-test-results/"
+        f"results/{revision['job_id']}/mineru_raw_shard0.zip"
+        "?method=GET&expires_in=604800",
+        "filesystem://knowhere-test-results/"
+        f"results/{revision['job_id']}/mineru_raw_shard1.zip"
+        "?method=GET&expires_in=604800",
+    ]
+    assert "url" not in response_json
 
 
 @pytest.mark.asyncio
