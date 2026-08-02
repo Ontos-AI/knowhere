@@ -240,15 +240,15 @@ async def test_agentic_route_should_release_route_session_before_fresh_final_hyd
 ) -> None:
     events: list[str] = []
     route_db = _RecordingRouteSession(events)
-    hydration_db = object()
+    fresh_db = object()
 
     @asynccontextmanager
     async def fake_get_db_context() -> AsyncGenerator[AsyncSession, None]:
-        events.append("hydration_open")
+        events.append("fresh_db_open")
         try:
-            yield cast(AsyncSession, hydration_db)
+            yield cast(AsyncSession, fresh_db)
         finally:
-            events.append("hydration_close")
+            events.append("fresh_db_close")
 
     class FakeWorkflowOrchestrator:
         async def run_request(
@@ -285,7 +285,7 @@ async def test_agentic_route_should_release_route_session_before_fresh_final_hyd
         refs: list[RouteRow],
         score_by_chunk_id: dict[str, float] | None = None,
     ) -> ResolvedWorkflowReferences:
-        assert db is hydration_db
+        assert db is fresh_db
         assert user_id == "contract-user"
         assert namespace == "contract-namespace"
         assert score_by_chunk_id is None
@@ -308,7 +308,7 @@ async def test_agentic_route_should_release_route_session_before_fresh_final_hyd
         exclude_sections: list[dict[str, str]],
         allowed_chunk_types: set[str] | None,
     ) -> list[RouteRow]:
-        assert db is hydration_db
+        assert db is fresh_db
         assert exclude_document_ids == []
         assert exclude_sections == []
         assert allowed_chunk_types is None
@@ -319,7 +319,7 @@ async def test_agentic_route_should_release_route_session_before_fresh_final_hyd
         "shared.services.retrieval.workflow.orchestrator.WorkflowOrchestrator",
         FakeWorkflowOrchestrator,
     )
-    monkeypatch.setattr(route_module, "open_hydration_db_context", fake_get_db_context)
+    monkeypatch.setattr(route_module, "open_fresh_database_context", fake_get_db_context)
     monkeypatch.setattr(
         route_module,
         "resolve_workflow_references",
@@ -357,10 +357,10 @@ async def test_agentic_route_should_release_route_session_before_fresh_final_hyd
     assert events == [
         "route_rollback",
         "workflow_start",
-        "hydration_open",
+        "fresh_db_open",
         "resolve_references",
         "assemble_results",
-        "hydration_close",
+        "fresh_db_close",
     ]
     assert outcome.response["results"][0]["citation"]["document_id"] == "doc_contract"
 
