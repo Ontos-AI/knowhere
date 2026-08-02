@@ -12,7 +12,7 @@ class WorkflowRuntimeConfig:
     per_retrieve_step_budget: int = 40000
     max_steps: int = 5
     parallel_max: int = 3
-    planner_timeout_seconds: float = 25.0
+    planner_timeout_seconds: float = 10.0
 
     @classmethod
     def from_env(cls) -> "WorkflowRuntimeConfig":
@@ -24,7 +24,7 @@ class WorkflowRuntimeConfig:
             parallel_max=_env_int("RETRIEVAL_WORKFLOW_PARALLEL_MAX", 3),
             planner_timeout_seconds=_env_float(
                 "RETRIEVAL_WORKFLOW_PLANNER_TIMEOUT_SECONDS",
-                25.0,
+                10.0,
             ),
         )
 

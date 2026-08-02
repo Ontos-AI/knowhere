@@ -23,7 +23,8 @@ from shared.services.retrieval.search.scoped_corpus import (
 )
 
 
-def open_hydration_db_context() -> AbstractAsyncContextManager[AsyncSession]:
+def open_fresh_database_context() -> AbstractAsyncContextManager[AsyncSession]:
+    """Open a fresh session for final reference resolution after workflow waits."""
     from shared.core.database import get_db_context
 
     return get_db_context()
@@ -204,9 +205,9 @@ async def _run_agentic_route(
                         except (TypeError, ValueError):
                             pass
 
-    async with open_hydration_db_context() as hydration_db:
+    async with open_fresh_database_context() as final_db:
         resolved_references = await resolve_workflow_references(
-            db=hydration_db,
+            db=final_db,
             user_id=context.user_id,
             namespace=context.namespace,
             refs=workflow_result.referenced_chunks,
@@ -223,7 +224,7 @@ async def _run_agentic_route(
                         row['score'] = doc_confidence[doc_id]
 
         assembled_workflow_rows = await assemble_retrieval_results(
-            db=hydration_db,
+            db=final_db,
             rows=resolved_references.rows,
             exclude_document_ids=context.exclude_document_ids,
             exclude_sections=context.exclude_sections,
