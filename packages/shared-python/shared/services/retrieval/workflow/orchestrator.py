@@ -108,7 +108,10 @@ class WorkflowOrchestrator:
         t0 = time.monotonic()
         config = WorkflowRuntimeConfig.from_env()
         llm_fn = llm_fn or create_retrieval_llm_fn()
-        planner_llm = create_retrieval_planner_fn(thinking=True)
+        planner_llm = create_retrieval_planner_fn(
+            thinking=True,
+            timeout_seconds=config.planner_timeout_seconds,
+        )
 
         planner_ledger = BudgetLedger(
             total=config.planner_budget,

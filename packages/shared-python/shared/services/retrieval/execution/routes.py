@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from contextlib import AbstractAsyncContextManager
+
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.services.retrieval.agentic.discovery.tools import bottom_discovery
 from shared.services.retrieval.execution.reference_resolver import resolve_workflow_references
@@ -18,6 +21,12 @@ from shared.services.retrieval.search.scoped_corpus import (
     count_scoped_chunks,
     load_all_scoped_chunks,
 )
+
+
+def open_hydration_db_context() -> AbstractAsyncContextManager[AsyncSession]:
+    from shared.core.database import get_db_context
+
+    return get_db_context()
 
 
 async def run_retrieval_route(
@@ -195,9 +204,7 @@ async def _run_agentic_route(
                         except (TypeError, ValueError):
                             pass
 
-    from shared.core.database import get_db_context
-
-    async with get_db_context() as hydration_db:
+    async with open_hydration_db_context() as hydration_db:
         resolved_references = await resolve_workflow_references(
             db=hydration_db,
             user_id=context.user_id,

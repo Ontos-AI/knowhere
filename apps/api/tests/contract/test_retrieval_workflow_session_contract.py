@@ -15,7 +15,7 @@ from shared.services.retrieval.execution.reference_resolver import (
     ResolvedWorkflowReferences,
 )
 from shared.services.retrieval.execution.route_types import RetrievalRouteContext
-from shared.services.retrieval.llm_adapter import LLMFn
+from shared.services.retrieval.llm_adapter import LLMFn, create_retrieval_planner_fn
 from shared.services.retrieval.workflow.orchestrator import DbSessionFactory, WorkflowOrchestrator
 from shared.services.retrieval.workflow.plan_service import WorkflowPlanService
 from shared.services.retrieval.workflow.planner import QueryPlanner
@@ -100,6 +100,45 @@ async def test_workflow_planner_unexpected_code_error_should_propagate() -> None
 
     with pytest.raises(RuntimeError, match="unexpected planner bug"):
         await planner.plan(query="buggy planner query")
+
+
+@pytest.mark.asyncio
+async def test_workflow_planner_llm_should_pass_timeout_to_provider_client(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    observed_timeouts: list[object] = []
+
+    class FakeClient:
+        def chat_completion_with_usage(
+            self,
+            _prompt: object,
+            **kwargs: object,
+        ) -> tuple[str, dict[str, int]]:
+            observed_timeouts.append(kwargs.get("timeout"))
+            return "{}", {"total_tokens": 1}
+
+    def fake_build_client_for_channel(
+        *,
+        channel: str,
+        model: str,
+    ) -> tuple[FakeClient, str]:
+        assert channel == "text"
+        return FakeClient(), model
+
+    monkeypatch.setattr(
+        "shared.services.retrieval.llm_adapter._has_llm_credentials",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "shared.services.retrieval.llm_adapter._build_client_for_channel",
+        fake_build_client_for_channel,
+    )
+
+    planner_llm = create_retrieval_planner_fn(timeout_seconds=2.1)
+
+    assert planner_llm is not None
+    await planner_llm("timeout contract")
+    assert observed_timeouts == [3]
 
 
 @pytest.mark.asyncio
@@ -280,7 +319,7 @@ async def test_agentic_route_should_release_route_session_before_fresh_final_hyd
         "shared.services.retrieval.workflow.orchestrator.WorkflowOrchestrator",
         FakeWorkflowOrchestrator,
     )
-    monkeypatch.setattr("shared.core.database.get_db_context", fake_get_db_context)
+    monkeypatch.setattr(route_module, "open_hydration_db_context", fake_get_db_context)
     monkeypatch.setattr(
         route_module,
         "resolve_workflow_references",
