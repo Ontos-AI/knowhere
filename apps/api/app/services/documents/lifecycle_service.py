@@ -23,10 +23,24 @@ _PAGE_CITATION_SOURCE_EXPIRES_SECONDS = 60 * 60
 _PAGE_CITATION_SOURCE_FILE_NAME = "source.pdf"
 _PAGE_CITATION_SOURCE_VARIANT = "normalized_pdf"
 _PAGE_MEMORY_PARSE_TRACK = "page_memory"
+_MINERU_RAW_EXPIRES_SECONDS = 7 * 24 * 60 * 60
+_MINERU_RAW_FILE_NAME = "mineru_raw.zip"
 
 
 def _datetime_payload(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
+
+
+def _split_mineru_raw_s3_keys(value: str | None) -> list[str]:
+    """Split the stored MinerU raw key(s) into individual S3 keys.
+
+    Single-parse jobs store one key. Sharded jobs store the per-shard keys
+    newline-joined (one per line), merged by the worker from each shard's
+    sidecar file.
+    """
+    if not value:
+        return []
+    return [key.strip() for key in value.splitlines() if key.strip()]
 
 
 def _document_chunk_asset_url(
@@ -383,6 +397,56 @@ class DocumentService:
             "url": source_url,
             "expires_at": expires_at.isoformat(),
         }
+
+    async def get_document_mineru_raw(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: str,
+        document_id: str,
+    ) -> dict[str, Any] | None:
+        row = await self._repository.get_current_document_job_revision(
+            db,
+            user_id=user_id,
+            document_id=document_id,
+        )
+        if row is None:
+            return None
+
+        document, job_result, job = row
+        raw_s3_keys = _split_mineru_raw_s3_keys(job_result.mineru_raw_s3_key)
+        if not raw_s3_keys:
+            return None
+
+        result_storage = self._result_storage or get_result_storage()
+        download_urls = []
+        for raw_s3_key in raw_s3_keys:
+            download_url = result_storage.generate_url(
+                storage_key=raw_s3_key,
+                expires_in=_MINERU_RAW_EXPIRES_SECONDS,
+            )
+            if download_url:
+                download_urls.append(download_url)
+        if not download_urls:
+            return None
+
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            seconds=_MINERU_RAW_EXPIRES_SECONDS,
+        )
+        response: dict[str, Any] = {
+            "document_id": document.document_id,
+            "namespace": document.namespace,
+            "job_id": job.job_id,
+            "job_result_id": job_result.id,
+            "file_name": _MINERU_RAW_FILE_NAME,
+            "content_type": "application/zip",
+            "expires_at": expires_at.isoformat(),
+        }
+        if len(download_urls) == 1:
+            response["url"] = download_urls[0]
+        else:
+            response["urls"] = download_urls
+        return response
 
     def _chunk_payload(
         self,

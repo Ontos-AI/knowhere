@@ -53,6 +53,7 @@ class SyncJobLifecycleService:
         delivery_mode: str = "url",
         section_summaries: Optional[Dict[str, str]] = None,
         document_top_summary: Optional[str] = None,
+        mineru_raw_s3_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Finalize a successful job in a single atomic transaction.
 
@@ -80,6 +81,7 @@ class SyncJobLifecycleService:
                 delivery_mode=delivery_mode,
                 section_summaries=section_summaries,
                 document_top_summary=document_top_summary,
+                mineru_raw_s3_key=mineru_raw_s3_key,
             ),
             should_commit=lambda finalization: finalization.response.should_commit(),
             build_response=lambda finalization: finalization.response.to_dict(),

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 from app.services.connect_builder.summary_builder import (
     build_section_summary_lookup,
@@ -81,6 +81,9 @@ def finalize_parse_success(
         result_storage_factory=result_storage_factory,
     )
     stored_count = 0
+    mineru_raw_s3_key = _read_mineru_raw_s3_key_sidecar(
+        result_package=result_package,
+    )
 
     finalization_response = lifecycle_service.finalize_job_success(
         job_id=job_id,
@@ -92,6 +95,7 @@ def finalize_parse_success(
         delivery_mode="url",
         section_summaries=section_summaries,
         document_top_summary=document_top_summary,
+        mineru_raw_s3_key=mineru_raw_s3_key,
     )
     if finalization_response.get("status") != "success":
         logger.error(
@@ -258,3 +262,35 @@ def _upload_result_package(
         artifact_refs=artifact_refs,
     )
     return result_bundle.zip_key
+
+
+_MINERU_RAW_SIDECAR_FILE_NAME = "_mineru_raw_s3_key.txt"
+
+
+def _read_mineru_raw_s3_key_sidecar(
+    *,
+    result_package: ParseResultPackage,
+) -> Optional[str]:
+    """Read the raw MinerU ZIP S3 key written by the parser, if any.
+
+    The parser (local or cloud mode) writes ``_mineru_raw_s3_key.txt`` into
+    its output directory, which surfaces here as ``artifact.add_dir``.
+    Returns ``None`` when the raw ZIP was not archived (e.g. inline JSON
+    fallback response, or a non-MinerU parse track).
+    """
+    add_dir = result_package.artifact.add_dir
+    if not add_dir:
+        return None
+    sidecar_path = os.path.join(str(add_dir), _MINERU_RAW_SIDECAR_FILE_NAME)
+    if not os.path.isfile(sidecar_path):
+        return None
+    try:
+        with open(sidecar_path, "r", encoding="utf-8") as sidecar_file:
+            sidecar_value = sidecar_file.read().strip()
+    except OSError as exc:
+        logger.warning(f"Failed to read MinerU raw sidecar {sidecar_path}: {exc}")
+        return None
+    if not sidecar_value:
+        return None
+    logger.info(f"Attaching MinerU raw ZIP key to job result: {sidecar_value}")
+    return sidecar_value

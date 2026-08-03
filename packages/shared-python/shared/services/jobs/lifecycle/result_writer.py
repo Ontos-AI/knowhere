@@ -21,6 +21,7 @@ class SyncJobResultWriter:
         inline_payload: dict[str, Any] | None = None,
         result_s3_key: str | None = None,
         result_size: int | None = None,
+        mineru_raw_s3_key: str | None = None,
     ) -> JobResult:
         result = db.execute(select(JobResult).where(JobResult.job_id == job_id))
         existing = result.scalar_one_or_none()
@@ -30,6 +31,7 @@ class SyncJobResultWriter:
             existing.inline_payload = inline_payload
             existing.result_s3_key = result_s3_key
             existing.result_size = result_size
+            existing.mineru_raw_s3_key = mineru_raw_s3_key
             db.flush()
             return existing
 
@@ -40,6 +42,7 @@ class SyncJobResultWriter:
             inline_payload=inline_payload,
             result_s3_key=result_s3_key,
             result_size=result_size,
+            mineru_raw_s3_key=mineru_raw_s3_key,
         )
         db.add(job_result)
         db.flush()

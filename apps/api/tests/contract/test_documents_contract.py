@@ -261,12 +261,20 @@ async def _insert_document_revision_with_chunks(
     source_file_name: str = "contract-chunks.pdf",
     parse_track: str = "chunk",
     status: str = "active",
+    mineru_raw_s3_key: str | None = None,
 ) -> dict[str, str]:
     engine = await _create_contract_engine()
     timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
     job_id = str(uuid4())
     job_result_id = str(uuid4())
     section_id = f"sec_{uuid4().hex[:12]}"
+    if mineru_raw_s3_key == "auto":
+        mineru_raw_s3_key = f"results/{job_id}/mineru_raw.zip"
+    elif mineru_raw_s3_key == "sharded":
+        mineru_raw_s3_key = (
+            f"results/{job_id}/mineru_raw_shard0.zip\n"
+            f"results/{job_id}/mineru_raw_shard1.zip"
+        )
 
     try:
         async with engine.begin() as connection:
@@ -357,6 +365,7 @@ async def _insert_document_revision_with_chunks(
                         inline_payload,
                         result_s3_key,
                         result_size,
+                        mineru_raw_s3_key,
                         created_at,
                         updated_at
                     ) VALUES (
@@ -368,6 +377,7 @@ async def _insert_document_revision_with_chunks(
                         CAST('{}' AS JSON),
                         :result_s3_key,
                         0,
+                        :mineru_raw_s3_key,
                         :created_at,
                         :updated_at
                     )
@@ -377,6 +387,7 @@ async def _insert_document_revision_with_chunks(
                     "job_id": job_id,
                     "document_id": document_id,
                     "result_s3_key": f"results/{job_id}.zip",
+                    "mineru_raw_s3_key": mineru_raw_s3_key,
                     "created_at": timestamp,
                     "updated_at": timestamp,
                 },
@@ -883,6 +894,171 @@ async def test_should_return_not_found_for_other_users_page_citation_source(
         _upload_page_citation_source(job_id=revision["job_id"])
         response = await api_client.get(
             f"/api/v2/documents/{document_id}/files/page-citation-source"
+        )
+
+    assert response.status_code == 404
+
+
+def _upload_mineru_raw_zip(*, job_id: str) -> None:
+    from shared.services.storage.result_storage import JobResultStorage
+
+    raw_zip_path = Path("/tmp") / f"knowhere-contract-mineru-raw-{job_id}.zip"
+    raw_zip_path.write_bytes(b"PK\x03\x04contract mineru raw zip\n")
+    try:
+        JobResultStorage().upload_raw_file(
+            job_id=job_id,
+            relative_path="mineru_raw.zip",
+            local_file_path=str(raw_zip_path),
+        )
+    finally:
+        raw_zip_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_should_return_mineru_raw_zip_for_document(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory() as api_client:
+        revision = await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            chunks=[
+                {
+                    "id": f"dchk_{uuid4().hex[:12]}",
+                    "chunk_id": "chunk-text",
+                    "chunk_type": "text",
+                    "content": "Chunk content",
+                    "source_chunk_path": "Chunk 1",
+                    "metadata": {"page_nums": []},
+                }
+            ],
+            mineru_raw_s3_key="auto",
+        )
+        _upload_mineru_raw_zip(job_id=revision["job_id"])
+        response = await api_client.get(
+            f"/api/v2/documents/{document_id}/files/mineru-raw"
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    assert response_json["document_id"] == document_id
+    assert response_json["namespace"] == "contract-documents"
+    assert response_json["job_id"] == revision["job_id"]
+    assert response_json["job_result_id"] == revision["job_result_id"]
+    assert response_json["file_name"] == "mineru_raw.zip"
+    assert response_json["content_type"] == "application/zip"
+    assert response_json["url"] == (
+        "filesystem://knowhere-test-results/"
+        f"results/{revision['job_id']}/mineru_raw.zip"
+        "?method=GET&expires_in=604800"
+    )
+    assert response_json["expires_at"]
+
+
+@pytest.mark.asyncio
+async def test_should_return_not_found_when_mineru_raw_key_is_missing(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory() as api_client:
+        await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            chunks=[
+                {
+                    "id": f"dchk_{uuid4().hex[:12]}",
+                    "chunk_id": "chunk-text",
+                    "chunk_type": "text",
+                    "content": "Chunk content",
+                    "source_chunk_path": "Chunk 1",
+                    "metadata": {"page_nums": []},
+                }
+            ],
+        )
+        response = await api_client.get(
+            f"/api/v2/documents/{document_id}/files/mineru-raw"
+        )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_should_return_multiple_mineru_raw_urls_for_sharded_document(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory() as api_client:
+        revision = await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            chunks=[
+                {
+                    "id": f"dchk_{uuid4().hex[:12]}",
+                    "chunk_id": "chunk-text",
+                    "chunk_type": "text",
+                    "content": "Chunk content",
+                    "source_chunk_path": "Chunk 1",
+                    "metadata": {"page_nums": []},
+                }
+            ],
+            mineru_raw_s3_key="sharded",
+        )
+        response = await api_client.get(
+            f"/api/v2/documents/{document_id}/files/mineru-raw"
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    assert response_json["job_id"] == revision["job_id"]
+    assert response_json["urls"] == [
+        "filesystem://knowhere-test-results/"
+        f"results/{revision['job_id']}/mineru_raw_shard0.zip"
+        "?method=GET&expires_in=604800",
+        "filesystem://knowhere-test-results/"
+        f"results/{revision['job_id']}/mineru_raw_shard1.zip"
+        "?method=GET&expires_in=604800",
+    ]
+    assert "url" not in response_json
+
+
+@pytest.mark.asyncio
+async def test_should_return_not_found_for_other_users_mineru_raw_zip(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_id = f"doc_{uuid4().hex[:12]}"
+    other_user_id = f"contract-user-{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory() as api_client:
+        await ContractDatabase.insert_user(user_id=other_user_id)
+        revision = await _insert_document_revision_with_chunks(
+            document_id=document_id,
+            user_id=other_user_id,
+            chunks=[
+                {
+                    "id": f"dchk_{uuid4().hex[:12]}",
+                    "chunk_id": "chunk-text",
+                    "chunk_type": "text",
+                    "content": "Chunk content",
+                    "source_chunk_path": "Chunk 1",
+                    "metadata": {"page_nums": []},
+                }
+            ],
+            mineru_raw_s3_key="auto",
+        )
+        _upload_mineru_raw_zip(job_id=revision["job_id"])
+        response = await api_client.get(
+            f"/api/v2/documents/{document_id}/files/mineru-raw"
         )
 
     assert response.status_code == 404
