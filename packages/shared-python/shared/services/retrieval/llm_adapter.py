@@ -6,6 +6,7 @@ to provide an async callable suitable for the agent navigation pipeline.
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 from contextvars import ContextVar
 from typing import Any, Callable, Coroutine, Union, Sequence, cast
@@ -177,6 +178,7 @@ def create_retrieval_planner_fn(
     thinking: bool = True,
     model: str | None = None,
     max_tokens: int = 8192,
+    timeout_seconds: float | None = None,
 ) -> LLMFn | None:
     """Create a reasoning-capable LLM callable for query planning."""
     if not _has_llm_credentials():
@@ -184,6 +186,7 @@ def create_retrieval_planner_fn(
         return None
 
     effective_model = model or _resolve_planner_model(thinking=thinking)
+    request_timeout = _coerce_provider_timeout_seconds(timeout_seconds)
 
     async def llm_fn(prompt: LLMFnInput) -> str:
         client, resolved_model = _build_client_for_channel(
@@ -197,11 +200,18 @@ def create_retrieval_planner_fn(
             model=resolved_model,
             temperature=0.0,
             max_tokens=max_tokens,
+            timeout=request_timeout,
         )
         current_llm_usage.set(usage)
         return result
 
     return llm_fn
+
+
+def _coerce_provider_timeout_seconds(timeout_seconds: float | None) -> int | None:
+    if timeout_seconds is None or not math.isfinite(timeout_seconds):
+        return None
+    return max(1, math.ceil(timeout_seconds))
 
 
 def create_retrieval_vlm_fn(
