@@ -135,6 +135,7 @@ def build_markdown_image_asset(
 def build_markdown_image_name(*, image_count: int, last_context: str) -> str:
     image_name_context = path_handle(last_context.strip(), mode="clean_single")
     if image_name_context:
+        image_name_context = image_name_context[:60]
         return f"image-{image_count}-{image_name_context}"
     return f"image-{image_count}"
 
