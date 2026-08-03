@@ -12,6 +12,7 @@ class WorkflowRuntimeConfig:
     per_retrieve_step_budget: int = 40000
     max_steps: int = 5
     parallel_max: int = 3
+    planner_timeout_seconds: float = 10.0
 
     @classmethod
     def from_env(cls) -> "WorkflowRuntimeConfig":
@@ -21,11 +22,22 @@ class WorkflowRuntimeConfig:
             per_retrieve_step_budget=_env_int("RETRIEVAL_WALLET_PER_RETRIEVE_STEP_BUDGET", 40000),
             max_steps=_env_int("RETRIEVAL_DECOMPOSITION_MAX_STEPS", 5),
             parallel_max=_env_int("RETRIEVAL_WORKFLOW_PARALLEL_MAX", 3),
+            planner_timeout_seconds=_env_float(
+                "RETRIEVAL_WORKFLOW_PLANNER_TIMEOUT_SECONDS",
+                10.0,
+            ),
         )
 
 
 def _env_int(name: str, default: int) -> int:
     try:
         return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
     except (TypeError, ValueError):
         return default
