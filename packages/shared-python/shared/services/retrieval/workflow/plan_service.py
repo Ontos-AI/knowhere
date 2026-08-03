@@ -30,6 +30,7 @@ class WorkflowPlanService:
         per_retrieve: int,
         corpus_total_docs: int,
         corpus_total_chunks: int,
+        planner_timeout_seconds: float,
     ) -> QueryPlan:
         try:
             cached = await get_cached_workflow_plan(
@@ -51,6 +52,7 @@ class WorkflowPlanService:
             max_steps=max_steps,
             total_budget=wallet_total,
             per_step_budget=per_retrieve,
+            timeout_seconds=planner_timeout_seconds,
         )
         plan = await planner.plan(
             query=query,

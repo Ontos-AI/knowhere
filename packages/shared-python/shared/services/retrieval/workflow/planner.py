@@ -1,6 +1,7 @@
 """Query planner for decomposed retrieval workflows."""
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -8,6 +9,10 @@ from typing import Any
 
 from loguru import logger
 
+from shared.core.exceptions.domain_exceptions import (
+    LLMServiceException,
+    UnavailableException,
+)
 from shared.services.retrieval.agentic.core.budget import BudgetExceeded, BudgetLedger
 from shared.services.retrieval.agentic.core.runtime import _extract_actual_tokens
 from shared.services.retrieval.llm_adapter import LLMFn, current_llm_usage
@@ -62,6 +67,18 @@ IMPORTANT:
 """
 
 
+class PlannerExpectedFailure(Exception):
+    """Expected planner failure that can fall back to single-step retrieval."""
+
+
+class PlannerProviderFailure(PlannerExpectedFailure):
+    """Planner LLM provider call failed or timed out."""
+
+
+class PlannerOutputFailure(PlannerExpectedFailure):
+    """Planner LLM returned invalid JSON or an invalid query plan."""
+
+
 class QueryPlanner:
     """LLM-backed planner with strict fallback to a single retrieve step."""
 
@@ -73,12 +90,14 @@ class QueryPlanner:
         max_steps: int,
         total_budget: int,
         per_step_budget: int,
+        timeout_seconds: float,
     ) -> None:
         self._llm_fn = llm_fn
         self._ledger = planner_ledger
         self._max_steps = max(max_steps, 1)
         self._total_budget = max(total_budget, 1)
         self._per_step_budget = max(per_step_budget, 1)
+        self._timeout_seconds = max(timeout_seconds, 0.001)
 
     async def plan(
         self,
@@ -103,14 +122,17 @@ class QueryPlanner:
 
         try:
             raw = await self._call_llm_with_budget(prompt)
-            plan = _parse_plan_response(
-                raw,
-                original_query=query,
-                max_steps=self._max_steps,
-            )
-            plan.validate()
+            try:
+                plan = _parse_plan_response(
+                    raw,
+                    original_query=query,
+                    max_steps=self._max_steps,
+                )
+                plan.validate()
+            except (TypeError, ValueError) as exc:
+                raise PlannerOutputFailure(str(exc)) from exc
             return plan
-        except Exception as exc:
+        except (BudgetExceeded, PlannerExpectedFailure) as exc:
             logger.warning(f"workflow planner failed, falling back to single step: {exc}")
             plan = QueryPlan.single_step(query, reason="planner_fallback_single_step")
             plan.planner_status = "fallback"
@@ -130,7 +152,7 @@ class QueryPlanner:
 
     async def _call_llm_with_budget(self, prompt: str) -> str:
         if self._ledger is None:
-            return await self._llm_fn(prompt)  # type: ignore[misc]
+            return await self._call_planner_llm(prompt)
 
         est = estimate_tokens(prompt)
         reserved = await self._ledger.try_reserve("bootstrap", est)
@@ -139,7 +161,16 @@ class QueryPlanner:
 
         t0 = time.monotonic()
         try:
-            response = await self._llm_fn(prompt)  # type: ignore[misc]
+            response = await asyncio.wait_for(
+                self._llm_fn(prompt),  # type: ignore[misc]
+                timeout=self._timeout_seconds,
+            )
+        except asyncio.TimeoutError as exc:
+            await self._ledger.refund("bootstrap", est=est)
+            raise PlannerProviderFailure("planner LLM call timed out") from exc
+        except (LLMServiceException, UnavailableException) as exc:
+            await self._ledger.refund("bootstrap", est=est)
+            raise PlannerProviderFailure(str(exc)) from exc
         except Exception:
             await self._ledger.refund("bootstrap", est=est)
             raise
@@ -153,6 +184,17 @@ class QueryPlanner:
             int((time.monotonic() - t0) * 1000),
         )
         return response
+
+    async def _call_planner_llm(self, prompt: str) -> str:
+        try:
+            return await asyncio.wait_for(
+                self._llm_fn(prompt),  # type: ignore[misc]
+                timeout=self._timeout_seconds,
+            )
+        except asyncio.TimeoutError as exc:
+            raise PlannerProviderFailure("planner LLM call timed out") from exc
+        except (LLMServiceException, UnavailableException) as exc:
+            raise PlannerProviderFailure(str(exc)) from exc
 
 
 def _parse_plan_response(text: str, *, original_query: str, max_steps: int) -> QueryPlan:

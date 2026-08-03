@@ -117,21 +117,17 @@ async def test_workflow_planner_llm_should_pass_timeout_to_provider_client(
             observed_timeouts.append(kwargs.get("timeout"))
             return "{}", {"total_tokens": 1}
 
-    def fake_build_client_for_channel(
-        *,
-        channel: str,
-        model: str,
-    ) -> tuple[FakeClient, str]:
-        assert channel == "text"
-        return FakeClient(), model
+    def fake_get_openai_client(*, model: str) -> FakeClient:
+        assert model
+        return FakeClient()
 
     monkeypatch.setattr(
         "shared.services.retrieval.llm_adapter._has_llm_credentials",
         lambda: True,
     )
     monkeypatch.setattr(
-        "shared.services.retrieval.llm_adapter._build_client_for_channel",
-        fake_build_client_for_channel,
+        "shared.services.ai.openai_compatible_client_sync.get_openai_client",
+        fake_get_openai_client,
     )
 
     planner_llm = create_retrieval_planner_fn(timeout_seconds=2.1)
@@ -341,7 +337,7 @@ async def test_agentic_route_should_release_route_session_before_fresh_final_hyd
             exclude_document_ids=[],
             exclude_sections=[],
             allowed_chunk_types=None,
-            chunk_types=None,
+            data_type=1,
             signal_paths=None,
             filter_mode="delete",
             channels=None,
