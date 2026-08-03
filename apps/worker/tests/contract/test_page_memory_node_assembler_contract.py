@@ -108,19 +108,26 @@ def test_build_node_content_uses_same_as_for_shared_page() -> None:
     assert "text-231" not in content_b
 
 
-def test_build_node_rows_reuses_tags_without_vlm() -> None:
-    rows = node_assembler.build_node_rows(
+def test_build_node_chunks_reuses_tags_without_vlm() -> None:
+    rows = node_assembler.build_node_chunks(
         skeletons=_same_page_sibling_skeletons(),
         raw_text_by_page={231: "text-231", 232: "text-232"},
         image_path_by_page={},
-        kind_by_page={},
         tag_by_page={
-            231: PageTagResult(page_index=231, summary="s231", keywords=["k1"]),
-            232: PageTagResult(page_index=232, summary="s232", keywords=["k2"]),
+            231: PageTagResult(
+                page_index=231,
+                summary="s231",
+                keywords=["k1"],
+                entities=[{"text": "k1", "type": "organization"}],
+            ),
+            232: PageTagResult(
+                page_index=232,
+                summary="s232",
+                keywords=["k2"],
+                entities=[{"text": "k2", "type": "organization"}],
+            ),
         },
         filename="demo.pdf",
-        verdict="page",
-        budget=None,
         vlm_model=None,
     )
 
@@ -131,18 +138,67 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
     by_path = {r["path"]: r for r in rows}
 
     leaf_a = by_path["demo.pdf/3 基本规定/3.1 职责"]
-    assert leaf_a["page_nums"] == "231"
+    assert leaf_a["metadata"]["page_nums"] == [231]
+    assert leaf_a["metadata"]["owned_page_nums"] == [231]
+    assert leaf_a["metadata"]["content_kind"] == "body"
     assert leaf_a["content"] == "text-231"
-    assert leaf_a["extra_metadata"] == {}
+    assert leaf_a["metadata"]["summary"] == "s231"
+    assert leaf_a["metadata"]["keywords"] == ["k1"]
 
     leaf_b = by_path["demo.pdf/3 基本规定/3.2 管理规定"]
-    assert leaf_b["page_nums"] == "231,232"
+    assert leaf_b["metadata"]["page_nums"] == [231, 232]
+    assert leaf_b["metadata"]["owned_page_nums"] == [232]
+    assert leaf_b["metadata"]["content_kind"] == "body"
     assert node_assembler.SAME_AS_PREFIX in leaf_b["content"]
     assert "text-232" in leaf_b["content"]
-    assert leaf_b["extra_metadata"] == {}
+    assert leaf_b["metadata"]["summary"] == "s232"
+    assert leaf_b["metadata"]["keywords"] == ["k2"]
+    assert leaf_b["metadata"]["connect_to"][0]["relation"] == "same_as"
+    assert leaf_b["metadata"]["connect_to"][0]["target"] == leaf_a["chunk_id"]
 
 
-def test_build_node_rows_preserves_order_under_ocr_and_summary_concurrency(
+def test_pure_same_as_alias_has_no_duplicate_summary_or_entities() -> None:
+    skeletons = [
+        SectionSkeleton(
+            section_path=f"demo.pdf/{title}",
+            level=1,
+            start_page=1,
+            end_page=1,
+            title=title,
+            parent_path="demo.pdf",
+        )
+        for title in ("First", "Second")
+    ]
+    rows = node_assembler.build_node_chunks(
+        skeletons=skeletons,
+        raw_text_by_page={1: "owned body"},
+        image_path_by_page={},
+        tag_by_page={
+            1: PageTagResult(
+                page_index=1,
+                summary="owned summary",
+                keywords=["legacy-keyword"],
+                entities=[{"text": "Acme", "type": "organization"}],
+            )
+        },
+        filename="demo.pdf",
+        vlm_model=None,
+    )
+    by_path = {row["path"]: row for row in rows}
+
+    owner = by_path["demo.pdf/First"]
+    alias = by_path["demo.pdf/Second"]
+    assert owner["metadata"]["summary"] == "owned summary"
+    assert owner["metadata"]["keywords"] == ["Acme"]
+    assert alias["metadata"]["owned_page_nums"] == []
+    assert alias["metadata"]["summary"] == ""
+    assert alias["metadata"]["entities"] == []
+    assert alias["metadata"]["keywords"] == []
+    assert node_assembler.SAME_AS_PREFIX in alias["content"]
+    assert alias["metadata"]["connect_to"][0]["relation"] == "same_as"
+
+
+def test_build_node_chunks_preserves_order_under_ocr_concurrency(
     monkeypatch,
 ) -> None:
     import gevent
@@ -152,31 +208,22 @@ def test_build_node_rows_preserves_order_under_ocr_and_summary_concurrency(
         gevent.sleep(0.01 * (4 - page))
         return f"text-{page}"
 
-    def _fake_compute_node_summary(**kwargs):
-        view = kwargs["view"]
-        gevent.sleep(0.01 * view.leaf.start_page)
-        return f"summary-{view.leaf.start_page}", [f"k{view.leaf.start_page}"], []
-
     monkeypatch.setattr(
         node_assembler,
         "resolve_page_text",
         _fake_resolve_page_text,
     )
-    monkeypatch.setattr(
-        node_assembler,
-        "compute_node_summary",
-        _fake_compute_node_summary,
-    )
 
-    rows = node_assembler.build_node_rows(
+    rows = node_assembler.build_node_chunks(
         skeletons=_ordered_page_skeletons(),
         raw_text_by_page={1: "", 2: "", 3: ""},
         image_path_by_page={},
-        kind_by_page={},
-        tag_by_page={},
+        tag_by_page={
+            1: PageTagResult(page_index=1, summary="summary-1"),
+            2: PageTagResult(page_index=2, summary="summary-2"),
+            3: PageTagResult(page_index=3, summary="summary-3"),
+        },
         filename="demo.pdf",
-        verdict="page",
-        budget=None,
         vlm_model="fake-vlm",
         node_assembly_concurrency=2,
     )
@@ -187,14 +234,14 @@ def test_build_node_rows_preserves_order_under_ocr_and_summary_concurrency(
         "demo.pdf/3",
     ]
     assert [row["content"] for row in rows] == ["text-1", "text-2", "text-3"]
-    assert [row["summary"] for row in rows] == [
+    assert [row["metadata"]["summary"] for row in rows] == [
         "summary-1",
         "summary-2",
         "summary-3",
     ]
 
 
-def test_build_node_rows_failed_ocr_greenlet_fails_stage(monkeypatch) -> None:
+def test_build_node_chunks_failed_ocr_greenlet_fails_stage(monkeypatch) -> None:
     def _fake_resolve_page_text(**kwargs) -> str:
         if int(kwargs["page"]) == 2:
             raise RuntimeError("ocr failed")
@@ -207,21 +254,18 @@ def test_build_node_rows_failed_ocr_greenlet_fails_stage(monkeypatch) -> None:
     )
 
     with pytest.raises(RuntimeError):
-        node_assembler.build_node_rows(
+        node_assembler.build_node_chunks(
             skeletons=_ordered_page_skeletons()[:2],
             raw_text_by_page={1: "", 2: ""},
             image_path_by_page={},
-            kind_by_page={},
             tag_by_page={},
             filename="demo.pdf",
-            verdict="page",
-            budget=None,
             vlm_model="fake-vlm",
             node_assembly_concurrency=2,
         )
 
 
-def test_build_node_rows_unavailable_propagates_from_ocr(monkeypatch) -> None:
+def test_build_node_chunks_unavailable_propagates_from_ocr(monkeypatch) -> None:
     def _fake_resolve_page_text(**kwargs) -> str:
         raise UnavailableException(
             internal_message="ocr capacity busy",
@@ -235,87 +279,65 @@ def test_build_node_rows_unavailable_propagates_from_ocr(monkeypatch) -> None:
     )
 
     with pytest.raises(UnavailableException):
-        node_assembler.build_node_rows(
+        node_assembler.build_node_chunks(
             skeletons=_ordered_page_skeletons()[:1],
             raw_text_by_page={1: ""},
             image_path_by_page={},
-            kind_by_page={},
             tag_by_page={},
             filename="demo.pdf",
-            verdict="page",
-            budget=None,
             vlm_model="fake-vlm",
             node_assembly_concurrency=1,
         )
 
 
-def test_build_node_rows_unavailable_propagates_from_node_summary(
-    monkeypatch,
-) -> None:
-    def _fake_compute_node_summary(**kwargs):
-        raise UnavailableException(
-            internal_message="summary capacity busy",
-            retry_after=5,
-        )
-
-    monkeypatch.setattr(
-        node_assembler,
-        "compute_node_summary",
-        _fake_compute_node_summary,
+def test_aggregate_owned_page_tags_formats_multi_page_summary() -> None:
+    summary, keywords, entities = node_assembler.aggregate_owned_page_tags(
+        owned_pages=[10, 11, 12],
+        tag_by_page={
+            10: PageTagResult(
+                page_index=10,
+                summary="first",
+                entities=[{"text": "Alice", "type": "person"}],
+            ),
+            11: PageTagResult(page_index=11, summary="second"),
+            12: PageTagResult(
+                page_index=12,
+                summary="third",
+                entities=[{"text": "Alice", "type": "person"}],
+            ),
+        },
     )
-
-    with pytest.raises(UnavailableException):
-        node_assembler.build_node_rows(
-            skeletons=_ordered_page_skeletons()[:1],
-            raw_text_by_page={1: "text-1"},
-            image_path_by_page={},
-            kind_by_page={},
-            tag_by_page={},
-            filename="demo.pdf",
-            verdict="page",
-            budget=None,
-            vlm_model="fake-vlm",
-            node_assembly_concurrency=1,
-        )
+    assert summary.startswith("This section covers pages 10-12.")
+    assert "Page 10: first" in summary
+    assert "Page 11: second" in summary
+    assert "Page 12: third" in summary
+    assert entities == [{"text": "Alice", "type": "person"}]
+    assert keywords == ["Alice"]
 
 
-def test_build_node_rows_attaches_page_citation_assets_for_rendered_pages(tmp_path) -> None:
+def test_build_node_chunks_does_not_emit_page_citation_assets(tmp_path) -> None:
     page_image = tmp_path / "pages" / "page-231.png"
     page_image.parent.mkdir()
     Image.new("RGB", (2, 3), color=(255, 255, 255)).save(page_image)
 
-    rows = node_assembler.build_node_rows(
+    rows = node_assembler.build_node_chunks(
         skeletons=_same_page_sibling_skeletons(),
         raw_text_by_page={231: "text-231", 232: "text-232"},
         image_path_by_page={231: str(page_image)},
-        kind_by_page={},
         tag_by_page={
             231: PageTagResult(page_index=231, summary="s231", keywords=["k1"]),
             232: PageTagResult(page_index=232, summary="s232", keywords=["k2"]),
         },
         filename="demo.pdf",
-        verdict="page",
-        budget=None,
         vlm_model=None,
     )
 
     first_page_chunk = next(row for row in rows if row["type"] == "page")
-    page_assets = first_page_chunk["extra_metadata"]["page_assets"]
-
-    assert page_assets == [
-        {
-            "page_num": 231,
-            "artifact_ref": "page_citation_assets/page-231.png",
-            "content_type": "image/png",
-            "width": 2,
-            "height": 3,
-            "source": "knowhere-rendered-page-citation-source",
-        }
-    ]
-    assert (tmp_path / "page_citation_assets" / "page-231.png").is_file()
+    assert "page_assets" not in first_page_chunk["metadata"]
+    assert not (tmp_path / "page_citation_assets").exists()
 
 
-def test_build_node_rows_keeps_internal_section_body_pages() -> None:
+def test_build_node_chunks_keeps_internal_section_body_pages() -> None:
     parent = SectionSkeleton(
         section_path="demo.pdf/4 风险辨识与分级管控",
         level=1,
@@ -333,27 +355,24 @@ def test_build_node_rows_keeps_internal_section_body_pages() -> None:
         parent_path="demo.pdf/4 风险辨识与分级管控",
     )
 
-    rows = node_assembler.build_node_rows(
+    rows = node_assembler.build_node_chunks(
         skeletons=[parent, child],
         raw_text_by_page={233: "parent body", 234: "child body"},
         image_path_by_page={},
-        kind_by_page={},
         tag_by_page={
             233: PageTagResult(page_index=233, summary="s233", keywords=["parent"]),
             234: PageTagResult(page_index=234, summary="s234", keywords=["child"]),
         },
         filename="demo.pdf",
-        verdict="page",
-        budget=None,
         vlm_model=None,
     )
 
     by_path = {row["path"]: row for row in rows}
-    assert by_path["demo.pdf/4 风险辨识与分级管控"]["page_nums"] == "233"
+    assert by_path["demo.pdf/4 风险辨识与分级管控"]["metadata"]["page_nums"] == [233]
     assert by_path["demo.pdf/4 风险辨识与分级管控"]["content"] == "parent body"
     assert (
-        by_path["demo.pdf/4 风险辨识与分级管控/4.1 风险评价方法"]["page_nums"]
-        == "234"
+        by_path["demo.pdf/4 风险辨识与分级管控/4.1 风险评价方法"]["metadata"]["page_nums"]
+        == [234]
     )
     assert (
         by_path["demo.pdf/4 风险辨识与分级管控/4.1 风险评价方法"]["content"]
@@ -392,53 +411,7 @@ def test_boundary_page_belongs_to_next_sibling_start() -> None:
     assert page_owner[302].title == "项目分类标准"
 
 
-def test_build_node_rows_uses_vlm_node_summary_with_boundary(
-    monkeypatch, tmp_path
-) -> None:
-    captured: dict[str, object] = {}
-
-    class _FakeClient:
-        def chat_completion_with_usage(self, **kwargs):
-            captured["messages"] = kwargs.get("messages")
-            captured["usage_task"] = kwargs.get("usage_task")
-            return (
-                '{"summary": "node summary", "keywords": "ka;kb"}',
-                {"total_tokens": 10},
-            )
-
-    # node_assembler imports get_openai_client lazily from this module.
-    import shared.services.ai.openai_compatible_client_sync as client_mod
-
-    monkeypatch.setattr(
-        client_mod, "get_openai_client", lambda model=None, **_kwargs: _FakeClient()
-    )
-
-    img = tmp_path / "page-231.png"
-    img.write_bytes(b"\x89PNG\r\n\x1a\n fake")
-
-    rows = node_assembler.build_node_rows(
-        skeletons=_same_page_sibling_skeletons(),
-        raw_text_by_page={231: "text-231", 232: "text-232"},
-        image_path_by_page={231: str(img), 232: str(img)},
-        kind_by_page={},
-        tag_by_page={
-            231: PageTagResult(page_index=231, summary="s231", keywords=["k1"]),
-            232: PageTagResult(page_index=232, summary="s232", keywords=["k2"]),
-        },
-        filename="demo.pdf",
-        verdict="page",
-        budget=None,
-        vlm_model="fake-vlm",
-    )
-
-    by_path = {r["path"]: r for r in rows}
-    leaf_a = by_path["demo.pdf/3 基本规定/3.1 职责"]
-    assert leaf_a["summary"] == "node summary"
-    assert leaf_a["keywords"] == "ka;kb"
-    assert captured["usage_task"] == "page_memory.node_summary"
-
-
-def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
+def test_build_node_chunks_prepends_asset_chunks_and_links_page_nodes() -> None:
     asset = PageAsset(
         asset_id="asset_table_1",
         page_index=231,
@@ -457,18 +430,15 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
         extraction_status="table_html_extracted",
     )
 
-    rows = node_assembler.build_node_rows(
+    rows = node_assembler.build_node_chunks(
         skeletons=_same_page_sibling_skeletons(),
         raw_text_by_page={231: "text-231", 232: "text-232"},
         image_path_by_page={},
-        kind_by_page={},
         tag_by_page={
             231: PageTagResult(page_index=231, summary="s231", keywords=["k1"]),
             232: PageTagResult(page_index=232, summary="s232", keywords=["k2"]),
         },
         filename="demo.pdf",
-        verdict="page",
-        budget=None,
         vlm_model=None,
         page_assets_by_page={231: [asset]},
     )
@@ -476,21 +446,83 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
     assert [row["type"] for row in rows] == ["table", "page", "page"]
     assert rows[0]["path"] == "tables/table_page_231_1.html"
     assert rows[0]["content"] == "tables/table_page_231_1.html"
-    assert rows[0]["know_id"] == "asset_table_1"
-    assert "owner_hierarchy_path" not in rows[0]["extra_metadata"]
-    assert "related_hierarchy_paths" not in rows[0]["extra_metadata"]
-    assert "page_index" not in rows[0]["extra_metadata"]
-    assert "asset_kind" not in rows[0]["extra_metadata"]
-    assert "title" not in rows[0]["extra_metadata"]
-    assert "html_uri" not in rows[0]["extra_metadata"]
+    assert rows[0]["chunk_id"] == "asset_table_1"
+    assert "owner_hierarchy_path" not in rows[0]["metadata"]
+    assert "related_hierarchy_paths" not in rows[0]["metadata"]
+    assert "page_index" not in rows[0]["metadata"]
+    assert "asset_kind" not in rows[0]["metadata"]
+    assert "title" not in rows[0]["metadata"]
+    assert "html_uri" not in rows[0]["metadata"]
 
     by_path = {row["path"]: row for row in rows}
     owner = by_path["demo.pdf/3 基本规定/3.1 职责"]
     shared = by_path["demo.pdf/3 基本规定/3.2 管理规定"]
-    assert '"relation": "embeds"' in owner["connectto"]
-    assert '"target": "tables/table_page_231_1.html"' in owner["connectto"]
-    assert '"relation": "related"' in shared["connectto"]
-    assert '"same_as_owner": "demo.pdf/3 基本规定/3.1 职责"' in shared["connectto"]
+    assert rows[0]["metadata"]["page_nums"] == [231]
+    assert owner["metadata"]["connect_to"][0]["relation"] == "embeds"
+    assert owner["metadata"]["connect_to"][0]["target"] == "tables/table_page_231_1.html"
+    assert owner["metadata"]["connect_to"][0]["page"] == 231
+    related = next(
+        item
+        for item in shared["metadata"]["connect_to"]
+        if item["relation"] == "related"
+    )
+    assert related["page"] == 231
+    assert "same_as_owner" not in related
+
+
+def test_cross_page_asset_span_connects_every_source_page() -> None:
+    asset = PageAsset(
+        asset_id="asset_table_span",
+        page_index=231,
+        asset_index=1,
+        kind="table",
+        bbox_px=[10, 20, 200, 120],
+        width_px=1000,
+        height_px=1400,
+        width_pt=500,
+        height_pt=700,
+        title="跨页表",
+        summary="跨页表摘要",
+        image_uri="images/image_page_231_table_1.png",
+        html_uri="tables/table_page_231_1.html",
+        extraction_status="table_html_extracted",
+        source_page_nums=[231, 232],
+    )
+
+    rows = node_assembler.build_node_chunks(
+        skeletons=_same_page_sibling_skeletons(),
+        raw_text_by_page={231: "text-231", 232: "text-232"},
+        image_path_by_page={},
+        tag_by_page={
+            231: PageTagResult(page_index=231, summary="s231", keywords=["k1"]),
+            232: PageTagResult(page_index=232, summary="s232", keywords=["k2"]),
+        },
+        filename="demo.pdf",
+        vlm_model=None,
+        page_assets_by_page={231: [asset]},
+    )
+
+    by_path = {row["path"]: row for row in rows}
+    asset_chunk = next(row for row in rows if row["type"] == "table")
+    owner_231 = by_path["demo.pdf/3 基本规定/3.1 职责"]
+    owner_232 = by_path["demo.pdf/3 基本规定/3.2 管理规定"]
+
+    assert asset_chunk["metadata"]["page_nums"] == [231, 232]
+    assert [
+        item["page"]
+        for item in owner_231["metadata"]["connect_to"]
+        if item["relation"] == "embeds"
+    ] == [231]
+    assert [
+        item["page"]
+        for item in owner_232["metadata"]["connect_to"]
+        if item["relation"] == "embeds"
+    ] == [232]
+    assert [
+        item["page"]
+        for item in owner_232["metadata"]["connect_to"]
+        if item["relation"] == "related"
+    ] == [231]
 
 
 def test_page_connectto_normalizes_to_asset_chunk_id() -> None:

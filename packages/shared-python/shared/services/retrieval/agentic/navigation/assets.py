@@ -19,7 +19,8 @@ from shared.utils.token_estimate import estimate_tokens
 def build_connected_owner_map(text_chunks: list[dict[str, Any]]) -> dict[str, str]:
     owner_map: dict[str, str] = {}
     for chunk in text_chunks:
-        if (chunk.get("chunk_type") or "text") != "text":
+        chunk_type = (chunk.get("chunk_type") or "text").strip().lower()
+        if chunk_type not in {"text", "page"}:
             continue
         section_path = chunk.get("section_path") or ""
         if not section_path:
@@ -29,6 +30,9 @@ def build_connected_owner_map(text_chunks: list[dict[str, Any]]) -> dict[str, st
             continue
         for conn in metadata.get("connect_to") or []:
             if not isinstance(conn, dict):
+                continue
+            relation = str(conn.get("relation") or "related").strip()
+            if relation == "same_as":
                 continue
             target_id = str(conn.get("target") or "").strip()
             if target_id and target_id not in owner_map:

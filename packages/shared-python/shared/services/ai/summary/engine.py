@@ -56,16 +56,13 @@ def _read_image_b64(image_path: str) -> str | None:
 
 
 def _parse_linesplit_asset(raw: str, title_hint: str) -> AssetSummary:
-    """Parse a line-split asset response: title\\nsummary\\nentities."""
+    """Parse a line-split asset response: title\\nsummary."""
     lines = raw.strip().split("\n")
     title = lines[0].strip() if len(lines) > 0 else ""
     summary = lines[1].strip() if len(lines) > 1 else ""
-    entities_str = lines[2].strip() if len(lines) > 2 else ""
-    entities = _split_entities(entities_str)
     return AssetSummary(
         title=title or title_hint,
         summary=summary,
-        entities=entities,
         kind="table",
     )
 
@@ -278,9 +275,8 @@ def summarize(
     budget:
         Optional ``BudgetTracker``. Visual calls reserve from ``budget_stage``.
     prompt_task / prompt_paras:
-        Override the prompt used for the image-based page path. Lets a bounded
-        node summary (``page-memory-node-summary`` with ``node_title`` /
-        ``next_title``) reuse the same call mechanics. Ignored for text/asset.
+        Override the prompt used for body summary. Visual page tagging and
+        text-mode page summaries both reuse the same call mechanics.
 
     Returns the typed contract; callers map it onto their row. On any failure the
     engine returns an empty contract of the right type (no raw-text fallbacks —
@@ -335,7 +331,7 @@ def _summarize_body(
 
     if image_paths:
         # Vision page tag (or a bounded node-summary override): image → {summary, ...}.
-        task = prompt_task or "page-memory-vlm-tag"
+        task = prompt_task or "page-memory-vlm-page"
         paras = prompt_paras or {"max_tokens": 600}
         prompt, temperature, top_p, max_tokens = build_prompt(task, "", "", paras=paras)
         resolved_model = model or os.environ.get("IMAGE_MODEL")
@@ -356,20 +352,35 @@ def _summarize_body(
             channel="vision",
         )
     else:
-        # Text summary: the shared summary-full prompt with deterministic lang lock.
+        # Text summary: optional page-memory override, else shared summary-full.
         if not text.strip():
             return BodySummary(kind=kind)
         detected_lang = _detect_text_language(text)
-        prompt, temperature, top_p, max_tokens = build_prompt(
-            "summary-full",
-            text,
-            "",
-            paras={
+        if prompt_task:
+            paras = {
                 "max_tokens": summary_len,
                 "kw_num": max_keywords,
                 "lang": detected_lang,
-            },
-        )
+            }
+            if prompt_paras:
+                paras.update(prompt_paras)
+            prompt, temperature, top_p, max_tokens = build_prompt(
+                prompt_task,
+                text,
+                "",
+                paras=paras,
+            )
+        else:
+            prompt, temperature, top_p, max_tokens = build_prompt(
+                "summary-full",
+                text,
+                "",
+                paras={
+                    "max_tokens": summary_len,
+                    "kw_num": max_keywords,
+                    "lang": detected_lang,
+                },
+            )
         resolved_model = model or os.environ.get("NORMOL_MODEL", "deepseek-v4-flash")
         parsed = _call_llm(
             prompt=prompt,
@@ -440,8 +451,7 @@ def _summarize_asset(
             return _parse_linesplit_asset(raw, asset_title_hint)
         return AssetSummary(title=asset_title_hint, kind="table")
 
-    # Image-based asset: the shared per-type image prompt returns one strict JSON
-    # object (title + summary + entities).
+    # Image-based asset: title + summary only (no entity extraction).
     prompt, temperature, top_p, max_tokens = build_prompt(
         "summary-images",
         text,
@@ -469,7 +479,6 @@ def _summarize_asset(
         return AssetSummary(
             title=str(parsed.get("title", "")).strip() or asset_title_hint,
             summary=str(parsed.get("summary", "")).strip(),
-            entities=_split_entities(parsed.get("entities") or parsed.get("keywords")),
             kind="figure",
         )
     return AssetSummary(title=asset_title_hint)

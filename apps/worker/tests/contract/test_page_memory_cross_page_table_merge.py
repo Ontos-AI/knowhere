@@ -198,6 +198,8 @@ class TestMergeCrossPageTablesSkipsNonConsecutive:
         )
         assert 10 in result
         assert 12 in result
+        assert result[10][0].source_page_nums == [10]
+        assert result[12][0].source_page_nums == [12]
 
     def test_mismatched_columns_skipped(self, tmp_path: Path):
         file_10 = tmp_path / "t10.html"
@@ -216,3 +218,37 @@ class TestMergeCrossPageTablesSkipsNonConsecutive:
         )
         assert 10 in result
         assert 11 in result
+
+
+class TestMergeCrossPageTablesAccumulatesSourcePages:
+    def test_merged_table_keeps_all_source_pages(self, tmp_path: Path, monkeypatch):
+        file_10 = tmp_path / "t10.html"
+        file_11 = tmp_path / "t11.html"
+        file_10.write_text(TABLE_4COL, encoding="utf-8")
+        file_11.write_text(TABLE_4COL_CONTINUATION, encoding="utf-8")
+
+        monkeypatch.setattr(
+            "app.services.page_memory.page_assets._llm_judge_table_continuity",
+            lambda **_kwargs: (True, 0),
+        )
+
+        assets_by_page = {
+            10: [_make_asset(10, 1, str(file_10))],
+            11: [_make_asset(11, 1, str(file_11))],
+        }
+        result = merge_cross_page_tables(
+            assets_by_page=assets_by_page,
+            output_dir=str(tmp_path),
+            model_name=None,
+        )
+
+        assert 10 in result
+        assert 11 not in result
+        assert len(result[10]) == 1
+        assert result[10][0].source_page_nums == [10, 11]
+
+        from app.services.page_memory.page_assets import build_asset_chunks
+
+        chunks = build_asset_chunks(result)
+        assert len(chunks) == 1
+        assert chunks[0]["metadata"]["page_nums"] == [10, 11]

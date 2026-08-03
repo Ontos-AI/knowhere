@@ -19,24 +19,6 @@ def collect_referenced_artifact_refs(chunks: list[dict[str, Any]]) -> set[str]:
                 metadata.get("file_path") or chunk.get("file_path") or chunk.get("path"),
                 allowed_roots={allowed_root},
             )
-        elif chunk_type == "page":
-            for page_asset in _iter_page_asset_refs(metadata.get("page_assets")):
-                _add_artifact_ref(
-                    refs,
-                    page_asset,
-                    allowed_roots={"page_citation_assets"},
-                )
-    return refs
-
-
-def _iter_page_asset_refs(raw_page_assets: object) -> list[object]:
-    if not isinstance(raw_page_assets, list):
-        return []
-    refs: list[object] = []
-    for item in raw_page_assets:
-        if not isinstance(item, dict):
-            continue
-        refs.append(item.get("artifact_ref"))
     return refs
 
 
@@ -65,6 +47,6 @@ def _normalize_client_artifact_ref(raw_ref: object) -> str | None:
     ]
     if len(parts) < 2:
         return None
-    if parts[0] not in {"images", "tables", "page_citation_assets"}:
+    if parts[0] not in {"images", "tables"}:
         return None
     return "/".join(parts)

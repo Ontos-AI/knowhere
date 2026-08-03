@@ -64,17 +64,27 @@ def _language_directive(lang) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Entity-extraction & chart-numeric directives (§4.3 / §4.4)
+# Named-entity glossary (§4.4)
 # ──────────────────────────────────────────────────────────────────────────────
-# These build the shared, GENERAL-PURPOSE instructions injected into every
-# summary prompt. The type vocabulary is read from the ``ENTITY_TYPES`` config so
-# it can be extended without editing prompts, and the wording deliberately avoids
-# baked-in examples, sample values, or magic counts — extraction must generalize
-# across arbitrary documents, not fit any one corpus.
+# Canonical type definitions live HERE. To add a type: add a key → definition
+# below, then enable the key in ``ENTITY_TYPES`` (comma-separated).
+
+ENTITY_TYPE_GLOSSARY: dict[str, str] = {
+    "person": (
+        "A specific named individual (a person name or optionally with a role)."
+    ),
+    "location": (
+        "A geographic or physical place: country, region, city, street, site, or campus."
+    ),
+    "organization": (
+        "A named institution or body: company, government agency, regulator, "
+        "university, or NGO."
+    ),
+}
 
 
-def _entity_types() -> list[str]:
-    """The configured entity type vocabulary (lower-cased, de-duplicated)."""
+def _configured_entity_type_keys() -> list[str]:
+    """Enabled type keys from ``ENTITY_TYPES`` (order preserved, de-duplicated)."""
     from shared.core.config import settings
 
     raw = getattr(settings, "ENTITY_TYPES", "") or ""
@@ -86,34 +96,79 @@ def _entity_types() -> list[str]:
     return list(seen.keys())
 
 
-def _entity_instruction() -> str:
-    """Build the ``entities`` field instruction from the configured vocabulary.
+def resolved_entity_glossary() -> dict[str, str]:
+    """Active type → definition map for the current ``ENTITY_TYPES`` setting."""
+    keys = _configured_entity_type_keys()
+    if not keys:
+        return dict(ENTITY_TYPE_GLOSSARY)
 
-    Returns a JSON-field directive that asks for typed entities and treats an
-    empty result as valid. No entity names or counts are hard-coded; the only
-    corpus-specific input is the configurable type list.
-    """
-    types = _entity_types()
-    if types:
+    glossary: dict[str, str] = {}
+    for key in keys:
+        glossary[key] = ENTITY_TYPE_GLOSSARY.get(
+            key,
+            f"A named entity that clearly fits the category '{key}'.",
+        )
+    return glossary
+
+
+def _entity_types() -> list[str]:
+    """Active entity type labels (lower-cased)."""
+    return list(resolved_entity_glossary())
+
+
+def _entity_instruction(*, visual_layout_filter: bool = False) -> str:
+    """Build the ``entities`` field instruction from the glossary + config."""
+    glossary = resolved_entity_glossary()
+    if glossary:
+        glossary_block = "\n".join(
+            f'- "{label}": {definition}' for label, definition in glossary.items()
+        )
         type_clause = (
-            "Set \"type\" to the single best-fitting label from this allowed list: "
-            + ", ".join(types)
-            + ". If an entity fits none of them, omit that entity."
+            "Set \"type\" to exactly one label from the glossary below. "
+            "If the type is uncertain, omit the entity.\n"
+            f"{glossary_block}"
         )
     else:
         type_clause = (
             'Set "type" to a short lower-case category label you judge appropriate.'
         )
+    layout_clause = ""
+    if visual_layout_filter:
+        layout_clause = (
+            "Using visual layout, exclude running headers and footers, page "
+            "numbers, margin chrome, document or volume names used only as "
+            "page chrome, section headings and outline numbering codes, "
+            "cross-references to other parts of the document, and generic "
+            "category labels that are not specific named entities. "
+        )
     return (
-        '- "entities": a JSON array of the salient named entities explicitly '
-        "present in the content. Each element is an object with keys \"text\" and "
-        '"type". Use the exact surface form from the content for "text". '
-        f"{type_clause} "
-        "Do not infer, translate, or invent entities. Return an empty array [] "
-        "when none are present — an empty result is valid and expected, so never "
-        "force extraction."
+        '- "entities": a JSON array of clearly named entities present in the '
+        "content. Each element is an object with keys \"text\" and \"type\". "
+        f"{type_clause}\n"
+        f"{layout_clause}"
+        "Extract only clear, explicit named entities. Do not extract "
+        "abbreviations, codes, identifiers, or clause/part/table/spec numbers. "
+        "Do not infer, translate, or invent entities. If no clear entity is "
+        "present, return an empty array []. Prefer [] over uncertain extraction."
     )
 
+
+def allowed_entity_types() -> list[str]:
+    """Public allowed entity-type vocabulary for post-response validation."""
+    return _entity_types()
+
+
+def _body_start_boundary_instruction(paras: dict | None) -> str:
+    """Optional mixed TOC/body page instruction when an anchor is known."""
+    text = str((paras or {}).get("body_start_text") or "").strip()
+    if not text:
+        return ""
+    return (
+        "BOUNDARY PAGE: This page mixes a Table of Contents region with body "
+        "content. Body content begins at this verbatim text: "
+        f'"{text}". Ignore everything before that body start. Only extract or '
+        "summarize content from that point onward.\n"
+    )
 
 
 def build_prompt(task, texts, query, **kwargs):
@@ -180,7 +235,7 @@ def build_prompt(task, texts, query, **kwargs):
         if lang_directive:
             lang_line = (
                 "**LANGUAGE (HARD CONSTRAINT, applies to EVERY field — "
-                f"title, summary, and entities)**: {lang_directive}"
+                f"title and summary)**: {lang_directive}"
             )
         else:
             lang_line = (
@@ -193,17 +248,16 @@ def build_prompt(task, texts, query, **kwargs):
         '''
         {texts}
         '''
-        Extract a title, a summary, and named entities.
+        Extract a title and a summary only. Do not extract entities or keywords.
         {lang_line}
 
-        Output exactly THREE lines (no extra lines, no blank lines, no fences):
+        Output exactly TWO lines (no extra lines, no blank lines, no fences):
         Line 1: if the asset has an explicit caption or label, output it as-is; otherwise generate a short descriptive title without any punctuation
         Line 2: a faithful summary within {max_tokens} characters. If the content
         represents statistical data, incorporate the key numbers (extremes, totals,
         notable values) directly into the summary.
-        Line 3: named entities (ONLY person names, organization names, or location names) as a semicolon-separated list. Leave empty if none present.
 
-        If the input is empty or unreadable, output exactly three empty lines.
+        If the input is empty or unreadable, output exactly two empty lines.
         Do not output JSON, markdown fences, labels, or explanations.
         """
 
@@ -460,35 +514,14 @@ def build_prompt(task, texts, query, **kwargs):
 
     # ==================== Page-Memory Native Hierarchy Prompts ====================
 
-    elif task == "page-memory-vlm-tag":
+    elif task == "page-memory-vlm-page":
         temperature = 0
         top_p = 0.01
-        max_tokens = kwargs.get("paras", {}).get("max_tokens", 600)
-        entity_line = _entity_instruction()
-        prompt = f"""\
-        You are annotating a single rendered document page for a document memory
-        system. Return one strict JSON object with exactly these keys:
-
-        {{
-        "summary": "<concise summary of what this page contains>",
-        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
-        }}
-
-        Rules:
-        - "summary": describe the main content visible on the page in a few
-          sentences, in the same language as the page. If the page contains a
-          table, state its topic and key columns; if it contains a figure or
-          chart, describe what it depicts and any standout values.
-        {entity_line}
-        - Return ONLY the JSON object, with no markdown fences or extra text.
-        """
-
-    elif task == "page-memory-vlm-title":
-        temperature = 0
-        top_p = 0.01
-        paras = kwargs.get("paras", {})
-        max_tokens = paras.get("max_tokens", 300)
+        paras = kwargs.get("paras", {}) or {}
+        max_tokens = paras.get("max_tokens", 800)
         scan_direction = paras.get("scan_direction", "top_to_bottom_left_to_right")
+        boundary_line = _body_start_boundary_instruction(paras)
+        entity_line = _entity_instruction(visual_layout_filter=True)
 
         if "right_to_left" in scan_direction:
             reading_order_upper = "TOP-TO-BOTTOM, RIGHT-TO-LEFT"
@@ -498,31 +531,33 @@ def build_prompt(task, texts, query, **kwargs):
             column_order = "left to right (i.e. finish the left column before starting the right column)"
 
         prompt = f"""\
-        You are extracting document-outline-level headings from a PDF page screenshot.
-        Your goal is to find ONLY the section headings that structure the document.
-        If no text on this page qualifies as a section heading, return an empty list.
+        You are annotating one PDF page for a document memory system. You should independently:
+        1. extract outline-level headings;
+        2. summarize the page;
+        3. extract typed entities.
 
+        If no text qualifies as a section heading, return an empty titles list.
+
+        {boundary_line}
         READING ORDER:
-        This page may contain one or more readable columns.
-        Within each column, read from top to bottom.
+        This page may contain one or more readable columns. Within each column, read from top to bottom.
         Between columns, read from {column_order}.
         Return every qualifying heading on this page in that reading order.
-        Do not skip a heading just because it looks like a known section title;
-        extract all outline-level headings that appear on the page.
 
-        Return strict JSON:
+        Return one strict JSON object with exactly these keys:
         {{
         "titles": [
             {{
             "text": "<exact verbatim heading>",
-            "prominence": <0.0-1.0>,
             "is_in_table": <boolean>,
             "is_in_header_footer": <boolean>
             }}
-        ]
+        ],
+        "summary": "<concise summary of what this page contains>",
+        "entities": [{{"text": "<text>", "type": "<type>"}}]
         }}
 
-        ═══ MANDATORY BOOLEAN FLAGS (CRITICAL) ═══
+        ═══ TITLE RULES (CRITICAL) ═══
         For EVERY extracted heading, you MUST accurately evaluate these two flags:
         1. is_in_table (boolean): Set to `true` if the text is ANYWHERE inside a table.
         2. is_in_header_footer (boolean): Set to `true` if the text is located in the top margin (header) or bottom margin (footer) of the page.
@@ -532,33 +567,27 @@ def build_prompt(task, texts, query, **kwargs):
         Only extract text that satisfies ALL three criteria:
 
         1. HEADING FUNCTION (primary — must be true):
-        The text serves as a TITLE for the body content that follows it.
-        It introduces or labels a block of subsequent paragraphs, clauses,
-        or sub-sections. If you removed this text, the following body content
-        would lose its topic label.
+        The text serves as a TITLE for the body content following it according to the reading order.
+        If you removed this text, the following body content would lose its topic label.
 
         2. STANDALONE LINE (must be true):
         The text occupies its own line, clearly separated from surrounding
-        body paragraphs. It is NOT inside a table, NOT part of a list,
-        and NOT embedded within a sentence.
+        body paragraphs. It is NOT inside a table, NOT part of a list, and NOT embedded within a sentence.
 
         3. VISUAL DISTINCTION (supporting):
         The text is visually set apart from body text — larger font, bold,
-        centered, extra vertical spacing, or wrapped in a distinctive
-        background color block.
+        centered, extra vertical spacing, or wrapped in a distinctive background color block.
 
-        "prominence": 1.0 = most prominent; 0.5 = medium; 0.1 = minor.
         Return titles in {reading_order_upper} order. Text must be EXACT verbatim.
 
         ═══ WHAT TO EXCLUDE (critical — read carefully) ═══
 
         1. TABLE CONTENT — Any text that is part of a table. If the
-        text is surrounded by grid lines, borders, or cell boundaries, or if
-        its neighboring content is arranged in rows and columns, it is table
+        text is surrounded by grid lines, borders, or cell boundaries, it is table
         content and MUST BE EXCLUDED. This applies even when the text is bold,
-        large, or spans a merged cell. Specifically exclude:
+        large, or spans a merged cell. Typical examples include:
         - Column headers, row category labels, merged-cell group labels
-        - Any label inside a tabular layout, regardless of visual prominence
+        - Any label inside a tabular layout, regardless of font size or boldness
 
         2. PAGE PERIPHERY — Text in margins or corners of the page:
         organization/document names repeated as running headers, page numbers,
@@ -569,16 +598,153 @@ def build_prompt(task, texts, query, **kwargs):
 
         4. CAPTIONS — Figure/table captions, footnotes.
 
-        5. TOC ENTRIES — If the page is itself a Table of Contents or index,
-        do NOT extract its listed entries. A TOC page lists other sections
-        with page numbers — those entries are references, not headings.
+        ═══ IMPORTANT ═══
+        1. Many pages consist entirely of tables, numbered clauses, or appendix forms.
+        These pages have NO qualifying headings. Return {{"titles": []}} for them.
+
+        2. COMPLETENESS — Each heading must be the full heading as printed:
+        include its complete numbering/code AND exact title text; do not
+        abbreviate, truncate, or omit either part. 
+        
+        3. If a single heading wraps across more than one lines, merge the lines into ONE heading;
+        never split one wrapped heading into multiple results.
+
+        ═══ SUMMARY AND ENTITIES ═══
+        - "summary": describe the main content visible on the page in a few
+          sentences, in the same language as the page. If the page contains a
+          table, state its topic and key columns; if it contains a figure or
+          chart, describe what it depicts and any standout values.
+        {entity_line}
+
+        Return ONLY the JSON object, with no markdown fences or extra text.
+        """
+
+    elif task == "page-memory-vlm-titles":
+        temperature = 0
+        top_p = 0.01
+        paras = kwargs.get("paras", {}) or {}
+        max_tokens = paras.get("max_tokens", 800)
+        scan_direction = paras.get("scan_direction", "top_to_bottom_left_to_right")
+        boundary_line = _body_start_boundary_instruction(paras)
+
+        if "right_to_left" in scan_direction:
+            reading_order_upper = "TOP-TO-BOTTOM, RIGHT-TO-LEFT"
+            column_order = "right to left (i.e. finish the right column before starting the left column)"
+        else:
+            reading_order_upper = "TOP-TO-BOTTOM, LEFT-TO-RIGHT"
+            column_order = "left to right (i.e. finish the left column before starting the right column)"
+
+        prompt = f"""\
+        You are annotating one PDF page for a document memory system.
+        Extract document-outline-level headings only. Do not summarize the page
+        and do not extract entities.
+
+        If no text qualifies as a section heading, return an empty titles list.
+
+        {boundary_line}
+        READING ORDER:
+        This page may contain one or more readable columns.
+        Within each column, read from top to bottom.
+        Between columns, read from {column_order}.
+        Return every qualifying heading on this page in that reading order.
+
+        Return one strict JSON object with exactly this key:
+        {{
+        "titles": [
+            {{
+            "text": "<exact verbatim heading>",
+            "is_in_table": <boolean>,
+            "is_in_header_footer": <boolean>
+            }}
+        ]
+        }}
+
+        ═══ TITLE RULES (CRITICAL) ═══
+        For EVERY extracted heading, you MUST accurately evaluate these two flags:
+        1. is_in_table (boolean): Set to `true` if the text is ANYWHERE inside a table.
+        2. is_in_header_footer (boolean): Set to `true` if the text is located in the top margin (header) or bottom margin (footer) of the page.
+
+        ═══ WHAT TO EXTRACT ═══
+
+        Only extract text that satisfies ALL three criteria:
+
+        1. HEADING FUNCTION (primary — must be true):
+        The text serves as a TITLE for the body content following it according to the reading order.
+        If you removed this text, the following body content would lose its topic label.
+
+        2. STANDALONE LINE (must be true):
+        The text occupies its own line, clearly separated from surrounding
+        body paragraphs. It is NOT inside a table, NOT part of a list, and NOT embedded within a sentence.
+
+        3. VISUAL DISTINCTION (supporting):
+        The text is visually set apart from body text — larger font, bold,
+        centered, extra vertical spacing, or wrapped in a distinctive background color block.
+
+        Return titles in {reading_order_upper} order. Text must be EXACT verbatim.
+
+        ═══ WHAT TO EXCLUDE (critical — read carefully) ═══
+
+        1. TABLE CONTENT — Any text that is part of a table. If the
+        text is surrounded by grid lines, borders, or cell boundaries, it is table
+        content and MUST BE EXCLUDED. This applies even when the text is bold,
+        large, or spans a merged cell. Typical examples include:
+        - Column headers, row category labels, merged-cell group labels
+        - Any label inside a tabular layout, regardless of font size or boldness
+
+        2. PAGE PERIPHERY — Text in margins or corners of the page:
+        organization/document names repeated as running headers, page numbers,
+        book/volume titles used as running headers or footers.
+
+        3. INLINE TEXT — bullet list items, numbered clauses, or text that continues a paragraph.
+        These are content items, not section headings, even if bold.
+
+        4. CAPTIONS — Figure/table captions, footnotes.
 
         ═══ IMPORTANT ═══
-        Many pages consist entirely of tables, numbered clauses, or appendix forms.
+        1. Many pages consist entirely of tables, numbered clauses, or appendix forms.
         These pages have NO qualifying headings. Return {{"titles": []}} for them.
-        Do NOT force-extract table labels or numbered items as headings.
 
-        Return ONLY the JSON object, no markdown fences.
+        2. COMPLETENESS — Each heading must be the full heading as printed:
+        include its complete numbering/code AND exact title text; do not
+        abbreviate, truncate, or omit either part.
+
+        3. If a single heading wraps across more than one lines, merge the lines into ONE heading;
+        never split one wrapped heading into multiple results.
+
+        Return ONLY the JSON object, with no markdown fences or extra text.
+        """
+
+    elif task == "page-memory-text-page":
+        temperature = 0
+        top_p = 0.01
+        paras = kwargs.get("paras", {}) or {}
+        max_tokens = paras.get("max_tokens", 600)
+        boundary_line = _body_start_boundary_instruction(paras)
+        entity_line = _entity_instruction(visual_layout_filter=False)
+        prompt = f"""\
+        You are summarizing one PDF page from its extracted body text for a
+        document memory system. The input is plain text only; do not claim to
+        identify headers, footers, or margin chrome by visual position.
+
+        {boundary_line}
+        Page text:
+        '''
+        {texts}
+        '''
+
+        Return one strict JSON object with exactly these keys:
+        {{
+        "summary": "<concise summary of what this page contains>",
+        "entities": [{{"text": "<text>", "type": "<type>"}}]
+        }}
+
+        Rules:
+        - "summary": describe the main body content of this page in one or two
+          sentences in the same language as the text. If the page is mostly a table, state its topic;
+          if it describes a figure or chart, summarize what the text says about it.
+
+        {entity_line}
+        - Return ONLY the JSON object, with no markdown fences or extra text.
         """
 
     elif task == "page-memory-hierarchy":
@@ -613,8 +779,8 @@ Your task:
   child, etc.
 - Preserve all legitimate sibling headings. Consecutive same-level headings are
   normal and MUST NOT be demoted just because no body text appears between rows.
-- Use page order as reading order. The "prominence" value is visual strength,
-  but numbering and structural pattern are more important.
+- Use page order as reading order. Numbering and structural pattern are the
+  primary signals for level assignment.
 
 {coarse_section}
 
@@ -646,46 +812,6 @@ Output requirements:
   {{"id": <integer>, "level": <integer from 1 to {max_depth}>}}
 - Omitted ids are treated as filtered noise.
 """
-
-    elif task == "page-memory-node-summary":
-        temperature = 0
-        top_p = 0.01
-        max_tokens = kwargs.get("paras", {}).get("max_tokens", 400)
-        node_title = kwargs.get("paras", {}).get("node_title", "")
-        next_title = kwargs.get("paras", {}).get("next_title", "")
-        if next_title:
-            scope = (
-                f"Summarize ONLY the content that belongs to the section titled "
-                f"\"{node_title}\". The section ends where the next section "
-                f"\"{next_title}\" begins on the page(s). Ignore everything that "
-                f"belongs to \"{next_title}\" or to other sections."
-            )
-        else:
-            scope = (
-                f"Summarize the content of the section titled \"{node_title}\" "
-                f"across the provided page image(s) as a single coherent section."
-            )
-        entity_line = _entity_instruction()
-        prompt = f"""\
-        You are summarizing one section of a document for a navigation/memory
-        system. You are given the page image(s) that this section spans.
-
-        {scope}
-
-        Return one strict JSON object with exactly these keys:
-        {{
-        "summary": "<concise summary of THIS section's content>",
-        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
-        }}
-
-        Rules:
-        - "summary": describe what this section is about, in the same language as
-          the visible page content. If the section is mostly a table, describe the
-          table's topic and key columns. Do not summarize content that belongs to
-          other sections on the same page.
-        {entity_line}
-        - Return ONLY the JSON object, with no markdown fences or extra text.
-        """
 
     elif task == "transcribe":
         # Unified OCR primitive (§4.2): replaces the former ``page-memory-vlm-ocr``
@@ -844,8 +970,6 @@ header_rows_to_skip: integer, the number of leading rows in Table B that duplica
         else:
             img_context = ""
 
-        entity_line = _entity_instruction()
-
         prompt = f"""
         You will receive a single image extracted from a document (it may be a
         chart, a table, a diagram, a credential/form, a technical drawing, a
@@ -854,8 +978,7 @@ header_rows_to_skip: integer, the number of leading rows in Table B that duplica
 
         {{
         "title": "<the asset's own caption or label>",
-        "summary": "<what the asset shows and its key information>",
-        "entities": [{{"text": "<surface form>", "type": "<type>"}}]
+        "summary": "<what the asset shows and its key information>"
         }}
 
         How to summarize, by what the image actually is (decide internally; do not
@@ -879,7 +1002,7 @@ header_rows_to_skip: integer, the number of leading rows in Table B that duplica
           the image has no text). If the content represents statistical data,
           incorporate the key numbers (extremes, totals, notable values) directly
           into the summary sentence.
-        {entity_line}
+        - Do not extract entities or keywords. Summary is the only content field.
         - If the image is blank, unreadable, or carries no meaningful content,
           return exactly: null
         {img_context}

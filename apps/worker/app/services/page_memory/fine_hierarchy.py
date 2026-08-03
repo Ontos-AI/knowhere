@@ -106,6 +106,8 @@ def refine_fat_leaf_skeletons(
 def compute_fat_leaf_pages(
     skeletons: list[SectionSkeleton],
     min_pages: int,
+    *,
+    exclude_pages: set[int] | frozenset[int] | None = None,
 ) -> set[int]:
     """Compute the set of page indices belonging to fat-leaf sections.
 
@@ -115,13 +117,19 @@ def compute_fat_leaf_pages(
     Uses exclusive end boundaries when sibling starts are visible in
     ``skeletons``. For single-leaf scopes the closed ``end_page`` is used,
     which includes the shared boundary page with the next leaf.
+    Pure TOC pages in ``exclude_pages`` are removed before span counting.
     """
+    excluded = {int(page) for page in (exclude_pages or set())}
     fat_pages: set[int] = set()
     for idx, skel in enumerate(skeletons):
         exclusive_end = _exclusive_end(skeletons, idx)
-        page_span = exclusive_end - skel.start_page + 1
-        if page_span > min_pages:
-            fat_pages.update(range(skel.start_page, exclusive_end + 1))
+        pages = [
+            page
+            for page in range(skel.start_page, exclusive_end + 1)
+            if page not in excluded
+        ]
+        if len(pages) > min_pages:
+            fat_pages.update(pages)
     return fat_pages
 
 
@@ -162,7 +170,7 @@ def _collect_candidates(
     """Gather VLM-observed titles within a skeleton's page range.
 
     Preserves page ascending order and within-page VLM reading order
-    (``observed_titles`` as returned by the VLM; prominence is metadata only).
+    (``observed_titles`` as returned by the VLM).
     Then trims by coarse start/end anchors:
 
     - Drop the start anchor and everything before it.
@@ -170,7 +178,7 @@ def _collect_candidates(
     - If the end anchor is missing, drop all candidates on ``exclusive_end``
       (page-level fallback so the next section cannot bleed in).
 
-    Returns list of ``{id, heading, page, prominence}``.
+    Returns list of ``{id, heading, page}``.
     """
     raw: list[dict[str, Any]] = []
     tag_by_page = {t.page_index: t for t in tag_results}
@@ -191,7 +199,6 @@ def _collect_candidates(
             raw.append({
                 "heading": text,
                 "page": page,
-                "prominence": title_entry.get("prominence"),
                 "key": key,
             })
 
@@ -216,7 +223,6 @@ def _collect_candidates(
             "id": candidate_id,
             "heading": item["heading"],
             "page": item["page"],
-            "prominence": item.get("prominence"),
         })
     return candidates
 
@@ -301,7 +307,6 @@ def _run_hierarchy_on_candidates(
             {
                 "id": cand["id"],
                 "page": cand["page"],
-                "prominence": cand.get("prominence"),
                 "heading": cand["heading"],
             }
             for cand in candidates

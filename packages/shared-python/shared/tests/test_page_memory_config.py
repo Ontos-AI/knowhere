@@ -16,6 +16,24 @@ def test_page_memory_config_defaults_resolve_concurrency_settings() -> None:
     config = PageMemoryConfig.default()
 
     assert config.scope_concurrency == 5
-    assert config.tag_concurrency == 4
-    assert config.title_detection_concurrency == 3
+    assert config.tag_concurrency == 5
+    assert config.text_summary_concurrency == 5
+    assert config.text_summary_model == "deepseek-v4-flash"
     assert config.node_assembly_concurrency == 3
+    assert config.tagging_mode == "text"
+    assert config.asset_extraction_enabled is True
+    assert config.asset_summary_enabled is True
+
+
+def test_page_memory_config_from_mapping_resolves_tagging_mode() -> None:
+    config = PageMemoryConfig.from_mapping(
+        {
+            "tagging_mode": "text",
+            "text_summary_concurrency": 7,
+            "text_summary_model": "custom-text-model",
+        }
+    )
+    assert config.tagging_mode == "text"
+    assert config.text_summary_concurrency == 7
+    assert config.text_summary_model == "custom-text-model"
+    assert "node_summary_max_pages" not in config.to_dict()

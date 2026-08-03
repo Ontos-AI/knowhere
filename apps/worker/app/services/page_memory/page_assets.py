@@ -17,10 +17,10 @@ from loguru import logger
 from PIL import Image, ImageDraw, ImageFont
 
 from app.services.document_agent.visual import visual_debug_enabled
-from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
-from app.services.document_parser.support.parser_rows import serialize_entities
+from app.services.document_parser.support.identifiers import gen_str_codes
 from app.services.page_memory.page_renderer import PageRenderResult
 from shared.services.ai.prompt_service import build_prompt
+from shared.services.chunks.canonical_chunk_builder import ChunkMetadata, ChunkPayload
 
 _GRID_SIZE = 1000
 _VALID_KINDS = {"table", "figure"}
@@ -49,19 +49,62 @@ class PageAsset:
     image_path: str = ""
     html_path: str = ""
     extraction_status: str = "pending"
+    source_page_nums: list[int] = field(default_factory=list)
+    """Physical pages this asset spans (defaults to ``[page_index]``)."""
+
+    def __post_init__(self) -> None:
+        self.source_page_nums = normalize_asset_source_pages(
+            self.source_page_nums,
+            fallback_page=self.page_index,
+        )
+
+
+def normalize_asset_source_pages(
+    pages: list[int] | None,
+    *,
+    fallback_page: int,
+) -> list[int]:
+    """Return sorted unique positive page numbers, falling back to one page."""
+    normalized: set[int] = set()
+    for page in pages or []:
+        try:
+            value = int(page)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            normalized.add(value)
+    if normalized:
+        return sorted(normalized)
+    try:
+        fallback = int(fallback_page)
+    except (TypeError, ValueError):
+        return []
+    return [fallback] if fallback > 0 else []
+
+
+def asset_source_pages(asset: PageAsset) -> list[int]:
+    """Pages covered by an asset, including cross-page merged tables."""
+    return normalize_asset_source_pages(
+        asset.source_page_nums,
+        fallback_page=asset.page_index,
+    )
 
 
 def page_asset_extraction_enabled() -> bool:
-    return True
+    from shared.models.schemas.page_memory_config import PageMemoryConfig
+
+    return PageMemoryConfig.default().asset_extraction_enabled
 
 
 def page_asset_summary_enabled() -> bool:
     """Whether detected page assets are summarized via the engine (§4.3).
 
     Gated separately from detection so the richer chart/figure summarization can
-    be rolled out independently. Defaults off.
+    be rolled out independently. Defaults on via ``PageMemoryConfig``.
     """
-    return False
+    from shared.models.schemas.page_memory_config import PageMemoryConfig
+
+    return PageMemoryConfig.default().asset_summary_enabled
 
 
 def get_asset_confidence_threshold() -> float:
@@ -317,10 +360,8 @@ def summarize_page_asset(
     """Summarize a cropped asset via the unified engine (§4.3).
 
     Routes tables (with extracted HTML) through the text asset path and figures /
-    charts through the image asset path. Populates ``summary``, ``entities``,
-    ``chart`` (statistical content), and a ``title`` when the asset had none.
-    Numbers and entities come entirely from the model reading the asset; nothing
-    is hard-coded here.
+    charts through the image asset path. Populates ``summary`` and a ``title``
+    when the asset had none. Assets do not extract entities.
     """
     from shared.services.ai.summary.engine import summarize
 
@@ -336,7 +377,7 @@ def summarize_page_asset(
             mode="asset",
             text=table_html,
             model=model_name,
-            usage_task="page_memory.asset_summary",
+            usage_task="page_memory.asset_summary_text",
             asset_title_hint=asset.title,
         )
     elif asset.image_path and os.path.exists(asset.image_path):
@@ -345,7 +386,7 @@ def summarize_page_asset(
             image_paths=[asset.image_path],
             text=asset.title,
             model=model_name,
-            usage_task="page_memory.asset_summary",
+            usage_task="page_memory.asset_summary_visual",
             asset_title_hint=asset.title,
         )
     else:
@@ -355,11 +396,9 @@ def summarize_page_asset(
         asset.title = result.title
     if result.summary:
         asset.summary = result.summary
-    if result.entities:
-        asset.entities = [e.to_dict() for e in result.entities]
-        asset.keywords = [e.text for e in result.entities if e.text]
-    if result.summary or result.entities:
         asset.extraction_status = "summarized"
+    asset.entities = []
+    asset.keywords = []
     return asset
 
 
@@ -372,7 +411,7 @@ def extract_page_assets_from_renders(
     budget: Any | None = None,
     max_pages: int,
     confidence_threshold: float,
-    summary_enabled: bool = False,
+    summary_enabled: bool = True,
     summary_concurrency: int = 4,
     table_engine: str = "tabula",
     table_merge_enabled: bool = True,
@@ -508,10 +547,11 @@ def _asset_box_color(kind: str) -> tuple[int, int, int]:
     return (0, 150, 0)
 
 
-def build_asset_rows(
+def build_asset_chunks(
     page_assets_by_page: dict[int, list[PageAsset]],
-) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+) -> list[ChunkPayload]:
+    """Build canonical asset chunks directly from extracted page assets."""
+    chunks: list[ChunkPayload] = []
     for page_index in sorted(page_assets_by_page):
         for asset in page_assets_by_page[page_index]:
             ref_uri = (
@@ -523,29 +563,35 @@ def build_asset_rows(
                 continue
             row_type = "table" if asset.kind == "table" and asset.html_uri else "image"
             content = _asset_content(asset, row_type=row_type)
-            rows.append(
+            metadata: ChunkMetadata = {
+                "length": len(content),
+                "summary": asset.summary.strip(),
+                "keywords": list(asset.keywords),
+                "entities": list(asset.entities),
+                "tokens": [],
+                "connect_to": [],
+                "page_nums": asset_source_pages(asset),
+                "file_path": ref_uri,
+                "original_name": os.path.basename(ref_uri),
+            }
+            if asset.title.strip():
+                metadata["asset_title"] = asset.title.strip()
+            metadata.update(_asset_extra_metadata(asset))
+            chunks.append(
                 {
+                    "chunk_id": asset.asset_id,
+                    "type": row_type,
                     "content": content,
                     "path": ref_uri,
-                    "type": row_type,
-                    "length": len(content),
-                    "keywords": ";".join(asset.keywords),
-                    "summary": asset.summary.strip(),
-                    "know_id": asset.asset_id,
-                    "tokens": "",
-                    "connectto": "",
-                    "addtime": get_str_time(),
-                    "page_nums": str(asset.page_index),
-                    "entities": serialize_entities(asset.entities),
-                    "asset_title": asset.title.strip(),
-                    "extra_metadata": _asset_extra_metadata(asset),
+                    "metadata": metadata,
+                    "order": len(chunks),
                 }
             )
-    return rows
+    return chunks
 
 
-def _asset_extra_metadata(asset: PageAsset) -> dict[str, Any]:
-    metadata: dict[str, Any] = {
+def _asset_extra_metadata(asset: PageAsset) -> ChunkMetadata:
+    metadata: ChunkMetadata = {
         "image_uri": asset.image_uri,
     }
     return metadata
@@ -750,6 +796,10 @@ def merge_cross_page_tables(
             head_asset=head_table,
             header_rows_to_skip=header_rows_to_skip,
         )
+        tail_table.source_page_nums = normalize_asset_source_pages(
+            [*asset_source_pages(tail_table), *asset_source_pages(head_table)],
+            fallback_page=tail_table.page_index,
+        )
         assets_by_page[next_page].remove(head_table)
         if not assets_by_page[next_page]:
             del assets_by_page[next_page]
@@ -903,12 +953,14 @@ __all__ = [
     "PageAsset",
     "annotate_page_assets",
     "asset_reference",
-    "build_asset_rows",
+    "asset_source_pages",
+    "build_asset_chunks",
     "extract_page_assets_from_renders",
     "get_asset_confidence_threshold",
     "get_asset_max_pages",
     "get_asset_model",
     "merge_cross_page_tables",
+    "normalize_asset_source_pages",
     "page_asset_extraction_enabled",
     "page_asset_summary_enabled",
     "summarize_page_asset",

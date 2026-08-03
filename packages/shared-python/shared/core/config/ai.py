@@ -103,19 +103,43 @@ class AIConfig(BaseModel):
     )
     PAGE_MEMORY_SCOPE_CONCURRENCY: int = Field(
         default=5,
-        description="Local per-job hierarchy scope concurrency for page-memory.",
+        description=(
+            "Local per-job concurrency for page-memory scope fine hierarchy "
+            "and asset extraction."
+        ),
     )
     PAGE_MEMORY_TAG_CONCURRENCY: int = Field(
-        default=4,
-        description="Local per-job page tagging concurrency for page-memory.",
+        default=5,
+        description=(
+            "Local per-document concurrency for page-memory page tagging "
+            "(one VLM call per physical page for titles, or combined visual tags)."
+        ),
     )
-    PAGE_MEMORY_TITLE_DETECTION_CONCURRENCY: int = Field(
-        default=3,
-        description="Local per-job title detection concurrency for page-memory.",
+    PAGE_MEMORY_TEXT_SUMMARY_CONCURRENCY: int = Field(
+        default=5,
+        description=(
+            "Local per-document concurrency for page-memory text-mode "
+            "DeepSeek page summary/entity extraction."
+        ),
+    )
+    PAGE_MEMORY_TEXT_SUMMARY_MODEL: str = Field(
+        default="",
+        description=(
+            "Optional page-memory text summary model override; falls back to "
+            "NORMOL_MODEL when empty."
+        ),
+    )
+    PAGE_MEMORY_TAGGING_MODE: str = Field(
+        default="text",
+        description=(
+            "Page-memory page tagging mode: 'text' (VLM titles + DeepSeek page "
+            "text summary/entities) or 'visual' (combined VLM titles+"
+            "summary+entities)."
+        ),
     )
     PAGE_MEMORY_NODE_ASSEMBLY_CONCURRENCY: int = Field(
         default=3,
-        description="Local per-job node OCR and summary concurrency for page-memory.",
+        description="Local per-job node OCR concurrency for page-memory.",
     )
     TOKEN_PRICING_TABLE_JSON: str = Field(
         default="",
@@ -198,10 +222,9 @@ class AIConfig(BaseModel):
     ENTITY_TYPES: str = Field(
         default="person,location,organization",
         description=(
-            "Comma-separated seed list of entity types the summarizer may emit "
-            "(§4.4). Extend this to broaden extraction (e.g. product, date, money) "
-            "without code changes. Order is not significant; matching is "
-            "case-insensitive. An empty value disables type guidance and lets the "
-            "model choose, but the seed list keeps cross-document links consistent."
+            "Comma-separated enabled entity types for summarization (§4.4). "
+            "Definitions live in "
+            "shared.services.ai.prompt_service.ENTITY_TYPE_GLOSSARY. "
+            "Empty uses the full glossary."
         ),
     )

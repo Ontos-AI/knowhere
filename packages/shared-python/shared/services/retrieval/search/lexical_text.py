@@ -4,18 +4,12 @@ Lexical text builders for canonical retrieval publication.
 
 from __future__ import annotations
 
-import re
 from typing import Any, Optional
 
+from shared.services.chunks.same_as_markers import strip_same_as_markers
 from shared.services.chunks.document_path import split_document_path
 from shared.services.chunks.path_segments import split_escaped_document_path
 from shared.utils.text_utils import tokenize_contents_for_retrieval
-
-_SAME_AS_RE = re.compile(r"\[SAME-AS [^\]]+\]")
-
-
-def _strip_same_as_markers(text: str) -> str:
-    return _SAME_AS_RE.sub("", text).strip()
 
 
 def normalize_section_path(path: Optional[str]) -> str:
@@ -57,7 +51,7 @@ def build_content_lexical_text(chunk: dict[str, Any]) -> Optional[str]:
             return None
         return build_lexical_text(content)
 
-    content = _strip_same_as_markers(
+    content = strip_same_as_markers(
         str(chunk.get("content") or chunk.get("text") or "")
     )
     if not content:
@@ -125,7 +119,7 @@ def build_content_search_text(
     if _is_table_chunk(chunk):
         content = _table_search_source_text(chunk)
     else:
-        content = _strip_same_as_markers(
+        content = strip_same_as_markers(
             str(chunk.get("content") or chunk.get("text") or "")
         )
     chunk_summary = _chunk_summary_text(chunk)
@@ -192,7 +186,7 @@ def build_term_search_text(
     if _is_table_chunk(chunk):
         content = _table_search_source_text(chunk)
     else:
-        content = _strip_same_as_markers(
+        content = strip_same_as_markers(
             str(chunk.get("content") or chunk.get("text") or "")
         )
     path = str(path_text or "").strip()

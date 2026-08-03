@@ -139,9 +139,13 @@ def _enrich_document_navigation(
     section_summaries: dict[str, str] = {}
     enrich_results: dict[str, str] = {}
     add_dir = artifact.add_dir
-    parsed_contents_df = artifact.dataframe
+    has_paths = False
+    if artifact.chunks:
+        has_paths = any(str(chunk.get("path") or "").strip() for chunk in artifact.chunks)
+    elif artifact.dataframe is not None and "path" in artifact.dataframe.columns:
+        has_paths = True
     if add_dir and source_file_name:
-        if "path" in parsed_contents_df.columns:
+        if has_paths:
             ensure_doc_nav_json(
                 str(add_dir),
                 chunks,
@@ -223,6 +227,7 @@ def _generate_result_package(
     task_workspace_dir: str,
 ) -> GeneratedResultPackage:
     data_id = JobMetadataHelper.get_data_id(job_context.job_metadata)
+    parse_track = JobMetadataHelper.get_parse_track(job_context.job_metadata)
     zip_service = ZipResultService()
     return build_generated_result_package(
         *zip_service.generate_zip_package(
@@ -234,8 +239,8 @@ def _generate_result_package(
             source_file_name=source_file_name,
             data_id=data_id,
             job_metadata=job_context.job_metadata,
-            parsed_df=result_package.artifact.dataframe,
             temp_dir=task_workspace_dir,
+            parse_track=parse_track,
         )
     )
 

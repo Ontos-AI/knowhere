@@ -21,11 +21,12 @@ class ConnectionPayload(TypedDict, total=False):
     score: float
     keywords: list[str]
     same_as_owner: str
+    page: int
 
 
 RelationshipRef: TypeAlias = str | ChunkRefSpan
 ConnectionValue: TypeAlias = str | ConnectionPayload
-ConnectionKey: TypeAlias = tuple[str, str, str]
+ConnectionKey: TypeAlias = tuple[str, str, str, str]
 PositionKey: TypeAlias = tuple[str, str]
 
 
@@ -143,6 +144,9 @@ def normalize_connect_to_targets(
             same_as_owner = item.get("same_as_owner")
             if same_as_owner:
                 normalized_item["same_as_owner"] = str(same_as_owner)
+            page = item.get("page")
+            if isinstance(page, int) and page > 0:
+                normalized_item["page"] = page
             position = item.get("position")
             if isinstance(position, dict):
                 start = position.get("start")
@@ -206,11 +210,14 @@ def _parse_type_relationship_refs(type_value: object) -> list[str]:
 
 def _get_connection_key(item: ConnectionValue) -> ConnectionKey:
     if not isinstance(item, dict):
-        return ("", "related", "")
+        return ("", "related", "", "")
+    page = item.get("page")
+    page_key = str(page) if isinstance(page, int) and page > 0 else ""
     return (
         str(item.get("target") or ""),
         str(item.get("relation") or "related"),
         str(item.get("ref") or ""),
+        page_key,
     )
 
 

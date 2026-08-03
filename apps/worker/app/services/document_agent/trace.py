@@ -138,6 +138,7 @@ class ParseRunRecorder:
             profile["page_count"] = self._anatomy.page_count
             profile["toc"] = {
                 "toc_pages": list(toc_result.toc_pages),
+                "regions": [region.to_dict() for region in toc_result.regions],
                 "hierarchies": self._anatomy.toc_hierarchies,
                 "evidence": [item.to_dict() for item in toc_result.evidence],
                 "source": "pdf_vlm" if toc_result.method != "none" else "none",

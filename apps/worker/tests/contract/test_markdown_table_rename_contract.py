@@ -21,7 +21,7 @@ from app.services.document_parser.formats.markdown.table_asset import (  # noqa:
     MarkdownTableAssetRequest,
     build_markdown_table_asset,
 )
-from shared.services.ai.summary.model import AssetSummary, Entity  # noqa: E402
+from shared.services.ai.summary.model import AssetSummary  # noqa: E402
 from shared.utils.chunk_refs import build_chunk_ref  # noqa: E402
 
 
@@ -95,7 +95,6 @@ def test_apply_table_summary_rename_keeps_index_and_syncs_content(
         AssetSummary(
             title="招标文件及议标项目评审流程图",
             summary="三类风险招标文件评审流程",
-            entities=[Entity(text="市场开发部", type="org")],
             kind="table",
         ),
     )

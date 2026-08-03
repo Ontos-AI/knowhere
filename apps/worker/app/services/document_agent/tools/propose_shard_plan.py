@@ -19,6 +19,20 @@ from loguru import logger
 from shared.utils.token_estimate import estimate_tokens
 
 
+def _arithmetic_body_start_page(hierarchy: dict[str, Any], toc_end_page: int) -> int:
+    """Body start for printed→physical arithmetic offset.
+
+    Prefer a probed mixed-page body start when the hierarchy carries one.
+    """
+    body_start_page = hierarchy.get("body_start_page")
+    if body_start_page is not None:
+        try:
+            return int(body_start_page)
+        except (TypeError, ValueError):
+            pass
+    return int(toc_end_page) + 1
+
+
 def derive_leaf_cut_pages(
     toc_hierarchies: list[dict[str, Any]] | None,
     *,
@@ -57,11 +71,12 @@ def derive_leaf_cut_pages(
             )
             if first_printed is None:
                 continue
-            offset = (toc_end_page + 1) - first_printed
+            body_start = _arithmetic_body_start_page(hier, toc_end_page)
+            offset = body_start - first_printed
             logger.warning(
                 "[propose_shard_plan] using arithmetic offset fallback: "
-                "toc_end={} first_printed={} offset={}",
-                toc_end_page,
+                "body_start={} first_printed={} offset={}",
+                body_start,
                 first_printed,
                 offset,
             )
@@ -122,7 +137,7 @@ def derive_chapter_boundaries(
             )
             if first_printed is None:
                 continue
-            offset = (toc_end_page + 1) - first_printed
+            offset = _arithmetic_body_start_page(hier, toc_end_page) - first_printed
 
         # Collect all entries with physical pages
         phys_entries: list[dict[str, Any]] = []
@@ -230,7 +245,7 @@ def split_toc_for_shard(
             )
             if first_printed is None:
                 continue
-            offset = (toc_end_page + 1) - first_printed
+            offset = _arithmetic_body_start_page(hier, toc_end_page) - first_printed
 
         shard_entries: list[dict[str, Any]] = []
         first_idx: int | None = None

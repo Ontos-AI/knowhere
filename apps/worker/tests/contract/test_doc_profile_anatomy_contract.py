@@ -152,9 +152,9 @@ def test_run_lightweight_anatomy_builds_single_shard_without_planner_llm(
     assert anatomy.shard_plan.shards[0].page_start == 1
     assert anatomy.shard_plan.shards[0].page_end == 2
     assert anatomy.toc_result.method == "none"
-    assert (output_dir / "anatomy_map.json").exists()
+    assert (output_dir / "doc_profile.json").exists()
     anatomy_data = json.loads(
-        (output_dir / "anatomy_map.json").read_text(encoding="utf-8")
+        (output_dir / "doc_profile.json").read_text(encoding="utf-8")
     )
     assert list(anatomy_data)[:2] == ["version", "toc_hierarchies"]
     assert "text_lines_preview" not in anatomy_data["page_features"][0]

@@ -13,38 +13,40 @@ This module switches the unit of assembly to the **leaf section node**:
   ``SAME-AS <owner path>`` marker instead of repeating the text.  Body text is
   not duplicated across page-track nodes.
 
-Summary/keywords are settled per node (see ``node_summary``): a node covering
-multiple pages is summarized as a whole, and a page hosting multiple nodes is
-summarized per node using a title boundary so the slices do not overlap.
+Summary/entities follow the same ownership: only owned pages contribute page
+tags; SAME-AS aliases keep empty summary/entities and an explicit ``same_as``
+connection to the owner chunk.
 """
 
 from __future__ import annotations
 
-import json
 import os
-import shutil
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, cast
 
 from loguru import logger
 
 from app.services.document_parser.support.stage_profiler import stage_timer
-from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
-from app.services.document_parser.support.parser_rows import serialize_entities
+from app.services.document_parser.support.identifiers import gen_str_codes
 from app.services.page_memory.page_assets import (
     PageAsset,
-    build_asset_rows,
+    asset_source_pages,
+    build_asset_chunks,
 )
-from app.services.page_memory.page_tagger import PageTagResult
+from app.services.page_memory.page_tagger import PageTagResult, normalize_entities
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
-from shared.services.ai.summary.engine import summarize, transcribe
+from app.services.page_memory._utils import slice_text_from_anchor
+from app.services.page_memory.toc_page_policy import TocPagePolicy
+from shared.services.ai.summary.engine import transcribe
+from shared.services.chunks.canonical_chunk_builder import (
+    ChunkMetadata,
+    ChunkPayload,
+    finalize_chunk_connections,
+)
+from shared.services.chunks.chunk_connections import ConnectionValue
+from shared.services.chunks.path_segments import join_document_path
 
 SAME_AS_PREFIX = "SAME-AS"
-
-_NODE_SUMMARY_MAX_PAGES_DEFAULT = 5
-_PAGE_CITATION_ASSET_SOURCE = "knowhere-rendered-page-citation-source"
-_PAGE_CITATION_ASSET_CONTENT_TYPE = "image/png"
 
 
 @dataclass(frozen=True)
@@ -211,26 +213,6 @@ def build_node_content(
     return "\n\n".join(segment for segment in segments if segment).strip()
 
 
-def next_title_on_page(
-    leaf: LeafNode,
-    *,
-    page: int,
-    leaves_on_page: list[LeafNode],
-) -> str | None:
-    """Return the title of the next leaf starting on the same page after *leaf*.
-
-    Used to bound the summary slice when a page hosts multiple nodes.  Returns
-    ``None`` when *leaf* is the last node beginning on this page.
-    """
-    ordered = [item for item in leaves_on_page if item.start_page == page]
-    for index, item in enumerate(ordered):
-        if item.section_path == leaf.section_path:
-            if index + 1 < len(ordered):
-                return ordered[index + 1].title
-            return None
-    return None
-
-
 def pages_by_leaf_count(views: list[NodePageView]) -> dict[int, list[LeafNode]]:
     """Map each page to the leaves that cover it (reading order)."""
     page_to_leaves: dict[int, list[LeafNode]] = {}
@@ -238,6 +220,67 @@ def pages_by_leaf_count(views: list[NodePageView]) -> dict[int, list[LeafNode]]:
         for page in view.pages:
             page_to_leaves.setdefault(page, []).append(view.leaf)
     return page_to_leaves
+
+
+def format_owned_page_coverage(pages: list[int]) -> str:
+    """Readable coverage phrase for owned pages (contiguous → range)."""
+    if not pages:
+        return ""
+    if len(pages) == 1:
+        return f"page {pages[0]}"
+    contiguous = pages[-1] - pages[0] + 1 == len(pages) and pages == list(
+        range(pages[0], pages[-1] + 1)
+    )
+    if contiguous:
+        return f"pages {pages[0]}-{pages[-1]}"
+    return "pages " + ", ".join(str(page) for page in pages)
+
+
+def aggregate_owned_page_tags(
+    *,
+    owned_pages: list[int],
+    tag_by_page: dict[int, PageTagResult],
+) -> tuple[str, list[str], list[dict[str, str]]]:
+    """Aggregate page-level tags for pages this node owns.
+
+    SAME-AS shared pages are excluded: only ``owned_pages`` contribute.
+    """
+    if not owned_pages:
+        return "", [], []
+
+    if len(owned_pages) == 1:
+        tag = tag_by_page.get(owned_pages[0])
+        if tag is None:
+            return "", [], []
+        entities = normalize_entities(tag.entities)
+        keywords = [entity["text"] for entity in entities]
+        summary = (tag.summary or "").strip()
+        if summary.upper() == "EMPTY":
+            summary = ""
+        return summary, keywords, entities
+
+    page_lines: list[str] = []
+    entities: list[dict[str, str]] = []
+    seen_entities: set[tuple[str, str]] = set()
+    for page in owned_pages:
+        tag = tag_by_page.get(page)
+        if tag is None:
+            continue
+        summary = (tag.summary or "").strip()
+        if summary and summary.upper() != "EMPTY":
+            page_lines.append(f"Page {page}: {summary}")
+        for entity in normalize_entities(tag.entities):
+            key = (entity["type"].casefold(), entity["text"].casefold())
+            if key in seen_entities:
+                continue
+            seen_entities.add(key)
+            entities.append(entity)
+
+    keywords = [entity["text"] for entity in entities]
+    if not page_lines:
+        return "", keywords, entities
+    header = f"This section covers {format_owned_page_coverage(owned_pages)}."
+    return f"{header}\n\n" + "\n".join(page_lines), keywords, entities
 
 
 # ── VLM-backed helpers ───────────────────────────────────────────────
@@ -249,182 +292,57 @@ def resolve_page_text(
     raw_text: str,
     image_path: str | None,
     vlm_model: str | None,
-    budget: Any | None = None,
+    body_start_text: str = "",
 ) -> str:
     """Body text for an owned page: PyMuPDF text, or VLM OCR for scanned pages.
 
     Electronic PDFs already have PyMuPDF text; scanned pages have (near) empty
     text and fall back to the shared ``transcribe()`` OCR primitive (§4.2).
+    When ``body_start_text`` is set, keep only content from that anchor onward.
     """
     text = (raw_text or "").strip()
-    if text:
-        return text
-    if not vlm_model or not image_path or not os.path.exists(image_path):
-        return ""
-    return transcribe(
-        image_paths=[image_path],
-        model=vlm_model,
-        max_tokens=1500,
-        usage_task="page_memory.node_ocr",
-    )
-
-
-def compute_node_summary(
-    *,
-    view: NodePageView,
-    page_to_leaves: dict[int, list[LeafNode]],
-    tag_by_page: dict[int, PageTagResult],
-    image_path_by_page: dict[int, str],
-    vlm_model: str | None,
-    budget: Any | None = None,
-    node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,
-) -> tuple[str, list[str], list[dict[str, str]]]:
-    """Settle a node's summary, keywords, and typed entities (§4.4).
-
-    Reuses the per-page tag when the node is a single page that no sibling leaf
-    shares.  Otherwise asks the VLM to summarize the node as a whole, bounding
-    the slice with the next sibling title when the page hosts multiple nodes.
-    Falls back to combining per-page tags when the VLM is unavailable.
-
-    Returns ``(summary, keywords, entities)`` where ``keywords`` is the flattened
-    surface-form list (transitional) and ``entities`` is the typed
-    ``{"text","type"}`` list.
-    """
-    pages = view.pages
-    if not pages:
-        return "", [], []
-
-    single_page = len(pages) == 1
-    shared = any(len(page_to_leaves.get(page, [])) > 1 for page in pages)
-
-    if single_page and not shared:
-        tag = tag_by_page.get(pages[0])
-        if tag is not None:
-            return tag.summary, list(tag.keywords), list(tag.entities)
-        return "", [], []
-
-    if vlm_model:
-        result = _vlm_node_summary(
-            view=view,
-            page_to_leaves=page_to_leaves,
-            image_path_by_page=image_path_by_page,
-            vlm_model=vlm_model,
-            node_summary_max_pages=node_summary_max_pages,
+    if not text:
+        if not vlm_model or not image_path or not os.path.exists(image_path):
+            return ""
+        text = transcribe(
+            image_paths=[image_path],
+            model=vlm_model,
+            max_tokens=1500,
+            usage_task="page_memory.node_ocr",
         )
-        if result is not None:
-            return result
-
-    return _combine_page_tags(pages=pages, tag_by_page=tag_by_page)
-
-
-def _combine_page_tags(
-    *,
-    pages: list[int],
-    tag_by_page: dict[int, PageTagResult],
-) -> tuple[str, list[str], list[dict[str, str]]]:
-    summaries: list[str] = []
-    keywords: list[str] = []
-    entities: list[dict[str, str]] = []
-    seen: set[str] = set()
-    seen_entities: set[str] = set()
-    for page in pages:
-        tag = tag_by_page.get(page)
-        if tag is None:
-            continue
-        summary = (tag.summary or "").strip()
-        if summary and summary.upper() != "EMPTY":
-            summaries.append(summary)
-        for keyword in tag.keywords:
-            key = keyword.strip().casefold()
-            if key and key not in seen:
-                seen.add(key)
-                keywords.append(keyword.strip())
-        for entity in tag.entities:
-            entity_text = str(entity.get("text", "")).strip()
-            if not entity_text:
-                continue
-            entity_key = entity_text.casefold()
-            if entity_key not in seen_entities:
-                seen_entities.add(entity_key)
-                entities.append(
-                    {"text": entity_text, "type": str(entity.get("type", "")).strip()}
-                )
-    return " ".join(summaries).strip(), keywords, entities
-
-
-def _vlm_node_summary(
-    *,
-    view: NodePageView,
-    page_to_leaves: dict[int, list[LeafNode]],
-    image_path_by_page: dict[int, str],
-    vlm_model: str,
-    node_summary_max_pages: int,
-) -> tuple[str, list[str], list[dict[str, str]]] | None:
-    leaf = view.leaf
-    pages = view.pages[:node_summary_max_pages]
-
-    # Boundary title: only meaningful when this node's start page hosts a later
-    # sibling node, so the VLM can stop at that boundary.
-    next_title = next_title_on_page(
-        leaf,
-        page=leaf.start_page,
-        leaves_on_page=page_to_leaves.get(leaf.start_page, []),
-    )
-
-    image_paths = [
-        path
-        for page in pages
-        if (path := image_path_by_page.get(page)) and os.path.exists(path)
-    ]
-    if not image_paths:
-        return None
-
-    result = summarize(
-        mode="page",
-        image_paths=image_paths,
-        model=vlm_model,
-        usage_task="page_memory.node_summary",
-        prompt_task="page-memory-node-summary",
-        prompt_paras={
-            "max_tokens": 400,
-            "node_title": leaf.title,
-            "next_title": next_title or "",
-            "kw_num": 5,
-        },
-    )
-    if not result.summary and not result.entities:
-        return None
-    return (
-        result.summary,
-        [e.text for e in result.entities],
-        [e.to_dict() for e in result.entities],
-    )
+    if not body_start_text:
+        return text
+    sliced, matched = slice_text_from_anchor(text, body_start_text)
+    if not matched:
+        logger.warning(
+            "[node_assembler] body_start_text not found on page {}; keeping full text",
+            page,
+        )
+    return sliced
 
 
 # ── Orchestration ────────────────────────────────────────────────────
 
 
-def build_node_rows(
+def build_node_chunks(
     *,
     skeletons: list[SectionSkeleton],
     raw_text_by_page: dict[int, str],
     image_path_by_page: dict[int, str],
-    kind_by_page: dict[int, str],
     tag_by_page: dict[int, PageTagResult],
     filename: str,
-    verdict: str,
-    budget: Any | None = None,
     vlm_model: str | None = None,
     page_assets_by_page: dict[int, list[PageAsset]] | None = None,
-    node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,
     node_assembly_concurrency: int = 3,
-) -> list[dict[str, Any]]:
-    """Assemble one row per leaf section node (node-granularity chunks)."""
+    body_start_by_page: dict[int, str] | None = None,
+) -> list[ChunkPayload]:
+    """Assemble one canonical chunk per leaf section node."""
     available_pages = set(raw_text_by_page.keys())
     leaves = identify_leaf_nodes(skeletons)
     views, page_owner = assign_pages_to_leaves(leaves, available_pages=available_pages)
     page_to_leaves = pages_by_leaf_count(views)
     resolved_concurrency = max(1, node_assembly_concurrency)
+    anchors = body_start_by_page or {}
 
     # Resolve body text once per owned page (PyMuPDF, OCR fallback for scanned).
     resolved_text: dict[int, str] = {}
@@ -439,6 +357,7 @@ def build_node_rows(
                 raw_text=raw_text_by_page.get(page, ""),
                 image_path=image_path_by_page.get(page),
                 vlm_model=vlm_model,
+                body_start_text=anchors.get(page, ""),
             )
 
         with stage_timer(
@@ -455,177 +374,237 @@ def build_node_rows(
             ]
             resolved_text = {page: text for page, text in resolved_pairs}
 
-    summaries: dict[int, tuple[str, list[str], list[dict[str, str]]]] = {}
-    if views:
-        import gevent
-        from gevent.pool import Pool as GeventPool
-
-        def _summarize_one(
-            index: int,
-        ) -> tuple[int, tuple[str, list[str], list[dict[str, str]]]]:
-            return index, compute_node_summary(
-                view=views[index],
-                page_to_leaves=page_to_leaves,
-                tag_by_page=tag_by_page,
-                image_path_by_page=image_path_by_page,
-                vlm_model=vlm_model,
-                node_summary_max_pages=node_summary_max_pages,
-            )
-
-        with stage_timer(
-            "page_memory.node_summary",
-            node_count=len(views),
-            concurrency=resolved_concurrency,
-        ):
-            pool = GeventPool(size=min(resolved_concurrency, len(views)))
-            greenlets = [
-                pool.spawn(_summarize_one, index)
-                for index in range(len(views))
-            ]
-            gevent.joinall(greenlets, raise_error=True)
-            summary_pairs = [
-                cast(
-                    tuple[int, tuple[str, list[str], list[dict[str, str]]]],
-                    greenlet.value,
-                )
-                for greenlet in greenlets
-            ]
-            summaries = {index: result for index, result in summary_pairs}
-
-    rows: list[dict[str, Any]] = []
-    rows_by_path: dict[str, dict[str, Any]] = {}
-    with stage_timer("page_memory.node_rows", node_count=len(views)):
-        for index, view in enumerate(views):
+    chunks: list[ChunkPayload] = []
+    chunks_by_path: dict[str, ChunkPayload] = {}
+    with stage_timer("page_memory.node_chunks", node_count=len(views)):
+        for view in views:
             leaf = view.leaf
             content = build_node_content(
                 view,
                 page_owner=page_owner,
                 page_text=resolved_text,
             )
-            summary, keywords, entities = summaries.get(index, ("", [], []))
-            know_id = f"node_{gen_str_codes(f'{filename}::{leaf.section_path}')}"
-            row = {
+            summary, keywords, entities = aggregate_owned_page_tags(
+                owned_pages=view.owned_pages,
+                tag_by_page=tag_by_page,
+            )
+            chunk_id = f"node_{gen_str_codes(f'{filename}::{leaf.section_path}')}"
+            metadata: ChunkMetadata = {
+                "length": len(content),
+                "keywords": keywords,
+                "entities": entities,
+                "summary": summary,
+                "connect_to": [],
+                "page_nums": list(view.pages),
+                "owned_page_nums": list(view.owned_pages),
+                "content_kind": "body",
+            }
+            chunk: ChunkPayload = {
+                "chunk_id": chunk_id,
+                "type": "page",
                 "content": content,
                 "path": leaf.section_path,
-                "type": "page",
-                "length": len(content),
-                "keywords": ";".join(keywords),
-                "summary": summary,
-                "know_id": know_id,
-                "tokens": "",
-                "connectto": "",
-                "addtime": get_str_time(),
-                "page_nums": ",".join(str(page) for page in view.pages),
-                "entities": serialize_entities(entities),
-                "asset_title": "",
-                "extra_metadata": _build_page_extra_metadata(
-                    pages=view.pages,
-                    image_path_by_page=image_path_by_page,
-                ),
+                "metadata": metadata,
+                "order": len(chunks),
             }
-            rows.append(row)
-            rows_by_path[leaf.section_path] = row
+            chunks.append(chunk)
+            chunks_by_path[leaf.section_path] = chunk
 
-    asset_rows: list[dict[str, Any]] = []
+        for view in views:
+            chunk = chunks_by_path[view.leaf.section_path]
+            _attach_same_as_connections(
+                chunk=chunk,
+                view=view,
+                page_owner=page_owner,
+                chunks_by_path=chunks_by_path,
+            )
+
+    asset_chunks: list[ChunkPayload] = []
     if page_assets_by_page:
-        asset_rows = build_asset_rows(page_assets_by_page)
+        asset_chunks = build_asset_chunks(page_assets_by_page)
         _attach_asset_connections(
             page_assets_by_page=page_assets_by_page,
             page_owner=page_owner,
             page_to_leaves=page_to_leaves,
-            rows_by_path=rows_by_path,
+            chunks_by_path=chunks_by_path,
         )
 
     logger.info(
-        "[node_assembler] assembled {} asset rows + {} node rows from {} leaves ({} pages)",
-        len(asset_rows),
-        len(rows),
+        "[node_assembler] assembled {} asset chunks + {} node chunks from {} leaves ({} pages)",
+        len(asset_chunks),
+        len(chunks),
         len(leaves),
         len(available_pages),
     )
-    return asset_rows + rows
+    return asset_chunks + chunks
 
 
-def _build_page_extra_metadata(
+def _attach_same_as_connections(
     *,
-    pages: list[int],
-    image_path_by_page: dict[int, str],
-) -> dict[str, Any]:
-    page_assets = _build_page_citation_assets(
-        pages=pages,
-        image_path_by_page=image_path_by_page,
-    )
-    if not page_assets:
-        return {}
-    return {"page_assets": page_assets}
+    chunk: ChunkPayload,
+    view: NodePageView,
+    page_owner: dict[int, LeafNode],
+    chunks_by_path: dict[str, ChunkPayload],
+) -> None:
+    """Emit explicit same_as links for pages this node references but does not own."""
+    for page in view.pages:
+        owner = page_owner.get(page)
+        if owner is None or owner.section_path == view.leaf.section_path:
+            continue
+        owner_chunk = chunks_by_path.get(owner.section_path)
+        if owner_chunk is None:
+            continue
+        _append_connect_to(
+            chunk,
+            {
+                "target": owner_chunk["chunk_id"],
+                "relation": "same_as",
+                "ref": f"[{SAME_AS_PREFIX} {owner.section_path} p{page}]",
+                "page": page,
+            },
+        )
 
 
-def _build_page_citation_assets(
+def format_toc_entries_content(entries: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    for entry in entries:
+        heading = str(entry.get("heading") or entry.get("title") or "").strip()
+        if not heading:
+            continue
+        level = entry.get("level", 1)
+        try:
+            depth = max(int(level), 1)
+        except (TypeError, ValueError):
+            depth = 1
+        page_number = entry.get("page_number")
+        suffix = f" ...... {page_number}" if page_number is not None else ""
+        lines.append(f"{'  ' * (depth - 1)}{heading}{suffix}")
+    return "\n".join(lines).strip()
+
+
+def build_toc_nav_skeletons(
     *,
-    pages: list[int],
-    image_path_by_page: dict[int, str],
-) -> list[dict[str, Any]]:
-    assets: list[dict[str, Any]] = []
-    seen_pages: set[int] = set()
-    for page in pages:
-        if page in seen_pages:
+    anatomy: Any | None,
+    filename: str,
+) -> list[SectionSkeleton]:
+    """Navigation-only skeletons for TOC regions (not used by body ownership)."""
+    policy = TocPagePolicy.from_anatomy(anatomy)
+    if not policy.regions:
+        return []
+
+    skeletons: list[SectionSkeleton] = []
+    for index, region in enumerate(policy.regions, start=1):
+        pages = sorted({int(page) for page in region.toc_pages if int(page) > 0})
+        if not pages:
             continue
-        seen_pages.add(page)
-        image_path = image_path_by_page.get(page)
-        if not image_path or not os.path.exists(image_path):
+        title = "Table of Contents" if index == 1 else f"Table of Contents ({index})"
+        skeletons.append(
+            SectionSkeleton(
+                section_path=join_document_path([filename, title]),
+                level=1,
+                start_page=pages[0],
+                end_page=pages[-1],
+                title=title,
+                parent_path=filename,
+                evidence={
+                    "source": "toc_static",
+                    "content_kind": "table_of_contents",
+                    "pure_toc_pages": list(region.pure_toc_pages),
+                    "mixed_page": region.mixed_page,
+                },
+            )
+        )
+    return skeletons
+
+
+def build_toc_node_chunks(
+    *,
+    anatomy: Any | None,
+    filename: str,
+) -> list[ChunkPayload]:
+    """Build synthetic canonical TOC chunks; bypass SAME-AS ownership."""
+    hierarchies = list(getattr(anatomy, "toc_hierarchies", None) or [])
+    policy = TocPagePolicy.from_anatomy(anatomy)
+    regions = list(policy.regions)
+    if not regions and not hierarchies:
+        return []
+
+    chunks: list[ChunkPayload] = []
+    count = max(len(regions), len(hierarchies), 1 if hierarchies else 0)
+    for index in range(count):
+        region = regions[index] if index < len(regions) else None
+        hierarchy = hierarchies[index] if index < len(hierarchies) else {}
+        entries = list((hierarchy or {}).get("toc_with_level") or [])
+        content = format_toc_entries_content(entries)
+        if region is not None:
+            pages = sorted({int(page) for page in region.toc_pages if int(page) > 0})
+        else:
+            toc_range = (hierarchy or {}).get("toc_range") or []
+            pages = sorted({int(page) for page in toc_range if int(page) > 0})
+        if not pages and not content:
             continue
-        artifact_ref = _promote_page_citation_asset(page=page, image_path=image_path)
-        if not artifact_ref:
-            continue
-        width, height = _read_image_dimensions(image_path)
-        asset = {
-            "page_num": page,
-            "artifact_ref": artifact_ref,
-            "content_type": _PAGE_CITATION_ASSET_CONTENT_TYPE,
-            "source": _PAGE_CITATION_ASSET_SOURCE,
+        title = "Table of Contents" if index == 0 else f"Table of Contents ({index + 1})"
+        path = join_document_path([filename, title])
+        chunk_id = f"node_{gen_str_codes(f'{filename}::{path}')}"
+        metadata: ChunkMetadata = {
+            "length": len(content),
+            "keywords": [],
+            "entities": [],
+            "summary": "Table of Contents",
+            "connect_to": [],
+            "page_nums": pages,
         }
-        if width is not None:
-            asset["width"] = width
-        if height is not None:
-            asset["height"] = height
-        assets.append(asset)
-    return assets
-
-
-def _promote_page_citation_asset(*, page: int, image_path: str) -> str:
-    source_path = Path(image_path)
-    output_dir = source_path.parent.parent
-    target_dir = output_dir / "page_citation_assets"
-    target_path = target_dir / f"page-{page}.png"
-    artifact_ref = f"page_citation_assets/page-{page}.png"
-    try:
-        target_dir.mkdir(parents=True, exist_ok=True)
-        if source_path.resolve() != target_path.resolve():
-            shutil.copyfile(source_path, target_path)
-        return artifact_ref
-    except Exception as exc:
-        logger.warning(
-            "[node_assembler] failed to promote page citation asset page={} path={}: {}",
-            page,
-            image_path,
-            exc,
+        metadata.update(
+            {
+                "content_kind": "table_of_contents",
+                "pure_toc_pages": list(region.pure_toc_pages) if region else pages,
+                "mixed_page": region.mixed_page if region else None,
+                "body_start_text": (
+                    region.body_start_text
+                    if region
+                    else hierarchy.get("body_start_text", "")
+                ),
+            }
         )
-        return ""
-
-
-def _read_image_dimensions(image_path: str) -> tuple[int | None, int | None]:
-    try:
-        from PIL import Image
-
-        with Image.open(image_path) as image:
-            return int(image.width), int(image.height)
-    except Exception as exc:
-        logger.debug(
-            "[node_assembler] failed to read page citation image dimensions {}: {}",
-            image_path,
-            exc,
+        chunks.append(
+            {
+                "chunk_id": chunk_id,
+                "type": "page",
+                "content": content,
+                "path": path,
+                "metadata": metadata,
+                "order": len(chunks),
+            }
         )
-        return None, None
+    return chunks
+
+
+def merge_chunks_by_first_page(
+    toc_chunks: list[ChunkPayload],
+    body_chunks: list[ChunkPayload],
+) -> list[ChunkPayload]:
+    """Insert TOC chunks by first physical page and finalize connections."""
+
+    def _first_page(chunk: ChunkPayload) -> int:
+        pages = chunk["metadata"].get("page_nums", [])
+        return int(pages[0]) if pages else 0
+
+    asset_chunks = [chunk for chunk in body_chunks if chunk["type"] != "page"]
+    page_chunks = [chunk for chunk in body_chunks if chunk["type"] == "page"]
+    merged = sorted(
+        [*toc_chunks, *page_chunks],
+        key=lambda chunk: (
+            _first_page(chunk),
+            0
+            if chunk["metadata"].get("content_kind") == "table_of_contents"
+            else 1,
+            chunk["path"],
+        ),
+    )
+    ordered = asset_chunks + merged
+    for order, chunk in enumerate(ordered):
+        chunk["order"] = order
+    return finalize_chunk_connections(ordered)
 
 
 def _attach_asset_connections(
@@ -633,12 +612,20 @@ def _attach_asset_connections(
     page_assets_by_page: dict[int, list[PageAsset]],
     page_owner: dict[int, LeafNode],
     page_to_leaves: dict[int, list[LeafNode]],
-    rows_by_path: dict[str, dict[str, Any]],
+    chunks_by_path: dict[str, ChunkPayload],
 ) -> None:
-    for page_index, assets in page_assets_by_page.items():
-        owner_leaf = page_owner.get(page_index)
-        leaves_on_page = page_to_leaves.get(page_index, [])
+    """Link assets to page owners (embeds) and same-page aliases (related).
+
+    Connections are emitted for every page in ``asset.source_page_nums`` so a
+    cross-page merged table attaches once per spanned page. Ownership still
+    comes solely from ``page_owner`` / ``page_to_leaves``.
+    """
+    seen_asset_ids: set[str] = set()
+    for assets in page_assets_by_page.values():
         for asset in assets:
+            if asset.asset_id in seen_asset_ids:
+                continue
+            seen_asset_ids.add(asset.asset_id)
             # target = bare URI path (resolvable via target_map → chunk_id)
             # ref = bracketed display reference (matches chunk-track convention)
             uri = (
@@ -649,46 +636,41 @@ def _attach_asset_connections(
             if not uri:
                 continue
             ref = f"[{uri}]"
-            if owner_leaf is not None:
-                owner_row = rows_by_path.get(owner_leaf.section_path)
-                if owner_row is not None:
+            for page in asset_source_pages(asset):
+                owner_leaf = page_owner.get(page)
+                leaves_on_page = page_to_leaves.get(page, [])
+                if owner_leaf is not None:
+                    owner_chunk = chunks_by_path.get(owner_leaf.section_path)
+                    if owner_chunk is not None:
+                        _append_connect_to(
+                            owner_chunk,
+                            {
+                                "target": uri,
+                                "relation": "embeds",
+                                "ref": ref,
+                                "page": page,
+                            },
+                        )
+                for leaf in leaves_on_page:
+                    if (
+                        owner_leaf is not None
+                        and leaf.section_path == owner_leaf.section_path
+                    ):
+                        continue
+                    chunk = chunks_by_path.get(leaf.section_path)
+                    if chunk is None:
+                        continue
                     _append_connect_to(
-                        owner_row,
+                        chunk,
                         {
                             "target": uri,
-                            "relation": "embeds",
+                            "relation": "related",
                             "ref": ref,
+                            "page": page,
                         },
                     )
-            for leaf in leaves_on_page:
-                if (
-                    owner_leaf is not None
-                    and leaf.section_path == owner_leaf.section_path
-                ):
-                    continue
-                row = rows_by_path.get(leaf.section_path)
-                if row is None:
-                    continue
-                connection: dict[str, Any] = {
-                    "target": uri,
-                    "relation": "related",
-                    "ref": ref,
-                }
-                if owner_leaf is not None:
-                    connection["same_as_owner"] = owner_leaf.section_path
-                _append_connect_to(row, connection)
 
 
-def _append_connect_to(row: dict[str, Any], connection: dict[str, Any]) -> None:
-    existing = row.get("connectto")
-    if isinstance(existing, str) and existing.strip():
-        try:
-            connections = json.loads(existing)
-        except json.JSONDecodeError:
-            connections = []
-    elif isinstance(existing, list):
-        connections = list(existing)
-    else:
-        connections = []
+def _append_connect_to(chunk: ChunkPayload, connection: ConnectionValue) -> None:
+    connections = chunk["metadata"].setdefault("connect_to", [])
     connections.append(connection)
-    row["connectto"] = json.dumps(connections, ensure_ascii=False)

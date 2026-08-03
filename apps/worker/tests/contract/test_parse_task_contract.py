@@ -121,7 +121,7 @@ def test_parse_task_should_process_uploaded_file_through_real_contract_boundarie
     assert contract.find_task_workspaces(tmp_path, job["job_id"]) == []
 
 
-def test_parse_task_result_zip_includes_page_citation_assets(
+def test_parse_task_result_zip_excludes_page_citation_assets(
     worker_contract_environment: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -154,9 +154,6 @@ def test_parse_task_result_zip_includes_page_citation_assets(
         page_citation_assets_dir = output_path / "page_citation_assets"
         page_citation_assets_dir.mkdir(parents=True, exist_ok=True)
         (page_citation_assets_dir / "page-1.png").write_bytes(b"page image")
-        (page_citation_assets_dir / "page-999.png").write_bytes(
-            b"unreferenced page image"
-        )
         parsed_df = pd.DataFrame(
             [
                 {
@@ -170,20 +167,7 @@ def test_parse_task_result_zip_includes_page_citation_assets(
                     "tokens": "",
                     "connectto": "",
                     "page_nums": "1",
-                    "extra_metadata": json.dumps(
-                        {
-                            "page_assets": [
-                                {
-                                    "page_num": 1,
-                                    "artifact_ref": "page_citation_assets/page-1.png",
-                                    "content_type": "image/png",
-                                    "source": "knowhere-rendered-page-citation-source",
-                                    "width": 1200,
-                                    "height": 1800,
-                                }
-                            ],
-                        }
-                    ),
+                    "extra_metadata": json.dumps({}),
                 }
             ]
         )
@@ -209,18 +193,13 @@ def test_parse_task_result_zip_includes_page_citation_assets(
         tmp_path=tmp_path,
     )
 
-    assert "page_citation_assets/page-1.png" in result_zip["members"]
-    assert "page_citation_assets/page-999.png" not in result_zip["members"]
-    assert result_zip["chunks"]["chunks"][0]["metadata"]["page_assets"] == [
-        {
-            "page_num": 1,
-            "artifact_ref": "page_citation_assets/page-1.png",
-            "content_type": "image/png",
-            "source": "knowhere-rendered-page-citation-source",
-            "width": 1200,
-            "height": 1800,
-        }
-    ]
+    assert not any(
+        member.startswith("page_citation_assets/")
+        for member in result_zip["members"]
+    )
+    chunk_metadata = result_zip["chunks"]["chunks"][0]["metadata"]
+    assert "page_assets" not in chunk_metadata
+    assert chunk_metadata["page_nums"] == [1]
 
 
 def test_parse_task_should_charge_user_when_billing_is_enabled(

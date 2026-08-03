@@ -20,7 +20,6 @@ from app.services.document_parser.support.parser_rows import (
     COL_KEYWORDS,
     COL_SUMMARY,
     apply_body_summary,
-    serialize_entities,
 )
 from gevent.pool import Pool as GeventPool
 from loguru import logger
@@ -144,7 +143,7 @@ def _run_deferred_summary_task(
 ) -> DeferredResult | None:
     try:
         if isinstance(task, ImageDeferredSummaryTask):
-            # Asset contract (§4.1): title + summary + entities from the image.
+            # Asset contract: title + summary from the image (no entities).
             # The engine's per-type image prompt covers charts/tables/diagrams and
             # pure-text images alike, closing the old MinerU "pure text image" gap.
             image_path = os.path.join(deferred_input.output_dir, task.relative_path)
@@ -156,7 +155,7 @@ def _run_deferred_summary_task(
             return task.row_index, "image", result
 
         if isinstance(task, TableDeferredSummaryTask):
-            # Tables are assets: summarize from HTML → title + summary + entities.
+            # Tables are assets: summarize from HTML → title + summary (no entities).
             result = summarize(
                 mode="asset",
                 text=task.table_html,
@@ -242,8 +241,7 @@ def _apply_asset_result_preserving_index(
     Markdown image/table rows seed the summary column with an ``image-N`` /
     ``table-N`` index token on the first line (see ``image_asset`` /
     ``table_asset``). We preserve that token and append the generated summary
-    below it, then write entities, asset_title, and the transitional keywords by
-    name (audit §4.5).
+    below it, then write asset_title and clear entity/keyword columns.
     """
     while len(row) <= COL_ASSET_TITLE:
         row.append("")
@@ -253,8 +251,9 @@ def _apply_asset_result_preserving_index(
         row[COL_SUMMARY] = (
             f"{index_token}\n{result.summary}" if index_token else result.summary
         )
-    row[COL_ENTITIES] = serialize_entities(result.entities)
-    row[COL_KEYWORDS] = result.keywords_str()
+    # Assets carry summary only — clear entity / keyword columns.
+    row[COL_ENTITIES] = ""
+    row[COL_KEYWORDS] = ""
     if result.title:
         row[COL_ASSET_TITLE] = result.title
 

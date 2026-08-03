@@ -133,7 +133,7 @@ def _execute_page_memory_parse(
     page_memory_config = JobMetadataHelper.get_page_memory_config(
         job_context.job_metadata,
     )
-    page_output_dir, parsed_df = run(
+    page_output_dir, chunks = run(
         PageMemoryInput(
             file_path=prepared_source.local_file_path,
             filename=prepared_source.source_file_name,
@@ -143,4 +143,4 @@ def _execute_page_memory_parse(
             page_memory_config=page_memory_config,
         )
     )
-    return ParseOutput(output_dir=page_output_dir, parsed_df=parsed_df)
+    return ParseOutput(output_dir=page_output_dir, chunks=chunks)

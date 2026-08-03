@@ -14,13 +14,17 @@ from shared.utils.token_estimate import estimate_tokens
 from app.services.document_agent.manifest import (
     TocAnchorPage,
     TocEvidence,
+    TocRegionBoundary,
     TocResult,
     ToolContext,
     ToolResult,
 )
 from app.services.document_agent.registry import register_tool
 from app.services.document_agent.tools.vlm_toc_extractor import (
+    TocTailProbeResult,
     vlm_entries_to_toc_hierarchies,
+    vlm_extract_toc_batch,
+    vlm_probe_toc_tail,
 )
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
@@ -208,6 +212,141 @@ def _vlm_confirm_anchors(
         return [], True, []
 
 
+# -- Boundary helpers ----------------------------------------------------------
+
+
+def _build_region_boundary(
+    *,
+    region_toc_pages: list[int],
+    probe: TocTailProbeResult | None,
+) -> TocRegionBoundary:
+    """Convert a probe outcome into a typed region boundary.
+
+    Fail-open: if the probe is missing, keep the last TOC page in the body
+    pipeline so body text is not dropped.
+    """
+    pages = sorted({int(page) for page in region_toc_pages if int(page) > 0})
+    if not pages:
+        return TocRegionBoundary(reason="empty_region")
+
+    last = pages[-1]
+    if probe is None:
+        return TocRegionBoundary(
+            toc_pages=pages,
+            pure_toc_pages=[page for page in pages if page != last],
+            mixed_page=last,
+            body_start_text="",
+            reason="probe_failed_keep_last_toc_in_body",
+        )
+
+    mixed = probe.mixed_page
+    body_start = (probe.body_start_text or "").strip()
+    if mixed is None:
+        return TocRegionBoundary(
+            toc_pages=pages,
+            pure_toc_pages=list(pages),
+            mixed_page=None,
+            body_start_text="",
+            reason=probe.reason or "not_mixed",
+        )
+
+    all_pages = sorted(set(pages) | {int(mixed)})
+    return TocRegionBoundary(
+        toc_pages=all_pages,
+        pure_toc_pages=[page for page in all_pages if page != int(mixed)],
+        mixed_page=int(mixed),
+        body_start_text=body_start,
+        reason=probe.reason or ("mixed" if body_start else "mixed_without_anchor"),
+    )
+
+
+def _render_toc_page(
+    *,
+    ctx: ToolContext,
+    page_num: int,
+    output_dir: str,
+    dpi: int,
+    png_by_page: dict[int, str],
+) -> str | None:
+    if page_num in png_by_page:
+        return png_by_page[page_num]
+    png_path = os.path.join(output_dir, f"toc_page_{page_num}.png")
+    run_in_child_process(
+        _render_single_page_worker,
+        ctx.pdf_path,
+        page_num,
+        png_path,
+        dpi,
+        timeout=60,
+    )
+    if os.path.exists(png_path):
+        png_by_page[page_num] = png_path
+        return png_path
+    return None
+
+
+def _probe_region_tail(
+    *,
+    ctx: ToolContext,
+    region_toc_pages: list[int],
+    page_count: int,
+    model: str,
+    output_dir: str,
+    dpi: int,
+    png_by_page: dict[int, str],
+) -> TocTailProbeResult | None:
+    pages = sorted({int(page) for page in region_toc_pages if int(page) > 0})
+    if not pages:
+        return None
+
+    probe_pages = [pages[-1]]
+    next_page = pages[-1] + 1
+    if next_page <= page_count:
+        probe_pages.append(next_page)
+
+    page_pngs: list[tuple[int, str]] = []
+    for page_num in probe_pages:
+        png_path = _render_toc_page(
+            ctx=ctx,
+            page_num=page_num,
+            output_dir=output_dir,
+            dpi=dpi,
+            png_by_page=png_by_page,
+        )
+        if png_path:
+            page_pngs.append((page_num, png_path))
+    if not page_pngs:
+        return None
+
+    est = estimate_tokens(VLM_TOC_TAIL_PROBE_ESTIMATE) + len(page_pngs) * 800
+    stage = "toc_confirm"
+    budget = ctx.budget
+    if budget and not budget.try_reserve("visual", est, stage=stage):
+        logger.warning("[extract.toc] insufficient visual budget for TOC tail probe")
+        return None
+
+    try:
+        result = vlm_probe_toc_tail(page_pngs=page_pngs, model=model)
+        if budget:
+            usage = (result.meta or {}).get("usage") or {}
+            budget.commit(
+                "visual",
+                actual=int(usage.get("total_tokens", est) or est),
+                est=est,
+                stage=stage,
+            )
+        return result
+    except Exception as exc:
+        if budget:
+            budget.refund("visual", est=est, stage=stage)
+        logger.warning("[extract.toc] TOC tail probe failed: {}", exc)
+        return None
+
+
+# Short token-estimate seed text for budget reservation (not a VLM prompt).
+VLM_TOC_TAIL_PROBE_ESTIMATE = "toc tail probe mixed page body start"
+
+
 # -- Main tool -----------------------------------------------------------------
 
 
@@ -311,15 +450,15 @@ def extract_toc_with_boundaries(
     # call.  The VLM classifies each page (TOC vs non-TOC) AND extracts entries
     # from TOC pages simultaneously.  If the last page in a batch is still TOC,
     # we expand the window and use prior entries as continuation context.
-    from app.services.document_agent.tools.vlm_toc_extractor import (
-        vlm_extract_toc_batch,
-    )
 
     all_entries: list[dict[str, Any]] = []
     all_toc_pages: list[int] = []
     toc_hierarchies: list[dict[str, Any]] = []
+    regions: list[TocRegionBoundary] = []
     batch_meta: list[dict[str, Any]] = []
     batch_trace: list[dict[str, Any]] = []
+    probe_trace: list[dict[str, Any]] = []
+    png_by_page: dict[int, str] = {}
 
     for anchor in confirmed:
         anchor_page = anchor.page
@@ -341,21 +480,18 @@ def extract_toc_with_boundaries(
                 round_idx, batch_start, batch_end, anchor_page,
             )
 
-            # Render all pages in this batch
             page_pngs: list[tuple[int, str]] = []
             for page_num in batch_pages:
-                png_path = os.path.join(output_dir, f"toc_page_{page_num}.png")
-                run_in_child_process(
-                    _render_single_page_worker,
-                    ctx.pdf_path,
-                    page_num,
-                    png_path,
-                    dpi,
-                    timeout=60,
+                png_path = _render_toc_page(
+                    ctx=ctx,
+                    page_num=page_num,
+                    output_dir=output_dir,
+                    dpi=dpi,
+                    png_by_page=png_by_page,
                 )
-                page_pngs.append((page_num, png_path))
+                if png_path:
+                    page_pngs.append((page_num, png_path))
 
-            # Send batch to VLM — classify + extract in one call
             batch_result = vlm_extract_toc_batch(
                 page_pngs=page_pngs,
                 model=model,
@@ -363,7 +499,6 @@ def extract_toc_with_boundaries(
             )
             batch_meta.append(batch_result.meta)
 
-            # Collect results
             region_entries.extend(batch_result.all_entries)
             region_toc_pages.extend(batch_result.toc_pages)
             region_scan_end = batch_end
@@ -377,8 +512,6 @@ def extract_toc_with_boundaries(
                 "entries_found": len(batch_result.all_entries),
             })
 
-            # Determine if we need to continue expanding
-            # If the last page in the batch is NOT TOC, boundary found
             last_page_is_toc = (
                 batch_result.page_results
                 and batch_result.page_results[-1].is_toc
@@ -390,7 +523,6 @@ def extract_toc_with_boundaries(
                 )
                 break
 
-            # Last page is still TOC — continue expanding
             if batch_end >= page_count:
                 break
             logger.info(
@@ -398,16 +530,47 @@ def extract_toc_with_boundaries(
                 batch_end,
             )
 
-        all_entries.extend(region_entries)
-        all_toc_pages.extend(region_toc_pages)
+        probe = _probe_region_tail(
+            ctx=ctx,
+            region_toc_pages=region_toc_pages,
+            page_count=page_count,
+            model=model,
+            output_dir=output_dir,
+            dpi=dpi,
+            png_by_page=png_by_page,
+        )
+        if probe is not None and probe.toc_entries:
+            region_entries.extend(probe.toc_entries)
+        boundary = _build_region_boundary(
+            region_toc_pages=region_toc_pages,
+            probe=probe,
+        )
+        regions.append(boundary)
+        probe_trace.append(
+            {
+                "anchor": anchor_page,
+                "region_toc_pages": list(region_toc_pages),
+                "boundary": boundary.to_dict(),
+                "probe_meta": None if probe is None else probe.meta,
+            }
+        )
 
-        if region_entries:
+        region_pages_for_hierarchy = list(boundary.toc_pages) or list(region_toc_pages)
+        all_entries.extend(region_entries)
+        all_toc_pages.extend(region_pages_for_hierarchy)
+
+        if region_entries and region_pages_for_hierarchy:
             region_hierarchies = vlm_entries_to_toc_hierarchies(
                 region_entries,
-                toc_page_nums=region_toc_pages,
+                toc_page_nums=region_pages_for_hierarchy,
                 scan_end_page=region_scan_end,
                 page_count=page_count,
             )
+            for hier in region_hierarchies:
+                if boundary.mixed_page is not None:
+                    hier["body_start_page"] = boundary.mixed_page
+                if boundary.body_start_text:
+                    hier["body_start_text"] = boundary.body_start_text
             toc_hierarchies.extend(region_hierarchies)
         else:
             logger.warning(
@@ -422,6 +585,7 @@ def extract_toc_with_boundaries(
 
     debug_info["batch_trace"] = batch_trace
     debug_info["batch_meta"] = batch_meta
+    debug_info["probe_trace"] = probe_trace
     debug_info["vlm_entry_count"] = len(all_entries)
 
     all_toc_pages_sorted = sorted(set(all_toc_pages))
@@ -430,6 +594,7 @@ def extract_toc_with_boundaries(
     ctx.blackboard.toc_result = TocResult(
         toc_pages=all_toc_pages_sorted,
         evidence=confirm_evidence,
+        regions=regions,
         method="vlm_batch",
         notes=(
             f"VLM confirmed {len(confirmed)} TOC starts, "
@@ -445,6 +610,7 @@ def extract_toc_with_boundaries(
         "total_entries": len(all_entries),
         "entries": all_entries,
         "batch_meta": batch_meta,
+        "regions": [region.to_dict() for region in regions],
     }
 
     # Build toc_ranges from confirmed TOC pages for summary
@@ -459,6 +625,7 @@ def extract_toc_with_boundaries(
         "toc_entry_count": len(all_entries),
         "toc_region_count": toc_region_count,
         "toc_source": "vlm_batch",
+        "regions": [region.to_dict() for region in regions],
     }
     if toc_hierarchies:
         for i, hier in enumerate(toc_hierarchies):

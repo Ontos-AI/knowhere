@@ -495,10 +495,26 @@ def _toc_range_end(hierarchy: dict[str, Any]) -> int | None:
 
 
 def _body_pages(*, anatomy: Any | None, page_count: int) -> list[int]:
-    excluded: set[int] = set()
-    toc_result = getattr(anatomy, "toc_result", None)
-    excluded.update(int(page) for page in getattr(toc_result, "toc_pages", []) or [])
-    return [page for page in range(1, page_count + 1) if page not in excluded]
+    from app.services.page_memory.toc_page_policy import TocPagePolicy
+
+    policy = TocPagePolicy.from_anatomy(anatomy)
+    return policy.filter_processing_pages(list(range(1, page_count + 1)))
+
+
+def _body_start_page_for_hierarchies(
+    toc_hierarchies: list[dict[str, Any]] | None,
+) -> int | None:
+    """Prefer a probed mixed-page body start when available."""
+    pages: list[int] = []
+    for hierarchy in toc_hierarchies or []:
+        page = hierarchy.get("body_start_page")
+        if page is None:
+            continue
+        try:
+            pages.append(int(page))
+        except (TypeError, ValueError):
+            continue
+    return min(pages) if pages else None
 
 
 # ── Null-page parent locate (compact-strict + RTL visual) ───────────────────
@@ -727,7 +743,8 @@ def _calibrate_offset_via_vlm(
     if toc_physical_end is None:
         return None, {}
 
-    scan_start = toc_physical_end + 1
+    body_start = _body_start_page_for_hierarchies(toc_hierarchies)
+    scan_start = body_start if body_start is not None else (toc_physical_end + 1)
     scan_end = min(scan_start + _CALIBRATION_WINDOW_PAGES - 1, page_count)
     if scan_start > page_count:
         return None, {}
@@ -1134,9 +1151,16 @@ def _resolve_pending_tocs(
             continue
         nodes = _collapse_intermediate_single_child_chains(nodes)
 
-        # Each TOC's content scope: [toc_range_end + 1, next_toc_start - 1]
+        # Each TOC's content scope: prefer probed body_start_page when present.
         toc_end = _toc_range_end(pending_toc)
-        toc_scope_start = (toc_end + 1) if toc_end is not None else None
+        body_start_page = pending_toc.get("body_start_page")
+        if body_start_page is not None:
+            try:
+                toc_scope_start = int(body_start_page)
+            except (TypeError, ValueError):
+                toc_scope_start = (toc_end + 1) if toc_end is not None else None
+        else:
+            toc_scope_start = (toc_end + 1) if toc_end is not None else None
         next_starts: list[int] = []
         for j in range(i + 1, len(pending_tocs)):
             start = _toc_range_start(pending_tocs[j])

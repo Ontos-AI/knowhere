@@ -20,7 +20,6 @@ from app.services.document_parser.assets.inline_asset import (
 from app.services.document_parser.support.parser_rows import (
     ParsedRow,
     ParsedRowsBuilder,
-    serialize_entities,
 )
 from app.services.document_parser.support.path_helpers import (
     find_matches_parsing,
@@ -431,12 +430,12 @@ def handle_table(
     if summary_table:
         from shared.services.ai.summary.engine import summarize
 
-        # Tables are Contract B assets: title + summary + entities from HTML.
+        # Tables are Contract B assets: title + summary from HTML (no entities).
         result = summarize(mode="asset", text=tb_html_str, max_keywords=3)
         llm_title = result.title or None
-        tb_keywords = result.keywords_str()
+        tb_keywords = ""
         llm_summary = result.summary or None
-        tb_entities = serialize_entities(result.entities)
+        tb_entities = ""
 
     # Build tb_summary for df_list: table-n + optional LLM summary
     if llm_summary:

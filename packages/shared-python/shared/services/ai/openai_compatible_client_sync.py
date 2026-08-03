@@ -43,8 +43,21 @@ def _should_mock_llm_calls() -> bool:
     return bool(getattr(settings, "LLM_MOCK_ENABLED", False))
 
 
-def _is_page_memory_usage_task(usage_task: str | None) -> bool:
-    return bool(usage_task and usage_task.startswith("page_memory."))
+_PAGE_MEMORY_VLM_USAGE_TASKS = frozenset(
+    {
+        "page_memory.page_tag",
+        "page_memory.page_titles",
+        "page_memory.page_tag_ocr",
+        "page_memory.node_ocr",
+        "page_memory.asset_detect",
+        "page_memory.asset_summary_visual",
+    }
+)
+
+
+def _is_page_memory_vlm_usage_task(usage_task: str | None) -> bool:
+    """Return whether a task performs a vision/OCR request subject to the VLM gate."""
+    return bool(usage_task and usage_task in _PAGE_MEMORY_VLM_USAGE_TASKS)
 
 
 def _empty_usage() -> LLMUsage:
@@ -182,7 +195,7 @@ class OpenAICompatibleClientSync:
     def _acquire_page_memory_vlm_lease(
         self, *, usage_task: str | None
     ) -> PageMemoryVlmLease | None:
-        if not _is_page_memory_usage_task(usage_task):
+        if not _is_page_memory_vlm_usage_task(usage_task):
             return None
         return get_page_memory_vlm_limiter().acquire(usage_task=usage_task or "")
 
