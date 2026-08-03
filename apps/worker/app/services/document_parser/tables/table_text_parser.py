@@ -8,7 +8,7 @@ import unicodedata
 import pandas as pd
 from bs4 import BeautifulSoup, Tag
 
-_MAX_TABLE_NAME_CHARS = 80
+from app.services.common.file_utils import MAX_ASSET_FILE_NAME_CHARS
 
 
 def sanitize_table_name_from_header(raw_header_text: str) -> str:
@@ -31,8 +31,8 @@ def sanitize_table_name_from_header(raw_header_text: str) -> str:
 
     meaningful = [field for field in unique if _is_meaningful_token(field)]
     result = " ".join(meaningful)
-    if len(result) > _MAX_TABLE_NAME_CHARS:
-        result = result[:_MAX_TABLE_NAME_CHARS].rstrip()
+    if len(result) > MAX_ASSET_FILE_NAME_CHARS:
+        result = result[:MAX_ASSET_FILE_NAME_CHARS].rstrip()
     return result
 
 

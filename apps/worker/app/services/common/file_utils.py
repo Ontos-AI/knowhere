@@ -4,6 +4,10 @@ import os
 
 import pandas as pd
 
+# Shared cap for cosmetic asset filename stems (images/tables). Keeps OS
+# basename limits safe while preserving a short debug-friendly context.
+MAX_ASSET_FILE_NAME_CHARS = 80
+
 
 def clean_file(path_, mode="remove", cols=None):
     """

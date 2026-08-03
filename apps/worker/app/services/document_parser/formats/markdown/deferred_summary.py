@@ -29,7 +29,7 @@ from shared.core.config import settings
 from shared.services.ai.summary.engine import summarize
 from shared.services.ai.summary.model import AssetSummary, BodySummary
 from shared.utils.chunk_refs import build_chunk_ref
-from app.services.common.file_utils import path_handle
+from app.services.common.file_utils import MAX_ASSET_FILE_NAME_CHARS, path_handle
 
 # Each deferred task now carries the engine's typed contract straight through to
 # the apply step (audit §4.5): assets → AssetSummary, text → BodySummary. The row
@@ -280,7 +280,9 @@ def _apply_image_summary_result(
     image_dir = original_task.image_dir
     old_img_name = original_task.image_name
     image_suffix = original_task.image_suffix
-    safe_title = path_handle(str(img_title), mode="clean_single")
+    safe_title = path_handle(str(img_title), mode="clean_single")[
+        :MAX_ASSET_FILE_NAME_CHARS
+    ]
     img_num_match = re.match(r"image-(\d+)", str(old_img_name))
     img_num = (
         img_num_match.group(1)
