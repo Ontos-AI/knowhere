@@ -165,6 +165,9 @@ async def _run_agentic_route(
     from shared.services.retrieval.workflow.orchestrator import WorkflowOrchestrator
     from shared.services.retrieval.workflow.run_request import WorkflowRunRequest
 
+    # The small-corpus count above may leave a read transaction checked out on
+    # the request session. End it before planner/navigation LLM waits; workflow
+    # steps and final reference resolution open their own short-lived sessions.
     await context.db.rollback()
 
     workflow = WorkflowOrchestrator()
