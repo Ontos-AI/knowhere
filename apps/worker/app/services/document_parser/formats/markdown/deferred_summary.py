@@ -29,7 +29,7 @@ from shared.core.config import settings
 from shared.services.ai.summary.engine import summarize
 from shared.services.ai.summary.model import AssetSummary, BodySummary
 from shared.utils.chunk_refs import build_chunk_ref
-from app.services.common.file_utils import path_handle
+from app.services.common.file_utils import MAX_ASSET_FILE_NAME_CHARS, path_handle
 
 # Each deferred task now carries the engine's typed contract straight through to
 # the apply step (audit §4.5): assets → AssetSummary, text → BodySummary. The row
@@ -280,7 +280,10 @@ def _apply_image_summary_result(
     image_dir = original_task.image_dir
     old_img_name = original_task.image_name
     image_suffix = original_task.image_suffix
-    safe_title = path_handle(str(img_title), mode="clean_single")
+    cleaned_title = path_handle(str(img_title), mode="clean_single")
+    if not isinstance(cleaned_title, str) or not cleaned_title:
+        return
+    safe_title = cleaned_title[:MAX_ASSET_FILE_NAME_CHARS]
     img_num_match = re.match(r"image-(\d+)", str(old_img_name))
     img_num = (
         img_num_match.group(1)
@@ -290,6 +293,8 @@ def _apply_image_summary_result(
         else "0"
     )
     new_img_name = path_handle(f"image-{img_num}-{safe_title}", mode="clean_single")
+    if not isinstance(new_img_name, str) or not new_img_name:
+        return
     old_path = os.path.join(image_dir, f"{old_img_name}{image_suffix}")
     new_path = os.path.join(image_dir, f"{new_img_name}{image_suffix}")
     if old_path == new_path or not os.path.exists(old_path):
