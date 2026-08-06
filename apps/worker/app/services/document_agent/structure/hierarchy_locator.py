@@ -651,8 +651,9 @@ def _entries_to_tree(entries: list[dict[str, Any]]) -> list[TitleNode]:
     stack: list[tuple[int, TitleNode]] = []
 
     for entry in entries:
-        raw_title = str(entry.get("heading") or "").strip()
-        title = clean_toc_title(raw_title) or normalize_heading_text(raw_title)
+        # Keep original TOC heading (incl. numbering). Prefix stripping belongs
+        # only in text/compact match helpers used for null-page parents.
+        title = normalize_heading_text(str(entry.get("heading") or ""))
         level = _safe_int(entry.get("level")) or 1
         if not title or len(title) < 2:
             continue

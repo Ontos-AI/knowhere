@@ -83,6 +83,7 @@ class ZipResultService:
                 job_metadata=job_metadata,
                 hierarchy=hierarchy,
             )
+            parse_track = str((job_metadata or {}).get("parse_track") or "")
             artifact = self._writer.write(
                 ZipPackageWriteRequest(
                     job_id=job_id,
@@ -94,6 +95,7 @@ class ZipResultService:
                     doc_nav=doc_nav,
                     manifest=manifest,
                     temp_dir=temp_dir,
+                    include_toc_hierarchies=parse_track != "page_memory",
                 )
             )
 
