@@ -146,7 +146,7 @@ def _build_exclude_section_filters(
 			f"""AND NOT (
 			dc.document_id = :{document_key}
 			AND (
-				ds.section_path = :{path_key}
+				COALESCE(ds.section_path, '') = :{path_key}
 				OR POSITION(:{path_key} || ' / ' IN COALESCE(ds.section_path, '')) = 1
 			)
 		)"""

@@ -1360,3 +1360,64 @@ async def test_content_fts_should_apply_filters_before_candidate_limit(
 	assert response_json["router_used"] == "classic_topk"
 	assert len(results) == 1
 	assert _result_source(results[0])["document_id"] == included_document["document_id"]
+
+
+@pytest.mark.asyncio
+async def test_content_fts_should_preserve_sectionless_chunk_for_section_exclusion(
+	developer_api_client_factory: Callable[
+		[], AbstractAsyncContextManager[AsyncClient]
+	],
+) -> None:
+	async with developer_api_client_factory() as api_client:
+		sectionless_document = await _seed_retrieval_document(
+			user_id="local-dev-user",
+			namespace="contract-content-fts-sectionless",
+			source_file_name="sectionless.pdf",
+			section_path="Root / Published",
+			content="sectionless marker evidence",
+		)
+		await ContractDatabase.execute(
+			"""
+			UPDATE document_chunks
+			SET section_id = NULL
+			WHERE document_id = :document_id
+				AND chunk_id = :chunk_id
+			""",
+			{
+				"document_id": sectionless_document["document_id"],
+				"chunk_id": sectionless_document["chunk_id"],
+			},
+		)
+		await _seed_retrieval_document(
+			user_id="local-dev-user",
+			namespace="contract-content-fts-sectionless",
+			source_file_name="filler.pdf",
+			section_path="Root / Filler",
+			content="unrelated filler evidence",
+		)
+
+		response = await api_client.post(
+			"/api/v1/retrieval/query",
+			json={
+				"namespace": "contract-content-fts-sectionless",
+				"query": "sectionless marker",
+				"top_k": 1,
+				"channels": ["content"],
+				"exclude_sections": [
+					{
+						"document_id": sectionless_document["document_id"],
+						"section_path": "Root / Excluded",
+					}
+				],
+				"use_agentic": False,
+			},
+		)
+
+	assert response.status_code == 200
+	response_json = cast(dict[str, object], response.json())
+	results = cast(list[dict[str, object]], response_json["results"])
+	assert len(results) == 1
+	assert _result_source(results[0])["document_id"] == sectionless_document[
+		"document_id"
+	]
+	assert _result_source(results[0])["section_path"] is None
