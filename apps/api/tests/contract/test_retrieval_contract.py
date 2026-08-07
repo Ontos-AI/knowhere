@@ -1194,3 +1194,169 @@ async def test_should_exclude_matching_sections_from_the_response(
     assert len(results) == 1
     assert _result_source(results[0])["document_id"] == included_document["document_id"]
     assert _result_source(results[0])["section_path"] == included_document["section_path"]
+
+
+@pytest.mark.asyncio
+async def test_content_channel_fts_should_match_any_query_token(
+	developer_api_client_factory: Callable[
+		[], AbstractAsyncContextManager[AsyncClient]
+	],
+) -> None:
+	async with developer_api_client_factory() as api_client:
+		alpha_document = await _seed_retrieval_document(
+			user_id="local-dev-user",
+			namespace="contract-content-fts-or",
+			source_file_name="alpha.pdf",
+			section_path="Root / Alpha",
+			content="alpha evidence only",
+		)
+		beta_document = await _seed_retrieval_document(
+			user_id="local-dev-user",
+			namespace="contract-content-fts-or",
+			source_file_name="beta.pdf",
+			section_path="Root / Beta",
+			content="beta evidence only",
+		)
+		await _seed_retrieval_document(
+			user_id="local-dev-user",
+			namespace="contract-content-fts-or",
+			source_file_name="filler.pdf",
+			section_path="Root / Filler",
+			content="unrelated evidence only",
+		)
+
+		response = await api_client.post(
+			"/api/v1/retrieval/query",
+			json={
+				"namespace": "contract-content-fts-or",
+				"query": "alpha beta",
+				"top_k": 2,
+				"channels": ["content"],
+				"use_agentic": False,
+			},
+		)
+
+	assert response.status_code == 200
+	response_json = cast(dict[str, object], response.json())
+	results = cast(list[dict[str, object]], response_json["results"])
+	assert response_json["router_used"] == "classic_topk"
+	assert {
+		_result_source(result)["document_id"] for result in results
+	} == {alpha_document["document_id"], beta_document["document_id"]}
+
+
+@pytest.mark.asyncio
+async def test_path_channel_fts_should_match_any_query_token(
+	developer_api_client_factory: Callable[
+		[], AbstractAsyncContextManager[AsyncClient]
+	],
+) -> None:
+	async with developer_api_client_factory() as api_client:
+		first_document = await _seed_retrieval_document(
+			user_id="local-dev-user",
+			namespace="contract-path-fts-or",
+			source_file_name="first.pdf",
+			section_path="root / needlepath",
+			content="generic evidence one",
+		)
+		second_document = await _seed_retrieval_document(
+			user_id="local-dev-user",
+			namespace="contract-path-fts-or",
+			source_file_name="second.pdf",
+			section_path="root / alternatepath",
+			content="generic evidence two",
+		)
+		await _seed_retrieval_document(
+			user_id="local-dev-user",
+			namespace="contract-path-fts-or",
+			source_file_name="filler.pdf",
+			section_path="root / filler",
+			content="generic evidence three",
+		)
+
+		response = await api_client.post(
+			"/api/v1/retrieval/query",
+			json={
+				"namespace": "contract-path-fts-or",
+				"query": "needlepath alternatepath",
+				"top_k": 2,
+				"channels": ["path"],
+				"use_agentic": False,
+			},
+		)
+
+	assert response.status_code == 200
+	response_json = cast(dict[str, object], response.json())
+	results = cast(list[dict[str, object]], response_json["results"])
+	assert response_json["router_used"] == "classic_topk"
+	assert {
+		_result_source(result)["document_id"] for result in results
+	} == {first_document["document_id"], second_document["document_id"]}
+
+
+@pytest.mark.asyncio
+async def test_content_fts_should_apply_filters_before_candidate_limit(
+	developer_api_client_factory: Callable[
+		[], AbstractAsyncContextManager[AsyncClient]
+	],
+	monkeypatch: MonkeyPatch,
+) -> None:
+	monkeypatch.setenv("RETRIEVAL_POSTGRES_FTS_CANDIDATE_LIMIT", "1")
+	async with developer_api_client_factory() as api_client:
+		included_document = await _seed_retrieval_document(
+			user_id="local-dev-user",
+			namespace="contract-content-fts-filter",
+			source_file_name="included.pdf",
+			section_path="Root / Allowed",
+			content="bounded marker included",
+		)
+		excluded_section = await _seed_retrieval_document(
+			user_id="local-dev-user",
+			namespace="contract-content-fts-filter",
+			source_file_name="excluded.pdf",
+			section_path="Root / Allowed / Hidden",
+			content="bounded marker excluded section",
+		)
+		await _seed_retrieval_document(
+			user_id="local-dev-user",
+			namespace="contract-content-fts-filter",
+			source_file_name="image.pdf",
+			section_path="Root / Allowed",
+			content="bounded marker excluded type",
+			chunk_type="image",
+			file_path="images/marker.png",
+		)
+		await _seed_retrieval_document(
+			user_id="local-dev-user",
+			namespace="contract-content-fts-filter",
+			source_file_name="elsewhere.pdf",
+			section_path="Root / Elsewhere",
+			content="bounded marker excluded signal path",
+		)
+
+		response = await api_client.post(
+			"/api/v1/retrieval/query",
+			json={
+				"namespace": "contract-content-fts-filter",
+				"query": "bounded marker",
+				"top_k": 1,
+				"channels": ["content"],
+				"chunk_types": ["text"],
+				"signal_paths": ["allowed"],
+				"filter_mode": "keep",
+				"exclude_sections": [
+					{
+						"document_id": excluded_section["document_id"],
+						"section_path": "Root / Allowed",
+					}
+				],
+				"use_agentic": False,
+			},
+		)
+
+	assert response.status_code == 200
+	response_json = cast(dict[str, object], response.json())
+	results = cast(list[dict[str, object]], response_json["results"])
+	assert response_json["router_used"] == "classic_topk"
+	assert len(results) == 1
+	assert _result_source(results[0])["document_id"] == included_document["document_id"]

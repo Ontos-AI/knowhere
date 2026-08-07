@@ -6,8 +6,11 @@ ranked rows. Channels are fused via RRF in the orchestrator.
 """
 from __future__ import annotations
 
+import json
+import time
 from typing import Any
 
+from loguru import logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +19,7 @@ from shared.services.retrieval.search.lexical_ranker import (
     tokenize_query_for_ranker,
 )
 from shared.services.retrieval.search.section_filters import is_excluded_section
+from shared.services.retrieval.settings import get_postgres_fts_candidate_limit
 
 
 _SCOPED_CORPUS_CTE = """
@@ -120,6 +124,52 @@ def _build_extra_filters(
     return '\n        '.join(clauses), params
 
 
+def _build_exclude_section_filters(
+	*,
+	exclude_sections: list[dict[str, str]],
+) -> tuple[str, dict[str, Any]]:
+	"""Exclude an exact section path and its descendants inside the scoped CTE."""
+	clauses: list[str] = []
+	params: dict[str, Any] = {}
+
+	for index, item in enumerate(exclude_sections):
+		if not isinstance(item, dict):
+			continue
+		document_id = str(item.get("document_id") or "").strip()
+		section_path = str(item.get("section_path") or "").strip()
+		if not document_id or not section_path:
+			continue
+
+		document_key = f"_exc_section_doc_{index}"
+		path_key = f"_exc_section_path_{index}"
+		clauses.append(
+			f"""AND NOT (
+			dc.document_id = :{document_key}
+			AND (
+				ds.section_path = :{path_key}
+				OR POSITION(:{path_key} || ' / ' IN COALESCE(ds.section_path, '')) = 1
+			)
+		)"""
+		)
+		params[document_key] = document_id
+		params[path_key] = section_path
+
+	return "\n        ".join(clauses), params
+
+
+def _build_fts_or_query(query_tokens: list[str]) -> str:
+	"""Build a safely parameterized websearch query with ANY-token semantics."""
+	return " OR ".join(
+		json.dumps(token, ensure_ascii=False)
+		for token in query_tokens
+		if token.strip()
+	)
+
+
+def _join_sql_filters(*filters: str) -> str:
+	return "\n        ".join(filter(None, filters))
+
+
 def _row_to_dict(row: Any) -> dict[str, Any]:
     return dict(row._mapping)
 
@@ -222,6 +272,7 @@ async def _bm25_channel(
     query_tokens = tokenize_query_for_ranker(query)
     if not query_tokens:
         return []
+    started_at = time.monotonic()
 
     exclude_clause = _build_exclude_clause(exclude_document_ids)
     extra_sql, extra_params = _build_extra_filters(
@@ -229,25 +280,79 @@ async def _bm25_channel(
         signal_paths=signal_paths or [],
         filter_mode=filter_mode,
     )
+    section_sql, section_params = _build_exclude_section_filters(
+        exclude_sections=exclude_sections,
+    )
+    extra_sql = _join_sql_filters(extra_sql, section_sql)
     params = _build_base_params(
         user_id=user_id,
         namespace=namespace,
         exclude_document_ids=exclude_document_ids,
     )
     params.update(extra_params)
+    params.update(section_params)
+    candidate_limit = get_postgres_fts_candidate_limit()
+    params["fts_candidate_limit"] = candidate_limit
+    fts_or_query = _build_fts_or_query(query_tokens)
+    search_vector_field = {
+        "content_search_text": "content_search_tsv",
+        "path_search_text": "path_search_tsv",
+    }[search_field]
+    channel_name = search_field.removesuffix("_search_text")
+    fallback_used = not fts_or_query
 
-    sql = _SCOPED_CORPUS_CTE.format(exclude_clause=exclude_clause, extra_filters=extra_sql) + f"""
-    SELECT sc.*
-    FROM scoped_chunks sc
-    WHERE COALESCE(sc.{search_field}, '') <> ''
-    """
+    base_sql = _SCOPED_CORPUS_CTE.format(
+        exclude_clause=exclude_clause,
+        extra_filters=extra_sql,
+    )
+    rows: list[dict[str, Any]] = []
+    if fts_or_query:
+        params["fts_or_query"] = fts_or_query
+        fts_sql = base_sql + f"""
+        SELECT sc.*
+        FROM scoped_chunks sc
+        WHERE COALESCE(sc.{search_field}, '') <> ''
+            AND sc.{search_vector_field} @@ websearch_to_tsquery(
+                'simple', :fts_or_query
+            )
+        ORDER BY ts_rank_cd(
+            sc.{search_vector_field},
+            websearch_to_tsquery('simple', :fts_or_query)
+        ) DESC, sc.id
+        LIMIT :fts_candidate_limit
+        """
+        result = await db.execute(text(fts_sql), params)
+        rows = [_row_to_dict(row) for row in result.all()]
 
-    result = await db.execute(text(sql), params)
-    rows = [_row_to_dict(r) for r in result.all()]
+    if not rows:
+        fallback_used = True
+        fallback_sql = base_sql + f"""
+        SELECT sc.*
+        FROM scoped_chunks sc
+        WHERE COALESCE(sc.{search_field}, '') <> ''
+        ORDER BY sc.id
+        LIMIT :fts_candidate_limit
+        """
+        fallback_params = dict(params)
+        fallback_params.pop("fts_or_query", None)
+        result = await db.execute(text(fallback_sql), fallback_params)
+        rows = [_row_to_dict(row) for row in result.all()]
+
+    # Keep the shared predicate as a defensive check while SQL owns pre-LIMIT filtering.
     rows = _filter_excluded_sections(rows, exclude_sections)
-
+    candidate_count = len(rows)
     ranked_rows = rank_rows_by_bm25(rows, query_tokens, search_field=search_field)
-    return ranked_rows[:top_k]
+    final_rows = ranked_rows[:top_k]
+    duration_ms = round((time.monotonic() - started_at) * 1000, 2)
+    logger.info(
+        "retrieval.bm25_channel "
+        f"channel={channel_name} scoped_count=unavailable "
+        f"candidate_count={candidate_count} candidate_limit={candidate_limit} "
+        f"ranked_count={len(ranked_rows)} duration_ms={duration_ms} "
+        f"fallback_used={str(fallback_used).lower()}"
+    )
+
+    return final_rows
 
 
 async def term_channel(

@@ -1,14 +1,32 @@
 from __future__ import annotations
 
+import os
+
 CHANNEL_WEIGHT_PATH = 1.0
 CHANNEL_WEIGHT_CONTENT = 2.0
 CHANNEL_WEIGHT_TERM = 1.5
 INTERNAL_RECALL_K_MULTIPLIER = 2
 RRF_K = 60
 DEFAULT_TOP_K = 10
+DEFAULT_POSTGRES_FTS_CANDIDATE_LIMIT = 2000
 
 VALID_CHUNK_TYPES: set[str] = {"text", "image", "table", "page"}
 ASSET_CHUNK_TYPES: set[str] = {"image", "table"}
+
+
+def get_postgres_fts_candidate_limit() -> int:
+	"""Return the positive candidate cap for PostgreSQL FTS prefiltering."""
+	raw_limit = os.environ.get(
+		"RETRIEVAL_POSTGRES_FTS_CANDIDATE_LIMIT",
+		str(DEFAULT_POSTGRES_FTS_CANDIDATE_LIMIT),
+	)
+	try:
+		candidate_limit = int(raw_limit)
+	except ValueError:
+		return DEFAULT_POSTGRES_FTS_CANDIDATE_LIMIT
+	if candidate_limit < 1:
+		return DEFAULT_POSTGRES_FTS_CANDIDATE_LIMIT
+	return candidate_limit
 
 
 def normalize_chunk_types(chunk_types: list[str] | set[str] | None) -> set[str] | None:
