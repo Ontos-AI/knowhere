@@ -102,6 +102,65 @@ async def test_page_result_assembly_uses_summary_not_raw_content() -> None:
 
 
 @pytest.mark.asyncio
+async def test_page_result_assembly_appends_query_snippets_when_query_matches() -> None:
+    rows = [
+        {
+            "chunk_id": "page-node-1",
+            "chunk_type": "page",
+            "content": (
+                "Name: Mr. HUI Kim\nPost: Deputy Commissioner\n"
+                + "X" * 300
+                + "\nCHEUNG Hon-lam Gordon\n2835 2147\nALO II(YE3)6\n"
+                + "Y" * 300
+                + "\nYUEN Chun-cheung Gordon\n2835 2154\n"
+            ),
+            "chunk_metadata": {
+                "summary": "联络资料摘要",
+                "page_nums": [1],
+            },
+        }
+    ]
+
+    assembled = await assemble_retrieval_results(
+        rows=rows,
+        exclude_document_ids=[],
+        exclude_sections=[],
+        query="Gordon",
+    )
+
+    assert assembled[0]["content_source"] == "content_snippets"
+    content = assembled[0]["content"]
+    assert content.startswith("联络资料摘要")
+    assert "CHEUNG Hon-lam Gordon" in content
+    assert "YUEN Chun-cheung Gordon" in content
+
+
+@pytest.mark.asyncio
+async def test_page_result_assembly_falls_back_to_summary_without_query_hits() -> None:
+    rows = [
+        {
+            "chunk_id": "page-node-1",
+            "chunk_type": "page",
+            "content": "CHEUNG Hon-lam Gordon\n2835 2147\n",
+            "chunk_metadata": {
+                "summary": "联络资料摘要",
+                "page_nums": [1],
+            },
+        }
+    ]
+
+    assembled = await assemble_retrieval_results(
+        rows=rows,
+        exclude_document_ids=[],
+        exclude_sections=[],
+        query="NoSuchName",
+    )
+
+    assert assembled[0]["content_source"] == "summary"
+    assert assembled[0]["content"] == "联络资料摘要"
+
+
+@pytest.mark.asyncio
 async def test_table_result_assembly_uses_summary_not_html() -> None:
     rows = [
         {

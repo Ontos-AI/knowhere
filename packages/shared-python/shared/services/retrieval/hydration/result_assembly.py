@@ -5,12 +5,14 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
+from shared.services.retrieval.hydration.page_snippets import extract_page_snippets
 from shared.services.retrieval.hydration.row_utils import (
     clean_content,
     filter_excluded_rows,
     iter_connected_target_ids,
     normalize_chunk_type,
 )
+from shared.utils.text_utils import tokenize_for_retrieval
 
 
 async def assemble_retrieval_results(
@@ -20,6 +22,7 @@ async def assemble_retrieval_results(
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
     allowed_chunk_types: set[str] | None = None,
+    query: str | None = None,
 ) -> list[dict[str, Any]]:
     filtered_rows = filter_excluded_rows(
         rows,
@@ -50,6 +53,7 @@ async def assemble_retrieval_results(
                 embedded_targets.add(target_id)
 
     assembled: list[dict[str, Any]] = []
+    query_tokens = tokenize_for_retrieval(query or "", dedupe=True)
     for row in filtered_rows:
         if row.get('chunk_id') in embedded_targets:
             continue
@@ -57,8 +61,15 @@ async def assemble_retrieval_results(
         base_content = str(row.get('content') or '')
         chunk_type = normalize_chunk_type(row.get('chunk_type'))
         if chunk_type == 'page':
-            assembled_row['content'] = _page_summary(row)
-            assembled_row['content_source'] = 'summary'
+            page_content = _page_content_with_snippets(
+                row,
+                query_tokens,
+                base_content=base_content,
+            )
+            assembled_row['content'] = page_content
+            assembled_row['content_source'] = (
+                'content_snippets' if page_content != _page_summary(row) else 'summary'
+            )
         elif chunk_type == 'table':
             assembled_row['content'] = _compose_table_content(row, rows_by_chunk_id)
             assembled_row['content_source'] = 'summary'
@@ -84,6 +95,27 @@ def _page_summary(row: dict[str, Any]) -> str:
     if not isinstance(metadata, dict):
         return ''
     return str(metadata.get('summary') or '').strip()
+
+
+def _page_content_with_snippets(
+    row: dict[str, Any],
+    query_tokens: list[str],
+    *,
+    base_content: str,
+) -> str:
+    """Compose page-chunk content as the summary plus query-hit snippets.
+
+    Page chunks can be very large and their LLM summary rarely contains the
+    exact queried term. When the query matches the full page text, append
+    every occurrence snippet so the response surfaces the actual matching
+    lines. Falls back to the summary alone when there are no hits.
+    """
+    summary = _page_summary(row)
+    snippets = extract_page_snippets(base_content, query_tokens)
+    if not snippets:
+        return summary
+    parts = [part for part in [summary, *snippets] if part]
+    return '\n\n'.join(parts)
 
 
 def _compose_table_content(

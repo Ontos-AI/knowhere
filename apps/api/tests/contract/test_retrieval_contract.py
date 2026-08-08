@@ -302,6 +302,54 @@ async def test_should_return_seeded_retrieval_results_for_the_authenticated_user
 
 
 @pytest.mark.asyncio
+async def test_page_chunk_result_includes_all_query_snippets(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    page_content = (
+        "Name: Mr. HUI Kim\nPost: Deputy Commissioner\n"
+        + "X" * 300
+        + "\nCHEUNG Hon-lam Gordon\n2835 2147\n"
+        + "Y" * 300
+        + "\nYUEN Chun-cheung Gordon\n2835 2154\n"
+    )
+    async with developer_api_client_factory() as api_client:
+        await _seed_retrieval_document(
+            user_id="local-dev-user",
+            namespace="contract-retrieval",
+            source_file_name="contract-directory.pdf",
+            section_path="directory/root",
+            content=page_content,
+            chunk_type="page",
+            chunk_metadata={"summary": "Directory contact summary"},
+        )
+
+        response = await api_client.post(
+            "/api/v1/retrieval/query",
+            json={
+                "namespace": "contract-retrieval",
+                "query": "Gordon",
+                "top_k": 10,
+            },
+        )
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    results = cast(list[dict[str, object]], response_json["results"])
+
+    assert len(results) == 1
+    assert results[0]["chunk_type"] == "page"
+    assert results[0]["content_source"] == "content_snippets"
+    content = str(results[0]["content"])
+    assert content.startswith("Directory contact summary")
+    assert "CHEUNG Hon-lam Gordon" in content
+    assert "YUEN Chun-cheung Gordon" in content
+    assert "contract-directory.pdf" in str(response_json["evidence_text"])
+
+
+@pytest.mark.asyncio
 async def test_should_default_the_namespace_to_default_when_it_is_omitted(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]

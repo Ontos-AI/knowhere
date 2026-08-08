@@ -77,6 +77,7 @@ async def _try_run_small_corpus_route(
         exclude_document_ids=context.exclude_document_ids,
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
+        query=context.query,
     )
     results = [attach_citation(row) for row in assembled_rows]
     response = {
@@ -136,6 +137,7 @@ async def _run_classic_topk_route(
         exclude_document_ids=context.exclude_document_ids,
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
+        query=context.query,
     )
     results = [attach_citation(row) for row in assembled_rows]
     response = {
@@ -222,6 +224,7 @@ async def _run_agentic_route(
         exclude_document_ids=context.exclude_document_ids,
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
+        query=context.query,
     )
     response = workflow_result.to_api_response()
     response["answer_text"] = ""
