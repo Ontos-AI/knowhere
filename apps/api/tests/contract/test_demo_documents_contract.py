@@ -62,6 +62,9 @@ class FakeResultStorage:
             return normalized
         return None
 
+    def verify_raw_exists(self, *, job_id: str, relative_path: str) -> bool:
+        return relative_path in self.raw_files_by_job_id.get(job_id, set())
+
     def generate_artifact_url(
         self,
         *,
