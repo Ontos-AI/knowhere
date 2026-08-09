@@ -117,7 +117,7 @@ class WorkflowOrchestrator:
             total=config.planner_budget,
             planning_ratio=0.0,
             bootstrap=config.planner_budget,
-            per_doc_min_share=0,
+            per_doc_cap=0,
         )
         db_factory = self._get_db_factory()
         async with db_factory() as inventory_db:

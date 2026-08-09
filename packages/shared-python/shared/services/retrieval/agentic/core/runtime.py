@@ -23,7 +23,7 @@ def build_config_from_env() -> AgentRunConfig:
         token_budget_total=int(os.environ.get("RETRIEVAL_AGENTIC_TOKEN_BUDGET_TOTAL", "40000")),
         planning_ratio=float(os.environ.get("RETRIEVAL_AGENTIC_PLANNING_RATIO", "0.5")),
         bootstrap_budget=int(os.environ.get("RETRIEVAL_AGENTIC_BOOTSTRAP_BUDGET", "2000")),
-        per_doc_min_share=int(os.environ.get("RETRIEVAL_AGENTIC_PER_DOC_MIN_SHARE", "1500")),
+        per_doc_cap=int(os.environ.get("RETRIEVAL_AGENTIC_PER_DOC_CAP", "20000")),
         inventory_aware=os.environ.get("RETRIEVAL_AGENTIC_INVENTORY_AWARE", "true") == "true",
     )
 

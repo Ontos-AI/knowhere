@@ -102,7 +102,7 @@ class BudgetLedger:
         total: int,
         planning_ratio: float,
         bootstrap: int = 2000,
-        per_doc_min_share: int = 1500,
+        per_doc_cap: int = 20000,
     ) -> None:
         total = max(int(total), 1)
         bootstrap = max(0, min(int(bootstrap), total))
@@ -117,16 +117,27 @@ class BudgetLedger:
             "planning": BudgetPool("planning", planning_capacity),
             "context": BudgetPool("context", context_capacity),
         }
+        self._total = (
+            self._pools["bootstrap"].capacity
+            + self._pools["planning"].capacity
+            + self._pools["context"].capacity
+        )
         self._doc_caps: dict[str, int] = {}
         self._doc_used: dict[str, int] = {}
         self._doc_reserved: dict[str, int] = {}
-        self._per_doc_min_share = max(int(per_doc_min_share), 0)
+        self._planning_ratio = planning_ratio
+        self._per_doc_cap = max(int(per_doc_cap), 0)
         self.total_chunks = 0
         self.total_docs = 0
         self.explored_chunks = 0
         self.explored_docs = 0
         self.trimmed_paths: list[dict[str, Any]] = []
         self._overdraft_events: list[dict[str, Any]] = []
+
+    @property
+    def total(self) -> int:
+        """Spendable token total across bootstrap/planning/context pools."""
+        return self._total
 
     def remaining(self, pool: BudgetPoolName) -> int:
         return self._pools[pool].remaining
@@ -138,24 +149,55 @@ class BudgetLedger:
             used_pct=pool_state.used_pct,
         )
 
-    async def allocate_doc_caps(self, doc_chunks: dict[str, int]) -> None:
-        """Allocate planning soft caps by document chunk counts."""
+    async def allocate_doc_caps(self, doc_ids: list[str]) -> None:
+        """Grow pools and total budget for selected docs with a flat per-doc cap.
+
+        After document selection, planning capacity becomes
+        ``len(unique_docs) * per_doc_cap`` (not split by chunk count). Context
+        grows with the same planning/context ratio so evidence budget scales
+        with the selected set. The ledger ``total`` is raised to match the new
+        pool capacities. Each document may spend up to ``per_doc_cap``.
+        """
         async with self._lock:
             self._doc_caps.clear()
             self._doc_used.clear()
             self._doc_reserved.clear()
-            if not doc_chunks:
+            unique_ids = list(dict.fromkeys(doc_id for doc_id in doc_ids if doc_id))
+            if not unique_ids:
                 return
 
-            planning_capacity = self._pools["planning"].capacity
-            total_weight = sum(max(int(count), 1) for count in doc_chunks.values())
-            for doc_id, count in doc_chunks.items():
-                weight = max(int(count), 1)
-                weighted = int(planning_capacity * weight / total_weight)
-                self._doc_caps[doc_id] = min(
-                    planning_capacity,
-                    max(self._per_doc_min_share, weighted),
+            n_docs = len(unique_ids)
+            per_doc = self._per_doc_cap
+            planning_capacity = n_docs * per_doc
+            if self._planning_ratio <= 0:
+                context_capacity = self._pools["context"].capacity
+            elif self._planning_ratio >= 1:
+                context_capacity = 0
+            else:
+                context_capacity = int(
+                    planning_capacity
+                    * (1.0 - self._planning_ratio)
+                    / self._planning_ratio
                 )
+
+            planning = self._pools["planning"]
+            context = self._pools["context"]
+            planning.capacity = max(
+                planning_capacity,
+                planning.used + planning.reserved,
+            )
+            context.capacity = max(
+                context_capacity,
+                context.used + context.reserved,
+            )
+            self._total = (
+                self._pools["bootstrap"].capacity
+                + planning.capacity
+                + context.capacity
+            )
+
+            for doc_id in unique_ids:
+                self._doc_caps[doc_id] = per_doc
 
     async def try_reserve(
         self,
@@ -299,6 +341,7 @@ class BudgetLedger:
         if self._overdraft_events:
             snapshot["overdraft_events"] = list(self._overdraft_events)
         snapshot.update({
+            "total": self._total,
             "total_chunks": self.total_chunks,
             "total_docs": self.total_docs,
             "explored_chunks": min(self.explored_chunks, self.total_chunks)
