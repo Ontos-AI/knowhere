@@ -203,7 +203,7 @@ def _probe_visual_assets(
     header_y: float | None,
     footer_y: float | None,
 ) -> dict[str, Any]:
-    """Collect counts + coarse asset bboxes from images / tables / drawings."""
+    """Collect counts + has_asset gate from images / tables / drawings."""
     image_area = 0.0
     bboxes: list[dict[str, Any]] = []
     seen_image_rects: set[tuple[float, float, float, float]] = set()
@@ -276,7 +276,8 @@ def _probe_visual_assets(
         "image_count": image_count,
         "table_count": table_count,
         "drawings_count": drawings_count,
-        "asset_bboxes": bboxes or None,
+        # Geometry is only used to derive the gate; do not persist bboxes.
+        "has_asset": bool(bboxes),
     }
 
 
@@ -364,7 +365,6 @@ def probe_page_features(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
                 height=float(item.get("height") or 0.0),
                 has_asset=False,
                 is_blank_like=bool(item.get("is_blank_like")),
-                asset_bboxes=None,
             )
             for item in (result.get("features") or [])
         ]
@@ -412,7 +412,7 @@ def probe_page_assets(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
         updated: list[PageFeature] = []
         for feature in ctx.blackboard.page_features:
             visual = by_page.get(feature.page) or {}
-            has_asset = visual.get("asset_bboxes") is not None
+            has_asset = bool(visual.get("has_asset"))
             updated.append(
                 PageFeature(
                     page=feature.page,
@@ -427,11 +427,6 @@ def probe_page_assets(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
                     height=feature.height,
                     has_asset=has_asset,
                     is_blank_like=feature.raw_text_length < 50 and not has_asset,
-                    asset_bboxes=(
-                        list(visual["asset_bboxes"])
-                        if isinstance(visual.get("asset_bboxes"), list)
-                        else None
-                    ),
                 )
             )
         ctx.blackboard.page_features = sorted(updated, key=lambda f: f.page)

@@ -56,27 +56,49 @@ def _compact_blackboard(ctx: ToolContext) -> dict[str, Any]:
     }
 
 
+def _coerce_legacy_finish(data: dict[str, Any]) -> ReflexionDecision:
+    """Map obsolete ``action=verdict_now`` into a real tool call.
+
+    Finish belongs exclusively to the ``verdict`` tool. A bare ``verdict_now``
+    without an explicit status is treated as ready-to-shard, never as abort.
+    """
+    rationale = str(data.get("rationale") or "")
+    raw_verdict = data.get("verdict")
+    if isinstance(raw_verdict, dict):
+        status = str(raw_verdict.get("status") or "").strip().lower()
+        if status in {"success", "abort"}:
+            return ReflexionDecision(
+                action="tool_call",
+                rationale=rationale,
+                tool_name="verdict",
+                tool_args={
+                    "status": status,
+                    "rationale": str(
+                        raw_verdict.get("rationale") or rationale or status
+                    ),
+                },
+            )
+    return ReflexionDecision(
+        action="tool_call",
+        rationale=rationale or "Legacy verdict_now without status; propose shard plan.",
+        tool_name="propose.shard_plan",
+        tool_args={},
+    )
+
+
 def _parse_decision(raw: str) -> ReflexionDecision:
     data = json.loads(raw)
-    action = str(data.get("action") or "tool_call")
-    if action not in {"tool_call", "verdict_now"}:
+    action = str(data.get("action") or "tool_call").strip().lower()
+    if action == "verdict_now":
+        return _coerce_legacy_finish(data if isinstance(data, dict) else {})
+    if action != "tool_call":
         action = "tool_call"
-    verdict = None
-    if isinstance(data.get("verdict"), dict):
-        verdict_data = data["verdict"]
-        status = str(verdict_data.get("status") or "abort")
-        if status not in {"success", "abort"}:
-            status = "abort"
-        verdict = AgentVerdict(
-            status=status,  # type: ignore[arg-type]
-            rationale=str(verdict_data.get("rationale") or data.get("rationale") or ""),
-        )
     return ReflexionDecision(
-        action=action,  # type: ignore[arg-type]
+        action="tool_call",
         rationale=str(data.get("rationale") or ""),
         tool_name=data.get("tool_name"),
         tool_args=dict(data.get("tool_args") or {}),
-        verdict=verdict,
+        verdict=None,
     )
 
 
@@ -98,6 +120,15 @@ class ReActExecutor:
         for round_index in range(self.max_rounds):
             pending_recovery_verdict: AgentVerdict | None = None
             decision, result = self._next_decision(round_index)
+            if decision.action != "tool_call":
+                # Defensive: only tool_call is a legal executor step.
+                decision = ReflexionDecision(
+                    action="tool_call",
+                    rationale=decision.rationale
+                    or "Non-tool executor action coerced to propose.shard_plan.",
+                    tool_name="propose.shard_plan",
+                    tool_args={},
+                )
             self.ctx.blackboard.global_signals.setdefault("reflexion_decisions", []).append(
                 decision.to_dict()
             )
@@ -111,14 +142,9 @@ class ReActExecutor:
                     tool_args=decision.tool_args,
                 )
 
-            tool_name: str | None = None
-            tool_args: dict[str, Any] = {}
-            if decision.action == "verdict_now":
-                verdict = decision.verdict or AgentVerdict(
-                    status="abort",
-                    rationale=decision.rationale or "Executor stopped without verdict.",
-                )
-                if verdict.status == "success" and not (
+            tool_name, tool_args = self._resolve_tool_call(decision)
+            if tool_name == "verdict" and str(tool_args.get("status") or "") == "success":
+                if not (
                     self.ctx.blackboard.validation_report
                     and self.ctx.blackboard.validation_report.get("valid") is True
                 ):
@@ -131,11 +157,6 @@ class ReActExecutor:
                         tool_args={},
                     )
                     tool_name, tool_args = self._resolve_tool_call(decision)
-                else:
-                    self.ctx.blackboard.verdict = verdict
-                    return ExecutorResult(verdict=verdict, rounds=round_index + 1)
-            else:
-                tool_name, tool_args = self._resolve_tool_call(decision)
 
             if not tool_name:
                 verdict = AgentVerdict(
@@ -205,6 +226,22 @@ class ReActExecutor:
     def _next_decision(self, round_index: int) -> tuple[ReflexionDecision, ToolResult]:
         if round_index == 0 and self._initial_decision is not None:
             decision = self._initial_decision
+            if decision.action != "tool_call":
+                decision = ReflexionDecision(
+                    action="tool_call",
+                    rationale=decision.rationale
+                    or "Initial non-tool decision coerced to propose.shard_plan.",
+                    tool_name="propose.shard_plan",
+                    tool_args={},
+                )
+            elif not decision.tool_name:
+                decision = ReflexionDecision(
+                    action="tool_call",
+                    rationale=decision.rationale
+                    or "Initial decision missing tool; propose shard plan.",
+                    tool_name="propose.shard_plan",
+                    tool_args={},
+                )
             return decision, ToolResult(status="ok", payload=decision.to_dict())
         model = self.ctx.settings.get("executor_model") or self.ctx.settings.get("model")
         if not model:
@@ -224,9 +261,13 @@ class ReActExecutor:
         est = estimate_tokens(prompt)
         if not self.ctx.budget.try_reserve("plan", est):
             decision = ReflexionDecision(
-                action="verdict_now",
+                action="tool_call",
                 rationale="Planner budget exhausted.",
-                verdict=AgentVerdict(status="abort", rationale="Planner budget exhausted."),
+                tool_name="verdict",
+                tool_args={
+                    "status": "abort",
+                    "rationale": "Planner budget exhausted.",
+                },
             )
             return decision, ToolResult(
                 status="ok",
@@ -303,4 +344,3 @@ class ReActExecutor:
             tool_name="validate.anatomy_map",
             tool_args={},
         )
-
