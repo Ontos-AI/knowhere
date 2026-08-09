@@ -39,8 +39,8 @@ class BudgetWallet:
     bootstrap_budget: int = field(
         default_factory=lambda: _env_int('RETRIEVAL_AGENTIC_BOOTSTRAP_BUDGET', 2000)
     )
-    per_doc_min_share: int = field(
-        default_factory=lambda: _env_int('RETRIEVAL_AGENTIC_PER_DOC_MIN_SHARE', 1500)
+    per_doc_cap: int = field(
+        default_factory=lambda: _env_int('RETRIEVAL_AGENTIC_PER_DOC_CAP', 20000)
     )
     _allocations: dict[str, int] = field(default_factory=dict, init=False)
     _reclaimed: dict[str, int] = field(default_factory=dict, init=False)
@@ -89,8 +89,14 @@ class BudgetWallet:
             return dict(self._ledgers)
 
     async def reclaim(self, step_id: str, ledger: BudgetLedger) -> None:
-        """Record unused capacity after a step completes."""
+        """Record unused capacity after a step completes.
+
+        If the step ledger grew its total after document selection
+        (``allocate_doc_caps``), raise this wallet's hard total and the step
+        allocation to match so accounting stays consistent.
+        """
         async with self._lock:
+            self._sync_capacity_growth(step_id, ledger)
             allocated = self._allocations.get(step_id, 0)
             used = self._ledger_used(ledger)
             self._reclaimed[step_id] = max(allocated - used, 0)
@@ -99,18 +105,39 @@ class BudgetWallet:
         return sum(self._ledger_used(ledger) for ledger in self._ledgers.values())
 
     def snapshot(self) -> dict[str, object]:
+        allocations, total = self._live_allocations()
+        used = self.total_used()
         return {
-            "total": self.total,
-            "allocated": sum(self._allocations.values()),
-            "used": self.total_used(),
-            "remaining": max(self.total - self.total_used(), 0),
-            "allocations": dict(self._allocations),
+            "total": total,
+            "allocated": sum(allocations.values()),
+            "used": used,
+            "remaining": max(total - used, 0),
+            "allocations": allocations,
             "reclaimed": dict(self._reclaimed),
             "steps": {
                 step_id: ledger.snapshot()
                 for step_id, ledger in self._ledgers.items()
             },
         }
+
+    def _sync_capacity_growth(self, step_id: str, ledger: BudgetLedger) -> None:
+        capacity = max(int(ledger.total), 0)
+        previous = self._allocations.get(step_id, 0)
+        if capacity > previous:
+            self.total += capacity - previous
+            self._allocations[step_id] = capacity
+
+    def _live_allocations(self) -> tuple[dict[str, int], int]:
+        """Return allocations/total including any post-selection ledger growth."""
+        allocations = dict(self._allocations)
+        total = self.total
+        for step_id, ledger in self._ledgers.items():
+            capacity = max(int(ledger.total), 0)
+            previous = allocations.get(step_id, 0)
+            if capacity > previous:
+                total += capacity - previous
+                allocations[step_id] = capacity
+        return allocations, total
 
     def _requested_for_step(self, step: PlannedStep) -> int:
         del step
@@ -122,7 +149,7 @@ class BudgetWallet:
             total=max(total, 1),
             planning_ratio=self.planning_ratio,
             bootstrap=min(self.bootstrap_budget, max(total, 1)),
-            per_doc_min_share=self.per_doc_min_share,
+            per_doc_cap=self.per_doc_cap,
         )
 
     @staticmethod

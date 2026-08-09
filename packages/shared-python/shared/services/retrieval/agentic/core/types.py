@@ -21,7 +21,7 @@ class AgentRunConfig:
     token_budget_total: int = 40000
     planning_ratio: float = 0.5
     bootstrap_budget: int = 2000
-    per_doc_min_share: int = 1500
+    per_doc_cap: int = 20000
     inventory_aware: bool = True
 
 

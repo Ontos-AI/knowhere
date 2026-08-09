@@ -99,9 +99,9 @@ class RetrievalAgent:
             total=config.token_budget_total,
             planning_ratio=config.planning_ratio,
             bootstrap=config.bootstrap_budget,
-            per_doc_min_share=config.per_doc_min_share,
+            per_doc_cap=config.per_doc_cap,
         )
-        total_chunks, total_docs, chunks_count_by_doc = await _load_budget_inventory(
+        total_chunks, total_docs, _chunks_count_by_doc = await _load_budget_inventory(
             db,
             user_id=user_id,
             namespace=namespace,
@@ -267,10 +267,13 @@ class RetrievalAgent:
 
 
         if state.ledger is not None:
-            await state.ledger.allocate_doc_caps({
-                doc.document_id: chunks_count_by_doc.get(doc.document_id, 1)
-                for doc in state.selected_docs
-            })
+            await state.ledger.allocate_doc_caps(
+                [doc.document_id for doc in state.selected_docs]
+            )
+            logger.info(
+                f'agentic: doc caps allocated for {len(state.selected_docs)} docs; '
+                f'token_budget_total={state.ledger.total}'
+            )
 
         # Phase 2 + 3: navigate once, then render evidence for downstream agents.
         evidence_text = ''
