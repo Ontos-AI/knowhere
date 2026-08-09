@@ -26,6 +26,9 @@ class ZipPackageWriteRequest:
     doc_nav: dict[str, Any] | None
     manifest: dict[str, Any]
     temp_dir: str | None
+    # Legacy chunk/docx/md packages may ship toc_hierarchies.json; page_memory
+    # keeps human TOC as debug-root toc_hierarchy.json and omits the list dump.
+    include_toc_hierarchies: bool = True
 
 
 @dataclass(frozen=True)
@@ -52,7 +55,7 @@ class ZipPackageWriter:
             zip_file.writestr("chunks.json", chunks_json.encode("utf-8"))
 
             self._write_optional_file(zip_file, request.add_dir, "full.md")
-            if self._write_optional_file(
+            if request.include_toc_hierarchies and self._write_optional_file(
                 zip_file,
                 request.add_dir,
                 "toc_hierarchies.json",

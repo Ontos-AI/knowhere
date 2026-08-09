@@ -17,10 +17,12 @@ PLANNER_INSTRUCTIONS = (
     "footer_y is the highest footer line you observe (smallest y) when any "
     "footer is present, otherwise null. When both are set, require "
     "header_y < footer_y. "
-    "next_action must be one of inspect_more, grep_text, ready_to_shard, "
-    "verdict_now. Use inspect_more only when extra page screenshots are needed. "
+    "next_action must be one of inspect_more, grep_text, ready_to_shard. "
+    "Use inspect_more only when extra page screenshots are needed. "
     "Use grep_text only for native PDFs when a global text search would clarify "
-    "structure. Do not output a fixed step plan."
+    "structure. Use ready_to_shard when evidence is sufficient to propose shards. "
+    "Do not finish or abort the profile run from next_action; the executor owns "
+    "success/abort via the verdict tool. Do not output a fixed step plan."
 )
 
 __all__ = ["PLANNER_INSTRUCTIONS"]

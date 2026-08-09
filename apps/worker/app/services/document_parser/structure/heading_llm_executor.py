@@ -263,6 +263,16 @@ def demote_consecutive_same_level(
 
     Note: a candidate the LLM already demoted to -1 naturally breaks the run,
     because -1 never equals a positive level — it acts like a body separator.
+
+    TODO(heading-demote): Consider an iterative fixpoint pass that re-runs this
+    demotion while treating already-demoted ids as transparent (skipped for
+    adjacency only; final level stays -1). That would clean leftover singleton
+    TOC lines (e.g. ``2.4 foo....11``) after their same-level siblings were
+    demoted, i.e. pure outline regions with no body placeholders. Do NOT ship
+    without guarding the false-positive where empty subsections demote first
+    (``2.4 / 2.4.1 / 2.4.2 / 2.5 / 2.5.1 / [BODY]``) and a later pass then
+    wrongly merges real sibling parents ``2.4`` and ``2.5`` into one same-level
+    run. Deferred until we have TOC-page vs empty-subsection regression cases.
     """
     demoted: set[int] = set()
     run: list[tuple[int, int]] = []  # (row_id, level) for a no-body candidate run

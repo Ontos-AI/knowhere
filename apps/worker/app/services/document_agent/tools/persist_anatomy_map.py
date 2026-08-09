@@ -10,6 +10,10 @@ from typing import Any
 
 from app.services.document_agent.manifest import PageAnatomyMap, ToolContext, ToolResult
 
+# Debug / package-root artifact name. Keep exported so page_memory debug scripts
+# can import it from ``document_agent.persist``.
+DOC_PROFILE_FILENAME = "doc_profile.json"
+
 
 def _artifact_dir(ctx: ToolContext) -> Path:
     if ctx.output_dir:

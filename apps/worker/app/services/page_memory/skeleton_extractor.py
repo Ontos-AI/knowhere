@@ -28,9 +28,6 @@ from app.services.document_agent.structure.hierarchy_locator import (
     locate_title_compact_strict,
     resolve_hierarchy_page_ranges,
 )
-from app.services.document_parser.structure.body_boundary import (
-    clean_toc_title,
-)
 from loguru import logger
 from shared.services.chunks.path_segments import (
     append_document_path,
@@ -298,7 +295,8 @@ def _range_to_skeleton(
 ) -> SectionSkeleton:
     start_page = _clamp_page(item.start_page, page_count)
     end_page = _clamp_page(item.end_page, page_count)
-    path_titles = [clean_toc_title(title) or title for title in item.path_titles]
+    # Keep original TOC titles (incl. numbering) in section_path / HIERARCHY.
+    path_titles = [str(title).strip() for title in item.path_titles if str(title).strip()]
     section_path = join_document_path([filename, *path_titles])
     parent_path = (
         join_document_path([filename, *path_titles[:-1]])

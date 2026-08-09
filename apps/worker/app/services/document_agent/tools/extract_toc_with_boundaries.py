@@ -6,6 +6,7 @@ import gc
 import json
 import os
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,6 +21,7 @@ from app.services.document_agent.manifest import (
 )
 from app.services.document_agent.registry import register_tool
 from app.services.document_agent.tools.vlm_toc_extractor import (
+    TOC_VLM_MAX_TOKENS,
     vlm_entries_to_toc_hierarchies,
 )
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
@@ -34,81 +36,150 @@ BOUNDARY_STEP_PAGES = 5
 MAX_BOUNDARY_ROUNDS = 6
 MAX_TOC_PAGES = BOUNDARY_STEP_PAGES * MAX_BOUNDARY_ROUNDS  # 30
 
+_CONFIRM_STAGE = "toc_confirm"
+_CONFIRM_TOKENS_PER_PAGE = 800
+
+_CONFIRM_PROMPT = (
+    "You are a document structure analysis expert. "
+    "Below are screenshot(s) of candidate pages extracted from a PDF. "
+    "These pages contained keywords such as 'Table of Contents' / 'Contents' "
+    "during a text scan.\n\n"
+    "For each page, determine whether it is truly the **start page** of a "
+    "Table of Contents (TOC).\n\n"
+    "Criteria for a real TOC page:\n"
+    "- Contains a list of section titles paired with page numbers\n"
+    "- Titles are connected to page numbers via dots, ellipses, or spaces\n"
+    "- Titles have a systematic numbering scheme (e.g. 1. / 1.1 / Chapter 1)\n\n"
+    "NOT a TOC page:\n"
+    "- Body text that casually mentions 'contents'\n"
+    "- A page with only a 'Contents' heading but body text below\n\n"
+    "Return strict JSON (no markdown fences):\n"
+    '{"pages": [{"page": <page_number>, "is_toc_start": true/false, '
+    '"reason": "brief reason"}]}'
+)
+
 
 # -- PyMuPDF workers (must be top-level for multiprocessing pickle) ------------
 
 
 @worker
-def _render_single_page_worker(
-    queue, pdf_path: str, page_num: int, output_path: str, dpi: int
+def _render_expand_window_worker(
+    queue,
+    pdf_path: str,
+    pages: list[int],
+    output_dir: str,
+    dpi: int,
+    anchor_page: int,
 ) -> None:
+    """Render one Phase2 expand window in a single child process.
+
+    Opens the PDF once and writes ``toc_a{anchor}_p{page}.png`` for each page.
+    """
     import pymupdf  # type: ignore[import]
 
+    results: list[dict[str, Any]] = []
+    doc = None
     try:
         doc = pymupdf.open(pdf_path)
-        idx = page_num - 1
-        if 0 <= idx < doc.page_count:
-            page = doc[idx]
-            mat = pymupdf.Matrix(dpi / 72.0, dpi / 72.0)
-            pix = page.get_pixmap(matrix=mat)
-            pix.save(output_path)
+        mat = pymupdf.Matrix(dpi / 72.0, dpi / 72.0)
+        for page_num in pages:
+            idx = page_num - 1
+            if not (0 <= idx < doc.page_count):
+                continue
+            pix = doc[idx].get_pixmap(matrix=mat)
+            png_path = os.path.join(
+                output_dir,
+                f"toc_a{anchor_page}_p{page_num}.png",
+            )
+            pix.save(png_path)
+            results.append({"page": page_num, "png_path": png_path})
     finally:
         try:
-            doc.close()
+            if doc is not None:
+                doc.close()
         except Exception:
             pass
         gc.collect()
-    queue.put({"ok": True, "png_path": output_path})
+    queue.put({"ok": True, "results": results})
 
 
 # -- VLM helpers ---------------------------------------------------------------
 
 
-def _vlm_confirm_anchors(
-    anchor_pages: list[TocAnchorPage],
+def _iter_chunks(items: list[Any], size: int) -> list[list[Any]]:
+    if size <= 0:
+        raise ValueError("chunk size must be positive")
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+def _parse_confirm_items(raw: str) -> list[dict[str, Any]]:
+    data = json.loads(raw)
+    if isinstance(data, dict):
+        items = data.get("pages") or data.get("results") or data.get("data") or []
+        if not items and len(data) == 1:
+            items = list(data.values())[0]
+    elif isinstance(data, list):
+        items = data
+    else:
+        items = []
+    return [item for item in items if isinstance(item, dict)]
+
+
+def _evidence_from_confirm_items(
+    items: list[dict[str, Any]],
+) -> tuple[set[int], dict[int, TocEvidence]]:
+    confirmed_pages: set[int] = set()
+    evidence_by_page: dict[int, TocEvidence] = {}
+    for item in items:
+        if "page" not in item:
+            continue
+        page = int(item["page"])
+        is_toc_start = bool(item.get("is_toc_start"))
+        if is_toc_start:
+            confirmed_pages.add(page)
+        raw_confidence = item.get("confidence")
+        try:
+            confidence = (
+                float(raw_confidence)
+                if raw_confidence is not None
+                else (0.95 if is_toc_start else 0.05)
+            )
+        except (TypeError, ValueError):
+            confidence = 0.95 if is_toc_start else 0.05
+        evidence_by_page[page] = TocEvidence(
+            page_index=page,
+            source="vlm",
+            confidence=max(0.0, min(1.0, confidence)),
+            reason=str(item.get("reason") or ""),
+        )
+    return confirmed_pages, evidence_by_page
+
+
+def _confirm_anchor_chunk(
+    chunk: list[TocAnchorPage],
+    *,
     model: str,
-    budget: Any | None = None,
-) -> tuple[list[TocAnchorPage], bool, list[TocEvidence]]:
-    """Phase 1: send all anchor PNGs to VLM, ask which are real TOC starts."""
-    from shared.services.ai.llm_overrides import get_vision_client
+    budget: Any | None,
+) -> tuple[set[int], dict[int, TocEvidence], bool]:
+    """Confirm one BOUNDARY_STEP_PAGES-sized anchor chunk.
 
-    if not anchor_pages:
-        return [], False, []
-
+    Returns ``(confirmed_pages, evidence_by_page, failed)``.
+    """
     import base64
 
-    # Build multi-image message
-    content_parts: list[dict[str, Any]] = [
-        {
-            "type": "text",
-            "text": (
-                "You are a document structure analysis expert. "
-                "Below are screenshot(s) of candidate pages extracted from a PDF. "
-                "These pages contained keywords such as 'Table of Contents' / 'Contents' "
-                "during a text scan.\n\n"
-                "For each page, determine whether it is truly the **start page** of a "
-                "Table of Contents (TOC).\n\n"
-                "Criteria for a real TOC page:\n"
-                "- Contains a list of section titles paired with page numbers\n"
-                "- Titles are connected to page numbers via dots, ellipses, or spaces\n"
-                "- Titles have a systematic numbering scheme (e.g. 1. / 1.1 / Chapter 1)\n\n"
-                "NOT a TOC page:\n"
-                "- Body text that casually mentions 'contents'\n"
-                "- A page with only a 'Contents' heading but body text below\n\n"
-                "Return a strict JSON array (no markdown fences):\n"
-                '[{"page": <page_number>, "is_toc_start": true/false, "reason": "brief reason"}]'
-            ),
-        }
-    ]
+    from shared.services.ai.llm_overrides import get_vision_client
 
-    for anchor in anchor_pages:
+    if not chunk:
+        return set(), {}, False
+
+    content_parts: list[dict[str, Any]] = [
+        {"type": "text", "text": _CONFIRM_PROMPT},
+    ]
+    for anchor in chunk:
         with open(anchor.png_path, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode()
         content_parts.append(
-            {
-                "type": "text",
-                "text": f"\n--- Page {anchor.page} ---",
-            }
+            {"type": "text", "text": f"\n--- Page {anchor.page} ---"}
         )
         content_parts.append(
             {
@@ -118,20 +189,22 @@ def _vlm_confirm_anchors(
         )
 
     messages = cast(Any, [{"role": "user", "content": content_parts}])
-    est = estimate_tokens(str(content_parts[0]["text"])) + len(anchor_pages) * 800
-    stage = "toc_confirm"
-    if budget and not budget.try_reserve("visual", est, stage=stage):
-        logger.warning("[extract.toc] insufficient visual budget for anchor confirmation")
-        return [], True, []
+    est = estimate_tokens(_CONFIRM_PROMPT) + len(chunk) * _CONFIRM_TOKENS_PER_PAGE
+    if budget and not budget.try_reserve("visual", est, stage=_CONFIRM_STAGE):
+        logger.warning(
+            "[extract.toc] insufficient visual budget for confirm chunk pages={}",
+            [a.page for a in chunk],
+        )
+        return set(), {}, True
 
     try:
         client, resolved_model = get_vision_client(requested_model=model)
-        model = resolved_model or model
+        resolved = resolved_model or model
         raw, usage = client.chat_completion_with_usage(
             messages=messages,
-            model=model,
+            model=resolved,
             temperature=0.1,
-            max_tokens=500,
+            max_tokens=TOC_VLM_MAX_TOKENS,
             response_format={"type": "json_object"},
             usage_task="document_agent.toc_anchor_confirm",
         )
@@ -140,72 +213,361 @@ def _vlm_confirm_anchors(
                 "visual",
                 actual=usage.get("total_tokens", est),
                 est=est,
-                stage=stage,
+                stage=_CONFIRM_STAGE,
             )
-        data = json.loads(raw)
-        if isinstance(data, dict):
-            items = data.get("pages") or data.get("results") or data.get("data") or []
-            if not items and len(data) == 1:
-                items = list(data.values())[0]
-        elif isinstance(data, list):
-            items = data
-        else:
-            items = []
-
-        confirmed_pages: set[int] = set()
-        evidence_by_page: dict[int, TocEvidence] = {}
-        for item in items:
-            if not isinstance(item, dict) or "page" not in item:
-                continue
-            page = int(item["page"])
-            is_toc_start = bool(item.get("is_toc_start"))
-            if is_toc_start:
-                confirmed_pages.add(page)
-            raw_confidence = item.get("confidence")
-            try:
-                confidence = (
-                    float(raw_confidence)
-                    if raw_confidence is not None
-                    else (0.95 if is_toc_start else 0.05)
-                )
-            except (TypeError, ValueError):
-                confidence = 0.95 if is_toc_start else 0.05
-            evidence_by_page[page] = TocEvidence(
-                page_index=page,
-                source="vlm",
-                confidence=max(0.0, min(1.0, confidence)),
-                reason=str(item.get("reason") or ""),
-            )
-
-        confirmed = [a for a in anchor_pages if a.page in confirmed_pages]
-        rejected = [a.page for a in anchor_pages if a.page not in confirmed_pages]
-        evidence = [
-            evidence_by_page.get(
-                a.page,
-                TocEvidence(
-                    page_index=a.page,
-                    source="vlm",
-                    confidence=0.05,
-                    reason="VLM response omitted this candidate page",
-                ),
-            )
-            for a in anchor_pages
-        ]
-        logger.info(
-            "[extract.toc] VLM confirmed {} TOC starts, rejected pages: {}",
-            len(confirmed),
-            rejected,
+        confirmed_pages, evidence_by_page = _evidence_from_confirm_items(
+            _parse_confirm_items(raw)
         )
-        return confirmed, False, evidence
+        return confirmed_pages, evidence_by_page, False
     except Exception as exc:
         if budget:
-            budget.refund("visual", est=est, stage=stage)
+            budget.refund("visual", est=est, stage=_CONFIRM_STAGE)
         logger.warning(
-            "[extract.toc] VLM anchor confirmation failed: {}, "
-            "falling back to no confirmed anchors (safe degradation)",
+            "[extract.toc] VLM confirm chunk failed pages={}: {}",
+            [a.page for a in chunk],
             exc,
         )
-        return [], True, []
+        return set(), {}, True
+
+
+def _vlm_confirm_anchors(
+    anchor_pages: list[TocAnchorPage],
+    model: str,
+    budget: Any | None = None,
+) -> tuple[list[TocAnchorPage], bool, list[TocEvidence]]:
+    """Phase 1: confirm TOC starts in BOUNDARY_STEP_PAGES batches (concurrent)."""
+    if not anchor_pages:
+        return [], False, []
+
+    from gevent.pool import Pool as GeventPool
+
+    chunks = _iter_chunks(anchor_pages, BOUNDARY_STEP_PAGES)
+    logger.info(
+        "[extract.toc] Phase 1 confirm: {} anchors → {} chunks (size={}, concurrency={})",
+        len(anchor_pages),
+        len(chunks),
+        BOUNDARY_STEP_PAGES,
+        min(BOUNDARY_STEP_PAGES, len(chunks)),
+    )
+
+    pool = GeventPool(size=min(BOUNDARY_STEP_PAGES, len(chunks)))
+    jobs = [
+        pool.spawn(_confirm_anchor_chunk, chunk, model=model, budget=budget)
+        for chunk in chunks
+    ]
+    pool.join()
+
+    confirmed_pages: set[int] = set()
+    evidence_by_page: dict[int, TocEvidence] = {}
+    chunk_failures = 0
+    chunk_successes = 0
+    for job in jobs:
+        try:
+            chunk_confirmed, chunk_evidence, failed = job.get()
+        except Exception as exc:
+            chunk_failures += 1
+            logger.warning("[extract.toc] confirm greenlet failed: {}", exc)
+            continue
+        if failed:
+            chunk_failures += 1
+            continue
+        chunk_successes += 1
+        confirmed_pages.update(chunk_confirmed)
+        evidence_by_page.update(chunk_evidence)
+
+    confirm_failed = chunk_successes == 0 and chunk_failures > 0
+    confirmed = [a for a in anchor_pages if a.page in confirmed_pages]
+    rejected = [a.page for a in anchor_pages if a.page not in confirmed_pages]
+    evidence = [
+        evidence_by_page.get(
+            a.page,
+            TocEvidence(
+                page_index=a.page,
+                source="vlm",
+                confidence=0.05,
+                reason=(
+                    "confirm batch failed for this candidate"
+                    if confirm_failed
+                    else "VLM response omitted this candidate page"
+                ),
+            ),
+        )
+        for a in anchor_pages
+    ]
+    logger.info(
+        "[extract.toc] Phase 1 done: confirmed={} rejected={} "
+        "chunk_ok={} chunk_fail={} confirm_failed={}",
+        len(confirmed),
+        rejected,
+        chunk_successes,
+        chunk_failures,
+        confirm_failed,
+    )
+    return confirmed, confirm_failed, evidence
+
+
+# -- Phase 2: expand + extract per confirmed start -----------------------------
+
+
+@dataclass
+class _TocRegionResult:
+    anchor_page: int
+    entries: list[dict[str, Any]] = field(default_factory=list)
+    toc_pages: list[int] = field(default_factory=list)
+    hierarchies: list[dict[str, Any]] = field(default_factory=list)
+    batch_meta: list[dict[str, Any]] = field(default_factory=list)
+    batch_trace: list[dict[str, Any]] = field(default_factory=list)
+    error: str | None = None
+
+
+def _render_toc_page_batch(
+    *,
+    pdf_path: str,
+    output_dir: str,
+    dpi: int,
+    anchor_page: int,
+    batch_pages: list[int],
+    render_lock: Any,
+    reuse_png_by_page: dict[int, str] | None = None,
+) -> list[tuple[int, str]]:
+    """Render one expand window under the Phase2 global render lock.
+
+    One child process renders the whole window (PDF opened once). Across
+    anchors, PyMuPDF stays serial to avoid gevent ThreadPool deadlocks.
+    VLM calls happen outside this lock.
+    """
+    reuse = reuse_png_by_page or {}
+    planned: dict[int, str] = {}
+    pages_to_render: list[int] = []
+    for page_num in batch_pages:
+        existing = reuse.get(page_num)
+        if existing and os.path.isfile(existing):
+            planned[page_num] = existing
+        else:
+            pages_to_render.append(page_num)
+
+    with render_lock:
+        if pages_to_render:
+            result = run_in_child_process(
+                _render_expand_window_worker,
+                pdf_path,
+                pages_to_render,
+                output_dir,
+                dpi,
+                anchor_page,
+                timeout=120,
+            )
+            for item in result.get("results") or []:
+                planned[int(item["page"])] = str(item["png_path"])
+
+    page_pngs: list[tuple[int, str]] = []
+    missing: list[int] = []
+    for page_num in batch_pages:
+        png_path = planned.get(page_num)
+        if not png_path:
+            missing.append(page_num)
+            continue
+        page_pngs.append((page_num, png_path))
+    if missing:
+        raise RuntimeError(
+            f"TOC expand render missing pages {missing} for anchor {anchor_page}"
+        )
+    return page_pngs
+
+
+def _extract_region_for_anchor(
+    anchor: TocAnchorPage,
+    *,
+    pdf_path: str,
+    page_count: int,
+    output_dir: str,
+    dpi: int,
+    model: str,
+    render_lock: Any,
+) -> _TocRegionResult:
+    """Expand + extract for one confirmed TOC start.
+
+    Rounds within a start stay serial (continuation context). Different
+    starts run concurrently for VLM, but page renders share ``render_lock``.
+    """
+    from app.services.document_agent.tools.vlm_toc_extractor import (
+        vlm_extract_toc_batch,
+    )
+
+    anchor_page = anchor.page
+    region_entries: list[dict[str, Any]] = []
+    region_toc_pages: list[int] = []
+    region_scan_end = anchor_page
+    batch_meta: list[dict[str, Any]] = []
+    batch_trace: list[dict[str, Any]] = []
+
+    try:
+        for round_idx in range(MAX_BOUNDARY_ROUNDS):
+            batch_start = anchor_page + round_idx * BOUNDARY_STEP_PAGES
+            batch_end = min(batch_start + BOUNDARY_STEP_PAGES - 1, page_count)
+            if batch_start > page_count:
+                break
+
+            batch_pages = list(range(batch_start, batch_end + 1))
+            logger.info(
+                "[extract.toc] batch round {}: pages {}-{} for anchor {}",
+                round_idx,
+                batch_start,
+                batch_end,
+                anchor_page,
+            )
+
+            reuse_png_by_page: dict[int, str] = {}
+            if (
+                round_idx == 0
+                and anchor.png_path
+                and os.path.isfile(anchor.png_path)
+            ):
+                # Phase1 already rendered the confirmed start page.
+                reuse_png_by_page[anchor_page] = anchor.png_path
+
+            page_pngs = _render_toc_page_batch(
+                pdf_path=pdf_path,
+                output_dir=output_dir,
+                dpi=dpi,
+                anchor_page=anchor_page,
+                batch_pages=batch_pages,
+                render_lock=render_lock,
+                reuse_png_by_page=reuse_png_by_page,
+            )
+
+            batch_result = vlm_extract_toc_batch(
+                page_pngs=page_pngs,
+                model=model,
+                previous_entries=region_entries if region_entries else None,
+            )
+            batch_meta.append(batch_result.meta)
+            region_entries.extend(batch_result.all_entries)
+            region_toc_pages.extend(batch_result.toc_pages)
+            region_scan_end = batch_end
+            batch_trace.append(
+                {
+                    "anchor": anchor_page,
+                    "round": round_idx,
+                    "batch_pages": batch_pages,
+                    "toc_pages": batch_result.toc_pages,
+                    "non_toc_pages": batch_result.non_toc_pages,
+                    "entries_found": len(batch_result.all_entries),
+                }
+            )
+
+            last_page_is_toc = (
+                batch_result.page_results
+                and batch_result.page_results[-1].is_toc
+            )
+            if not last_page_is_toc:
+                logger.info(
+                    "[extract.toc] boundary found: last page {} is not TOC",
+                    batch_end,
+                )
+                break
+            if batch_end >= page_count:
+                break
+            logger.info(
+                "[extract.toc] last page {} still TOC, expanding window",
+                batch_end,
+            )
+
+        hierarchies: list[dict[str, Any]] = []
+        if region_entries:
+            hierarchies = vlm_entries_to_toc_hierarchies(
+                region_entries,
+                toc_page_nums=region_toc_pages,
+                scan_end_page=region_scan_end,
+                page_count=page_count,
+            )
+        return _TocRegionResult(
+            anchor_page=anchor_page,
+            entries=region_entries,
+            toc_pages=region_toc_pages,
+            hierarchies=hierarchies,
+            batch_meta=batch_meta,
+            batch_trace=batch_trace,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[extract.toc] anchor {} region extract failed: {}",
+            anchor_page,
+            exc,
+        )
+        return _TocRegionResult(
+            anchor_page=anchor_page,
+            entries=region_entries,
+            toc_pages=region_toc_pages,
+            batch_meta=batch_meta,
+            batch_trace=batch_trace,
+            error=str(exc),
+        )
+
+
+def _extract_regions_for_confirmed_anchors(
+    confirmed: list[TocAnchorPage],
+    *,
+    pdf_path: str,
+    page_count: int,
+    output_dir: str,
+    dpi: int,
+    model: str,
+) -> list[_TocRegionResult]:
+    """Phase 2: concurrent VLM per start; serial PyMuPDF renders across starts."""
+    if not confirmed:
+        return []
+
+    from gevent.lock import Semaphore
+    from gevent.pool import Pool as GeventPool
+
+    pool_size = min(BOUNDARY_STEP_PAGES, len(confirmed))
+    render_lock = Semaphore(1)
+    logger.info(
+        "[extract.toc] Phase 2 extract: {} confirmed starts, "
+        "vlm_concurrency={}, render=serial",
+        len(confirmed),
+        pool_size,
+    )
+    pool = GeventPool(size=pool_size)
+    jobs = [
+        pool.spawn(
+            _extract_region_for_anchor,
+            anchor,
+            pdf_path=pdf_path,
+            page_count=page_count,
+            output_dir=output_dir,
+            dpi=dpi,
+            model=model,
+            render_lock=render_lock,
+        )
+        for anchor in confirmed
+    ]
+    pool.join()
+
+    by_anchor: dict[int, _TocRegionResult] = {}
+    for job in jobs:
+        try:
+            result = job.get()
+        except Exception as exc:
+            logger.warning("[extract.toc] region greenlet failed: {}", exc)
+            continue
+        by_anchor[result.anchor_page] = result
+
+    # Preserve document page order when merging regions.
+    ordered: list[_TocRegionResult] = []
+    for anchor in confirmed:
+        result = by_anchor.get(anchor.page)
+        if result is None:
+            ordered.append(
+                _TocRegionResult(
+                    anchor_page=anchor.page,
+                    error="region greenlet failed",
+                )
+            )
+        else:
+            ordered.append(result)
+    return ordered
 
 
 # -- Main tool -----------------------------------------------------------------
@@ -261,7 +623,7 @@ def extract_toc_with_boundaries(
     )
     os.makedirs(output_dir, exist_ok=True)
 
-    # -- Phase 1: VLM confirm anchors -----------------------------------------
+    # -- Phase 1: VLM confirm anchors (batched + concurrent) -------------------
     confirmed, confirm_failed, confirm_evidence = _vlm_confirm_anchors(
         anchors, model, budget=ctx.budget
     )
@@ -305,14 +667,14 @@ def extract_toc_with_boundaries(
             debug=debug_info,
         )
 
-    # -- Phase 2+3 (unified): batch classify + extract ---------------------------
-    # Instead of separate boundary detection (Phase 2) then per-page extraction
-    # (Phase 3), we send batches of BOUNDARY_STEP_PAGES images to VLM in one
-    # call.  The VLM classifies each page (TOC vs non-TOC) AND extracts entries
-    # from TOC pages simultaneously.  If the last page in a batch is still TOC,
-    # we expand the window and use prior entries as continuation context.
-    from app.services.document_agent.tools.vlm_toc_extractor import (
-        vlm_extract_toc_batch,
+    # -- Phase 2: per-confirmed-start expand + extract (concurrent across starts)
+    region_results = _extract_regions_for_confirmed_anchors(
+        confirmed,
+        pdf_path=ctx.pdf_path,
+        page_count=page_count,
+        output_dir=output_dir,
+        dpi=dpi,
+        model=model,
     )
 
     all_entries: list[dict[str, Any]] = []
@@ -321,98 +683,27 @@ def extract_toc_with_boundaries(
     batch_meta: list[dict[str, Any]] = []
     batch_trace: list[dict[str, Any]] = []
 
-    for anchor in confirmed:
-        anchor_page = anchor.page
-        region_entries: list[dict[str, Any]] = []
-        region_toc_pages: list[int] = []
-        region_scan_end = anchor_page
-
-        for round_idx in range(MAX_BOUNDARY_ROUNDS):
-            batch_start = anchor_page + round_idx * BOUNDARY_STEP_PAGES
-            batch_end = min(
-                batch_start + BOUNDARY_STEP_PAGES - 1, page_count
+    for region in region_results:
+        if region.error:
+            warnings.append(
+                f"toc_region_failed:anchor={region.anchor_page}:{region.error}"
             )
-            if batch_start > page_count:
-                break
-
-            batch_pages = list(range(batch_start, batch_end + 1))
-            logger.info(
-                "[extract.toc] batch round {}: pages {}-{} for anchor {}",
-                round_idx, batch_start, batch_end, anchor_page,
+            logger.warning(
+                "[extract.toc] anchor {} region failed: {}",
+                region.anchor_page,
+                region.error,
             )
-
-            # Render all pages in this batch
-            page_pngs: list[tuple[int, str]] = []
-            for page_num in batch_pages:
-                png_path = os.path.join(output_dir, f"toc_page_{page_num}.png")
-                run_in_child_process(
-                    _render_single_page_worker,
-                    ctx.pdf_path,
-                    page_num,
-                    png_path,
-                    dpi,
-                    timeout=60,
-                )
-                page_pngs.append((page_num, png_path))
-
-            # Send batch to VLM — classify + extract in one call
-            batch_result = vlm_extract_toc_batch(
-                page_pngs=page_pngs,
-                model=model,
-                previous_entries=region_entries if region_entries else None,
-            )
-            batch_meta.append(batch_result.meta)
-
-            # Collect results
-            region_entries.extend(batch_result.all_entries)
-            region_toc_pages.extend(batch_result.toc_pages)
-            region_scan_end = batch_end
-
-            batch_trace.append({
-                "anchor": anchor_page,
-                "round": round_idx,
-                "batch_pages": batch_pages,
-                "toc_pages": batch_result.toc_pages,
-                "non_toc_pages": batch_result.non_toc_pages,
-                "entries_found": len(batch_result.all_entries),
-            })
-
-            # Determine if we need to continue expanding
-            # If the last page in the batch is NOT TOC, boundary found
-            last_page_is_toc = (
-                batch_result.page_results
-                and batch_result.page_results[-1].is_toc
-            )
-            if not last_page_is_toc:
-                logger.info(
-                    "[extract.toc] boundary found: last page {} is not TOC",
-                    batch_end,
-                )
-                break
-
-            # Last page is still TOC — continue expanding
-            if batch_end >= page_count:
-                break
-            logger.info(
-                "[extract.toc] last page {} still TOC, expanding window",
-                batch_end,
-            )
-
-        all_entries.extend(region_entries)
-        all_toc_pages.extend(region_toc_pages)
-
-        if region_entries:
-            region_hierarchies = vlm_entries_to_toc_hierarchies(
-                region_entries,
-                toc_page_nums=region_toc_pages,
-                scan_end_page=region_scan_end,
-                page_count=page_count,
-            )
-            toc_hierarchies.extend(region_hierarchies)
-        else:
+            continue
+        all_entries.extend(region.entries)
+        all_toc_pages.extend(region.toc_pages)
+        batch_meta.extend(region.batch_meta)
+        batch_trace.extend(region.batch_trace)
+        if region.hierarchies:
+            toc_hierarchies.extend(region.hierarchies)
+        elif not region.entries:
             logger.warning(
                 "[extract.toc] anchor {} produced no TOC entries",
-                anchor_page,
+                region.anchor_page,
             )
 
     if not all_entries:

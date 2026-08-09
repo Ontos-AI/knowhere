@@ -58,7 +58,6 @@ def _page_feature(page: int = 1) -> PageFeature:
         height=72.0,
         has_asset=False,
         is_blank_like=False,
-        asset_bboxes=None,
     )
 
 
@@ -158,6 +157,7 @@ def test_run_lightweight_anatomy_builds_single_shard_without_planner_llm(
     )
     assert list(anatomy_data)[:2] == ["version", "toc_hierarchies"]
     assert "text_lines_preview" not in anatomy_data["page_features"][0]
+    assert "asset_bboxes" not in anatomy_data["page_features"][0]
     trace_data = json.loads((output_dir / "trace.json").read_text(encoding="utf-8"))
     assert "visual_stages" in trace_data["summary"]["budget"]
 
