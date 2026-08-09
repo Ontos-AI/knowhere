@@ -533,6 +533,22 @@ def _upload_page_citation_asset(*, job_id: str, artifact_ref: str) -> None:
         asset_path.unlink(missing_ok=True)
 
 
+def _upload_chunk_asset(*, job_id: str, artifact_ref: str) -> None:
+    from shared.services.storage.result_storage import JobResultStorage
+
+    suffix = Path(artifact_ref).suffix or ".bin"
+    asset_path = Path("/tmp") / f"knowhere-contract-chunk-asset-{uuid4().hex}{suffix}"
+    asset_path.write_bytes(b"<table><tr><td>contract chunk asset</td></tr></table>")
+    try:
+        JobResultStorage().upload_raw_file(
+            job_id=job_id,
+            relative_path=artifact_ref,
+            local_file_path=str(asset_path),
+        )
+    finally:
+        asset_path.unlink(missing_ok=True)
+
+
 @pytest.mark.asyncio
 async def test_should_list_only_the_authenticated_users_documents_for_the_effective_namespace(
     developer_api_client_factory: Callable[
@@ -992,6 +1008,10 @@ async def test_should_include_media_asset_urls_in_document_chunk_list_when_reque
                 },
             ],
         )
+        _upload_chunk_asset(
+            job_id=revision["job_id"],
+            artifact_ref="tables/table-1.html",
+        )
         response = await api_client.get(
             f"/api/v1/documents/{document_id}/chunks",
             params={
@@ -1166,6 +1186,10 @@ async def test_should_return_one_document_chunk_by_document_chunk_id(
                     "metadata": {"summary": "Figure", "page_nums": []},
                 }
             ],
+        )
+        _upload_chunk_asset(
+            job_id=revision["job_id"],
+            artifact_ref="images/figure-1.png",
         )
         response = await api_client.get(
             f"/api/v1/documents/{document_id}/chunks/{chunk_id}",

@@ -47,6 +47,15 @@ def _document_chunk_asset_url(
         return None
 
     try:
+        if not result_storage.verify_raw_exists(
+            job_id=job_id,
+            relative_path=file_path,
+        ):
+            logger.warning(
+                f"Skipping asset URL for missing chunk artifact: "
+                f"job_id={job_id}, file_path={file_path}"
+            )
+            return None
         return result_storage.generate_artifact_url(
             job_id=job_id,
             artifact_ref=file_path,

@@ -555,6 +555,9 @@ async def test_agentic_retrieval_should_not_send_table_artifacts_to_vlm(
                 return None
             return normalized
 
+        def verify_raw_exists(self, *, job_id: str, relative_path: str) -> bool:
+            return True
+
     def fake_get_result_storage() -> FakeResultStorage:
         return FakeResultStorage()
 
