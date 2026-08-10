@@ -6,16 +6,31 @@ ranked rows. Channels are fused via RRF in the orchestrator.
 """
 from __future__ import annotations
 
+import time
 from typing import Any
 
+from loguru import logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.core.config import settings
 from shared.services.retrieval.search.lexical_ranker import (
     rank_rows_by_bm25,
     tokenize_query_for_ranker,
 )
 from shared.services.retrieval.search.section_filters import is_excluded_section
+
+# The generated tsvector columns are built with to_tsvector('simple', ...), so
+# queries must use the same configuration or nothing matches.
+_FTS_CONFIG = "simple"
+
+# Guards against pathological queries producing an enormous tsquery.
+_MAX_FTS_QUERY_TOKENS = 50
+
+_TSV_FIELD_BY_SEARCH_FIELD = {
+    "content_search_text": "content_search_tsv",
+    "path_search_text": "path_search_tsv",
+}
 
 
 _SCOPED_CORPUS_CTE = """
@@ -118,6 +133,23 @@ def _build_extra_filters(
             clauses.append(f'AND NOT ({combined})')
 
     return '\n        '.join(clauses), params
+
+
+def _prepare_fts_tokens(tokens: list[str]) -> list[str]:
+    """Return the ranker tokens to hand to the Postgres FTS prefilter.
+
+    Tokens are passed to SQL as a text[] parameter and lexed by Postgres
+    itself, so nothing here needs to escape tsquery syntax. Only emptiness and
+    an upper bound are enforced.
+    """
+    prepared: list[str] = []
+    for token in tokens:
+        cleaned = token.strip()
+        if cleaned:
+            prepared.append(cleaned)
+        if len(prepared) >= _MAX_FTS_QUERY_TOKENS:
+            break
+    return prepared
 
 
 def _row_to_dict(row: Any) -> dict[str, Any]:
@@ -236,18 +268,77 @@ async def _bm25_channel(
     )
     params.update(extra_params)
 
-    sql = _SCOPED_CORPUS_CTE.format(exclude_clause=exclude_clause, extra_filters=extra_sql) + f"""
+    corpus_cte = _SCOPED_CORPUS_CTE.format(
+        exclude_clause=exclude_clause,
+        extra_filters=extra_sql,
+    )
+    full_scan_sql = corpus_cte + f"""
     SELECT sc.*
     FROM scoped_chunks sc
     WHERE COALESCE(sc.{search_field}, '') <> ''
     """
 
-    result = await db.execute(text(sql), params)
-    rows = [_row_to_dict(r) for r in result.all()]
+    started_at = time.perf_counter()
+    tsv_field = _TSV_FIELD_BY_SEARCH_FIELD[search_field]
+    fts_tokens = _prepare_fts_tokens(query_tokens)
+    candidate_limit = int(settings.RETRIEVAL_POSTGRES_FTS_CANDIDATE_LIMIT)
+
+    rows: list[dict[str, Any]] = []
+    used_fallback = True
+    if fts_tokens:
+        # Postgres lexes the tokens with the same configuration that generated
+        # the tsvector columns, then ORs the resulting lexemes. Building the
+        # tsquery server-side keeps the prefilter aligned with the stored
+        # lexicon and leaves no room for tsquery syntax in user input to
+        # change the query shape. `fts_query.q` is NULL when no token yields a
+        # lexeme, which the caller treats as "no usable prefilter".
+        prefilter_sql = corpus_cte + f""",
+    fts_query AS (
+        SELECT string_agg(quote_literal(lexeme), ' | ')::tsquery AS q
+        FROM (
+            SELECT DISTINCT
+                unnest(tsvector_to_array(to_tsvector('{_FTS_CONFIG}', token))) AS lexeme
+            FROM unnest(CAST(:fts_tokens AS text[])) AS token
+        ) lexemes
+    )
+    SELECT sc.*
+    FROM scoped_chunks sc, fts_query fq
+    WHERE COALESCE(sc.{search_field}, '') <> ''
+        AND fq.q IS NOT NULL
+        AND sc.{tsv_field} @@ fq.q
+    ORDER BY ts_rank_cd(sc.{tsv_field}, fq.q) DESC
+    LIMIT :fts_candidate_limit
+    """
+        prefilter_params = dict(params)
+        prefilter_params["fts_tokens"] = fts_tokens
+        prefilter_params["fts_candidate_limit"] = candidate_limit
+        result = await db.execute(text(prefilter_sql), prefilter_params)
+        rows = [_row_to_dict(r) for r in result.all()]
+        used_fallback = not rows
+
+    # No usable tsquery, or the prefilter matched nothing. Fall back to the
+    # full scoped scan so recall never regresses against the previous
+    # behaviour.
+    if used_fallback:
+        result = await db.execute(text(full_scan_sql), params)
+        rows = [_row_to_dict(r) for r in result.all()]
+
+    candidate_count = len(rows)
     rows = _filter_excluded_sections(rows, exclude_sections)
 
     ranked_rows = rank_rows_by_bm25(rows, query_tokens, search_field=search_field)
-    return ranked_rows[:top_k]
+    ranked_rows = ranked_rows[:top_k]
+
+    logger.debug(
+        "bm25_channel field={} candidates={} limit={} ranked={} fallback={} duration_ms={:.1f}",
+        search_field,
+        candidate_count,
+        candidate_limit,
+        len(ranked_rows),
+        used_fallback,
+        (time.perf_counter() - started_at) * 1000,
+    )
+    return ranked_rows
 
 
 async def term_channel(

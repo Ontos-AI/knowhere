@@ -19,6 +19,7 @@ from .job import JobConfig
 from .mineru import MineruConfig
 from .qstash import QStashConfig
 from .redis import RedisConfig, RedisConfigManager, RedisPoolManager
+from .retrieval import RetrievalConfig
 from .storage import StorageConfig
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     "RedisPoolManager",
     "CeleryConfig",
     "QStashConfig",
+    "RetrievalConfig",
     "StorageConfig",
     "JobConfig",
     "AIConfig",
