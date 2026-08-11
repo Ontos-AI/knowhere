@@ -47,6 +47,7 @@ exclude = [
     "packages/shared-python/build",
     "packages/shared-python/dist",
     "packages/shared-python/shared/tests",
+    "packages/shared-python/shared/services/retrieval/nav",
 ]
 executionEnvironments = [
     { root = "apps/api", extraPaths = ["packages/shared-python"] },

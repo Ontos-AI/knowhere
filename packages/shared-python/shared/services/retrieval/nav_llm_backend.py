@@ -7,7 +7,7 @@ Model defaults for empty ``model=`` come from ``nav_config.MAPNAV_MODEL``.
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, cast
 
 from shared.services.retrieval.nav.nav_llm import set_nav_chat_backend
 from shared.services.retrieval.nav_config import MAPNAV_MODEL
@@ -50,7 +50,7 @@ def nav_chat_sync_backend(
         timeout_arg = max(1, int(math.ceil(float(timeout))))
 
     text, usage = client.chat_completion_with_usage(
-        list(messages),
+        cast(List[Any], list(messages)),
         model=effective_model or requested,
         temperature=float(temperature if temperature is not None else 0.0),
         max_tokens=int(max_tokens) if max_tokens is not None else 2048,

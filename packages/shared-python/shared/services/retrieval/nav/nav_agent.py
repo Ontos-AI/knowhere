@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import time
 import os
-import re
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 from ._compat import AgentStep, EpisodeResult
 from ._compat import compose_answer_llm

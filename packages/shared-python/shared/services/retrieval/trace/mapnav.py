@@ -85,7 +85,8 @@ def _map_one(
         scope = str(scope)
 
     if action == "query_plan":
-        plan = detail.get("plan") if isinstance(detail.get("plan"), dict) else {}
+        raw_plan = detail.get("plan")
+        plan_payload = raw_plan if isinstance(raw_plan, dict) else {}
         return DecisionTraceStep(
             step_index=step_index,
             agent="planner",
@@ -96,19 +97,21 @@ def _map_one(
                 "projection_chars": detail.get("projection_chars"),
                 "hit_section_ids": detail.get("hit_section_ids") or [],
                 "planning_map_char_limit": detail.get("planning_map_char_limit"),
-                "llm_raw": _clip_raw(plan.get("raw") or detail.get("llm_raw") or detail.get("raw")),
+                "llm_raw": _clip_raw(
+                    plan_payload.get("raw") or detail.get("llm_raw") or detail.get("raw")
+                ),
             },
             decision={
                 "action": "plan_query",
-                "reason": detail.get("reason") or plan.get("reason") or "",
+                "reason": detail.get("reason") or plan_payload.get("reason") or "",
             },
             result={
                 "status": "fallback" if detail.get("fallback") else "ok",
-                "subgoals": plan.get("subgoals") or [],
-                "coverage_checklist": plan.get("coverage_checklist") or [],
-                "map_coverage": plan.get("map_coverage"),
+                "subgoals": plan_payload.get("subgoals") or [],
+                "coverage_checklist": plan_payload.get("coverage_checklist") or [],
+                "map_coverage": plan_payload.get("map_coverage"),
                 "n_subgoals": detail.get("n_subgoals"),
-                "reason": detail.get("reason") or plan.get("reason") or "",
+                "reason": detail.get("reason") or plan_payload.get("reason") or "",
             },
             budget=budget,
             elapsed_ms=elapsed,
@@ -291,7 +294,8 @@ def _map_one(
         )
 
     if action == "replan":
-        plan = detail.get("plan") if isinstance(detail.get("plan"), dict) else {}
+        raw_plan = detail.get("plan")
+        plan_payload = raw_plan if isinstance(raw_plan, dict) else {}
         return DecisionTraceStep(
             step_index=step_index,
             agent="controller",
@@ -305,7 +309,7 @@ def _map_one(
             },
             result={
                 "status": "ok",
-                "plan": plan or detail.get("plan"),
+                "plan": plan_payload or detail.get("plan"),
                 "n_subgoals": detail.get("n_subgoals"),
             },
             budget=budget,

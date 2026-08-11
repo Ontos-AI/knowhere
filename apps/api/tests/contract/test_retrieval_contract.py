@@ -6,7 +6,6 @@ from uuid import uuid4
 import pytest
 from httpx import AsyncClient
 from pytest import MonkeyPatch
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.contract_database import ContractDatabase
 
