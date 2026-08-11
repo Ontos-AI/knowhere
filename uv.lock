@@ -1493,6 +1493,7 @@ dependencies = [
     { name = "kombu" },
     { name = "loguru" },
     { name = "openai" },
+    { name = "opencc-python-reimplemented" },
     { name = "pgvector" },
     { name = "pillow" },
     { name = "posthog" },
@@ -1539,6 +1540,7 @@ requires-dist = [
     { name = "kombu", specifier = "==5.4.0" },
     { name = "loguru", specifier = "==0.7.3" },
     { name = "openai", specifier = ">=1.0.0" },
+    { name = "opencc-python-reimplemented", specifier = ">=0.1.7" },
     { name = "pgvector", specifier = "==0.2.4" },
     { name = "pillow", specifier = "==12.2.0" },
     { name = "posthog", specifier = "==7.18.1" },
@@ -1580,8 +1582,8 @@ dependencies = [
     { name = "knowhere-shared" },
     { name = "logfire", extra = ["celery", "fastapi", "httpx", "sqlalchemy"] },
     { name = "lxml" },
-    { name = "markitdown" },
     { name = "markdownify" },
+    { name = "markitdown" },
     { name = "numpy" },
     { name = "openai" },
     { name = "openpyxl" },
@@ -1618,8 +1620,8 @@ requires-dist = [
     { name = "knowhere-shared", editable = "packages/shared-python" },
     { name = "logfire", extras = ["celery", "fastapi", "httpx", "sqlalchemy"], specifier = ">=4.25.0" },
     { name = "lxml", specifier = "==6.1.0" },
-    { name = "markitdown", specifier = "==0.1.2" },
     { name = "markdownify", specifier = "==1.2.2" },
+    { name = "markitdown", specifier = "==0.1.2" },
     { name = "numpy", specifier = "==2.2.6" },
     { name = "openai", specifier = "==1.93.3" },
     { name = "openpyxl", specifier = "==3.1.2" },
@@ -2332,6 +2334,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e0/66/fadc0cad6a229c6a85c3aa5f222a786ec4d9bf14c2a004f80ffa21dbaf21/openai-1.93.3.tar.gz", hash = "sha256:488b76399238c694af7e4e30c58170ea55e6f65038ab27dbe95b5077a00f8af8", size = 487595, upload-time = "2025-07-09T14:08:27.789Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8b/b9/0df6351b25c6bd494c534d2a8191dc9460fb5bb09c88b1427775d49fde05/openai-1.93.3-py3-none-any.whl", hash = "sha256:41aaa7594c7d141b46eed0a58dcd75d20edcc809fdd2c931ecbb4957dc98a892", size = 755132, upload-time = "2025-07-09T14:08:25.533Z" },
+]
+
+[[package]]
+name = "opencc-python-reimplemented"
+version = "0.1.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/6d/c6f37eed651dd6b752e50f80a93396cdaa42a6acc6ce05ad7452303ea511/opencc-python-reimplemented-0.1.7.tar.gz", hash = "sha256:4f777ea3461a25257a7b876112cfa90bb6acabc6dfb843bf4d11266e43579dee", size = 482566, upload-time = "2023-02-11T03:58:42.25Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/30/6b/055b7806f320cc8f2cdf23c5f70221c0dc1683fca9ffaf76dfc2ad4b91b6/opencc_python_reimplemented-0.1.7-py2.py3-none-any.whl", hash = "sha256:41b3b92943c7bed291f448e9c7fad4b577c8c2eae30fcfe5a74edf8818493aa6", size = 481813, upload-time = "2023-02-11T03:58:39.66Z" },
 ]
 
 [[package]]
