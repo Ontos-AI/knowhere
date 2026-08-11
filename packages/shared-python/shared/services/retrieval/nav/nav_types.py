@@ -15,9 +15,14 @@ class ActionKind(str, Enum):
 
 
 def map_mode_enabled(config: "NavConfig | None" = None) -> bool:
-    """True when map-first observation/actions are active."""
-    if config is not None and bool(getattr(config, "map_mode", False)):
-        return True
+    """True when map-first observation/actions are active.
+
+    When ``config`` is provided it is authoritative (Knowhere production binds
+    ``map_mode`` on ``NavConfig``). Env ``NAV_MAP_MODE`` is only for EXP scripts
+    that call without a config.
+    """
+    if config is not None:
+        return bool(getattr(config, "map_mode", False))
     return os.environ.get("NAV_MAP_MODE", "0").strip().lower() not in {
         "0",
         "false",
@@ -158,8 +163,6 @@ class NavConfig:
         flat["mode"] = "checklist" if raw_mode == "checklist" else "navigate"
         allowed = {f.name for f in cls.__dataclass_fields__.values()}
         cfg = cls(**{k: v for k, v in flat.items() if k in allowed})
-        if map_mode_enabled(None) and not cfg.map_mode:
-            cfg.map_mode = True
         if cfg.map_mode and cfg.llm_max_tokens < 256:
             cfg.llm_max_tokens = 256
         return cfg

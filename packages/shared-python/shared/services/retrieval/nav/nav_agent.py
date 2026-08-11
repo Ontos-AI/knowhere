@@ -32,7 +32,6 @@ from .nav_types import (
     LegalAction,
     NavConfig,
     NavState,
-    map_mode_enabled,
 )
 
 # Back-compat aliases for tests / callers.
@@ -362,10 +361,8 @@ def _run_nav_episode_body(
     load_llm_env()
     require_llm_env(context="Nav Agent")
     cfg = config or NavConfig(policy="llm")
-    if map_mode_enabled(None):
-        cfg.map_mode = True
-        if cfg.llm_max_tokens < 256:
-            cfg.llm_max_tokens = 256
+    if cfg.map_mode and cfg.llm_max_tokens < 256:
+        cfg.llm_max_tokens = 256
     nav_policy = (policy or cfg.policy or "llm").strip().lower()
     if nav_policy != "llm":
         raise ValueError(

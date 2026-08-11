@@ -157,7 +157,7 @@ def create_retrieval_mcp_server(
                 top_k=top_k,
                 exclude_document_ids=exclude_document_ids,
                 exclude_sections=[item for item in exclude_sections],
-                use_agentic=True,
+                use_agentic=None,
             )
             return to_mcp_query_response(response)
 

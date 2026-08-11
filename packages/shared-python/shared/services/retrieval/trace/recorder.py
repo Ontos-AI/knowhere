@@ -105,34 +105,6 @@ class TraceRecorder:
                     f"{self._run_id}: {rollback_error}"
                 )
 
-    def record_step(
-        self,
-        action_type: str,
-        result: Any,
-        *,
-        decision_reason: str = "",
-    ) -> None:
-        """Buffer a legacy ToolResult-shaped step. Prefer record_decision_trace_step."""
-        payload = getattr(result, "payload", None) or {}
-        self._steps.append(
-            {
-                "step_index": len(self._steps),
-                "action_type": action_type,
-                "action_input": (
-                    {"decision_reason": decision_reason} if decision_reason else {}
-                ),
-                "observation_status": getattr(result, "status", "unknown"),
-                "observation_payload_keys": list(payload.keys()) if payload else [],
-                "latency_ms": int(getattr(result, "latency_ms", 0) or 0),
-                "error": getattr(result, "error", None),
-                "tokens_used": int(getattr(result, "tokens_used", 0) or 0),
-                "selected_paths": None,
-                "selected_doc_ids": None,
-                "model_name": None,
-                "created_at": _now_utc(),
-            }
-        )
-
     def record_decision_trace_step(self, step: DecisionTraceStep) -> None:
         """Buffer a DB trace row derived from the public decision trace step."""
         result_status = str(step.result.get("status") or "unknown")

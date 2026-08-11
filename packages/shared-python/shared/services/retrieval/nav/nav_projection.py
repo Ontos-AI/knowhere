@@ -8,10 +8,38 @@ from typing import Any, Dict, List, Optional, Set
 from .nav_types import NavConfig, Projection, SectionView, map_mode_enabled
 
 try:
-    from section_summary_store import get_summary
+    from section_summary_store import get_summary as _store_get_summary
 except Exception:  # pragma: no cover
-    def get_summary(section_id: str, *, doc_id: str = "") -> Optional[str]:  # type: ignore
+    def _store_get_summary(section_id: str, *, doc_id: str = "") -> Optional[str]:  # type: ignore
         return None
+
+
+def _section_summary_for_map(
+    ts: Any,
+    section_id: str,
+    *,
+    doc_id: str = "",
+) -> str:
+    """Inline map summary: store first, then provider structure (KH production)."""
+    sid = str(section_id or "").strip()
+    if not sid:
+        return ""
+    try:
+        text = str(_store_get_summary(sid, doc_id=str(doc_id or "")) or "").strip()
+        if text:
+            return text
+    except Exception:
+        pass
+    if ts is None:
+        return ""
+    try:
+        st = ts.get_structure(sid) or {}
+        text = str(st.get("summary") or "").strip()
+        if text:
+            return text
+        return str(st.get("preview") or "").strip()
+    except Exception:
+        return ""
 
 
 def _tokens(text: str) -> set[str]:
@@ -437,8 +465,11 @@ def _render_map(
         summary = ""
         if inline_summary:
             summary = _clip_summary(
-                get_summary(node.section_id, doc_id=_summary_doc_for(node.section_id))
-                or ""
+                _section_summary_for_map(
+                    ts,
+                    node.section_id,
+                    doc_id=_summary_doc_for(node.section_id),
+                )
             )
             if summary:
                 lines.append(f"{indent}    summary: {summary}")

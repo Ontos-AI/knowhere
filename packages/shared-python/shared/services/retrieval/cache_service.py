@@ -45,7 +45,8 @@ def _cache_shape_digest(
     threshold: float = 0.0,
     internal_recall_k: int | None = None,
     use_agentic: bool | None = None,
-    decomposition_enabled: bool | None = None,
+    llm_text_model: str | None = None,
+    llm_vision_model: str | None = None,
 ) -> str:
     normalized_excludes = sorted(exclude_document_ids)
     normalized_sections = _normalize_exclude_sections(exclude_sections)
@@ -61,7 +62,8 @@ def _cache_shape_digest(
             str(threshold),
             str(internal_recall_k),
             str(use_agentic),
-            str(decomposition_enabled),
+            str(llm_text_model or ""),
+            str(llm_vision_model or ""),
         ]
     )
     payload = f"{query}|{top_k}|{'|'.join(normalized_excludes)}|{'|'.join(normalized_sections)}|{extra}"
