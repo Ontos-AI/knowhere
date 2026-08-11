@@ -9,7 +9,6 @@ from shared.models.schemas.retrieval_namespace import normalize_retrieval_namesp
 from shared.services.redis import RedisServiceFactory
 
 _RETRIEVAL_CACHE_TTL_SECONDS = 300
-_WORKFLOW_PLAN_CACHE_TTL_SECONDS = 600
 _VERSION_FALLBACK = 0
 
 
@@ -188,64 +187,3 @@ async def set_cached_retrieval_query_result(
         response,
         ex=_RETRIEVAL_CACHE_TTL_SECONDS,
     )
-
-
-async def _workflow_plan_cache_key(
-    *,
-    user_id: str,
-    namespace: str,
-    query: str,
-    top_k: int,
-    chunk_types: set[str] | None = None,
-    exclude_document_ids: list[str] | None = None,
-) -> str:
-    namespace = normalize_retrieval_namespace(namespace)
-    version = await get_retrieval_namespace_cache_version(
-        user_id=user_id, namespace=namespace
-    )
-    digest = _cache_shape_digest(
-        query=query,
-        top_k=top_k,
-        chunk_types=chunk_types,
-        exclude_document_ids=exclude_document_ids or [],
-        exclude_sections=[],
-    )
-    return f"retrieval:workflow:plan:{user_id}:{namespace}:v{version}:{digest}"
-
-
-async def get_cached_workflow_plan(
-    *,
-    user_id: str,
-    namespace: str,
-    query: str,
-    top_k: int,
-    chunk_types: set[str] | None = None,
-    exclude_document_ids: list[str] | None = None,
-) -> dict[str, Any] | None:
-    redis_service = RedisServiceFactory.get_service()
-    key = await _workflow_plan_cache_key(
-        user_id=user_id, namespace=namespace, query=query,
-        top_k=top_k, chunk_types=chunk_types,
-        exclude_document_ids=exclude_document_ids,
-    )
-    cached = await redis_service.get(key, default=None)
-    return cached if isinstance(cached, dict) else None
-
-
-async def set_cached_workflow_plan(
-    *,
-    user_id: str,
-    namespace: str,
-    query: str,
-    top_k: int,
-    chunk_types: set[str] | None = None,
-    exclude_document_ids: list[str] | None = None,
-    plan: dict[str, Any],
-) -> None:
-    redis_service = RedisServiceFactory.get_service()
-    key = await _workflow_plan_cache_key(
-        user_id=user_id, namespace=namespace, query=query,
-        top_k=top_k, chunk_types=chunk_types,
-        exclude_document_ids=exclude_document_ids,
-    )
-    await redis_service.set(key, plan, ex=_WORKFLOW_PLAN_CACHE_TTL_SECONDS)

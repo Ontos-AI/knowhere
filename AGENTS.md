@@ -102,13 +102,14 @@ flowchart TB
 
     subgraph RETRIEVE["⑤ Retrieval (shared)"]
         Query["GET /v1/retrieval/query"] --> Pipeline["run_retrieval_query"]
-        Pipeline --> Channels["3-Channel BM25 (path/content/term)"]
-        Pipeline --> Agentic["WorkflowOrchestrator (Planner + DAG)"]
-        Channels --> RRF["RRF Fusion"]
-        Agentic --> Hydrate["hydrate_paths_to_rows"]
-        RRF --> Rank["_rank_candidates_by_path"]
-        Hydrate --> Rank
+        Pipeline --> Classic["classic_topk / small_corpus (use_agentic=False)"]
+        Pipeline --> MapNav["mapnav checklist (default / use_agentic≠False)"]
+        Classic --> Channels["3-Channel BM25 (path/content/term)"]
+        Channels --> Rank["rank_retrieval_candidates"]
+        MapNav --> NavSnap["nav_snapshot + run_nav_episode"]
+        NavSnap --> Bridge["nav_bridge referenced_chunks"]
         Rank --> Assemble["assemble_retrieval_results"]
+        Bridge --> Assemble
         Assemble --> Results["Cited Evidence Results"]
     end
 ```
@@ -544,22 +545,19 @@ debug CSVs (`preds_*.csv`) are saved alongside for troubleshooting.
 
 Core retrieval internals are grouped by ownership:
 
-- `execution/`: request shaping, route selection, legacy route execution, and public response projection.
-- `search/`: lexical channels, scoring, section filters, and candidate ranking.
+- `execution/`: request shaping, route selection (classic / mapnav / small_corpus), and public response projection.
+- `search/`: lexical channels, scoring, section filters, candidate ranking, and classic `bottom_discovery`.
 - `hydration/`: row/path/reference hydration, inline assets, and result assembly.
+- `nav/` + `nav_*.py`: map-nav checklist episode (PLANNER / HARVEST / CONTROL).
+- `trace/`: `DecisionTraceStep` mapping and `TraceRecorder`.
 - `graph/`: document graph publication/query support.
 - `stats/`: retrieval hit recording.
-- `workflow/`: query planning, retrieve step execution, and wallet state.
-- `agentic/core/`: agentic run types, token budgets, runtime config, and traces.
-- `agentic/discovery/`: bottom discovery and document selection.
-- `agentic/navigation/`: section-tree navigation, selection hydration, and asset tools.
-- `agentic/evidence/`: evidence tree rendering and budget trimming.
 
 ### Two Retrieval Modes
 
-The system supports two modes, controlled globally by `RETRIEVAL_AGENTIC_ENABLED` and locally via the per-request `use_agentic` toggle.
+Per-request `use_agentic`: `False` → classic 3-channel top-K; `None`/`True` → map-nav (default).
 
-#### Legacy Mode (3-Channel RRF)
+#### Classic Mode (3-Channel RRF)
 
 ```mermaid
 flowchart LR
@@ -569,40 +567,16 @@ flowchart LR
     P --> RRF["RRF Fusion (k=60)"]
     C --> RRF
     T --> RRF
-    RRF --> Graph[Legacy Graph Routing]
-    Graph --> Rank[Dual-priority ranking]
+    RRF --> Rank[rank_retrieval_candidates]
     Rank --> Assemble[hydration.result_assembly]
 ```
 
 **Channel weights** (default): path=1.0, content=2.0, term=1.5
 **RRF formula**: `score = weight / (k + rank + 1)` per channel, summed across channels.
 
-#### Agentic Mode (Workflow Orchestrator)
+#### Map-nav Mode (default)
 
-The agentic pipeline uses `WorkflowOrchestrator` to handle complex queries via a DAG-based planning and budget-constrained execution engine:
-
-1. **Planning (`PlannerAgent`)**: The query is analyzed and decomposed into a DAG of retrieval steps.
-   - Simple queries generate a single `retrieve` step.
-   - Complex queries are broken into multiple `retrieve` steps. KNOWHERE does not plan answer synthesis steps.
-2. **Budget Ledger (`BudgetLedger`)**: A strict token budget mechanism is enforced across the entire DAG execution. If the budget is exhausted, the pipeline halts safely and returns the best-effort evidence collected so far.
-3. **Execution (`RetrievalAgent`)**: For each `retrieve` step, a multi-phase navigation engine runs:
-   - **Phase 1 (Discovery)**: 3-channel RRF keyword search and KG document selection.
-   - **Phase 2 (Navigation)**: Constrained Breadth-First Search (BFS) over the document's section tree. Discovered orphan leaves are merged into the tree to prevent data loss.
-   - **Phase 3 (Evidence Rendering)**: The hydrated document tree is rendered as `evidence_text`.
-4. **Evidence-Only Contract**: Retrieval responses always expose `evidence_text` as the primary output. `answer_text` is retained only as a deprecated empty string. Downstream agents decide whether the evidence is sufficient and synthesize answers outside KNOWHERE.
-
-### Tree Rendering & Hydration
-
-Unlike legacy retrieval which relied on static `hydrate_mode` tags, hydration is now determined dynamically by the `DocTreeNode` structure:
-- **Structural Context (Outlines)**: Sections not drilled into are simply rendered as structural outlines (`title` + `summary`) to guide the LLM.
-- **Leaf Content (Hydration)**: Sections that the LLM explicitly selects for drill-down have their raw chunks (`text`, `image`, `table`) fully hydrated into the `leaf_content` of the tree.
-- **Multi-Modal Inline Embedding**: During hydration, connected inline assets (images/tables) are natively resolved and embedded directly into the text chunk content, supporting multi-modal LLM processing without brittle string-replacement placeholders.
-
-**`_rank_candidates_by_path()`** — Dual-priority ranking:
-
-- When agent results exist: agent_score is primary, discovery_score is tiebreaker
-- Rows with agent_score=0 are demoted to fallback pool
-- Sort key: `(agent_score, discovery_score, dual_hit_flag, importance_norm_score)`
+Default agentic path is checklist map-nav (`nav/`): PLANNER (`plan_query`) → HARVEST (`execute_plan` / `harvest`, recursive DISPATCH) → CONTROL (`plan_control`). Episode config lives in `nav_config.py`. Exit bridge expands kept chunks to `referenced_chunks`; `decision_trace` is mapped in `trace/mapnav.py`. Token hard-stop uses `NavConfig.token_limit`.
 
 ### Result Assembly
 

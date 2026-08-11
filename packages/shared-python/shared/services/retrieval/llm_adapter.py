@@ -1,13 +1,11 @@
-"""Async LLM adapter for agent-driven retrieval navigation.
+"""Async LLM helpers retained for non-mapnav call sites.
 
-Wraps the existing sync OpenAICompatibleClientSync via asyncio.to_thread()
-to provide an async callable suitable for the agent navigation pipeline.
+Map-nav uses ``nav_llm_backend`` + ``OpenAICompatibleClientSync`` instead.
 """
 from __future__ import annotations
 
 import asyncio
 import math
-import os
 from contextvars import ContextVar
 from typing import Any, Callable, Coroutine, Union, Sequence, cast
 
@@ -64,26 +62,6 @@ def _resolve_default_model() -> str:
     return getattr(settings, 'NORMOL_MODEL', None) or 'deepseek-v4-flash'
 
 
-def _resolve_planner_model(*, thinking: bool) -> str:
-    overrides = get_current_llm_overrides()
-    if overrides is not None:
-        provider = overrides.text_effective()
-        if provider is not None:
-            return provider.model
-    configured = getattr(settings, 'RETRIEVAL_PLANNER_MODEL', '') or ''
-    if configured:
-        return configured
-    if getattr(settings, 'DS_KEY', ''):
-        return 'deepseek-reasoner' if thinking else 'deepseek-v4-flash'
-    if getattr(settings, 'ALI_API_KEYS', ''):
-        return 'qwq-32b-preview' if thinking else 'qwen-plus'
-    if getattr(settings, 'GLM_API_KEY', ''):
-        return 'glm-4-plus' if thinking else 'glm-4-flash'
-    if getattr(settings, 'GPT_API_KEY', ''):
-        return 'o3-mini' if thinking else 'gpt-4o-mini'
-    return getattr(settings, 'NORMOL_MODEL', None) or 'deepseek-v4-flash'
-
-
 def _resolve_vlm_model(model: str | None = None) -> str:
     overrides = get_current_llm_overrides()
     if overrides is not None:
@@ -112,37 +90,16 @@ def create_retrieval_llm_fn(
     model: str | None = None,
     temperature: float = _RETRIEVAL_LLM_TEMPERATURE,
     max_tokens: int = _RETRIEVAL_LLM_MAX_TOKENS,
-    thinking: bool | None = None,
-    reasoning_effort: str = 'low',
 ) -> LLMFn | None:
-    """Create an async LLM callable for retrieval agent navigation.
+    """Create an async LLM callable (legacy helper; map-nav uses nav_llm_backend).
 
-    Returns None when no LLM provider is configured, signalling the caller
-    to fall back to lexical graph routing.
-
-    When *thinking* is True, DeepSeek V4 Flash reasoning mode is enabled.
-    The model thinks internally but we only return ``message.content``
-    (the final answer), not ``reasoning_content``.
+    Returns None when no LLM provider is configured.
     """
     if not _has_llm_credentials():
-        logger.debug('retrieval: no LLM credentials configured, agent navigation disabled')
+        logger.debug('retrieval: no LLM credentials configured')
         return None
-
-    # Allow env-var override for easy experimentation
-    if thinking is None:
-        thinking = os.environ.get('RETRIEVAL_LLM_THINKING', '').lower() in ('1', 'true', 'yes')
 
     effective_model = model or _resolve_default_model()
-    # DeepSeek thinking mode requires temperature=0
-    effective_temperature = 0.0 if thinking else temperature
-    effective_max_tokens = max(max_tokens, 8192) if thinking else max_tokens
-
-    if thinking:
-        logger.info(
-            'retrieval: LLM thinking mode ENABLED, model={}, reasoning_effort={}',
-            effective_model,
-            reasoning_effort,
-        )
 
     async def llm_fn(prompt: LLMFnInput) -> str:
         client, resolved_model = _build_client_for_channel(
@@ -151,56 +108,12 @@ def create_retrieval_llm_fn(
         )
         current_llm_usage.set(None)
 
-        kwargs: dict[str, Any] = {}
-        if thinking:
-            # DeepSeek V4 Flash thinking mode
-            kwargs['extra_body'] = {
-                'thinking': {'type': 'enabled'},
-                'reasoning_effort': reasoning_effort,
-            }
-
         result, usage = await asyncio.to_thread(
             client.chat_completion_with_usage,
             cast(Any, prompt),
             model=resolved_model,
-            temperature=effective_temperature,
-            max_tokens=effective_max_tokens,
-            **kwargs,
-        )
-        current_llm_usage.set(usage)
-        return result
-
-    return llm_fn
-
-
-def create_retrieval_planner_fn(
-    *,
-    thinking: bool = True,
-    model: str | None = None,
-    max_tokens: int = 8192,
-    timeout_seconds: float | None = None,
-) -> LLMFn | None:
-    """Create a reasoning-capable LLM callable for query planning."""
-    if not _has_llm_credentials():
-        logger.debug('retrieval: no LLM credentials configured, workflow planner disabled')
-        return None
-
-    effective_model = model or _resolve_planner_model(thinking=thinking)
-    request_timeout = _coerce_provider_timeout_seconds(timeout_seconds)
-
-    async def llm_fn(prompt: LLMFnInput) -> str:
-        client, resolved_model = _build_client_for_channel(
-            channel='text',
-            model=effective_model,
-        )
-        current_llm_usage.set(None)
-        result, usage = await asyncio.to_thread(
-            client.chat_completion_with_usage,
-            cast(Any, prompt),
-            model=resolved_model,
-            temperature=0.0,
+            temperature=temperature,
             max_tokens=max_tokens,
-            timeout=request_timeout,
         )
         current_llm_usage.set(usage)
         return result
