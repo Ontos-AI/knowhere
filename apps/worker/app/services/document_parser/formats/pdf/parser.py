@@ -72,7 +72,7 @@ def parse_pdfs(
     # ── Standard single-pass MinerU ──
     logger.info(f"📄 Standard MinerU parse for {filename}")
     with stage_timer("pdf.extract.standard", filename=filename):
-        parse_via_full(pdf_path, filename, output_dir, s3_key=s3_key)
+        parse_via_full(pdf_path, filename, output_dir, s3_key=s3_key, job_id=job_id)
 
     logger.info("✅ PDF parsing step 1 complete: text extracted")
 
@@ -172,7 +172,7 @@ def _parse_pdf_via_shards(
         if fast_path_original_pdf:
             logger.info("📄 Single shard without TOC pages; using original PDF fast path")
             with stage_timer("pdf.extract.single_shard_fast", filename=filename):
-                parse_via_full(pdf_path, filename, output_dir, s3_key=s3_key)
+                parse_via_full(pdf_path, filename, output_dir, s3_key=s3_key, job_id=job_id)
             shard_output_dirs = [output_dir]
         else:
             # Physically split PDF when TOC pages must be excluded or multiple
@@ -216,7 +216,12 @@ def _parse_pdf_via_shards(
                     f"({shard_s3_key})"
                 )
                 parse_via_full(
-                    shard_pdf, shard_filename, shard_out, s3_key=shard_s3_key
+                    shard_pdf,
+                    shard_filename,
+                    shard_out,
+                    s3_key=shard_s3_key,
+                    job_id=job_id,
+                    mineru_raw_suffix=f"_shard{shard_idx}",
                 )
                 return shard_out
 
@@ -233,6 +238,8 @@ def _parse_pdf_via_shards(
                     for future in as_completed(futures):
                         idx = futures[future]
                         shard_output_dirs[idx] = future.result()
+
+            _aggregate_mineru_raw_sidecars(shard_output_dirs, output_dir)
 
         # 6. Per-shard heading prediction (parallel)
         @dataclass
@@ -355,6 +362,43 @@ def _parse_pdf_via_shards(
     finally:
         _cleanup_temp_shard_s3_assets(temp_shard_s3_keys)
         _cleanup_local_shard_workspace(work_dir)
+
+def _aggregate_mineru_raw_sidecars(
+    shard_output_dirs: list[str | None],
+    output_dir: str,
+) -> None:
+    """Collect per-shard raw MinerU sidecars into the merged output dir.
+
+    Each shard parse writes its own ``_mineru_raw_s3_key.txt`` into its shard
+    workspace, which is deleted afterwards. This merges them (newline-joined)
+    into ``output_dir/_mineru_raw_s3_key.txt`` so the job-result caller can
+    read a single sidecar file. Skips shards without a sidecar (e.g. inline
+    JSON fallback responses that have no raw ZIP).
+    """
+    sidecar_path = os.path.join(output_dir, "_mineru_raw_s3_key.txt")
+    collected_keys: list[str] = []
+    for shard_dir in shard_output_dirs:
+        if not shard_dir:
+            continue
+        shard_sidecar = os.path.join(shard_dir, "_mineru_raw_s3_key.txt")
+        if not os.path.isfile(shard_sidecar):
+            continue
+        try:
+            with open(shard_sidecar, "r", encoding="utf-8") as sidecar_file:
+                sidecar_value = sidecar_file.read().strip()
+            if sidecar_value:
+                collected_keys.append(sidecar_value)
+        except OSError as exc:
+            logger.warning(
+                f"Failed to read MinerU raw sidecar {shard_sidecar}: {exc}"
+            )
+    if collected_keys:
+        with open(sidecar_path, "w", encoding="utf-8") as sidecar_file:
+            sidecar_file.write("\n".join(collected_keys) + "\n")
+        logger.info(
+            f"Merged {len(collected_keys)} MinerU raw ZIP keys into {sidecar_path}"
+        )
+
 
 def _build_temp_shard_s3_key(
     *,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, Optional
 
 import requests
@@ -47,6 +48,7 @@ def poll_mineru_task(
     output_dir: str,
     get_status: Callable[[dict[str, Any]], Optional[dict[str, Any]]],
     preferred_token_id: Optional[str] = None,
+    on_zip_downloaded: Optional[Callable[[Path], None]] = None,
 ) -> None:
     quota_manager = get_mineru_quota_manager()
     polling_logger = mineru_logger(
@@ -149,6 +151,7 @@ def poll_mineru_task(
                         dest_dir=output_dir,
                         keep_exts=(".md", ".jpg", ".jpeg", ".png", ".gif", ".json"),
                         exclude_patterns=("content_list", "middle.json", "model.json"),
+                        on_zip_downloaded=on_zip_downloaded,
                     )
                     polling_logger.bind(token_id=lease.token_id).info(
                         "MinerU parsing completed"
