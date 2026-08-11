@@ -13,6 +13,7 @@ from .job import JobConfig
 from .mineru import MineruConfig
 from .qstash import QStashConfig
 from .redis import RedisConfig, RedisConfigManager, RedisPoolManager
+from .retrieval import RetrievalConfig
 from .storage import StorageConfig
 
 
@@ -27,6 +28,7 @@ class AppConfig(
     MineruConfig,
     BillingConfig,
     JobConfig,
+    RetrievalConfig,
 ):
     """Application configuration — all config components merged."""
 
