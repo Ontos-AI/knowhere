@@ -307,9 +307,7 @@ def plan_control(
     try:
         from .nav_llm import (  # type: ignore
             nav_chat,
-            planner_output_max_tokens,
             resolve_nav_model,
-            resolve_nav_thinking_mode,
         )
 
         model = resolve_nav_model(
@@ -317,18 +315,15 @@ def plan_control(
             model_env="NAV_PLANNER_MODEL",
             fallback_envs=("NAV_LLM_MODEL",),
         )
-        # Control is short JSON (accept/widen/drop); thinking only on plan_query/replan.
-        max_tokens = planner_output_max_tokens(
+        # Control is short JSON (accept/widen/drop); never use planner thinking.
+        max_tokens = max(
+            256,
             int(getattr(config, "planner_llm_max_tokens", 0) or 0)
-            or int(config.llm_max_tokens or 256)
+            or int(config.llm_max_tokens or 256),
         )
         timeout_s = float(os.environ.get("NAV_PLANNER_TIMEOUT_SECONDS", "").strip() or "0")
         if timeout_s <= 0:
-            timeout_s = (
-                300.0
-                if resolve_nav_thinking_mode(role="planner") == "enabled"
-                else 90.0
-            )
+            timeout_s = 90.0
         cached = nav_chat(
             purpose=_CONTROL_PURPOSE,
             model=model,
@@ -339,7 +334,7 @@ def plan_control(
             temperature=float(config.llm_temperature),
             max_tokens=max_tokens,
             response_format={"type": "json_object"},
-            thinking_role="planner",
+            thinking_role="action",
             context="Nav Plan Control",
             api_key_env="NAV_PLANNER_API_KEY",
             base_url_env="NAV_PLANNER_BASE_URL",

@@ -1,4 +1,9 @@
-"""Full-page structural probing: text pass, then optional asset pass."""
+"""Full-page structural probing: text pass, then optional asset pass.
+
+Text metrics count **visible** extractable characters only. PDF text drawn with
+rendering mode ``3 Tr`` (MuPDF texttrace ``type == 3``) is recorded separately as
+``invisible_text_length`` and does not feed density / blank / extrema gates.
+"""
 
 from __future__ import annotations
 
@@ -24,6 +29,62 @@ _FIGURE_MIN_AREA = 5000.0
 # Near-full-page sparse stroke frames are treated as borders, not figures.
 _FIGURE_FULLPAGE_AREA_RATIO = 0.92
 _FIGURE_FULLPAGE_MAX_PATHS = 25
+# MuPDF ``page.get_texttrace()`` type matching PDF text rendering mode ``3 Tr``.
+_INVISIBLE_TEXT_TRACE_TYPE = 3
+
+
+def _trace_ucs_char(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, int) and value > 0:
+        try:
+            return chr(value)
+        except ValueError:
+            return ""
+    return ""
+
+
+def _text_lengths_from_trace(page: Any) -> tuple[int, int]:
+    """Return ``(visible_len, invisible_len)`` from MuPDF texttrace.
+
+    Invisible spans use texttrace ``type == 3`` (PDF ``3 Tr``: neither fill nor
+    stroke). Probe metrics must use the visible length only so CAD/OCR ink that
+    is present in the content stream but not painted cannot dominate extrema.
+    """
+    visible_parts: list[str] = []
+    invisible_parts: list[str] = []
+    try:
+        items = page.get_texttrace() or []
+    except Exception:
+        items = []
+    for item in items:
+        chars = item.get("chars") or []
+        chunk = "".join(
+            _trace_ucs_char(ch[0])
+            for ch in chars
+            if isinstance(ch, (list, tuple)) and ch
+        )
+        if not chunk:
+            continue
+        if int(item.get("type") or 0) == _INVISIBLE_TEXT_TRACE_TYPE:
+            invisible_parts.append(chunk)
+        else:
+            visible_parts.append(chunk)
+    return len("".join(visible_parts).strip()), len("".join(invisible_parts).strip())
+
+
+def _probe_text_lengths(page: Any) -> tuple[int, int]:
+    """Visible/invisible text lengths for one page.
+
+    Prefers texttrace so ``3 Tr`` ink can be excluded from ``raw_text_length``.
+    If the trace is empty, falls back to ``get_text()`` as visible-only so
+    environments without usable texttrace still probe native text.
+    """
+    visible_len, invisible_len = _text_lengths_from_trace(page)
+    if visible_len == 0 and invisible_len == 0:
+        fallback = (page.get_text() or "").strip()
+        return len(fallback), 0
+    return visible_len, invisible_len
 
 
 def _rect_area(rect: Any) -> float:
@@ -284,12 +345,12 @@ def _probe_visual_assets(
 def _probe_text_one(page: Any, page_number: int) -> dict[str, Any]:
     rect = page.rect
     area = max(_rect_area(rect), 1.0)
-    text = page.get_text() or ""
-    raw_text_length = len(text.strip())
+    raw_text_length, invisible_text_length = _probe_text_lengths(page)
     orientation = "landscape" if float(rect.width) > float(rect.height) else "portrait"
     return {
         "page": page_number,
         "raw_text_length": raw_text_length,
+        "invisible_text_length": invisible_text_length,
         "text_density": round(raw_text_length / area * 10000, 4),
         "orientation": orientation,
         "width": round(float(rect.width), 2),
@@ -365,6 +426,7 @@ def probe_page_features(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
                 height=float(item.get("height") or 0.0),
                 has_asset=False,
                 is_blank_like=bool(item.get("is_blank_like")),
+                invisible_text_length=int(item.get("invisible_text_length") or 0),
             )
             for item in (result.get("features") or [])
         ]
@@ -427,6 +489,7 @@ def probe_page_assets(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
                     height=feature.height,
                     has_asset=has_asset,
                     is_blank_like=feature.raw_text_length < 50 and not has_asset,
+                    invisible_text_length=feature.invisible_text_length,
                 )
             )
         ctx.blackboard.page_features = sorted(updated, key=lambda f: f.page)
