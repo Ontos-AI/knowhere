@@ -39,7 +39,6 @@ def test_planner_verdict_now_falls_through_to_ready_to_shard() -> None:
             "header_y": None,
             "footer_y": None,
             "next_action": "verdict_now",
-            "inspect_pages": [],
             "grep_query": "",
         }
     )
@@ -66,7 +65,7 @@ def test_planner_ready_to_shard_proposes_shard_plan() -> None:
     assert decision.tool_name == "propose.shard_plan"
 
 
-def test_planner_inspect_more_maps_to_inspect_pages() -> None:
+def test_planner_legacy_inspect_more_falls_through_to_ready_to_shard() -> None:
     raw = json.dumps(
         {
             "is_scanned": False,
@@ -79,8 +78,8 @@ def test_planner_inspect_more_maps_to_inspect_pages() -> None:
         }
     )
     _profile, decision = _parse_profile_and_decision(raw)
-    assert decision.tool_name == "inspect.pages"
-    assert decision.tool_args["pages"] == [3, 8]
+    assert decision.tool_name == "propose.shard_plan"
+    assert decision.tool_args == {}
 
 
 def test_executor_legacy_verdict_now_without_status_becomes_shard() -> None:

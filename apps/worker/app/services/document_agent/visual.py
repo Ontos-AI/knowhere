@@ -19,7 +19,6 @@ _DEBUG_VISUAL_DIRS = {
     "planner_pages",
     "page_locate_pages",
     "toc_pages",
-    "inspect_pages",
     "verify_pages",
     "agent_visuals",
 }

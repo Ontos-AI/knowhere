@@ -50,7 +50,6 @@ def _compact_blackboard(ctx: ToolContext) -> dict[str, Any]:
         "verdict": ctx.blackboard.verdict.to_dict()
         if ctx.blackboard.verdict
         else None,
-        "visual_inspections": ctx.blackboard.global_signals.get("visual_inspections", [])[-3:],
         "grep_history": ctx.blackboard.global_signals.get("grep_history", [])[-3:],
         "budget": ctx.budget.snapshot(),
     }

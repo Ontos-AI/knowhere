@@ -367,61 +367,6 @@ def _cuts_to_shards(cuts: list[tuple[int, str, str, float]], page_count: int) ->
     return shards
 
 
-def _build_prompt(
-    *,
-    page_count: int,
-    min_pages: int,
-    max_pages: int,
-    doc_stats: dict[str, Any],
-    page_kind_counts: dict[str, int],
-    toc_pages: list[int],
-    leaf_pages: list[int],
-    profile: dict[str, Any] | None,
-    visual_evidence: list[dict[str, Any]],
-    grep_history: list[dict[str, Any]],
-) -> str:
-    payload = {
-        "page_count": page_count,
-        "min_pages_per_shard": min_pages,
-        "max_pages_per_shard": max_pages,
-        "page_kind_counts": page_kind_counts,
-        "doc_stats": doc_stats,
-        "toc_pages": toc_pages,
-        "leaf_cut_pages": leaf_pages,
-        "document_profile": profile,
-        "visual_evidence": visual_evidence[-3:],
-        "grep_history": grep_history[-3:],
-    }
-    return (
-        "You are a senior document parsing architect. Decide whether to split a PDF "
-        "and where to split it using document-scale features and TOC leaf-node evidence.\n"
-        "Rules:\n"
-        "- Return strict JSON only.\n"
-        "- Prefer TOC leaf-node pages as semantic boundaries, cutting at page-1 when possible.\n"
-        "- Do not blindly split on every leaf node. Consider total page_count, spacing, min/max "
-        "shard sizes, and over-fragmentation.\n"
-        "- Prefer fewer, semantically coherent shards over many tiny shards.\n"
-        "- Keep each cut rationale under 120 characters.\n"
-        "- Every resulting shard length must be between min_pages_per_shard and "
-        "max_pages_per_shard, except the final shard may be shorter only when no better "
-        "valid split exists. Check each segment length exactly before returning.\n"
-        "- If no split is useful, return enabled=false and cuts=[] even for a long document.\n"
-        "Output schema:\n"
-        "{\n"
-        '  "enabled": boolean,\n'
-        '  "cuts": [\n'
-        "    {\"cut_after_page\": number, \"anchor_type\": \"h1_boundary\" | "
-        "\"blank_separator\" | \"forced_max_size\", "
-        "\"confidence\": number, \"rationale\": string}\n"
-        "  ],\n"
-        '  "reason": "llm_boundary_decision" | "not_needed" | "too_large",\n'
-        '  "rationale": string\n'
-        "}\n"
-        "Payload:\n"
-        + json.dumps(payload, ensure_ascii=False)
-    )
-
-
 def _build_chapter_prompt(
     *,
     page_count: int,
