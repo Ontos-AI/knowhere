@@ -93,7 +93,6 @@ class RetrievalQuery:
             "threshold": self.threshold,
             "internal_recall_k": self.internal_recall_k,
             "use_agentic": self.use_agentic,
-            "decomposition_enabled": True,
             "llm_text_model": text_model,
             "llm_vision_model": vision_model,
         }

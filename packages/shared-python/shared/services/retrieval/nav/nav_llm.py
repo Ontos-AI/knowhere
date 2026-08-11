@@ -3,7 +3,7 @@
 Nav modules call ``nav_chat`` / ``resolve_nav_model`` only — they must not read
 ``DS_KEY`` / ``OPENAI_API_KEY`` themselves. Credentials are resolved here via
 ``resolve_chat_credentials`` (deepseek-* → ``DS_KEY``/``DS_URL``, else
-``OPENAI_*``), matching Knowhere's split at ``create_retrieval_llm_fn``.
+``OPENAI_*``), matching Knowhere's chat credential split (deepseek → DS_*, else OPENAI_*).
 
 Thinking policy (DeepSeek V4 defaults thinking ON if omitted):
 
