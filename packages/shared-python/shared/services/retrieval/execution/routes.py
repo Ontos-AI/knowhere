@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import AbstractAsyncContextManager
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.agentic.discovery.tools import bottom_discovery
+from shared.services.retrieval.search.discovery import bottom_discovery
 from shared.services.retrieval.execution.reference_resolver import resolve_workflow_references
 from shared.services.retrieval.hydration.result_assembly import assemble_retrieval_results
 from shared.services.retrieval.execution.response_projection import (
@@ -24,7 +25,7 @@ from shared.services.retrieval.search.scoped_corpus import (
 
 
 def open_fresh_database_context() -> AbstractAsyncContextManager[AsyncSession]:
-    """Open a fresh session for final reference resolution after workflow waits."""
+    """Open a fresh session for final reference resolution after LLM waits."""
     from shared.core.database import get_db_context
 
     return get_db_context()
@@ -37,10 +38,11 @@ async def run_retrieval_route(
     if small_corpus_outcome is not None:
         return small_corpus_outcome
 
-    if context.use_agentic is True:
-        return await _run_agentic_route(context)
+    # Explicit False → classic 3-channel top-K. None/True → map-nav (default).
+    if context.use_agentic is False:
+        return await _run_classic_topk_route(context)
 
-    return await _run_classic_topk_route(context)
+    return await _run_mapnav_route(context)
 
 
 async def _try_run_small_corpus_route(
@@ -159,153 +161,126 @@ async def _run_classic_topk_route(
     )
 
 
-async def _run_agentic_route(
+async def _run_mapnav_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
-    from shared.services.retrieval.workflow.orchestrator import WorkflowOrchestrator
-    from shared.services.retrieval.workflow.run_request import WorkflowRunRequest
-
-    # The small-corpus count above may leave a read transaction checked out on
-    # the request session. End it before planner/navigation LLM waits; workflow
-    # steps and final reference resolution open their own short-lived sessions.
-    await context.db.rollback()
-
-    workflow = WorkflowOrchestrator()
-    workflow_result = await workflow.run_request(
+    """Default agentic path: PLANNER + HARVEST + CONTROL (checklist map-nav)."""
+    from shared.services.retrieval import nav_llm_backend  # noqa: F401
+    from shared.services.retrieval.nav import run_nav_episode
+    from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
+    from shared.services.retrieval.nav_bridge import build_referenced_chunks
+    from shared.services.retrieval.nav_config import (
+        MAPNAV_MODEL,
+        build_nav_config,
+        nav_evidence_chars,
+    )
+    from shared.services.retrieval.nav_snapshot import load_nav_snapshot
+    from shared.services.retrieval.trace import (
+        TraceRecorder,
+        build_decision_trace,
+        episode_selected_doc_ids,
+        episode_selected_paths,
+        episode_token_count,
+        episode_workflow_plan,
+    )
+    snapshot = await load_nav_snapshot(
         context.db,
-        request=WorkflowRunRequest.from_route_context(context),
+        user_id=context.user_id,
+        namespace=context.namespace,
+        exclude_document_ids=context.exclude_document_ids,
+        exclude_sections=context.exclude_sections,
     )
 
-    # Build a real score index for hydration:
-    # 1. Discovery RRF score — available for chunks that surfaced in the
-    #    3-channel BM25 pass (stored in each referenced_chunk as 'score').
-    # 2. KG document confidence — LLM-assigned confidence per selected document
-    #    (stored in decision_trace kg_select entry), used for navigation-only chunks.
-    score_by_chunk_id: dict[str, float] = {}
+    # Small-corpus count / snapshot reads may leave a checkout; drop it before
+    # the sync LLM episode (same pattern as the retired workflow route).
+    await context.db.rollback()
 
-    # Layer 1: referenced_chunk-level score (propagated from discovery rows)
-    for ref in workflow_result.referenced_chunks:
-        cid = ref.get('chunk_id', '')
-        raw_score = ref.get('score')
-        if cid and raw_score is not None:
-            try:
-                score_by_chunk_id[cid] = float(raw_score)
-            except (TypeError, ValueError):
-                pass
+    budget = nav_evidence_chars()
+    cfg = build_nav_config()
+    toolspace = ProviderToolSpace(snapshot.provider)
 
-    # Layer 2: per-document KG confidence as default for navigation-only chunks.
-    doc_confidence: dict[str, float] = {}
-    for step in workflow_result.steps:
-        for entry in step.decision_trace or []:
-            if entry.get('phase') == 'kg_select':
-                result = entry.get('result') or {}
-                for doc_info in result.get('collected', []):
-                    doc_id = doc_info.get('document_id', '')
-                    conf = doc_info.get('confidence')
-                    if doc_id and conf is not None:
-                        try:
-                            doc_confidence[doc_id] = float(conf)
-                        except (TypeError, ValueError):
-                            pass
+    episode = await asyncio.to_thread(
+        run_nav_episode,
+        None,
+        context.query,
+        corpus_doc_ids=list(snapshot.document_ids),
+        budget_chars=budget,
+        compose_answer=False,
+        policy="llm",
+        config=cfg,
+        toolspace=toolspace,
+    )
+
+    refs, score_by_chunk_id = build_referenced_chunks(episode, snapshot)
 
     async with open_fresh_database_context() as final_db:
-        resolved_references = await resolve_workflow_references(
+        resolved = await resolve_workflow_references(
             db=final_db,
             user_id=context.user_id,
             namespace=context.namespace,
-            refs=workflow_result.referenced_chunks,
-            score_by_chunk_id=score_by_chunk_id if score_by_chunk_id else None,
+            refs=refs,
+            score_by_chunk_id=score_by_chunk_id or None,
         )
-
-        # Backfill doc-level confidence for chunks that have no discovery score
-        if doc_confidence:
-            for row in resolved_references.rows:
-                cid = row.get('chunk_id', '')
-                if cid and row.get('score') is None:
-                    doc_id = row.get('document_id', '')
-                    if doc_id in doc_confidence:
-                        row['score'] = doc_confidence[doc_id]
-
-        assembled_workflow_rows = await assemble_retrieval_results(
+        assembled_rows = await assemble_retrieval_results(
             db=final_db,
-            rows=resolved_references.rows,
+            rows=resolved.rows,
             exclude_document_ids=context.exclude_document_ids,
             exclude_sections=context.exclude_sections,
             allowed_chunk_types=context.allowed_chunk_types,
         )
-    response = workflow_result.to_api_response()
-    response["answer_text"] = ""
-    response["referenced_chunks"] = resolved_references.refs
-    response["results"] = [attach_citation(row) for row in assembled_workflow_rows]
 
-    evidence_parts = [
-        step.evidence_text
-        for step in workflow_result.steps
-        if step.evidence_text
-    ]
-    if evidence_parts:
-        response["evidence_text"] = "\n\n".join(evidence_parts)
+        decision_steps = build_decision_trace(
+            episode,
+            evidence_char_budget=budget,
+            n_refs=len(resolved.refs),
+        )
+        decision_trace = [step.to_dict() for step in decision_steps]
+        selected_paths = episode_selected_paths(episode, resolved.refs)
+        selected_docs = episode_selected_doc_ids(resolved.refs)
+        tokens_used = episode_token_count(episode)
+        trace = TraceRecorder(
+            final_db,
+            user_id=context.user_id,
+            namespace=context.namespace,
+            query=context.query,
+            top_k=context.top_k,
+            chunk_types=context.allowed_chunk_types,
+            workflow_plan=episode_workflow_plan(episode),
+            policy_name="mapnav_checklist_v1",
+        )
+        await trace.create_run()
+        for step in decision_steps:
+            trace.record_decision_trace_step(step)
+        await trace.complete(
+            assembled_rows,
+            "mapnav",
+            token_count=tokens_used,
+            model_name=MAPNAV_MODEL,
+            selected_paths=selected_paths,
+            selected_doc_ids=selected_docs,
+        )
 
-    last_retrieve = next(
-        (s for s in reversed(workflow_result.steps) if s.step_kind == "retrieve"),
-        None,
-    )
-    if last_retrieve:
-        if last_retrieve.stop_reason:
-            response["stop_reason"] = last_retrieve.stop_reason
-        if last_retrieve.failure_reason:
-            response["failure_reason"] = last_retrieve.failure_reason
-
-    # Merge decision traces from all retrieve steps
-    all_decision_trace: list[dict] = []
-    for step in workflow_result.steps:
-        if step.decision_trace:
-            all_decision_trace.extend(step.decision_trace)
-
-    # Embed stop/failure into decision_trace as a homogeneous terminal entry.
-    stop_reason = response.get("stop_reason") or ""
-    failure_reason = response.get("failure_reason") or ""
-    has_terminal_trace = any(
-        entry.get("phase") == "terminal"
-        for entry in all_decision_trace
-    )
-    if (stop_reason or failure_reason) and not has_terminal_trace:
-        terminal_index = len(all_decision_trace)
-        all_decision_trace.append({
-            "step_index": terminal_index,
-            "agent": "workflow",
-            "parent_step_index": None,
-            "phase": "terminal",
-            "document_id": None,
-            "document": None,
-            "scope": "workflow",
-            "observation": {
-                "router_used": workflow_result.router_used,
-                "referenced_chunks": len(resolved_references.refs),
-            },
-            "decision": {
-                "action": "complete",
-                "args": {},
-                "reason": stop_reason or failure_reason,
-            },
-            "result": {
-                "status": "error" if failure_reason else "ok",
-                "stop_reason": stop_reason,
-                "failure_reason": failure_reason,
-            },
-        })
-
-    if all_decision_trace:
-        response["decision_trace"] = all_decision_trace
+    stop_reason = str(getattr(episode, "stop_reason", "") or "completed")
+    evidence_text = str(getattr(episode, "evidence_text", "") or "")
+    response = {
+        "namespace": context.namespace,
+        "query": context.query,
+        "router_used": "mapnav",
+        "evidence_text": evidence_text,
+        "answer_text": "",
+        "referenced_chunks": resolved.refs,
+        "results": [attach_citation(row) for row in assembled_rows],
+        "stop_reason": stop_reason,
+        "decision_trace": decision_trace,
+    }
 
     completion_detail = (
-        f"chunks | evidence={len(response.get('evidence_text') or '')} chars | "
-        f"router={workflow_result.router_used}"
+        f"chunks | evidence={len(evidence_text)} chars | router=mapnav"
     )
     return RetrievalRouteOutcome(
         response=response,
-        hit_stats_results=resolved_references.refs,
-        completion_label="AGENTIC RETRIEVAL",
-        completion_count=len(resolved_references.refs),
+        hit_stats_results=resolved.refs,
+        completion_label="MAPNAV RETRIEVAL",
+        completion_count=len(resolved.refs),
         completion_detail=completion_detail,
     )

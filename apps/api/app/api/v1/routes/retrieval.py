@@ -72,7 +72,10 @@ class RetrievalQueryRequest(BaseModel):
     )
     use_agentic: bool | None = Field(
         None,
-        description="Set to true to enable agentic retrieval (LLM doc-select + navigation). Default (None/false) uses classic 3-channel top-K.",
+        description=(
+            "Map-nav (PLANNER+HARVEST+CONTROL) is the default when unset/true. "
+            "Set false to force classic 3-channel top-K retrieval."
+        ),
     )
 
     @field_validator("channels")

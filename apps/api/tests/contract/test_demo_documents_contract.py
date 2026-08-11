@@ -294,6 +294,7 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
                 "namespace": "contract-demo",
                 "query": "xAI investment",
                 "top_k": 5,
+                "use_agentic": False,
             },
         )
         first_response = await api_client.post(
@@ -316,6 +317,7 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
                 "namespace": "contract-demo",
                 "query": "xAI investment",
                 "top_k": 5,
+                "use_agentic": False,
             },
         )
         document_chunks_response = await api_client.get(
