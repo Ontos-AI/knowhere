@@ -25,7 +25,7 @@ from app.services.document_agent.agents.calibration.types import (
 from app.services.document_agent.budget import BudgetTracker, StageEnvelope
 from app.services.document_agent.manifest import ToolContext, ToolResult
 from app.services.document_agent.state import AgentBlackboard
-from app.services.document_agent.structure.structure_anchoring import (
+from app.services.document_agent.structure.anchoring_primitives import (
     deserialize_skeleton_anchor,
     serialize_skeleton_anchor,
 )
