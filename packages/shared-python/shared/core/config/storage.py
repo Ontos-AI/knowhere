@@ -6,7 +6,7 @@ import threading
 import boto3
 from botocore.client import BaseClient
 from botocore.config import Config
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from shared.core.exceptions.domain_exceptions import (
     DependencyMissingException,
@@ -30,8 +30,8 @@ class StorageConfig(BaseModel):
 
     # Shared S3-style configuration used by S3, OSS, and MinIO.
     S3_BUCKET_NAME: str = Field(..., description="Bucket name")
-    S3_ACCESS_KEY_ID: str = Field(..., description="Access key ID")
-    S3_SECRET_ACCESS_KEY: str = Field(..., description="Secret access key")
+    S3_ACCESS_KEY_ID: str = Field(default="", description="Access key ID")
+    S3_SECRET_ACCESS_KEY: str = Field(default="", description="Secret access key")
     S3_ENDPOINT_URL: str = Field(
         default="", description="Endpoint URL for S3-compatible services such as MinIO"
     )
@@ -113,6 +113,27 @@ class StorageConfig(BaseModel):
         default=True, description="Verify OSS event signatures"
     )
 
+    @model_validator(mode="after")
+    def validate_storage_credentials(self) -> "StorageConfig":
+        """Validate credentials according to the selected storage backend."""
+        storage_type = self.S3_TYPE.lower()
+        has_access_key = bool(self.S3_ACCESS_KEY_ID)
+        has_secret_key = bool(self.S3_SECRET_ACCESS_KEY)
+
+        if has_access_key != has_secret_key:
+            raise ValueError(
+                "S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must be configured together"
+            )
+
+        if storage_type in {"oss", "minio"} and not (
+            has_access_key and has_secret_key
+        ):
+            raise ValueError(
+                f"Explicit storage credentials are required when S3_TYPE={storage_type}"
+            )
+
+        return self
+
     def get_s3_client(self) -> BaseClient:
         """Return an S3 client for S3-compatible backends."""
         # Build the client config.
@@ -128,11 +149,14 @@ class StorageConfig(BaseModel):
         config = Config(**config_kwargs) if config_kwargs else None
 
         # Build client kwargs.
-        client_kwargs: dict[str, object] = {
-            "service_name": "s3",
-            "aws_access_key_id": self.S3_ACCESS_KEY_ID,
-            "aws_secret_access_key": self.S3_SECRET_ACCESS_KEY,
-        }
+        client_kwargs: dict[str, object] = {"service_name": "s3"}
+
+        # When explicit keys are omitted, boto3 automatically retrieves temporary
+        # authenticated credentials from the ECS task role. Explicit credentials
+        # remain supported for local and legacy deployments.
+        if self.S3_ACCESS_KEY_ID and self.S3_SECRET_ACCESS_KEY:
+            client_kwargs["aws_access_key_id"] = self.S3_ACCESS_KEY_ID
+            client_kwargs["aws_secret_access_key"] = self.S3_SECRET_ACCESS_KEY
 
         # Add endpoint_url for MinIO or custom S3-compatible services.
         if self.S3_ENDPOINT_URL:
