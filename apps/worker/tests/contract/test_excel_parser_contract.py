@@ -100,3 +100,58 @@ def test_parser_maps_document_name_to_task_local_path_segment(
     assert full_output_dir.endswith("images.xlsx")
     assert parsed_df is not None
     assert parsed_df["path"].tolist() == ["images.xlsx/Visible"]
+
+
+def _write_workbook_with_sparse_datetimes(workbook_path: Path) -> None:
+    """Datetime column with blanks → pandas NaT in-frame; HTML must still render."""
+    import openpyxl
+    from datetime import datetime
+
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Roster"
+    sheet["A1"] = "Name"
+    sheet["B1"] = "SignupDate"
+    sheet["A2"] = "Alice"
+    sheet["B2"] = datetime(2026, 6, 27)
+    sheet["A3"] = "Bob"
+    sheet["B3"] = None
+    sheet["A4"] = "Carol"
+    sheet["B4"] = datetime(2026, 7, 4)
+    workbook.save(workbook_path)
+
+
+def test_xlsx_parser_tolerates_nat_in_datetime_column(
+    worker_contract_environment: None,
+    tmp_path: Path,
+) -> None:
+    from app.services.document_parser.parse_service import checkerboard_parse_output
+
+    workbook_path = tmp_path / "roster.xlsx"
+    output_root = tmp_path / "parser-output"
+    _write_workbook_with_sparse_datetimes(workbook_path)
+
+    parse_output = checkerboard_parse_output(
+        file_full_path=str(workbook_path),
+        filename="roster.xlsx",
+        output_dir=str(output_root),
+        internal_output_filename="roster.xlsx",
+        summary_image=False,
+        summary_table=False,
+        summary_txt=False,
+        smart_title_parse=False,
+        stopwords=[],
+    )
+
+    parsed_df = parse_output.parsed_df
+    assert parsed_df is not None
+    assert len(parsed_df) == 1
+
+    table_html = (
+        Path(parse_output.output_dir) / "tables" / "table-Roster.html"
+    ).read_text(encoding="utf-8")
+    assert "Alice" in table_html
+    assert "2026-06-27" in table_html
+    assert "Carol" in table_html
+    assert "2026-07-04" in table_html
+    assert "NaT" not in table_html

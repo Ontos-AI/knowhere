@@ -1,7 +1,6 @@
 # pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportOptionalOperand=false, reportOptionalSubscript=false, reportReturnType=false, reportOperatorIssue=false, reportIndexIssue=false, reportAssignmentType=false, reportGeneralTypeIssues=false
 from __future__ import annotations
 
-import datetime
 import os
 import uuid
 from collections import OrderedDict
@@ -371,21 +370,10 @@ def postprocess_tb(table_frame: pd.DataFrame, drop: bool = False) -> pd.DataFram
             for column in table_frame.columns
         ]
 
-    table_frame = table_frame.map(
+    # Keep native temporals (incl. NaT); stringify at df2html / to_html only.
+    return table_frame.map(
         lambda value: value.replace("\n", "") if isinstance(value, str) else value
     )
-    return process_datetime_cells(table_frame)
-
-
-def process_datetime_cells(table_frame: pd.DataFrame) -> pd.DataFrame:
-    table_frame = table_frame.copy()
-
-    def convert(value: object) -> object:
-        if isinstance(value, (pd.Timestamp, datetime.datetime)):
-            return value.strftime("%Y-%m-%d %H:%M:%S")
-        return value
-
-    return table_frame.apply(lambda column: column.map(convert))
 
 
 def process_duplicate_cols(columns: object) -> list[object]:
