@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PDF PROFILE 阶段：流程 · 工具 · 门控</title>
+  <style>
+    :root {
+      --bg: #f7f4ef;
+      --paper: #fffdf9;
+      --ink: #1c1917;
+      --muted: #57534e;
+      --line: #e7e0d5;
+      --accent: #0f766e;
+      --accent-soft: #ccfbf1;
+      --warn: #9a3412;
+      --warn-soft: #ffedd5;
+      --gate: #1d4ed8;
+      --gate-soft: #dbeafe;
+      --flow: #854d0e;
+      --flow-soft: #fef9c3;
+      --scout: #6d28d9;
+      --scout-soft: #ede9fe;
+      --shadow: 0 1px 0 rgba(28, 25, 23, 0.04), 0 12px 32px rgba(28, 25, 23, 0.06);
+      --mono: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      --sans: "Source Han Sans SC", "Noto Sans SC", "PingFang SC", "Segoe UI", sans-serif;
+      --display: "Source Serif 4", "Noto Serif SC", "Songti SC", Georgia, serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(ellipse 80% 50% at 0% 0%, #efe6d8 0%, transparent 55%),
+        radial-gradient(ellipse 60% 40% at 100% 10%, #ddeae6 0%, transparent 50%),
+        var(--bg);
+      font-family: var(--sans);
+      line-height: 1.65;
+      font-size: 16px;
+    }
+
+    .wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 4rem;
+    }
+
+    header.hero {
+      padding: 1.5rem 0 2rem;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 2rem;
+    }
+    header.hero .eyebrow {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0 0 0.75rem;
+    }
+    header.hero h1 {
+      font-family: var(--display);
+      font-weight: 650;
+      font-size: clamp(1.75rem, 4vw, 2.35rem);
+      line-height: 1.25;
+      margin: 0 0 0.85rem;
+      letter-spacing: -0.02em;
+    }
+    header.hero .lede {
+      color: var(--muted);
+      font-size: 1.05rem;
+      max-width: 42rem;
+      margin: 0;
+    }
+    header.hero .meta {
+      margin-top: 1.1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-family: var(--mono);
+      border: 1px solid var(--line);
+      background: var(--paper);
+    }
+    .pill.flow { background: var(--flow-soft); border-color: #fde68a; color: var(--flow); }
+    .pill.scout { background: var(--scout-soft); border-color: #ddd6fe; color: var(--scout); }
+    .pill.gate { background: var(--gate-soft); border-color: #bfdbfe; color: var(--gate); }
+    .pill.accent { background: var(--accent-soft); border-color: #99f6e4; color: var(--accent); }
+
+    nav.toc {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(10px);
+      background: color-mix(in srgb, var(--bg) 85%, transparent);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 0.85rem 1rem;
+      margin-bottom: 2rem;
+      box-shadow: var(--shadow);
+    }
+    nav.toc strong {
+      display: block;
+      font-size: 0.78rem;
+      font-family: var(--mono);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.45rem;
+    }
+    nav.toc ol {
+      margin: 0;
+      padding-left: 1.15rem;
+      columns: 2;
+      gap: 1.5rem;
+    }
+    nav.toc a {
+      color: var(--ink);
+      text-decoration: none;
+      font-size: 0.92rem;
+    }
+    nav.toc a:hover { color: var(--accent); text-decoration: underline; }
+    @media (max-width: 640px) {
+      nav.toc ol { columns: 1; }
+    }
+
+    section {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 1.35rem 1.4rem 1.5rem;
+      margin-bottom: 1.25rem;
+      box-shadow: var(--shadow);
+    }
+    section h2 {
+      font-family: var(--display);
+      font-size: 1.35rem;
+      margin: 0 0 0.85rem;
+      letter-spacing: -0.01em;
+    }
+    section h3 {
+      font-size: 1.02rem;
+      margin: 1.25rem 0 0.55rem;
+    }
+    p { margin: 0.55rem 0; color: var(--ink); }
+    .muted { color: var(--muted); }
+    .callout {
+      border-left: 3px solid var(--accent);
+      background: color-mix(in srgb, var(--accent-soft) 55%, white);
+      padding: 0.75rem 0.95rem;
+      border-radius: 0 10px 10px 0;
+      margin: 0.85rem 0;
+    }
+    .callout.warn {
+      border-left-color: var(--warn);
+      background: color-mix(in srgb, var(--warn-soft) 70%, white);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+      margin: 0.75rem 0 0.25rem;
+    }
+    th, td {
+      text-align: left;
+      vertical-align: top;
+      padding: 0.65rem 0.7rem;
+      border-bottom: 1px solid var(--line);
+    }
+    th {
+      font-size: 0.75rem;
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      background: #faf7f2;
+    }
+    tr:last-child td { border-bottom: none; }
+
+    pre.flow {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      line-height: 1.55;
+      background: #1c1917;
+      color: #f5f5f4;
+      padding: 1rem 1.1rem;
+      border-radius: 12px;
+      overflow-x: auto;
+      margin: 0.85rem 0 0.25rem;
+    }
+    pre.flow .c-flow { color: #fde68a; }
+    pre.flow .c-scout { color: #c4b5fd; }
+    pre.flow .c-gate { color: #93c5fd; }
+    pre.flow .c-dim { color: #a8a29e; }
+
+    .mermaid-box {
+      background: #faf7f2;
+      border: 1px dashed var(--line);
+      border-radius: 12px;
+      padding: 1rem;
+      overflow-x: auto;
+      margin: 0.75rem 0;
+    }
+    .mermaid { text-align: center; }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.85rem;
+    }
+    @media (max-width: 720px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 0.9rem 1rem;
+      background: #faf7f2;
+    }
+    .card h4 {
+      margin: 0 0 0.4rem;
+      font-size: 0.95rem;
+    }
+    .card p { margin: 0; font-size: 0.9rem; color: var(--muted); }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      margin: 0.5rem 0 0.85rem;
+    }
+
+    ul.clean {
+      margin: 0.4rem 0;
+      padding-left: 1.2rem;
+    }
+    ul.clean li { margin: 0.25rem 0; }
+
+    footer {
+      margin-top: 1.5rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      text-align: center;
+    }
+    code {
+      font-family: var(--mono);
+      font-size: 0.86em;
+      background: #f0ebe3;
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <p class="eyebrow">Knowhere · Document Agent</p>
+      <h1>PDF PROFILE 阶段手册</h1>
+      <p class="lede">
+        给反复查阅用：PROFILE 主体是协调器固定流水线；真正可自由选用的侦察工具只剩「全文 GREP」；
+        「提切分 / 校验 / 裁决」是确定性门控。page_memory 认真做目录，但不进真切分环。
+        （已移除无效的 inspect.pages。）
+      </p>
+      <div class="meta">
+        <span class="pill accent">范围：仅 PROFILE</span>
+        <span class="pill flow">流程</span>
+        <span class="pill scout">侦察工具</span>
+        <span class="pill gate">门控</span>
+      </div>
+    </header>
+
+    <nav class="toc" aria-label="目录">
+      <strong>目录</strong>
+      <ol>
+        <li><a href="#onesentence">一句话架构</a></li>
+        <li><a href="#layers">三层分类：流程 / 侦察 / 门控</a></li>
+        <li><a href="#flowchart">总流程图</a></li>
+        <li><a href="#inventory">能力清单与时机</a></li>
+        <li><a href="#gates">门控触发规则</a></li>
+        <li><a href="#examples">三条故事线</a></li>
+        <li><a href="#fork">page_memory vs chunk</a></li>
+        <li><a href="#vlm">VLM / GREP / 纯代码对照</a></li>
+        <li><a href="#registry">注册表备忘（实现对照）</a></li>
+      </ol>
+    </nav>
+
+    <section id="onesentence">
+      <h2>1. 一句话架构</h2>
+      <div class="callout">
+        <strong>整体没有「模型随便选工具绕圈」。日常 PROFILE = 固定阶段。真正的多轮环只服务「超大 PDF + chunk 需要真切分」。</strong>
+      </div>
+      <pre class="flow"><span class="c-flow">固定流水线（几乎每份 PDF）</span>
+  ① 扫文字特征 → ② 统计 → ③（可选）找目录 + VLM 抄目录
+  → ④ VLM 粗分类（类别 / 图册? / 扫描件?）
+  → ⑤ 扫资产图表 → 再刷统计
+  → ⑥ 按「页数 / 是否图册」决定要不要解剖、要不要切分
+
+<span class="c-scout">侦察（可选）</span>
+  全文 GREP  —— 主要出现在超大切分环
+
+<span class="c-gate">门控链（确定性触发）</span>
+  提切分 → 校验 → 裁决 → 落盘
+
+<span class="c-dim">page_memory：强制倾向做目录；跳过真切分，塞「整本一片」占位。</span></pre>
+    </section>
+
+    <section id="layers">
+      <h2>2. 三层分类：流程 / 侦察工具 / 门控</h2>
+      <p class="muted">关键分界是「谁决定触发」，不是「里面有没有 LLM」。</p>
+      <div class="legend">
+        <span class="pill flow">流程 · 协调器写死</span>
+        <span class="pill scout">侦察 · 可选选用</span>
+        <span class="pill gate">门控 · 触发确定性</span>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h4><span class="pill flow">流程</span> 模型选不了</h4>
+          <p>文字探测 · 页种类粗标 · 统计聚合（两次）· VLM 粗分类 · 资产初探 · 目录两步（固定顺序）· 是否进解剖 / 是否开环 · 单片占位 · 组装落盘 · ReAct 调度器本身</p>
+        </div>
+        <div class="card">
+          <h4><span class="pill scout">侦察工具</span> 仅 GREP</h4>
+          <p><strong>全文 GREP</strong>（原生文字 PDF）。时机来自粗分类「下一步建议」或环里决策。已移除无效的「再看几页」。</p>
+        </div>
+        <div class="card">
+          <h4><span class="pill gate">门控</span> 挂成工具壳</h4>
+          <p><strong>提切分</strong> → <strong>校验</strong> → <strong>裁决</strong>。成功路径被铁律卡住：不能跳过校验直接成功；结束必须走裁决。</p>
+        </div>
+        <div class="card">
+          <h4>目录两步的特殊身份</h4>
+          <p>形态上是注册工具，但日常由协调器按死顺序调用（找锚点 → 抄目录），不是模型随手点的侦察工具。</p>
+        </div>
+      </div>
+
+      <pre class="flow" style="margin-top:1rem"><span class="c-flow">流程阶段</span>
+  文字探测 → 统计 → 目录? → 粗分类 → 资产 → 再统计
+       │
+       ▼
+<span class="c-scout">侦察工具（可选，仅超大切分环）</span>
+  GREP
+       │
+       ▼
+<span class="c-gate">门控链（确定性触发）</span>
+  提切分 → 校验 → 裁决 → 落盘</pre>
+    </section>
+
+    <section id="flowchart">
+      <h2>3. 总流程图</h2>
+      <div class="mermaid-box">
+        <pre class="mermaid">
+flowchart TD
+  A[PDF 进 PROFILE] --> B[① 全页文字探测]
+  B --> C[② 算统计 + 极值页]
+  C --> D{要做目录?}
+  D -->|page_memory 强制 / chunk 看开关| E[找目录锚点：关键词扫]
+  E --> F[VLM 确认 + 扩窗抄目录]
+  D -->|关| G[目录跳过]
+  F --> H[④ VLM 粗分类]
+  G --> H
+  H --> I[⑤ 全页资产初探]
+  I --> J[再刷统计]
+  J --> K{图册?}
+  K -->|是| Z[结束：跳过解剖]
+  K -->|否| L{页数超限? 约200}
+  L -->|否| M[轻量解剖]
+  L -->|是| N[完整结构解剖]
+  M --> M1{要真切分?}
+  M1 -->|page_memory 否| M2[单片占位 → 落盘]
+  M1 -->|chunk 是| M3[一次性提切分门控]
+  N --> N1{要真切分?}
+  N1 -->|page_memory 否| N2[单片占位 → 落盘]
+  N1 -->|chunk 是| N3[进入多轮环]
+  N3 --> R0[可选侦察: GREP]
+  R0 --> R1[门控: 提切分]
+  R1 --> R2[门控: 校验]
+  R2 --> R3[门控: 裁决]
+  R3 --> P[落盘解剖图]
+  M2 --> P
+  M3 --> P
+  N2 --> P
+        </pre>
+      </div>
+    </section>
+
+    <section id="inventory">
+      <h2>4. 能力清单与时机</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>能力</th>
+            <th>分类</th>
+            <th>做什么</th>
+            <th>何时</th>
+            <th>实现性质</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>文字探测</td>
+            <td><span class="pill flow">流程</span></td>
+            <td>每页字数、密度、横竖、空白感</td>
+            <td>一进来必跑</td>
+            <td>纯代码</td>
+          </tr>
+          <tr>
+            <td>页种类粗标</td>
+            <td><span class="pill flow">流程</span></td>
+            <td>横版 / 普通等规则标签</td>
+            <td>文字探测后立刻</td>
+            <td>纯代码</td>
+          </tr>
+          <tr>
+            <td>统计聚合</td>
+            <td><span class="pill flow">流程</span></td>
+            <td>均值分位、最短最长页；粗分类靠极值页抽样</td>
+            <td>探测后一次；资产后再刷</td>
+            <td>纯代码</td>
+          </tr>
+          <tr>
+            <td>找目录锚点</td>
+            <td><span class="pill flow">流程壳</span></td>
+            <td>扫「目录 / contents」，滤页眉假命中</td>
+            <td>目录开时固定第一步</td>
+            <td>文本扫描</td>
+          </tr>
+          <tr>
+            <td>抄目录</td>
+            <td><span class="pill flow">流程壳</span></td>
+            <td>确认真目录页，扩窗抽标题树</td>
+            <td>紧接锚点</td>
+            <td>VLM</td>
+          </tr>
+          <tr>
+            <td>粗分类</td>
+            <td><span class="pill flow">流程</span></td>
+            <td>语义类别、路由（图册/扫描/幻灯/通用）、页眉页脚带、「下一步建议」</td>
+            <td>粗阶段必跑</td>
+            <td>VLM（规划一步，不是工具）</td>
+          </tr>
+          <tr>
+            <td>资产 / 图表初探</td>
+            <td><span class="pill flow">流程</span></td>
+            <td>嵌入图、表、矢量块；用页眉页脚带去噪</td>
+            <td>粗分类之后</td>
+            <td>纯代码几何（不是 VLM 读图）</td>
+          </tr>
+          <tr>
+            <td>全文 GREP</td>
+            <td><span class="pill scout">侦察</span></td>
+            <td>子串 / 正则搜字</td>
+            <td>超大切分环可选；扫描件不可用</td>
+            <td>纯文本搜</td>
+          </tr>
+          <tr>
+            <td>提切分方案</td>
+            <td><span class="pill gate">门控</span></td>
+            <td>要不要切、刀切在哪</td>
+            <td>见下一节触发规则</td>
+            <td>混合（内部可有 LLM）</td>
+          </tr>
+          <tr>
+            <td>校验</td>
+            <td><span class="pill gate">门控</span></td>
+            <td>覆盖是否完整、每片是否超限</td>
+            <td>成功收工前硬门</td>
+            <td>纯代码</td>
+          </tr>
+          <tr>
+            <td>裁决</td>
+            <td><span class="pill gate">门控</span></td>
+            <td>成功 / 中止；唯一出口</td>
+            <td>校验通过后或失败路径</td>
+            <td>控制逻辑</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout" style="margin-top:1rem">
+        你常记得的三块都能对上：<strong>统计</strong>=流程必调；<strong>超长切割</strong>=页数超限时的门控链（chunk 才真切）；<strong>资产图表初探</strong>=粗分类后的流程。
+      </div>
+    </section>
+
+    <section id="gates">
+      <h2>5. 门控触发规则（按触发，不按是否用 LLM）</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>门控</th>
+            <th>触发规则</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>提切分</td>
+            <td>
+              轻量解剖：协调器<strong>必调一次</strong>（或 page_memory 直接塞单片占位，连门都不进）。
+              超大环：没方案时下一步默认就是它；非法动作也会被掰回它。
+            </td>
+          </tr>
+          <tr>
+            <td>校验</td>
+            <td>
+              <strong>硬门</strong>：想成功收工但还没校验通过 → 执行器强制改成先校验。
+              确定性模式：有方案后下一步固定是校验。
+            </td>
+          </tr>
+          <tr>
+            <td>裁决</td>
+            <td>
+              <strong>唯一出口</strong>。校验通过 → 才能成功收工；预算耗尽 / 失败 → 中止。
+              不是「探完再想想要不要结束」。
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>确定性模式写死的顺序</h3>
+      <pre class="flow"><span class="c-gate">没方案 → 提切分 → 校验 →（过）成功裁决
+                    └（不过）回退单片再校验</span></pre>
+      <p class="muted">有模型时环里表面上还能「选工具」，但成功路径仍被两条铁律卡住：不能跳过校验直接成功；结束必须走裁决。</p>
+    </section>
+
+    <section id="examples">
+      <h2>6. 三条故事线</h2>
+
+      <h3>例 A · 40 页普通报告（page_memory / v2）</h3>
+      <pre class="flow"><span class="c-flow">扫字 → 统计 → 关键词找目录 → VLM 抄目录
+→ VLM 粗分类（通用）→ 扫资产 → 再统计
+→ 页数没超 → 轻量解剖 → 不真切分（整本一片）
+→ 结束。后面建层级吃的是「目录树」，不吃切分计划。</span>
+
+<span class="c-dim">没有 agent 环。GREP 基本不出现。</span></pre>
+
+      <h3>例 B · 500 页法规/招股书，chunk 要喂 MinerU</h3>
+      <pre class="flow"><span class="c-flow">前面粗阶段同上（目录看开关）
+→ 超限 + 非图册 → 完整结构</span>
+→ <span class="c-scout">可选侦察</span>：粗分类说「再搜 Chapter」→ GREP
+→ <span class="c-gate">提切分 → 校验 → 裁决</span>
+→ 下游按刀口拆 PDF 分别 MinerU
+
+<span class="c-dim">这里才有真正的多轮环；但环的骨架仍是门控链。</span></pre>
+
+      <h3>例 C · 图册 / 图纸为主</h3>
+      <pre class="flow"><span class="c-flow">扫字 → 统计 →（可选目录）→ VLM 说「这是图册」
+→ 扫资产 → 直接结束，不做解剖 / 切分环</span>
+→ chunk 下游改走图册解析；page_memory 仍走页管线，但不消费切分</pre>
+    </section>
+
+    <section id="fork">
+      <h2>7. page_memory vs chunk 分叉</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>维度</th>
+            <th>chunk / MinerU</th>
+            <th>page_memory</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>目录</td>
+            <td>可选（全局开关，常关）</td>
+            <td>强制倾向开启；常在粗分类前做完</td>
+          </tr>
+          <tr>
+            <td>真切分</td>
+            <td>超大时要真实切分计划</td>
+            <td>跳过；单片占位即可</td>
+          </tr>
+          <tr>
+            <td>多轮环</td>
+            <td>超大 + 非图册时进入</td>
+            <td>即使超大也不进切分环</td>
+          </tr>
+          <tr>
+            <td>图册</td>
+            <td>跳过解剖；下游走图册解析器</td>
+            <td>PROFILE 可标图册并跳过解剖；解析侧不按图册绕道</td>
+          </tr>
+          <tr>
+            <td>下游主要吃什么</td>
+            <td>路由类别、切分刀口、可选目录</td>
+            <td>目录层级为主；切分字段基本是占位</td>
+          </tr>
+          <tr>
+            <td>页数门槛</td>
+            <td>约 200 页为「超大」切分门</td>
+            <td>另有页记忆硬上限；不消费切分计划</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="vlm">
+      <h2>8. VLM / GREP / 纯代码对照</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>步骤</th>
+            <th>类型</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>全页文字特征、横竖版标签、统计极值、资产/表/矢量聚类</td><td>纯代码</td></tr>
+          <tr><td>目录关键词扫全文、全文 GREP</td><td>文本扫描 / GREP</td></tr>
+          <tr><td>粗分类、目录确认与抽取</td><td>VLM</td></tr>
+          <tr><td>切分时印刷页→物理页校准（有目录时）</td><td>常为 VLM</td></tr>
+          <tr><td>按章决定刀口</td><td>文本 LLM（失败则纯代码回退）</td></tr>
+          <tr><td>无目录切分、校验、单片占位、阶段编排</td><td>纯代码 / 固定协调</td></tr>
+          <tr><td>环里「下一步选哪个」</td><td>文本 LLM 决策（仅超大切分路径；成功仍受门控约束）</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="registry">
+      <h2>9. 注册表备忘（实现对照）</h2>
+      <p class="muted">下面只方便对照代码，日常心智模型请用上面的「流程 / 侦察 / 门控」。</p>
+      <div class="callout warn">
+        注册表里现有工具形态：真正自由侦察只剩 GREP；提切分 / 校验 / 裁决是门控；目录两步是流程步骤的工具壳。（inspect.pages 已删除）
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>注册名</th>
+            <th>心智分类</th>
+            <th>谁触发</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>find.toc_anchor_pages</code></td><td>流程壳</td><td>协调器固定</td></tr>
+          <tr><td><code>extract.toc_with_boundaries</code></td><td>流程壳</td><td>协调器固定</td></tr>
+          <tr><td><code>grep.text</code></td><td>侦察</td><td>粗分类建议 / 环可选</td></tr>
+          <tr><td><code>propose.shard_plan</code></td><td>门控</td><td>确定性：轻量必调 / 环默认</td></tr>
+          <tr><td><code>validate.anatomy_map</code></td><td>门控</td><td>成功收工前硬门</td></tr>
+          <tr><td><code>verdict</code></td><td>门控</td><td>唯一出口</td></tr>
+        </tbody>
+      </table>
+      <h3>未进注册表、但会跑的流程步骤</h3>
+      <ul class="clean">
+        <li>文字探测 · 页种类粗标 · 统计聚合 · 资产初探</li>
+        <li>VLM 粗分类（规划一步）</li>
+        <li>单片占位 · 组装 / 落盘解剖图</li>
+        <li>ReAct 执行环本身</li>
+      </ul>
+      <p class="muted" style="margin-top:1rem">
+        相关代码位置（查阅用）：
+        <code>apps/worker/app/services/document_parser/profiling/doc_profiler.py</code>、
+        <code>apps/worker/app/services/document_agent/coordinator.py</code>、
+        <code>apps/worker/app/services/document_agent/registry.py</code>、
+        <code>apps/worker/app/services/document_agent/executor/react_loop.py</code>、
+        <code>apps/worker/app/services/document_agent/tools/</code>
+      </p>
+    </section>
+
+    <footer>
+      Knowhere internal · PDF PROFILE 阶段手册 · 打开本文件即可离线查阅
+    </footer>
+  </div>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        primaryColor: "#ccfbf1",
+        primaryTextColor: "#1c1917",
+        primaryBorderColor: "#0f766e",
+        lineColor: "#78716c",
+        secondaryColor: "#fef9c3",
+        tertiaryColor: "#dbeafe",
+        fontFamily: "Source Han Sans SC, Noto Sans SC, PingFang SC, sans-serif",
+      },
+      flowchart: { curve: "basis", htmlLabels: true },
+    });
+  </script>
+</body>
+</html>

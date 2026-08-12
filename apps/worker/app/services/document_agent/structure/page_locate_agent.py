@@ -77,7 +77,7 @@ def verify_section_page_choice(
 
     prompt = _build_verify_prompt(title=title, candidates=candidates)
     est = 800 * len(rendered) + 800
-    stage = "page_locate"
+    stage = "calibration"
     if not ctx.budget.try_reserve("visual", est, stage=stage):
         best = candidates[0]
         return {
@@ -85,7 +85,7 @@ def verify_section_page_choice(
             "candidate_pages": pages,
             "confidence": min(best.confidence, BUDGET_EXHAUSTED_GREP_CONFIDENCE_CAP),
             "source": "agent_heuristic",
-            "reason": "page_locate visual budget exhausted; selected top grep candidate",
+            "reason": "calibration visual budget exhausted; selected top grep candidate",
         }
 
     content_parts: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
