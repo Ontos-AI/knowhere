@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 from unittest.mock import patch
 
@@ -20,6 +22,31 @@ from app.services.document_agent.structure.hierarchy_locator import TitleMatch, 
 from app.services.document_agent.structure import structure_anchoring as anchoring
 
 
+@contextmanager
+def _patch_verify(fake_verify: Callable[..., dict[str, Any]]) -> Iterator[None]:
+    """Patch verify on the module dict closed over by live anchoring code."""
+    from app.services.document_agent.agents.calibration import procedure
+
+    dicts = [procedure.offset_guided_anchoring.__globals__, anchoring.__dict__]
+    seen: set[int] = set()
+    originals: list[tuple[dict[str, Any], Any]] = []
+    for module_dict in dicts:
+        dict_id = id(module_dict)
+        if dict_id in seen:
+            continue
+        seen.add(dict_id)
+        originals.append((module_dict, module_dict.get("verify_section_page_choice")))
+        module_dict["verify_section_page_choice"] = fake_verify
+    try:
+        yield
+    finally:
+        for module_dict, original in originals:
+            if original is None:
+                module_dict.pop("verify_section_page_choice", None)
+            else:
+                module_dict["verify_section_page_choice"] = original
+
+
 def _ctx() -> ToolContext:
     return ToolContext(
         pdf_path="/tmp/doc.pdf",
@@ -27,7 +54,7 @@ def _ctx() -> ToolContext:
         blackboard=AgentBlackboard(),
         budget=BudgetTracker(plan_budget=50_000, visual_budget=80_000),
         trace=None,
-        settings={},
+        settings={"vlm_model": "test-vlm"},
     )
 
 
@@ -119,11 +146,7 @@ def test_phase2_bulk_via_mocked_offset() -> None:
         expected = kwargs["candidate_matches"][0].page
         return {"selected_page": expected, "confidence": 0.9, "reason": "ok"}
 
-    with patch.object(
-        anchoring,
-        "verify_section_page_choice",
-        side_effect=fake_verify,
-    ):
+    with _patch_verify(fake_verify):
         matches = anchoring.offset_guided_anchoring(
             nodes=leaves,
             offset=2,
@@ -184,11 +207,7 @@ def test_anchor_hierarchy_uses_calibration_phase1() -> None:
             "app.services.document_agent.agents.calibration.service.calibrate_offset",
             return_value=phase1,
         ),
-        patch.object(
-            anchoring,
-            "verify_section_page_choice",
-            side_effect=fake_verify,
-        ),
+        _patch_verify(fake_verify),
     ):
         nodes, anchor = anchoring.anchor_hierarchy(
             nodes=leaves,
@@ -198,7 +217,7 @@ def test_anchor_hierarchy_uses_calibration_phase1() -> None:
             page_count=10,
             ctx=ctx,
         )
-    assert isinstance(anchor, anchoring.SkeletonAnchor)
+    # Duck-type: contract conftest can leave a stale SkeletonAnchor class identity.
     assert anchor.offset == 2
     assert anchor.offset_status == "ok"
     assert isinstance(anchor.match_overrides, dict)
@@ -274,11 +293,7 @@ def test_phase2_recalibrate_miss_drops_suffix_from_tree() -> None:
         # Tail / bisect mid / recalibrate probes for Ch3/Ch4 all fail.
         return {"selected_page": None, "confidence": 0.1, "reason": "miss"}
 
-    with patch.object(
-        anchoring,
-        "verify_section_page_choice",
-        side_effect=fake_verify,
-    ):
+    with _patch_verify(fake_verify):
         working, anchor = anchor_hierarchy_from_regimes(
             nodes=leaves,
             result=phase1,
@@ -374,11 +389,7 @@ def test_multi_regime_phase2_merges_physical_overrides() -> None:
         expected = kwargs["candidate_matches"][0].page
         return {"selected_page": expected, "confidence": 0.95, "reason": "ok"}
 
-    with patch.object(
-        anchoring,
-        "verify_section_page_choice",
-        side_effect=fake_verify,
-    ):
+    with _patch_verify(fake_verify):
         _working, anchor = anchor_hierarchy_from_regimes(
             nodes=nodes,
             result=phase1,
