@@ -23,8 +23,7 @@ from app.services.document_agent.manifest import (
     ToolContext,
 )
 from app.services.document_agent.planner.planner import _parse_profile_and_decision
-from app.services.document_agent.registry import REGISTRY
-from app.services.document_agent import tools as _registered_tools  # noqa: F401
+from app.services.document_agent.tools import REGISTRY
 from app.services.document_agent.state import AgentBlackboard
 
 
