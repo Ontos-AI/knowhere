@@ -9,7 +9,19 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
-from app.services.document_agent.structure.anchoring_primitives import *  # noqa: F403
+from app.services.document_agent.structure.anchoring_primitives import (
+    anchor_hierarchy_from_offset,
+    bulk_offset_matches,
+    deserialize_skeleton_anchor,
+    deserialize_title_match,
+    locate_null_page_parent_overrides,
+    prune_out_of_scope_nodes,
+    prune_unanchored_toc_leaves,
+    serialize_skeleton_anchor,
+    serialize_title_match,
+    toc_range_end,
+    toc_range_start,
+)
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
     TitleMatch,
