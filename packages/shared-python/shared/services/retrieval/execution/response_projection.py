@@ -26,7 +26,7 @@ def to_public_source(row: dict[str, Any]) -> dict[str, Any]:
 async def enrich_referenced_chunks_with_asset_url(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return await enrich_rows_with_retrieval_asset_url(
         refs,
-        log_context='agentic referenced chunk',
+        log_context='mapnav referenced chunk',
     )
 
 

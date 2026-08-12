@@ -19,7 +19,7 @@ from app.services.document_parser.formats.markdown.parse_state import ParserRowV
 from loguru import logger
 
 from shared.utils.chunk_refs import build_chunk_ref
-from app.services.common.file_utils import path_handle
+from app.services.common.file_utils import MAX_ASSET_FILE_NAME_CHARS, path_handle
 
 
 @dataclass(frozen=True)
@@ -135,6 +135,7 @@ def build_markdown_image_asset(
 def build_markdown_image_name(*, image_count: int, last_context: str) -> str:
     image_name_context = path_handle(last_context.strip(), mode="clean_single")
     if image_name_context:
+        image_name_context = image_name_context[:MAX_ASSET_FILE_NAME_CHARS]
         return f"image-{image_count}-{image_name_context}"
     return f"image-{image_count}"
 

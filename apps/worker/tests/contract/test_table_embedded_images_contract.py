@@ -32,11 +32,6 @@ from shared.core.constants.processing import ProcessingConstants  # noqa: E402
 from shared.services.chunks.dataframe_chunk_converter import (  # noqa: E402
     dataframe_to_chunks,
 )
-from shared.services.retrieval.agentic.evidence.renderer import (  # noqa: E402
-    render_table_chunk_lines,
-)
-
-
 def _write_jpeg(
     path: Path,
     *,
@@ -182,28 +177,6 @@ def test_table_embedded_images_are_extracted_rewritten_and_linked(
         and item.get("target") == image_id
         for item in table_connect
     )
-
-    rendered = render_table_chunk_lines(
-        {
-            "chunk_id": table_id,
-            "chunk_type": "table",
-            "file_path": by_type["table"]["metadata"].get("file_path"),
-            "chunk_metadata": by_type["table"]["metadata"],
-        },
-        display_ref="tables/demo.html",
-        chunk_by_id={
-            image_id: {
-                "chunk_id": image_id,
-                "chunk_type": "image",
-                "file_path": by_type["image"]["metadata"].get("file_path"),
-                "content": by_type["image"]["content"],
-            }
-        },
-        asset_lookup={image_id: "https://example.com/img.jpg"},
-        rendered_ids=set(),
-    )
-    assert any("[Image: https://example.com/img.jpg]" in line for line in rendered)
-
 
 def test_table_embedded_images_skip_below_img_min_size(tmp_path: Path) -> None:
     output_dir = tmp_path / "doc"

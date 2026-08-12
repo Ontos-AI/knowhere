@@ -4,18 +4,34 @@ Independent retrieval channels for checkerboard search.
 Each channel queries the full scoped corpus independently and returns
 ranked rows. Channels are fused via RRF in the orchestrator.
 """
+
 from __future__ import annotations
 
+import time
 from typing import Any
 
+from loguru import logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.core.config import settings
 from shared.services.retrieval.search.lexical_ranker import (
     rank_rows_by_bm25,
     tokenize_query_for_ranker,
 )
 from shared.services.retrieval.search.section_filters import is_excluded_section
+
+# The generated tsvector columns are built with to_tsvector('simple', ...), so
+# queries must use the same configuration or nothing matches.
+_FTS_CONFIG = "simple"
+
+# Guards against pathological queries producing an enormous tsquery.
+_MAX_FTS_QUERY_TOKENS = 50
+
+_TSV_FIELD_BY_SEARCH_FIELD = {
+    "content_search_text": "content_search_tsv",
+    "path_search_text": "path_search_tsv",
+}
 
 
 _SCOPED_CORPUS_CTE = """
@@ -94,10 +110,10 @@ def _build_extra_filters(
     params: dict[str, Any] = {}
 
     if allowed_chunk_types is not None:
-        placeholders = ', '.join(f':_act_{i}' for i in range(len(allowed_chunk_types)))
-        clauses.append(f'AND LOWER(dc.chunk_type) IN ({placeholders})')
+        placeholders = ", ".join(f":_act_{i}" for i in range(len(allowed_chunk_types)))
+        clauses.append(f"AND LOWER(dc.chunk_type) IN ({placeholders})")
         for i, ct in enumerate(sorted(allowed_chunk_types)):
-            params[f'_act_{i}'] = ct
+            params[f"_act_{i}"] = ct
 
     if signal_paths:
         # TODO(intent-step): Current implementation uses OR across
@@ -108,16 +124,75 @@ def _build_extra_filters(
         # vs "path_prefix" (for Intent Step resolved paths).
         ilike_parts = []
         for i, kw in enumerate(signal_paths):
-            key = f'_sig_{i}'
+            key = f"_sig_{i}"
             ilike_parts.append(f"LOWER(COALESCE(ds.section_path, '')) LIKE :{key}")
-            params[key] = f'%{kw.lower()}%'
-        combined = ' OR '.join(ilike_parts)
-        if filter_mode == 'keep':
-            clauses.append(f'AND ({combined})')
+            params[key] = f"%{kw.lower()}%"
+        combined = " OR ".join(ilike_parts)
+        if filter_mode == "keep":
+            clauses.append(f"AND ({combined})")
         else:
-            clauses.append(f'AND NOT ({combined})')
+            clauses.append(f"AND NOT ({combined})")
 
-    return '\n        '.join(clauses), params
+    return "\n        ".join(clauses), params
+
+
+def _build_exclude_section_filters(
+    *,
+    exclude_sections: list[dict[str, str]],
+) -> tuple[str, dict[str, Any]]:
+    """Exclude an exact section path and its descendants inside the scoped CTE.
+
+    Applied before the FTS candidate LIMIT so excluded sections cannot consume
+    the bounded candidate budget. Sectionless chunks stay eligible (empty path
+    does not match), matching ``is_excluded_section``.
+    """
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+
+    for index, item in enumerate(exclude_sections):
+        if not isinstance(item, dict):
+            continue
+        document_id = str(item.get("document_id") or "").strip()
+        section_path = str(item.get("section_path") or "").strip()
+        if not document_id or not section_path:
+            continue
+
+        document_key = f"_exc_section_doc_{index}"
+        path_key = f"_exc_section_path_{index}"
+        clauses.append(
+            f"""AND NOT (
+            dc.document_id = :{document_key}
+            AND (
+                COALESCE(ds.section_path, '') = :{path_key}
+                OR POSITION(:{path_key} || ' / ' IN COALESCE(ds.section_path, '')) = 1
+            )
+        )"""
+        )
+        params[document_key] = document_id
+        params[path_key] = section_path
+
+    return "\n        ".join(clauses), params
+
+
+def _join_sql_filters(*filters: str) -> str:
+    return "\n        ".join(filter(None, filters))
+
+
+def _prepare_fts_tokens(tokens: list[str]) -> list[str]:
+    """Return the ranker tokens to hand to the Postgres FTS prefilter.
+
+    Tokens are passed to SQL as a text[] parameter and lexed by Postgres
+    itself, so nothing here needs to escape tsquery syntax. Only emptiness and
+    an upper bound are enforced.
+    """
+    prepared: list[str] = []
+    for token in tokens:
+        cleaned = token.strip()
+        if cleaned:
+            prepared.append(cleaned)
+        if len(prepared) >= _MAX_FTS_QUERY_TOKENS:
+            break
+    return prepared
 
 
 def _row_to_dict(row: Any) -> dict[str, Any]:
@@ -131,7 +206,8 @@ def _filter_excluded_sections(
     if not exclude_sections:
         return rows
     return [
-        row for row in rows
+        row
+        for row in rows
         if not is_excluded_section(
             document_id=row.get("document_id"),
             section_path=row.get("section_path"),
@@ -151,7 +227,7 @@ async def path_channel(
     exclude_sections: list[dict[str, str]],
     allowed_chunk_types: set[str] | None = None,
     signal_paths: list[str] | None = None,
-    filter_mode: str = 'delete',
+    filter_mode: str = "delete",
 ) -> list[dict[str, Any]]:
     """Path channel: BM25 over pre-tokenized path search text.
 
@@ -184,7 +260,7 @@ async def content_channel(
     exclude_sections: list[dict[str, str]],
     allowed_chunk_types: set[str] | None = None,
     signal_paths: list[str] | None = None,
-    filter_mode: str = 'delete',
+    filter_mode: str = "delete",
 ) -> list[dict[str, Any]]:
     """Content channel: BM25 over pre-tokenized content search text."""
     return await _bm25_channel(
@@ -229,25 +305,96 @@ async def _bm25_channel(
         signal_paths=signal_paths or [],
         filter_mode=filter_mode,
     )
+    section_sql, section_params = _build_exclude_section_filters(
+        exclude_sections=exclude_sections,
+    )
+    extra_sql = _join_sql_filters(extra_sql, section_sql)
     params = _build_base_params(
         user_id=user_id,
         namespace=namespace,
         exclude_document_ids=exclude_document_ids,
     )
     params.update(extra_params)
+    params.update(section_params)
 
-    sql = _SCOPED_CORPUS_CTE.format(exclude_clause=exclude_clause, extra_filters=extra_sql) + f"""
+    corpus_cte = _SCOPED_CORPUS_CTE.format(
+        exclude_clause=exclude_clause,
+        extra_filters=extra_sql,
+    )
+    full_scan_sql = (
+        corpus_cte
+        + f"""
     SELECT sc.*
     FROM scoped_chunks sc
     WHERE COALESCE(sc.{search_field}, '') <> ''
     """
+    )
 
-    result = await db.execute(text(sql), params)
-    rows = [_row_to_dict(r) for r in result.all()]
+    started_at = time.perf_counter()
+    tsv_field = _TSV_FIELD_BY_SEARCH_FIELD[search_field]
+    fts_tokens = _prepare_fts_tokens(query_tokens)
+    candidate_limit = int(settings.RETRIEVAL_POSTGRES_FTS_CANDIDATE_LIMIT)
+
+    rows: list[dict[str, Any]] = []
+    used_fallback = True
+    if fts_tokens:
+        # Postgres lexes the tokens with the same configuration that generated
+        # the tsvector columns, then ORs the resulting lexemes. Building the
+        # tsquery server-side keeps the prefilter aligned with the stored
+        # lexicon and leaves no room for tsquery syntax in user input to
+        # change the query shape. `fts_query.q` is NULL when no token yields a
+        # lexeme, which the caller treats as "no usable prefilter".
+        prefilter_sql = (
+            corpus_cte
+            + f""",
+    fts_query AS (
+        SELECT string_agg(quote_literal(lexeme), ' | ')::tsquery AS q
+        FROM (
+            SELECT DISTINCT
+                unnest(tsvector_to_array(to_tsvector('{_FTS_CONFIG}', token))) AS lexeme
+            FROM unnest(CAST(:fts_tokens AS text[])) AS token
+        ) lexemes
+    )
+    SELECT sc.*
+    FROM scoped_chunks sc, fts_query fq
+    WHERE COALESCE(sc.{search_field}, '') <> ''
+        AND fq.q IS NOT NULL
+        AND sc.{tsv_field} @@ fq.q
+    ORDER BY ts_rank_cd(sc.{tsv_field}, fq.q) DESC
+    LIMIT :fts_candidate_limit
+    """
+        )
+        prefilter_params = dict(params)
+        prefilter_params["fts_tokens"] = fts_tokens
+        prefilter_params["fts_candidate_limit"] = candidate_limit
+        result = await db.execute(text(prefilter_sql), prefilter_params)
+        rows = [_row_to_dict(r) for r in result.all()]
+        used_fallback = not rows
+
+    # No usable tsquery, or the prefilter matched nothing. Fall back to the
+    # full scoped scan so recall never regresses against the previous
+    # behaviour.
+    if used_fallback:
+        result = await db.execute(text(full_scan_sql), params)
+        rows = [_row_to_dict(r) for r in result.all()]
+
+    candidate_count = len(rows)
+    # Defensive: SQL already owns pre-LIMIT section exclusion.
     rows = _filter_excluded_sections(rows, exclude_sections)
 
     ranked_rows = rank_rows_by_bm25(rows, query_tokens, search_field=search_field)
-    return ranked_rows[:top_k]
+    ranked_rows = ranked_rows[:top_k]
+
+    logger.debug(
+        "bm25_channel field={} candidates={} limit={} ranked={} fallback={} duration_ms={:.1f}",
+        search_field,
+        candidate_count,
+        candidate_limit,
+        len(ranked_rows),
+        used_fallback,
+        (time.perf_counter() - started_at) * 1000,
+    )
+    return ranked_rows
 
 
 async def term_channel(
@@ -261,7 +408,7 @@ async def term_channel(
     exclude_sections: list[dict[str, str]],
     allowed_chunk_types: set[str] | None = None,
     signal_paths: list[str] | None = None,
-    filter_mode: str = 'delete',
+    filter_mode: str = "delete",
 ) -> list[dict[str, Any]]:
     """Term/grep channel: substring matching on term_search_text.
 
@@ -299,12 +446,17 @@ async def term_channel(
         params["full_query"] = f"%{query_lower}%"
 
     where_clause = " OR ".join(ilike_conditions)
-    sql = _SCOPED_CORPUS_CTE.format(exclude_clause=exclude_clause, extra_filters=extra_sql) + f"""
+    sql = (
+        _SCOPED_CORPUS_CTE.format(
+            exclude_clause=exclude_clause, extra_filters=extra_sql
+        )
+        + f"""
     SELECT sc.*
     FROM scoped_chunks sc
     WHERE sc.term_search_text IS NOT NULL
         AND ({where_clause})
     """
+    )
 
     result = await db.execute(text(sql), params)
     rows = [_row_to_dict(r) for r in result.all()]

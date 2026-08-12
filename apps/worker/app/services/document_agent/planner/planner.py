@@ -156,7 +156,11 @@ def _parse_profile_and_decision(raw: str) -> tuple[DocumentProfile, ReflexionDec
         header_y=header_y,
         footer_y=footer_y,
     )
-    next_action = str(data.get("next_action") or "ready_to_shard")
+    next_action = str(data.get("next_action") or "ready_to_shard").strip().lower()
+    # Legacy models may still emit verdict_now; that is not a planner finish
+    # signal — fall through to ready_to_shard so the executor owns success/abort.
+    if next_action == "verdict_now":
+        next_action = "ready_to_shard"
     tool_name: str | None = None
     tool_args: dict[str, Any] = {}
     if next_action == "inspect_more":
@@ -171,12 +175,6 @@ def _parse_profile_and_decision(raw: str) -> tuple[DocumentProfile, ReflexionDec
         if query:
             tool_name = "grep.text"
             tool_args = {"query": query, "max_results": 20}
-    elif next_action == "verdict_now":
-        return profile, ReflexionDecision(
-            action="verdict_now",
-            rationale=profile.rationale,
-            verdict=None,
-        )
     if tool_name:
         return profile, ReflexionDecision(
             action="tool_call",

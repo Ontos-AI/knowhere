@@ -10,7 +10,10 @@ from typing import Any, Literal
 PageKind = Literal["normal", "landscape"]
 TocFailureKind = Literal["none", "confirm_failed", "rejected_all", "degraded"]
 
-ReflexionAction = Literal["tool_call", "verdict_now"]
+# Executor loop steps are always tool calls. Profile success/abort is owned
+# exclusively by the ``verdict`` tool (AgentVerdict.status), not by a separate
+# ReflexionAction shortcut.
+ReflexionAction = Literal["tool_call"]
 VerdictStatus = Literal["success", "abort"]
 
 
@@ -28,8 +31,6 @@ class PageFeature:
     height: float
     has_asset: bool
     is_blank_like: bool
-    # PDF-space boxes for detected assets; None when none were extracted.
-    asset_bboxes: list[dict[str, Any]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
