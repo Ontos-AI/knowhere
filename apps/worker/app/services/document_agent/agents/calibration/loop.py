@@ -22,7 +22,7 @@ from app.services.document_agent.agents.calibration.types import (
     CalibrationResult,
     calibration_result_from_dict,
 )
-from app.services.document_agent.budget import BudgetTracker
+from app.services.document_agent.budget import BudgetTracker, StageEnvelope
 from app.services.document_agent.manifest import ToolContext, ToolResult
 from app.services.document_agent.state import AgentBlackboard
 from app.services.document_agent.structure.structure_anchoring import (
@@ -44,8 +44,24 @@ Your job is Phase 1 only: partition regimes and find candidate offsets via
 inspect.pages, then call calibration.submit.
 Phase 2 (tail verify, binary search, small-step recalibrate) runs automatically
 after submit. Do not use a fixed post-TOC page window.
+Hard limits are token budgets and max_rounds — not a total page-count ledger.
 Include the word json in your response.
 """.strip()
+
+
+def _default_calibration_budget() -> BudgetTracker:
+    return BudgetTracker(
+        plan_budget=int(os.environ.get("PARSE_AGENT_PLAN_BUDGET", "50000")),
+        visual_budget=int(os.environ.get("PARSE_AGENT_VISUAL_BUDGET", "120000")),
+        visual_stage_envelopes={
+            "calibration": StageEnvelope(
+                min_guarantee=int(
+                    os.environ.get("PARSE_AGENT_CALIBRATION_MIN_BUDGET", "12000")
+                ),
+                cap=int(os.environ.get("PARSE_AGENT_CALIBRATION_CAP", "40000")),
+            ),
+        },
+    )
 
 
 def _load_skill() -> str:
@@ -96,12 +112,14 @@ def run_calibration_phase1(
     no_links: bool = False,
     max_rounds: int = 16,
     inspect_page_cap: int = 5,
-    inspect_page_budget: int = 24,
 ) -> CalibrationResult:
     """Agent Phase-1 only: partition regimes + candidate offsets, then submit.
 
     Reuses the caller's ``ToolContext`` (budget / pdf / settings). Does **not**
     run production Phase-2 bulk anchoring.
+
+    Hard limits: planner/visual token budgets + ``max_rounds``. Per-call
+    ``inspect_page_cap`` is only a batch-size cap (not a total page ledger).
     """
     hierarchies = list(toc_hierarchies or [])
     if no_links:
@@ -116,7 +134,7 @@ def run_calibration_phase1(
         ctx.blackboard.page_count = resolved_page_count
 
     ctx.settings.setdefault("inspect_page_cap", inspect_page_cap)
-    ctx.settings.setdefault("inspect_page_budget", inspect_page_budget)
+    ctx.settings.setdefault("inspect_visual_stage", "calibration")
 
     blackboard = ctx.blackboard
     blackboard.global_signals["calibration_region_index"] = region_index
@@ -133,6 +151,15 @@ def run_calibration_phase1(
 
     for round_index in range(max_rounds):
         available = registry.openai_specs(blackboard)
+        snap = ctx.budget.snapshot() if ctx.budget is not None else {}
+        visual_stages = (
+            snap.get("visual_stages") if isinstance(snap, dict) else {}
+        ) or {}
+        calib_stage = (
+            visual_stages.get("calibration")
+            if isinstance(visual_stages, dict)
+            else None
+        )
         payload = {
             "skill": skill,
             "page_count": resolved_page_count,
@@ -144,10 +171,10 @@ def run_calibration_phase1(
                 "inspect_page_cap_per_call": int(
                     ctx.settings.get("inspect_page_cap") or inspect_page_cap
                 ),
-                "inspect_page_budget_total": int(
-                    ctx.settings.get("inspect_page_budget") or inspect_page_budget
-                ),
-                "inspect_pages_used": blackboard.global_signals.get(
+                "calibration_visual": calib_stage,
+                "plan": snap.get("plan") if isinstance(snap, dict) else None,
+                "visual": snap.get("visual") if isinstance(snap, dict) else None,
+                "inspect_pages_used_diagnostic": blackboard.global_signals.get(
                     "calibration_inspect_pages_used"
                 ),
             },
@@ -249,6 +276,21 @@ def run_calibration_phase1(
             tool_result.status,
         )
 
+        if tool_result.status == "error" and "budget exhausted" in str(
+            tool_result.error or ""
+        ).lower():
+            return _attach_history(
+                CalibrationResult(
+                    status="failed",
+                    notes=f"budget exhausted: {tool_result.error}",
+                    region_index=region_index,
+                    tool_calls=int(
+                        blackboard.global_signals.get("calibration_tool_calls") or 0
+                    ),
+                ),
+                history,
+            )
+
         if blackboard.global_signals.get("calibration_done"):
             raw_result = blackboard.global_signals.get("calibration_result") or {}
             if isinstance(raw_result, dict):
@@ -282,7 +324,6 @@ def run_calibration_agent(
     no_links: bool = False,
     max_rounds: int = 16,
     inspect_page_cap: int = 5,
-    inspect_page_budget: int = 24,
     budget: BudgetTracker | None = None,
     page_texts: dict[int, str] | None = None,
     body_pages: list[int] | None = None,
@@ -305,18 +346,14 @@ def run_calibration_agent(
         pdf_path=pdf_path,
         job_id=f"calibration-region-{region_index}",
         blackboard=blackboard,
-        budget=budget
-        or BudgetTracker(
-            plan_budget=int(os.environ.get("PARSE_AGENT_PLAN_BUDGET", "50000")),
-            visual_budget=int(os.environ.get("PARSE_AGENT_VISUAL_BUDGET", "80000")),
-        ),
+        budget=budget or _default_calibration_budget(),
         trace=None,
         output_dir=output_dir,
         settings={
             "vlm_model": vlm_model or "",
             "model": planner_model or vlm_model or "",
             "inspect_page_cap": inspect_page_cap,
-            "inspect_page_budget": inspect_page_budget,
+            "inspect_visual_stage": "calibration",
         },
     )
 
@@ -328,12 +365,11 @@ def run_calibration_agent(
         no_links=False,  # already stripped above when requested
         max_rounds=max_rounds,
         inspect_page_cap=inspect_page_cap,
-        inspect_page_budget=inspect_page_budget,
     )
     if phase1.status == "failed" and not phase1.regimes:
         return phase1, {}
 
-    anchor, finalized = finalize_calibration_result(
+    _working, anchor, finalized = finalize_calibration_result(
         result=phase1,
         entries=list(region_payload.get("entries") or []),
         toc_hierarchies=region_hierarchies,

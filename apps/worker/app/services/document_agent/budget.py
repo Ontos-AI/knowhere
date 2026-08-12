@@ -11,6 +11,7 @@ BudgetStage = Literal[
     "toc_confirm",
     "coarse_planner",
     "structural_react",
+    "calibration",
     "page_locate",
     "page_tagging",
 ]
@@ -174,6 +175,7 @@ class BudgetTracker:
                 usage = self._visual_stage_usage.get(stage, StageUsage())
                 remaining_guarantee = max(envelope.min_guarantee - usage.committed, 0)
                 if stage == "page_locate":
+                    # Legacy uncapped locate stage: keep child uncapped.
                     child_envelopes[stage] = StageEnvelope(min_guarantee=0, cap=0)
                     continue
                 child_envelopes[stage] = StageEnvelope(

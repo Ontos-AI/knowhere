@@ -21,11 +21,9 @@ from app.services.document_agent.structure.hierarchy_locator import (
     iter_leaf_title_nodes,
     resolve_hierarchy_page_ranges,
 )
+from app.services.document_agent.agents.calibration import calibrate_offset
 from app.services.document_agent.structure.structure_anchoring import (
     anchor_hierarchy,
-    calibrate_offset,
-    locate_null_page_parent_overrides,
-    offset_guided_anchoring,
     toc_range_end,
     toc_range_start,
 )
@@ -279,6 +277,8 @@ def _collapse_intermediate_single_child_chains(
             if only_child.children:
                 merged_title = f"{node.title} {only_child.title}"
                 merged_printed_page = only_child.printed_page or node.printed_page
+                merged_printed_label = only_child.printed_label or node.printed_label
+                merged_page_kind = only_child.page_kind or node.page_kind
                 merged_physical_hint = (
                     only_child.physical_page_hint or node.physical_page_hint
                 )
@@ -291,6 +291,8 @@ def _collapse_intermediate_single_child_chains(
                     node,
                     title=merged_title,
                     printed_page=merged_printed_page,
+                    printed_label=merged_printed_label,
+                    page_kind=merged_page_kind,
                     physical_page_hint=merged_physical_hint,
                     children=promoted,
                 )
@@ -453,13 +455,19 @@ def _resolve_pending_tocs(
             if p <= toc_scope_end and (toc_scope_start is None or p >= toc_scope_start)
         ]
 
-        offset, cal_overrides = calibrate_offset(
+        from app.services.document_agent.agents.calibration.procedure import (
+            finalize_calibration_result,
+            pick_primary_offset,
+        )
+
+        phase1 = calibrate_offset(
             nodes=nodes,
             toc_hierarchies=[pending_toc],
             ctx=ctx,
             page_texts=page_texts,
             page_count=toc_scope_end,
         )
+        offset = pick_primary_offset(phase1)
 
         if offset is None:
             logger.info(
@@ -481,38 +489,25 @@ def _resolve_pending_tocs(
             )
             continue
 
-        offset_matches = offset_guided_anchoring(
-            nodes=nodes,
-            offset=offset,
+        resolve_nodes, skeleton_anchor, _finalized = finalize_calibration_result(
+            result=phase1,
+            entries=list(pending_toc.get("toc_with_level") or []),
+            toc_hierarchies=[pending_toc],
             ctx=ctx,
             page_count=toc_scope_end,
-            calibration_overrides=cal_overrides,
-        )
-
-        if offset_matches is not None:
-            match_overrides = offset_matches
-            locate_summary: dict[str, Any] = {
-                "agent": "offset_guided_bulk",
-                "offset": offset,
-                "bulk_count": len(offset_matches),
-                "toc_relationship": relationship,
-            }
-        else:
-            match_overrides = cal_overrides
-            locate_summary = {
-                "agent": "offset_only",
-                "offset": offset,
-                "toc_relationship": relationship,
-                "reason": "offset_guided_anchoring_skipped_or_empty",
-            }
-
-        match_overrides, null_page_report = locate_null_page_parent_overrides(
-            nodes=nodes,
-            match_overrides=match_overrides,
             page_texts=page_texts,
             body_pages=toc_body_pages,
-            ctx=ctx,
+            nodes=nodes,
         )
+        match_overrides = skeleton_anchor.match_overrides
+        null_page_report = skeleton_anchor.null_page_report
+        locate_summary: dict[str, Any] = {
+            "agent": skeleton_anchor.locate_agent,
+            "offset": skeleton_anchor.offset,
+            "bulk_count": skeleton_anchor.bulk_count,
+            "pruned_out_of_scope": skeleton_anchor.pruned_count,
+            "toc_relationship": relationship,
+        }
         locate_summary["null_page_parent_locate"] = {
             "attempted": len(null_page_report),
             "located": sum(1 for row in null_page_report if row.get("page") is not None),
@@ -526,7 +521,7 @@ def _resolve_pending_tocs(
         }
 
         ranges = resolve_hierarchy_page_ranges(
-            nodes,
+            resolve_nodes,
             page_count=toc_scope_end,
             page_texts=page_texts,
             body_pages=toc_body_pages,

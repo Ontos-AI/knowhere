@@ -1,7 +1,7 @@
-"""Shared hierarchy anchoring: offset calibrate, null-page locate, bulk apply.
+"""Shared hierarchy anchoring: Phase-2 bulk/bisect/null-page + SkeletonAnchor.
 
-Extracted from page_memory.skeleton_extractor so profile-time skeleton phase
-and page-memory C4 share one implementation. No page_memory imports.
+Phase-1 offset discovery lives in ``document_agent.agents.calibration``.
+``anchor_hierarchy`` composes Phase-1 + Phase-2 for production callers.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from app.services.document_agent.structure.page_locate_agent import (
     verify_section_page_choice,
 )
 from loguru import logger
+
 
 def prune_out_of_scope_nodes(
     nodes: list[TitleNode],
@@ -71,6 +72,57 @@ def prune_out_of_scope_nodes(
         )
 
     return pruned, removed
+
+
+def prune_unanchored_toc_leaves(
+    nodes: list[TitleNode],
+    *,
+    match_overrides: dict[tuple[str, ...], TitleMatch],
+) -> tuple[list[TitleNode], int]:
+    """Remove TOC leaves that have no physical ``match_overrides`` entry.
+
+    Implements Phase-2 ``suffix = no TOC``: after bulk/bisect/recalibrate, any
+    leaf that was not successfully anchored is dropped from the coarse tree
+    instead of sticky ``inherited_unlocated`` ranges. Childless parents are
+    removed unless they themselves have an override.
+    """
+    removed = 0
+
+    def _prune(
+        node: TitleNode, parent_titles: tuple[str, ...]
+    ) -> TitleNode | None:
+        nonlocal removed
+        path = (*parent_titles, node.title)
+        if node.children:
+            children: list[TitleNode] = []
+            for child in node.children:
+                kept = _prune(child, path)
+                if kept is not None:
+                    children.append(kept)
+            if children:
+                return replace(node, children=children)
+            if path in match_overrides:
+                return replace(node, children=[])
+            removed += 1
+            return None
+        if path in match_overrides:
+            return node
+        removed += 1
+        return None
+
+    out: list[TitleNode] = []
+    for node in nodes:
+        kept = _prune(node, ())
+        if kept is not None:
+            out.append(kept)
+
+    if removed:
+        logger.info(
+            "[structure_anchoring] pruned {} unanchored TOC nodes "
+            "(suffix / no match_overrides → no TOC)",
+            removed,
+        )
+    return out, removed
 
 
 def toc_range_start(hierarchy: dict[str, Any]) -> int | None:
@@ -293,66 +345,7 @@ def _visual_rtl_locate_parent(
     return None, visual_calls
 
 
-# ── Offset calibration (Agent Phase-1) ───────────────────────────────────────
-
-
-def calibrate_offset(
-    *,
-    nodes: list[TitleNode],
-    toc_hierarchies: list[dict[str, Any]] | None,
-    ctx: ToolContext | None,
-    page_texts: dict[int, str],
-    page_count: int,
-) -> tuple[int | None, dict[tuple[str, ...], TitleMatch]]:
-    """Discover printed→physical offset (calibration SubAgent Phase-1).
-
-    Production and debug share this entry. Phase-2 bulk/bisect stays in
-    ``anchor_hierarchy_from_offset``.
-    """
-    from app.services.document_agent.agents.calibration.service import (
-        calibrate_offset as _agent_calibrate_offset,
-    )
-
-    return _agent_calibrate_offset(
-        nodes=nodes,
-        toc_hierarchies=toc_hierarchies,
-        ctx=ctx,
-        page_texts=page_texts,
-        page_count=page_count,
-    )
-
-
-def calibrate_offset_via_vlm(
-    *,
-    nodes: list[TitleNode],
-    toc_hierarchies: list[dict[str, Any]] | None,
-    ctx: ToolContext | None,
-    page_texts: dict[int, str],
-    page_count: int,
-) -> tuple[int | None, dict[tuple[str, ...], TitleMatch]]:
-    """Deprecated alias — use ``calibrate_offset`` (Agent Phase-1)."""
-    return calibrate_offset(
-        nodes=nodes,
-        toc_hierarchies=toc_hierarchies,
-        ctx=ctx,
-        page_texts=page_texts,
-        page_count=page_count,
-    )
-
-
-def toc_cluster_end_page(toc_hierarchies: list[dict[str, Any]] | None) -> int | None:
-    """Get the last physical page of the primary TOC cluster."""
-    if not toc_hierarchies:
-        return None
-    end_pages: list[int] = []
-    for hierarchy in toc_hierarchies:
-        end = toc_range_end(hierarchy)
-        if end is not None:
-            end_pages.append(end)
-    return max(end_pages) if end_pages else None
-
-
-# ── Offset-guided bulk anchoring with recursive recalibrate (Phase A3) ───────
+# ── Offset-guided bulk anchoring with recursive recalibrate (Phase-2) ───────
 
 _TAIL_VERIFY_CONFIDENCE_THRESHOLD = 0.6
 _MAX_RECALIBRATE_DEPTH = 5
@@ -576,20 +569,25 @@ def offset_guided_anchoring(
         for path, node in iter_leaf_title_nodes(nodes)
         if node.printed_page is not None
     ]
-    if len(leaves) < 2:
-        return None
+    if not leaves:
+        return dict(calibration_overrides) or None
 
     all_matches: dict[tuple[str, ...], TitleMatch] = {}
     all_matches.update(calibration_overrides)
 
-    _anchor_segment_recursive(
-        leaves=leaves,
-        offset=offset,
-        ctx=ctx,
-        page_count=page_count,
-        matches=all_matches,
-        depth=0,
-    )
+    # Single-leaf regimes (roman front-matter, F-1 appendix, …) still get a
+    # deterministic printed→physical override; Phase-1 already calibrated them.
+    if len(leaves) == 1:
+        all_matches.update(bulk_offset_matches(leaves, offset))
+    else:
+        _anchor_segment_recursive(
+            leaves=leaves,
+            offset=offset,
+            ctx=ctx,
+            page_count=page_count,
+            matches=all_matches,
+            depth=0,
+        )
 
     if not all_matches:
         return None
@@ -740,7 +738,7 @@ def anchor_hierarchy_from_offset(
 ) -> tuple[list[TitleNode], SkeletonAnchor]:
     """Production prune → bulk → null-page given a precomputed offset.
 
-    Swap point for agent / VLM calibration: both feed ``offset_hint`` here.
+    Phase-2 entry after Agent ``calibrate_offset`` (Phase-1).
     """
     seed_overrides = dict(calibration_overrides or {})
     pruned_count = 0
@@ -768,6 +766,11 @@ def anchor_hierarchy_from_offset(
         match_overrides = seed_overrides
         locate_agent = "offset_only"
         bulk_count = 0
+
+    working, unanchored_removed = prune_unanchored_toc_leaves(
+        working, match_overrides=match_overrides
+    )
+    pruned_count += unanchored_removed
 
     match_overrides, null_page_report = locate_null_page_parent_overrides(
         nodes=working,
@@ -802,24 +805,45 @@ def anchor_hierarchy(
     page_count: int,
     ctx: ToolContext | None,
 ) -> tuple[list[TitleNode], SkeletonAnchor]:
-    """Run offset → prune → bulk → null-page in production order.
+    """Run Phase-1 calibrate_offset → multi-regime Phase-2 merge.
 
     Returns possibly-pruned nodes and the anchor payload. Caller owns
     resolve_hierarchy_page_ranges / skeleton assembly.
     """
-    offset_hint, calibration_overrides = calibrate_offset(
+    from app.services.document_agent.agents.calibration.procedure import (
+        finalize_calibration_result,
+        flat_toc_entries,
+    )
+    from app.services.document_agent.agents.calibration.service import (
+        calibrate_offset,
+    )
+
+    phase1 = calibrate_offset(
         nodes=nodes,
         toc_hierarchies=toc_hierarchies,
         ctx=ctx,
         page_texts=page_texts,
         page_count=page_count,
     )
-    return anchor_hierarchy_from_offset(
-        nodes=nodes,
-        offset_hint=offset_hint,
-        calibration_overrides=calibration_overrides,
+    if phase1.status == "failed" and not phase1.regimes and phase1.offset is None:
+        return anchor_hierarchy_from_offset(
+            nodes=nodes,
+            offset_hint=None,
+            calibration_overrides={},
+            page_texts=page_texts,
+            body_pages=body_pages,
+            page_count=page_count,
+            ctx=ctx,
+        )
+
+    working, anchor, _finalized = finalize_calibration_result(
+        result=phase1,
+        entries=flat_toc_entries(toc_hierarchies),
+        toc_hierarchies=list(toc_hierarchies or []),
+        ctx=ctx,
+        page_count=page_count,
         page_texts=page_texts,
         body_pages=body_pages,
-        page_count=page_count,
-        ctx=ctx,
+        nodes=nodes,
     )
+    return working, anchor

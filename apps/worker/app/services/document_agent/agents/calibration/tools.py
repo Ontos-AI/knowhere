@@ -70,6 +70,7 @@ def _calibration_inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolRe
     merged.setdefault("folder_name", "calibration_inspect")
     merged.setdefault("prefix", "calib")
     merged.setdefault("usage_task", "calibration.inspect_pages")
+    merged.setdefault("visual_stage", "calibration")
     return inspect_pages(ctx, merged)
 
 

@@ -25,6 +25,71 @@ TitleMatchSource = Literal[
 ]
 
 
+_ROMAN_MAP = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+
+
+def classify_page_number_kind(label: Any) -> str:
+    text = str(label or "").strip()
+    if not text:
+        return "other"
+    if re.fullmatch(r"\d+", text):
+        return "decimal"
+    if re.fullmatch(r"[ivxlcdm]+", text, flags=re.IGNORECASE):
+        return "roman"
+    if re.fullmatch(r"[A-Za-z]+-\d+", text):
+        return "prefixed"
+    return "other"
+
+
+def normalize_page_kind(kind: str) -> str:
+    text = (kind or "other").strip().lower()
+    if text in {"arabic", "arabic_digits", "decimal"}:
+        return "decimal"
+    if text == "roman":
+        return "roman"
+    if text in {"prefixed", "folio"}:
+        return "prefixed"
+    return text or "other"
+
+
+def parse_printed_page(label: Any, *, kind: str) -> int | None:
+    text = str(label or "").strip()
+    if not text:
+        return None
+    kind_l = normalize_page_kind(kind)
+    if kind_l == "decimal":
+        return int(text) if text.isdigit() else None
+    if kind_l == "roman":
+        return _roman_to_int(text)
+    if kind_l == "prefixed":
+        match = re.fullmatch(r"[A-Za-z]+-(\d+)", text)
+        return int(match.group(1)) if match else None
+    if text.isdigit():
+        return int(text)
+    if re.fullmatch(r"[ivxlcdm]+", text, flags=re.IGNORECASE):
+        return _roman_to_int(text)
+    match = re.fullmatch(r"[A-Za-z]+-(\d+)", text)
+    return int(match.group(1)) if match else None
+
+
+def _roman_to_int(text: str) -> int | None:
+    raw = text.strip().lower()
+    if not raw or not re.fullmatch(r"[ivxlcdm]+", raw):
+        return None
+    total = 0
+    prev = 0
+    for ch in reversed(raw):
+        value = _ROMAN_MAP.get(ch)
+        if value is None:
+            return None
+        if value < prev:
+            total -= value
+        else:
+            total += value
+            prev = value
+    return total if total > 0 else None
+
+
 @dataclass(frozen=True)
 class PageRange:
     start: int
@@ -41,6 +106,8 @@ class TitleNode:
     title: str
     level: int
     printed_page: int | None = None
+    printed_label: str | None = None
+    page_kind: str | None = None
     physical_page_hint: int | None = None
     children: list["TitleNode"] = field(default_factory=list)
 
@@ -623,11 +690,16 @@ def _parse_markdown_toc_entries(markdown: str) -> list[dict[str, Any]]:
         level = _safe_int(row.get("level"))
         heading = row.get("heading")
         if heading and level:
+            raw_page = row.get("page_number")
             entries.append(
                 {
                     "heading": heading,
                     "level": level,
-                    "page_number": _safe_int(row.get("page_number")),
+                    # Preserve raw label (roman / prefixed / decimal); parsing is
+                    # regime-aware at TitleNode construction time.
+                    "page_number": raw_page.strip()
+                    if isinstance(raw_page, str)
+                    else raw_page,
                 }
             )
     return entries
@@ -657,10 +729,24 @@ def _entries_to_tree(entries: list[dict[str, Any]]) -> list[TitleNode]:
         level = _safe_int(entry.get("level")) or 1
         if not title or len(title) < 2:
             continue
+        raw_label = entry.get("page_number")
+        printed_label = (
+            None
+            if raw_label is None or raw_label == ""
+            else str(raw_label).strip()
+        )
+        page_kind = classify_page_number_kind(printed_label) if printed_label else None
+        printed_page = (
+            parse_printed_page(printed_label, kind=page_kind or "other")
+            if printed_label
+            else None
+        )
         node = TitleNode(
             title=title,
             level=level,
-            printed_page=_safe_int(entry.get("page_number")),
+            printed_page=printed_page,
+            printed_label=printed_label,
+            page_kind=page_kind,
         )
         while stack and stack[-1][0] >= level:
             stack.pop()

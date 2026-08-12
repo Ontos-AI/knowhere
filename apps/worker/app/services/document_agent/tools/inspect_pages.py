@@ -17,7 +17,11 @@ _DEFAULT_PAGE_CAP = 5
 
 
 def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-    """Open one or more physical PDF pages, render them, and answer ``question``."""
+    """Open one or more physical PDF pages, render them, and answer ``question``.
+
+    Hard limits are token/loop budgets (via ``BudgetTracker``), not a total page
+    counter. ``inspect_page_cap`` only caps pages **per call** (batch size).
+    """
     start = time.monotonic()
     raw_pages = args.get("pages") or []
     question = str(args.get("question") or "").strip()
@@ -52,29 +56,6 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             latency_ms=int((time.monotonic() - start) * 1000),
         )
 
-    used = int(ctx.blackboard.global_signals.get("inspect_pages_used") or 0)
-    # Backward-compatible calibration counter.
-    used = max(
-        used,
-        int(ctx.blackboard.global_signals.get("calibration_inspect_pages_used") or 0),
-    )
-    page_budget = int(ctx.settings.get("inspect_page_budget") or 0)
-    if page_budget > 0 and used >= page_budget:
-        return ToolResult(
-            status="error",
-            error="inspect page budget exhausted",
-            latency_ms=int((time.monotonic() - start) * 1000),
-        )
-    if page_budget > 0:
-        remain = max(page_budget - used, 0)
-        pages = pages[:remain]
-        if not pages:
-            return ToolResult(
-                status="error",
-                error="inspect page budget exhausted",
-                latency_ms=int((time.monotonic() - start) * 1000),
-            )
-
     from app.services.document_agent.visual import render_pages
 
     folder_name = str(args.get("folder_name") or "inspect_pages")
@@ -100,6 +81,18 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             error="vlm_model missing",
             latency_ms=int((time.monotonic() - start) * 1000),
         )
+
+    # Token budget (optional stage, e.g. calibration). No total page-count ledger.
+    stage = args.get("visual_stage") or ctx.settings.get("inspect_visual_stage")
+    stage_name = str(stage).strip() if stage else None
+    est = 800 * len(rendered) + 800
+    if stage_name and ctx.budget is not None:
+        if not ctx.budget.try_reserve("visual", est, stage=stage_name):
+            return ToolResult(
+                status="error",
+                error="calibration visual budget exhausted",
+                latency_ms=int((time.monotonic() - start) * 1000),
+            )
 
     prompt = (
         "Answer the question about the provided PDF page image(s). "
@@ -135,7 +128,17 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             usage_task=usage_task,
         )
         payload = json.loads(raw) if raw else {}
+        tokens_used = int((usage or {}).get("total_tokens") or 0)
+        if stage_name and ctx.budget is not None:
+            ctx.budget.commit(
+                "visual",
+                actual=tokens_used or est,
+                est=est,
+                stage=stage_name,
+            )
     except Exception as exc:
+        if stage_name and ctx.budget is not None:
+            ctx.budget.refund("visual", est=est, stage=stage_name)
         logger.warning("[inspect.pages] VLM failed: {}", exc)
         return ToolResult(
             status="error",
@@ -143,6 +146,12 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             latency_ms=int((time.monotonic() - start) * 1000),
         )
 
+    # Diagnostic counter only (not a hard budget).
+    used = int(ctx.blackboard.global_signals.get("inspect_pages_used") or 0)
+    used = max(
+        used,
+        int(ctx.blackboard.global_signals.get("calibration_inspect_pages_used") or 0),
+    )
     next_used = used + len(pages)
     ctx.blackboard.global_signals["inspect_pages_used"] = next_used
     ctx.blackboard.global_signals["calibration_inspect_pages_used"] = next_used
@@ -157,7 +166,6 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             "raw": payload,
         },
         latency_ms=int((time.monotonic() - start) * 1000),
-        tokens_used=int((usage or {}).get("total_tokens") or 0),
+        tokens_used=tokens_used,
         output_summary={"pages": pages, "answer": payload.get("answer")},
     )
-

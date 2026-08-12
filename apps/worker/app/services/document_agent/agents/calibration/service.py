@@ -1,7 +1,7 @@
 """Production calibration entry: Agent Phase-1 offset discovery.
 
-Same return shape as the former ``calibrate_offset_via_vlm`` so callers can
-swap without changing prune / bulk / null-page.
+Returns a full ``CalibrationResult`` (all regimes). Callers run multi-regime
+Phase-2 via ``finalize_calibration_result`` / ``anchor_hierarchy``.
 """
 
 from __future__ import annotations
@@ -11,12 +11,9 @@ from typing import Any
 from loguru import logger
 
 from app.services.document_agent.agents.calibration.loop import run_calibration_phase1
-from app.services.document_agent.agents.calibration.procedure import (
-    pick_primary_offset,
-    _seed_overrides_from_samples,
-)
+from app.services.document_agent.agents.calibration.types import CalibrationResult
 from app.services.document_agent.manifest import ToolContext
-from app.services.document_agent.structure.hierarchy_locator import TitleMatch, TitleNode
+from app.services.document_agent.structure.hierarchy_locator import TitleNode
 
 
 def calibrate_offset(
@@ -26,17 +23,19 @@ def calibrate_offset(
     ctx: ToolContext | None,
     page_texts: dict[int, str],
     page_count: int,
-) -> tuple[int | None, dict[tuple[str, ...], TitleMatch]]:
-    """Discover printed→physical offset via the calibration SubAgent (Phase 1).
+) -> CalibrationResult:
+    """Discover printed→physical offsets via the calibration SubAgent (Phase 1).
 
-    Returns ``(offset, seed_overrides)``. Phase 2 (tail / bisect / null-page)
-    stays in ``anchor_hierarchy_from_offset`` using the caller's node tree.
+    Returns the full Phase-1 ``CalibrationResult`` including every regime the
+    agent submitted. Phase-2 (per-regime bulk / bisect / null-page merge) is
+    owned by ``finalize_calibration_result`` / ``anchor_hierarchy``.
     """
+    del nodes  # Phase-1 works from toc_hierarchies entries; nodes used in Phase-2.
     if ctx is None:
-        return None, {}
+        return CalibrationResult(status="failed", notes="ctx missing")
     hierarchies = list(toc_hierarchies or [])
     if not hierarchies:
-        return None, {}
+        return CalibrationResult(status="failed", notes="toc_hierarchies empty")
 
     if page_count and not ctx.blackboard.page_count:
         ctx.blackboard.page_count = int(page_count)
@@ -52,17 +51,12 @@ def calibrate_offset(
         )
     except Exception as exc:
         logger.warning("[calibration] Phase-1 failed: {}", exc)
-        return None, {}
+        return CalibrationResult(status="failed", notes=str(exc))
 
-    offset = pick_primary_offset(phase1)
-    if offset is None:
-        logger.info("[calibration] Phase-1 produced no primary offset")
-        return None, {}
-
-    seed = _seed_overrides_from_samples(result=phase1, nodes=nodes)
     logger.info(
-        "[calibration] Phase-1 offset={} seed_overrides={}",
-        offset,
-        len(seed),
+        "[calibration] Phase-1 status={} regimes={} primary_offset={}",
+        phase1.status,
+        len(phase1.regimes),
+        phase1.offset,
     )
-    return offset, seed
+    return phase1

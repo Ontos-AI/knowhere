@@ -644,19 +644,21 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
 
     offset_hint: int | None = None
     if ctx.blackboard.toc_hierarchies:
-        from app.services.document_agent.structure.hierarchy_locator import extract_toc_nodes
-        from app.services.document_agent.structure.structure_anchoring import (
-            calibrate_offset,
+        from app.services.document_agent.agents.calibration import calibrate_offset
+        from app.services.document_agent.agents.calibration.procedure import (
+            pick_primary_offset,
         )
+        from app.services.document_agent.structure.hierarchy_locator import extract_toc_nodes
 
         nodes = extract_toc_nodes(ctx.blackboard.toc_hierarchies)
-        offset_hint, _ = calibrate_offset(
+        phase1 = calibrate_offset(
             nodes=nodes,
             toc_hierarchies=ctx.blackboard.toc_hierarchies,
             ctx=ctx,
             page_texts={},
             page_count=page_count,
         )
+        offset_hint = pick_primary_offset(phase1)
     ctx.blackboard.toc_page_offset = offset_hint
 
     # Try TOC chapter-based planning first
