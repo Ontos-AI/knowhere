@@ -72,12 +72,6 @@ class ProfileCoordinator:
                     ),
                     cap=int(os.environ.get("PARSE_AGENT_CALIBRATION_CAP", "40000")),
                 ),
-                "page_locate": StageEnvelope(
-                    min_guarantee=int(
-                        os.environ.get("PARSE_AGENT_PAGE_LOCATE_MIN_BUDGET", "0")
-                    ),
-                    cap=int(os.environ.get("PARSE_AGENT_PAGE_LOCATE_CAP", "0")) or None,
-                ),
                 "page_tagging": StageEnvelope(
                     min_guarantee=int(
                         os.environ.get("PARSE_AGENT_PAGE_TAGGING_MIN_BUDGET", "0")

@@ -15,7 +15,6 @@ from app.services.document_agent.manifest import (
 )
 from app.services.document_agent.registry import has_doc_stats, has_toc_result, register_tool
 from app.services.document_agent.validators import single_shard_plan, validate_shard_plan
-from loguru import logger
 from shared.utils.token_estimate import estimate_tokens
 
 
@@ -27,11 +26,10 @@ def derive_leaf_cut_pages(
     """Derive physical page numbers of TOC leaf nodes for shard splitting.
 
     Leaf nodes are entries in toc_with_level whose next sibling has level <= theirs
-    (i.e. they have no children). The offset from printed page to physical page is
-    either provided via offset_override (VLM-calibrated) or computed arithmetically
-    from toc_range and the first entry's page_number as a fallback.
+    (i.e. they have no children). Requires a calibrated ``offset_override``;
+    without it this returns [] and the caller falls back to non-TOC planning.
     """
-    if not toc_hierarchies:
+    if not toc_hierarchies or offset_override is None:
         return []
 
     all_pages: list[int] = []
@@ -47,28 +45,10 @@ def derive_leaf_cut_pages(
         if not entries:
             continue
 
-        if offset_override is not None:
-            offset = offset_override
-        else:
-            toc_end_page = toc_range[1] if isinstance(toc_range, list) else toc_range
-            first_printed = next(
-                (e.get("page_number") for e in entries if e.get("page_number") is not None),
-                None,
-            )
-            if first_printed is None:
-                continue
-            offset = (toc_end_page + 1) - first_printed
-            logger.warning(
-                "[propose_shard_plan] using arithmetic offset fallback: "
-                "toc_end={} first_printed={} offset={}",
-                toc_end_page,
-                first_printed,
-                offset,
-            )
-
+        offset = offset_override
         for i, entry in enumerate(entries):
             pn = entry.get("page_number")
-            if pn is None:
+            if not isinstance(pn, int):
                 continue
             is_leaf = (
                 i == len(entries) - 1
@@ -95,8 +75,10 @@ def derive_chapter_boundaries(
     Includes all L1 entries. For any L1 whose span exceeds 200 pages,
     its direct L2 children are included as sub_entries so the LLM can
     split within it.
+
+    Requires calibrated ``offset_override``; otherwise returns [].
     """
-    if not toc_hierarchies:
+    if not toc_hierarchies or offset_override is None:
         return []
 
     all_entries: list[dict[str, Any]] = []
@@ -112,23 +94,14 @@ def derive_chapter_boundaries(
         if not entries:
             continue
 
-        if offset_override is not None:
-            offset = offset_override
-        else:
-            toc_end_page = toc_range[1] if isinstance(toc_range, list) else toc_range
-            first_printed = next(
-                (e.get("page_number") for e in entries if e.get("page_number") is not None),
-                None,
-            )
-            if first_printed is None:
-                continue
-            offset = (toc_end_page + 1) - first_printed
+        offset = offset_override
 
-        # Collect all entries with physical pages
+        # Collect all entries with physical pages (integer printed labels only;
+        # roman/prefixed need regime-local offsets — shard plan uses primary).
         phys_entries: list[dict[str, Any]] = []
         for entry in entries:
             pn = entry.get("page_number")
-            if pn is None:
+            if not isinstance(pn, int):
                 continue
             physical = pn + offset
             if physical < 1 or physical > page_count:
@@ -202,9 +175,20 @@ def split_toc_for_shard(
     For continuation shards (not starting at page 1), the ancestor chain of
     the first entry is prepended so downstream heading prediction has the
     full structural context.
+
+    Requires calibrated ``offset_override`` for page-unit TOC regions.
     """
     if not toc_hierarchies:
         return None
+    if offset_override is None:
+        # Without a calibrated offset, keep non-page TOC payloads as-is and
+        # skip page-unit hierarchies rather than inventing arithmetic offsets.
+        kept = [
+            hier
+            for hier in toc_hierarchies
+            if hier.get("toc_range_unit") != "page"
+        ]
+        return kept or None
 
     result: list[dict[str, Any]] = []
     for hier in toc_hierarchies:
@@ -220,23 +204,13 @@ def split_toc_for_shard(
         if not entries:
             continue
 
-        if offset_override is not None:
-            offset = offset_override
-        else:
-            toc_end_page = toc_range[1] if isinstance(toc_range, list) else toc_range
-            first_printed = next(
-                (e.get("page_number") for e in entries if e.get("page_number") is not None),
-                None,
-            )
-            if first_printed is None:
-                continue
-            offset = (toc_end_page + 1) - first_printed
+        offset = offset_override
 
         shard_entries: list[dict[str, Any]] = []
         first_idx: int | None = None
         for idx, entry in enumerate(entries):
             pn = entry.get("page_number")
-            if pn is None:
+            if not isinstance(pn, int):
                 continue
             physical = pn + offset
             if shard_page_start <= physical <= shard_page_end:

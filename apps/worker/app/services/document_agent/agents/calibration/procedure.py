@@ -495,11 +495,11 @@ def finalize_calibration_result(
     texts = dict(page_texts or {})
     bodies = list(body_pages or sorted(texts.keys()) or list(range(1, page_count + 1)))
     if nodes is None:
-        from app.services.page_memory.skeleton_extractor import (
-            _collapse_intermediate_single_child_chains,
+        from app.services.document_agent.structure.hierarchy_locator import (
+            collapse_intermediate_single_child_chains,
         )
 
-        nodes = _collapse_intermediate_single_child_chains(
+        nodes = collapse_intermediate_single_child_chains(
             extract_toc_nodes(toc_hierarchies)
         )
 

@@ -766,3 +766,45 @@ def _safe_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def collapse_intermediate_single_child_chains(
+    nodes: list[TitleNode],
+) -> list[TitleNode]:
+    """Collapse single-child chains of intermediate (non-leaf) nodes.
+
+    Leaf nodes (children=[]) are never absorbed into their parent title.
+    Shared by page_memory C4 and calibration finalize.
+    """
+    from dataclasses import replace as _replace
+
+    def _collapse(node: TitleNode) -> TitleNode:
+        collapsed_children = [_collapse(c) for c in node.children]
+
+        if len(collapsed_children) == 1:
+            only_child = collapsed_children[0]
+            if only_child.children:
+                merged_title = f"{node.title} {only_child.title}"
+                merged_printed_page = only_child.printed_page or node.printed_page
+                merged_printed_label = only_child.printed_label or node.printed_label
+                merged_page_kind = only_child.page_kind or node.page_kind
+                merged_physical_hint = (
+                    only_child.physical_page_hint or node.physical_page_hint
+                )
+                promoted = [
+                    _replace(gc, level=max(1, gc.level - 1))
+                    for gc in only_child.children
+                ]
+                return _replace(
+                    node,
+                    title=merged_title,
+                    printed_page=merged_printed_page,
+                    printed_label=merged_printed_label,
+                    page_kind=merged_page_kind,
+                    physical_page_hint=merged_physical_hint,
+                    children=promoted,
+                )
+
+        return _replace(node, children=collapsed_children)
+
+    return [_collapse(n) for n in nodes]
