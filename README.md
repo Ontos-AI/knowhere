@@ -191,7 +191,12 @@ cd apps/api && uv run main.py
 cd apps/worker && uv run worker.py
 ```
 
-The API runs migrations during startup.
+Run API migrations explicitly before starting the API when the database schema needs updating:
+
+```bash
+cd apps/api
+uv run alembic upgrade heads
+```
 
 For API-only development without the dashboard, create an API-only user/key
 after the API service starts:

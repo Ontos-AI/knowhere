@@ -218,10 +218,136 @@ jobs:
           echo "Push enabled: ${{ steps.context.outputs.should_push }}"
           echo "Primary tag: ${{ steps.tags.outputs.image_tag }}"
 
-  deploy:
+  migrate:
+    name: Run API database migration
     runs-on: ubuntu-latest
     needs: build-and-publish
-    if: github.event_name != 'pull_request'
+    if: >-
+      ${{ (github.ref == 'refs/heads/staging' ||
+      github.event_name == 'workflow_dispatch') &&
+      (github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.service == '' ||
+      github.event.inputs.service == 'all' ||
+      github.event.inputs.service == 'api') }}
+    permissions:
+      contents: read
+
+    steps:
+      - name: Decide migration context
+        id: context
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "release" ] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            environment="prod"
+          else
+            environment="staging"
+          fi
+
+          if [ "$environment" = "prod" ]; then
+            namespace="knowhere-prod"
+          else
+            namespace="knowhere-staging"
+          fi
+
+          short_sha="${GITHUB_SHA::8}"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            image_tag="${{ github.event.release.tag_name }}-${environment}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            image_tag="${GITHUB_REF#refs/tags/}-${environment}"
+          else
+            image_tag="${environment}-${short_sha}"
+          fi
+
+          echo "environment=$environment" >> "$GITHUB_OUTPUT"
+          echo "namespace=$namespace" >> "$GITHUB_OUTPUT"
+          echo "image_uri=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}/knowhere-backend:${image_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] || \
+             [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ] || \
+             [ -z "${{ env.AWS_EKS_PROD_CLUSTER_NAME }}" ] || \
+             [ -z "${{ env.AWS_EKS_PROD_REGION }}" ]; then
+            echo "::error::Migration requires AWS deployment credentials and cluster configuration."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_EKS_PROD_REGION }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Update kubeconfig
+        shell: bash
+        run: |
+          aws eks update-kubeconfig \
+            --name "${AWS_EKS_PROD_CLUSTER_NAME}" \
+            --region "${AWS_EKS_PROD_REGION}"
+
+      - name: Run migration job
+        shell: bash
+        env:
+          IMAGE_URI: ${{ steps.context.outputs.image_uri }}
+          NAMESPACE: ${{ steps.context.outputs.namespace }}
+        run: |
+          set -euo pipefail
+
+          job_name="knowhere-api-migrate-${GITHUB_RUN_ID}"
+
+          migration_manifest="$(kubectl get deployment/knowhere-api --namespace "$NAMESPACE" -o json \
+            | jq --arg job_name "$job_name" --arg image_uri "$IMAGE_URI" '
+                if ((.spec.template.spec.containers // []) | length) == 0 then
+                  error("knowhere-api deployment has no containers")
+                else
+                {
+                  apiVersion: "batch/v1",
+                  kind: "Job",
+                  metadata: {name: $job_name, namespace: .metadata.namespace},
+                  spec: {
+                    backoffLimit: 0,
+                    ttlSecondsAfterFinished: 300,
+                    template: {
+                      metadata: {labels: {"app": "knowhere-api-migrate"}},
+                      spec: (
+                        .spec.template.spec
+                        | .restartPolicy = "Never"
+                        | .containers[0].image = $image_uri
+                        | .containers[0].command = ["python", "-m", "alembic", "upgrade", "heads"]
+                        | del(.containers[0].args)
+                      )
+                    }
+                  }
+                }
+                end
+              ')"
+
+          printf '%s\n' "$migration_manifest" | kubectl apply -f -
+
+          if ! kubectl wait --for=condition=complete "job/$job_name" \
+            --namespace "$NAMESPACE" --timeout=900s; then
+            kubectl describe job "$job_name" --namespace "$NAMESPACE" || true
+            kubectl logs "job/$job_name" --namespace "$NAMESPACE" --all-containers=true || true
+            exit 1
+          fi
+
+          kubectl delete job "$job_name" --namespace "$NAMESPACE" --ignore-not-found
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [build-and-publish, migrate]
+    if: >-
+      ${{ always() && github.event_name != 'pull_request' &&
+      needs.build-and-publish.result == 'success' &&
+      (needs.migrate.result == 'success' || needs.migrate.result == 'skipped') }}
     permissions:
       contents: read
 
