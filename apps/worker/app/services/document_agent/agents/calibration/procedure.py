@@ -31,16 +31,42 @@ from app.services.document_agent.structure.hierarchy_locator import (
     normalize_page_kind,
     parse_printed_page,
 )
-from app.services.document_agent.structure.structure_anchoring import (
+from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
     locate_null_page_parent_overrides,
-    offset_guided_anchoring,
     prune_unanchored_toc_leaves,
     serialize_skeleton_anchor,
+)
+from app.services.document_agent.structure import anchoring_primitives as _anchoring
+from app.services.document_agent.structure.page_locate_agent import (
+    verify_section_page_choice,
 )
 
 # Re-export under prior names so existing imports keep working.
 normalize_kind = normalize_page_kind
+
+
+def offset_guided_anchoring(
+    *,
+    nodes: list[TitleNode],
+    offset: int,
+    ctx: ToolContext,
+    page_count: int,
+    calibration_overrides: dict[tuple[str, ...], TitleMatch],
+) -> dict[tuple[str, ...], TitleMatch] | None:
+    """Forward phase-2 anchoring while preserving the historical patch seam."""
+    original = _anchoring.verify_section_page_choice
+    _anchoring.verify_section_page_choice = verify_section_page_choice
+    try:
+        return _anchoring.offset_guided_anchoring(
+            nodes=nodes,
+            offset=offset,
+            ctx=ctx,
+            page_count=page_count,
+            calibration_overrides=calibration_overrides,
+        )
+    finally:
+        _anchoring.verify_section_page_choice = original
 
 
 def pick_primary_offset(result: CalibrationResult) -> int | None:
@@ -298,7 +324,7 @@ def anchor_hierarchy_from_regimes(
 
         if ctx is None:
             # Offline: still apply deterministic printed+offset for this regime.
-            from app.services.document_agent.structure.structure_anchoring import (
+            from app.services.document_agent.structure.anchoring_primitives import (
                 bulk_offset_matches,
             )
 

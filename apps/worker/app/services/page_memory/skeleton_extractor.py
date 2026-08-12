@@ -22,8 +22,8 @@ from app.services.document_agent.structure.hierarchy_locator import (
     resolve_hierarchy_page_ranges,
 )
 from app.services.document_agent.agents.calibration import calibrate_offset
-from app.services.document_agent.structure.structure_anchoring import (
-    anchor_hierarchy,
+from app.services.document_agent.agents.calibration.orchestrator import anchor_hierarchy
+from app.services.document_agent.structure.anchoring_primitives import (
     toc_range_end,
     toc_range_start,
 )
