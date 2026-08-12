@@ -46,7 +46,7 @@ class ProfileCoordinator:
         self.blackboard = AgentBlackboard()
         self.budget = BudgetTracker(
             plan_budget=int(os.environ.get("PARSE_AGENT_PLAN_BUDGET", "50000")),
-            visual_budget=int(os.environ.get("PARSE_AGENT_VISUAL_BUDGET", "80000")),
+            visual_budget=int(os.environ.get("PARSE_AGENT_VISUAL_BUDGET", "120000")),
             visual_stage_envelopes={
                 "toc_confirm": StageEnvelope(
                     min_guarantee=int(
@@ -66,11 +66,11 @@ class ProfileCoordinator:
                     ),
                     cap=int(os.environ.get("PARSE_AGENT_STRUCTURAL_REACT_CAP", "64000")),
                 ),
-                "page_locate": StageEnvelope(
+                "calibration": StageEnvelope(
                     min_guarantee=int(
-                        os.environ.get("PARSE_AGENT_PAGE_LOCATE_MIN_BUDGET", "0")
+                        os.environ.get("PARSE_AGENT_CALIBRATION_MIN_BUDGET", "12000")
                     ),
-                    cap=int(os.environ.get("PARSE_AGENT_PAGE_LOCATE_CAP", "0")) or None,
+                    cap=int(os.environ.get("PARSE_AGENT_CALIBRATION_CAP", "40000")),
                 ),
                 "page_tagging": StageEnvelope(
                     min_guarantee=int(

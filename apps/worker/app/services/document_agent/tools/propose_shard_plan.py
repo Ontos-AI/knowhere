@@ -15,7 +15,6 @@ from app.services.document_agent.manifest import (
 )
 from app.services.document_agent.registry import has_doc_stats, has_toc_result, register_tool
 from app.services.document_agent.validators import single_shard_plan, validate_shard_plan
-from loguru import logger
 from shared.utils.token_estimate import estimate_tokens
 
 
@@ -27,11 +26,10 @@ def derive_leaf_cut_pages(
     """Derive physical page numbers of TOC leaf nodes for shard splitting.
 
     Leaf nodes are entries in toc_with_level whose next sibling has level <= theirs
-    (i.e. they have no children). The offset from printed page to physical page is
-    either provided via offset_override (VLM-calibrated) or computed arithmetically
-    from toc_range and the first entry's page_number as a fallback.
+    (i.e. they have no children). Requires a calibrated ``offset_override``;
+    without it this returns [] and the caller falls back to non-TOC planning.
     """
-    if not toc_hierarchies:
+    if not toc_hierarchies or offset_override is None:
         return []
 
     all_pages: list[int] = []
@@ -47,28 +45,10 @@ def derive_leaf_cut_pages(
         if not entries:
             continue
 
-        if offset_override is not None:
-            offset = offset_override
-        else:
-            toc_end_page = toc_range[1] if isinstance(toc_range, list) else toc_range
-            first_printed = next(
-                (e.get("page_number") for e in entries if e.get("page_number") is not None),
-                None,
-            )
-            if first_printed is None:
-                continue
-            offset = (toc_end_page + 1) - first_printed
-            logger.warning(
-                "[propose_shard_plan] using arithmetic offset fallback: "
-                "toc_end={} first_printed={} offset={}",
-                toc_end_page,
-                first_printed,
-                offset,
-            )
-
+        offset = offset_override
         for i, entry in enumerate(entries):
             pn = entry.get("page_number")
-            if pn is None:
+            if not isinstance(pn, int):
                 continue
             is_leaf = (
                 i == len(entries) - 1
@@ -95,8 +75,10 @@ def derive_chapter_boundaries(
     Includes all L1 entries. For any L1 whose span exceeds 200 pages,
     its direct L2 children are included as sub_entries so the LLM can
     split within it.
+
+    Requires calibrated ``offset_override``; otherwise returns [].
     """
-    if not toc_hierarchies:
+    if not toc_hierarchies or offset_override is None:
         return []
 
     all_entries: list[dict[str, Any]] = []
@@ -112,23 +94,14 @@ def derive_chapter_boundaries(
         if not entries:
             continue
 
-        if offset_override is not None:
-            offset = offset_override
-        else:
-            toc_end_page = toc_range[1] if isinstance(toc_range, list) else toc_range
-            first_printed = next(
-                (e.get("page_number") for e in entries if e.get("page_number") is not None),
-                None,
-            )
-            if first_printed is None:
-                continue
-            offset = (toc_end_page + 1) - first_printed
+        offset = offset_override
 
-        # Collect all entries with physical pages
+        # Collect all entries with physical pages (integer printed labels only;
+        # roman/prefixed need regime-local offsets — shard plan uses primary).
         phys_entries: list[dict[str, Any]] = []
         for entry in entries:
             pn = entry.get("page_number")
-            if pn is None:
+            if not isinstance(pn, int):
                 continue
             physical = pn + offset
             if physical < 1 or physical > page_count:
@@ -202,9 +175,20 @@ def split_toc_for_shard(
     For continuation shards (not starting at page 1), the ancestor chain of
     the first entry is prepended so downstream heading prediction has the
     full structural context.
+
+    Requires calibrated ``offset_override`` for page-unit TOC regions.
     """
     if not toc_hierarchies:
         return None
+    if offset_override is None:
+        # Without a calibrated offset, keep non-page TOC payloads as-is and
+        # skip page-unit hierarchies rather than inventing arithmetic offsets.
+        kept = [
+            hier
+            for hier in toc_hierarchies
+            if hier.get("toc_range_unit") != "page"
+        ]
+        return kept or None
 
     result: list[dict[str, Any]] = []
     for hier in toc_hierarchies:
@@ -220,23 +204,13 @@ def split_toc_for_shard(
         if not entries:
             continue
 
-        if offset_override is not None:
-            offset = offset_override
-        else:
-            toc_end_page = toc_range[1] if isinstance(toc_range, list) else toc_range
-            first_printed = next(
-                (e.get("page_number") for e in entries if e.get("page_number") is not None),
-                None,
-            )
-            if first_printed is None:
-                continue
-            offset = (toc_end_page + 1) - first_printed
+        offset = offset_override
 
         shard_entries: list[dict[str, Any]] = []
         first_idx: int | None = None
         for idx, entry in enumerate(entries):
             pn = entry.get("page_number")
-            if pn is None:
+            if not isinstance(pn, int):
                 continue
             physical = pn + offset
             if shard_page_start <= physical <= shard_page_end:
@@ -365,61 +339,6 @@ def _cuts_to_shards(cuts: list[tuple[int, str, str, float]], page_count: int) ->
             )
         )
     return shards
-
-
-def _build_prompt(
-    *,
-    page_count: int,
-    min_pages: int,
-    max_pages: int,
-    doc_stats: dict[str, Any],
-    page_kind_counts: dict[str, int],
-    toc_pages: list[int],
-    leaf_pages: list[int],
-    profile: dict[str, Any] | None,
-    visual_evidence: list[dict[str, Any]],
-    grep_history: list[dict[str, Any]],
-) -> str:
-    payload = {
-        "page_count": page_count,
-        "min_pages_per_shard": min_pages,
-        "max_pages_per_shard": max_pages,
-        "page_kind_counts": page_kind_counts,
-        "doc_stats": doc_stats,
-        "toc_pages": toc_pages,
-        "leaf_cut_pages": leaf_pages,
-        "document_profile": profile,
-        "visual_evidence": visual_evidence[-3:],
-        "grep_history": grep_history[-3:],
-    }
-    return (
-        "You are a senior document parsing architect. Decide whether to split a PDF "
-        "and where to split it using document-scale features and TOC leaf-node evidence.\n"
-        "Rules:\n"
-        "- Return strict JSON only.\n"
-        "- Prefer TOC leaf-node pages as semantic boundaries, cutting at page-1 when possible.\n"
-        "- Do not blindly split on every leaf node. Consider total page_count, spacing, min/max "
-        "shard sizes, and over-fragmentation.\n"
-        "- Prefer fewer, semantically coherent shards over many tiny shards.\n"
-        "- Keep each cut rationale under 120 characters.\n"
-        "- Every resulting shard length must be between min_pages_per_shard and "
-        "max_pages_per_shard, except the final shard may be shorter only when no better "
-        "valid split exists. Check each segment length exactly before returning.\n"
-        "- If no split is useful, return enabled=false and cuts=[] even for a long document.\n"
-        "Output schema:\n"
-        "{\n"
-        '  "enabled": boolean,\n'
-        '  "cuts": [\n'
-        "    {\"cut_after_page\": number, \"anchor_type\": \"h1_boundary\" | "
-        "\"blank_separator\" | \"forced_max_size\", "
-        "\"confidence\": number, \"rationale\": string}\n"
-        "  ],\n"
-        '  "reason": "llm_boundary_decision" | "not_needed" | "too_large",\n'
-        '  "rationale": string\n'
-        "}\n"
-        "Payload:\n"
-        + json.dumps(payload, ensure_ascii=False)
-    )
 
 
 def _build_chapter_prompt(
@@ -699,17 +618,21 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
 
     offset_hint: int | None = None
     if ctx.blackboard.toc_hierarchies:
+        from app.services.document_agent.agents.calibration import calibrate_offset
+        from app.services.document_agent.agents.calibration.procedure import (
+            pick_primary_offset,
+        )
         from app.services.document_agent.structure.hierarchy_locator import extract_toc_nodes
-        from app.services.page_memory.skeleton_extractor import _calibrate_offset_via_vlm
 
         nodes = extract_toc_nodes(ctx.blackboard.toc_hierarchies)
-        offset_hint, _ = _calibrate_offset_via_vlm(
+        phase1 = calibrate_offset(
             nodes=nodes,
             toc_hierarchies=ctx.blackboard.toc_hierarchies,
             ctx=ctx,
             page_texts={},
             page_count=page_count,
         )
+        offset_hint = pick_primary_offset(phase1)
     ctx.blackboard.toc_page_offset = offset_hint
 
     # Try TOC chapter-based planning first

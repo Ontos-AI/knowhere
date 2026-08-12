@@ -9,10 +9,10 @@ Thinking policy (DeepSeek V4 defaults thinking ON if omitted):
 
 - ``action`` (navigate / harvest / refine / verify / score):
   always disabled — short JSON under ``llm_max_tokens`` (often 256).
-- ``planner`` (plan_query / replan / plan_control): episode-bound
+- ``planner`` (plan_query / replan only): episode-bound
   ``NavConfig.planner_thinking``, else ``NAV_PLANNER_THINKING`` for EXP
   scripts; unset → disabled. When enabled, callers should use
-  ``planner_output_max_tokens``.
+  ``planner_output_max_tokens``. ``plan_control`` uses ``action`` (thinking off).
 
 Migration to Knowhere: inject the production callable with
 ``set_nav_chat_backend`` (wrap ``llm_fn``); leave nav call sites unchanged.

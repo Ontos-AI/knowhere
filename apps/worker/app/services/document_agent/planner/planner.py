@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import random
 import time
 from typing import Any, cast
 
@@ -73,14 +74,20 @@ def _sample_pages(
     page_count: int,
     extrema_pages: list[int],
     exclude_pages: set[int] | None = None,
+    *,
+    random_extra: int = 0,
+    rng: random.Random | None = None,
 ) -> list[int]:
     """Select representative pages for VLM profiling.
 
     Strategy (cap 10):
-      1. Text extrema first (length/density min+max, ≤4 unique).
+      1. Text extrema first (length/density min+max, ≤4 unique), unless the
+         caller passes an empty list (e.g. all visible text lengths are 0).
       2. Fill remaining slots with 2/2/2 stratified samples from
          front/middle/back of the non-extrema pool.
-      3. Hard truncate to ``_COARSE_SAMPLE_CAP``.
+      3. Optionally append ``random_extra`` uniform pages from the leftover
+         pool (used when extrema were skipped because max text length is 0).
+      4. Hard truncate to ``_COARSE_SAMPLE_CAP``.
 
     Args:
         page_count: Total number of pages.
@@ -89,6 +96,9 @@ def _sample_pages(
         exclude_pages: Pages to skip entirely (e.g. TOC pages already detected
             by the TOC pipeline). These inflate text-density metrics without
             adding profiling value.
+        random_extra: Extra pages to draw uniformly from pages not already
+            selected (and not excluded).
+        rng: Optional RNG for deterministic tests.
     """
     if page_count <= 0:
         return []
@@ -107,10 +117,23 @@ def _sample_pages(
         + _segment_sample(middle or pool, middle_n)
         + _segment_sample(back or pool, back_n)
     )
-    ordered = []
+    ordered: list[int] = []
     for page in extrema + sampled:
         if page not in ordered:
             ordered.append(page)
+
+    extra_n = max(int(random_extra), 0)
+    if extra_n > 0:
+        leftover = [
+            page
+            for page in range(1, page_count + 1)
+            if page not in ordered and page not in skip
+        ]
+        if leftover:
+            picker = rng if rng is not None else random.Random()
+            for page in picker.sample(leftover, k=min(extra_n, len(leftover))):
+                ordered.append(page)
+
     return ordered[:_COARSE_SAMPLE_CAP]
 
 
@@ -159,18 +182,12 @@ def _parse_profile_and_decision(raw: str) -> tuple[DocumentProfile, ReflexionDec
     next_action = str(data.get("next_action") or "ready_to_shard").strip().lower()
     # Legacy models may still emit verdict_now; that is not a planner finish
     # signal — fall through to ready_to_shard so the executor owns success/abort.
-    if next_action == "verdict_now":
+    # Legacy inspect_more is ignored the same way (tool removed).
+    if next_action in {"verdict_now", "inspect_more"}:
         next_action = "ready_to_shard"
     tool_name: str | None = None
     tool_args: dict[str, Any] = {}
-    if next_action == "inspect_more":
-        pages = [int(page) for page in (data.get("inspect_pages") or [])]
-        tool_name = "inspect.pages"
-        tool_args = {
-            "pages": pages[:10],
-            "question": "Clarify the document structure and whether these pages change the profile or sharding strategy.",
-        }
-    elif next_action == "grep_text" and not profile.is_scanned:
+    if next_action == "grep_text" and not profile.is_scanned:
         query = str(data.get("grep_query") or "").strip()
         if query:
             tool_name = "grep.text"
@@ -208,10 +225,28 @@ class ProfilePlanner:
             if self.ctx.blackboard.toc_result
             else []
         )
+        text_max = float(
+            (
+                ((self.ctx.blackboard.doc_stats or {}).get("raw_text_length") or {}).get(
+                    "max"
+                )
+                or {}
+            ).get("value")
+            or 0.0
+        )
+        # All-visible-zero docs: extrema collapse to a meaningless page-1 tie.
+        # Skip them and draw one uniform random page instead.
+        if text_max > 0:
+            extrema_pages = self.ctx.blackboard.extrema_pages
+            random_extra = 0
+        else:
+            extrema_pages = []
+            random_extra = 1
         pages = _sample_pages(
             self.ctx.blackboard.page_count,
-            self.ctx.blackboard.extrema_pages,
+            extrema_pages,
             exclude_pages=toc_pages,
+            random_extra=random_extra,
         )
         if not model:
             profile = DocumentProfile(
@@ -268,7 +303,6 @@ class ProfilePlanner:
                 )
             ],
             "available_actions": [
-                "inspect.pages",
                 "grep.text",
                 "propose.shard_plan",
                 "validate.anatomy_map",

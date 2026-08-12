@@ -21,6 +21,7 @@ VerdictStatus = Literal["success", "abort"]
 class PageFeature:
     page: int
     raw_text_length: int
+    """Visible extractable text length (excludes PDF ``3 Tr`` / invisible ink)."""
     text_density: float
     image_coverage: float
     image_count: int
@@ -31,6 +32,8 @@ class PageFeature:
     height: float
     has_asset: bool
     is_blank_like: bool
+    invisible_text_length: int = 0
+    """Text drawn with invisible rendering mode (``3 Tr``); not used by probe gates."""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
