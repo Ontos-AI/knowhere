@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 import uvicorn
 from fastapi import FastAPI
 from starlette.routing import Route
@@ -29,28 +28,6 @@ async def lifespan(app: FastAPI):
     """
     Application lifecycle management
     """
-    # Run database migrations
-    import subprocess
-    import sys
-
-    try:
-        logger.info("start running database migration...")
-        result = subprocess.run(
-            [sys.executable, "-m", "alembic", "upgrade", "heads"],
-            cwd=str(Path(__file__).parent),
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode == 0:
-            logger.info("database migration completed")
-        else:
-            logger.error(f"database migration failed: {result.stderr}")
-            raise Exception(f"database migration failed: {result.stderr}")
-    except Exception as e:
-        logger.error(f"running database migration failed: {e}")
-        raise
-
     from shared.core.database import prewarm_connection_pool
 
     await prewarm_connection_pool()
