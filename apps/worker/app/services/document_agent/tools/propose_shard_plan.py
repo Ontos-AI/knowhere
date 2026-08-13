@@ -473,32 +473,6 @@ def _parse_llm_plan(
     return enabled, cuts, reason, rationale
 
 
-def _deterministic_guardrail_plan(
-    *,
-    page_count: int,
-    min_pages: int,
-    max_pages: int,
-    leaf_pages: list[int],
-) -> tuple[list[tuple[int, str, str, float]], str]:
-    cuts: list[tuple[int, str, str, float]] = []
-    previous = 0
-    while page_count - previous > max_pages:
-        target = previous + max_pages
-        eligible = [
-            page for page in leaf_pages if previous + min_pages < page <= target
-        ]
-        if eligible:
-            chosen = max(eligible)
-            cut_page = chosen - 1
-            cuts.append((cut_page, "h1_boundary", f"guardrail leaf node at page {chosen}", 0.35))
-            previous = cut_page
-        else:
-            cut_page = previous + max_pages
-            cuts.append((cut_page, "forced_max_size", "no leaf node in range", 0.2))
-            previous = cut_page
-    return cuts, "too_large"
-
-
 def _deterministic_chapter_plan(
     *,
     chapters: list[dict[str, Any]],
@@ -616,24 +590,7 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
             latency_ms=int((time.monotonic() - start) * 1000),
         )
 
-    offset_hint: int | None = None
-    if ctx.blackboard.toc_hierarchies:
-        from app.services.document_agent.agents.calibration import calibrate_offset
-        from app.services.document_agent.agents.calibration.procedure import (
-            pick_primary_offset,
-        )
-        from app.services.document_agent.structure.hierarchy_locator import extract_toc_nodes
-
-        nodes = extract_toc_nodes(ctx.blackboard.toc_hierarchies)
-        phase1 = calibrate_offset(
-            nodes=nodes,
-            toc_hierarchies=ctx.blackboard.toc_hierarchies,
-            ctx=ctx,
-            page_texts={},
-            page_count=page_count,
-        )
-        offset_hint = pick_primary_offset(phase1)
-    ctx.blackboard.toc_page_offset = offset_hint
+    offset_hint = ctx.blackboard.toc_page_offset
 
     # Try TOC chapter-based planning first
     chapters = derive_chapter_boundaries(

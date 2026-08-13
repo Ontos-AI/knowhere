@@ -13,8 +13,6 @@ from app.services.document_agent.visual import (
     purge_debug_visual_dirs,
     visual_debug_enabled,
 )
-from app.services.document_agent.manifest import ToolContext
-from app.services.document_agent.state import AgentBlackboard
 from app.services.document_parser.profiling.doc_profiler import profile_document
 from app.services.document_parser.support.identifiers import gen_str_codes, get_str_time
 from app.services.document_parser.support.parser_rows import PARSER_ROW_COLUMNS
@@ -238,15 +236,6 @@ def _build_page_dataframe(
 
     asset_extraction_enabled = page_memory_config.asset_extraction_enabled
 
-    # ── build ToolContext for sub-agent VLM calls ─────────────────────
-    ctx = _build_page_ctx(
-        pdf_path=pdf_path,
-        job_id=filename,
-        output_dir=output_dir,
-        page_count=page_count,
-        trace_recorder=trace_recorder,
-    )
-
     # ── C4: skeleton (from profile anatomy) ───────────────────────────
     with stage_timer("page_memory.read_page_texts", page_count=page_count):
         page_texts = read_page_texts(
@@ -258,7 +247,6 @@ def _build_page_dataframe(
                 anatomy=anatomy,
                 filename=filename,
                 page_texts=page_texts,
-                ctx=ctx,
             )
         else:
             skeletons = []
@@ -467,36 +455,6 @@ def _build_page_dataframe(
         },
     )
     return pd.DataFrame(rows, columns=pd.Index([*PARSER_ROW_COLUMNS, "extra_metadata"]))
-
-
-def _build_page_ctx(
-    *,
-    pdf_path: str,
-    job_id: str,
-    output_dir: str,
-    page_count: int,
-    trace_recorder: Any | None = None,
-) -> ToolContext:
-    """Construct a ToolContext for C4 sub-agent and C3 tagger VLM calls."""
-    blackboard = AgentBlackboard()
-    blackboard.page_count = page_count
-    vlm_model = os.environ.get("IMAGE_MODEL")
-    reason_model = (
-        os.environ.get("PAGE_LOCATE_REASON_MODEL")
-        or os.environ.get("NORMOL_MODEL")
-    )
-    return ToolContext(
-        pdf_path=pdf_path,
-        job_id=job_id,
-        blackboard=blackboard,
-        budget=None,
-        trace=trace_recorder,
-        output_dir=output_dir,
-        settings={
-            "vlm_model": vlm_model,
-            "model": reason_model,
-        },
-    )
 
 
 def _build_hierarchy_scopes(

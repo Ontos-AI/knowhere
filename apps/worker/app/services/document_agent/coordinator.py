@@ -26,6 +26,7 @@ from app.services.document_agent.persist import build_anatomy_map, persist_anato
 from app.services.document_agent.planner import ProfilePlanner
 from app.services.document_agent.registry import REGISTRY
 from app.services.document_agent.state import AgentBlackboard, DocumentAgentState
+from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
 from app.services.document_agent import tools as _registered_tools  # noqa: F401
 from app.services.document_agent.trace import ParseRunRecorder
 from app.services.document_agent.validators import single_shard_plan
@@ -125,6 +126,7 @@ class ProfileCoordinator:
                 failure_kind="degraded",
             )
             self.blackboard.toc_hierarchies = None
+            self._clear_toc_anchor_state()
             return self.blackboard.toc_result
 
     def run_lightweight_anatomy(
@@ -333,6 +335,7 @@ class ProfileCoordinator:
             notes="TOC profiling disabled by PDF_PROFILE_TOC_ENABLED",
         )
         self.blackboard.toc_hierarchies = None
+        self._clear_toc_anchor_state()
         self.blackboard.global_signals["toc_profile_attempted"] = False
 
     def _ensure_toc_profile(self, *, strict: bool) -> None:
@@ -340,6 +343,7 @@ class ProfileCoordinator:
         if strict and self._toc_result_requires_strict_retry():
             self.blackboard.toc_result = None
             self.blackboard.toc_hierarchies = None
+            self._clear_toc_anchor_state()
             should_run = True
 
         if not should_run:
@@ -361,6 +365,7 @@ class ProfileCoordinator:
                 failure_kind="degraded",
             )
             self.blackboard.toc_hierarchies = None
+            self._clear_toc_anchor_state()
             return
 
         if self.blackboard.toc_result is None:
@@ -403,10 +408,17 @@ class ProfileCoordinator:
         self.round_index += 1
         return result
 
+    def _clear_toc_anchor_state(self) -> None:
+        self.blackboard.toc_page_offset = None
+        self.blackboard.skeleton_anchor = None
+        self.blackboard.skeleton_nodes = None
+        self.blackboard.pending_skeleton_anchors = []
+
     def _run_toc_extraction_pipeline(self) -> None:
         for tool_name in ("find.toc_anchor_pages", "extract.toc_with_boundaries"):
             self._dispatch_profile_tool(
                 tool_name=tool_name,
                 actor=f"toc:{tool_name}",
             )
+        run_toc_anchoring(self.ctx)
 
