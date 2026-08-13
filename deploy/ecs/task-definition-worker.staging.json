@@ -1,0 +1,109 @@
+{
+  "family": "knowhere-worker-staging",
+  "taskRoleArn": "${WORKER_TASK_ROLE_ARN}",
+  "executionRoleArn": "${EXECUTION_ROLE_ARN}",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "4096",
+  "ephemeralStorage": {"sizeInGiB": 21},
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "containerDefinitions": [
+    {
+      "name": "worker",
+      "image": "${WORKER_IMAGE}",
+      "essential": true,
+      "stopTimeout": 120,
+      "environment": [
+        {"name": "ENVIRONMENT", "value": "staging"},
+        {"name": "APP_ENV", "value": "staging"},
+        {"name": "REMAP_SIGTERM", "value": "SIGQUIT"},
+        {"name": "DB_SSL_MODE", "value": "require"},
+        {"name": "DB_SYNC_POOL_SIZE", "value": "2"},
+        {"name": "DB_SYNC_MAX_OVERFLOW", "value": "2"},
+        {"name": "TMP_PATH", "value": "/tmp/aismart_bid"},
+        {"name": "S3_TYPE", "value": "s3"},
+        {"name": "S3_BUCKET_NAME", "value": "knowhere-storage-staging"},
+        {"name": "S3_RESULTS_BUCKET", "value": "knowhere-storage-staging"},
+        {"name": "S3_TEMP_PATH", "value": "/tmp"},
+        {"name": "S3_REGION", "value": "us-east-1"},
+        {"name": "S3_USE_SSL", "value": "true"},
+        {"name": "S3_ADDRESSING_STYLE", "value": "virtual"},
+        {"name": "SUPPORTED_EXTENSIONS", "value": ".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.pptx,.md"},
+        {"name": "MAX_PDF_PAGE_LIMIT", "value": "200"},
+        {"name": "OVERSIZED_PDF_SHARD_ENABLED", "value": "true"},
+        {"name": "OVERSIZED_PDF_SOFT_LIMIT", "value": "1500"},
+        {"name": "PDF_PROFILE_TOC_ENABLED", "value": "true"},
+        {"name": "REDIS_DATABASE", "value": "0"},
+        {"name": "REDIS_SSL", "value": "true"},
+        {"name": "REDIS_SYNC_MAX_CONNECTIONS", "value": "200"},
+        {"name": "BROKER_POOL_LIMIT", "value": "5"},
+        {"name": "AWS_REGION", "value": "us-east-1"},
+        {"name": "AWS_ACCOUNT_ID", "value": "107424103509"},
+        {"name": "RATE_LIMIT_ENABLED", "value": "false"},
+        {"name": "TELEMETRY_ENABLED", "value": "false"},
+        {"name": "INTERNAL_DASHBOARD_ENDPOINT", "value": "https://staging.knowhereto.ai"},
+        {"name": "API_WEBHOOK_ENDPOINT", "value": "https://api-staging.knowhereto.ai/v1/internal/s3-events"},
+        {"name": "SNS_TOPIC_ARN", "value": "arn:aws:sns:us-east-1:107424103509:knowhere-staging-s3-events"},
+        {"name": "QSTASH_CALLBACK_BASE_URL", "value": "https://api-staging.knowhereto.ai/api/v1"},
+        {"name": "HF_HOME", "value": "/mnt/models/huggingface"},
+        {"name": "TRANSFORMERS_CACHE", "value": "/mnt/models/huggingface"},
+        {"name": "BILLING_ENABLED", "value": "true"},
+        {"name": "SUMMARY_LLM_MAX_CONCURRENT", "value": "8"},
+        {"name": "DS_URL", "value": "https://api.deepseek.com/v1/chat/completions"},
+        {"name": "ALI_URL", "value": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"},
+        {"name": "ARK_URL", "value": "https://ark.cn-beijing.volces.com/api/v3/chat/completions"},
+        {"name": "EMBEDDING_MODEL", "value": "text-embedding-v4"},
+        {"name": "HIERARCHY_LLM_MODEL", "value": "deepseek-chat"},
+        {"name": "NORMOL_MODEL", "value": "deepseek-chat"},
+        {"name": "IMAGE_MODEL", "value": "qwen3.5-flash"},
+        {"name": "IMAGE_MODEL_MAX", "value": "qwen3.5-flash"},
+        {"name": "ALL_DF_COLS", "value": "content,path,type,length,keywords,summary,know_id,tokens,connectto,addtime,page_nums"}
+      ],
+      "secrets": [
+        {"name": "DATABASE_URL", "valueFrom": "${STAGING_SECRETS_ARN}:DATABASE_URL::"},
+        {"name": "REDIS_HOST", "valueFrom": "${STAGING_SECRETS_ARN}:REDIS_HOST::"},
+        {"name": "REDIS_PORT", "valueFrom": "${STAGING_SECRETS_ARN}:REDIS_PORT::"},
+        {"name": "REDIS_PASSWORD", "valueFrom": "${STAGING_SECRETS_ARN}:REDIS_PASSWORD::"},
+        {"name": "CELERY_REDIS_URL", "valueFrom": "${STAGING_SECRETS_ARN}:CELERY_REDIS_URL::"},
+        {"name": "CELERY_REDIS_PASSWORD", "valueFrom": "${STAGING_SECRETS_ARN}:CELERY_REDIS_PASSWORD::"},
+        {"name": "SECRET_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:SECRET_KEY::"},
+        {"name": "WEBHOOK_MASTER_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:WEBHOOK_MASTER_KEY::"},
+        {"name": "DS_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:DS_KEY::"},
+        {"name": "ALI_API_KEYS", "valueFrom": "${STAGING_SECRETS_ARN}:ALI_API_KEYS::"},
+        {"name": "ARK_API_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:ARK_API_KEY::"},
+        {"name": "GPT_API_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:GPT_API_KEY::"},
+        {"name": "MINERU_API_KEYS", "valueFrom": "${STAGING_SECRETS_ARN}:MINERU_API_KEYS::"},
+        {"name": "ILOVEAPI_KEYS", "valueFrom": "${STAGING_SECRETS_ARN}:ILOVEAPI_KEYS::"},
+        {"name": "LOGFIRE_TOKEN", "valueFrom": "${STAGING_SECRETS_ARN}:LOGFIRE_TOKEN::"},
+        {"name": "QSTASH_TOKEN", "valueFrom": "${STAGING_SECRETS_ARN}:QSTASH_TOKEN::"},
+        {"name": "QSTASH_CURRENT_SIGNING_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:QSTASH_CURRENT_SIGNING_KEY::"},
+        {"name": "QSTASH_NEXT_SIGNING_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:QSTASH_NEXT_SIGNING_KEY::"}
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "python -c \"from shared.services.worker_health import assert_worker_healthy; assert_worker_healthy()\""],
+        "interval": 30,
+        "timeout": 10,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/knowhere-worker-staging",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "worker"
+        }
+      }
+    }
+  ],
+  "tags": [
+    {"key": "Project", "value": "knowhere"},
+    {"key": "Environment", "value": "staging"},
+    {"key": "Service", "value": "worker"},
+    {"key": "ManagedBy", "value": "knowhere-api-infra"}
+  ]
+}

@@ -21,9 +21,9 @@ dependencies = [
     "redis==5.3.1",
 
     # Celery task queue
-    "celery==5.4.0",
-    "kombu==5.4.0",
-    "billiard==4.2.0",
+    "celery==5.5.3",
+    "kombu==5.5.4",
+    "billiard==4.2.1",
     "vine==5.1.0",
     "celery-redbeat==2.2.0",
 
