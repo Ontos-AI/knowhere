@@ -6,7 +6,7 @@
   "requiresCompatibilities": ["FARGATE"],
   "cpu": "512",
   "memory": "4096",
-  "ephemeralStorage": {"sizeInGiB": 20},
+  "ephemeralStorage": {"sizeInGiB": 21},
   "runtimePlatform": {
     "cpuArchitecture": "X86_64",
     "operatingSystemFamily": "LINUX"
