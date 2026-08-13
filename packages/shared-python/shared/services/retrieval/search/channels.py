@@ -28,6 +28,11 @@ _FTS_CONFIG = "simple"
 # Guards against pathological queries producing an enormous tsquery.
 _MAX_FTS_QUERY_TOKENS = 50
 
+# Floor on each lexeme's share of the candidate budget. A query with many
+# lexemes would otherwise divide the budget down to a handful of rows each,
+# which throws away candidates the old global ordering would have kept.
+_MIN_CANDIDATES_PER_LEXEME = 50
+
 _TSV_FIELD_BY_SEARCH_FIELD = {
     "content_search_text": "content_search_tsv",
     "path_search_text": "path_search_tsv",
@@ -339,34 +344,52 @@ async def _bm25_channel(
     used_fallback = True
     if fts_tokens:
         # Postgres lexes the tokens with the same configuration that generated
-        # the tsvector columns, then ORs the resulting lexemes. Building the
-        # tsquery server-side keeps the prefilter aligned with the stored
-        # lexicon and leaves no room for tsquery syntax in user input to
-        # change the query shape. `fts_query.q` is NULL when no token yields a
-        # lexeme, which the caller treats as "no usable prefilter".
+        # the tsvector columns. Building the query server-side keeps the
+        # prefilter aligned with the stored lexicon and leaves no room for
+        # tsquery syntax in user input to change the query shape.
+        #
+        # Each lexeme draws candidates from its own slice of the budget rather
+        # than competing in one global ts_rank_cd ordering. ts_rank_cd scores
+        # term density within a chunk and ignores how rare a term is across the
+        # corpus, while BM25 weights rare terms heavily. A short chunk holding
+        # the one rare term in a query therefore sorts near the bottom of a
+        # global ordering and is truncated first, even though BM25 would rank
+        # it top. Giving every lexeme its own slice keeps those chunks in the
+        # pool. See #278.
         prefilter_sql = (
             corpus_cte
             + f""",
-    fts_query AS (
-        SELECT string_agg(quote_literal(lexeme), ' | ')::tsquery AS q
-        FROM (
-            SELECT DISTINCT
-                unnest(tsvector_to_array(to_tsvector('{_FTS_CONFIG}', token))) AS lexeme
-            FROM unnest(CAST(:fts_tokens AS text[])) AS token
-        ) lexemes
+    fts_lexemes AS (
+        SELECT DISTINCT
+            unnest(tsvector_to_array(to_tsvector('{_FTS_CONFIG}', token))) AS lexeme
+        FROM unnest(CAST(:fts_tokens AS text[])) AS token
+    ),
+    lexeme_budget AS (
+        SELECT
+            fl.lexeme,
+            to_tsquery('{_FTS_CONFIG}', quote_literal(fl.lexeme)) AS q,
+            GREATEST(
+                :fts_candidate_limit / GREATEST(COUNT(*) OVER (), 1),
+                :fts_min_per_lexeme
+            ) AS per_lexeme_limit
+        FROM fts_lexemes fl
     )
-    SELECT sc.*
-    FROM scoped_chunks sc, fts_query fq
-    WHERE COALESCE(sc.{search_field}, '') <> ''
-        AND fq.q IS NOT NULL
-        AND sc.{tsv_field} @@ fq.q
-    ORDER BY ts_rank_cd(sc.{tsv_field}, fq.q) DESC
-    LIMIT :fts_candidate_limit
+    SELECT DISTINCT ON (candidates.id) candidates.*
+    FROM lexeme_budget lb
+    CROSS JOIN LATERAL (
+        SELECT sc.*
+        FROM scoped_chunks sc
+        WHERE COALESCE(sc.{search_field}, '') <> ''
+            AND sc.{tsv_field} @@ lb.q
+        ORDER BY ts_rank_cd(sc.{tsv_field}, lb.q) DESC
+        LIMIT lb.per_lexeme_limit
+    ) candidates
     """
         )
         prefilter_params = dict(params)
         prefilter_params["fts_tokens"] = fts_tokens
         prefilter_params["fts_candidate_limit"] = candidate_limit
+        prefilter_params["fts_min_per_lexeme"] = _MIN_CANDIDATES_PER_LEXEME
         result = await db.execute(text(prefilter_sql), prefilter_params)
         rows = [_row_to_dict(r) for r in result.all()]
         used_fallback = not rows
@@ -385,15 +408,29 @@ async def _bm25_channel(
     ranked_rows = rank_rows_by_bm25(rows, query_tokens, search_field=search_field)
     ranked_rows = ranked_rows[:top_k]
 
+    duration_ms = (time.perf_counter() - started_at) * 1000
+    saturated = not used_fallback and candidate_count >= candidate_limit
     logger.debug(
-        "bm25_channel field={} candidates={} limit={} ranked={} fallback={} duration_ms={:.1f}",
+        "bm25_channel field={} candidates={} limit={} ranked={} "
+        "fallback={} saturated={} duration_ms={:.1f}",
         search_field,
         candidate_count,
         candidate_limit,
         len(ranked_rows),
         used_fallback,
-        (time.perf_counter() - started_at) * 1000,
+        saturated,
+        duration_ms,
     )
+    if saturated:
+        # The pool filled the budget, so chunks past it never reached BM25.
+        # Distinct from the healthy case, which the debug line alone cannot
+        # convey because both report candidates == limit.
+        logger.warning(
+            "bm25_channel candidate budget saturated field={} limit={}; "
+            "raise RETRIEVAL_POSTGRES_FTS_CANDIDATE_LIMIT if recall looks short",
+            search_field,
+            candidate_limit,
+        )
     return ranked_rows
 
 

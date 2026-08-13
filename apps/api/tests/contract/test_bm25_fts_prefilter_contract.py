@@ -12,6 +12,7 @@ from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
+from shared.core.config import settings as channel_settings
 from shared.services.retrieval.search.channels import content_channel, path_channel
 from shared.testing.contract_runtime import PostgreSQLProcess
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -53,6 +54,7 @@ CREATE INDEX idx_chunk_path_search_tsv ON document_chunks USING GIN (path_search
 """
 
 _NOISE_ROWS = 300
+_COMMON_TERM_ROWS = 1000
 
 
 @pytest_asyncio.fixture
@@ -197,3 +199,86 @@ async def test_exclusions_still_apply_under_the_prefilter(
         exclude_sections=[],
     )
     assert rows == []
+
+
+@pytest_asyncio.fixture
+async def rare_term_session(
+    postgresql_proc: PostgreSQLProcess,
+) -> AsyncGenerator[AsyncSession, None]:
+    """A corpus larger than the candidate budget where one chunk holds a rare term.
+
+    ts_rank_cd scores term density inside a chunk and ignores corpus-wide
+    rarity, so the rare-term chunk sorts last under a single global ordering
+    even though BM25 ranks it first.
+    """
+    dsn = (
+        f"postgresql+asyncpg://{postgresql_proc.user}@"
+        f"{postgresql_proc.host}:{postgresql_proc.port}/postgres"
+    )
+    engine = create_async_engine(dsn, isolation_level="AUTOCOMMIT")
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP SCHEMA IF EXISTS bm25_rare CASCADE"))
+        await conn.execute(text("CREATE SCHEMA bm25_rare"))
+        await conn.execute(text("SET search_path TO bm25_rare"))
+        for statement in filter(None, (s.strip() for s in _SCHEMA.split(";"))):
+            await conn.execute(text(statement))
+        await conn.execute(text("INSERT INTO job_results VALUES (1, 'job1')"))
+        await conn.execute(
+            text(
+                "INSERT INTO documents VALUES "
+                "('d1', 'u1', 'ns1', 'active', 1, 'sample.pdf')"
+            )
+        )
+        await conn.execute(text("INSERT INTO document_sections VALUES ('s1', '/root')"))
+        await conn.execute(
+            text(
+                "INSERT INTO document_chunks "
+                "(chunk_id, document_id, section_id, chunk_type, content, "
+                " job_result_id, sort_order, content_search_text, path_search_text) "
+                "SELECT 'common-' || i, 'd1', 's1', 'text', 'body', 1, i, "
+                "       'data data data data data filler ' || i, 'p ' || i "
+                "FROM generate_series(1, :common) AS i"
+            ),
+            {"common": _COMMON_TERM_ROWS},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO document_chunks "
+                "(chunk_id, document_id, section_id, chunk_type, content, "
+                " job_result_id, sort_order, content_search_text, path_search_text) "
+                "VALUES ('rare-zebra', 'd1', 's1', 'text', 'body', 1, 0, "
+                "        'zebra', 'p rare')"
+            )
+        )
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        await session.execute(text("SET search_path TO bm25_rare"))
+        yield session
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rare_term_chunk_survives_a_saturated_candidate_budget(
+    rare_term_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Budget well under the number of matching chunks, so the pool saturates.
+    monkeypatch.setattr(
+        channel_settings, "RETRIEVAL_POSTGRES_FTS_CANDIDATE_LIMIT", 200, raising=False
+    )
+
+    rows = await content_channel(
+        rare_term_session,
+        user_id="u1",
+        namespace="ns1",
+        query="data zebra",
+        top_k=5,
+        exclude_document_ids=[],
+        exclude_sections=[],
+    )
+
+    # BM25 weights the rare term far above the common one, so the chunk holding
+    # it belongs at the top. A single global ts_rank_cd ordering truncates it
+    # before BM25 ever sees it.
+    assert [str(row["chunk_id"]) for row in rows][0] == "rare-zebra"

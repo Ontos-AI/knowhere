@@ -97,13 +97,19 @@ async def test_content_channel_uses_bounded_or_fts_after_scope_filters(
     assert "sc.content_search_tsv @@" in sql
     assert "CAST(:fts_tokens AS text[])" in sql
     assert "ORDER BY ts_rank_cd" in sql
-    assert "LIMIT :fts_candidate_limit" in sql
-    assert sql.index("LOWER(dc.chunk_type)") < sql.index("LIMIT :fts_candidate_limit")
+    # The budget is derived from the configured limit and then spent per
+    # lexeme, so the bounding clause names the per-lexeme share rather than
+    # the setting directly.
+    assert ":fts_candidate_limit" in sql
+    assert "LIMIT lb.per_lexeme_limit" in sql
+    # Scope filters still land inside the CTE, ahead of any candidate bound,
+    # so excluded rows cannot consume the budget.
+    assert sql.index("LOWER(dc.chunk_type)") < sql.index("LIMIT lb.per_lexeme_limit")
     assert sql.index("LOWER(COALESCE(ds.section_path") < sql.index(
-        "LIMIT :fts_candidate_limit"
+        "LIMIT lb.per_lexeme_limit"
     )
     assert sql.index("POSITION(:_exc_section_path_0") < sql.index(
-        "LIMIT :fts_candidate_limit"
+        "LIMIT lb.per_lexeme_limit"
     )
     assert params["fts_tokens"] == ["alpha", "beta"]
     assert params["fts_candidate_limit"] == 7
