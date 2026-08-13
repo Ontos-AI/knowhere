@@ -2,13 +2,16 @@
 Celery configuration — Redis-backed broker and result backend.
 """
 
-from typing import Dict
+from typing import ClassVar, Dict
 
 from pydantic import BaseModel, Field
 
 
 class CeleryConfig(BaseModel):
     """Celery configuration backed by a dedicated Redis instance."""
+
+    TASK_TIME_LIMIT_SECONDS: ClassVar[int] = 3600
+    BROKER_VISIBILITY_TIMEOUT_SECONDS: ClassVar[int] = 4500
 
     # Dedicated Redis instance for Celery broker / result backend / RedBeat.
     # Separate from the application Redis (REDIS_*) to isolate connection pools.
