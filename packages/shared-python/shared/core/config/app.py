@@ -2,6 +2,7 @@
 
 from typing import Callable, cast
 
+from pydantic import model_validator
 from pydantic_settings import SettingsConfigDict
 
 from .ai import AIConfig
@@ -31,6 +32,22 @@ class AppConfig(
     RetrievalConfig,
 ):
     """Application configuration — all config components merged."""
+
+    @model_validator(mode="after")
+    def validate_worker_redelivery_window(self) -> "AppConfig":
+        """Ensure interrupted tasks are redelivered before stale-job expiry."""
+        if not (
+            self.TASK_TIME_LIMIT_SECONDS
+            < self.BROKER_VISIBILITY_TIMEOUT_SECONDS
+            < self.JOB_PROCESSING_EXPIRE_SECONDS
+        ):
+            raise ValueError(
+                "Worker timing must satisfy TASK_TIME_LIMIT_SECONDS "
+                "< BROKER_VISIBILITY_TIMEOUT_SECONDS "
+                "< JOB_PROCESSING_EXPIRE_SECONDS"
+            )
+
+        return self
 
     def validate_all(self) -> bool:
         """Validate the combined application configuration."""

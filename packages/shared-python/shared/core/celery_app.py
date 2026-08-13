@@ -55,7 +55,7 @@ celery_app.conf.update(
     enable_utc=True,
     # Task execution
     task_track_started=True,
-    task_time_limit=3600,  # 1 hour hard limit
+    task_time_limit=app_config.TASK_TIME_LIMIT_SECONDS,
     task_soft_time_limit=3300,  # 55 minutes soft limit
     worker_prefetch_multiplier=1,
     task_acks_late=True,
@@ -77,7 +77,7 @@ celery_app.conf.update(
     broker_pool_limit=app_config.BROKER_POOL_LIMIT,
     # Redis transport — visibility_timeout must exceed task_time_limit
     broker_transport_options={
-        "visibility_timeout": 43200,  # 12 hours
+        "visibility_timeout": app_config.BROKER_VISIBILITY_TIMEOUT_SECONDS,
         "retry_on_timeout": True,
         # Keep all Kombu Redis broker keys in one Redis Cluster hash slot.
         "global_keyprefix": "{celery}",
