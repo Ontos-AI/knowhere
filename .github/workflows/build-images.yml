@@ -282,6 +282,9 @@ jobs:
         shell: bash
         env:
           DATABASE_URL: ${{ secrets.STAGING_MIGRATION_DATABASE_URL }}
+          S3_BUCKET_NAME: knowhere-storage-staging
+          S3_TEMP_PATH: /tmp
+          TMP_PATH: /tmp/aismart_bid
         run: |
           set -euo pipefail
           short_sha="${GITHUB_SHA::8}"
