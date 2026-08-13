@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 
-def test_should_preserve_fargate_worker_soft_shutdown_contract(
+def test_should_preserve_fargate_worker_sigterm_shutdown_contract(
     worker_contract_environment: None,
 ) -> None:
     from shared.core.celery_app import celery_app
@@ -31,5 +31,5 @@ def test_should_preserve_fargate_worker_soft_shutdown_contract(
 
     assert celery_app.conf.worker_soft_shutdown_timeout == 90
     assert celery_app.conf.worker_enable_soft_shutdown_on_idle is True
-    assert environment_values["REMAP_SIGTERM"] == "SIGQUIT"
+    assert "REMAP_SIGTERM" not in environment_values
     assert worker_container["stopTimeout"] == 120
