@@ -20,7 +20,6 @@
       "environment": [
         {"name": "ENVIRONMENT", "value": "staging"},
         {"name": "APP_ENV", "value": "staging"},
-        {"name": "REMAP_SIGTERM", "value": "SIGQUIT"},
         {"name": "DB_SSL_MODE", "value": "require"},
         {"name": "DB_SYNC_POOL_SIZE", "value": "2"},
         {"name": "DB_SYNC_MAX_OVERFLOW", "value": "2"},
