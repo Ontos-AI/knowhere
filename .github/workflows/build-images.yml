@@ -480,7 +480,7 @@ jobs:
 
           for log_group in /ecs/knowhere-api-staging /ecs/knowhere-worker-staging; do
             found="$(aws logs describe-log-groups \
-              --log-group-name "$log_group" \
+              --log-group-name-prefix "$log_group" \
               --query 'logGroups[0].logGroupName' --output text)"
             if [ "$found" != "$log_group" ]; then
               echo "::error::Required CloudWatch log group ${log_group} does not exist."
