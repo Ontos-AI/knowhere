@@ -291,6 +291,9 @@ jobs:
           image_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}/knowhere-backend:staging-${short_sha}"
           docker run --rm \
             --env DATABASE_URL \
+            --env S3_BUCKET_NAME \
+            --env S3_TEMP_PATH \
+            --env TMP_PATH \
             --env DB_SSL_MODE=require \
             --entrypoint python \
             "$image_uri" \
