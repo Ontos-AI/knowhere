@@ -22,3 +22,13 @@ python deploy/ecs/render_task_definitions.py --output-dir /tmp/knowhere-ecs-rend
 ```
 
 The output directory is deployment-only and must not be committed. The renderer fails on missing inputs, unresolved placeholders, or either long-lived S3 credential variable.
+
+## Staging workflow prerequisites
+
+The staging workflow in `.github/workflows/build-images.yml` expects these GitHub Actions secrets:
+
+- `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`: the deployment credential used by the existing release workflow.
+- `AWS_ECS_STAGING_SECRETS_ARN`: the ARN of the approved JSON runtime secret described above.
+- `STAGING_MIGRATION_DATABASE_URL`: the direct Neon URL for the staging migration role. It is used only by the migration container and is never passed to the ECS runtime tasks.
+
+Before an ECS staging deployment, an operator must create and verify the ECS services, network configuration, API load-balancer target, CloudWatch log groups, and runtime secret. The workflow validates those resources and fails without registering or updating a service when any prerequisite is missing. It does not create or delete AWS resources.
