@@ -240,7 +240,6 @@ class PageAnatomyMap:
     skeleton_anchor: dict[str, Any] | None = None
     skeleton_nodes: list[dict[str, Any]] | None = None
     pending_skeleton_anchors: list[dict[str, Any]] = field(default_factory=list)
-    page_full_text_cache: dict[int, str] = field(default_factory=dict)
     global_signals: dict[str, Any] = field(default_factory=dict)
     trace_summary: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -265,9 +264,6 @@ class PageAnatomyMap:
             "skeleton_anchor": self.skeleton_anchor,
             "skeleton_nodes": self.skeleton_nodes,
             "pending_skeleton_anchors": list(self.pending_skeleton_anchors),
-            "page_full_text_cache": {
-                str(page): text for page, text in self.page_full_text_cache.items()
-            },
             "global_signals": dict(self.global_signals),
             "trace_summary": dict(self.trace_summary),
             "created_at": self.created_at.isoformat(),

@@ -103,7 +103,7 @@ def test_toc_anchor_text_scan_matches_full_page_and_cross_line_keywords() -> Non
     assert split_matches[0]["match_kind"] == "cross_line:tableofcontents"
 
 
-def test_run_toc_degrades_to_empty_result_on_standard_failure(tmp_path: Path) -> None:
+def test_toc_extraction_degrades_to_empty_result_on_failure(tmp_path: Path) -> None:
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "standard.pdf"),
         job_id="job-toc-fail-soft",
@@ -117,8 +117,10 @@ def test_run_toc_degrades_to_empty_result_on_standard_failure(tmp_path: Path) ->
 
     coordinator._run_toc_extraction_pipeline = _fail_toc_extraction  # type: ignore[method-assign]
 
-    toc_result = coordinator.run_toc()
+    coordinator._ensure_toc_profile(strict=False)
+    toc_result = coordinator.blackboard.toc_result
 
+    assert toc_result is not None
     assert toc_result.method == "none"
     assert toc_result.toc_pages == []
     assert toc_result.failure_kind == "degraded"
@@ -143,7 +145,6 @@ def test_run_lightweight_anatomy_builds_single_shard_without_planner_llm(
         routing_category=PdfRoutingCategory.GENERIC.value,
     )
     coordinator.blackboard.toc_result = TocResult(method="none")
-    coordinator.blackboard.page_full_text_cache = {1: "hello", 2: "world"}
 
     anatomy = coordinator.run_lightweight_anatomy()
 
@@ -157,8 +158,7 @@ def test_run_lightweight_anatomy_builds_single_shard_without_planner_llm(
         (output_dir / "anatomy_map.json").read_text(encoding="utf-8")
     )
     assert list(anatomy_data)[:2] == ["version", "toc_hierarchies"]
-    assert anatomy.page_full_text_cache == {1: "hello", 2: "world"}
-    assert anatomy_data["page_full_text_cache"] == {"1": "hello", "2": "world"}
+    assert "page_full_text_cache" not in anatomy_data
     assert "text_lines_preview" not in anatomy_data["page_features"][0]
     assert "asset_bboxes" not in anatomy_data["page_features"][0]
     trace_data = json.loads((output_dir / "trace.json").read_text(encoding="utf-8"))
@@ -816,9 +816,6 @@ def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
 
-        def run_toc(self) -> TocResult:
-            raise AssertionError("kill switch should not call TOC profiling")
-
         def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
             self.calls.append("run_lightweight_anatomy")
             self.blackboard.toc_result = TocResult(
@@ -990,10 +987,6 @@ def test_standard_pdf_profile_maps_page_toc_evidence(
                 category="Research Report",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
-
-        def run_toc(self) -> TocResult:
-            self.calls.append("run_toc")
-            raise AssertionError("run_toc should be no-op after coarse already ran TOC")
 
         def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
             self.calls.append("run_lightweight_anatomy")

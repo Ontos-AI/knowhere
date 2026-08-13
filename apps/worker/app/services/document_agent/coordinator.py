@@ -113,23 +113,6 @@ class ProfileCoordinator:
             self._record_failure(exc)
             raise
 
-    def run_toc(self) -> TocResult:
-        try:
-            return self._run_toc()
-        except Exception as exc:
-            logger.warning(
-                "[document_agent] TOC profiling failed, degrading to empty TOC: {}",
-                exc,
-            )
-            self.blackboard.toc_result = TocResult(
-                method="none",
-                notes=f"degraded: {type(exc).__name__}: {exc}",
-                failure_kind="degraded",
-            )
-            self.blackboard.toc_hierarchies = None
-            self._clear_toc_anchor_state()
-            return self.blackboard.toc_result
-
     def run_lightweight_anatomy(
         self, *, skip_shard_plan: bool = False
     ) -> PageAnatomyMap:
@@ -184,24 +167,6 @@ class ProfileCoordinator:
         anatomy = build_anatomy_map(self.ctx)
         self._persist_ready_anatomy(anatomy)
         return anatomy
-
-    def _run_toc(self) -> TocResult:
-        self.state = DocumentAgentState.RUNNING
-        if not self.blackboard.page_features:
-            self._run_bootstrap()
-        if not self._toc_profile_enabled():
-            self._ensure_disabled_toc_placeholder()
-            toc_result = self.blackboard.toc_result
-            if toc_result is None:
-                raise RuntimeError("TOC placeholder was not initialized")
-            return toc_result
-        self._ensure_toc_profile(strict=False)
-        if self.blackboard.toc_result is None:
-            self.blackboard.toc_result = TocResult(
-                method="none",
-                notes="TOC extraction completed without a result",
-            )
-        return self.blackboard.toc_result
 
     def _run_lightweight_anatomy(
         self, *, skip_shard_plan: bool = False

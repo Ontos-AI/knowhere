@@ -38,7 +38,7 @@ from app.services.page_memory.page_assets import (
 )
 from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
-from shared.services.ai.summary.engine import summarize, transcribe
+from shared.services.ai.summary.engine import summarize
 
 SAME_AS_PREFIX = "SAME-AS"
 
@@ -243,32 +243,6 @@ def pages_by_leaf_count(views: list[NodePageView]) -> dict[int, list[LeafNode]]:
 # ── VLM-backed helpers ───────────────────────────────────────────────
 
 
-def resolve_page_text(
-    *,
-    page: int,
-    raw_text: str,
-    image_path: str | None,
-    vlm_model: str | None,
-    budget: Any | None = None,
-) -> str:
-    """Body text for an owned page: PyMuPDF text, or VLM OCR for scanned pages.
-
-    Electronic PDFs already have PyMuPDF text; scanned pages have (near) empty
-    text and fall back to the shared ``transcribe()`` OCR primitive (§4.2).
-    """
-    text = (raw_text or "").strip()
-    if text:
-        return text
-    if not vlm_model or not image_path or not os.path.exists(image_path):
-        return ""
-    return transcribe(
-        image_paths=[image_path],
-        model=vlm_model,
-        max_tokens=1500,
-        usage_task="page_memory.node_ocr",
-    )
-
-
 def compute_node_summary(
     *,
     view: NodePageView,
@@ -426,34 +400,10 @@ def build_node_rows(
     page_to_leaves = pages_by_leaf_count(views)
     resolved_concurrency = max(1, node_assembly_concurrency)
 
-    # Resolve body text once per owned page (PyMuPDF, OCR fallback for scanned).
-    resolved_text: dict[int, str] = {}
-    owned_pages = sorted({page for view in views for page in view.owned_pages})
-    if owned_pages:
-        import gevent
-        from gevent.pool import Pool as GeventPool
-
-        def _resolve_one(page: int) -> tuple[int, str]:
-            return page, resolve_page_text(
-                page=page,
-                raw_text=raw_text_by_page.get(page, ""),
-                image_path=image_path_by_page.get(page),
-                vlm_model=vlm_model,
-            )
-
-        with stage_timer(
-            "page_memory.node_ocr",
-            page_count=len(owned_pages),
-            concurrency=resolved_concurrency,
-        ):
-            pool = GeventPool(size=min(resolved_concurrency, len(owned_pages)))
-            greenlets = [pool.spawn(_resolve_one, page) for page in owned_pages]
-            gevent.joinall(greenlets, raise_error=True)
-            resolved_pairs = [
-                cast(tuple[int, str], greenlet.value)
-                for greenlet in greenlets
-            ]
-            resolved_text = {page: text for page, text in resolved_pairs}
+    resolved_text = {
+        page: (raw_text_by_page.get(page, "") or "").strip()
+        for page in sorted({page for view in views for page in view.owned_pages})
+    }
 
     summaries: dict[int, tuple[str, list[str], list[dict[str, str]]]] = {}
     if views:
