@@ -1,8 +1,8 @@
 """Page renderer: produce PNG and raw text for each page.
 
-Wraps the existing ``document_agent/visual.render_pages`` and
-``pdf_text.read_page_texts`` utilities, adding dimensions and
-landscape detection from page_features.
+Wraps the existing ``document_agent/visual.render_pages`` utility,
+adding dimensions and landscape detection from page_features.
+Page text comes from the PROFILE scan cache passed in as ``page_texts``.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from loguru import logger
 
 from app.services.document_agent.manifest import PageFeature, ToolContext
-from app.services.document_agent.pdf_text import read_page_texts
 from app.services.document_agent.visual import render_pages
 
 
@@ -27,7 +26,7 @@ class PageRenderResult:
     """Absolute path to full-resolution PNG (``pages/page-N.png``)."""
 
     raw_text: str
-    """PyMuPDF extracted text for this page."""
+    """PROFILE scan text for this page."""
 
     width: float
     """Page width in points."""
@@ -67,9 +66,8 @@ def render_document_pages(
         If available, dimensions are read from here (avoiding a second
         PyMuPDF open).  Otherwise falls back to 0/0/False.
     page_texts:
-        Pre-read page texts ``{page_index: text}``.  If provided, skips
-        the internal ``read_page_texts`` call (avoids a redundant
-        PyMuPDF subprocess).
+        PROFILE scan cache ``{page_index: text}``. Missing pages yield
+        empty ``raw_text``.
     ctx:
         An optional ``ToolContext`` forwarded to ``render_pages``.  If
         *None*, a lightweight context is constructed internally.
@@ -91,9 +89,7 @@ def render_document_pages(
     if not requested_pages:
         return []
 
-    # ── raw text (reuse caller's data if provided) ────────────────────
-    if page_texts is None:
-        page_texts = read_page_texts(pdf_path, requested_pages, timeout=timeout)
+    texts = page_texts or {}
 
     # ── full-resolution PNGs ──────────────────────────────────────────
     if ctx is not None:
@@ -146,7 +142,7 @@ def render_document_pages(
             PageRenderResult(
                 page_index=page,
                 image_path=png_map.get(page, ""),
-                raw_text=page_texts.get(page, ""),
+                raw_text=texts.get(page, ""),
                 width=feat.width if feat else 0.0,
                 height=feat.height if feat else 0.0,
                 is_landscape=(

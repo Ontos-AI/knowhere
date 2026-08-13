@@ -14,7 +14,6 @@ from app.services.document_agent.agents.calibration.procedure import (
     pick_primary_offset,
 )
 from app.services.document_agent.manifest import ToolContext
-from app.services.document_agent.pdf_text import read_page_texts
 from app.services.document_agent.structure.anchoring_primitives import (
     serialize_skeleton_anchor,
     serialize_title_node,
@@ -41,13 +40,9 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
     if page_count <= 0 or not hierarchies:
         return
 
-    if not ctx.blackboard.page_full_text_cache:
-        ctx.blackboard.page_full_text_cache = read_page_texts(
-            ctx.pdf_path,
-            list(range(1, page_count + 1)),
-            timeout=300,
-        )
     page_texts = dict(ctx.blackboard.page_full_text_cache)
+    if not page_texts:
+        raise ValueError("page_full_text_cache missing; run text scan before TOC anchoring")
     filename = Path(ctx.pdf_path).name
     primary, pending, _summary = select_global_toc_hierarchies(
         hierarchies=hierarchies,

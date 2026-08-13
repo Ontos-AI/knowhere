@@ -43,6 +43,7 @@ def build_anatomy_map(ctx: ToolContext) -> PageAnatomyMap:
         skeleton_anchor=ctx.blackboard.skeleton_anchor,
         skeleton_nodes=ctx.blackboard.skeleton_nodes,
         pending_skeleton_anchors=list(ctx.blackboard.pending_skeleton_anchors),
+        page_full_text_cache=dict(ctx.blackboard.page_full_text_cache),
         global_signals=ctx.blackboard.global_signals,
         trace_summary={
             "budget": ctx.budget.snapshot(),

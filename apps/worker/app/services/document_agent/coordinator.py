@@ -22,6 +22,7 @@ from app.services.document_agent.manifest import (
     ToolContext,
     ToolResult,
 )
+from app.services.document_agent.pdf_text import read_page_texts
 from app.services.document_agent.persist import build_anatomy_map, persist_anatomy_map
 from app.services.document_agent.planner import ProfilePlanner
 from app.services.document_agent.registry import REGISTRY
@@ -142,11 +143,14 @@ class ProfileCoordinator:
         self.state = DocumentAgentState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
-        if self._should_run_toc_before_coarse():
-            self._ensure_toc_profile(strict=False)
         profile, _initial_decision, _planner_result = self._propose_profile(
             actor="planner:coarse"
         )
+        self._run_text_scan()
+        if self._toc_profile_enabled():
+            self._ensure_toc_profile(strict=False)
+        else:
+            self._ensure_disabled_toc_placeholder()
         self._ensure_asset_probe()
         return profile
 
@@ -321,13 +325,47 @@ class ProfileCoordinator:
             and toc_result.failure_kind in {"confirm_failed", "degraded"}
         )
 
-    def _should_run_toc_before_coarse(self) -> bool:
-        return self._toc_profile_enabled() and bool(
-            self.ctx.settings.get("toc_before_coarse")
-        )
-
     def _toc_profile_enabled(self) -> bool:
         return bool(self.ctx.settings.get("toc_profile_enabled", True))
+
+    def _run_text_scan(self) -> None:
+        profile = self.blackboard.document_profile
+        if profile is None:
+            raise RuntimeError("document_profile missing; run planner first")
+        page_count = int(self.blackboard.page_count or 0)
+        pages = list(range(1, page_count + 1))
+        if not pages:
+            self.blackboard.page_full_text_cache = {}
+            return
+        if profile.is_scanned:
+            result = REGISTRY.dispatch("ocr.pages", self.ctx, {"pages": pages})
+            self.trace.record_step(
+                round_index=self.round_index,
+                actor="scan:ocr.pages",
+                action_type="scan",
+                result=result,
+                tool_name="ocr.pages",
+                tool_args={"pages": pages},
+            )
+            if result.status != "ok":
+                raise RuntimeError(result.error or "ocr.pages failed")
+            self.round_index += 1
+            return
+        texts = read_page_texts(self.ctx.pdf_path, pages, timeout=300)
+        self.blackboard.page_full_text_cache = texts
+        self.trace.record_step(
+            round_index=self.round_index,
+            actor="scan:read_page_texts",
+            action_type="scan",
+            result=ToolResult(
+                status="ok",
+                payload={"page_count": len(texts)},
+                output_summary={"page_count": len(texts)},
+            ),
+            tool_name="read_page_texts",
+            tool_args={"pages": pages},
+        )
+        self.round_index += 1
 
     def _ensure_disabled_toc_placeholder(self) -> None:
         self.blackboard.toc_result = TocResult(
@@ -349,7 +387,6 @@ class ProfileCoordinator:
         if not should_run:
             return
 
-        self._planner_cache = None
         self.blackboard.global_signals["toc_profile_attempted"] = True
         try:
             self._run_toc_extraction_pipeline()

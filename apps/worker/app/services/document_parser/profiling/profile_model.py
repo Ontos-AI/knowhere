@@ -45,6 +45,7 @@ class ParserDocumentProfile:
     granularity: str = "page"
     anatomy: Any | None = None
     metrics: dict[str, Any] = field(default_factory=dict)
+    page_full_text_cache: dict[int, str] = field(default_factory=dict)
 
     @property
     def is_pdf(self) -> bool:
@@ -60,6 +61,7 @@ class ParserDocumentProfile:
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
+        data.pop("page_full_text_cache", None)
         data["routing_category"] = self.routing_category.value
         if self.anatomy is not None and hasattr(self.anatomy, "to_dict"):
             data["anatomy"] = self.anatomy.to_dict()

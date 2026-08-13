@@ -129,9 +129,8 @@ def _profile_pdf_with_db(
         settings={
             "planner_model": settings.IMAGE_MODEL,
             "vlm_model": settings.IMAGE_MODEL,
-            "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
             "toc_profile_enabled": page_toc_enabled,
-            "toc_before_coarse": page_toc_enabled,
+            "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
         },
     )
     agent_profile = coordinator.run_coarse()
@@ -153,6 +152,7 @@ def _profile_pdf_with_db(
                 {},
             ),
         },
+        page_full_text_cache=dict(coordinator.blackboard.page_full_text_cache),
     )
     if profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
         if oversized_policy != "page_memory":

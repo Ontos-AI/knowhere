@@ -1,8 +1,7 @@
-"""LLM-guided long-PDF shard planning from document profile evidence."""
+"""Deterministic long-PDF shard planning from TOC leaf boundaries."""
 
 from __future__ import annotations
 
-import json
 import os
 import time
 from typing import Any
@@ -15,7 +14,6 @@ from app.services.document_agent.manifest import (
 )
 from app.services.document_agent.registry import has_doc_stats, has_toc_result, register_tool
 from app.services.document_agent.validators import single_shard_plan, validate_shard_plan
-from shared.utils.token_estimate import estimate_tokens
 
 
 def derive_leaf_cut_pages(
@@ -58,109 +56,6 @@ def derive_leaf_cut_pages(
                 all_pages.append(pn + offset)
 
     return sorted(set(all_pages))
-
-
-def derive_chapter_boundaries(
-    toc_hierarchies: list[dict[str, Any]] | None,
-    *,
-    offset_override: int | None = None,
-    page_count: int,
-) -> list[dict[str, Any]]:
-    """Extract chapter entries with physical page ranges for shard planning.
-
-    Returns a flat list sorted by page_start:
-    [{"title": str, "level": int, "page_start": int, "page_end": int,
-      "page_span": int, "sub_entries": [...]}, ...]
-
-    Includes all L1 entries. For any L1 whose span exceeds 200 pages,
-    its direct L2 children are included as sub_entries so the LLM can
-    split within it.
-
-    Requires calibrated ``offset_override``; otherwise returns [].
-    """
-    if not toc_hierarchies or offset_override is None:
-        return []
-
-    all_entries: list[dict[str, Any]] = []
-    for hier in toc_hierarchies:
-        if hier.get("toc_range_unit") != "page":
-            continue
-        toc_range = hier.get("toc_range")
-        entries = hier.get("toc_with_level")
-        if not toc_range or not entries:
-            continue
-        if isinstance(entries, str):
-            entries = _parse_toc_with_level_entries(entries)
-        if not entries:
-            continue
-
-        offset = offset_override
-
-        # Collect all entries with physical pages (integer printed labels only;
-        # roman/prefixed need regime-local offsets — shard plan uses primary).
-        phys_entries: list[dict[str, Any]] = []
-        for entry in entries:
-            pn = entry.get("page_number")
-            if not isinstance(pn, int):
-                continue
-            physical = pn + offset
-            if physical < 1 or physical > page_count:
-                continue
-            phys_entries.append({
-                "title": entry.get("heading", ""),
-                "level": entry.get("level", 1),
-                "page_start": physical,
-            })
-
-        if not phys_entries:
-            continue
-
-        # Compute page_end for each entry: next entry's page_start - 1
-        for i, item in enumerate(phys_entries):
-            if i + 1 < len(phys_entries):
-                item["page_end"] = phys_entries[i + 1]["page_start"] - 1
-            else:
-                item["page_end"] = page_count
-            item["page_span"] = item["page_end"] - item["page_start"] + 1
-
-        all_entries.extend(phys_entries)
-
-    if not all_entries:
-        return []
-
-    # Build chapter-level structure: group by L1 with L2 sub_entries
-    min_level = min(e["level"] for e in all_entries)
-    chapters: list[dict[str, Any]] = []
-    current_l1: dict[str, Any] | None = None
-
-    for entry in all_entries:
-        if entry["level"] == min_level:
-            if current_l1 is not None:
-                chapters.append(current_l1)
-            current_l1 = {**entry, "sub_entries": []}
-        elif current_l1 is not None and entry["level"] == min_level + 1:
-            current_l1["sub_entries"].append(entry)
-
-    if current_l1 is not None:
-        chapters.append(current_l1)
-
-    # Recompute L1 page_end from the next L1's page_start - 1
-    for i, chapter in enumerate(chapters):
-        if i + 1 < len(chapters):
-            chapter["page_end"] = chapters[i + 1]["page_start"] - 1
-        else:
-            chapter["page_end"] = page_count
-        chapter["page_span"] = chapter["page_end"] - chapter["page_start"] + 1
-        # Recompute sub_entry page_end within the L1's range
-        subs = chapter["sub_entries"]
-        for j, sub in enumerate(subs):
-            if j + 1 < len(subs):
-                sub["page_end"] = subs[j + 1]["page_start"] - 1
-            else:
-                sub["page_end"] = chapter["page_end"]
-            sub["page_span"] = sub["page_end"] - sub["page_start"] + 1
-
-    return chapters
 
 
 def split_toc_for_shard(
@@ -341,219 +236,33 @@ def _cuts_to_shards(cuts: list[tuple[int, str, str, float]], page_count: int) ->
     return shards
 
 
-def _build_chapter_prompt(
+def _finest_toc_ranges(leaf_pages: list[int], page_count: int) -> list[tuple[int, int]]:
+    starts = sorted({page for page in leaf_pages if 1 <= page <= page_count})
+    if not starts:
+        return []
+    ranges: list[tuple[int, int]] = []
+    if starts[0] > 1:
+        ranges.append((1, starts[0] - 1))
+    for index, start in enumerate(starts):
+        end = starts[index + 1] - 1 if index + 1 < len(starts) else page_count
+        if end >= start:
+            ranges.append((start, end))
+    return ranges
+
+
+def _pack_range_by_blanks(
     *,
-    page_count: int,
-    max_pages: int,
-    chapters: list[dict[str, Any]],
-) -> str:
-    """Build LLM prompt for TOC-based shard planning using chapter boundaries."""
-    chapter_list = []
-    for ch in chapters:
-        item: dict[str, Any] = {
-            "title": ch["title"],
-            "level": ch["level"],
-            "page_start": ch["page_start"],
-            "page_end": ch["page_end"],
-            "page_span": ch["page_span"],
-        }
-        if ch.get("sub_entries"):
-            item["sub_entries"] = [
-                {
-                    "title": s["title"],
-                    "level": s["level"],
-                    "page_start": s["page_start"],
-                    "page_end": s["page_end"],
-                    "page_span": s["page_span"],
-                }
-                for s in ch["sub_entries"]
-            ]
-        chapter_list.append(item)
-
-    payload = {
-        "page_count": page_count,
-        "max_pages_per_shard": max_pages,
-        "chapters": chapter_list,
-    }
-    return (
-        "You are a document splitting architect. Given a PDF's chapter structure, "
-        "decide how to split it into shards for downstream parsing.\n"
-        "Rules:\n"
-        "- Return strict JSON only.\n"
-        "- Each shard must be <= max_pages_per_shard pages.\n"
-        "- Group adjacent chapters into shards to fill each shard as evenly as possible.\n"
-        "- Cut points must align with chapter boundaries (use the page_end of the last "
-        "chapter in the shard as cut_after_page).\n"
-        "- If a single chapter exceeds max_pages_per_shard, split it at one of its "
-        "sub_entries boundaries (use that sub_entry's page_end as cut_after_page).\n"
-        "- Prefer fewer shards over many small ones.\n"
-        "- Keep each cut rationale under 120 characters.\n"
-        "- If the total page_count <= max_pages_per_shard, return enabled=false.\n"
-        "Output schema:\n"
-        "{\n"
-        '  "enabled": boolean,\n'
-        '  "cuts": [\n'
-        '    {"cut_after_page": number, "anchor_type": "toc_chapter_boundary", '
-        '"confidence": number, "rationale": string}\n'
-        "  ],\n"
-        '  "reason": "llm_boundary_decision" | "not_needed",\n'
-        '  "rationale": string\n'
-        "}\n"
-        "Payload:\n"
-        + json.dumps(payload, ensure_ascii=False)
-    )
-
-
-def _sanitize_rationale(text: str, max_length: int = 120) -> str:
-    # Truncate overlong rationales but preserve H1 title references
-    # which provide valuable semantic context for shard boundaries.
-    sanitized = (text or "").strip()
-    if len(sanitized) > max_length:
-        sanitized = sanitized[:max_length].rstrip() + "…"
-    return sanitized
-
-
-def _validate_cut_lengths(
-    cuts: list[tuple[int, str, str, float]],
-    page_count: int,
-    min_pages: int,
-    max_pages: int,
-) -> None:
-    previous = 0
-    for cut_page, *_ in cuts:
-        if cut_page - previous < min_pages:
-            raise ValueError(
-                f"LLM cut plan creates shard length {cut_page - previous} < min_pages={min_pages}"
-            )
-        if cut_page - previous > max_pages:
-            raise ValueError(
-                f"LLM cut plan creates shard length {cut_page - previous} > max_pages={max_pages}"
-            )
-        previous = cut_page
-    if page_count - previous < min_pages and cuts:
-        raise ValueError(
-            f"LLM cut plan creates final shard length {page_count - previous} < min_pages={min_pages}"
-        )
-    if page_count - previous > max_pages:
-        raise ValueError(
-            f"LLM cut plan creates final shard length {page_count - previous} > max_pages={max_pages}"
-        )
-
-
-def _parse_llm_plan(
-    raw: str,
-    page_count: int,
-    min_pages: int,
-    max_pages: int,
-) -> tuple[bool, list[tuple[int, str, str, float]], str, str]:
-    data = json.loads(raw)
-    if not isinstance(data, dict):
-        raise ValueError("LLM shard plan is not an object")
-    enabled = bool(data.get("enabled"))
-    reason = str(data.get("reason") or ("llm_boundary_decision" if enabled else "not_needed"))
-    rationale = _sanitize_rationale(str(data.get("rationale") or ""))
-    cuts: list[tuple[int, str, str, float]] = []
-    for item in data.get("cuts") or []:
-        if not isinstance(item, dict):
-            continue
-        raw_cut_page = item.get("cut_after_page")
-        if raw_cut_page is None:
-            continue
-        cut_page = int(raw_cut_page)
-        if not 1 <= cut_page < page_count:
-            continue
-        anchor_type = str(item.get("anchor_type") or "forced_max_size")
-        if anchor_type not in {"h1_boundary", "blank_separator", "forced_max_size", "toc_chapter_boundary"}:
-            anchor_type = "forced_max_size"
-        confidence = float(item.get("confidence") or 0.5)
-        cuts.append((cut_page, anchor_type, _sanitize_rationale(str(item.get("rationale") or rationale)), confidence))
-    cuts = sorted({cut[0]: cut for cut in cuts}.values(), key=lambda cut: cut[0])
-    if enabled:
-        _validate_cut_lengths(cuts, page_count, min_pages, max_pages)
-    return enabled, cuts, reason, rationale
-
-
-def _deterministic_chapter_plan(
-    *,
-    chapters: list[dict[str, Any]],
-    max_pages: int,
-    page_count: int,
-    leaf_pages: list[int],
-) -> tuple[list[tuple[int, str, str, float]], str]:
-    """Greedy chapter grouping when LLM is unavailable."""
-    cuts: list[tuple[int, str, str, float]] = []
-    shard_start = 0
-
-    for i, chapter in enumerate(chapters):
-        chapter_end = chapter["page_end"]
-        shard_span = chapter_end - shard_start
-
-        if shard_span > max_pages:
-            # Current chapter alone exceeds max_pages; split within its sub_entries
-            subs = chapter.get("sub_entries") or []
-            if subs:
-                for sub in subs:
-                    sub_end = sub["page_end"]
-                    if sub_end - shard_start > max_pages:
-                        # cut before this sub_entry
-                        cut_page = sub["page_start"] - 1
-                        if cut_page > shard_start:
-                            cuts.append((
-                                cut_page,
-                                "toc_chapter_boundary",
-                                f"split within chapter at sub-entry: {sub['title'][:60]}",
-                                0.7,
-                            ))
-                            shard_start = cut_page
-            else:
-                # No sub_entries; fall back to leaf pages within this chapter
-                ch_leaf_pages = [
-                    p for p in leaf_pages
-                    if chapter["page_start"] <= p <= chapter_end
-                ]
-                sub_previous = shard_start
-                while chapter_end - sub_previous > max_pages:
-                    target = sub_previous + max_pages
-                    eligible = [p for p in ch_leaf_pages if sub_previous + 20 < p <= target]
-                    if eligible:
-                        chosen = max(eligible)
-                        cut_page = chosen - 1
-                    else:
-                        cut_page = sub_previous + max_pages
-                    cuts.append((cut_page, "forced_max_size", "oversized chapter, leaf fallback", 0.3))
-                    shard_start = cut_page
-                    sub_previous = cut_page
-
-        elif i + 1 < len(chapters):
-            next_chapter_end = chapters[i + 1]["page_end"]
-            next_shard_span = next_chapter_end - shard_start
-            if next_shard_span > max_pages:
-                # Adding next chapter would overflow; cut after current chapter
-                cuts.append((
-                    chapter_end,
-                    "toc_chapter_boundary",
-                    f"chapter boundary: {chapter['title'][:60]}",
-                    0.85,
-                ))
-                shard_start = chapter_end
-
-    return cuts, "too_large"
-
-
-def _deterministic_no_toc_plan(
-    *,
-    page_count: int,
+    previous: int,
+    end: int,
     max_pages: int,
     blank_pages: list[int],
-) -> tuple[list[tuple[int, str, str, float]], str]:
-    """Deterministic shard plan using blank-like pages as split candidates."""
+) -> list[tuple[int, str, str, float]]:
     cuts: list[tuple[int, str, str, float]] = []
-    previous = 0
-    while page_count - previous > max_pages:
+    while end - previous > max_pages:
         target = previous + max_pages
-        # Look for a blank-like page near the max boundary
         eligible = [
-            p for p in blank_pages if previous + (max_pages - 20) < p <= target
+            page for page in blank_pages
+            if previous + (max_pages - 20) < page <= target
         ]
         if eligible:
             chosen = max(eligible)
@@ -563,18 +272,51 @@ def _deterministic_no_toc_plan(
             cut_page = previous + max_pages
             cuts.append((cut_page, "forced_max_size", "no separator in range", 0.2))
             previous = cut_page
+    return cuts
+
+
+def _deterministic_leaf_plan(
+    *,
+    page_count: int,
+    max_pages: int,
+    leaf_pages: list[int],
+    blank_pages: list[int],
+) -> tuple[list[tuple[int, str, str, float]], str]:
+    ranges = _finest_toc_ranges(leaf_pages, page_count)
+    cuts: list[tuple[int, str, str, float]] = []
+    shard_start = 0
+    index = 0
+    while index < len(ranges):
+        start, end = ranges[index]
+        if end - shard_start <= max_pages:
+            index += 1
+            continue
+        prior_end = start - 1
+        if prior_end > shard_start:
+            cuts.append((prior_end, "toc_leaf_boundary", f"toc leaf at page {start}", 0.85))
+            shard_start = prior_end
+            continue
+        range_cuts = _pack_range_by_blanks(
+            previous=shard_start,
+            end=end,
+            max_pages=max_pages,
+            blank_pages=blank_pages,
+        )
+        cuts.extend(range_cuts)
+        if range_cuts:
+            shard_start = range_cuts[-1][0]
+        index += 1
     return cuts, "too_large"
 
 
 def _get_blank_pages(ctx: ToolContext) -> list[int]:
-    """Extract blank-like page numbers from page features."""
     features = ctx.blackboard.page_features or []
     return sorted(feature.page for feature in features if feature.is_blank_like)
 
 
 @register_tool(
     name="propose.shard_plan",
-    description="Decide whether and where to split a long PDF using TOC chapter boundaries.",
+    description="Split a long PDF at TOC leaf boundaries, then blank pages, then max page size.",
     preconditions=(has_doc_stats, has_toc_result),
 )
 def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
@@ -590,84 +332,27 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
             latency_ms=int((time.monotonic() - start) * 1000),
         )
 
-    offset_hint = ctx.blackboard.toc_page_offset
-
-    # Try TOC chapter-based planning first
-    chapters = derive_chapter_boundaries(
+    leaf_pages = derive_leaf_cut_pages(
         ctx.blackboard.toc_hierarchies,
-        offset_override=offset_hint,
-        page_count=page_count,
-    ) if ctx.blackboard.toc_hierarchies else []
-
-    warnings: list[str] = []
-    raw_response = ""
-    rationale = ""
-    llm_attempted = False
-    leaf_pages = derive_leaf_cut_pages(ctx.blackboard.toc_hierarchies, offset_override=offset_hint)
-
-    if chapters:
-        # Path A: TOC chapter-based LLM decision
-        model = ctx.settings.get("model")
-        prompt = _build_chapter_prompt(
+        offset_override=ctx.blackboard.toc_page_offset,
+    )
+    blank_pages = _get_blank_pages(ctx)
+    if leaf_pages:
+        cuts, reason = _deterministic_leaf_plan(
             page_count=page_count,
             max_pages=max_pages,
-            chapters=chapters,
+            leaf_pages=leaf_pages,
+            blank_pages=blank_pages,
         )
-        prompt_tokens_est = estimate_tokens(prompt)
-
-        if model and ctx.budget.try_reserve("plan", prompt_tokens_est):
-            try:
-                llm_attempted = True
-                from shared.services.ai.llm_overrides import get_text_client
-
-                client, model = get_text_client(requested_model=model)
-                raw_response, usage = client.chat_completion_with_usage(
-                    messages=[{"role": "user", "content": prompt}],
-                    model=model,
-                    temperature=0.0,
-                    max_tokens=1600,
-                    response_format={"type": "json_object"},
-                    usage_task="document_agent.propose_shard_plan",
-                )
-                ctx.budget.commit("plan", actual=usage.get("total_tokens", prompt_tokens_est), est=prompt_tokens_est)
-                enabled, cuts, reason, rationale = _parse_llm_plan(raw_response, page_count, min_pages, max_pages)
-                if not enabled:
-                    cuts = []
-                    reason = "not_needed"
-            except Exception as exc:
-                ctx.budget.refund("plan", est=prompt_tokens_est)
-                warnings.append(f"LLM chapter shard decision failed; using deterministic plan: {exc}")
-                ctx.blackboard.global_signals.setdefault("degraded_reasons", []).append(
-                    "shard_plan: llm_parse_failed"
-                )
-                cuts, reason = _deterministic_chapter_plan(
-                    chapters=chapters,
-                    max_pages=max_pages,
-                    page_count=page_count,
-                    leaf_pages=leaf_pages,
-                )
-                rationale = "Deterministic chapter plan after LLM failure."
-        else:
-            if not model:
-                warnings.append("No model configured; using deterministic chapter plan.")
-                ctx.blackboard.global_signals.setdefault("degraded_reasons", []).append(
-                    "shard_plan: no model"
-                )
-            cuts, reason = _deterministic_chapter_plan(
-                chapters=chapters,
-                max_pages=max_pages,
-                page_count=page_count,
-                leaf_pages=leaf_pages,
-            )
-            rationale = "Deterministic chapter plan (no LLM)."
+        rationale = "Deterministic plan from TOC leaf boundaries."
     else:
-        # Path B: No TOC — purely deterministic using blank-like pages
-        blank_pages = _get_blank_pages(ctx)
-        cuts, reason = _deterministic_no_toc_plan(
-            page_count=page_count,
+        cuts = _pack_range_by_blanks(
+            previous=0,
+            end=page_count,
             max_pages=max_pages,
             blank_pages=blank_pages,
         )
+        reason = "too_large"
         rationale = "Deterministic plan from blank-like page boundaries (no TOC)."
 
     shards = _cuts_to_shards(cuts, page_count)
@@ -695,22 +380,14 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
             "valid": plan.validation.valid,
         },
         latency_ms=int((time.monotonic() - start) * 1000),
-        tokens_used=ctx.budget.snapshot()["plan"]["used"] if llm_attempted else 0,
         input_summary={
             "page_count": page_count,
-            "chapter_count": len(chapters),
             "leaf_page_count": len(leaf_pages),
-            "model": ctx.settings.get("model"),
         },
         output_summary={
             "enabled": plan.enabled,
             "reason": plan.reason,
             "rationale": rationale,
             "shards": [shard.to_dict() for shard in plan.shards],
-        },
-        warnings=warnings,
-        debug={
-            "raw_response_excerpt": raw_response[:4000] if raw_response else "",
-            "llm_attempted": llm_attempted,
         },
     )

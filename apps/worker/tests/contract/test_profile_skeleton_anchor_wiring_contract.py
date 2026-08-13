@@ -145,19 +145,14 @@ def test_profile_toc_anchoring_writes_skeleton_anchor() -> None:
     ctx = _ctx()
     ctx.blackboard.toc_hierarchies = _toc()
     ctx.blackboard.toc_result = TocResult(method="vlm_batch", toc_pages=[1])
+    ctx.blackboard.page_full_text_cache = {page: "Ch1" for page in range(1, 11)}
 
     def fake_anchor_hierarchy(**_kwargs):
         return [_node()], _anchor()
 
-    with (
-        patch(
-            "app.services.document_agent.structure.toc_anchoring.read_page_texts",
-            return_value={page: "Ch1" for page in range(1, 11)},
-        ),
-        patch(
-            "app.services.document_agent.structure.toc_anchoring.anchor_hierarchy",
-            side_effect=fake_anchor_hierarchy,
-        ),
+    with patch(
+        "app.services.document_agent.structure.toc_anchoring.anchor_hierarchy",
+        side_effect=fake_anchor_hierarchy,
     ):
         run_toc_anchoring(ctx)
 
@@ -256,6 +251,7 @@ def test_profile_classifies_pending_toc_before_finalize() -> None:
     ctx = _ctx(page_count=30)
     ctx.blackboard.toc_hierarchies = _pending_tocs()
     ctx.blackboard.toc_result = TocResult(method="vlm_batch", toc_pages=[1, 20, 21])
+    ctx.blackboard.page_full_text_cache = {page: "body" for page in range(1, 31)}
     pending_node = TitleNode(title="App", level=1, printed_page=22, children=[])
     finalize_calls: list[object] = []
 
@@ -264,10 +260,6 @@ def test_profile_classifies_pending_toc_before_finalize() -> None:
         return [pending_node], _anchor(title="App", page=22), True
 
     with (
-        patch(
-            "app.services.document_agent.structure.toc_anchoring.read_page_texts",
-            return_value={page: "body" for page in range(1, 31)},
-        ),
         patch(
             "app.services.document_agent.structure.toc_anchoring.anchor_hierarchy",
             return_value=([_node()], _anchor()),
@@ -313,15 +305,12 @@ def test_profile_skips_finalize_for_unresolvable_pending_toc() -> None:
     hierarchies[1]["toc_with_level"] = [{"heading": "App", "level": 1}]
     ctx.blackboard.toc_hierarchies = hierarchies
     ctx.blackboard.toc_result = TocResult(method="vlm_batch", toc_pages=[1, 20, 21])
+    ctx.blackboard.page_full_text_cache = {page: "body" for page in range(1, 31)}
 
     def _boom(*_args, **_kwargs):
         raise AssertionError("unresolvable pending TOC must not finalize")
 
     with (
-        patch(
-            "app.services.document_agent.structure.toc_anchoring.read_page_texts",
-            return_value={page: "body" for page in range(1, 31)},
-        ),
         patch(
             "app.services.document_agent.structure.toc_anchoring.anchor_hierarchy",
             return_value=([_node()], _anchor()),
@@ -427,3 +416,33 @@ def test_classify_toc_relationship_is_not_on_c4_module() -> None:
 
     assert not hasattr(skeleton_extractor, "_classify_toc_relationship")
     assert callable(classify_toc_relationship)
+
+
+def test_toc_anchoring_requires_page_text_cache() -> None:
+    ctx = _ctx()
+    ctx.blackboard.toc_hierarchies = _toc()
+    ctx.blackboard.toc_result = TocResult(method="vlm_batch", toc_pages=[1])
+
+    try:
+        run_toc_anchoring(ctx)
+        raise AssertionError("expected missing cache to raise")
+    except ValueError as exc:
+        assert "page_full_text_cache" in str(exc)
+
+
+def test_page_memory_and_toc_do_not_extract_page_texts() -> None:
+    import inspect
+
+    from app.services.document_agent.structure import toc_anchoring
+    from app.services.document_agent.tools import find_toc_anchor_pages, grep_text
+    from app.services.page_memory import memory_service, page_renderer, skeleton_extractor
+
+    for module in (
+        memory_service,
+        page_renderer,
+        skeleton_extractor,
+        toc_anchoring,
+        find_toc_anchor_pages,
+        grep_text,
+    ):
+        assert "read_page_texts(" not in inspect.getsource(module)

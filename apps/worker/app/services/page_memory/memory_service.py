@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from app.services.document_agent.pdf_text import read_page_texts
+from app.services.document_agent.pdf_text import coerce_page_text_cache
 from app.services.document_agent.visual import (
     purge_debug_visual_dirs,
     visual_debug_enabled,
@@ -117,11 +117,13 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
 
         if verdict == "whole_doc":
             parsed_df = _build_whole_doc_dataframe(
-                pdf_path=pdf_path,
                 filename=request.filename,
                 page_count=page_count,
                 verdict=verdict,
                 trace_recorder=trace_recorder,
+                page_texts=coerce_page_text_cache(
+                    getattr(profile, "page_full_text_cache", None)
+                ),
             )
         else:
             parsed_df = _build_page_dataframe(
@@ -237,10 +239,7 @@ def _build_page_dataframe(
     asset_extraction_enabled = page_memory_config.asset_extraction_enabled
 
     # ── C4: skeleton (from profile anatomy) ───────────────────────────
-    with stage_timer("page_memory.read_page_texts", page_count=page_count):
-        page_texts = read_page_texts(
-            pdf_path, list(range(1, page_count + 1)), timeout=300,
-        )
+    page_texts = coerce_page_text_cache(getattr(profile, "page_full_text_cache", None))
     with stage_timer("page_memory.skeleton", page_count=page_count):
         if anatomy is not None:
             skeletons = extract_section_skeletons(
@@ -800,15 +799,15 @@ def _select_rendered_pages_with_assets(
 
 def _build_whole_doc_dataframe(
     *,
-    pdf_path: str,
     filename: str,
     page_count: int,
     verdict: str,
     trace_recorder: Any | None = None,
+    page_texts: dict[int, str] | None = None,
 ) -> pd.DataFrame:
     pages = list(range(1, page_count + 1)) if page_count > 0 else [1]
-    page_texts = read_page_texts(pdf_path, pages)
-    raw_text = "\n\n".join(page_texts.get(page, "") for page in pages).strip()
+    texts = coerce_page_text_cache(page_texts)
+    raw_text = "\n\n".join(texts.get(page, "") for page in pages).strip()
     summary = _build_summary(filename=filename, page_count=page_count, raw_text=raw_text)
     content = f"[SUMMARY]\n{summary}\n\n[RAW]\n{raw_text}".strip()
     know_id = gen_str_codes(f"wholedoc::{filename}::{content}")
