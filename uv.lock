@@ -439,11 +439,11 @@ wheels = [
 
 [[package]]
 name = "billiard"
-version = "4.2.0"
+version = "4.2.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/09/52/f10d74fd56e73b430c37417658158ad8386202b069b70ff97d945c3ab67a/billiard-4.2.0.tar.gz", hash = "sha256:9a3c3184cb275aa17a732f93f65b20c525d3d9f253722d26a82194803ade5a2c", size = 154665, upload-time = "2023-11-06T05:23:38.562Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7c/58/1546c970afcd2a2428b1bfafecf2371d8951cc34b46701bea73f4280989e/billiard-4.2.1.tar.gz", hash = "sha256:12b641b0c539073fc8d3f5b8b7be998956665c4233c7c1fcd66a7e677c4fb36f", size = 155031, upload-time = "2024-09-21T13:40:22.491Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/50/8d/6e9fdeeab04d803abc5a715175f87e88893934d5590595eacff23ca12b07/billiard-4.2.0-py3-none-any.whl", hash = "sha256:07aa978b308f334ff8282bd4a746e681b3513db5c9a514cbdd810cbbdc19714d", size = 86720, upload-time = "2023-11-06T05:23:29.122Z" },
+    { url = "https://files.pythonhosted.org/packages/30/da/43b15f28fe5f9e027b41c539abc5469052e9d48fd75f8ff094ba2a0ae767/billiard-4.2.1-py3-none-any.whl", hash = "sha256:40b59a4ac8806ba2c2369ea98d876bc6108b051c227baffd928c644d15d8f3cb", size = 86766, upload-time = "2024-09-21T13:40:20.188Z" },
 ]
 
 [[package]]
@@ -485,7 +485,7 @@ wheels = [
 
 [[package]]
 name = "celery"
-version = "5.4.0"
+version = "5.5.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "billiard" },
@@ -495,12 +495,11 @@ dependencies = [
     { name = "click-repl" },
     { name = "kombu" },
     { name = "python-dateutil" },
-    { name = "tzdata" },
     { name = "vine" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8a/9c/cf0bce2cc1c8971bf56629d8f180e4ca35612c7e79e6e432e785261a8be4/celery-5.4.0.tar.gz", hash = "sha256:504a19140e8d3029d5acad88330c541d4c3f64c789d85f94756762d8bca7e706", size = 1575692, upload-time = "2024-04-17T20:29:43.675Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/7d/6c289f407d219ba36d8b384b42489ebdd0c84ce9c413875a8aae0c85f35b/celery-5.5.3.tar.gz", hash = "sha256:6c972ae7968c2b5281227f01c3a3f984037d21c5129d07bf3550cc2afc6b10a5", size = 1667144, upload-time = "2025-06-01T11:08:12.563Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/90/c4/6a4d3772e5407622feb93dd25c86ce3c0fee746fa822a777a627d56b4f2a/celery-5.4.0-py3-none-any.whl", hash = "sha256:369631eb580cf8c51a82721ec538684994f8277637edde2dfc0dacd73ed97f64", size = 425983, upload-time = "2024-04-17T20:29:39.406Z" },
+    { url = "https://files.pythonhosted.org/packages/c9/af/0dcccc7fdcdf170f9a1585e5e96b6fb0ba1749ef6be8c89a6202284759bd/celery-5.5.3-py3-none-any.whl", hash = "sha256:0b5761a07057acee94694464ca482416b959568904c9dfa41ce8413a7d65d525", size = 438775, upload-time = "2025-06-01T11:08:09.94Z" },
 ]
 
 [[package]]
@@ -1440,7 +1439,7 @@ dev = [
 requires-dist = [
     { name = "aiohttp", specifier = "==3.13.4" },
     { name = "alembic", specifier = "==1.13.1" },
-    { name = "celery", specifier = "==5.4.0" },
+    { name = "celery", specifier = "==5.5.3" },
     { name = "fastapi", specifier = "==0.135.1" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "knowhere-shared", editable = "packages/shared-python" },
@@ -1525,18 +1524,18 @@ requires-dist = [
     { name = "alembic", specifier = "==1.13.1" },
     { name = "asyncpg", specifier = "==0.31.0" },
     { name = "authlib", specifier = "==1.6.11" },
-    { name = "billiard", specifier = "==4.2.0" },
+    { name = "billiard", specifier = "==4.2.1" },
     { name = "blingfire", specifier = ">=0.1.8" },
     { name = "boto3", specifier = "==1.38.46" },
     { name = "botocore", specifier = "==1.38.46" },
-    { name = "celery", specifier = "==5.4.0" },
+    { name = "celery", specifier = "==5.5.3" },
     { name = "celery-redbeat", specifier = "==2.2.0" },
     { name = "email-validator", specifier = "==2.2.0" },
     { name = "fastapi-users", extras = ["sqlalchemy"], specifier = "==15.0.5" },
     { name = "gevent", specifier = ">=24.11.1" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "jieba", specifier = "==0.42.1" },
-    { name = "kombu", specifier = "==5.4.0" },
+    { name = "kombu", specifier = "==5.5.4" },
     { name = "loguru", specifier = "==0.7.3" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "pgvector", specifier = "==0.2.4" },
@@ -1580,8 +1579,8 @@ dependencies = [
     { name = "knowhere-shared" },
     { name = "logfire", extra = ["celery", "fastapi", "httpx", "sqlalchemy"] },
     { name = "lxml" },
-    { name = "markitdown" },
     { name = "markdownify" },
+    { name = "markitdown" },
     { name = "numpy" },
     { name = "openai" },
     { name = "openpyxl" },
@@ -1618,8 +1617,8 @@ requires-dist = [
     { name = "knowhere-shared", editable = "packages/shared-python" },
     { name = "logfire", extras = ["celery", "fastapi", "httpx", "sqlalchemy"], specifier = ">=4.25.0" },
     { name = "lxml", specifier = "==6.1.0" },
-    { name = "markitdown", specifier = "==0.1.2" },
     { name = "markdownify", specifier = "==1.2.2" },
+    { name = "markitdown", specifier = "==0.1.2" },
     { name = "numpy", specifier = "==2.2.6" },
     { name = "openai", specifier = "==1.93.3" },
     { name = "openpyxl", specifier = "==3.1.2" },
@@ -1648,15 +1647,17 @@ dev = [
 
 [[package]]
 name = "kombu"
-version = "5.4.0"
+version = "5.5.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "amqp" },
+    { name = "packaging" },
+    { name = "tzdata" },
     { name = "vine" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/f4/d3e57b1c351bb47ce25b16e1cf6ea05df4613dbe56e3cf32ea80df1a8b4d/kombu-5.4.0.tar.gz", hash = "sha256:ad200a8dbdaaa2bbc5f26d2ee7d707d9a1fded353a0f4bd751ce8c7d9f449c60", size = 442120, upload-time = "2024-08-06T13:42:58.842Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/d3/5ff936d8319ac86b9c409f1501b07c426e6ad41966fedace9ef1b966e23f/kombu-5.5.4.tar.gz", hash = "sha256:886600168275ebeada93b888e831352fe578168342f0d1d5833d88ba0d847363", size = 461992, upload-time = "2025-06-01T10:19:22.281Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/df/17/34f8ec5b9d46a1ddb598b7bf8f779c567421d05cd73742d09e549254c782/kombu-5.4.0-py3-none-any.whl", hash = "sha256:c8dd99820467610b4febbc7a9e8a0d3d7da2d35116b67184418b51cc520ea6b6", size = 200870, upload-time = "2024-08-06T13:42:55.53Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/70/a07dcf4f62598c8ad579df241af55ced65bed76e42e45d3c368a6d82dbc1/kombu-5.5.4-py3-none-any.whl", hash = "sha256:a12ed0557c238897d8e518f1d1fdf84bd1516c5e305af2dacd85c2015115feb8", size = 210034, upload-time = "2025-06-01T10:19:20.436Z" },
 ]
 
 [[package]]

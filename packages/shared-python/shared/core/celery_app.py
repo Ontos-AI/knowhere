@@ -60,6 +60,8 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     task_acks_late=True,
     worker_disable_rate_limits=True,
+    worker_soft_shutdown_timeout=90,
+    worker_enable_soft_shutdown_on_idle=True,
     # Redis serverless does not support the pidbox PSUBSCRIBE control channel.
     worker_enable_remote_control=False,
     task_reject_on_worker_lost=True,
