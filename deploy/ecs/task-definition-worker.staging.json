@@ -20,6 +20,7 @@
       "environment": [
         {"name": "ENVIRONMENT", "value": "staging"},
         {"name": "APP_ENV", "value": "staging"},
+        {"name": "REMAP_SIGTERM", "value": "SIGQUIT"},
         {"name": "DB_SSL_MODE", "value": "require"},
         {"name": "TMP_PATH", "value": "/tmp/knowhere"},
         {"name": "S3_TYPE", "value": "s3"},
