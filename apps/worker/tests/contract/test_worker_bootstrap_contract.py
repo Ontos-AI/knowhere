@@ -17,11 +17,13 @@ def test_should_register_worker_task_modules_for_celery_consumers(
         "app.core.tasks.kb_tasks.upload_url_file_task",
         "app.core.tasks.kb_tasks.parse_task",
         "app.core.tasks.stale_job_sweeper.expire_stale_jobs",
+        "app.core.tasks.visibility_recovery.restore_expired_reservations",
         "app.core.tasks.webhook_tasks.recover_orphaned_webhooks",
     )
     task_module_names: tuple[str, ...] = (
         "app.core.tasks.document_ingestion_tasks",
         "app.core.tasks.stale_job_sweeper",
+        "app.core.tasks.visibility_recovery",
         "app.core.tasks.webhook_tasks",
     )
 
@@ -76,3 +78,17 @@ def test_should_consume_current_and_legacy_ingestion_queues(
         "kb_medium",
         "kb_low",
     }.issubset(consumed_queues)
+
+
+def test_should_register_periodic_expired_reservation_recovery_task(
+    worker_contract_environment: None,
+) -> None:
+    from shared.core.celery_app import celery_app
+
+    task_name = "app.core.tasks.visibility_recovery.restore_expired_reservations"
+
+    assert task_name in celery_app.tasks
+    assert celery_app.conf.beat_schedule["restore-expired-celery-reservations"] == {
+        "task": task_name,
+        "schedule": 30.0,
+    }
