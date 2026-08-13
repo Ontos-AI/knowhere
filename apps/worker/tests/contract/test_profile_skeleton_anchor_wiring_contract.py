@@ -208,11 +208,44 @@ def test_shard_plan_reads_offset_and_does_not_calibrate() -> None:
         }
     ]
     ctx.blackboard.toc_page_offset = 0
+    ctx.blackboard.skeleton_nodes = [
+        serialize_title_node(TitleNode(title="Ch1", level=1, printed_page=3)),
+        serialize_title_node(TitleNode(title="Ch2", level=1, printed_page=120)),
+    ]
+    ctx.blackboard.skeleton_anchor = serialize_skeleton_anchor(
+        SkeletonAnchor(
+            offset=0,
+            offset_status="ok",
+            match_overrides={
+                ("Ch1",): TitleMatch(
+                    page=3,
+                    confidence=1.0,
+                    source="anchored",
+                    matched_line="Ch1",
+                    score=1.0,
+                    candidates=[3],
+                    evidence={},
+                ),
+                ("Ch2",): TitleMatch(
+                    page=120,
+                    confidence=1.0,
+                    source="anchored",
+                    matched_line="Ch2",
+                    score=1.0,
+                    candidates=[120],
+                    evidence={},
+                ),
+            },
+            null_page_report=[],
+            bulk_count=2,
+            pruned_count=0,
+            locate_agent="offset_guided_bulk",
+        )
+    )
     ctx.blackboard.toc_result = TocResult(method="vlm_batch")
     ctx.blackboard.doc_stats = {"page_count": 250}
     ctx.settings["shard_threshold"] = 200
     ctx.settings["max_pages_per_shard"] = 200
-    ctx.settings["min_pages_per_shard"] = 20
 
     def _boom(*_args, **_kwargs):
         raise AssertionError("shard plan must not recalibrate")

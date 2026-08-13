@@ -186,9 +186,8 @@ class ProfileCoordinator:
         if skip_shard_plan:
             # Page-based track processes pages individually via VLM and never
             # consumes the shard plan; only build_anatomy_map's invariant needs
-            # it. Populate a single-shard placeholder to skip the LLM shard
-            # decision + H2 refinement (kept global for chunk-track oversized
-            # MinerU sharding).
+            # it. Populate a single-shard placeholder to skip propose.shard_plan
+            # (kept for chunk-track oversized MinerU sharding).
             self._apply_single_shard_placeholder()
         else:
             result = REGISTRY.dispatch("propose.shard_plan", self.ctx, {})

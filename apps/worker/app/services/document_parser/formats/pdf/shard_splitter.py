@@ -1,4 +1,4 @@
-"""PDF shard splitting: bin-packing + physical split."""
+"""PDF shard splitting: 1:1 agent-shard mapping + physical split."""
 
 from __future__ import annotations
 
@@ -37,8 +37,8 @@ def bin_pack_shards(
 ) -> list[MergedShard]:
     """1:1 mapping: each agent shard becomes its own MinerU shard.
 
-    Agent shards are cut at semantic boundaries (H1/H2) by the document
-    agent.  Merging them would cross those boundaries and degrade heading
+    Agent shards are cut at TOC hierarchy pack boundaries by the document
+    agent. Merging them would cross those boundaries and degrade heading
     prediction quality, so we preserve them as-is.
     """
     return [

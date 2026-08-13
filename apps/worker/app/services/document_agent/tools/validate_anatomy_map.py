@@ -15,16 +15,11 @@ from app.services.document_agent.registry import (
 from app.services.document_agent.validators import validate_anatomy_map
 
 
-def _thresholds(ctx: ToolContext) -> tuple[int, int]:
-    min_pages = int(
-        ctx.settings.get("min_pages_per_shard")
-        or os.environ.get("PARSE_AGENT_MIN_PAGES_PER_SHARD", "20")
-    )
-    max_pages = int(
+def _max_pages(ctx: ToolContext) -> int:
+    return int(
         ctx.settings.get("max_pages_per_shard")
         or os.environ.get("PARSE_AGENT_MAX_PAGES_PER_SHARD", "200")
     )
-    return min_pages, max_pages
 
 
 @register_tool(
@@ -56,8 +51,7 @@ def validate_current_anatomy(ctx: ToolContext, _args: dict[str, Any]) -> ToolRes
         global_signals=ctx.blackboard.global_signals,
         trace_summary={},
     )
-    min_pages, max_pages = _thresholds(ctx)
-    report = validate_anatomy_map(anatomy, min_pages=min_pages, max_pages=max_pages)
+    report = validate_anatomy_map(anatomy, max_pages=_max_pages(ctx))
     ctx.blackboard.validation_report = report.to_dict()
     if ctx.blackboard.shard_plan:
         ctx.blackboard.shard_plan.validation = report

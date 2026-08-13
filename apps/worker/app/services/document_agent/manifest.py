@@ -187,10 +187,8 @@ class Shard:
     page_end: int
     page_offset: int
     anchor_type: Literal[
-        "h1_boundary",
         "blank_separator",
         "forced_max_size",
-        "toc_chapter_boundary",
         "toc_leaf_boundary",
     ]
     anchor_evidence: str
@@ -206,9 +204,6 @@ class ShardPlan:
     reason: Literal[
         "too_large",
         "not_needed",
-        "parser_stability",
-        "hierarchy_isolation",
-        "llm_boundary_decision",
     ]
     shards: list[Shard] = field(default_factory=list)
     validation: ValidationReport = field(

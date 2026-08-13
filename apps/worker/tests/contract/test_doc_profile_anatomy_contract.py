@@ -726,7 +726,6 @@ def test_oversized_single_shard_plan_is_invalid() -> None:
             ],
         ),
         page_count=407,
-        min_pages=20,
         max_pages=200,
     )
 
