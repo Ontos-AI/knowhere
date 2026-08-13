@@ -32,3 +32,13 @@ The staging workflow in `.github/workflows/build-images.yml` expects these GitHu
 - `STAGING_MIGRATION_DATABASE_URL`: the direct Neon URL for the staging migration role. It is used only by the migration container and is never passed to the ECS runtime tasks.
 
 Before an ECS staging deployment, an operator must create and verify the ECS services, network configuration, API load-balancer target, CloudWatch log groups, and runtime secret. The workflow validates those resources and fails without registering or updating a service when any prerequisite is missing. It does not create or delete AWS resources.
+
+## Local Docker smoke test
+
+LocalStack Community does not implement the ECS API used by this deployment, so it cannot validate Fargate orchestration. The runtime can still be checked locally with Docker:
+
+```bash
+./deploy/ecs/docker-runtime-smoke.sh
+```
+
+The script creates an isolated Docker network, starts disposable PostgreSQL and Redis containers, builds the API and worker images, runs Alembic, and verifies the API and worker container health checks. It uses filesystem object storage and mock LLM responses, calls no AWS API, and removes its containers and network on exit. Override `POSTGRES_IMAGE` or `REDIS_IMAGE` when the official images are not available locally. When `http_proxy` or `https_proxy` is set, the script passes those values only to the Docker build process.
