@@ -37,7 +37,10 @@ VisibilityRecoveryResult = (
 class VisibilityRecoveryQualityOfService(Protocol):
     """Expose the Kombu QoS operation required by recovery."""
 
-    def restore_visible(self, *, num: int, interval: int) -> None: ...
+    def restore_visible(self, *, num: int, interval: int) -> None:
+        raise NotImplementedError(
+            "Visibility recovery QoS must restore visible reservations"
+        )
 
 
 class VisibilityRecoveryChannel(Protocol):
@@ -45,7 +48,8 @@ class VisibilityRecoveryChannel(Protocol):
 
     qos: VisibilityRecoveryQualityOfService
 
-    def close(self) -> None: ...
+    def close(self) -> None:
+        raise NotImplementedError("Visibility recovery channel must close")
 
 
 celery_app: Celery = get_celery_app()
