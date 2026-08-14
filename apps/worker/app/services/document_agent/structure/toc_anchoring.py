@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
-from app.services.document_agent.agents.calibration import calibrate_offset
-from app.services.document_agent.agents.calibration.orchestrator import anchor_hierarchy
-from app.services.document_agent.agents.calibration.procedure import (
-    finalize_calibration_result,
-    pick_primary_offset,
-)
 from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.structure.anchoring_primitives import (
+    SkeletonAnchor,
+    deserialize_skeleton_anchor,
+    deserialize_title_node,
     serialize_skeleton_anchor,
     serialize_title_node,
     toc_range_end,
@@ -42,7 +40,9 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
 
     page_texts = dict(ctx.blackboard.page_full_text_cache)
     if not page_texts:
-        raise ValueError("page_full_text_cache missing; run text scan before TOC anchoring")
+        raise ValueError(
+            "page_full_text_cache missing; run text scan before TOC anchoring"
+        )
     filename = Path(ctx.pdf_path).name
     primary, pending, _summary = select_global_toc_hierarchies(
         hierarchies=hierarchies,
@@ -58,37 +58,22 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
         getattr(toc_result, "toc_pages", None),
         page_count,
     )
-    pending_starts: list[int] = []
-    for toc in pending:
-        start = toc_range_start(toc)
-        if start is not None:
-            pending_starts.append(start)
-    primary_page_count = page_count
-    primary_body_pages = body_pages
-    if pending_starts:
-        primary_page_count = min(pending_starts) - 1
-        primary_body_pages = [
-            page for page in body_pages if page <= primary_page_count
-        ]
 
     resolve_nodes, skeleton_anchor = anchor_hierarchy(
         nodes=nodes,
         toc_hierarchies=primary,
         page_texts=page_texts,
-        body_pages=primary_body_pages,
+        body_pages=body_pages,
         page_count=page_count,
         ctx=ctx,
     )
-    ctx.blackboard.skeleton_anchor = serialize_skeleton_anchor(skeleton_anchor)
-    ctx.blackboard.skeleton_nodes = [serialize_title_node(node) for node in resolve_nodes]
-    ctx.blackboard.toc_page_offset = skeleton_anchor.offset
     pending_records: list[dict[str, Any]] = []
     if pending:
         primary_ranges = resolve_hierarchy_page_ranges(
             resolve_nodes,
-            page_count=primary_page_count,
+            page_count=page_count,
             page_texts=page_texts,
-            body_pages=primary_body_pages,
+            body_pages=body_pages,
             match_overrides=skeleton_anchor.match_overrides,
         )
         pending_records = _anchor_pending_tocs(
@@ -99,6 +84,19 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
             body_pages=body_pages,
             primary_ranges=primary_ranges,
         )
+        resolve_nodes, skeleton_anchor = _graft_contained_pending(
+            resolve_nodes=resolve_nodes,
+            skeleton_anchor=skeleton_anchor,
+            pending_records=pending_records,
+            page_count=page_count,
+            page_texts=page_texts,
+            body_pages=body_pages,
+        )
+    ctx.blackboard.skeleton_anchor = serialize_skeleton_anchor(skeleton_anchor)
+    ctx.blackboard.skeleton_nodes = [
+        serialize_title_node(node) for node in resolve_nodes
+    ]
+    ctx.blackboard.toc_page_offset = skeleton_anchor.offset
     ctx.blackboard.pending_skeleton_anchors = pending_records
 
 
@@ -213,7 +211,9 @@ def classify_toc_relationship(
               section's explicitly-anchored range.
     """
     leaves = [
-        node for _, node in iter_leaf_title_nodes(nodes) if node.printed_page is not None
+        node
+        for _, node in iter_leaf_title_nodes(nodes)
+        if node.printed_page is not None
     ]
     if not leaves:
         return "unresolvable"
@@ -249,6 +249,21 @@ def classify_toc_relationship(
                 return "contained"
 
     return "parallel"
+
+
+from app.services.document_agent.agents.calibration.orchestrator import (  # noqa: E402
+    anchor_hierarchy,
+)
+from app.services.document_agent.agents.calibration.procedure import (  # noqa: E402
+    finalize_calibration_result,
+    pick_primary_offset,
+)
+from app.services.document_agent.agents.calibration.service import (  # noqa: E402
+    calibrate_offset,
+)
+from app.services.document_agent.structure.toc_graft import (  # noqa: E402
+    graft_contained_toc,
+)
 
 
 def _anchor_pending_tocs(
@@ -325,3 +340,43 @@ def _anchor_pending_tocs(
             }
         )
     return records
+
+
+def _graft_contained_pending(
+    *,
+    resolve_nodes: list[TitleNode],
+    skeleton_anchor: SkeletonAnchor,
+    pending_records: list[dict[str, Any]],
+    page_count: int,
+    page_texts: dict[int, str],
+    body_pages: list[int],
+) -> tuple[list[TitleNode], SkeletonAnchor]:
+    nodes = resolve_nodes
+    overrides = dict(skeleton_anchor.match_overrides)
+    for record in pending_records:
+        if record.get("relationship") != "contained":
+            continue
+        nodes_raw = record.get("nodes") or []
+        anchor_raw = record.get("skeleton_anchor")
+        if not isinstance(anchor_raw, dict) or not nodes_raw:
+            continue
+        contained_nodes = [
+            deserialize_title_node(node) for node in nodes_raw if isinstance(node, dict)
+        ]
+        if not contained_nodes:
+            continue
+        contained_anchor = deserialize_skeleton_anchor(anchor_raw)
+        grafted = graft_contained_toc(
+            primary_nodes=nodes,
+            primary_overrides=overrides,
+            contained_nodes=contained_nodes,
+            contained_overrides=contained_anchor.match_overrides,
+            page_count=page_count,
+            page_texts=page_texts,
+            body_pages=body_pages,
+        )
+        nodes = grafted.nodes
+        overrides = grafted.match_overrides
+        record["grafted"] = True
+        record["graft"] = grafted.events
+    return nodes, replace(skeleton_anchor, match_overrides=overrides)

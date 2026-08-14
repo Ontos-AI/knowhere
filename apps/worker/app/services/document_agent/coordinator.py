@@ -28,6 +28,9 @@ from app.services.document_agent.planner import ProfilePlanner
 from app.services.document_agent.registry import REGISTRY
 from app.services.document_agent.state import AgentBlackboard, DocumentAgentState
 from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
+from app.services.document_agent.structure.toc_link_enrichment import (
+    enrich_toc_hierarchies_with_links,
+)
 from app.services.document_agent import tools as _registered_tools  # noqa: F401
 from app.services.document_agent.trace import ParseRunRecorder
 from app.services.document_agent.validators import single_shard_plan
@@ -130,17 +133,27 @@ class ProfileCoordinator:
             actor="planner:coarse"
         )
         self._run_text_scan()
+        # Asset coarse probe is independent of TOC; run it before TOC so
+        # PROFILE / debug Stage-0 share the same order as later anatomy/shard
+        # consumers of ``page_features.has_asset``.
+        self._ensure_asset_probe()
+        if self.ctx.settings.get("stop_after_asset_probe"):
+            # Debug Stage-0: bootstrap → coarse VLM → text scan → asset probe.
+            return profile
         if self._toc_profile_enabled():
             self._ensure_toc_profile(strict=False)
         else:
             self._ensure_disabled_toc_placeholder()
-        self._ensure_asset_probe()
         return profile
 
     def _run_structural(self, *, skip_shard_plan: bool = False) -> PageAnatomyMap:
         self.state = DocumentAgentState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
+        # Prefer assets before TOC so cold structural matches coarse order.
+        # After ``run_coarse`` this is a no-op (assets_probed already set with
+        # coarse header/footer margins).
+        self._ensure_asset_probe()
         if self._toc_profile_enabled():
             self._ensure_toc_profile(strict=True)
         else:
@@ -148,7 +161,6 @@ class ProfileCoordinator:
         profile, initial_decision, _planner_result = self._propose_profile(
             actor="planner"
         )
-        self._ensure_asset_probe()
         if skip_shard_plan:
             # Page-memory oversized path never consumes shard_plan; only
             # build_anatomy_map's invariant needs a non-empty plan.
@@ -174,6 +186,8 @@ class ProfileCoordinator:
         self.state = DocumentAgentState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
+        # Same relative order as coarse: assets before any TOC placeholder.
+        # After ``run_coarse`` this is a no-op.
         self._ensure_asset_probe()
         if self.blackboard.toc_result is None:
             if self._toc_profile_enabled():
@@ -421,5 +435,39 @@ class ProfileCoordinator:
                 tool_name=tool_name,
                 actor=f"toc:{tool_name}",
             )
+        self._attach_toc_page_links()
+        if self.ctx.settings.get("skip_toc_anchoring"):
+            # Debug Stage-1: stop after TOC extract + link attach.
+            self._clear_toc_anchor_state()
+            logger.info(
+                "[document_agent] skip_toc_anchoring=True; "
+                "leaving calibration to a later stage"
+            )
+            return
         run_toc_anchoring(self.ctx)
+
+    def _attach_toc_page_links(self) -> None:
+        """Attach TOC-page hyperlinks onto VLM entries before calibration."""
+        hierarchies = list(self.blackboard.toc_hierarchies or [])
+        if not hierarchies:
+            return
+        try:
+            enriched, stats = enrich_toc_hierarchies_with_links(
+                pdf_path=self.ctx.pdf_path,
+                toc_hierarchies=hierarchies,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[document_agent] TOC link attach failed, "
+                "continuing without links: {}",
+                exc,
+            )
+            return
+        self.blackboard.toc_hierarchies = enriched
+        logger.info(
+            "[document_agent] TOC link attach: matched={}/{} skipped_no_links={}",
+            stats.entries_matched,
+            stats.entries_total,
+            stats.skipped_no_links,
+        )
 

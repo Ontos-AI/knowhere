@@ -34,8 +34,6 @@ from shared.services.chunks.path_segments import (
 )
 
 
-
-
 @dataclass(frozen=True)
 class SectionSkeleton:
     section_path: str
@@ -87,7 +85,9 @@ def extract_section_skeletons(
     if not isinstance(skeleton_anchor_raw, dict) or not isinstance(
         skeleton_nodes_raw, list
     ):
-        raise ValueError("anatomy.skeleton_anchor/skeleton_nodes missing after TOC extract")
+        raise ValueError(
+            "anatomy.skeleton_anchor/skeleton_nodes missing after TOC extract"
+        )
 
     skeleton_anchor = deserialize_skeleton_anchor(skeleton_anchor_raw)
     resolve_nodes = [
@@ -110,17 +110,22 @@ def extract_section_skeletons(
         getattr(toc_result, "toc_pages", None),
         page_count,
     )
+    pending_records = list(getattr(anatomy, "pending_skeleton_anchors", None) or [])
+    parallel_pending = _parallel_pending_tocs(
+        pending_tocs=pending_tocs,
+        pending_records=pending_records,
+    )
+    parallel_tocs = [toc for toc, _record in parallel_pending]
     primary_page_count = page_count
     primary_body_pages = body_pages
-    if pending_tocs:
-        pending_starts: list[int] = []
-        for pending_toc in pending_tocs:
-            start = toc_range_start(pending_toc)
-            if start is not None:
-                pending_starts.append(start)
-        if pending_starts:
-            primary_page_count = min(pending_starts) - 1
-            primary_body_pages = [page for page in body_pages if page <= primary_page_count]
+    pending_starts: list[int] = []
+    for toc in parallel_tocs:
+        start = toc_range_start(toc)
+        if start is not None:
+            pending_starts.append(start)
+    if pending_starts:
+        primary_page_count = min(pending_starts) - 1
+        primary_body_pages = [page for page in body_pages if page <= primary_page_count]
 
     match_overrides = skeleton_anchor.match_overrides
     null_page_report = skeleton_anchor.null_page_report
@@ -178,11 +183,9 @@ def extract_section_skeletons(
         for item in ranges
     ]
 
-    pending_records = list(getattr(anatomy, "pending_skeleton_anchors", None) or [])
-    if pending_tocs and pending_records:
+    if parallel_pending:
         secondary_skeletons = _resolve_pending_tocs(
-            pending_tocs=pending_tocs,
-            pending_records=pending_records,
+            parallel_pending=parallel_pending,
             page_texts=page_texts,
             page_count=page_count,
             filename=filename,
@@ -205,7 +208,9 @@ def _range_to_skeleton(
     start_page = _clamp_page(item.start_page, page_count)
     end_page = _clamp_page(item.end_page, page_count)
     # Keep original TOC titles (incl. numbering) in section_path / HIERARCHY.
-    path_titles = [str(title).strip() for title in item.path_titles if str(title).strip()]
+    path_titles = [
+        str(title).strip() for title in item.path_titles if str(title).strip()
+    ]
     section_path = join_document_path([filename, *path_titles])
     parent_path = (
         join_document_path([filename, *path_titles[:-1]])
@@ -254,45 +259,49 @@ def _page_count(anatomy: Any | None) -> int:
     return max(int(getattr(anatomy, "page_count", 0) or 0), 0)
 
 
-def _resolve_pending_tocs(
+def _parallel_pending_tocs(
     *,
     pending_tocs: list[dict[str, Any]],
     pending_records: list[dict[str, Any]],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    records_by_range: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for record in pending_records:
+        toc = record.get("toc")
+        if isinstance(toc, dict):
+            records_by_range[tuple(toc.get("toc_range") or [])] = record
+
+    parallel_pending: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for pending_toc in pending_tocs:
+        record = records_by_range.get(tuple(pending_toc.get("toc_range") or []))
+        if record is None:
+            continue
+        relationship = record.get("relationship")
+        if relationship in {"unresolvable", "contained"}:
+            continue
+        if relationship != "parallel":
+            raise ValueError("pending TOC relationship missing after PROFILE classify")
+        parallel_pending.append((pending_toc, record))
+    return parallel_pending
+
+
+def _resolve_pending_tocs(
+    *,
+    parallel_pending: list[tuple[dict[str, Any], dict[str, Any]]],
     page_texts: dict[int, str],
     page_count: int,
     filename: str,
     body_pages: list[int],
 ) -> list[SectionSkeleton]:
-    """Graft pending TOCs from PROFILE-persisted skeleton anchors."""
-    if not pending_tocs or not pending_records:
+    """Resolve parallel pending TOCs as secondary forests."""
+    if not parallel_pending:
         return []
 
-    records_by_range: dict[tuple[Any, ...], dict[str, Any]] = {}
-    for record in pending_records:
-        toc = record.get("toc")
-        if not isinstance(toc, dict):
-            continue
-        key = tuple(toc.get("toc_range") or [])
-        records_by_range[key] = record
-
+    parallel_tocs = [toc for toc, _record in parallel_pending]
     all_secondary_skeletons: list[SectionSkeleton] = []
 
-    for i, pending_toc in enumerate(pending_tocs):
+    for i, (pending_toc, record) in enumerate(parallel_pending):
         toc_range = pending_toc.get("toc_range")
-        record = records_by_range.get(tuple(toc_range or []))
-        if record is None:
-            continue
         relationship = record.get("relationship")
-        if relationship == "unresolvable":
-            logger.info(
-                "[page_memory.skeleton] pending TOC toc_range={}: unresolvable, skipping",
-                toc_range,
-            )
-            continue
-        if relationship not in {"parallel", "contained"}:
-            raise ValueError(
-                "pending TOC relationship missing after PROFILE classify"
-            )
         resolve_nodes_raw = record.get("nodes") or []
         resolve_nodes = [
             deserialize_title_node(node)
@@ -310,7 +319,7 @@ def _resolve_pending_tocs(
             raise ValueError("pending TOC offset missing after PROFILE classify")
 
         toc_scope_end, toc_body_pages = pending_toc_body_scope(
-            pending_tocs=pending_tocs,
+            pending_tocs=parallel_tocs,
             index=i,
             page_count=page_count,
             body_pages=body_pages,
@@ -326,7 +335,9 @@ def _resolve_pending_tocs(
         }
         locate_summary["null_page_parent_locate"] = {
             "attempted": len(null_page_report),
-            "located": sum(1 for row in null_page_report if row.get("page") is not None),
+            "located": sum(
+                1 for row in null_page_report if row.get("page") is not None
+            ),
             "unresolved": sum(
                 1 for row in null_page_report if row.get("result") == "unresolved"
             ),

@@ -221,7 +221,13 @@ def test_run_coarse_runs_asset_probe_after_planner(monkeypatch, tmp_path: Path) 
     profile = coordinator.run_coarse()
 
     assert profile.category == "Research Report"
-    assert calls == ["planner", "text_scan", "toc", "probe.page_assets", "aggregate.doc_stats"]
+    assert calls == [
+        "planner",
+        "text_scan",
+        "probe.page_assets",
+        "aggregate.doc_stats",
+        "toc",
+    ]
     assert coordinator.blackboard.global_signals["assets_probed"] is True
 
 
