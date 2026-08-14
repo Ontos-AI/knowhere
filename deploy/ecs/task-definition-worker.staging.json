@@ -23,6 +23,7 @@
         {"name": "DB_SSL_MODE", "value": "require"},
         {"name": "DB_SYNC_POOL_SIZE", "value": "2"},
         {"name": "DB_SYNC_MAX_OVERFLOW", "value": "2"},
+        {"name": "WORKER_CONCURRENCY", "value": "10"},
         {"name": "TMP_PATH", "value": "/tmp/aismart_bid"},
         {"name": "S3_TYPE", "value": "s3"},
         {"name": "S3_BUCKET_NAME", "value": "knowhere-storage-staging"},
