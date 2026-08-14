@@ -8,6 +8,7 @@ import gevent.monkey
 
 gevent.monkey.patch_all()
 
+import importlib
 import os
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from kombu import Queue
 
 # Importing the production bootstrap registers its Celery lifecycle receivers.
 # The contract deliberately exercises those receivers instead of a test-only hook.
-import app.core.worker_bootstrap  # noqa: F401
+importlib.import_module("app.core.worker_bootstrap")
 from shared.core.celery_app import celery_app
 
 _BROKER_DIRECTORY_ENVIRONMENT_VARIABLE: str = (
