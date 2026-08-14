@@ -119,6 +119,17 @@ def test_staging_templates_preserve_expected_staging_configuration(
         assert environment_values[name] == value
 
 
+def test_staging_worker_preserves_evidence_selected_capacity() -> None:
+    """Worker capacity matches the staging load evidence recorded in issue 22."""
+    definition_path: Path = TEMPLATE_DIRECTORY / "task-definition-worker.staging.json"
+    definition: dict[str, object] = json.loads(
+        definition_path.read_text(encoding="utf-8")
+    )
+
+    assert definition["cpu"] == "1024"
+    assert definition["memory"] == "4096"
+
+
 def test_renderer_rejects_forbidden_s3_credential_variable() -> None:
     """Task definitions must never inject long-lived S3 credentials."""
     definition: dict[str, object] = {
