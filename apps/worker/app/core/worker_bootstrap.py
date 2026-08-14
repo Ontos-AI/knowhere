@@ -5,12 +5,18 @@ import socket
 import subprocess
 import sys
 
-from celery.signals import worker_init, worker_shutdown
+from celery.signals import worker_init, worker_shutdown, worker_shutting_down
+from celery.worker import WorkController
 from loguru import logger
 
+from app.core.gevent_worker_shutdown import GeventWorkerShutdownController
 from shared.core.celery_app import celery_app
 from shared.core.logging import setup_logging
 from shared.services.worker_health import start_worker_heartbeat, stop_worker_heartbeat
+
+_worker_shutdown_controller: GeventWorkerShutdownController | None = None
+_CHILD_PROCESS_TERM_TIMEOUT_SECONDS: float = 5
+_CHILD_PROCESS_KILL_TIMEOUT_SECONDS: float = 5
 
 
 def _register_task_modules() -> None:
@@ -30,44 +36,31 @@ def _stop_child_process(
 
     process.terminate()
     try:
-        process.wait(timeout=5)
+        process.wait(timeout=_CHILD_PROCESS_TERM_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
         logger.warning(f"{process_name} did not stop after SIGTERM; killing it")
         process.kill()
-        process.wait(timeout=5)
+        process.wait(timeout=_CHILD_PROCESS_KILL_TIMEOUT_SECONDS)
 
 
 @worker_init.connect
-def init_worker(**kwargs) -> None:
+def init_worker(
+    sender: WorkController | None = None,
+    **kwargs: object,
+) -> None:
     """Initialize structured logging and sync Redis when worker process starts."""
+    global _worker_shutdown_controller
+
     setup_logging(service_name="knowhere-worker")
     start_worker_heartbeat()
 
-    # Celery gevent cannot cancel greenlets on transport reconnect, so use a no-op.
-    try:
-        from celery.concurrency.gevent import TaskPool as GeventTaskPool
-
-        if not hasattr(GeventTaskPool, "_original_terminate_job"):
-
-            def _graceful_terminate_job(self, pid, signal=None):
-                logger.warning(
-                    f"gevent pool cannot kill greenlet (pid={pid}), "
-                    f"relying on RedisJobLock for dedup on redelivery"
-                )
-
-            setattr(
-                GeventTaskPool,
-                "_original_terminate_job",
-                getattr(
-                    GeventTaskPool,
-                    "terminate_job",
-                    None,
-                ),
-            )
-            GeventTaskPool.terminate_job = _graceful_terminate_job
-            logger.info("Patched gevent TaskPool.terminate_job for graceful recovery")
-    except Exception as exc:
-        logger.warning(f"Could not patch gevent TaskPool: {exc}")
+    if sender is None:
+        logger.error("Cannot configure bounded worker shutdown without worker sender")
+    else:
+        _worker_shutdown_controller = GeventWorkerShutdownController(
+            worker=sender,
+            timeout_seconds=float(celery_app.conf.worker_soft_shutdown_timeout),
+        )
 
     try:
         from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
@@ -81,9 +74,39 @@ def init_worker(**kwargs) -> None:
         logger.warning(f"Worker sync Redis init deferred: {exc}")
 
 
+@worker_shutting_down.connect
+def begin_bounded_worker_shutdown(
+    sender: str | None = None,
+    sig: str | None = None,
+    how: str | None = None,
+    **kwargs: object,
+) -> None:
+    """Bound ECS SIGTERM without entering Celery's gevent-unsafe cold path."""
+    if sig != "SIGTERM" or how != "Warm":
+        return
+
+    shutdown_controller: GeventWorkerShutdownController | None = (
+        _worker_shutdown_controller
+    )
+    if shutdown_controller is None:
+        logger.error("Cannot schedule bounded worker shutdown before worker init")
+        return
+
+    shutdown_controller.schedule()
+
+
 @worker_shutdown.connect
-def shutdown_worker(**kwargs) -> None:
+def shutdown_worker(**kwargs: object) -> None:
     """Clean up shared resources on worker shutdown."""
+    global _worker_shutdown_controller
+
+    shutdown_controller: GeventWorkerShutdownController | None = (
+        _worker_shutdown_controller
+    )
+    _worker_shutdown_controller = None
+    if shutdown_controller is not None:
+        shutdown_controller.close()
+
     try:
         stop_worker_heartbeat()
         logger.info("Worker heartbeat stopped")
