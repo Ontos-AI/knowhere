@@ -109,10 +109,6 @@ celery_app.conf.update(
             "task": "app.core.tasks.webhook_tasks.recover_orphaned_webhooks",
             "schedule": 1800.0,  # Every 30 minutes
         },
-        "restore-expired-celery-reservations": {
-            "task": "app.core.tasks.visibility_recovery.restore_expired_reservations",
-            "schedule": 30.0,
-        },
         "expire-stale-jobs": {
             "task": "app.core.tasks.stale_job_sweeper.expire_stale_jobs",
             "schedule": 1800.0,  # Every 30 minutes

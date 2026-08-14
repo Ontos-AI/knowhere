@@ -17,8 +17,24 @@ def _register_task_modules() -> None:
     """Import task modules for Celery side-effect registration."""
     import app.core.tasks.document_ingestion_tasks  # noqa: F401
     import app.core.tasks.stale_job_sweeper  # noqa: F401
-    import app.core.tasks.visibility_recovery  # noqa: F401
     import app.core.tasks.webhook_tasks  # noqa: F401
+
+
+def _stop_child_process(
+    process: subprocess.Popen[bytes],
+    process_name: str,
+) -> None:
+    """Stop a colocated worker child without exceeding the ECS stop window."""
+    if process.poll() is not None:
+        return
+
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        logger.warning(f"{process_name} did not stop after SIGTERM; killing it")
+        process.kill()
+        process.wait(timeout=5)
 
 
 @worker_init.connect
@@ -84,7 +100,7 @@ def shutdown_worker(**kwargs) -> None:
 
 
 def run_worker() -> None:
-    """Start the gevent Celery worker and its colocated Beat process.
+    """Start Celery with colocated Beat and visibility-recovery processes.
 
     Every worker replica unconditionally spawns a Celery Beat subprocess.
     RedBeat's own distributed lock (``redbeat_lock_timeout`` /
@@ -92,11 +108,10 @@ def run_worker() -> None:
     drives the scheduler tick loop — all other instances block on lock
     acquisition and remain idle.
 
-    Even if the RedBeat startup-burst window allows multiple Beat instances
-    to enqueue the same periodic task simultaneously, each task body is
-    guarded by a ``periodic_task_lock`` (Redis ``SET NX EX``) keyed on the
-    task name.  Only the first invocation within each scheduling window
-    executes; all subsequent duplicates log a skip and return immediately.
+    Each replica also starts an independent visibility-recovery watchdog.
+    Recovery runs outside the Celery gevent pool so ingestion saturation cannot
+    starve it. The watchdogs coordinate through the application Redis periodic
+    lock, while Kombu's broker mutex protects the restoration transaction.
     """
     from shared.core.config import settings
 
@@ -141,8 +156,25 @@ def run_worker() -> None:
         "beat",
         f"--loglevel={log_level}",
     ]
+    visibility_recovery_cmd: list[str] = [
+        sys.executable,
+        "-m",
+        "app.core.visibility_recovery_watchdog",
+    ]
 
-    logger.info("Starting Celery Beat subprocess")
-    subprocess.Popen(beat_cmd)
+    child_processes: list[tuple[str, subprocess.Popen[bytes]]] = []
+    try:
+        logger.info("Starting Celery Beat subprocess")
+        beat_process: subprocess.Popen[bytes] = subprocess.Popen(beat_cmd)
+        child_processes.append(("Celery Beat", beat_process))
 
-    celery_app.worker_main(celery_args)
+        logger.info("Starting visibility recovery watchdog subprocess")
+        recovery_process: subprocess.Popen[bytes] = subprocess.Popen(
+            visibility_recovery_cmd
+        )
+        child_processes.append(("Visibility recovery watchdog", recovery_process))
+
+        celery_app.worker_main(celery_args)
+    finally:
+        for process_name, child_process in reversed(child_processes):
+            _stop_child_process(child_process, process_name)
