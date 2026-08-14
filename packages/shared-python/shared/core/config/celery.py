@@ -24,6 +24,21 @@ class CeleryConfig(BaseModel):
     BROKER_POOL_LIMIT: int = Field(
         default=10, description="Celery broker connection pool limit"
     )
+    VISIBILITY_RECOVERY_PERIOD_SECONDS: int = Field(
+        default=30,
+        ge=10,
+        description="Interval between independent expired-reservation sweeps",
+    )
+    VISIBILITY_RECOVERY_BATCH_SIZE: int = Field(
+        default=100,
+        ge=1,
+        description="Maximum reservations restored by one Kombu sweep batch",
+    )
+    VISIBILITY_RECOVERY_BATCH_COUNT: int = Field(
+        default=10,
+        ge=1,
+        description="Maximum Kombu sweep batches attempted per interval",
+    )
 
     # Task retry configuration
     DOCUMENT_INGESTION_TASK_MAX_RETRIES: int = Field(
