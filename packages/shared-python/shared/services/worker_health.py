@@ -14,6 +14,8 @@ from gevent.event import Event
 from gevent.lock import Semaphore
 from loguru import logger
 
+from shared.core.config import app_config
+
 HEARTBEAT_PATH = Path(
     os.getenv("WORKER_HEARTBEAT_FILE", "/tmp/knowhere-worker-heartbeat.json")
 )
@@ -21,17 +23,38 @@ HEARTBEAT_INTERVAL_SECONDS = float(os.getenv("WORKER_HEARTBEAT_INTERVAL_SECONDS"
 HEARTBEAT_STALE_AFTER_SECONDS = float(
     os.getenv("WORKER_HEARTBEAT_STALE_AFTER_SECONDS", "45")
 )
+VISIBILITY_RECOVERY_HEARTBEAT_PATH = Path(
+    os.getenv(
+        "VISIBILITY_RECOVERY_HEARTBEAT_FILE",
+        "/tmp/knowhere-visibility-recovery-heartbeat.json",
+    )
+)
+VISIBILITY_RECOVERY_HEARTBEAT_STALE_AFTER_SECONDS: float = float(
+    max(app_config.VISIBILITY_RECOVERY_PERIOD_SECONDS * 3, 90)
+)
 
 _heartbeat_greenlet: Optional[gevent.Greenlet] = None
 _heartbeat_stop_event = Event()
 _heartbeat_lock = Semaphore()
 
 
-def write_worker_heartbeat() -> None:
-    HEARTBEAT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = HEARTBEAT_PATH.with_suffix(f"{HEARTBEAT_PATH.suffix}.tmp")
+def _write_heartbeat(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(f"{path.suffix}.tmp")
     temp_path.write_text(str(os.getpid()), encoding="utf-8")
-    os.replace(temp_path, HEARTBEAT_PATH)
+    os.replace(temp_path, path)
+
+
+def write_worker_heartbeat() -> None:
+    _write_heartbeat(HEARTBEAT_PATH)
+
+
+def write_visibility_recovery_heartbeat() -> None:
+    _write_heartbeat(VISIBILITY_RECOVERY_HEARTBEAT_PATH)
+
+
+def remove_visibility_recovery_heartbeat() -> None:
+    VISIBILITY_RECOVERY_HEARTBEAT_PATH.unlink(missing_ok=True)
 
 
 def _heartbeat_loop() -> None:
@@ -75,14 +98,32 @@ def stop_worker_heartbeat() -> None:
         logger.warning(f"Failed to remove worker heartbeat file: {exc}")
 
 
-def assert_worker_healthy() -> None:
-    if not HEARTBEAT_PATH.exists():
-        raise SystemExit(f"Worker heartbeat file not found: {HEARTBEAT_PATH}")
+def _assert_heartbeat_is_fresh(
+    *,
+    name: str,
+    path: Path,
+    stale_after_seconds: float,
+) -> None:
+    if not path.exists():
+        raise SystemExit(f"{name} heartbeat file not found: {path}")
 
-    age_seconds = time.time() - HEARTBEAT_PATH.stat().st_mtime
-    if age_seconds > HEARTBEAT_STALE_AFTER_SECONDS:
+    age_seconds = time.time() - path.stat().st_mtime
+    if age_seconds > stale_after_seconds:
         raise SystemExit(
-            "Worker heartbeat stale: "
-            f"path={HEARTBEAT_PATH}, age={age_seconds:.1f}s, "
-            f"threshold={HEARTBEAT_STALE_AFTER_SECONDS:.1f}s"
+            f"{name} heartbeat stale: "
+            f"path={path}, age={age_seconds:.1f}s, "
+            f"threshold={stale_after_seconds:.1f}s"
         )
+
+
+def assert_worker_healthy() -> None:
+    _assert_heartbeat_is_fresh(
+        name="Worker",
+        path=HEARTBEAT_PATH,
+        stale_after_seconds=HEARTBEAT_STALE_AFTER_SECONDS,
+    )
+    _assert_heartbeat_is_fresh(
+        name="Visibility recovery",
+        path=VISIBILITY_RECOVERY_HEARTBEAT_PATH,
+        stale_after_seconds=VISIBILITY_RECOVERY_HEARTBEAT_STALE_AFTER_SECONDS,
+    )

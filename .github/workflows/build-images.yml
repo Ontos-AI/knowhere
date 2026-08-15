@@ -282,12 +282,18 @@ jobs:
         shell: bash
         env:
           DATABASE_URL: ${{ secrets.STAGING_MIGRATION_DATABASE_URL }}
+          S3_BUCKET_NAME: knowhere-storage-staging
+          S3_TEMP_PATH: /tmp
+          TMP_PATH: /tmp/aismart_bid
         run: |
           set -euo pipefail
           short_sha="${GITHUB_SHA::8}"
           image_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}/knowhere-backend:staging-${short_sha}"
           docker run --rm \
             --env DATABASE_URL \
+            --env S3_BUCKET_NAME \
+            --env S3_TEMP_PATH \
+            --env TMP_PATH \
             --env DB_SSL_MODE=require \
             --entrypoint python \
             "$image_uri" \
@@ -474,7 +480,7 @@ jobs:
 
           for log_group in /ecs/knowhere-api-staging /ecs/knowhere-worker-staging; do
             found="$(aws logs describe-log-groups \
-              --log-group-name "$log_group" \
+              --log-group-name-prefix "$log_group" \
               --query 'logGroups[0].logGroupName' --output text)"
             if [ "$found" != "$log_group" ]; then
               echo "::error::Required CloudWatch log group ${log_group} does not exist."

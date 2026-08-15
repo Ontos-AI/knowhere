@@ -21,6 +21,41 @@ RENDER_VARIABLES: dict[str, str] = {
     "STAGING_SECRETS_ARN": "secrets-arn",
 }
 
+SHARED_STAGING_ENVIRONMENT: dict[str, str] = {
+    "ALI_URL": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "ARK_URL": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+    "BROKER_POOL_LIMIT": "5",
+    "DS_URL": "https://api.deepseek.com/v1/chat/completions",
+    "EMBEDDING_MODEL": "text-embedding-v4",
+    "S3_TEMP_PATH": "/tmp",
+    "SUPPORTED_EXTENSIONS": ".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.pptx,.md",
+    "TMP_PATH": "/tmp/aismart_bid",
+}
+
+API_STAGING_ENVIRONMENT: dict[str, str] = {
+    **SHARED_STAGING_ENVIRONMENT,
+    "DB_MAX_OVERFLOW": "5",
+    "DB_POOL_SIZE": "5",
+}
+
+WORKER_STAGING_ENVIRONMENT: dict[str, str] = {
+    **SHARED_STAGING_ENVIRONMENT,
+    "ALL_DF_COLS": "content,path,type,length,keywords,summary,know_id,tokens,connectto,addtime,page_nums",
+    "DB_SYNC_MAX_OVERFLOW": "2",
+    "DB_SYNC_POOL_SIZE": "2",
+    "HIERARCHY_LLM_MODEL": "deepseek-chat",
+    "IMAGE_MODEL": "qwen3.5-flash",
+    "IMAGE_MODEL_MAX": "qwen3.5-flash",
+    "MAX_PDF_PAGE_LIMIT": "200",
+    "NORMOL_MODEL": "deepseek-chat",
+    "OVERSIZED_PDF_SHARD_ENABLED": "true",
+    "OVERSIZED_PDF_SOFT_LIMIT": "1500",
+    "PDF_PROFILE_TOC_ENABLED": "true",
+    "REDIS_SYNC_MAX_CONNECTIONS": "200",
+    "SUMMARY_LLM_MAX_CONCURRENT": "8",
+    "WORKER_CONCURRENCY": "10",
+}
+
 
 @pytest.mark.parametrize(
     "template_name",
@@ -42,6 +77,57 @@ def test_staging_templates_render_without_long_lived_s3_keys(
     validate_rendered_definition(rendered)
     assert rendered["requiresCompatibilities"] == ["FARGATE"]
     assert "${" not in output_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("template_name", "container_name", "expected_environment"),
+    [
+        (
+            "task-definition-api.staging.json",
+            "api",
+            API_STAGING_ENVIRONMENT,
+        ),
+        (
+            "task-definition-worker.staging.json",
+            "worker",
+            WORKER_STAGING_ENVIRONMENT,
+        ),
+    ],
+)
+def test_staging_templates_preserve_expected_staging_configuration(
+    template_name: str,
+    container_name: str,
+    expected_environment: dict[str, str],
+) -> None:
+    """Fargate preserves the verified staging settings captured on 2026-08-13."""
+    definition_path: Path = TEMPLATE_DIRECTORY / template_name
+    definition: dict[str, object] = json.loads(
+        definition_path.read_text(encoding="utf-8")
+    )
+    container_definitions: list[dict[str, object]] = definition[
+        "containerDefinitions"
+    ]
+    container: dict[str, object] = next(
+        item for item in container_definitions if item.get("name") == container_name
+    )
+    environment: list[dict[str, str]] = container["environment"]
+    environment_values: dict[str, str] = {
+        item["name"]: item["value"] for item in environment
+    }
+
+    for name, value in expected_environment.items():
+        assert environment_values[name] == value
+
+
+def test_staging_worker_preserves_evidence_selected_capacity() -> None:
+    """Worker capacity matches the staging load evidence recorded in issue 22."""
+    definition_path: Path = TEMPLATE_DIRECTORY / "task-definition-worker.staging.json"
+    definition: dict[str, object] = json.loads(
+        definition_path.read_text(encoding="utf-8")
+    )
+
+    assert definition["cpu"] == "1024"
+    assert definition["memory"] == "4096"
 
 
 def test_renderer_rejects_forbidden_s3_credential_variable() -> None:

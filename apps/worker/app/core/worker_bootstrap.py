@@ -12,6 +12,9 @@ from shared.core.celery_app import celery_app
 from shared.core.logging import setup_logging
 from shared.services.worker_health import start_worker_heartbeat, stop_worker_heartbeat
 
+_CHILD_PROCESS_TERM_TIMEOUT_SECONDS: float = 5
+_CHILD_PROCESS_KILL_TIMEOUT_SECONDS: float = 5
+
 
 def _register_task_modules() -> None:
     """Import task modules for Celery side-effect registration."""
@@ -20,22 +23,47 @@ def _register_task_modules() -> None:
     import app.core.tasks.webhook_tasks  # noqa: F401
 
 
+def _stop_child_process(
+    process: subprocess.Popen[bytes],
+    process_name: str,
+) -> None:
+    """Stop a colocated worker child without exceeding the ECS stop window."""
+    if process.poll() is not None:
+        return
+
+    process.terminate()
+    try:
+        process.wait(timeout=_CHILD_PROCESS_TERM_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        logger.warning(f"{process_name} did not stop after SIGTERM; killing it")
+        process.kill()
+        process.wait(timeout=_CHILD_PROCESS_KILL_TIMEOUT_SECONDS)
+
+
 @worker_init.connect
-def init_worker(**kwargs) -> None:
+def init_worker(**kwargs: object) -> None:
     """Initialize structured logging and sync Redis when worker process starts."""
     setup_logging(service_name="knowhere-worker")
     start_worker_heartbeat()
 
-    # Celery gevent cannot cancel greenlets on transport reconnect, so use a no-op.
+    # Do not cancel gevent tasks from Celery's reconnect or shutdown lifecycle.
+    # Staging proved that forced greenlet cancellation races with parser child
+    # processes and still misses the ECS stop deadline. Interrupted reservations
+    # instead recover through the independent Redis visibility watchdog.
     try:
         from celery.concurrency.gevent import TaskPool as GeventTaskPool
 
         if not hasattr(GeventTaskPool, "_original_terminate_job"):
 
-            def _graceful_terminate_job(self, pid, signal=None):
+            def _ignore_gevent_cancellation(
+                self: GeventTaskPool,
+                pid: int,
+                signal: int | None = None,
+            ) -> None:
                 logger.warning(
                     f"gevent pool cannot kill greenlet (pid={pid}), "
-                    f"relying on RedisJobLock for dedup on redelivery"
+                    "relying on visibility recovery and RedisJobLock for "
+                    "redelivery deduplication"
                 )
 
             setattr(
@@ -47,15 +75,20 @@ def init_worker(**kwargs) -> None:
                     None,
                 ),
             )
-            GeventTaskPool.terminate_job = _graceful_terminate_job
-            logger.info("Patched gevent TaskPool.terminate_job for graceful recovery")
+            GeventTaskPool.terminate_job = _ignore_gevent_cancellation
+            logger.info(
+                "Patched gevent TaskPool.terminate_job for visibility recovery"
+            )
     except Exception as exc:
         logger.warning(f"Could not patch gevent TaskPool: {exc}")
 
     try:
-        from shared.services.redis.redis_sync_service import SyncRedisServiceFactory
+        from shared.services.redis.redis_sync_service import (
+            SyncRedisService,
+            SyncRedisServiceFactory,
+        )
 
-        service = SyncRedisServiceFactory.get_service()
+        service: SyncRedisService = SyncRedisServiceFactory.get_service()
         if service.ping():
             logger.info("Worker sync Redis connection verified")
         else:
@@ -65,7 +98,7 @@ def init_worker(**kwargs) -> None:
 
 
 @worker_shutdown.connect
-def shutdown_worker(**kwargs) -> None:
+def shutdown_worker(**kwargs: object) -> None:
     """Clean up shared resources on worker shutdown."""
     try:
         stop_worker_heartbeat()
@@ -83,7 +116,7 @@ def shutdown_worker(**kwargs) -> None:
 
 
 def run_worker() -> None:
-    """Start the gevent Celery worker and its colocated Beat process.
+    """Start Celery with colocated Beat and visibility-recovery processes.
 
     Every worker replica unconditionally spawns a Celery Beat subprocess.
     RedBeat's own distributed lock (``redbeat_lock_timeout`` /
@@ -91,11 +124,10 @@ def run_worker() -> None:
     drives the scheduler tick loop — all other instances block on lock
     acquisition and remain idle.
 
-    Even if the RedBeat startup-burst window allows multiple Beat instances
-    to enqueue the same periodic task simultaneously, each task body is
-    guarded by a ``periodic_task_lock`` (Redis ``SET NX EX``) keyed on the
-    task name.  Only the first invocation within each scheduling window
-    executes; all subsequent duplicates log a skip and return immediately.
+    Each replica also starts an independent visibility-recovery watchdog.
+    Recovery runs outside the Celery gevent pool so ingestion saturation cannot
+    starve it. The watchdogs coordinate through the application Redis periodic
+    lock, while Kombu's broker mutex protects the restoration transaction.
     """
     from shared.core.config import settings
 
@@ -140,8 +172,25 @@ def run_worker() -> None:
         "beat",
         f"--loglevel={log_level}",
     ]
+    visibility_recovery_cmd: list[str] = [
+        sys.executable,
+        "-m",
+        "app.core.visibility_recovery_watchdog",
+    ]
 
-    logger.info("Starting Celery Beat subprocess")
-    subprocess.Popen(beat_cmd)
+    child_processes: list[tuple[str, subprocess.Popen[bytes]]] = []
+    try:
+        logger.info("Starting Celery Beat subprocess")
+        beat_process: subprocess.Popen[bytes] = subprocess.Popen(beat_cmd)
+        child_processes.append(("Celery Beat", beat_process))
 
-    celery_app.worker_main(celery_args)
+        logger.info("Starting visibility recovery watchdog subprocess")
+        recovery_process: subprocess.Popen[bytes] = subprocess.Popen(
+            visibility_recovery_cmd
+        )
+        child_processes.append(("Visibility recovery watchdog", recovery_process))
+
+        celery_app.worker_main(celery_args)
+    finally:
+        for process_name, child_process in reversed(child_processes):
+            _stop_child_process(child_process, process_name)
