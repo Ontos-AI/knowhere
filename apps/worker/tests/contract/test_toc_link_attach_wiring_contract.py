@@ -37,6 +37,7 @@ def _coordinator() -> ProfileCoordinator:
 def test_profile_attaches_toc_links_before_anchoring() -> None:
     coordinator = _coordinator()
     seen: dict[str, object] = {}
+    globals_ = ProfileCoordinator._run_toc_extraction_pipeline.__globals__
 
     def fake_enrich(*, pdf_path: str, toc_hierarchies: list[dict[str, object]]):
         assert pdf_path == "/tmp/doc.pdf"
@@ -67,21 +68,12 @@ def test_profile_attaches_toc_links_before_anchoring() -> None:
             "_dispatch_profile_tool",
             return_value=ToolResult(status="ok"),
         ),
-        patch(
-            "app.services.document_agent.coordinator.enrich_toc_hierarchies_with_links",
-            side_effect=fake_enrich,
-        ),
-        patch(
-            "app.services.document_agent.structure.toc_link_enrichment.enrich_toc_hierarchies_with_links",
-            side_effect=fake_enrich,
-        ),
-        patch(
-            "app.services.document_agent.coordinator.run_toc_anchoring",
-            side_effect=fake_anchor,
-        ),
-        patch(
-            "app.services.document_agent.structure.toc_anchoring.run_toc_anchoring",
-            side_effect=fake_anchor,
+        patch.dict(
+            globals_,
+            {
+                "enrich_toc_hierarchies_with_links": fake_enrich,
+                "run_toc_anchoring": fake_anchor,
+            },
         ),
     ):
         coordinator._run_toc_extraction_pipeline()
@@ -98,11 +90,15 @@ def test_profile_attaches_toc_links_before_anchoring() -> None:
 def test_link_attach_failure_keeps_hierarchies_and_still_anchors() -> None:
     coordinator = _coordinator()
     seen = {"anchored": False}
+    globals_ = ProfileCoordinator._run_toc_extraction_pipeline.__globals__
 
     def fake_anchor(ctx) -> None:
         seen["anchored"] = True
         entry = ctx.blackboard.toc_hierarchies[0]["toc_with_level"][0]
         assert entry.get("link") is None
+
+    def boom_enrich(**_kwargs):
+        raise RuntimeError("pymupdf failed")
 
     with (
         patch.object(
@@ -110,21 +106,12 @@ def test_link_attach_failure_keeps_hierarchies_and_still_anchors() -> None:
             "_dispatch_profile_tool",
             return_value=ToolResult(status="ok"),
         ),
-        patch(
-            "app.services.document_agent.coordinator.enrich_toc_hierarchies_with_links",
-            side_effect=RuntimeError("pymupdf failed"),
-        ),
-        patch(
-            "app.services.document_agent.structure.toc_link_enrichment.enrich_toc_hierarchies_with_links",
-            side_effect=RuntimeError("pymupdf failed"),
-        ),
-        patch(
-            "app.services.document_agent.coordinator.run_toc_anchoring",
-            side_effect=fake_anchor,
-        ),
-        patch(
-            "app.services.document_agent.structure.toc_anchoring.run_toc_anchoring",
-            side_effect=fake_anchor,
+        patch.dict(
+            globals_,
+            {
+                "enrich_toc_hierarchies_with_links": boom_enrich,
+                "run_toc_anchoring": fake_anchor,
+            },
         ),
     ):
         coordinator._run_toc_extraction_pipeline()
@@ -137,6 +124,7 @@ def test_skip_toc_anchoring_stops_after_link_attach() -> None:
     coordinator = _coordinator()
     coordinator.ctx.settings["skip_toc_anchoring"] = True
     seen = {"anchored": False}
+    globals_ = ProfileCoordinator._run_toc_extraction_pipeline.__globals__
 
     def fake_enrich(*, pdf_path: str, toc_hierarchies: list[dict[str, object]]):
         return toc_hierarchies, SimpleNamespace(
@@ -154,21 +142,12 @@ def test_skip_toc_anchoring_stops_after_link_attach() -> None:
             "_dispatch_profile_tool",
             return_value=ToolResult(status="ok"),
         ),
-        patch(
-            "app.services.document_agent.coordinator.enrich_toc_hierarchies_with_links",
-            side_effect=fake_enrich,
-        ),
-        patch(
-            "app.services.document_agent.structure.toc_link_enrichment.enrich_toc_hierarchies_with_links",
-            side_effect=fake_enrich,
-        ),
-        patch(
-            "app.services.document_agent.coordinator.run_toc_anchoring",
-            side_effect=fake_anchor,
-        ),
-        patch(
-            "app.services.document_agent.structure.toc_anchoring.run_toc_anchoring",
-            side_effect=fake_anchor,
+        patch.dict(
+            globals_,
+            {
+                "enrich_toc_hierarchies_with_links": fake_enrich,
+                "run_toc_anchoring": fake_anchor,
+            },
         ),
     ):
         coordinator._run_toc_extraction_pipeline()

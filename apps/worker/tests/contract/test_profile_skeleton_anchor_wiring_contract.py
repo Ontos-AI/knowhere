@@ -297,18 +297,20 @@ def test_profile_classifies_pending_toc_before_finalize() -> None:
             "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
             return_value=([_node()], _anchor()),
         ),
-        patch(
-            "app.services.document_agent.structure.toc_anchoring.resolve_hierarchy_page_ranges",
-            return_value=[
-                ResolvedHierarchyRange(
-                    title="Ch1",
-                    level=1,
-                    start_page=2,
-                    end_page=19,
-                    path_titles=("Ch1",),
-                    match=None,
-                )
-            ],
+        patch.dict(
+            run_toc_anchoring.__globals__,
+            {
+                "resolve_hierarchy_page_ranges": lambda *_args, **_kwargs: [
+                    ResolvedHierarchyRange(
+                        title="Ch1",
+                        level=1,
+                        start_page=2,
+                        end_page=19,
+                        path_titles=("Ch1",),
+                        match=None,
+                    )
+                ]
+            },
         ),
         patch(
             "app.services.document_agent.agents.calibration.service.calibrate_offset",
@@ -348,18 +350,20 @@ def test_profile_skips_finalize_for_unresolvable_pending_toc() -> None:
             "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
             return_value=([_node()], _anchor()),
         ),
-        patch(
-            "app.services.document_agent.structure.toc_anchoring.resolve_hierarchy_page_ranges",
-            return_value=[
-                ResolvedHierarchyRange(
-                    title="Ch1",
-                    level=1,
-                    start_page=2,
-                    end_page=19,
-                    path_titles=("Ch1",),
-                    match=None,
-                )
-            ],
+        patch.dict(
+            run_toc_anchoring.__globals__,
+            {
+                "resolve_hierarchy_page_ranges": lambda *_args, **_kwargs: [
+                    ResolvedHierarchyRange(
+                        title="Ch1",
+                        level=1,
+                        start_page=2,
+                        end_page=19,
+                        path_titles=("Ch1",),
+                        match=None,
+                    )
+                ]
+            },
         ),
         patch(
             "app.services.document_agent.agents.calibration.service.calibrate_offset",
@@ -427,9 +431,9 @@ def test_c4_uses_persisted_pending_relationship_and_does_not_classify() -> None:
     def _boom(*_args, **_kwargs):
         raise AssertionError("C4 must not classify pending TOC")
 
-    with patch(
-        "app.services.document_agent.structure.toc_anchoring.classify_toc_relationship",
-        side_effect=_boom,
+    with patch.dict(
+        run_toc_anchoring.__globals__,
+        {"classify_toc_relationship": _boom},
     ):
         skeletons = extract_section_skeletons(
             anatomy=anatomy,

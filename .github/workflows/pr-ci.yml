@@ -109,5 +109,9 @@ jobs:
       - name: Install test system dependencies
         run: uv run python apps/api/scripts/ensure_test_environment.py --install
 
-      - name: Run tests
-        run: uv run pytest apps/api/tests apps/worker/tests/contract -q
+      # api/worker both expose top-level `app`; run separately to avoid module shadowing.
+      - name: Run API tests
+        run: uv run pytest apps/api/tests -q
+
+      - name: Run worker contract tests
+        run: uv run pytest apps/worker/tests/contract -q

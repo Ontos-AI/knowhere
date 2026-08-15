@@ -64,11 +64,11 @@ def test_ocr_pages_writes_joined_text_to_blackboard() -> None:
     fake_mod = ModuleType("rapidocr_onnxruntime")
     fake_mod.RapidOCR = lambda: FakeEngine()  # type: ignore[attr-defined]
 
+    def fake_render(*_args, **_kwargs):
+        return [{"page": 1, "png_path": "/tmp/ocr_page_1.png"}]
+
     with (
-        patch(
-            "app.services.document_agent.tools.ocr_pages.render_pages",
-            return_value=[{"page": 1, "png_path": "/tmp/ocr_page_1.png"}],
-        ),
+        patch.dict(ocr_pages.__globals__, {"render_pages": fake_render}),
         patch.dict(sys.modules, {"rapidocr_onnxruntime": fake_mod}),
     ):
         result = ocr_pages(ctx, {"pages": [1]})

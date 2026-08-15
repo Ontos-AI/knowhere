@@ -259,6 +259,7 @@ def test_parallel_pending_is_not_grafted() -> None:
         captured["body_pages"] = kwargs["body_pages"]
         return [primary], _anchor({("Ch1",): 2})
 
+    anchoring_globals = run_toc_anchoring.__globals__
     with (
         patch(
             "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
@@ -272,9 +273,9 @@ def test_parallel_pending_is_not_grafted() -> None:
             "app.services.document_agent.agents.calibration.procedure.pick_primary_offset",
             return_value=0,
         ),
-        patch(
-            "app.services.document_agent.structure.toc_anchoring.classify_toc_relationship",
-            return_value="parallel",
+        patch.dict(
+            anchoring_globals,
+            {"classify_toc_relationship": lambda **_kwargs: "parallel"},
         ),
         patch(
             "app.services.document_agent.agents.calibration.procedure.finalize_calibration_result",
@@ -317,6 +318,7 @@ def test_profile_grafts_contained_and_keeps_original_pending() -> None:
         children=[TitleNode(title="1.2", level=2, printed_page=12)],
     )
 
+    anchoring_globals = run_toc_anchoring.__globals__
     with (
         patch(
             "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
@@ -330,9 +332,9 @@ def test_profile_grafts_contained_and_keeps_original_pending() -> None:
             "app.services.document_agent.agents.calibration.procedure.pick_primary_offset",
             return_value=0,
         ),
-        patch(
-            "app.services.document_agent.structure.toc_anchoring.classify_toc_relationship",
-            return_value="contained",
+        patch.dict(
+            anchoring_globals,
+            {"classify_toc_relationship": lambda **_kwargs: "contained"},
         ),
         patch(
             "app.services.document_agent.agents.calibration.procedure.finalize_calibration_result",
