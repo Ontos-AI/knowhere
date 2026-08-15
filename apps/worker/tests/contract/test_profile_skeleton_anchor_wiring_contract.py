@@ -151,7 +151,7 @@ def test_profile_toc_anchoring_writes_skeleton_anchor() -> None:
         return [_node()], _anchor()
 
     with patch(
-        "app.services.document_agent.structure.toc_anchoring.anchor_hierarchy",
+        "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
         side_effect=fake_anchor_hierarchy,
     ):
         run_toc_anchoring(ctx)
@@ -294,7 +294,7 @@ def test_profile_classifies_pending_toc_before_finalize() -> None:
 
     with (
         patch(
-            "app.services.document_agent.structure.toc_anchoring.anchor_hierarchy",
+            "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
             return_value=([_node()], _anchor()),
         ),
         patch(
@@ -311,15 +311,15 @@ def test_profile_classifies_pending_toc_before_finalize() -> None:
             ],
         ),
         patch(
-            "app.services.document_agent.structure.toc_anchoring.calibrate_offset",
+            "app.services.document_agent.agents.calibration.service.calibrate_offset",
             return_value=object(),
         ),
         patch(
-            "app.services.document_agent.structure.toc_anchoring.pick_primary_offset",
+            "app.services.document_agent.agents.calibration.procedure.pick_primary_offset",
             return_value=0,
         ),
         patch(
-            "app.services.document_agent.structure.toc_anchoring.finalize_calibration_result",
+            "app.services.document_agent.agents.calibration.procedure.finalize_calibration_result",
             side_effect=fake_finalize,
         ),
     ):
@@ -345,7 +345,7 @@ def test_profile_skips_finalize_for_unresolvable_pending_toc() -> None:
 
     with (
         patch(
-            "app.services.document_agent.structure.toc_anchoring.anchor_hierarchy",
+            "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
             return_value=([_node()], _anchor()),
         ),
         patch(
@@ -362,15 +362,15 @@ def test_profile_skips_finalize_for_unresolvable_pending_toc() -> None:
             ],
         ),
         patch(
-            "app.services.document_agent.structure.toc_anchoring.calibrate_offset",
+            "app.services.document_agent.agents.calibration.service.calibrate_offset",
             return_value=object(),
         ),
         patch(
-            "app.services.document_agent.structure.toc_anchoring.pick_primary_offset",
+            "app.services.document_agent.agents.calibration.procedure.pick_primary_offset",
             return_value=0,
         ),
         patch(
-            "app.services.document_agent.structure.toc_anchoring.finalize_calibration_result",
+            "app.services.document_agent.agents.calibration.procedure.finalize_calibration_result",
             side_effect=_boom,
         ),
     ):

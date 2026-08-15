@@ -72,7 +72,15 @@ def test_profile_attaches_toc_links_before_anchoring() -> None:
             side_effect=fake_enrich,
         ),
         patch(
+            "app.services.document_agent.structure.toc_link_enrichment.enrich_toc_hierarchies_with_links",
+            side_effect=fake_enrich,
+        ),
+        patch(
             "app.services.document_agent.coordinator.run_toc_anchoring",
+            side_effect=fake_anchor,
+        ),
+        patch(
+            "app.services.document_agent.structure.toc_anchoring.run_toc_anchoring",
             side_effect=fake_anchor,
         ),
     ):
@@ -107,7 +115,15 @@ def test_link_attach_failure_keeps_hierarchies_and_still_anchors() -> None:
             side_effect=RuntimeError("pymupdf failed"),
         ),
         patch(
+            "app.services.document_agent.structure.toc_link_enrichment.enrich_toc_hierarchies_with_links",
+            side_effect=RuntimeError("pymupdf failed"),
+        ),
+        patch(
             "app.services.document_agent.coordinator.run_toc_anchoring",
+            side_effect=fake_anchor,
+        ),
+        patch(
+            "app.services.document_agent.structure.toc_anchoring.run_toc_anchoring",
             side_effect=fake_anchor,
         ),
     ):
@@ -143,7 +159,15 @@ def test_skip_toc_anchoring_stops_after_link_attach() -> None:
             side_effect=fake_enrich,
         ),
         patch(
+            "app.services.document_agent.structure.toc_link_enrichment.enrich_toc_hierarchies_with_links",
+            side_effect=fake_enrich,
+        ),
+        patch(
             "app.services.document_agent.coordinator.run_toc_anchoring",
+            side_effect=fake_anchor,
+        ),
+        patch(
+            "app.services.document_agent.structure.toc_anchoring.run_toc_anchoring",
             side_effect=fake_anchor,
         ),
     ):
