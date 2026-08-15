@@ -112,6 +112,47 @@ jobs:
               --services "$service_name"
           }
 
+          wait_for_healthy_workers() {
+            local worker_health_deadline="$((SECONDS + 300))"
+            local healthy_worker_count="0"
+            local -a worker_tasks=()
+
+            # The AWS CLI services-stable waiter checks deployment count and
+            # runningCount only. A cold task can therefore be RUNNING while
+            # container health remains UNKNOWN during its health-check
+            # startPeriod. Poll the task health explicitly before opening API
+            # admission, with a bounded timeout so a bad rollout still fails.
+            while (( SECONDS < worker_health_deadline )); do
+              healthy_worker_count="0"
+              worker_tasks=()
+              mapfile -t worker_tasks < <(
+                aws --profile knowhere ecs list-tasks \
+                  --cluster knowhere-fargate \
+                  --service-name knowhere-worker-staging \
+                  --desired-status RUNNING \
+                  --query 'taskArns[]' \
+                  --output text | tr '\t' '\n' | sed '/^None$/d;/^$/d'
+              )
+
+              if [ "${#worker_tasks[@]}" -eq 2 ]; then
+                healthy_worker_count="$(aws --profile knowhere ecs describe-tasks \
+                  --cluster knowhere-fargate \
+                  --tasks "${worker_tasks[@]}" \
+                  --query 'length(tasks[?lastStatus==`RUNNING` && healthStatus==`HEALTHY`])' \
+                  --output text)"
+                if [ "$healthy_worker_count" -eq 2 ]; then
+                  return 0
+                fi
+              fi
+
+              echo "Waiting for two healthy worker tasks; running=${#worker_tasks[@]}, healthy=$healthy_worker_count"
+              sleep 15
+            done
+
+            echo "Timed out waiting for two healthy worker tasks" >&2
+            return 1
+          }
+
           read_services() {
             aws --profile knowhere ecs describe-services \
               --cluster knowhere-fargate \
@@ -129,27 +170,7 @@ jobs:
               # traffic; ECS stability alone does not prove container health.
               update_service knowhere-worker-staging 2
               wait_for_service knowhere-worker-staging
-              mapfile -t worker_tasks < <(
-                aws --profile knowhere ecs list-tasks \
-                  --cluster knowhere-fargate \
-                  --service-name knowhere-worker-staging \
-                  --desired-status RUNNING \
-                  --query 'taskArns[]' \
-                  --output text | tr '\t' '\n'
-              )
-              if [ "${#worker_tasks[@]}" -ne 2 ]; then
-                echo "Expected two running worker tasks, found ${#worker_tasks[@]}" >&2
-                exit 1
-              fi
-              healthy_workers="$(aws --profile knowhere ecs describe-tasks \
-                --cluster knowhere-fargate \
-                --tasks "${worker_tasks[@]}" \
-                --query 'length(tasks[?lastStatus==`RUNNING` && healthStatus==`HEALTHY`])' \
-                --output text)"
-              if [ "$healthy_workers" -ne 2 ]; then
-                echo "Expected two healthy workers, found $healthy_workers" >&2
-                exit 1
-              fi
+              wait_for_healthy_workers
 
               update_service knowhere-api-staging 1
               wait_for_service knowhere-api-staging

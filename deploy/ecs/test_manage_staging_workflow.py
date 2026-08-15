@@ -54,14 +54,29 @@ def test_start_restores_healthy_workers_before_api() -> None:
         start_block.index("wait_for_service knowhere-worker-staging")
     )
     assert start_block.index("wait_for_service knowhere-worker-staging") < (
-        start_block.index('if [ "$healthy_workers" -ne 2 ]')
+        start_block.index("wait_for_healthy_workers")
     )
-    assert start_block.index('if [ "$healthy_workers" -ne 2 ]') < (
+    assert start_block.index("wait_for_healthy_workers") < (
         start_block.index("update_service knowhere-api-staging 1")
     )
     assert start_block.index("update_service knowhere-api-staging 1") < (
         start_block.index("https://api-staging.knowhereto.ai/health")
     )
+
+
+def test_worker_health_gate_polls_through_container_start_period() -> None:
+    """A newly running worker may remain health-unknown during startPeriod."""
+    workflow: str = _read_workflow()
+    health_gate: str = workflow.split(
+        "          wait_for_healthy_workers() {", maxsplit=1
+    )[1].split("\n          }", maxsplit=1)[0]
+
+    assert 'worker_health_deadline="$((SECONDS + 300))"' in health_gate
+    assert "while (( SECONDS < worker_health_deadline )); do" in health_gate
+    assert "healthStatus==`HEALTHY`" in health_gate
+    assert 'if [ "$healthy_worker_count" -eq 2 ]; then' in health_gate
+    assert "sleep 15" in health_gate
+    assert 'echo "Timed out waiting for two healthy worker tasks"' in health_gate
 
 
 def test_stop_closes_api_then_drains_before_workers() -> None:
