@@ -135,6 +135,13 @@ def has_document_profile(blackboard: AgentBlackboard) -> tuple[bool, str]:
     return blackboard.document_profile is not None, "document_profile missing; run planner first"
 
 
+def has_page_full_text(blackboard: AgentBlackboard) -> tuple[bool, str]:
+    return (
+        bool(blackboard.page_full_text_cache),
+        "page_full_text_cache missing; run text scan first",
+    )
+
+
 def not_is_scanned(blackboard: AgentBlackboard) -> tuple[bool, str]:
     profile = blackboard.document_profile
     return (

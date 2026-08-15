@@ -1,37 +1,27 @@
-"""Optional TOC hyperlink enrichment after VLM title extraction.
+"""Attach TOC-page hyperlinks onto VLM entries before calibration.
 
-Only runs when TOC pages actually contain internal links. A link is attached to
-a ``toc_with_level`` entry only when anchor text character-matches the extracted
-heading. Unmatched entries are left unchanged (no ``link`` field).
+PROFILE calls this after ``extract.toc_with_boundaries`` and before
+``run_toc_anchoring``. Only runs when TOC pages actually contain internal
+page hyperlinks (``page.get_links()``).
+
+Page-number convention (all 1-based after normalize):
+  - ``get_links()`` dest ``page``: already 1-based — do not add 1.
+  - VLM / probe pages: already 1-based.
+  - TODO(bookmarks): ``get_toc()`` ``meta.page`` is 0-based — add 1 when wired.
+
+Matching (strict):
+  - Walk VLM ``toc_with_level`` entries in order, once each.
+  - ``heading.strip() in anchor_text.strip()``.
+  - Attach only when exactly one link hits; zero or many → leave unmatched.
+  - Cross-line / truncated anchors are not special-cased.
 """
 
 from __future__ import annotations
 
-import re
-import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
-
-_APOSTROPHE_TRANS = str.maketrans(
-    {
-        "\u2018": "'",
-        "\u2019": "'",
-        "\u201b": "'",
-        "\u2032": "'",
-        "\u00b4": "'",
-        "\u0060": "'",
-    }
-)
-_NON_ALNUM = re.compile(r"[^a-z0-9]+")
-
-
-def normalize_toc_heading(text: str) -> str:
-    """Normalize heading / anchor text for strict character matching."""
-    raw = unicodedata.normalize("NFKC", str(text or "")).translate(_APOSTROPHE_TRANS)
-    raw = raw.replace("\xa0", " ").strip().lower()
-    return _NON_ALNUM.sub(" ", raw).strip()
 
 
 @dataclass(frozen=True)
@@ -83,8 +73,22 @@ def _anchor_text_for_rect(page: Any, rect: Any) -> str:
     return " ".join(part for _, _, part in hit).strip()
 
 
+def _link_dest_physical_page(raw_page: Any) -> int:
+    """Normalize ``page.get_links()`` destination to 1-based physical page.
+
+    PyMuPDF page hyperlinks expose ``link["page"]`` already as 1-based (int or
+    digit string). Do **not** add 1 here — that off-by-one sent every TOC link
+    one page past the real click target.
+
+    TODO(bookmarks): ``doc.get_toc()`` outline ``meta.page`` is 0-based. When
+    bookmark signal is wired into calibration, convert that field with ``+1``
+    (or use get_toc's 1-based display page) before merging with links / VLM.
+    """
+    return int(raw_page)
+
+
 def collect_toc_page_links(pdf_path: str, toc_pages: list[int]) -> list[TocPageLink]:
-    """Collect internal goto links on TOC pages with nearby anchor text."""
+    """Collect internal page hyperlinks on TOC pages with nearby anchor text."""
     import fitz
 
     if not toc_pages:
@@ -98,19 +102,15 @@ def collect_toc_page_links(pdf_path: str, toc_pages: list[int]) -> list[TocPageL
                 continue
             page = doc[toc_page - 1]
             for link in page.get_links() or []:
-                # PyMuPDF: LINK_GOTO=1, LINK_NAMED=4 commonly used for TOC.
-                kind = link.get("kind")
-                dest_idx = link.get("page")
-                if dest_idx is None:
+                # Page hyperlinks only (NAMED/GOTO via get_links). Not bookmarks.
+                dest_raw = link.get("page")
+                if dest_raw is None:
                     continue
                 try:
-                    dest_physical = int(dest_idx) + 1
+                    dest_physical = _link_dest_physical_page(dest_raw)
                 except (TypeError, ValueError):
                     continue
                 if dest_physical < 1 or dest_physical > doc.page_count:
-                    continue
-                # Skip obvious self / header "back to TOC" loops to same/near page.
-                if abs(dest_physical - toc_page) <= 1:
                     continue
                 rect = link.get("from")
                 if rect is None:
@@ -118,6 +118,7 @@ def collect_toc_page_links(pdf_path: str, toc_pages: list[int]) -> list[TocPageL
                 anchor = _anchor_text_for_rect(page, rect)
                 if not anchor:
                     continue
+                kind = link.get("kind")
                 out.append(
                     TocPageLink(
                         toc_page=toc_page,
@@ -131,52 +132,13 @@ def collect_toc_page_links(pdf_path: str, toc_pages: list[int]) -> list[TocPageL
     return out
 
 
-def _is_page_number_label(text: str) -> bool:
-    t = str(text or "").strip()
-    if not t:
-        return False
-    if t.isdigit():
-        return True
-    # Roman / folio labels: iv, xii, F-1
-    if re.fullmatch(r"[ivxlcdm]+", t.lower()):
-        return True
-    if re.fullmatch(r"[A-Za-z]-?\d+", t):
-        return True
-    return False
-
-
-def _headings_match(heading: str, anchor: str) -> bool:
-    h = normalize_toc_heading(heading)
-    a = normalize_toc_heading(anchor)
-    if not h or not a:
-        return False
-    if h == a:
-        return True
-    # Anchor sometimes truncates long titles; require substantial prefix/containment.
-    if len(h) >= 12 and (a.startswith(h) or h.startswith(a)):
-        shorter, longer = (a, h) if len(a) <= len(h) else (h, a)
-        if len(shorter) >= 12 and shorter in longer:
-            return True
-    return False
-
-
 def match_toc_entries_to_links(
     entries: list[dict[str, Any]],
     links: list[TocPageLink],
 ) -> tuple[list[dict[str, Any]], int]:
-    """Return new entry dicts; only matched ones gain a ``link`` object."""
-    # Index title-like anchors (skip pure page-number chips).
-    title_links = [
-        link
-        for link in links
-        if not _is_page_number_label(link.anchor_text)
-        and normalize_toc_heading(link.anchor_text)
-        and normalize_toc_heading(link.anchor_text) not in {"table of contents", "contents"}
-    ]
-
+    """Attach ``link`` when heading.strip() is in exactly one link anchor."""
     matched = 0
     enriched: list[dict[str, Any]] = []
-    used_dest_for_heading: set[str] = set()
 
     for entry in entries:
         if not isinstance(entry, dict):
@@ -186,43 +148,27 @@ def match_toc_entries_to_links(
             "level": entry.get("level"),
             "page_number": entry.get("page_number"),
         }
-        # Preserve unknown keys except stale link from a prior run.
         for key, value in entry.items():
             if key in new_entry or key == "link":
                 continue
             new_entry[key] = value
 
         heading = str(entry.get("heading") or "").strip()
-        if not heading or not title_links:
+        if not heading or not links:
             enriched.append(new_entry)
             continue
 
-        hits = [link for link in title_links if _headings_match(heading, link.anchor_text)]
-        if not hits:
+        hits = [
+            link
+            for link in links
+            if heading in str(link.anchor_text or "").strip()
+        ]
+        if len(hits) != 1:
             enriched.append(new_entry)
             continue
-
-        # Prefer unique dest; if multiple dests, refuse (ambiguous).
-        dests = {link.dest_physical_page for link in hits}
-        if len(dests) != 1:
-            logger.info(
-                "[toc_link_enrich] ambiguous link for heading={!r} dests={}",
-                heading,
-                sorted(dests),
-            )
-            enriched.append(new_entry)
-            continue
-
-        chosen = hits[0]
-        heading_key = normalize_toc_heading(heading)
-        # One heading → one link attachment (first wins if duplicates).
-        if heading_key in used_dest_for_heading:
-            enriched.append(new_entry)
-            continue
-        used_dest_for_heading.add(heading_key)
 
         new_entry["link"] = {
-            "physical_page": chosen.dest_physical_page,
+            "physical_page": hits[0].dest_physical_page,
         }
         matched += 1
         enriched.append(new_entry)

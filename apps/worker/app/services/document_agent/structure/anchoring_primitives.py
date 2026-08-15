@@ -699,6 +699,44 @@ def deserialize_title_match(data: dict[str, Any]) -> TitleMatch:
     )
 
 
+def serialize_title_node(node: TitleNode) -> dict[str, Any]:
+    return {
+        "title": node.title,
+        "level": node.level,
+        "printed_page": node.printed_page,
+        "printed_label": node.printed_label,
+        "page_kind": node.page_kind,
+        "physical_page_hint": node.physical_page_hint,
+        "children": [serialize_title_node(child) for child in node.children],
+    }
+
+
+def deserialize_title_node(data: dict[str, Any]) -> TitleNode:
+    children_raw = data.get("children") or []
+    children = [
+        deserialize_title_node(child)
+        for child in children_raw
+        if isinstance(child, dict)
+    ]
+    printed_page = data.get("printed_page")
+    physical_page_hint = data.get("physical_page_hint")
+    return TitleNode(
+        title=str(data.get("title") or ""),
+        level=int(data.get("level") or 1),
+        printed_page=None if printed_page is None else int(printed_page),
+        printed_label=data.get("printed_label")
+        if isinstance(data.get("printed_label"), str)
+        else None,
+        page_kind=data.get("page_kind")
+        if isinstance(data.get("page_kind"), str)
+        else None,
+        physical_page_hint=(
+            None if physical_page_hint is None else int(physical_page_hint)
+        ),
+        children=children,
+    )
+
+
 def deserialize_skeleton_anchor(data: dict[str, Any]) -> SkeletonAnchor:
     raw_overrides = data.get("match_overrides") or {}
     overrides: dict[tuple[str, ...], TitleMatch] = {}

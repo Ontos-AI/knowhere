@@ -186,7 +186,11 @@ class Shard:
     page_start: int
     page_end: int
     page_offset: int
-    anchor_type: Literal["h1_boundary", "blank_separator", "forced_max_size", "toc_chapter_boundary"]
+    anchor_type: Literal[
+        "blank_separator",
+        "forced_max_size",
+        "toc_leaf_boundary",
+    ]
     anchor_evidence: str
     confidence: float
 
@@ -200,9 +204,6 @@ class ShardPlan:
     reason: Literal[
         "too_large",
         "not_needed",
-        "parser_stability",
-        "hierarchy_isolation",
-        "llm_boundary_decision",
     ]
     shards: list[Shard] = field(default_factory=list)
     validation: ValidationReport = field(
@@ -231,6 +232,9 @@ class PageAnatomyMap:
     document_profile: DocumentProfile | None = None
     toc_hierarchies: list[dict[str, Any]] | None = None
     toc_page_offset: int | None = None
+    skeleton_anchor: dict[str, Any] | None = None
+    skeleton_nodes: list[dict[str, Any]] | None = None
+    pending_skeleton_anchors: list[dict[str, Any]] = field(default_factory=list)
     global_signals: dict[str, Any] = field(default_factory=dict)
     trace_summary: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -252,6 +256,9 @@ class PageAnatomyMap:
             if self.document_profile
             else None,
             "toc_page_offset": self.toc_page_offset,
+            "skeleton_anchor": self.skeleton_anchor,
+            "skeleton_nodes": self.skeleton_nodes,
+            "pending_skeleton_anchors": list(self.pending_skeleton_anchors),
             "global_signals": dict(self.global_signals),
             "trace_summary": dict(self.trace_summary),
             "created_at": self.created_at.isoformat(),

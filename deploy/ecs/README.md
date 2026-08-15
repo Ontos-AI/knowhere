@@ -33,6 +33,44 @@ The staging workflow in `.github/workflows/build-images.yml` expects these GitHu
 
 Before an ECS staging deployment, an operator must create and verify the ECS services, network configuration, API load-balancer target, CloudWatch log groups, and runtime secret. The workflow validates those resources and fails without registering or updating a service when any prerequisite is missing. It does not create or delete AWS resources.
 
+## Manual staging availability
+
+`.github/workflows/manage-staging.yml` exposes three manually dispatched
+operations. It does not run on a branch, release, cron, or other automatic
+trigger, and it does not create or delete AWS resources.
+
+- `status` verifies AWS account `107424103509`, reports API and worker
+  desired/running/pending counts and task-definition revisions, and reads the
+  queued and processing backlog groups from the permanent `jobs` ledger.
+- `start` requires an owner-approval issue/comment reference, starts the worker
+  service at desired count `2`, waits for two healthy workers, then starts the
+  API at desired count `1`, verifies the public health endpoint, and reports
+  the elapsed cold-start readiness time.
+- `stop` requires an owner-approval issue/comment reference, stops the API,
+  waits the accepted 30-minute worker drain window, then stops the workers and
+  verifies both services at desired/running `0/0`.
+
+The workflow configures and uses only the named AWS profile `knowhere`; the
+command verifies the account before any ECS call. It retrieves the runtime
+database URL from the existing staging Secrets Manager secret only to query the
+job ledger. Secret values and the database URL are never written to workflow
+output or the GitHub step summary. The ledger is the durable business backlog;
+it is intentionally reported instead of raw Redis queue length because the
+hosted GitHub runner has no route to the private ElastiCache endpoint.
+
+For `start` or `stop`, paste the explicit owner-approval URL from an issue, pull
+request, or comment in an `Ontos-AI` GitHub repository into
+`approval_reference`. Free-form notes and URLs outside the organization are
+rejected. `status` is read-only and does not require a reference.
+Do not begin an upload, billing, webhook, deployment-validation, or long-running
+worker test close to the scheduled cutoff. Once EventBridge schedules exist,
+an extended staging session must disable both stop schedules with an owner and
+expiry before starting such a test, then restore them afterward.
+
+The repository workflow is only the manual operator interface. The four
+weekday start/stop schedules and their least-privilege execution role remain
+AWS EventBridge Scheduler resources governed by infrastructure issue #30.
+
 ## Local Docker smoke test
 
 LocalStack Community does not implement the ECS API used by this deployment, so it cannot validate Fargate orchestration. The runtime can still be checked locally with Docker:

@@ -7,17 +7,12 @@ import time
 from typing import Any
 
 from app.services.document_agent.manifest import ToolContext, ToolResult
-from app.services.document_agent.pdf_text import read_page_texts
-from app.services.document_agent.registry import has_page_features, not_is_scanned, register_tool
-
-
-def _load_page_texts(ctx: ToolContext) -> dict[int, str]:
-    if ctx.blackboard.page_full_text_cache:
-        return dict(ctx.blackboard.page_full_text_cache)
-    pages = list(range(1, ctx.blackboard.page_count + 1))
-    texts = read_page_texts(ctx.pdf_path, pages, timeout=300)
-    ctx.blackboard.page_full_text_cache = texts
-    return texts
+from app.services.document_agent.registry import (
+    has_page_features,
+    has_page_full_text,
+    not_is_scanned,
+    register_tool,
+)
 
 
 @register_tool(
@@ -34,7 +29,7 @@ def _load_page_texts(ctx: ToolContext) -> dict[int, str]:
         },
         "required": ["query"],
     },
-    preconditions=(has_page_features, not_is_scanned),
+    preconditions=(has_page_features, has_page_full_text, not_is_scanned),
 )
 def grep_text(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()
@@ -52,7 +47,7 @@ def grep_text(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     flags = 0 if case_sensitive else re.IGNORECASE
     pattern = re.compile(query if use_regex else re.escape(query), flags)
     results: list[dict[str, Any]] = []
-    for page, text in sorted(_load_page_texts(ctx).items()):
+    for page, text in sorted(ctx.blackboard.page_full_text_cache.items()):
         for match in pattern.finditer(text):
             start_idx = max(match.start() - context_chars, 0)
             end_idx = min(match.end() + context_chars, len(text))

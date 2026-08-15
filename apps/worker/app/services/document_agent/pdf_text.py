@@ -35,6 +35,12 @@ def _read_page_texts_worker(queue, pdf_path: str, pages: list[int]) -> None:
     queue.put({"ok": True, "texts": texts})
 
 
+def coerce_page_text_cache(raw: Any) -> dict[int, str]:
+    if not isinstance(raw, dict):
+        return {}
+    return {int(page): str(text) for page, text in raw.items()}
+
+
 def read_page_texts(
     pdf_path: str,
     pages: list[int],

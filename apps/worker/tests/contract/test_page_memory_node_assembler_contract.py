@@ -142,15 +142,10 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
     assert leaf_b["extra_metadata"] == {}
 
 
-def test_build_node_rows_preserves_order_under_ocr_and_summary_concurrency(
+def test_build_node_rows_preserves_order_under_summary_concurrency(
     monkeypatch,
 ) -> None:
     import gevent
-
-    def _fake_resolve_page_text(**kwargs) -> str:
-        page = int(kwargs["page"])
-        gevent.sleep(0.01 * (4 - page))
-        return f"text-{page}"
 
     def _fake_compute_node_summary(**kwargs):
         view = kwargs["view"]
@@ -159,18 +154,13 @@ def test_build_node_rows_preserves_order_under_ocr_and_summary_concurrency(
 
     monkeypatch.setattr(
         node_assembler,
-        "resolve_page_text",
-        _fake_resolve_page_text,
-    )
-    monkeypatch.setattr(
-        node_assembler,
         "compute_node_summary",
         _fake_compute_node_summary,
     )
 
     rows = node_assembler.build_node_rows(
         skeletons=_ordered_page_skeletons(),
-        raw_text_by_page={1: "", 2: "", 3: ""},
+        raw_text_by_page={1: "text-1", 2: "text-2", 3: "text-3"},
         image_path_by_page={},
         kind_by_page={},
         tag_by_page={},
@@ -192,61 +182,6 @@ def test_build_node_rows_preserves_order_under_ocr_and_summary_concurrency(
         "summary-2",
         "summary-3",
     ]
-
-
-def test_build_node_rows_failed_ocr_greenlet_fails_stage(monkeypatch) -> None:
-    def _fake_resolve_page_text(**kwargs) -> str:
-        if int(kwargs["page"]) == 2:
-            raise RuntimeError("ocr failed")
-        return "ok"
-
-    monkeypatch.setattr(
-        node_assembler,
-        "resolve_page_text",
-        _fake_resolve_page_text,
-    )
-
-    with pytest.raises(RuntimeError):
-        node_assembler.build_node_rows(
-            skeletons=_ordered_page_skeletons()[:2],
-            raw_text_by_page={1: "", 2: ""},
-            image_path_by_page={},
-            kind_by_page={},
-            tag_by_page={},
-            filename="demo.pdf",
-            verdict="page",
-            budget=None,
-            vlm_model="fake-vlm",
-            node_assembly_concurrency=2,
-        )
-
-
-def test_build_node_rows_unavailable_propagates_from_ocr(monkeypatch) -> None:
-    def _fake_resolve_page_text(**kwargs) -> str:
-        raise UnavailableException(
-            internal_message="ocr capacity busy",
-            retry_after=5,
-        )
-
-    monkeypatch.setattr(
-        node_assembler,
-        "resolve_page_text",
-        _fake_resolve_page_text,
-    )
-
-    with pytest.raises(UnavailableException):
-        node_assembler.build_node_rows(
-            skeletons=_ordered_page_skeletons()[:1],
-            raw_text_by_page={1: ""},
-            image_path_by_page={},
-            kind_by_page={},
-            tag_by_page={},
-            filename="demo.pdf",
-            verdict="page",
-            budget=None,
-            vlm_model="fake-vlm",
-            node_assembly_concurrency=1,
-        )
 
 
 def test_build_node_rows_unavailable_propagates_from_node_summary(

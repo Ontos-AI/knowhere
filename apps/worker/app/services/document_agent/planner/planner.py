@@ -73,7 +73,6 @@ _COARSE_SEGMENT_QUOTAS = (2, 2, 2)  # front, middle, back
 def _sample_pages(
     page_count: int,
     extrema_pages: list[int],
-    exclude_pages: set[int] | None = None,
     *,
     random_extra: int = 0,
     rng: random.Random | None = None,
@@ -93,18 +92,14 @@ def _sample_pages(
         page_count: Total number of pages.
         extrema_pages: Pages with text extrema (min/max raw_text_length /
             text_density). Low-text extrema already surface chart/asset pages.
-        exclude_pages: Pages to skip entirely (e.g. TOC pages already detected
-            by the TOC pipeline). These inflate text-density metrics without
-            adding profiling value.
         random_extra: Extra pages to draw uniformly from pages not already
-            selected (and not excluded).
+            selected.
         rng: Optional RNG for deterministic tests.
     """
     if page_count <= 0:
         return []
-    skip = exclude_pages or set()
-    extrema = [page for page in extrema_pages if 1 <= page <= page_count and page not in skip]
-    pool = [page for page in range(1, page_count + 1) if page not in set(extrema) and page not in skip]
+    extrema = [page for page in extrema_pages if 1 <= page <= page_count]
+    pool = [page for page in range(1, page_count + 1) if page not in set(extrema)]
     if not pool:
         return sorted(set(extrema))[:_COARSE_SAMPLE_CAP]
     third = max(len(pool) // 3, 1)
@@ -127,7 +122,7 @@ def _sample_pages(
         leftover = [
             page
             for page in range(1, page_count + 1)
-            if page not in ordered and page not in skip
+            if page not in ordered
         ]
         if leftover:
             picker = rng if rng is not None else random.Random()
@@ -220,11 +215,6 @@ class ProfilePlanner:
             or self.ctx.settings.get("vlm_model")
             or os.environ.get("IMAGE_MODEL")
         )
-        toc_pages = set(
-            self.ctx.blackboard.toc_result.toc_pages
-            if self.ctx.blackboard.toc_result
-            else []
-        )
         text_max = float(
             (
                 ((self.ctx.blackboard.doc_stats or {}).get("raw_text_length") or {}).get(
@@ -245,7 +235,6 @@ class ProfilePlanner:
         pages = _sample_pages(
             self.ctx.blackboard.page_count,
             extrema_pages,
-            exclude_pages=toc_pages,
             random_extra=random_extra,
         )
         if not model:
@@ -291,9 +280,6 @@ class ProfilePlanner:
                 [],
             ),
             "sampled_page_features": feature_summary,
-            "toc_pages": self.ctx.blackboard.toc_result.toc_pages
-            if self.ctx.blackboard.toc_result
-            else [],
             "h1_pages": [
                 {"title": item.title, "page": item.page}
                 for item in (

@@ -21,6 +21,7 @@ _DEBUG_VISUAL_DIRS = {
     "toc_pages",
     "verify_pages",
     "agent_visuals",
+    "ocr_pages",
 }
 _PAGE_MEMORY_VISUAL_DIRS = {"pages", "asset_annotate"}
 
