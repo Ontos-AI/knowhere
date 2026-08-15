@@ -1,0 +1,257 @@
+name: Manage staging ECS availability
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Read status, start staging, or stop staging after the drain window
+        required: true
+        default: status
+        type: choice
+        options:
+          - status
+          - start
+          - stop
+      approval_reference:
+        description: Required for start/stop; use the owner approval issue or comment URL
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-ecs-management
+  cancel-in-progress: false
+
+jobs:
+  manage:
+    name: ${{ inputs.operation }} staging ECS
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      AWS_REGION: us-east-1
+      APPROVAL_REFERENCE: ${{ inputs.approval_reference }}
+      OPERATION: ${{ inputs.operation }}
+      RUNTIME_SECRET_ARN: ${{ secrets.AWS_ECS_STAGING_SECRETS_ARN }}
+    steps:
+      - name: Checkout operator source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create the required named profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID" --profile knowhere
+          aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" --profile knowhere
+          aws configure set region "$AWS_REGION" --profile knowhere
+          if [ -n "${AWS_SESSION_TOKEN:-}" ]; then
+            aws configure set aws_session_token "$AWS_SESSION_TOKEN" --profile knowhere
+          fi
+
+      - name: Ensure PostgreSQL client is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes postgresql-client
+          fi
+
+      - name: Run staging management operation
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_path="$RUNNER_TEMP/staging-management-report.json"
+          startup_seconds=""
+
+          # The named profile plus the account assertion prevent a manually
+          # dispatched staging operation from falling through to another AWS
+          # credential source or account.
+          unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+          account_id="$(aws --profile knowhere sts get-caller-identity --query Account --output text)"
+          if [ "$account_id" != "107424103509" ]; then
+            echo "Unexpected AWS account: $account_id" >&2
+            exit 1
+          fi
+
+          if [ "$OPERATION" != "status" ]; then
+            approval_reference_pattern='^https://github\.com/Ontos-AI/[A-Za-z0-9._-]+/(issues/[0-9]+(#issuecomment-[0-9]+)?|pull/[0-9]+(#(issuecomment-[0-9]+|discussion_r[0-9]+))?)$'
+            if [[ ! "$APPROVAL_REFERENCE" =~ $approval_reference_pattern ]]; then
+              echo "start and stop require an Ontos-AI GitHub issue, pull request, or comment URL" >&2
+              exit 1
+            fi
+          fi
+          if [ -z "$RUNTIME_SECRET_ARN" ]; then
+            echo "AWS_ECS_STAGING_SECRETS_ARN is not configured" >&2
+            exit 1
+          fi
+
+          update_service() {
+            local service_name="$1"
+            local desired_count="$2"
+            aws --profile knowhere ecs update-service \
+              --cluster knowhere-fargate \
+              --service "$service_name" \
+              --desired-count "$desired_count" \
+              --query 'service.serviceArn' \
+              --output text >/dev/null
+          }
+
+          wait_for_service() {
+            local service_name="$1"
+            aws --profile knowhere ecs wait services-stable \
+              --cluster knowhere-fargate \
+              --services "$service_name"
+          }
+
+          read_services() {
+            aws --profile knowhere ecs describe-services \
+              --cluster knowhere-fargate \
+              --services knowhere-api-staging knowhere-worker-staging \
+              --query 'services[].{name:serviceName,taskDefinition:taskDefinition,desired:desiredCount,running:runningCount,pending:pendingCount,status:status}' \
+              --output json
+          }
+
+          case "$OPERATION" in
+            status)
+              ;;
+            start)
+              start_started_epoch="$(date +%s)"
+              # Restore the accepted two-worker capacity before admitting API
+              # traffic; ECS stability alone does not prove container health.
+              update_service knowhere-worker-staging 2
+              wait_for_service knowhere-worker-staging
+              mapfile -t worker_tasks < <(
+                aws --profile knowhere ecs list-tasks \
+                  --cluster knowhere-fargate \
+                  --service-name knowhere-worker-staging \
+                  --desired-status RUNNING \
+                  --query 'taskArns[]' \
+                  --output text | tr '\t' '\n'
+              )
+              if [ "${#worker_tasks[@]}" -ne 2 ]; then
+                echo "Expected two running worker tasks, found ${#worker_tasks[@]}" >&2
+                exit 1
+              fi
+              healthy_workers="$(aws --profile knowhere ecs describe-tasks \
+                --cluster knowhere-fargate \
+                --tasks "${worker_tasks[@]}" \
+                --query 'length(tasks[?lastStatus==`RUNNING` && healthStatus==`HEALTHY`])' \
+                --output text)"
+              if [ "$healthy_workers" -ne 2 ]; then
+                echo "Expected two healthy workers, found $healthy_workers" >&2
+                exit 1
+              fi
+
+              update_service knowhere-api-staging 1
+              wait_for_service knowhere-api-staging
+              curl --fail --silent --show-error --max-time 30 \
+                https://api-staging.knowhereto.ai/health >/dev/null
+              startup_seconds="$(($(date +%s) - start_started_epoch))"
+              ;;
+            stop)
+              # Close admission first, retain the accepted 30-minute drain,
+              # then stop workers. Any remainder uses the tested watchdog path.
+              update_service knowhere-api-staging 0
+              wait_for_service knowhere-api-staging
+              sleep 1800
+              update_service knowhere-worker-staging 0
+              wait_for_service knowhere-worker-staging
+              ;;
+            *)
+              echo "Unsupported operation: $OPERATION" >&2
+              exit 1
+              ;;
+          esac
+
+          services_json="$(read_services)"
+
+          # The hosted runner cannot reach private ElastiCache. The jobs table
+          # is the permanent processing ledger, so it supplies the durable
+          # backlog and oldest-active-job signal without another VPC resource.
+          runtime_secret="$(aws --profile knowhere secretsmanager get-secret-value \
+            --secret-id "$RUNTIME_SECRET_ARN" \
+            --query SecretString \
+            --output text)"
+          database_url="$(jq -r '.DATABASE_URL // empty' <<<"$runtime_secret")"
+          unset runtime_secret
+          if [ -z "$database_url" ]; then
+            echo "Staging runtime secret has no DATABASE_URL" >&2
+            exit 1
+          fi
+          psql_url="$(sed 's#^postgresql+asyncpg://#postgresql://#' <<<"$database_url")"
+          unset database_url
+          read -r -d '' ledger_query <<'SQL' || true
+          WITH backlog AS (
+              SELECT status, count(*)::integer AS status_count, min(created_at) AS oldest
+              FROM jobs
+              WHERE status NOT IN ('done', 'failed')
+              GROUP BY status
+          )
+          SELECT json_build_object(
+              'total', coalesce(sum(status_count), 0),
+              'queued', json_build_object(
+                  'count', coalesce(
+                      sum(status_count) FILTER (
+                          WHERE status IN ('pending', 'waiting-file')
+                      ),
+                      0
+                  ),
+                  'oldestCreatedAt', min(oldest) FILTER (
+                      WHERE status IN ('pending', 'waiting-file')
+                  )
+              ),
+              'processing', json_build_object(
+                  'count', coalesce(
+                      sum(status_count) FILTER (
+                          WHERE status IN ('running', 'converting')
+                      ),
+                      0
+                  ),
+                  'oldestCreatedAt', min(oldest) FILTER (
+                      WHERE status IN ('running', 'converting')
+                  )
+              ),
+              'byStatus', coalesce(
+                  json_object_agg(status, status_count) FILTER (WHERE status IS NOT NULL),
+                  '{}'::json
+              )
+          )::text
+          FROM backlog;
+          SQL
+          ledger_json="$(psql "$psql_url" \
+            --no-psqlrc \
+            --set ON_ERROR_STOP=1 \
+            --tuples-only \
+            --no-align \
+            --command "$ledger_query")"
+          unset psql_url ledger_query
+
+          jq -n \
+            --arg operation "$OPERATION" \
+            --arg approvalReference "$APPROVAL_REFERENCE" \
+            --arg startupSeconds "$startup_seconds" \
+            --argjson services "$services_json" \
+            --argjson jobLedger "$ledger_json" \
+            '{
+              operation: $operation,
+              approvalReference: (if $approvalReference == "" then null else $approvalReference end),
+              startupSeconds: (if $startupSeconds == "" then null else ($startupSeconds | tonumber) end),
+              services: $services,
+              jobLedger: $jobLedger
+            }' | tee "$report_path"
+
+          {
+            echo '## Staging ECS management result'
+            echo '```json'
+            cat "$report_path"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
