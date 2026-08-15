@@ -126,7 +126,9 @@ def test_staging_worker_preserves_evidence_selected_capacity() -> None:
         definition_path.read_text(encoding="utf-8")
     )
 
-    assert definition["cpu"] == "1024"
+    # The measured production-envelope replay rejected 1-vCPU tasks and passed
+    # on two fixed 2-vCPU tasks, so CD must not restore the rejected task size.
+    assert definition["cpu"] == "2048"
     assert definition["memory"] == "4096"
 
 
