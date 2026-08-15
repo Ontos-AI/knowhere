@@ -4,7 +4,7 @@
   "executionRoleArn": "${EXECUTION_ROLE_ARN}",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
-  "cpu": "1024",
+  "cpu": "2048",
   "memory": "4096",
   "ephemeralStorage": {"sizeInGiB": 21},
   "runtimePlatform": {
