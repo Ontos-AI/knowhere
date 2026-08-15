@@ -33,6 +33,10 @@ _LOG_PREFIX = "[profile.toc_anchoring]"
 
 def run_toc_anchoring(ctx: ToolContext) -> None:
     """Anchor extracted TOC hierarchies onto the profile blackboard."""
+    from app.services.document_agent.agents.calibration.orchestrator import (
+        anchor_hierarchy,
+    )
+
     page_count = int(ctx.blackboard.page_count or 0)
     hierarchies = list(ctx.blackboard.toc_hierarchies or [])
     if page_count <= 0 or not hierarchies:
@@ -251,21 +255,6 @@ def classify_toc_relationship(
     return "parallel"
 
 
-from app.services.document_agent.agents.calibration.orchestrator import (  # noqa: E402
-    anchor_hierarchy,
-)
-from app.services.document_agent.agents.calibration.procedure import (  # noqa: E402
-    finalize_calibration_result,
-    pick_primary_offset,
-)
-from app.services.document_agent.agents.calibration.service import (  # noqa: E402
-    calibrate_offset,
-)
-from app.services.document_agent.structure.toc_graft import (  # noqa: E402
-    graft_contained_toc,
-)
-
-
 def _anchor_pending_tocs(
     *,
     pending_tocs: list[dict[str, Any]],
@@ -275,6 +264,14 @@ def _anchor_pending_tocs(
     body_pages: list[int],
     primary_ranges: list[ResolvedHierarchyRange],
 ) -> list[dict[str, Any]]:
+    from app.services.document_agent.agents.calibration.procedure import (
+        finalize_calibration_result,
+        pick_primary_offset,
+    )
+    from app.services.document_agent.agents.calibration.service import (
+        calibrate_offset,
+    )
+
     records: list[dict[str, Any]] = []
     for i, pending_toc in enumerate(pending_tocs):
         nodes = extract_toc_nodes([pending_toc])
@@ -351,6 +348,8 @@ def _graft_contained_pending(
     page_texts: dict[int, str],
     body_pages: list[int],
 ) -> tuple[list[TitleNode], SkeletonAnchor]:
+    from app.services.document_agent.structure.toc_graft import graft_contained_toc
+
     nodes = resolve_nodes
     overrides = dict(skeleton_anchor.match_overrides)
     for record in pending_records:
