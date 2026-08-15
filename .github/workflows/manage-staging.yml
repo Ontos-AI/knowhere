@@ -153,6 +153,27 @@ jobs:
             return 1
           }
 
+          wait_for_public_api_health() {
+            local api_health_deadline="$((SECONDS + 300))"
+
+            # services-stable can return as soon as the API task is RUNNING,
+            # before the load balancer has registered a healthy target. Treat
+            # transient 502/503 responses as cold-start progress, but keep a
+            # hard timeout so a broken target never reports a successful start.
+            while (( SECONDS < api_health_deadline )); do
+              if curl --fail --silent --show-error --max-time 10 \
+                https://api-staging.knowhereto.ai/health >/dev/null; then
+                return 0
+              fi
+
+              echo "Waiting for the public staging API health endpoint"
+              sleep 10
+            done
+
+            echo "Timed out waiting for the public staging API health endpoint" >&2
+            return 1
+          }
+
           read_services() {
             aws --profile knowhere ecs describe-services \
               --cluster knowhere-fargate \
@@ -174,8 +195,7 @@ jobs:
 
               update_service knowhere-api-staging 1
               wait_for_service knowhere-api-staging
-              curl --fail --silent --show-error --max-time 30 \
-                https://api-staging.knowhereto.ai/health >/dev/null
+              wait_for_public_api_health
               startup_seconds="$(($(date +%s) - start_started_epoch))"
               ;;
             stop)

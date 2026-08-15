@@ -60,7 +60,10 @@ def test_start_restores_healthy_workers_before_api() -> None:
         start_block.index("update_service knowhere-api-staging 1")
     )
     assert start_block.index("update_service knowhere-api-staging 1") < (
-        start_block.index("https://api-staging.knowhereto.ai/health")
+        start_block.index("wait_for_service knowhere-api-staging")
+    )
+    assert start_block.index("wait_for_service knowhere-api-staging") < (
+        start_block.index("wait_for_public_api_health")
     )
 
 
@@ -77,6 +80,23 @@ def test_worker_health_gate_polls_through_container_start_period() -> None:
     assert 'if [ "$healthy_worker_count" -eq 2 ]; then' in health_gate
     assert "sleep 15" in health_gate
     assert 'echo "Timed out waiting for two healthy worker tasks"' in health_gate
+
+
+def test_public_api_health_gate_retries_transient_alb_errors() -> None:
+    """A newly running API task may not yet have a healthy public ALB route."""
+    workflow: str = _read_workflow()
+    health_gate: str = workflow.split(
+        "          wait_for_public_api_health() {", maxsplit=1
+    )[1].split("\n          }", maxsplit=1)[0]
+
+    assert 'api_health_deadline="$((SECONDS + 300))"' in health_gate
+    assert "while (( SECONDS < api_health_deadline )); do" in health_gate
+    assert "https://api-staging.knowhereto.ai/health" in health_gate
+    assert "return 0" in health_gate
+    assert "sleep 10" in health_gate
+    assert 'echo "Timed out waiting for the public staging API health endpoint"' in (
+        health_gate
+    )
 
 
 def test_stop_closes_api_then_drains_before_workers() -> None:
@@ -110,7 +130,13 @@ def test_status_uses_the_jobs_ledger_for_backlog() -> None:
 def test_start_reports_readiness_time() -> None:
     """Operators can compare cold-start readiness with the schedule lead time."""
     workflow: str = _read_workflow()
+    start_block: str = workflow.split("            start)", maxsplit=1)[1].split(
+        "              ;;", maxsplit=1
+    )[0]
 
     assert 'start_started_epoch="$(date +%s)"' in workflow
+    assert start_block.index("wait_for_public_api_health") < start_block.index(
+        'startup_seconds="$(($(date +%s) - start_started_epoch))"'
+    )
     assert 'startup_seconds="$(($(date +%s) - start_started_epoch))"' in workflow
     assert "startupSeconds" in workflow
