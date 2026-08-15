@@ -22,10 +22,15 @@ from app.services.document_agent.manifest import (
     ToolContext,
     ToolResult,
 )
+from app.services.document_agent.pdf_text import read_page_texts
 from app.services.document_agent.persist import build_anatomy_map, persist_anatomy_map
 from app.services.document_agent.planner import ProfilePlanner
 from app.services.document_agent.registry import REGISTRY
 from app.services.document_agent.state import AgentBlackboard, DocumentAgentState
+from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
+from app.services.document_agent.structure.toc_link_enrichment import (
+    enrich_toc_hierarchies_with_links,
+)
 from app.services.document_agent import tools as _registered_tools  # noqa: F401
 from app.services.document_agent.trace import ParseRunRecorder
 from app.services.document_agent.validators import single_shard_plan
@@ -111,22 +116,6 @@ class ProfileCoordinator:
             self._record_failure(exc)
             raise
 
-    def run_toc(self) -> TocResult:
-        try:
-            return self._run_toc()
-        except Exception as exc:
-            logger.warning(
-                "[document_agent] TOC profiling failed, degrading to empty TOC: {}",
-                exc,
-            )
-            self.blackboard.toc_result = TocResult(
-                method="none",
-                notes=f"degraded: {type(exc).__name__}: {exc}",
-                failure_kind="degraded",
-            )
-            self.blackboard.toc_hierarchies = None
-            return self.blackboard.toc_result
-
     def run_lightweight_anatomy(
         self, *, skip_shard_plan: bool = False
     ) -> PageAnatomyMap:
@@ -140,18 +129,31 @@ class ProfileCoordinator:
         self.state = DocumentAgentState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
-        if self._should_run_toc_before_coarse():
-            self._ensure_toc_profile(strict=False)
         profile, _initial_decision, _planner_result = self._propose_profile(
             actor="planner:coarse"
         )
+        self._run_text_scan()
+        # Asset coarse probe is independent of TOC; run it before TOC so
+        # PROFILE / debug Stage-0 share the same order as later anatomy/shard
+        # consumers of ``page_features.has_asset``.
         self._ensure_asset_probe()
+        if self.ctx.settings.get("stop_after_asset_probe"):
+            # Debug Stage-0: bootstrap → coarse VLM → text scan → asset probe.
+            return profile
+        if self._toc_profile_enabled():
+            self._ensure_toc_profile(strict=False)
+        else:
+            self._ensure_disabled_toc_placeholder()
         return profile
 
     def _run_structural(self, *, skip_shard_plan: bool = False) -> PageAnatomyMap:
         self.state = DocumentAgentState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
+        # Prefer assets before TOC so cold structural matches coarse order.
+        # After ``run_coarse`` this is a no-op (assets_probed already set with
+        # coarse header/footer margins).
+        self._ensure_asset_probe()
         if self._toc_profile_enabled():
             self._ensure_toc_profile(strict=True)
         else:
@@ -159,7 +161,6 @@ class ProfileCoordinator:
         profile, initial_decision, _planner_result = self._propose_profile(
             actor="planner"
         )
-        self._ensure_asset_probe()
         if skip_shard_plan:
             # Page-memory oversized path never consumes shard_plan; only
             # build_anatomy_map's invariant needs a non-empty plan.
@@ -179,30 +180,14 @@ class ProfileCoordinator:
         self._persist_ready_anatomy(anatomy)
         return anatomy
 
-    def _run_toc(self) -> TocResult:
-        self.state = DocumentAgentState.RUNNING
-        if not self.blackboard.page_features:
-            self._run_bootstrap()
-        if not self._toc_profile_enabled():
-            self._ensure_disabled_toc_placeholder()
-            toc_result = self.blackboard.toc_result
-            if toc_result is None:
-                raise RuntimeError("TOC placeholder was not initialized")
-            return toc_result
-        self._ensure_toc_profile(strict=False)
-        if self.blackboard.toc_result is None:
-            self.blackboard.toc_result = TocResult(
-                method="none",
-                notes="TOC extraction completed without a result",
-            )
-        return self.blackboard.toc_result
-
     def _run_lightweight_anatomy(
         self, *, skip_shard_plan: bool = False
     ) -> PageAnatomyMap:
         self.state = DocumentAgentState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
+        # Same relative order as coarse: assets before any TOC placeholder.
+        # After ``run_coarse`` this is a no-op.
         self._ensure_asset_probe()
         if self.blackboard.toc_result is None:
             if self._toc_profile_enabled():
@@ -215,9 +200,8 @@ class ProfileCoordinator:
         if skip_shard_plan:
             # Page-based track processes pages individually via VLM and never
             # consumes the shard plan; only build_anatomy_map's invariant needs
-            # it. Populate a single-shard placeholder to skip the LLM shard
-            # decision + H2 refinement (kept global for chunk-track oversized
-            # MinerU sharding).
+            # it. Populate a single-shard placeholder to skip propose.shard_plan
+            # (kept for chunk-track oversized MinerU sharding).
             self._apply_single_shard_placeholder()
         else:
             result = REGISTRY.dispatch("propose.shard_plan", self.ctx, {})
@@ -319,13 +303,47 @@ class ProfileCoordinator:
             and toc_result.failure_kind in {"confirm_failed", "degraded"}
         )
 
-    def _should_run_toc_before_coarse(self) -> bool:
-        return self._toc_profile_enabled() and bool(
-            self.ctx.settings.get("toc_before_coarse")
-        )
-
     def _toc_profile_enabled(self) -> bool:
         return bool(self.ctx.settings.get("toc_profile_enabled", True))
+
+    def _run_text_scan(self) -> None:
+        profile = self.blackboard.document_profile
+        if profile is None:
+            raise RuntimeError("document_profile missing; run planner first")
+        page_count = int(self.blackboard.page_count or 0)
+        pages = list(range(1, page_count + 1))
+        if not pages:
+            self.blackboard.page_full_text_cache = {}
+            return
+        if profile.is_scanned:
+            result = REGISTRY.dispatch("ocr.pages", self.ctx, {"pages": pages})
+            self.trace.record_step(
+                round_index=self.round_index,
+                actor="scan:ocr.pages",
+                action_type="scan",
+                result=result,
+                tool_name="ocr.pages",
+                tool_args={"pages": pages},
+            )
+            if result.status != "ok":
+                raise RuntimeError(result.error or "ocr.pages failed")
+            self.round_index += 1
+            return
+        texts = read_page_texts(self.ctx.pdf_path, pages, timeout=300)
+        self.blackboard.page_full_text_cache = texts
+        self.trace.record_step(
+            round_index=self.round_index,
+            actor="scan:read_page_texts",
+            action_type="scan",
+            result=ToolResult(
+                status="ok",
+                payload={"page_count": len(texts)},
+                output_summary={"page_count": len(texts)},
+            ),
+            tool_name="read_page_texts",
+            tool_args={"pages": pages},
+        )
+        self.round_index += 1
 
     def _ensure_disabled_toc_placeholder(self) -> None:
         self.blackboard.toc_result = TocResult(
@@ -333,6 +351,7 @@ class ProfileCoordinator:
             notes="TOC profiling disabled by PDF_PROFILE_TOC_ENABLED",
         )
         self.blackboard.toc_hierarchies = None
+        self._clear_toc_anchor_state()
         self.blackboard.global_signals["toc_profile_attempted"] = False
 
     def _ensure_toc_profile(self, *, strict: bool) -> None:
@@ -340,12 +359,12 @@ class ProfileCoordinator:
         if strict and self._toc_result_requires_strict_retry():
             self.blackboard.toc_result = None
             self.blackboard.toc_hierarchies = None
+            self._clear_toc_anchor_state()
             should_run = True
 
         if not should_run:
             return
 
-        self._planner_cache = None
         self.blackboard.global_signals["toc_profile_attempted"] = True
         try:
             self._run_toc_extraction_pipeline()
@@ -361,6 +380,7 @@ class ProfileCoordinator:
                 failure_kind="degraded",
             )
             self.blackboard.toc_hierarchies = None
+            self._clear_toc_anchor_state()
             return
 
         if self.blackboard.toc_result is None:
@@ -403,10 +423,51 @@ class ProfileCoordinator:
         self.round_index += 1
         return result
 
+    def _clear_toc_anchor_state(self) -> None:
+        self.blackboard.toc_page_offset = None
+        self.blackboard.skeleton_anchor = None
+        self.blackboard.skeleton_nodes = None
+        self.blackboard.pending_skeleton_anchors = []
+
     def _run_toc_extraction_pipeline(self) -> None:
         for tool_name in ("find.toc_anchor_pages", "extract.toc_with_boundaries"):
             self._dispatch_profile_tool(
                 tool_name=tool_name,
                 actor=f"toc:{tool_name}",
             )
+        self._attach_toc_page_links()
+        if self.ctx.settings.get("skip_toc_anchoring"):
+            # Debug Stage-1: stop after TOC extract + link attach.
+            self._clear_toc_anchor_state()
+            logger.info(
+                "[document_agent] skip_toc_anchoring=True; "
+                "leaving calibration to a later stage"
+            )
+            return
+        run_toc_anchoring(self.ctx)
+
+    def _attach_toc_page_links(self) -> None:
+        """Attach TOC-page hyperlinks onto VLM entries before calibration."""
+        hierarchies = list(self.blackboard.toc_hierarchies or [])
+        if not hierarchies:
+            return
+        try:
+            enriched, stats = enrich_toc_hierarchies_with_links(
+                pdf_path=self.ctx.pdf_path,
+                toc_hierarchies=hierarchies,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[document_agent] TOC link attach failed, "
+                "continuing without links: {}",
+                exc,
+            )
+            return
+        self.blackboard.toc_hierarchies = enriched
+        logger.info(
+            "[document_agent] TOC link attach: matched={}/{} skipped_no_links={}",
+            stats.entries_matched,
+            stats.entries_total,
+            stats.skipped_no_links,
+        )
 

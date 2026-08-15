@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services.document_agent.manifest import TocAnchorPage, ToolContext, ToolResult
-from app.services.document_agent.registry import has_page_labels, register_tool
+from app.services.document_agent.registry import has_page_full_text, has_page_labels, register_tool
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
     worker,
@@ -98,35 +98,22 @@ def _find_toc_text_matches(
     return matches
 
 
-@worker
-def _scan_toc_text_worker(
-    queue, pdf_path: str, cross_line_window: int
-) -> None:
-    import pymupdf  # type: ignore[import]
-
+def _scan_toc_from_page_texts(
+    page_texts: dict[int, str],
+    *,
+    page_count: int,
+    cross_line_window: int,
+) -> list[dict[str, Any]]:
     matches: list[dict[str, Any]] = []
-    page_count = 0
-    doc = None
-    try:
-        doc = pymupdf.open(pdf_path)
-        page_count = doc.page_count
-        for page_idx in range(doc.page_count):
-            page_num = page_idx + 1
-            text = str(doc[page_idx].get_text("text") or "")
-            lines = _meaningful_text_lines(text)
-            for match in _find_toc_text_matches(
-                lines,
-                cross_line_window=cross_line_window,
-            ):
-                matches.append({"page": page_num, **match})
-    finally:
-        if doc is not None:
-            try:
-                doc.close()
-            except Exception:
-                pass
-        gc.collect()
-    queue.put({"ok": True, "matches": matches, "page_count": page_count})
+    for page_num in range(1, page_count + 1):
+        text = page_texts.get(page_num, "")
+        lines = _meaningful_text_lines(text)
+        for match in _find_toc_text_matches(
+            lines,
+            cross_line_window=cross_line_window,
+        ):
+            matches.append({"page": page_num, **match})
+    return matches
 
 
 @worker
@@ -222,26 +209,21 @@ def _filter_recurring_elements(
         "Scan full PDF page text for TOC keywords, filter recurring "
         "navigation elements, then render candidate PNGs for VLM confirmation."
     ),
-    preconditions=(has_page_labels,),
+    preconditions=(has_page_labels, has_page_full_text),
 )
 def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()
     total_pages = ctx.blackboard.page_count
 
-    scan_timeout = int(ctx.settings.get("toc_text_scan_timeout", "180"))
     cross_line_window = int(
         ctx.settings.get("toc_cross_line_window", TOC_CROSS_LINE_WINDOW)
     )
-    scan_result = run_in_child_process(
-        _scan_toc_text_worker,
-        ctx.pdf_path,
-        cross_line_window,
-        timeout=scan_timeout,
+    keyword_matches = _scan_toc_from_page_texts(
+        ctx.blackboard.page_full_text_cache,
+        page_count=total_pages,
+        cross_line_window=cross_line_window,
     )
-    keyword_matches = list(scan_result.get("matches") or [])
     raw_hit_pages = {int(match["page"]) for match in keyword_matches}
-    if scan_result.get("page_count"):
-        total_pages = int(scan_result["page_count"])
 
     # Apply recurring element fingerprint filter
     if keyword_matches:

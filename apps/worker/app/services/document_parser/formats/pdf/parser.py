@@ -321,12 +321,8 @@ def _parse_pdf_via_shards(
                 raise RuntimeError(f"Missing heading result for shard_{index}")
             complete_heading_results.append(result)
 
-        # No level offsets needed — leaf-node splitting produces self-contained shards
-        shard_offsets: list[int] = [0] * len(complete_heading_results)
-
         all_lines_with_heading: list[str] = merge_shard_lines(
             [result.lines_with_heading for result in complete_heading_results],
-            shard_offsets=shard_offsets,
         )
         total_headings = sum(
             1 for line in all_lines_with_heading if line.startswith("#")

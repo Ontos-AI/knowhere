@@ -14,7 +14,6 @@ def validate_shard_plan(
     plan: ShardPlan,
     *,
     page_count: int,
-    min_pages: int,
     max_pages: int,
 ) -> ValidationReport:
     errors: list[str] = []
@@ -24,8 +23,7 @@ def validate_shard_plan(
         return ValidationReport(valid=False, errors=errors, warnings=warnings)
     sorted_shards = sorted(plan.shards, key=lambda item: item.shard_index)
     expected_start = 1
-    for idx, shard in enumerate(sorted_shards):
-        is_last = idx == len(sorted_shards) - 1
+    for shard in sorted_shards:
         if shard.page_start != expected_start:
             errors.append(
                 f"shard {shard.shard_index} starts at {shard.page_start}, expected {expected_start}"
@@ -37,14 +35,6 @@ def validate_shard_plan(
         length = shard.page_end - shard.page_start + 1
         if length > max_pages:
             errors.append(f"shard {shard.shard_index} exceeds max_pages={max_pages}")
-        if plan.enabled and length < min_pages:
-            if is_last:
-                warnings.append(
-                    f"shard {shard.shard_index} (final) shorter than min_pages={min_pages} "
-                    f"({length} pages)"
-                )
-            else:
-                errors.append(f"shard {shard.shard_index} shorter than min_pages={min_pages}")
         expected_start = shard.page_end + 1
     if expected_start != page_count + 1:
         errors.append("shard_plan does not cover full document")
@@ -72,7 +62,6 @@ def single_shard_plan(page_count: int) -> ShardPlan:
 def validate_anatomy_map(
     anatomy: PageAnatomyMap,
     *,
-    min_pages: int,
     max_pages: int,
 ) -> ValidationReport:
     errors: list[str] = []
@@ -95,7 +84,6 @@ def validate_anatomy_map(
     shard_report = validate_shard_plan(
         anatomy.shard_plan,
         page_count=page_count,
-        min_pages=min_pages,
         max_pages=max_pages,
     )
     errors.extend(shard_report.errors)

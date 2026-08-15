@@ -1,8 +1,8 @@
 """Prompts for the document profile planner."""
 
 PLANNER_INSTRUCTIONS = (
-    "You are a document profile agent. Use page-feature statistics, optional "
-    "TOC/H1 evidence, and the provided page screenshots to classify the PDF. "
+    "You are a document profile agent. Use page-feature statistics "
+    "and the provided page screenshots to classify the PDF. "
     "Return strict JSON only with keys: is_scanned, category, routing_category, "
     "category_rationale, language, rationale, header_y, footer_y, next_action, "
     "grep_query. "

@@ -33,6 +33,7 @@ def profile_document(
     output_dir: str | None = None,
     skip_shard_plan: bool = False,
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
+    skip_toc_anchoring: bool = False,
 ) -> ParserDocumentProfile:
     """
     General document profiling entry point.
@@ -50,6 +51,10 @@ def profile_document(
         oversized_policy: Controls oversized PDF admission. ``chunk`` applies
             the MinerU shard gate, while ``page_memory`` lets the page-memory
             track continue to structural profiling.
+        skip_toc_anchoring: When True, TOC find/extract/link-attach still run,
+            but ``run_toc_anchoring`` is skipped. Used by the staged debug
+            path (Stage-1 TOC after Stage-0 bootstrap) so calibration stays
+            in Stage-2.
 
     Returns:
         ParserDocumentProfile
@@ -67,6 +72,7 @@ def profile_document(
                 output_dir=output_dir,
                 skip_shard_plan=skip_shard_plan,
                 oversized_policy=oversized_policy,
+                skip_toc_anchoring=skip_toc_anchoring,
             )
         finally:
             if not visual_debug_enabled():
@@ -88,6 +94,7 @@ def _profile_pdf(
     output_dir: str | None,
     skip_shard_plan: bool = False,
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
+    skip_toc_anchoring: bool = False,
 ) -> ParserDocumentProfile:
     with _profile_db_context(enabled=bool(job_id)) as db:
         return _profile_pdf_with_db(
@@ -98,6 +105,7 @@ def _profile_pdf(
             db=db,
             skip_shard_plan=skip_shard_plan,
             oversized_policy=oversized_policy,
+            skip_toc_anchoring=skip_toc_anchoring,
         )
 
 
@@ -110,6 +118,7 @@ def _profile_pdf_with_db(
     db: Any | None,
     skip_shard_plan: bool = False,
     oversized_policy: Literal["chunk", "page_memory"] = "chunk",
+    skip_toc_anchoring: bool = False,
 ) -> ParserDocumentProfile:
     profile_job_id = job_id or filename
     agent_output_dir = os.path.join(output_dir, "_doc_agent") if output_dir else None
@@ -129,9 +138,9 @@ def _profile_pdf_with_db(
         settings={
             "planner_model": settings.IMAGE_MODEL,
             "vlm_model": settings.IMAGE_MODEL,
-            "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
             "toc_profile_enabled": page_toc_enabled,
-            "toc_before_coarse": page_toc_enabled,
+            "skip_toc_anchoring": bool(skip_toc_anchoring),
+            "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
         },
     )
     agent_profile = coordinator.run_coarse()
@@ -153,6 +162,7 @@ def _profile_pdf_with_db(
                 {},
             ),
         },
+        page_full_text_cache=dict(coordinator.blackboard.page_full_text_cache),
     )
     if profile.page_count > settings.MAX_PDF_PAGE_LIMIT:
         if oversized_policy != "page_memory":

@@ -1,8 +1,7 @@
 """Build page-memory section skeletons from profile-time anatomy.
 
-Step 1 of the page-memory native hierarchy plan:
-- Full TOC-depth grep anchoring + on-demand VLM confirmation
-- Section boundaries come purely from TOC anchoring
+Section boundaries come from TOC anchoring persisted on anatomy
+(``skeleton_anchor``). This module only resolves page ranges.
 """
 
 from __future__ import annotations
@@ -12,30 +11,27 @@ from typing import Any
 
 from app.services.document_agent.manifest import (
     PageAnatomyMap,
-    ToolContext,
 )
 from app.services.document_agent.structure.hierarchy_locator import (
     ResolvedHierarchyRange,
-    TitleNode,
     extract_toc_nodes,
-    iter_leaf_title_nodes,
     resolve_hierarchy_page_ranges,
 )
-from app.services.document_agent.agents.calibration import calibrate_offset
-from app.services.document_agent.agents.calibration.orchestrator import anchor_hierarchy
 from app.services.document_agent.structure.anchoring_primitives import (
-    toc_range_end,
+    deserialize_skeleton_anchor,
+    deserialize_title_node,
     toc_range_start,
+)
+from app.services.document_agent.structure.toc_anchoring import (
+    body_pages_excluding_toc,
+    pending_toc_body_scope,
+    select_global_toc_hierarchies,
 )
 from loguru import logger
 from shared.services.chunks.path_segments import (
     append_document_path,
     join_document_path,
 )
-
-_FRONT_TOC_REGION_GAP_PAGES = 5
-
-
 
 
 @dataclass(frozen=True)
@@ -57,74 +53,48 @@ def extract_section_skeletons(
     anatomy: PageAnatomyMap | Any | None,
     filename: str,
     page_texts: dict[int, str],
-    ctx: ToolContext | None = None,
-    hierarchy_nodes: list[TitleNode] | None = None,
 ) -> list[SectionSkeleton]:
     """Convert PageAnatomyMap hierarchy evidence into section skeletons.
 
     Section page ranges are anchored purely from the TOC hierarchy (every
-    level, every document).
+    level, every document). Calibration runs at PROFILE; this stage only
+    resolves persisted ``skeleton_anchor``.
     """
     page_count = _page_count(anatomy)
     root_path = f"{filename}/Root"
     if page_count <= 0:
         return [_root_skeleton(root_path=root_path, filename=filename, page_count=0)]
 
-    toc_selection: dict[str, Any] = {}
-    pending_tocs: list[dict[str, Any]] = []
-    toc_hierarchies: list[dict[str, Any]] | None = None
-    if hierarchy_nodes:
-        nodes = hierarchy_nodes
-    else:
-        toc_hierarchies, pending_tocs, toc_selection = _select_global_toc_hierarchies(
-            anatomy=anatomy,
-            filename=filename,
-        )
-        toc_nodes = extract_toc_nodes(toc_hierarchies)
-        if not toc_nodes:
-            # TODO: explore lightweight hierarchy inference for no-TOC documents
-            # (e.g. heading font-size clustering, visual layout analysis).
-            # For now, no TOC → flat page tagging + asset extraction only.
-            return [
-                _root_skeleton(
-                    root_path=root_path,
-                    filename=filename,
-                    page_count=page_count,
-                    reason="no_toc",
-                )
-            ]
-        nodes = toc_nodes
-
-    # Collapse degenerate single-child intermediate chains before locate.
-    # Rule: only merge a parent with its only child when that child is NOT a
-    # leaf (i.e. the child still has children of its own). This preserves the
-    # original leaf title so offset-guided anchoring can find it in the PDF.
-    nodes = _collapse_intermediate_single_child_chains(nodes)
-
-    body_pages = _body_pages(anatomy=anatomy, page_count=page_count)
-
-    # When pending TOCs exist, limit primary scope so the last sibling's
-    # end_page doesn't extend into the pending TOC region.
-    primary_page_count = page_count
-    primary_body_pages = body_pages
-    if pending_tocs:
-        pending_starts: list[int] = []
-        for t in pending_tocs:
-            start = toc_range_start(t)
-            if start is not None:
-                pending_starts.append(start)
-        if pending_starts:
-            primary_page_count = min(pending_starts) - 1
-            primary_body_pages = [p for p in body_pages if p <= primary_page_count]
-
-    resolve_nodes, skeleton_anchor = anchor_hierarchy(
-        nodes=nodes,
-        toc_hierarchies=toc_hierarchies if not hierarchy_nodes else None,
-        page_texts=page_texts,
-        body_pages=primary_body_pages,
-        page_count=page_count,
-        ctx=ctx,
+    toc_hierarchies, pending_tocs, toc_selection = select_global_toc_hierarchies(
+        hierarchies=list(getattr(anatomy, "toc_hierarchies", None) or []),
+        filename=filename,
     )
+    toc_nodes = extract_toc_nodes(toc_hierarchies)
+    if not toc_nodes:
+        return [
+            _root_skeleton(
+                root_path=root_path,
+                filename=filename,
+                page_count=page_count,
+                reason="no_toc",
+            )
+        ]
+
+    skeleton_anchor_raw = getattr(anatomy, "skeleton_anchor", None)
+    skeleton_nodes_raw = getattr(anatomy, "skeleton_nodes", None)
+    if not isinstance(skeleton_anchor_raw, dict) or not isinstance(
+        skeleton_nodes_raw, list
+    ):
+        raise ValueError(
+            "anatomy.skeleton_anchor/skeleton_nodes missing after TOC extract"
+        )
+
+    skeleton_anchor = deserialize_skeleton_anchor(skeleton_anchor_raw)
+    resolve_nodes = [
+        deserialize_title_node(node)
+        for node in skeleton_nodes_raw
+        if isinstance(node, dict)
+    ]
     if skeleton_anchor.pruned_count and not resolve_nodes:
         return [
             _root_skeleton(
@@ -134,6 +104,28 @@ def extract_section_skeletons(
                 reason="all_toc_nodes_out_of_scope",
             )
         ]
+
+    toc_result = getattr(anatomy, "toc_result", None)
+    body_pages = body_pages_excluding_toc(
+        getattr(toc_result, "toc_pages", None),
+        page_count,
+    )
+    pending_records = list(getattr(anatomy, "pending_skeleton_anchors", None) or [])
+    parallel_pending = _parallel_pending_tocs(
+        pending_tocs=pending_tocs,
+        pending_records=pending_records,
+    )
+    parallel_tocs = [toc for toc, _record in parallel_pending]
+    primary_page_count = page_count
+    primary_body_pages = body_pages
+    pending_starts: list[int] = []
+    for toc in parallel_tocs:
+        start = toc_range_start(toc)
+        if start is not None:
+            pending_starts.append(start)
+    if pending_starts:
+        primary_page_count = min(pending_starts) - 1
+        primary_body_pages = [page for page in body_pages if page <= primary_page_count]
 
     match_overrides = skeleton_anchor.match_overrides
     null_page_report = skeleton_anchor.null_page_report
@@ -191,12 +183,9 @@ def extract_section_skeletons(
         for item in ranges
     ]
 
-    # Phase B: graft pending TOCs (appendix / parallel sections)
-    if pending_tocs:
+    if parallel_pending:
         secondary_skeletons = _resolve_pending_tocs(
-            pending_tocs=pending_tocs,
-            primary_ranges=ranges,
-            ctx=ctx,
+            parallel_pending=parallel_pending,
             page_texts=page_texts,
             page_count=page_count,
             filename=filename,
@@ -219,7 +208,9 @@ def _range_to_skeleton(
     start_page = _clamp_page(item.start_page, page_count)
     end_page = _clamp_page(item.end_page, page_count)
     # Keep original TOC titles (incl. numbering) in section_path / HIERARCHY.
-    path_titles = [str(title).strip() for title in item.path_titles if str(title).strip()]
+    path_titles = [
+        str(title).strip() for title in item.path_titles if str(title).strip()
+    ]
     section_path = join_document_path([filename, *path_titles])
     parent_path = (
         join_document_path([filename, *path_titles[:-1]])
@@ -245,31 +236,6 @@ def _range_to_skeleton(
     )
 
 
-# ── Single-child intermediate chain collapse ─────────────────────────────────
-#
-# Motivation: TOC hierarchies often contain "structural" intermediate nodes
-# (category codes, volume identifiers) that add depth but carry no locatable
-# text. Compressing them before locate keeps emit_depth small and lets the
-# offset-guided anchoring focus on meaningful leaf titles.
-#
-# Critical invariant: a node whose only child is a LEAF (no grandchildren) is
-# NOT merged, so the leaf's original title survives unchanged into
-# offset-guided anchoring. Only pure-intermediate chains are compressed.
-
-
-def _collapse_intermediate_single_child_chains(
-    nodes: list[TitleNode],
-) -> list[TitleNode]:
-    """Collapse single-child chains of intermediate (non-leaf) nodes.
-
-    Leaf nodes (children=[]) are never absorbed into their parent title.
-    """
-    from app.services.document_agent.structure.hierarchy_locator import (
-        collapse_intermediate_single_child_chains,
-    )
-
-    return collapse_intermediate_single_child_chains(nodes)
-
 def _root_skeleton(
     *,
     root_path: str,
@@ -293,179 +259,70 @@ def _page_count(anatomy: Any | None) -> int:
     return max(int(getattr(anatomy, "page_count", 0) or 0), 0)
 
 
-def _toc_hierarchies(anatomy: Any | None) -> list[dict[str, Any]] | None:
-    return getattr(anatomy, "toc_hierarchies", None) if anatomy is not None else None
-
-
-def _select_global_toc_hierarchies(
+def _parallel_pending_tocs(
     *,
-    anatomy: Any | None,
-    filename: str,
-) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]], dict[str, Any]]:
-    """Split TOC hierarchies into primary (front cluster) and pending (for probe).
+    pending_tocs: list[dict[str, Any]],
+    pending_records: list[dict[str, Any]],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    records_by_range: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for record in pending_records:
+        toc = record.get("toc")
+        if isinstance(toc, dict):
+            records_by_range[tuple(toc.get("toc_range") or [])] = record
 
-    Profile-time TOC extraction can find multiple TOCs in a long document.
-    The front cluster is selected by physical page proximity. Remaining TOCs
-    are returned as *pending* for downstream independent calibration rather
-    than being unconditionally discarded.
-
-    Returns (primary_hierarchies, pending_hierarchies, summary).
-    """
-    hierarchies = list(_toc_hierarchies(anatomy) or [])
-    if len(hierarchies) <= 1:
-        return (hierarchies or None), [], {}
-
-    page_based = [
-        hierarchy
-        for hierarchy in hierarchies
-        if hierarchy.get("toc_range_unit") == "page" and toc_range_start(hierarchy) is not None
-    ]
-    if not page_based or len(page_based) != len(hierarchies):
-        return hierarchies, [], {}
-
-    sorted_items = sorted(enumerate(hierarchies), key=lambda item: toc_range_start(item[1]) or 0)
-    selected_indices: set[int] = set()
-    pending_indices: list[int] = []
-    cluster_end: int | None = None
-
-    for original_index, hierarchy in sorted_items:
-        start = toc_range_start(hierarchy)
-        end = toc_range_end(hierarchy)
-        if start is None or end is None:
-            selected_indices.add(original_index)
+    parallel_pending: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for pending_toc in pending_tocs:
+        record = records_by_range.get(tuple(pending_toc.get("toc_range") or []))
+        if record is None:
             continue
-        if cluster_end is None:
-            selected_indices.add(original_index)
-            cluster_end = end
+        relationship = record.get("relationship")
+        if relationship in {"unresolvable", "contained"}:
             continue
-        if start <= cluster_end + _FRONT_TOC_REGION_GAP_PAGES:
-            selected_indices.add(original_index)
-            cluster_end = max(cluster_end, end)
-            continue
-        pending_indices.append(original_index)
-
-    selected = [
-        hierarchy
-        for index, hierarchy in enumerate(hierarchies)
-        if index in selected_indices
-    ]
-    pending = [hierarchies[i] for i in pending_indices]
-
-    if pending:
-        logger.info(
-            "[page_memory.skeleton] toc split: primary={} pending={} filename={}",
-            len(selected),
-            len(pending),
-            filename,
-        )
-    summary = {
-        "strategy": "front_cluster_with_pending",
-        "input_count": len(hierarchies),
-        "primary_count": len(selected),
-        "pending_count": len(pending),
-    }
-    return (selected or None), pending, summary
-
-
-
-
-def _body_pages(*, anatomy: Any | None, page_count: int) -> list[int]:
-    excluded: set[int] = set()
-    toc_result = getattr(anatomy, "toc_result", None)
-    excluded.update(int(page) for page in getattr(toc_result, "toc_pages", []) or [])
-    return [page for page in range(1, page_count + 1) if page not in excluded]
-
-
-
-
-# ── Multi-TOC grafting (Track B) ─────────────────────────────────────────────
+        if relationship != "parallel":
+            raise ValueError("pending TOC relationship missing after PROFILE classify")
+        parallel_pending.append((pending_toc, record))
+    return parallel_pending
 
 
 def _resolve_pending_tocs(
     *,
-    pending_tocs: list[dict[str, Any]],
-    primary_ranges: list[ResolvedHierarchyRange],
-    ctx: ToolContext | None,
+    parallel_pending: list[tuple[dict[str, Any], dict[str, Any]]],
     page_texts: dict[int, str],
     page_count: int,
     filename: str,
     body_pages: list[int],
 ) -> list[SectionSkeleton]:
-    """Independently calibrate and anchor each pending TOC, then graft results.
-
-    Each pending TOC gets its own offset via VLM calibration + tail verify,
-    then entries are bulk-anchored (or fallback to residual agent).
-    Classification is PARALLEL (append at root level) or CONTAINED (skip).
-    """
-    if not pending_tocs or ctx is None:
+    """Resolve parallel pending TOCs as secondary forests."""
+    if not parallel_pending:
         return []
 
+    parallel_tocs = [toc for toc, _record in parallel_pending]
     all_secondary_skeletons: list[SectionSkeleton] = []
 
-    for i, pending_toc in enumerate(pending_tocs):
+    for i, (pending_toc, record) in enumerate(parallel_pending):
         toc_range = pending_toc.get("toc_range")
-        nodes = extract_toc_nodes([pending_toc])
-        if not nodes:
-            continue
-        nodes = _collapse_intermediate_single_child_chains(nodes)
-
-        # Each TOC's content scope: [toc_range_end + 1, next_toc_start - 1]
-        toc_end = toc_range_end(pending_toc)
-        toc_scope_start = (toc_end + 1) if toc_end is not None else None
-        next_starts: list[int] = []
-        for j in range(i + 1, len(pending_tocs)):
-            start = toc_range_start(pending_tocs[j])
-            if start is not None:
-                next_starts.append(start)
-        toc_scope_end = (min(next_starts) - 1) if next_starts else page_count
-        toc_body_pages = [
-            p for p in body_pages
-            if p <= toc_scope_end and (toc_scope_start is None or p >= toc_scope_start)
+        relationship = record.get("relationship")
+        resolve_nodes_raw = record.get("nodes") or []
+        resolve_nodes = [
+            deserialize_title_node(node)
+            for node in resolve_nodes_raw
+            if isinstance(node, dict)
         ]
-
-        from app.services.document_agent.agents.calibration.procedure import (
-            finalize_calibration_result,
-            pick_primary_offset,
-        )
-
-        phase1 = calibrate_offset(
-            nodes=nodes,
-            toc_hierarchies=[pending_toc],
-            ctx=ctx,
-            page_texts=page_texts,
-            page_count=toc_scope_end,
-        )
-        offset = pick_primary_offset(phase1)
-
+        skeleton_anchor_raw = record.get("skeleton_anchor")
+        if not isinstance(skeleton_anchor_raw, dict) or not resolve_nodes:
+            raise ValueError(
+                "pending TOC skeleton_anchor/nodes missing after PROFILE classify"
+            )
+        skeleton_anchor = deserialize_skeleton_anchor(skeleton_anchor_raw)
+        offset = skeleton_anchor.offset
         if offset is None:
-            logger.info(
-                "[page_memory.skeleton] pending TOC toc_range={}: calibration failed, skipping",
-                toc_range,
-            )
-            continue
+            raise ValueError("pending TOC offset missing after PROFILE classify")
 
-        relationship = _classify_toc_relationship(
-            offset=offset,
-            nodes=nodes,
-            primary_ranges=primary_ranges,
+        toc_scope_end, toc_body_pages = pending_toc_body_scope(
+            pending_tocs=parallel_tocs,
+            index=i,
             page_count=page_count,
-        )
-        if relationship == "unresolvable":
-            logger.info(
-                "[page_memory.skeleton] pending TOC toc_range={}: unresolvable, skipping",
-                toc_range,
-            )
-            continue
-
-        resolve_nodes, skeleton_anchor, _finalized = finalize_calibration_result(
-            result=phase1,
-            entries=list(pending_toc.get("toc_with_level") or []),
-            toc_hierarchies=[pending_toc],
-            ctx=ctx,
-            page_count=toc_scope_end,
-            page_texts=page_texts,
-            body_pages=toc_body_pages,
-            nodes=nodes,
+            body_pages=body_pages,
         )
         match_overrides = skeleton_anchor.match_overrides
         null_page_report = skeleton_anchor.null_page_report
@@ -478,7 +335,9 @@ def _resolve_pending_tocs(
         }
         locate_summary["null_page_parent_locate"] = {
             "attempted": len(null_page_report),
-            "located": sum(1 for row in null_page_report if row.get("page") is not None),
+            "located": sum(
+                1 for row in null_page_report if row.get("page") is not None
+            ),
             "unresolved": sum(
                 1 for row in null_page_report if row.get("result") == "unresolved"
             ),
@@ -521,59 +380,6 @@ def _resolve_pending_tocs(
         )
 
     return all_secondary_skeletons
-
-
-def _classify_toc_relationship(
-    *,
-    offset: int,
-    nodes: list[TitleNode],
-    primary_ranges: list[ResolvedHierarchyRange],
-    page_count: int,
-) -> str:
-    """Classify a pending TOC as parallel or contained vs primary ranges.
-
-    parallel: the pending TOC covers pages beyond the primary tree's *anchored*
-              content (i.e. the last explicitly-located section start page).
-    contained: the pending TOC's content falls strictly within a primary
-              section's explicitly-anchored range.
-    """
-    leaves = [
-        node for _, node in iter_leaf_title_nodes(nodes) if node.printed_page is not None
-    ]
-    if not leaves:
-        return "unresolvable"
-
-    first_printed = leaves[0].printed_page
-    last_printed = leaves[-1].printed_page
-    if first_printed is None or last_printed is None:
-        return "unresolvable"
-    first_physical = first_printed + offset
-    last_physical = last_printed + offset
-
-    if first_physical < 1 or first_physical > page_count:
-        return "unresolvable"
-
-    if not primary_ranges:
-        return "parallel"
-
-    # Use the last *start_page* among primary ranges as the boundary of
-    # explicitly-anchored content. The end_page of the last section is often
-    # extended to page_count by default and doesn't reflect real content coverage.
-    last_anchored_start = max(
-        (r.start_page for r in primary_ranges if r.start_page is not None), default=0
-    )
-
-    if first_physical > last_anchored_start:
-        return "parallel"
-
-    min_level = min(r.level for r in primary_ranges)
-    top_level_ranges = [r for r in primary_ranges if r.level == min_level]
-    for r in top_level_ranges:
-        if r.start_page and r.end_page:
-            if r.start_page <= first_physical and last_physical <= r.end_page:
-                return "contained"
-
-    return "parallel"
 
 
 def _clamp_page(page: int, page_count: int) -> int:

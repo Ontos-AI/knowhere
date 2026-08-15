@@ -103,7 +103,7 @@ def test_toc_anchor_text_scan_matches_full_page_and_cross_line_keywords() -> Non
     assert split_matches[0]["match_kind"] == "cross_line:tableofcontents"
 
 
-def test_run_toc_degrades_to_empty_result_on_standard_failure(tmp_path: Path) -> None:
+def test_toc_extraction_degrades_to_empty_result_on_failure(tmp_path: Path) -> None:
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "standard.pdf"),
         job_id="job-toc-fail-soft",
@@ -117,8 +117,10 @@ def test_run_toc_degrades_to_empty_result_on_standard_failure(tmp_path: Path) ->
 
     coordinator._run_toc_extraction_pipeline = _fail_toc_extraction  # type: ignore[method-assign]
 
-    toc_result = coordinator.run_toc()
+    coordinator._ensure_toc_profile(strict=False)
+    toc_result = coordinator.blackboard.toc_result
 
+    assert toc_result is not None
     assert toc_result.method == "none"
     assert toc_result.toc_pages == []
     assert toc_result.failure_kind == "degraded"
@@ -156,6 +158,7 @@ def test_run_lightweight_anatomy_builds_single_shard_without_planner_llm(
         (output_dir / "anatomy_map.json").read_text(encoding="utf-8")
     )
     assert list(anatomy_data)[:2] == ["version", "toc_hierarchies"]
+    assert "page_full_text_cache" not in anatomy_data
     assert "text_lines_preview" not in anatomy_data["page_features"][0]
     assert "asset_bboxes" not in anatomy_data["page_features"][0]
     trace_data = json.loads((output_dir / "trace.json").read_text(encoding="utf-8"))
@@ -201,14 +204,30 @@ def test_run_coarse_runs_asset_probe_after_planner(monkeypatch, tmp_path: Path) 
         calls.append("aggregate.doc_stats")
         return ToolResult(status="ok", payload={})
 
+    def fake_text_scan() -> None:
+        calls.append("text_scan")
+        coordinator.blackboard.page_full_text_cache = {1: "a", 2: "b"}
+
+    def fake_toc() -> None:
+        calls.append("toc")
+        coordinator.blackboard.toc_result = TocResult(method="none")
+
     monkeypatch.setattr(coordinator_module.ProfilePlanner, "propose", fake_propose)
     monkeypatch.setattr(coordinator_module, "probe_page_assets", fake_probe_page_assets)
     monkeypatch.setattr(coordinator_module, "aggregate_doc_stats", fake_aggregate)
+    monkeypatch.setattr(coordinator, "_run_text_scan", fake_text_scan)
+    monkeypatch.setattr(coordinator, "_run_toc_extraction_pipeline", fake_toc)
 
     profile = coordinator.run_coarse()
 
     assert profile.category == "Research Report"
-    assert calls == ["planner", "probe.page_assets", "aggregate.doc_stats"]
+    assert calls == [
+        "planner",
+        "text_scan",
+        "probe.page_assets",
+        "aggregate.doc_stats",
+        "toc",
+    ]
     assert coordinator.blackboard.global_signals["assets_probed"] is True
 
 
@@ -539,15 +558,15 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
     assert anatomy.toc_result.toc_pages == []
 
 
-def test_run_coarse_runs_toc_before_planner_for_oversized_and_reuses_planner(
+def test_run_coarse_runs_planner_then_text_scan_then_toc(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "oversized.pdf"),
-        job_id="job-toc-before-coarse",
+        job_id="job-planner-then-toc",
         output_dir=str(tmp_path / "profile"),
-        settings={"toc_before_coarse": True},
+        settings={"toc_profile_enabled": True},
     )
     (tmp_path / "profile").mkdir()
     _seed_preprobed_pages(coordinator, page_count=3, pages=[1, 2])
@@ -561,10 +580,15 @@ def test_run_coarse_runs_toc_before_planner_for_oversized_and_reuses_planner(
             {"toc_range": [17, 17], "toc_range_unit": "page", "toc_tree": {}}
         ]
 
+    def fake_text_scan() -> None:
+        calls.append("text_scan")
+        coordinator.blackboard.page_full_text_cache = {1: "a", 2: "b", 3: "c"}
+
     def fake_persist(_anatomy):
         calls.append("persist")
 
     monkeypatch.setattr(coordinator, "_run_toc_extraction_pipeline", fake_toc_extraction)
+    monkeypatch.setattr(coordinator, "_run_text_scan", fake_text_scan)
     monkeypatch.setattr(coordinator, "_persist_ready_anatomy", fake_persist)
 
     def fake_propose(_self):
@@ -612,8 +636,60 @@ def test_run_coarse_runs_toc_before_planner_for_oversized_and_reuses_planner(
     coordinator.run_coarse()
     anatomy = coordinator.run_structural()
 
-    assert calls == ["toc", "planner", "persist"]
+    assert calls == ["planner", "text_scan", "toc", "persist"]
     assert anatomy.toc_result.toc_pages == [17]
+
+
+def test_run_text_scan_native_uses_read_page_texts(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    coordinator = ProfileCoordinator(
+        pdf_path=str(tmp_path / "doc.pdf"),
+        job_id="job-scan-native",
+        output_dir=str(tmp_path / "profile"),
+    )
+    coordinator.blackboard.page_count = 2
+    coordinator.blackboard.document_profile = DocumentProfile(
+        is_scanned=False,
+        category="Report",
+        routing_category=PdfRoutingCategory.GENERIC.value,
+    )
+
+    def fake_read(_pdf_path: str, pages: list[int], timeout: int = 300) -> dict[int, str]:
+        assert pages == [1, 2]
+        return {1: "a", 2: "b"}
+
+    monkeypatch.setattr(coordinator_module, "read_page_texts", fake_read)
+    coordinator._run_text_scan()
+    assert coordinator.blackboard.page_full_text_cache == {1: "a", 2: "b"}
+
+
+def test_run_text_scan_scanned_dispatches_ocr_pages(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    coordinator = ProfileCoordinator(
+        pdf_path=str(tmp_path / "doc.pdf"),
+        job_id="job-scan-ocr",
+        output_dir=str(tmp_path / "profile"),
+    )
+    coordinator.blackboard.page_count = 2
+    coordinator.blackboard.document_profile = DocumentProfile(
+        is_scanned=True,
+        category="Report",
+        routing_category=PdfRoutingCategory.GENERIC.value,
+    )
+
+    def fake_dispatch(name: str, ctx, args):
+        assert name == "ocr.pages"
+        assert args == {"pages": [1, 2]}
+        ctx.blackboard.page_full_text_cache = {1: "ocr-1", 2: "ocr-2"}
+        return ToolResult(status="ok", payload={})
+
+    monkeypatch.setattr(coordinator_module.REGISTRY, "dispatch", fake_dispatch)
+    coordinator._run_text_scan()
+    assert coordinator.blackboard.page_full_text_cache == {1: "ocr-1", 2: "ocr-2"}
 
 
 def test_anchor_confirmation_failure_requires_one_strict_retry(tmp_path: Path) -> None:
@@ -656,7 +732,6 @@ def test_oversized_single_shard_plan_is_invalid() -> None:
             ],
         ),
         page_count=407,
-        min_pages=20,
         max_pages=200,
     )
 
@@ -682,6 +757,7 @@ def test_standard_pdf_profile_builds_page_toc_and_lightweight_anatomy_by_default
                 global_signals={},
                 toc_result=None,
                 toc_hierarchies=None,
+                page_full_text_cache={},
             )
             fake_instances.append(self)
 
@@ -714,7 +790,7 @@ def test_standard_pdf_profile_builds_page_toc_and_lightweight_anatomy_by_default
     assert profile.anatomy is fake_anatomy
     assert fake_instances[0].calls == ["run_coarse", "run_lightweight_anatomy"]
     assert init_settings[0]["toc_profile_enabled"] is True
-    assert init_settings[0]["toc_before_coarse"] is True
+    assert "toc_before_coarse" not in init_settings[0]
 
 
 def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
@@ -734,6 +810,7 @@ def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
                 global_signals={},
                 toc_result=None,
                 toc_hierarchies=None,
+                page_full_text_cache={},
             )
 
         def run_coarse(self) -> DocumentProfile:
@@ -743,9 +820,6 @@ def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
                 category="Research Report",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
-
-        def run_toc(self) -> TocResult:
-            raise AssertionError("kill switch should not call TOC profiling")
 
         def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
             self.calls.append("run_lightweight_anatomy")
@@ -768,7 +842,7 @@ def test_standard_pdf_page_toc_kill_switch_builds_no_toc_anatomy(
     )
 
     assert init_settings[0]["toc_profile_enabled"] is False
-    assert init_settings[0]["toc_before_coarse"] is False
+    assert "toc_before_coarse" not in init_settings[0]
     assert profile.toc.attempted is False
     assert profile.toc.has_toc is False
     assert profile.toc.notes == "TOC profiling disabled by PDF_PROFILE_TOC_ENABLED"
@@ -792,6 +866,7 @@ def test_page_memory_forces_toc_profiling_despite_kill_switch(
                 global_signals={},
                 toc_result=None,
                 toc_hierarchies=None,
+                page_full_text_cache={},
             )
 
         def run_coarse(self) -> DocumentProfile:
@@ -822,7 +897,7 @@ def test_page_memory_forces_toc_profiling_despite_kill_switch(
     )
 
     assert init_settings[0]["toc_profile_enabled"] is True
-    assert init_settings[0]["toc_before_coarse"] is True
+    assert "toc_before_coarse" not in init_settings[0]
     assert profile.anatomy is fake_anatomy
 
 
@@ -842,6 +917,7 @@ def test_page_memory_profile_bypasses_chunk_oversized_gate(
                 global_signals={},
                 toc_result=None,
                 toc_hierarchies=None,
+                page_full_text_cache={},
             )
             fake_instances.append(self)
 
@@ -891,6 +967,7 @@ def test_standard_pdf_profile_maps_page_toc_evidence(
                 global_signals={},
                 toc_result=None,
                 toc_hierarchies=None,
+                page_full_text_cache={},
             )
 
         def run_coarse(self) -> DocumentProfile:
@@ -915,10 +992,6 @@ def test_standard_pdf_profile_maps_page_toc_evidence(
                 category="Research Report",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             )
-
-        def run_toc(self) -> TocResult:
-            self.calls.append("run_toc")
-            raise AssertionError("run_toc should be no-op after TOC-before-coarse")
 
         def run_lightweight_anatomy(self, *, skip_shard_plan: bool = False):
             self.calls.append("run_lightweight_anatomy")
@@ -966,6 +1039,7 @@ def test_oversized_atlas_surfaces_profile_toc_without_structural_anatomy(
                 global_signals={},
                 toc_result=None,
                 toc_hierarchies=None,
+                page_full_text_cache={},
             )
 
         def run_coarse(self) -> DocumentProfile:
