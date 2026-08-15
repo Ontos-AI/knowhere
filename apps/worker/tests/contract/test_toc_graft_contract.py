@@ -261,15 +261,15 @@ def test_parallel_pending_is_not_grafted() -> None:
 
     with (
         patch(
-            "app.services.document_agent.structure.toc_anchoring.anchor_hierarchy",
+            "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
             side_effect=fake_anchor_hierarchy,
         ),
         patch(
-            "app.services.document_agent.structure.toc_anchoring.calibrate_offset",
+            "app.services.document_agent.agents.calibration.service.calibrate_offset",
             return_value=object(),
         ),
         patch(
-            "app.services.document_agent.structure.toc_anchoring.pick_primary_offset",
+            "app.services.document_agent.agents.calibration.procedure.pick_primary_offset",
             return_value=0,
         ),
         patch(
@@ -277,7 +277,7 @@ def test_parallel_pending_is_not_grafted() -> None:
             return_value="parallel",
         ),
         patch(
-            "app.services.document_agent.structure.toc_anchoring.finalize_calibration_result",
+            "app.services.document_agent.agents.calibration.procedure.finalize_calibration_result",
             return_value=([pending], _anchor({("App",): 22}), True),
         ),
     ):
@@ -319,15 +319,15 @@ def test_profile_grafts_contained_and_keeps_original_pending() -> None:
 
     with (
         patch(
-            "app.services.document_agent.structure.toc_anchoring.anchor_hierarchy",
+            "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
             return_value=([primary], _anchor({("第一章",): 10})),
         ),
         patch(
-            "app.services.document_agent.structure.toc_anchoring.calibrate_offset",
+            "app.services.document_agent.agents.calibration.service.calibrate_offset",
             return_value=object(),
         ),
         patch(
-            "app.services.document_agent.structure.toc_anchoring.pick_primary_offset",
+            "app.services.document_agent.agents.calibration.procedure.pick_primary_offset",
             return_value=0,
         ),
         patch(
@@ -335,7 +335,7 @@ def test_profile_grafts_contained_and_keeps_original_pending() -> None:
             return_value="contained",
         ),
         patch(
-            "app.services.document_agent.structure.toc_anchoring.finalize_calibration_result",
+            "app.services.document_agent.agents.calibration.procedure.finalize_calibration_result",
             return_value=(
                 [contained],
                 _anchor({("第一章",): 10, ("第一章", "1.2"): 12}),
