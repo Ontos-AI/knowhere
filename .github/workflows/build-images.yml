@@ -362,6 +362,9 @@ jobs:
       - name: Run migration against production Aurora
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_MIGRATION_DATABASE_URL }}
+          # The image build metadata uses the short release label `prod`, but
+          # AppConfig validates the runtime environment as `production`.
+          ENVIRONMENT: production
           S3_BUCKET_NAME: knowhere-storage-prod
           S3_TEMP_PATH: /tmp
           TMP_PATH: /tmp/aismart_bid
@@ -375,6 +378,7 @@ jobs:
             --env TMP_PATH \
             --env S3_TEMP_PATH \
             --env DB_SSL_MODE=disable \
+            --env ENVIRONMENT \
             --entrypoint python \
             "${image_uri}" \
             -m alembic upgrade heads
