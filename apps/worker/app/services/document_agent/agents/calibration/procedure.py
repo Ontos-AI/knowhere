@@ -77,8 +77,6 @@ def pick_primary_offset(result: CalibrationResult) -> int | None:
     for regime in result.regimes:
         if regime.offset is not None:
             return int(regime.offset)
-    if result.offset is not None:
-        return int(result.offset)
     return None
 
 
@@ -115,8 +113,7 @@ def seed_overrides_from_samples(
                 candidates=[int(sample.physical)],
                 evidence={
                     "calibration": True,
-                    "printed_label": sample.printed_label,
-                    "method": sample.method or "agent_phase1",
+                    "method": "agent_phase1",
                     "regime_kind": regime.kind,
                 },
             )
@@ -284,14 +281,6 @@ def anchor_hierarchy_from_regimes(
         for regime in result.regimes
         if regime.offset is not None
     ]
-    if not usable_regimes and result.offset is not None:
-        usable_regimes = [
-            CalibrationRegime(
-                kind="decimal",
-                offset=int(result.offset),
-                offset_status="ok",
-            )
-        ]
 
     for regime in usable_regimes:
         kind = normalize_kind(regime.kind)
@@ -493,7 +482,6 @@ def _annotate_regimes_from_anchor(
                 offset_status="ok" if segments else "failed",
                 entry_indices=indices,
                 samples=list(regime.samples),
-                posterior=list(regime.posterior),
                 segments=segments,
                 no_toc_entry_indices=no_toc,
                 notes=(
@@ -564,6 +552,7 @@ def finalize_calibration_result(
         offset_status=anchor.offset_status,
         tool_calls=result.tool_calls,
         notes="; ".join(p for p in notes_parts if p),
+        failure_kind=result.failure_kind,
         region_index=result.region_index,
         history_tail=list(result.history_tail),
     )
@@ -590,6 +579,7 @@ def build_calibration_payload(
             "regions": list(region_payloads or []),
             "tool_calls": int(tool_calls if tool_calls is not None else result.tool_calls),
             "notes": result.notes,
+            "failure_kind": result.failure_kind,
             "no_links": no_links,
         }
     )

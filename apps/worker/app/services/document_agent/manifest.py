@@ -55,7 +55,6 @@ class DocumentProfile:
     is_scanned: bool
     category: str
     routing_category: str = "generic"
-    category_rationale: str = ""
     language: str = "unknown"
     rationale: str = ""
     # Content-band margins as fractions of page height (top origin, y down).

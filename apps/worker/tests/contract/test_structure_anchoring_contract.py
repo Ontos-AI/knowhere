@@ -190,9 +190,7 @@ def test_anchor_hierarchy_uses_calibration_phase1() -> None:
                 offset_status="ok",
                 entry_indices=[0],
                 samples=[
-                    CalibrationSample(
-                        title="Only", printed_label=2, physical=4
-                    )
+                    CalibrationSample(title="Only", physical=4)
                 ],
             )
         ],
@@ -276,7 +274,7 @@ def test_phase2_recalibrate_miss_drops_suffix_from_tree() -> None:
                 offset_status="ok",
                 entry_indices=[0, 1, 2, 3],
                 samples=[
-                    CalibrationSample(title="Ch1", printed_label=1, physical=11)
+                    CalibrationSample(title="Ch1", physical=11)
                 ],
             )
         ],
@@ -358,7 +356,7 @@ def test_multi_regime_phase2_merges_physical_overrides() -> None:
                 offset_status="ok",
                 entry_indices=[0],
                 samples=[
-                    CalibrationSample(title="Glossary", printed_label="iv", physical=20)
+                    CalibrationSample(title="Glossary", physical=20)
                 ],
             ),
             CalibrationRegime(
@@ -367,7 +365,7 @@ def test_multi_regime_phase2_merges_physical_overrides() -> None:
                 offset_status="ok",
                 entry_indices=[1, 2],
                 samples=[
-                    CalibrationSample(title="Summary", printed_label=1, physical=21)
+                    CalibrationSample(title="Summary", physical=21)
                 ],
             ),
             CalibrationRegime(
@@ -376,9 +374,7 @@ def test_multi_regime_phase2_merges_physical_overrides() -> None:
                 offset_status="ok",
                 entry_indices=[3],
                 samples=[
-                    CalibrationSample(
-                        title="Financials", printed_label="F-1", physical=301
-                    )
+                    CalibrationSample(title="Financials", physical=301)
                 ],
             ),
         ],

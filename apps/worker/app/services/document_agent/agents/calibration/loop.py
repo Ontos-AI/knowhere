@@ -19,6 +19,13 @@ from app.services.document_agent.agents.calibration.procedure import (
     finalize_calibration_result,
 )
 from app.services.document_agent.agents.calibration.types import (
+    FAILURE_BUDGET_EXHAUSTED,
+    FAILURE_INVALID_JSON,
+    FAILURE_LLM_ERROR,
+    FAILURE_MAX_ROUNDS,
+    FAILURE_MODEL_MISSING,
+    FAILURE_NO_OFFSET,
+    FAILURE_TOC_EMPTY,
     CalibrationResult,
     calibration_result_from_dict,
 )
@@ -33,6 +40,8 @@ from shared.utils.token_estimate import estimate_tokens
 
 _SKILL_PATH = Path(__file__).resolve().parent / "SKILL.md"
 
+_DECISION_MAX_TOKENS = 2500
+
 _DECISION_INSTRUCTIONS = """
 You are the calibration SubAgent. Follow the Skill strictly.
 Each turn return a JSON object with keys:
@@ -45,6 +54,8 @@ inspect.pages, then call calibration.submit.
 Phase 2 (tail verify, binary search, small-step recalibrate) runs automatically
 after submit. Do not use a fixed post-TOC page window.
 Hard limits are token budgets and max_rounds — not a total page-count ledger.
+Emit exactly the fields in the calibration.submit schema and nothing else; an
+oversized submit is cut off by the output limit and ends the run.
 Include the word json in your response.
 """.strip()
 
@@ -125,7 +136,11 @@ def run_calibration_phase1(
     if no_links:
         hierarchies = strip_toc_links(hierarchies)
     if not hierarchies:
-        return CalibrationResult(status="failed", notes="toc_hierarchies empty")
+        return CalibrationResult(
+            status="failed",
+            notes="toc_hierarchies empty",
+            failure_kind=FAILURE_TOC_EMPTY,
+        )
     region_payload = _toc_region_payload(hierarchies, region_index)
     resolved_page_count = int(
         page_count or ctx.blackboard.page_count or 0
@@ -139,9 +154,6 @@ def run_calibration_phase1(
     blackboard = ctx.blackboard
     blackboard.global_signals["calibration_region_index"] = region_index
     blackboard.global_signals["calibration_tool_calls"] = 0
-    blackboard.global_signals["calibration_inspect_pages_used"] = int(
-        blackboard.global_signals.get("calibration_inspect_pages_used") or 0
-    )
     blackboard.global_signals["calibration_done"] = False
     blackboard.global_signals.pop("calibration_result", None)
 
@@ -174,9 +186,6 @@ def run_calibration_phase1(
                 "calibration_visual": calib_stage,
                 "plan": snap.get("plan") if isinstance(snap, dict) else None,
                 "visual": snap.get("visual") if isinstance(snap, dict) else None,
-                "inspect_pages_used_diagnostic": blackboard.global_signals.get(
-                    "calibration_inspect_pages_used"
-                ),
             },
             "toc_region": region_payload,
             "history_tail": history[-8:],
@@ -191,6 +200,7 @@ def run_calibration_phase1(
                 CalibrationResult(
                     status="failed",
                     notes="planner model missing",
+                    failure_kind=FAILURE_MODEL_MISSING,
                     region_index=region_index,
                 ),
                 history,
@@ -202,6 +212,7 @@ def run_calibration_phase1(
                 CalibrationResult(
                     status="failed",
                     notes="planner budget exhausted",
+                    failure_kind=FAILURE_BUDGET_EXHAUSTED,
                     region_index=region_index,
                     tool_calls=int(
                         blackboard.global_signals.get("calibration_tool_calls") or 0
@@ -218,19 +229,51 @@ def run_calibration_phase1(
                 messages=[{"role": "user", "content": prompt}],
                 model=model,
                 temperature=0.0,
-                max_tokens=2500,
+                max_tokens=_DECISION_MAX_TOKENS,
                 response_format={"type": "json_object"},
                 usage_task="calibration.react_loop",
             )
-            ctx.budget.commit("plan", actual=usage.get("total_tokens", est), est=est)
-            decision = _parse_decision(raw)
         except Exception as exc:
             ctx.budget.refund("plan", est=est)
-            logger.warning("[calibration] decision failed round={}: {}", round_index, exc)
+            logger.warning("[calibration] llm call failed round={}: {}", round_index, exc)
             return _attach_history(
                 CalibrationResult(
                     status="failed",
-                    notes=f"decision failed: {exc}",
+                    notes=f"llm call failed: {exc}",
+                    failure_kind=FAILURE_LLM_ERROR,
+                    region_index=region_index,
+                    tool_calls=int(
+                        blackboard.global_signals.get("calibration_tool_calls") or 0
+                    ),
+                ),
+                history,
+            )
+
+        ctx.budget.commit("plan", actual=usage.get("total_tokens", est), est=est)
+        try:
+            decision = _parse_decision(raw)
+        except json.JSONDecodeError as exc:
+            history.append(
+                {
+                    "round": round_index,
+                    "error": f"decision output not parseable: {exc}",
+                    "completion_tokens": usage.get("completion_tokens"),
+                    "max_tokens": _DECISION_MAX_TOKENS,
+                }
+            )
+            logger.warning(
+                "[calibration] decision output not parseable round={} "
+                "completion_tokens={} max_tokens={}: {}",
+                round_index,
+                usage.get("completion_tokens"),
+                _DECISION_MAX_TOKENS,
+                exc,
+            )
+            return _attach_history(
+                CalibrationResult(
+                    status="failed",
+                    notes=f"decision output not parseable: {exc}",
+                    failure_kind=FAILURE_INVALID_JSON,
                     region_index=region_index,
                     tool_calls=int(
                         blackboard.global_signals.get("calibration_tool_calls") or 0
@@ -283,6 +326,7 @@ def run_calibration_phase1(
                 CalibrationResult(
                     status="failed",
                     notes=f"budget exhausted: {tool_result.error}",
+                    failure_kind=FAILURE_BUDGET_EXHAUSTED,
                     region_index=region_index,
                     tool_calls=int(
                         blackboard.global_signals.get("calibration_tool_calls") or 0
@@ -305,6 +349,7 @@ def run_calibration_phase1(
         CalibrationResult(
             status="failed",
             notes="max rounds reached without calibration.submit",
+            failure_kind=FAILURE_MAX_ROUNDS,
             region_index=region_index,
             tool_calls=int(blackboard.global_signals.get("calibration_tool_calls") or 0),
         ),
@@ -411,6 +456,7 @@ def run_calibration_for_all_regions(
             "regimes": [],
             "regions": [],
             "notes": "toc_hierarchies empty",
+            "failure_kind": FAILURE_TOC_EMPTY,
             "tool_calls": 0,
             "no_links": no_links,
         }
@@ -463,7 +509,9 @@ def run_calibration_for_all_regions(
         }
     if primary_result is None:
         primary_result = CalibrationResult(
-            status="failed", notes="no region produced offset"
+            status="failed",
+            notes="no region produced offset",
+            failure_kind=FAILURE_NO_OFFSET,
         )
 
     anchor = deserialize_skeleton_anchor(primary_anchor)
@@ -481,6 +529,7 @@ def run_calibration_for_all_regions(
             offset_status=anchor.offset_status,
             tool_calls=tool_calls,
             notes=primary_result.notes,
+            failure_kind=primary_result.failure_kind,
         ),
         no_links=no_links,
         region_payloads=region_results,
