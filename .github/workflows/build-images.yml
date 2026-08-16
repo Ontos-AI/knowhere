@@ -41,6 +41,14 @@ env:
   AWS_ECS_STAGING_SECRETS_ARN: ${{ secrets.AWS_ECS_STAGING_SECRETS_ARN }}
   AWS_ECS_STAGING_API_SERVICE_NAME: knowhere-api-staging
   AWS_ECS_STAGING_WORKER_SERVICE_NAME: knowhere-worker-staging
+  AWS_ECS_PROD_CLUSTER_NAME: knowhere-fargate
+  AWS_ECS_PROD_REGION: us-east-1
+  AWS_ECS_PROD_EXECUTION_ROLE_ARN: ${{ secrets.AWS_ECS_PROD_EXECUTION_ROLE_ARN }}
+  AWS_ECS_PROD_API_TASK_ROLE_ARN: ${{ secrets.AWS_ECS_PROD_API_TASK_ROLE_ARN }}
+  AWS_ECS_PROD_WORKER_TASK_ROLE_ARN: ${{ secrets.AWS_ECS_PROD_WORKER_TASK_ROLE_ARN }}
+  AWS_ECS_PROD_SECRETS_ARN: ${{ secrets.AWS_ECS_PROD_SECRETS_ARN }}
+  AWS_ECS_PROD_API_SERVICE_NAME: knowhere-api-prod
+  AWS_ECS_PROD_WORKER_SERVICE_NAME: knowhere-worker-prod
 
 jobs:
   build-and-publish:
@@ -78,6 +86,22 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      # Production releases are cut from main. This keeps the new ECS path
+      # and the retained EKS rollback image on the same reviewed source line.
+      - name: Verify production release source
+        if: ${{ github.event_name == 'release' }}
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --no-tags
+          release_commit="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          if ! git merge-base --is-ancestor "${release_commit}" origin/main; then
+            echo "::error::Release ${RELEASE_TAG} does not point to a commit on main"
+            exit 1
+          fi
 
       - name: Decide build context
         id: context
@@ -297,6 +321,62 @@ jobs:
             --env DB_SSL_MODE=require \
             --entrypoint python \
             "$image_uri" \
+            -m alembic upgrade heads
+
+  migrate-ecs-production:
+    name: Run production Aurora database migration
+    runs-on: ubuntu-latest
+    needs: build-and-publish
+    if: ${{ github.event_name == 'release' && github.event.action == 'published' }}
+    permissions:
+      contents: read
+
+    steps:
+      - name: Validate production migration configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] || [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
+            echo "::error::Production migration requires AWS ECR credentials."
+            exit 1
+          fi
+          if [ -z "${{ secrets.PRODUCTION_MIGRATION_DATABASE_URL }}" ]; then
+            echo "::error::PRODUCTION_MIGRATION_DATABASE_URL is not configured."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_ECS_PROD_REGION }}
+
+      - name: Login to ECR
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecr get-login-password --region "${AWS_ECS_PROD_REGION}" \
+            | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+
+      - name: Run migration against production Aurora
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_MIGRATION_DATABASE_URL }}
+          S3_BUCKET_NAME: knowhere-storage-prod
+          S3_TEMP_PATH: /tmp
+          TMP_PATH: /tmp/aismart_bid
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}/knowhere-backend:${{ github.event.release.tag_name }}-prod"
+          docker run --rm \
+            --env DATABASE_URL \
+            --env S3_BUCKET_NAME \
+            --env TMP_PATH \
+            --env S3_TEMP_PATH \
+            --env DB_SSL_MODE=disable \
+            --entrypoint python \
+            "${image_uri}" \
             -m alembic upgrade heads
 
   migrate-eks-staging:
@@ -556,11 +636,29 @@ jobs:
           EXECUTION_ROLE_ARN: ${{ env.AWS_ECS_STAGING_EXECUTION_ROLE_ARN }}
           API_TASK_ROLE_ARN: ${{ env.AWS_ECS_STAGING_API_TASK_ROLE_ARN }}
           WORKER_TASK_ROLE_ARN: ${{ env.AWS_ECS_STAGING_WORKER_TASK_ROLE_ARN }}
-          STAGING_SECRETS_ARN: ${{ env.AWS_ECS_STAGING_SECRETS_ARN }}
+          SECRETS_ARN: ${{ env.AWS_ECS_STAGING_SECRETS_ARN }}
+          DEPLOYMENT_ENVIRONMENT: staging
+          RUNTIME_ENVIRONMENT: staging
+          APP_ENV: staging
+          DB_SSL_MODE: require
+          API_DB_POOL_SIZE: "5"
+          API_DB_MAX_OVERFLOW: "5"
+          WORKER_DB_SYNC_POOL_SIZE: "2"
+          WORKER_DB_SYNC_MAX_OVERFLOW: "2"
+          S3_BUCKET_NAME: knowhere-storage-staging
+          INTERNAL_DASHBOARD_ENDPOINT: https://staging.knowhereto.ai
+          FRONTEND_URL: https://staging.knowhereto.ai
+          API_WEBHOOK_ENDPOINT: https://api-staging.knowhereto.ai/v1/internal/s3-events
+          SNS_TOPIC_ARN: arn:aws:sns:us-east-1:107424103509:knowhere-staging-s3-events
+          QSTASH_CALLBACK_BASE_URL: https://api-staging.knowhereto.ai/api/v1
+          WORKER_CPU: "2048"
+          WORKER_MEMORY: "4096"
         shell: bash
         run: |
           set -euo pipefail
-          python3 deploy/ecs/render_task_definitions.py --output-dir "$RUNNER_TEMP/ecs-task-definitions"
+          python3 deploy/ecs/render_task_definitions.py \
+            --environment staging \
+            --output-dir "$RUNNER_TEMP/ecs-task-definitions"
 
       - name: Register ECS task definitions
         id: task-definitions
@@ -628,13 +726,230 @@ jobs:
           echo "API image: ${{ steps.images.outputs.api_image }}"
           echo "Worker image: ${{ steps.images.outputs.worker_image }}"
 
+  deploy-ecs-production:
+    name: Deploy production services to ECS
+    runs-on: ubuntu-latest
+    needs: [build-and-publish, migrate-ecs-production]
+    if: >-
+      ${{ always() && github.event_name == 'release' &&
+      needs.build-and-publish.result == 'success' &&
+      needs['migrate-ecs-production'].result == 'success' }}
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout released source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_ECS_PROD_REGION }}
+
+      - name: Validate ECS production prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_values=(
+            AWS_ECS_PROD_EXECUTION_ROLE_ARN
+            AWS_ECS_PROD_API_TASK_ROLE_ARN
+            AWS_ECS_PROD_WORKER_TASK_ROLE_ARN
+            AWS_ECS_PROD_SECRETS_ARN
+          )
+          missing=()
+          for variable_name in "${required_values[@]}"; do
+            if [ -z "${!variable_name}" ]; then
+              missing+=("${variable_name}")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing ECS production configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          cluster_status="$(aws ecs describe-clusters \
+            --cluster "${AWS_ECS_PROD_CLUSTER_NAME}" \
+            --query 'clusters[0].status' --output text)"
+          if [ "${cluster_status}" != "ACTIVE" ]; then
+            echo "::error::ECS cluster ${AWS_ECS_PROD_CLUSTER_NAME} is not ACTIVE (status: ${cluster_status})."
+            exit 1
+          fi
+
+          for role_arn in \
+            "${AWS_ECS_PROD_EXECUTION_ROLE_ARN}" \
+            "${AWS_ECS_PROD_API_TASK_ROLE_ARN}" \
+            "${AWS_ECS_PROD_WORKER_TASK_ROLE_ARN}"; do
+            aws iam get-role --role-name "${role_arn##*/}" --query 'Role.Arn' --output text >/dev/null
+          done
+
+          aws secretsmanager describe-secret \
+            --secret-id "${AWS_ECS_PROD_SECRETS_ARN}" \
+            --query 'ARN' --output text >/dev/null
+
+          for log_group in /ecs/knowhere-api-prod /ecs/knowhere-worker-prod; do
+            found="$(aws logs describe-log-groups \
+              --log-group-name-prefix "${log_group}" \
+              --query 'logGroups[0].logGroupName' --output text)"
+            if [ "${found}" != "${log_group}" ]; then
+              echo "::error::Required CloudWatch log group ${log_group} does not exist."
+              exit 1
+            fi
+          done
+
+          for service in \
+            "${AWS_ECS_PROD_API_SERVICE_NAME}" \
+            "${AWS_ECS_PROD_WORKER_SERVICE_NAME}"; do
+            service_json="$(aws ecs describe-services \
+              --cluster "${AWS_ECS_PROD_CLUSTER_NAME}" \
+              --services "${service}" --output json)"
+            status="$(jq -r '.services[0].status // "MISSING"' <<<"${service_json}")"
+            if [ "${status}" != "ACTIVE" ]; then
+              echo "::error::Required ECS service ${service} is not ACTIVE (status: ${status})."
+              exit 1
+            fi
+            network_count="$(jq '[.services[0].networkConfiguration.awsvpcConfiguration.subnets // [] | length] | add' <<<"${service_json}")"
+            security_group_count="$(jq '[.services[0].networkConfiguration.awsvpcConfiguration.securityGroups // [] | length] | add' <<<"${service_json}")"
+            if [ "${network_count}" -lt 1 ] || [ "${security_group_count}" -lt 1 ]; then
+              echo "::error::ECS service ${service} has no usable awsvpc subnet/security-group configuration."
+              exit 1
+            fi
+          done
+
+          api_load_balancer_count="$(aws ecs describe-services \
+            --cluster "${AWS_ECS_PROD_CLUSTER_NAME}" \
+            --services "${AWS_ECS_PROD_API_SERVICE_NAME}" \
+            --query 'length(services[0].loadBalancers)' --output text)"
+          if [ "${api_load_balancer_count}" -lt 1 ]; then
+            echo "::error::Production API ECS service has no load balancer target configured."
+            exit 1
+          fi
+
+      - name: Resolve immutable ECR image digests
+        id: images
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_tag="${{ github.event.release.tag_name }}-prod"
+
+          resolve_image() {
+            local repository="$1"
+            local output_name="$2"
+            local digest
+            digest="$(aws ecr describe-images \
+              --repository-name "${ECR_REPOSITORY}/${repository}" \
+              --image-ids "imageTag=${image_tag}" \
+              --query 'imageDetails[0].imageDigest' --output text)"
+            if [ -z "${digest}" ] || [ "${digest}" = "None" ]; then
+              echo "::error::No ECR image found for ${repository}:${image_tag}."
+              exit 1
+            fi
+            echo "${output_name}=${ECR_REGISTRY}/${ECR_REPOSITORY}/${repository}@${digest}" >> "${GITHUB_OUTPUT}"
+          }
+
+          resolve_image knowhere-backend api_image
+          resolve_image knowhere-worker worker_image
+
+      - name: Render ECS task definitions
+        env:
+          API_IMAGE: ${{ steps.images.outputs.api_image }}
+          WORKER_IMAGE: ${{ steps.images.outputs.worker_image }}
+          EXECUTION_ROLE_ARN: ${{ env.AWS_ECS_PROD_EXECUTION_ROLE_ARN }}
+          API_TASK_ROLE_ARN: ${{ env.AWS_ECS_PROD_API_TASK_ROLE_ARN }}
+          WORKER_TASK_ROLE_ARN: ${{ env.AWS_ECS_PROD_WORKER_TASK_ROLE_ARN }}
+          SECRETS_ARN: ${{ env.AWS_ECS_PROD_SECRETS_ARN }}
+          DEPLOYMENT_ENVIRONMENT: prod
+          RUNTIME_ENVIRONMENT: production
+          APP_ENV: production
+          DB_SSL_MODE: disable
+          API_DB_POOL_SIZE: "50"
+          API_DB_MAX_OVERFLOW: "50"
+          WORKER_DB_SYNC_POOL_SIZE: "5"
+          WORKER_DB_SYNC_MAX_OVERFLOW: "5"
+          S3_BUCKET_NAME: knowhere-storage-prod
+          INTERNAL_DASHBOARD_ENDPOINT: https://knowhereto.ai
+          FRONTEND_URL: https://knowhereto.ai
+          API_WEBHOOK_ENDPOINT: https://api.knowhereto.ai/v1/internal/s3-events
+          SNS_TOPIC_ARN: arn:aws:sns:us-east-1:107424103509:knowhere-prod-s3-events
+          QSTASH_CALLBACK_BASE_URL: https://api.knowhereto.ai/api/v1
+          WORKER_CPU: "2048"
+          WORKER_MEMORY: "4096"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 deploy/ecs/render_task_definitions.py \
+            --environment production \
+            --output-dir "${RUNNER_TEMP}/ecs-task-definitions"
+
+      - name: Register ECS task definitions
+        id: task-definitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          api_task_definition_arn="$(aws ecs register-task-definition \
+            --cli-input-json "file://${RUNNER_TEMP}/ecs-task-definitions/knowhere-api-prod.json" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)"
+          worker_task_definition_arn="$(aws ecs register-task-definition \
+            --cli-input-json "file://${RUNNER_TEMP}/ecs-task-definitions/knowhere-worker-prod.json" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)"
+          echo "api_task_definition_arn=${api_task_definition_arn}" >> "${GITHUB_OUTPUT}"
+          echo "worker_task_definition_arn=${worker_task_definition_arn}" >> "${GITHUB_OUTPUT}"
+
+      - name: Update API ECS service on on-demand Fargate
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --cluster "${AWS_ECS_PROD_CLUSTER_NAME}" \
+            --service "${AWS_ECS_PROD_API_SERVICE_NAME}" \
+            --task-definition "${{ steps.task-definitions.outputs.api_task_definition_arn }}" \
+            --capacity-provider-strategy capacityProvider=FARGATE,weight=1
+
+      - name: Update worker ECS service on Fargate Spot
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --cluster "${AWS_ECS_PROD_CLUSTER_NAME}" \
+            --service "${AWS_ECS_PROD_WORKER_SERVICE_NAME}" \
+            --task-definition "${{ steps.task-definitions.outputs.worker_task_definition_arn }}" \
+            --capacity-provider-strategy capacityProvider=FARGATE_SPOT,weight=1
+
+      - name: Wait for API ECS service to stabilize
+        shell: bash
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${AWS_ECS_PROD_CLUSTER_NAME}" \
+            --services "${AWS_ECS_PROD_API_SERVICE_NAME}"
+
+      - name: Wait for worker ECS service to stabilize
+        shell: bash
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${AWS_ECS_PROD_CLUSTER_NAME}" \
+            --services "${AWS_ECS_PROD_WORKER_SERVICE_NAME}"
+
+      - name: Summarize ECS production deployment
+        shell: bash
+        run: |
+          echo "Environment: production"
+          echo "Cluster: ${AWS_ECS_PROD_CLUSTER_NAME}"
+          echo "API image: ${{ steps.images.outputs.api_image }}"
+          echo "Worker image: ${{ steps.images.outputs.worker_image }}"
+
   deploy-eks:
     runs-on: ubuntu-latest
-    needs: [build-and-publish, migrate-eks-staging]
+    needs: [build-and-publish, migrate-eks-staging, migrate-ecs-production]
     if: >-
       ${{ always() && github.event_name != 'pull_request' &&
       needs.build-and-publish.result == 'success' &&
       (needs['migrate-eks-staging'].result == 'success' || needs['migrate-eks-staging'].result == 'skipped') &&
+      (needs['migrate-ecs-production'].result == 'success' || needs['migrate-ecs-production'].result == 'skipped') &&
       (github.event_name == 'release' ||
       (github.event_name == 'workflow_dispatch' &&
       github.event.inputs.deployment_target == 'eks-staging-rollback')) }}
@@ -761,10 +1076,12 @@ jobs:
   release:
     name: Attach deployment release assets
     runs-on: ubuntu-latest
-    needs: deploy-eks
+    needs: [deploy-eks, deploy-ecs-production]
     if: >-
       ${{ github.event_name == 'release' &&
-      github.event.action == 'published' }}
+      github.event.action == 'published' &&
+      needs.deploy-eks.result == 'success' &&
+      needs.deploy-ecs-production.result == 'success' }}
     permissions:
       contents: write
     steps:
