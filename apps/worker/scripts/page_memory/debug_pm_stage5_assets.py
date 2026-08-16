@@ -136,7 +136,7 @@ def main() -> int:
         page_asset_summary_enabled,
     )
     from app.services.page_memory.page_renderer import render_document_pages
-    from app.services.page_memory.toc_page_policy import TocPagePolicy
+    from toc_page_policy import TocPagePolicy
     from shared.models.schemas.page_memory_config import PageMemoryConfig
 
     pdf_path, filename, out_dir = resolve_paths(args)

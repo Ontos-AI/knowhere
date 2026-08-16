@@ -297,7 +297,7 @@ def main() -> int:
     anatomy = load_anatomy_cache(anatomy_cache, pdf_path, filename)
     page_count = anatomy.page_count
     page_features = anatomy.page_features if anatomy else []
-    from app.services.page_memory.toc_page_policy import TocPagePolicy
+    from toc_page_policy import TocPagePolicy
 
     toc_policy = TocPagePolicy.from_anatomy(anatomy)
 
@@ -437,11 +437,6 @@ def main() -> int:
     )
 
     active_skeletons = all_skeletons
-    tagging_mode = (
-        "text"
-        if any(getattr(tag, "tagging_mode", "visual") == "text" for tag in all_tags)
-        else "visual"
-    )
     tags = _merge_static_toc_tags(all_tags, toc_policy)
     nav_skeletons = _append_toc_nav_skeletons(
         body_skeletons=active_skeletons,
@@ -455,7 +450,6 @@ def main() -> int:
         hierarchy=nav_skeletons,
         tags=tags,
         assets_by_page=all_assets if all_assets else None,
-        tagging_mode=tagging_mode,
     )
 
     # ── C7: Node assembly ──
@@ -505,6 +499,8 @@ def main() -> int:
     token_cost_tracker.snapshot_stage("C7.node_assembly")
 
     # ── C9: finalize ──
+    doc_nav: dict[str, Any] = {}
+    hierarchy_dict: dict[str, Any] = {}
     if args.finalize:
         logger.info("=" * 70)
         logger.info("📦 C9: finalize (chunks → doc_nav → manifest)")

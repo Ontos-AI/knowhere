@@ -110,7 +110,7 @@ def main() -> int:
     t_start = time.time()
     trace_stages: list[dict] = []
     token_cost_tracker = TokenCostTracker()
-    from app.services.page_memory.toc_page_policy import TocPagePolicy
+    from toc_page_policy import TocPagePolicy
 
     toc_policy = TocPagePolicy.from_anatomy(anatomy)
 
@@ -224,15 +224,17 @@ def main() -> int:
         scope_dir.mkdir(parents=True, exist_ok=True)
         write_debug_json(
             scope_dir / "skeletons.json",
-            _serialize_scope_skeletons(
-                scope_id=str(s["scope_id"]),
-                start_page=int(s["start_page"]),
-                end_page=int(s["end_page"]),
-                strategy=str(s.get("strategy") or ""),
-                skeletons=s["skeletons"],
-                processing_pages=list(s.get("processing_pages") or []),
-                excluded_toc_pages=list(s.get("excluded_toc_pages") or []),
-            ),
+            {
+                **_serialize_scope_skeletons(
+                    scope_id=str(s["scope_id"]),
+                    start_page=int(s["start_page"]),
+                    end_page=int(s["end_page"]),
+                    strategy=str(s.get("strategy") or ""),
+                    skeletons=s["skeletons"],
+                ),
+                "processing_pages": list(s.get("processing_pages") or []),
+                "excluded_toc_pages": list(s.get("excluded_toc_pages") or []),
+            },
         )
         # Placeholders for later stages (explicit empty slots for viewing).
         write_debug_json(scope_dir / "page_tags.json", [])

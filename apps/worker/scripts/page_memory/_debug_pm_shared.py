@@ -1424,7 +1424,6 @@ def write_scope_artifacts(
     hierarchy: list[Any],
     tags: list[Any] | None = None,
     assets_by_page: dict[int, list[Any]] | None = None,
-    tagging_mode: str | None = None,
 ) -> None:
     """Write per-scope viewing artifacts (no standalone scope.json).
 
@@ -1436,10 +1435,7 @@ def write_scope_artifacts(
         _serialize_hierarchy_artifact(hierarchy, scope_manifest_data=scope_manifest),
     )
     if tags is not None:
-        write_debug_json(
-            scope_dir / "page_tags.json",
-            _serialize_page_tags(tags, tagging_mode=tagging_mode),
-        )
+        write_debug_json(scope_dir / "page_tags.json", _serialize_page_tags(tags))
     if assets_by_page is not None:
         write_debug_json(scope_dir / "assets.json", _serialize_assets(assets_by_page))
 
@@ -1450,13 +1446,9 @@ def write_top_level_artifacts(
     hierarchy: list[Any],
     tags: list[Any],
     assets_by_page: dict[int, list[Any]] | None = None,
-    tagging_mode: str | None = None,
 ) -> None:
     write_debug_json(out_dir / "hierarchy.json", _serialize_hierarchy_artifact(hierarchy))
-    write_debug_json(
-        out_dir / "page_tags.json",
-        _serialize_page_tags(tags, tagging_mode=tagging_mode),
-    )
+    write_debug_json(out_dir / "page_tags.json", _serialize_page_tags(tags))
     if assets_by_page is not None:
         write_debug_json(out_dir / "assets.json", _serialize_assets(assets_by_page))
     else:
@@ -1567,15 +1559,30 @@ def load_skeletons_from_hierarchy_artifact(path: Path) -> list[Any]:
 
 
 def load_page_tags_artifact(path: Path) -> list[Any]:
-    from app.services.page_memory._serialization import deserialize_page_tags
+    """Load ``page_tags.json`` written by ``serialize_page_tags``."""
+    from app.services.page_memory.page_tagger import PageTagResult
 
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if not (
-        isinstance(payload, list)
-        or (isinstance(payload, dict) and isinstance(payload.get("tags"), list))
-    ):
+    if isinstance(payload, dict) and isinstance(payload.get("tags"), list):
+        rows = payload["tags"]
+    elif isinstance(payload, list):
+        rows = payload
+    else:
         raise ValueError(f"page tags artifact has an unsupported schema: {path}")
-    _tagging_mode, tags = deserialize_page_tags(payload)
+    tags: list[PageTagResult] = []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        tags.append(
+            PageTagResult(
+                page_index=int(item.get("page_index") or 0),
+                summary=str(item.get("summary") or ""),
+                keywords=list(item.get("keywords") or []),
+                strategy_used=str(item.get("strategy_used") or ""),
+                entities=list(item.get("entities") or []),
+                observed_titles=list(item.get("observed_titles") or []),
+            )
+        )
     return tags
 
 
@@ -1633,15 +1640,43 @@ def load_assets_artifact(path: Path) -> dict[int, list[Any]]:
 
 def load_scope_skeletons_artifact(path: Path) -> tuple[dict[str, Any], list[Any]]:
     """Load Stage3 ``skeletons.json`` envelope → (meta, SectionSkeleton list)."""
-    from app.services.page_memory._serialization import deserialize_scope_skeletons
+    from app.services.page_memory.skeleton_extractor import SectionSkeleton
 
     data = json.loads(path.read_text(encoding="utf-8"))
-    try:
-        meta, skeletons = deserialize_scope_skeletons(data)
-    except ValueError as exc:
-        raise ValueError(f"{exc}: {path}") from exc
-    if not meta["scope_id"]:
-        meta["scope_id"] = path.parent.name
+    if not isinstance(data, dict):
+        raise ValueError(f"scope skeletons artifact must be an object: {path}")
+    raw_rows = data.get("skeletons")
+    if not isinstance(raw_rows, list):
+        raise ValueError(f"scope skeletons artifact missing skeletons[]: {path}")
+    skeletons = [
+        SectionSkeleton(
+            section_path=str(item.get("section_path") or ""),
+            title=str(item.get("title") or ""),
+            level=int(item.get("level") or 0),
+            start_page=int(item.get("start_page") or 0),
+            end_page=int(item.get("end_page") or 0),
+            parent_path=item.get("parent_path")
+            if isinstance(item.get("parent_path"), str)
+            else None,
+            evidence=dict(item.get("evidence") or {})
+            if isinstance(item.get("evidence"), dict)
+            else {},
+        )
+        for item in raw_rows
+        if isinstance(item, dict)
+    ]
+    start_page = int(data.get("start_page") or 0)
+    end_page = int(data.get("end_page") or start_page)
+    meta = {
+        "scope_id": str(data.get("scope_id") or path.parent.name),
+        "start_page": start_page,
+        "end_page": end_page,
+        "page_count": int(data.get("page_count") or max(end_page - start_page + 1, 0)),
+        "strategy": str(data.get("strategy") or ""),
+        "skeleton_count": int(data.get("skeleton_count") or len(skeletons)),
+        "processing_pages": list(data.get("processing_pages") or []),
+        "excluded_toc_pages": list(data.get("excluded_toc_pages") or []),
+    }
     return meta, skeletons
 
 
@@ -1716,17 +1751,13 @@ def build_debug_coarse_scopes(
     anatomy: Any | None = None,
 ) -> list[dict[str, Any]]:
     from app.services.page_memory._utils import build_hierarchy_scopes
-    from app.services.page_memory.toc_page_policy import TocPagePolicy
+    from toc_page_policy import TocPagePolicy
 
     policy = TocPagePolicy.from_anatomy(anatomy)
     scopes = build_hierarchy_scopes(
         skeletons=skeletons,
         filename=filename,
         page_count=page_count,
-        processing_pages=policy.filter_processing_pages(
-            list(range(1, page_count + 1))
-        ),
-        excluded_toc_pages=sorted(policy.pure_toc_pages),
     )
     return [
         {
@@ -1735,8 +1766,14 @@ def build_debug_coarse_scopes(
             "start_page": scope.start_page,
             "end_page": scope.end_page,
             "strategy": scope.strategy,
-            "processing_pages": list(scope.processing_pages),
-            "excluded_toc_pages": list(scope.excluded_toc_pages),
+            "processing_pages": policy.filter_processing_pages(
+                list(range(scope.start_page, scope.end_page + 1))
+            ),
+            "excluded_toc_pages": sorted(
+                page
+                for page in policy.pure_toc_pages
+                if scope.start_page <= page <= scope.end_page
+            ),
         }
         for scope in scopes
     ]

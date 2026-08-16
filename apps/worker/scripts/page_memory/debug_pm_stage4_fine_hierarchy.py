@@ -217,7 +217,6 @@ def _run_fine_hierarchy_for_scope(
         scope_manifest=scope_manifest,
         hierarchy=active_skeletons,
         tags=tags,
-        tagging_mode=page_memory_config.tagging_mode,
     )
 
     return ScopeResult(
@@ -244,7 +243,7 @@ def main() -> int:
     from app.services.document_agent.pdf_text import read_page_texts
     from app.services.page_memory.fine_hierarchy import build_next_title_by_path
     from app.services.page_memory.memory_service import _render_and_tag_document_pages
-    from app.services.page_memory.toc_page_policy import TocPagePolicy
+    from toc_page_policy import TocPagePolicy
     from shared.models.schemas.page_memory_config import PageMemoryConfig
 
     pdf_path, filename, out_dir = resolve_paths(args)
@@ -405,7 +404,6 @@ def main() -> int:
             out_dir=out_dir,
             hierarchy=merged_skeletons,
             tags=merged_tags,
-            tagging_mode=page_memory_config.tagging_mode,
         )
     else:
         logger.info(
