@@ -34,7 +34,7 @@ def anchor_hierarchy(
         page_texts=page_texts,
         page_count=page_count,
     )
-    if phase1.status == "failed" and not phase1.regimes and phase1.offset is None:
+    if phase1.status == "failed" and not phase1.regimes:
         return anchor_hierarchy_from_offset(
             nodes=nodes,
             offset_hint=None,

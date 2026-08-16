@@ -40,7 +40,6 @@ class ParserDocumentProfile:
     page_count: int = 0
     language: str = "unknown"
     reasoning: str = ""
-    category_rationale: str = ""
     toc: ParserTocProfile = field(default_factory=ParserTocProfile)
     granularity: str = "page"
     anatomy: Any | None = None

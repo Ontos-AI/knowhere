@@ -23,8 +23,6 @@ into **page-numbering regimes** (distinct numbering systems / label shapes:
 decimal digits, roman numerals, prefixed folio labels, etc.).
 
 - Do not mix samples across regimes when computing an offset.
-- Include `entry_indices` (0-based indices into `toc_region.entries`) for each
-  regime you submit.
 - Run the same initial-calibration procedure independently for each regime that
   has usable entries.
 
@@ -53,32 +51,13 @@ offset: treat that sample / regime as **not found**, submit whatever regimes you
 already confirmed (or `status=failed`), and let production fallback handle the
 rest. Do not guess pages.
 
-## Phase 2 — Completion (deterministic after submit; production path)
+## Phase 2 — Completion (deterministic after submit)
 
-For each TOC region, every regime with a candidate offset is completed
-independently, then merged by **physical page**:
-
-1. Build TitleNodes via production `extract_toc_nodes` (regime-aware parse:
-   decimal / roman / prefixed labels → `printed_page` + `page_kind`).
-2. For **each** regime with an offset:
-   - Project leaves belonging to that regime
-   - Run production Phase-2: prune → tail verify → binary-search →
-     small-step recalibrate (single-leaf regimes apply offset directly)
-3. Merge all regime `match_overrides` (physical pages), then null-page parent
-   locate once on the combined tree.
-4. Emit production `SkeletonAnchor` (`offset` = primary decimal summary,
-   `match_overrides` = union of all regimes, `null_page_report`, `bulk_count`,
-   `pruned_count`, `locate_agent`).
-5. On recalibrate/budget failure inside one regime: keep that regime's complete
-   **prefix**; **drop** unresolved **suffix** leaves from the TOC tree (no TOC),
-   then run null-page parent locate on what remains. Never fall back to a fixed
-   post-TOC window.
-
-## Usability bar
-
-- Coarse structure may use the result when `SkeletonAnchor.offset_status=ok`
-  and `bulk_count > 0` (at least one complete production segment).
-- Otherwise downstream treats the document as no-TOC / Root fallback.
+Not your job and not yours to describe. After submit, production completes each
+regime independently (prune → tail verify → binary search → small-step
+recalibrate), merges the regimes by physical page, and emits the
+`SkeletonAnchor`. It recomputes segment coverage, per-regime status and the
+no-TOC entry set itself, so do not submit those.
 
 ## Tools
 
@@ -86,16 +65,22 @@ independently, then merged by **physical page**:
   your question. Prefer the progressive 1→3→5 schedule above. Per-call page
   count is capped; overall spend is limited by the calibration visual token
   budget and `max_rounds`.
-- `calibration.submit`: finish Phase 1. Pass the full result under
+- `calibration.submit`: finish Phase 1. Pass the result under
   `tool_args.result` (or result fields directly in `tool_args`).
 
 ## Output rules
 
-- Submit `status`, `regimes`, top-level `offset` / `offset_status` for the
-  primary decimal-digit regime when identifiable, `tool_calls`, `notes`.
-- Each regime must include `kind`, candidate `offset`, `offset_status`,
-  `entry_indices`, `samples` (with `title`, `printed_label`, `physical` when
-  known), and `posterior` if you already inspected a late check.
+Submit exactly the fields in the `calibration.submit` schema — `status`,
+`regimes`, `notes` — and nothing else:
+
+- Per regime: `kind` and the candidate `offset`. Add `entry_indices` only when
+  the regime is not simply the entries whose printed-label shape matches `kind`,
+  and `samples` (`title` + `physical`) only for anchors you actually confirmed.
+- `notes`: one short sentence saying why. When you found no offset, submit
+  `status=failed` and say why in that one sentence.
 - Keep `kind` values consistent within one run (`decimal`, `roman`, `prefixed`,
   or `other`).
+- Anything else — per-regime status, segment coverage, no-TOC entries, tool call
+  counts, region index — is recomputed after submit; emitting it only risks the
+  submit being cut off by the output limit, which ends the run with no result.
 - Stay within the token / round budgets announced in the payload.

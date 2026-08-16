@@ -38,11 +38,6 @@ def _compact_blackboard(ctx: ToolContext) -> dict[str, Any]:
             ctx.blackboard.toc_result.toc_pages if ctx.blackboard.toc_result else []
         ),
         "toc_hierarchies_count": len(ctx.blackboard.toc_hierarchies or []),
-        "h1_count": (
-            len(ctx.blackboard.h1_result.h1_candidates)
-            if ctx.blackboard.h1_result
-            else 0
-        ),
         "shard_plan": ctx.blackboard.shard_plan.to_dict()
         if ctx.blackboard.shard_plan
         else None,

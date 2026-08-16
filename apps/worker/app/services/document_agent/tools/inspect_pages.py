@@ -96,9 +96,7 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
     prompt = (
         "Answer the question about the provided PDF page image(s). "
-        "Return strict JSON object with keys: "
-        '{"answer": string, "page_notes": [{"page": number, "note": string}], '
-        '"confidence": number}. '
+        'Return strict JSON object with keys: {"answer": string}. '
         "Include the word json in your reasoning.\n\n"
         f"Pages: {pages}\nQuestion: {question}\n"
     )
@@ -146,24 +144,12 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             latency_ms=int((time.monotonic() - start) * 1000),
         )
 
-    # Diagnostic counter only (not a hard budget).
-    used = int(ctx.blackboard.global_signals.get("inspect_pages_used") or 0)
-    used = max(
-        used,
-        int(ctx.blackboard.global_signals.get("calibration_inspect_pages_used") or 0),
-    )
-    next_used = used + len(pages)
-    ctx.blackboard.global_signals["inspect_pages_used"] = next_used
-    ctx.blackboard.global_signals["calibration_inspect_pages_used"] = next_used
     return ToolResult(
         status="ok",
         payload={
             "pages": pages,
             "question": question,
             "answer": payload.get("answer"),
-            "page_notes": payload.get("page_notes") or [],
-            "confidence": payload.get("confidence"),
-            "raw": payload,
         },
         latency_ms=int((time.monotonic() - start) * 1000),
         tokens_used=tokens_used,

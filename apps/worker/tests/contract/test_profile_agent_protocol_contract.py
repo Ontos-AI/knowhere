@@ -33,7 +33,6 @@ def test_planner_verdict_now_falls_through_to_ready_to_shard() -> None:
             "is_scanned": True,
             "category": "Feasibility Study Report",
             "routing_category": "generic",
-            "category_rationale": "scanned prose",
             "language": "zh",
             "rationale": "scanned PDF not atlas",
             "header_y": None,

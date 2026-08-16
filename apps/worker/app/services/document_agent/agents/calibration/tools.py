@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 from app.services.document_agent.agents.calibration.types import (
+    FAILURE_NO_OFFSET,
     calibration_result_from_dict,
 )
 from app.services.document_agent.manifest import ToolContext, ToolResult
@@ -44,16 +45,72 @@ def build_calibration_registry() -> ToolRegistry:
     registry.register(
         ToolSpec(
             name="calibration.submit",
-            description="Submit the final CalibrationResult and finish.",
+            description=(
+                "Submit the Phase-1 result and finish. Only the fields below are "
+                "read; Phase-2 recomputes everything else."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
                     "result": {
                         "type": "object",
-                        "description": (
-                            "Phase-1 CalibrationResult with candidate regime "
-                            "offsets and entry_indices; Phase-2 completion runs after submit"
-                        ),
+                        "properties": {
+                            "status": {
+                                "type": "string",
+                                "enum": ["ok", "failed"],
+                            },
+                            "regimes": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": {
+                                            "type": "string",
+                                            "description": (
+                                                "Page-numbering system of this "
+                                                "regime's printed labels"
+                                            ),
+                                        },
+                                        "offset": {
+                                            "type": "integer",
+                                            "description": "physical - printed",
+                                        },
+                                        "entry_indices": {
+                                            "type": "array",
+                                            "items": {"type": "integer"},
+                                            "description": (
+                                                "0-based indices into "
+                                                "toc_region.entries; omit when the "
+                                                "regime is exactly the entries "
+                                                "whose label shape matches kind"
+                                            ),
+                                        },
+                                        "samples": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "title": {"type": "string"},
+                                                    "physical": {"type": "integer"},
+                                                },
+                                                "required": ["title", "physical"],
+                                            },
+                                            "description": (
+                                                "Anchors you confirmed with "
+                                                "inspect.pages, so Phase-2 does not "
+                                                "re-verify them"
+                                            ),
+                                        },
+                                    },
+                                    "required": ["kind", "offset"],
+                                },
+                            },
+                            "notes": {
+                                "type": "string",
+                                "description": "One short sentence: why this result",
+                            },
+                        },
+                        "required": ["status", "regimes"],
                     },
                 },
                 "required": ["result"],
@@ -78,18 +135,10 @@ def calibration_submit(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()
     raw = args.get("result")
     if not isinstance(raw, dict):
-        if any(key in args for key in ("status", "regimes", "offset")):
+        if any(key in args for key in ("status", "regimes")):
             raw = {
                 key: args.get(key)
-                for key in (
-                    "status",
-                    "regimes",
-                    "offset",
-                    "offset_status",
-                    "tool_calls",
-                    "notes",
-                    "region_index",
-                )
+                for key in ("status", "regimes", "notes")
                 if key in args
             }
         else:
@@ -105,6 +154,8 @@ def calibration_submit(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             error="ok result must include regimes",
             latency_ms=int((time.monotonic() - start) * 1000),
         )
+    if not result.regimes:
+        result.failure_kind = FAILURE_NO_OFFSET
     tool_calls = int(ctx.blackboard.global_signals.get("calibration_tool_calls") or 0)
     result.tool_calls = tool_calls
     region_index = ctx.blackboard.global_signals.get("calibration_region_index")

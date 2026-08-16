@@ -168,7 +168,6 @@ def _parse_profile_and_decision(raw: str) -> tuple[DocumentProfile, ReflexionDec
         is_scanned=is_scanned,
         category=category or "unknown document",
         routing_category=routing_category,
-        category_rationale=str(data.get("category_rationale") or ""),
         language=str(data.get("language") or "unknown"),
         rationale=str(data.get("rationale") or ""),
         header_y=header_y,
@@ -280,14 +279,6 @@ class ProfilePlanner:
                 [],
             ),
             "sampled_page_features": feature_summary,
-            "h1_pages": [
-                {"title": item.title, "page": item.page}
-                for item in (
-                    self.ctx.blackboard.h1_result.h1_candidates
-                    if self.ctx.blackboard.h1_result
-                    else []
-                )
-            ],
             "available_actions": [
                 "grep.text",
                 "propose.shard_plan",

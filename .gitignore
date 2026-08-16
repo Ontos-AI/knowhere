@@ -68,8 +68,7 @@ test_*.csv
 *.csv
 !requirements.csv
 
-# Local debugging scripts
-apps/worker/scripts/
+# Local debugging scripts (apps/worker/scripts/ is tracked)
 apps/worker/experiments/
 apps/worker/start_celery_worker.py
 apps/worker/start_celery_debug.sh
