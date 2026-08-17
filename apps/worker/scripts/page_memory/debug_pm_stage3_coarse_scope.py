@@ -6,7 +6,8 @@ Generates coarse hierarchy scopes from skeletons and creates per-scope
 directories with ``skeletons.json`` (meta + coarse nodes) plus empty
 ``page_tags.json`` / ``assets.json`` placeholders for later stages.
 
-Requires Stage 2 output: _doc_agent/pipeline_state.json, doc_profile.json
+Requires Stage 2 output: _doc_agent/pipeline_state.json (with skeletons),
+doc_profile.json (after production ``run_toc_anchoring``).
 
 Usage:
   cd apps/worker

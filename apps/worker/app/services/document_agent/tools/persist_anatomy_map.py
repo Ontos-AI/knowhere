@@ -39,7 +39,6 @@ def build_anatomy_map(ctx: ToolContext) -> PageAnatomyMap:
         shard_plan=ctx.blackboard.shard_plan,
         document_profile=ctx.blackboard.document_profile,
         toc_hierarchies=ctx.blackboard.toc_hierarchies,
-        toc_page_offset=ctx.blackboard.toc_page_offset,
         skeleton_anchor=ctx.blackboard.skeleton_anchor,
         skeleton_nodes=ctx.blackboard.skeleton_nodes,
         pending_skeleton_anchors=list(ctx.blackboard.pending_skeleton_anchors),

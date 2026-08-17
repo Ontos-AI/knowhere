@@ -371,12 +371,30 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
                     anchor_type=s.get("anchor_type", "forced_max_size"),
                     anchor_evidence=s.get("anchor_evidence", ""),
                     confidence=float(s.get("confidence", 0) or 0),
+                    toc_hierarchies=(
+                        list(s["toc_hierarchies"])
+                        if isinstance(s.get("toc_hierarchies"), list)
+                        else None
+                    ),
                 )
                 for i, s in enumerate(sp.get("shards", []))
             ],
             validation=ValidationReport(valid=True),
         ),
         toc_hierarchies=data.get("toc_hierarchies"),
+        document_profile=_document_profile_from_dict(data.get("document_profile")),
+        skeleton_anchor=data.get("skeleton_anchor")
+        if isinstance(data.get("skeleton_anchor"), dict)
+        else None,
+        skeleton_nodes=list(data.get("skeleton_nodes") or [])
+        if isinstance(data.get("skeleton_nodes"), list)
+        else None,
+        pending_skeleton_anchors=list(data.get("pending_skeleton_anchors") or [])
+        if isinstance(data.get("pending_skeleton_anchors"), list)
+        else [],
+        global_signals=dict(data.get("global_signals") or {})
+        if isinstance(data.get("global_signals"), dict)
+        else {},
     )
 
 
@@ -621,7 +639,6 @@ def load_stage0_into_coordinator(coordinator, out_dir: Path) -> None:
     # Stage-1 owns TOC + assets from here.
     bb.toc_result = None
     bb.toc_hierarchies = None
-    bb.toc_page_offset = None
     bb.skeleton_anchor = None
     bb.skeleton_nodes = None
     bb.pending_skeleton_anchors = []
@@ -745,6 +762,11 @@ def run_stage1_toc(
         persist_anatomy_map(coordinator.ctx, {})
         profile_path = out_dir / DOC_PROFILE_FILENAME
         write_debug_json(profile_path, anatomy.to_dict())
+        # Canonical profile is at package root; drop nested duplicate.
+        try:
+            (out_dir / "_doc_agent" / "anatomy_map.json").unlink()
+        except FileNotFoundError:
+            pass
         update_pipeline_state(
             pipeline_state_path(out_dir),
             stage=1,
@@ -1031,10 +1053,22 @@ def remove_legacy_doc_agent_artifacts(
     doc_agent_dir: Path,
     *,
     include_stage2: bool = False,
+    keep_resume_cache: bool = True,
 ) -> None:
+    """Drop nested doc-agent clutter; keep resume + pipeline history by default.
+
+    Canonical package artifacts live at ``page_memory/`` root
+    (``doc_profile.json``, ``trace.json``). Nested ``anatomy_map.json`` and
+    calibration page PNGs are duplicates / inspect leftovers.
+    """
+    import shutil
+
     names = {
         "parser_profile.json",
         "toc_hierarchies.json",
+        "anatomy_map.json",
+        "trace.json",
+        "doc_profile.json",
     }
     if include_stage2:
         names.update(
@@ -1045,16 +1079,23 @@ def remove_legacy_doc_agent_artifacts(
                 "stage2_state.json",
             }
         )
+    if not keep_resume_cache:
+        names.update(
+            {
+                STAGE0_STATE_NAME,
+                PAGE_TEXT_CACHE_NAME,
+                "stage_costs.json",
+            }
+        )
     for name in names:
         try:
             (doc_agent_dir / name).unlink()
         except FileNotFoundError:
             pass
-    legacy_preview_dir = doc_agent_dir / "coarse_assets"
-    if legacy_preview_dir.is_dir():
-        import shutil
-
-        shutil.rmtree(legacy_preview_dir)
+    for dirname in ("coarse_assets", "calibration_inspect"):
+        legacy_dir = doc_agent_dir / dirname
+        if legacy_dir.is_dir():
+            shutil.rmtree(legacy_dir)
     try:
         (doc_agent_dir / "coarse_assets.html").unlink()
     except FileNotFoundError:
@@ -1393,6 +1434,7 @@ def stop_with_trace(
         summary=summary,
     )
     remove_nested_doc_agent_trace(out_dir)
+    remove_legacy_doc_agent_artifacts(out_dir / "_doc_agent", include_stage2=True)
     maybe_purge_debug_visuals(out_dir)
     return 0
 

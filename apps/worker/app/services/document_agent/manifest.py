@@ -192,6 +192,10 @@ class Shard:
     ]
     anchor_evidence: str
     confidence: float
+    # Calibrated TOC slice for this shard (heading+level), attached at
+    # propose.shard_plan. TEXT-TRACK consumes this directly; no printed→physical
+    # re-filter at parse time.
+    toc_hierarchies: list[dict[str, Any]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -230,7 +234,6 @@ class PageAnatomyMap:
     h1_result: H1BoundaryResult | None = None
     document_profile: DocumentProfile | None = None
     toc_hierarchies: list[dict[str, Any]] | None = None
-    toc_page_offset: int | None = None
     skeleton_anchor: dict[str, Any] | None = None
     skeleton_nodes: list[dict[str, Any]] | None = None
     pending_skeleton_anchors: list[dict[str, Any]] = field(default_factory=list)
@@ -254,7 +257,6 @@ class PageAnatomyMap:
             "document_profile": self.document_profile.to_dict()
             if self.document_profile
             else None,
-            "toc_page_offset": self.toc_page_offset,
             "skeleton_anchor": self.skeleton_anchor,
             "skeleton_nodes": self.skeleton_nodes,
             "pending_skeleton_anchors": list(self.pending_skeleton_anchors),

@@ -117,7 +117,6 @@ def _parse_pdf_via_shards(
         bin_pack_shards,
         split_pdf,
     )
-    from app.services.document_agent.tools.propose_shard_plan import split_toc_for_shard
 
     work_dir: str | None = None
     temp_shard_s3_keys: list[str] = []
@@ -136,15 +135,13 @@ def _parse_pdf_via_shards(
 
         agent_shards = anatomy.shard_plan.shards
 
-        # 2. Extract TOC info from anatomy for page exclusion and heading constraint
+        # 2. TOC pages to exclude from physical shard PDFs.
         toc_pages: set[int] = set()
-        toc_hierarchies = anatomy.toc_hierarchies
         if anatomy.toc_result and anatomy.toc_result.toc_pages:
             toc_pages = set(anatomy.toc_result.toc_pages)
             logger.info(
                 f"📌 DOC_AGENT TOC detected: {len(toc_pages)} pages to exclude "
-                f"({sorted(toc_pages)}), "
-                f"{len(toc_hierarchies) if toc_hierarchies else 0} hierarchy regions"
+                f"({sorted(toc_pages)})"
             )
 
         # 3. Bin-pack agent shards to maximize MinerU page limit
@@ -262,14 +259,8 @@ def _parse_pdf_via_shards(
             md_lines = merge_html_tables(md_lines)
 
             is_first_shard = shard_idx == 0
-            shard = merged_shards[shard_idx]
-            shard_toc = (
-                toc_hierarchies if is_first_shard
-                else split_toc_for_shard(
-                    toc_hierarchies, shard.page_start, shard.page_end,
-                    offset_override=getattr(anatomy, "toc_page_offset", None),
-                )
-            )
+            agent_shard = agent_shards[shard_idx]
+            shard_toc = getattr(agent_shard, "toc_hierarchies", None)
 
             lines_with_heading = eval_md_headings(
                 md_lines,

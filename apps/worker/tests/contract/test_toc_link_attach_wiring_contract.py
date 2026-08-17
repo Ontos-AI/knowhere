@@ -155,7 +155,6 @@ def test_skip_toc_anchoring_stops_after_link_attach() -> None:
     assert seen["anchored"] is False
     assert coordinator.blackboard.skeleton_anchor is None
     assert coordinator.blackboard.skeleton_nodes is None
-    assert coordinator.blackboard.toc_page_offset is None
 
 
 def test_stop_after_asset_probe_skips_toc() -> None:

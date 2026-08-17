@@ -147,6 +147,18 @@ def _stage_profile(pdf_path: str, filename: str, out_dir: Path, model: str | Non
             shard.shard_index, shard.page_start, shard.page_end,
             shard.page_end - shard.page_start + 1, shard.anchor_type,
         )
+    pending = list(getattr(anatomy, "pending_skeleton_anchors", None) or [])
+    if pending:
+        for record in pending:
+            toc = record.get("toc") if isinstance(record, dict) else None
+            logger.info(
+                "   pending toc_range={} relationship={} grafted={}",
+                (toc or {}).get("toc_range") if isinstance(toc, dict) else None,
+                record.get("relationship"),
+                bool(record.get("grafted")),
+            )
+    else:
+        logger.info("   pending TOC: none")
 
     return anatomy, elapsed, {
         "profile": profile.to_dict() if profile is not None else None,
@@ -158,6 +170,19 @@ def _stage_profile(pdf_path: str, filename: str, out_dir: Path, model: str | Non
         "asset_pages": sum(
             1 for feature in coordinator.blackboard.page_features if feature.has_asset
         ),
+        "pending_count": len(pending),
+        "pending": [
+            {
+                "toc_range": (record.get("toc") or {}).get("toc_range")
+                if isinstance(record.get("toc"), dict)
+                else None,
+                "relationship": record.get("relationship"),
+                "grafted": bool(record.get("grafted")),
+            }
+            for record in pending
+            if isinstance(record, dict)
+        ],
+        "skeleton_node_count": len(list(getattr(anatomy, "skeleton_nodes", None) or [])),
     }
 
 
@@ -230,13 +255,29 @@ def _load_anatomy_cache(out_dir: Path, pdf_path: str, filename: str):
                     anchor_type=s.get("anchor_type", "forced_max_size"),
                     anchor_evidence=s.get("anchor_evidence", ""),
                     confidence=float(s.get("confidence", 0) or 0),
+                    toc_hierarchies=(
+                        list(s["toc_hierarchies"])
+                        if isinstance(s.get("toc_hierarchies"), list)
+                        else None
+                    ),
                 )
                 for i, s in enumerate(sp.get("shards", []))
             ],
             validation=ValidationReport(valid=True),
         ),
         toc_hierarchies=data.get("toc_hierarchies"),
-        toc_page_offset=data.get("toc_page_offset"),
+        skeleton_anchor=data.get("skeleton_anchor")
+        if isinstance(data.get("skeleton_anchor"), dict)
+        else None,
+        skeleton_nodes=list(data.get("skeleton_nodes") or [])
+        if isinstance(data.get("skeleton_nodes"), list)
+        else None,
+        pending_skeleton_anchors=list(data.get("pending_skeleton_anchors") or [])
+        if isinstance(data.get("pending_skeleton_anchors"), list)
+        else [],
+        global_signals=dict(data.get("global_signals") or {})
+        if isinstance(data.get("global_signals"), dict)
+        else {},
     )
 
 
@@ -321,7 +362,6 @@ def _stage_hierarchy_pdf(
         merge_shard_lines,
     )
     from app.services.document_parser.formats.pdf.shard_splitter import bin_pack_shards
-    from app.services.document_agent.tools.propose_shard_plan import split_toc_for_shard
     from shared.core.config import settings
 
     logger.info("=" * 70)
@@ -330,7 +370,6 @@ def _stage_hierarchy_pdf(
 
     t0 = time.time()
     agent_shards = anatomy.shard_plan.shards
-    toc_hierarchies = anatomy.toc_hierarchies
 
     max_pages = int(os.environ.get("MAX_PDF_PAGE_LIMIT", getattr(settings, "MAX_PDF_PAGE_LIMIT", 200)))
     merged_shards = bin_pack_shards(agent_shards, max_pages=max_pages)
@@ -358,14 +397,8 @@ def _stage_hierarchy_pdf(
         md_lines = merge_html_tables(md_lines)
 
         is_first = shard_idx == 0
-        shard = merged_shards[shard_idx]
-        shard_toc = (
-            toc_hierarchies if is_first
-            else split_toc_for_shard(
-                toc_hierarchies, shard.page_start, shard.page_end,
-                offset_override=getattr(anatomy, "toc_page_offset", None),
-            )
-        )
+        agent_shard = agent_shards[shard_idx]
+        shard_toc = getattr(agent_shard, "toc_hierarchies", None)
 
         lines_with_heading = eval_md_headings(
             md_lines,

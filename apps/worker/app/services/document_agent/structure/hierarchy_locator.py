@@ -271,6 +271,44 @@ def resolve_hierarchy_page_ranges(
     return resolved
 
 
+def coverage_by_path(
+    ranges: list[ResolvedHierarchyRange],
+) -> dict[tuple[str, ...], tuple[int, int]]:
+    """Aggregate resolved ranges into one closed span per ancestor path.
+
+    ``resolve_hierarchy_page_ranges`` emits leaves (plus parent self-only
+    spans), so an ancestor's span is the union of its descendants' ranges.
+    """
+    coverage: dict[tuple[str, ...], tuple[int, int]] = {}
+    for item in ranges:
+        for depth in range(1, len(item.path_titles) + 1):
+            path = item.path_titles[:depth]
+            span = coverage.get(path)
+            if span is None:
+                coverage[path] = (item.start_page, item.end_page)
+            else:
+                coverage[path] = (
+                    min(span[0], item.start_page),
+                    max(span[1], item.end_page),
+                )
+    return coverage
+
+
+def deepest_covering_path(
+    coverage: dict[tuple[str, ...], tuple[int, int]],
+    *,
+    start: int,
+    end: int,
+) -> tuple[str, ...] | None:
+    """Deepest path whose span contains the closed window ``[start, end]``."""
+    found: tuple[str, ...] | None = None
+    for path, span in coverage.items():
+        if span[0] <= start and end <= span[1]:
+            if found is None or len(path) > len(found):
+                found = path
+    return found
+
+
 def extract_toc_nodes(toc_hierarchies: list[dict[str, Any]] | None) -> list[TitleNode]:
     """Build a title tree from supported TOC hierarchy payloads."""
     flat_entries: list[dict[str, Any]] = []

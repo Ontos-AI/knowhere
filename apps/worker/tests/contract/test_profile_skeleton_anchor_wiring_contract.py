@@ -133,7 +133,6 @@ def _anatomy(*, with_anchor: bool) -> PageAnatomyMap:
             ],
         ),
         "toc_hierarchies": _toc(),
-        "toc_page_offset": 0 if with_anchor else None,
     }
     if with_anchor:
         kwargs["skeleton_anchor"] = serialize_skeleton_anchor(_anchor())
@@ -156,7 +155,6 @@ def test_profile_toc_anchoring_writes_skeleton_anchor() -> None:
     ):
         run_toc_anchoring(ctx)
 
-    assert ctx.blackboard.toc_page_offset == 0
     assert isinstance(ctx.blackboard.skeleton_anchor, dict)
     assert ctx.blackboard.skeleton_anchor["offset"] == 0
     assert ctx.blackboard.skeleton_nodes
@@ -207,7 +205,6 @@ def test_shard_plan_reads_offset_and_does_not_calibrate() -> None:
             ],
         }
     ]
-    ctx.blackboard.toc_page_offset = 0
     ctx.blackboard.skeleton_nodes = [
         serialize_title_node(TitleNode(title="Ch1", level=1, printed_page=3)),
         serialize_title_node(TitleNode(title="Ch2", level=1, printed_page=120)),
@@ -257,7 +254,8 @@ def test_shard_plan_reads_offset_and_does_not_calibrate() -> None:
         result = propose_shard_plan(ctx, {})
 
     assert result.status == "ok"
-    assert ctx.blackboard.toc_page_offset == 0
+    assert ctx.blackboard.skeleton_anchor is not None
+    assert ctx.blackboard.skeleton_anchor["offset"] == 0
     assert ctx.blackboard.shard_plan is not None
 
 

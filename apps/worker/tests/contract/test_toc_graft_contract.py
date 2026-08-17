@@ -32,7 +32,13 @@ from app.services.document_agent.structure.hierarchy_locator import (
     TitleMatch,
     TitleNode,
 )
-from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
+from app.services.document_agent.structure.hierarchy_locator import (
+    resolve_hierarchy_page_ranges,
+)
+from app.services.document_agent.structure.toc_anchoring import (
+    classify_toc_relationship,
+    run_toc_anchoring,
+)
 from app.services.document_agent.structure.toc_graft import graft_contained_toc
 from app.services.page_memory.skeleton_extractor import extract_section_skeletons
 
@@ -83,6 +89,37 @@ def _node_at(nodes: list[TitleNode], path: tuple[str, ...]) -> TitleNode | None:
             return None
         current = list(found.children)
     return found
+
+
+def test_skip_outside_parent_coverage_records_event_without_orphan_override() -> None:
+    result = _graft(
+        primary=[
+            TitleNode(
+                title="第一章",
+                level=1,
+                printed_page=10,
+                children=[TitleNode(title="1.1", level=2, printed_page=12)],
+            ),
+            TitleNode(title="第二章", level=1, printed_page=30),
+        ],
+        primary_pages={("第一章",): 10, ("第一章", "1.1"): 12, ("第二章",): 30},
+        contained=[
+            TitleNode(
+                title="第一章",
+                level=1,
+                printed_page=10,
+                children=[TitleNode(title="stray", level=2, printed_page=35)],
+            )
+        ],
+        contained_pages={("第一章",): 10, ("第一章", "stray"): 35},
+    )
+
+    assert [child.title for child in result.nodes[0].children] == ["1.1"]
+    assert ("第一章", "stray") not in result.match_overrides
+    skip = next(event for event in result.events if event["action"] == "skip")
+    assert skip["reason"] == "outside_parent_coverage"
+    assert skip["contained_path"] == ("第一章", "stray")
+    assert skip["parent_path"] == ("第一章",)
 
 
 def test_dedup_keeps_primary_title_and_hangs_child() -> None:
@@ -210,6 +247,109 @@ def test_two_contained_tocs_graft_in_order() -> None:
 
     titles = [child.title for child in second.nodes[0].children]
     assert titles == ["1.2", "1.3"]
+
+
+def _chaptered_primary_ranges(page_count: int) -> list[object]:
+    """Two-level primary tree: chapters own sub-sections, resolve emits leaves."""
+    nodes = [
+        TitleNode(
+            title="Ch1",
+            level=1,
+            printed_page=10,
+            children=[
+                TitleNode(title="1.1", level=2, printed_page=10),
+                TitleNode(title="1.2", level=2, printed_page=20),
+            ],
+        ),
+        TitleNode(
+            title="Ch2",
+            level=1,
+            printed_page=30,
+            children=[
+                TitleNode(title="2.1", level=2, printed_page=30),
+                TitleNode(title="2.2", level=2, printed_page=45),
+            ],
+        ),
+        TitleNode(
+            title="Ch3",
+            level=1,
+            printed_page=70,
+            children=[TitleNode(title="3.1", level=2, printed_page=70)],
+        ),
+    ]
+    body_pages = list(range(1, page_count + 1))
+    return resolve_hierarchy_page_ranges(
+        nodes,
+        page_count=page_count,
+        page_texts={page: "" for page in body_pages},
+        body_pages=body_pages,
+        match_overrides=_overrides(
+            {
+                ("Ch1",): 10,
+                ("Ch1", "1.1"): 10,
+                ("Ch1", "1.2"): 20,
+                ("Ch2",): 30,
+                ("Ch2", "2.1"): 30,
+                ("Ch2", "2.2"): 45,
+                ("Ch3",): 70,
+                ("Ch3", "3.1"): 70,
+            }
+        ),
+    )
+
+
+def _classify_span(start: int, end: int, *, page_count: int = 100) -> str:
+    return classify_toc_relationship(
+        offset=0,
+        nodes=[
+            TitleNode(title="first", level=1, printed_page=start),
+            TitleNode(title="last", level=1, printed_page=end),
+        ],
+        primary_ranges=_chaptered_primary_ranges(page_count),
+        page_count=page_count,
+    )
+
+
+def test_classify_contained_when_subtoc_spans_sibling_leaves_of_a_chapter() -> None:
+    # Middle chapter Ch2 spans [30, 70]; the sub-TOC crosses 2.1 and 2.2, so no
+    # single leaf range covers it.
+    assert _classify_span(32, 50) == "contained"
+
+
+def test_classify_contained_inside_a_single_leaf() -> None:
+    assert _classify_span(32, 40) == "contained"
+
+
+def test_classify_contained_for_first_chapter_subtoc() -> None:
+    assert _classify_span(12, 25) == "contained"
+
+
+def test_classify_parallel_when_span_leaves_primary_coverage() -> None:
+    assert _classify_span(95, 140) == "parallel"
+
+
+def test_classify_parallel_without_primary_ranges() -> None:
+    assert (
+        classify_toc_relationship(
+            offset=0,
+            nodes=[TitleNode(title="App", level=1, printed_page=20)],
+            primary_ranges=[],
+            page_count=100,
+        )
+        == "parallel"
+    )
+
+
+def test_classify_unresolvable_when_offset_leaves_document() -> None:
+    assert (
+        classify_toc_relationship(
+            offset=500,
+            nodes=[TitleNode(title="App", level=1, printed_page=20)],
+            primary_ranges=_chaptered_primary_ranges(100),
+            page_count=100,
+        )
+        == "unresolvable"
+    )
 
 
 def _ctx(*, page_count: int) -> ToolContext:
@@ -407,7 +547,6 @@ def _anatomy(
             ],
         ),
         toc_hierarchies=hierarchies,
-        toc_page_offset=0,
         skeleton_anchor=serialize_skeleton_anchor(_anchor(overrides)),
         skeleton_nodes=[serialize_title_node(node) for node in nodes],
         pending_skeleton_anchors=pending_records,

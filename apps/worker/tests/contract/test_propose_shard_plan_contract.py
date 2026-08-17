@@ -147,6 +147,63 @@ def test_hierarchy_pack_cuts_before_next_chapter() -> None:
     assert plan.validation.valid is True
 
 
+def test_shard_plan_attaches_calibrated_toc_hierarchies_per_shard() -> None:
+    ctx = _ctx(page_count=250)
+    _seed_skeleton(
+        ctx,
+        nodes=[
+            TitleNode(
+                title="Ch1",
+                level=1,
+                printed_page=3,
+                children=[
+                    TitleNode(title="1.1", level=2, printed_page=3),
+                    TitleNode(title="1.2", level=2, printed_page=80),
+                ],
+            ),
+            TitleNode(title="Ch2", level=1, printed_page=120),
+        ],
+        overrides={
+            ("Ch1",): 3,
+            ("Ch1", "1.1"): 3,
+            ("Ch1", "1.2"): 80,
+            ("Ch2",): 120,
+        },
+        hierarchies=[
+            {
+                "toc_range": [1, 2],
+                "toc_range_unit": "page",
+                "toc_with_level": [
+                    {"heading": "Ch1", "level": 1, "page_number": 3},
+                    {"heading": "1.1", "level": 2, "page_number": 3},
+                    {"heading": "1.2", "level": 2, "page_number": 80},
+                    {"heading": "Ch2", "level": 1, "page_number": 120},
+                ],
+            }
+        ],
+    )
+
+    propose_shard_plan(ctx, {})
+    plan = ctx.blackboard.shard_plan
+    assert plan is not None
+    assert len(plan.shards) == 2
+
+    first = plan.shards[0].toc_hierarchies
+    second = plan.shards[1].toc_hierarchies
+    assert first is not None
+    assert second is not None
+    assert first[0]["toc_range"] == [1, 119]
+    assert second[0]["toc_range"] == [120, 250]
+    assert [row["heading"] for row in first[0]["toc_with_level"]] == [
+        "Ch1",
+        "1.1",
+        "1.2",
+    ]
+    assert [row["heading"] for row in second[0]["toc_with_level"]] == ["Ch2"]
+    assert all("page_number" not in row for row in first[0]["toc_with_level"])
+    assert all("page_number" not in row for row in second[0]["toc_with_level"])
+
+
 def test_hierarchy_pack_keeps_same_parent_siblings_together() -> None:
     ctx = _ctx(page_count=250)
     _seed_skeleton(

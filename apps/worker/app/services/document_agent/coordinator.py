@@ -424,7 +424,6 @@ class ProfileCoordinator:
         return result
 
     def _clear_toc_anchor_state(self) -> None:
-        self.blackboard.toc_page_offset = None
         self.blackboard.skeleton_anchor = None
         self.blackboard.skeleton_nodes = None
         self.blackboard.pending_skeleton_anchors = []

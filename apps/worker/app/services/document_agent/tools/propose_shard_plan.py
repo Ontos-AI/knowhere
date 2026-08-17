@@ -21,6 +21,8 @@ from app.services.document_agent.structure.anchoring_primitives import (
 )
 from app.services.document_agent.structure.hierarchy_locator import (
     ResolvedHierarchyRange,
+    TitleMatch,
+    TitleNode,
     resolve_hierarchy_page_ranges,
 )
 from app.services.document_agent.structure.toc_anchoring import (
@@ -31,133 +33,143 @@ from app.services.document_agent.structure.toc_anchoring import (
 from app.services.document_agent.validators import single_shard_plan, validate_shard_plan
 
 
-def split_toc_for_shard(
-    toc_hierarchies: list[dict[str, Any]] | None,
-    shard_page_start: int,
-    shard_page_end: int,
+@dataclass(frozen=True)
+class _AnchoredTocEntry:
+    heading: str
+    level: int
+    physical_page: int
+
+
+def _walk_anchored_entries(
+    nodes: list[TitleNode],
+    match_overrides: dict[tuple[str, ...], TitleMatch],
     *,
-    offset_override: int | None = None,
-) -> list[dict[str, Any]] | None:
-    """Build per-shard toc_hierarchies filtered to the shard's page range.
-
-    For continuation shards (not starting at page 1), the ancestor chain of
-    the first entry is prepended so downstream heading prediction has the
-    full structural context.
-
-    Requires calibrated ``offset_override`` for page-unit TOC regions.
-    """
-    if not toc_hierarchies:
-        return None
-    if offset_override is None:
-        # Without a calibrated offset, keep non-page TOC payloads as-is and
-        # skip page-unit hierarchies rather than inventing arithmetic offsets.
-        kept = [
-            hier
-            for hier in toc_hierarchies
-            if hier.get("toc_range_unit") != "page"
-        ]
-        return kept or None
-
-    result: list[dict[str, Any]] = []
-    for hier in toc_hierarchies:
-        if hier.get("toc_range_unit") != "page":
-            result.append(hier)
-            continue
-        toc_range = hier.get("toc_range")
-        entries = hier.get("toc_with_level")
-        if not toc_range or not entries:
-            continue
-        if isinstance(entries, str):
-            entries = _parse_toc_with_level_entries(entries)
-        if not entries:
-            continue
-
-        offset = offset_override
-
-        shard_entries: list[dict[str, Any]] = []
-        first_idx: int | None = None
-        for idx, entry in enumerate(entries):
-            pn = entry.get("page_number")
-            if not isinstance(pn, int):
-                continue
-            physical = pn + offset
-            if shard_page_start <= physical <= shard_page_end:
-                if first_idx is None:
-                    first_idx = idx
-                shard_entries.append(entry)
-
-        if not shard_entries or first_idx is None:
-            continue
-
-        # Prepend ancestor chain for continuation shards. Walk forward through
-        # every entry preceding the shard's first entry, maintaining a
-        # monotonic stack of "open" ancestors: an incoming entry closes out
-        # (pops) any stack entries at the same or deeper level before being
-        # pushed itself. A final pop against first_entry_level removes a
-        # trailing sibling that shares the same level as the shard's first
-        # entry (siblings are not ancestors). This is robust to non-monotonic
-        # level sequences (e.g. [L1, L2, L1, L3]), unlike a simple
-        # "smallest-unseen-level" scan.
-        first_entry_level = shard_entries[0].get("level", 1)
-        ancestors: list[dict[str, Any]] = []
-        if first_entry_level > 1:
-            stack: list[dict[str, Any]] = []
-            for ancestor in entries[:first_idx]:
-                ancestor_level = ancestor.get("level", 1)
-                while stack and stack[-1].get("level", 1) >= ancestor_level:
-                    stack.pop()
-                stack.append(ancestor)
-            while stack and stack[-1].get("level", 1) >= first_entry_level:
-                stack.pop()
-            ancestors = [
-                {
-                    "heading": node.get("heading"),
-                    "level": node.get("level", 1),
-                    "page_number": None,
-                }
-                for node in stack
-            ]
-
-        result.append({
-            "toc_range": [shard_page_start, shard_page_end],
-            "toc_range_unit": "page",
-            "source": hier.get("source", "vlm_shard_split"),
-            "toc_with_level": ancestors + shard_entries,
-        })
-
-    return result if result else None
-
-
-def _parse_toc_with_level_entries(markdown: str) -> list[dict[str, Any]]:
-    """Parse toc_with_level markdown table into list of dicts."""
-    entries: list[dict[str, Any]] = []
-    headers: list[str] | None = None
-    for raw_line in markdown.splitlines():
-        line = raw_line.strip()
-        if not line.startswith("|") or not line.endswith("|"):
-            continue
-        cells = [cell.strip() for cell in line.strip("|").split("|")]
-        if not cells or all(set(cell) <= {"-", ":"} for cell in cells):
-            continue
-        if headers is None:
-            headers = [cell.lower() for cell in cells]
-            continue
-        row = dict(zip(headers, cells))
-        level = _safe_int(row.get("level"))
-        heading = row.get("heading")
-        page_number = _safe_int(row.get("page_number"))
-        if heading and level:
-            entries.append({"heading": heading, "level": level, "page_number": page_number})
+    prefix: tuple[str, ...] = (),
+) -> list[_AnchoredTocEntry]:
+    """DFS title tree; keep only nodes already pinned to a physical page."""
+    entries: list[_AnchoredTocEntry] = []
+    for node in nodes:
+        path = (*prefix, node.title)
+        match = match_overrides.get(path)
+        if match is not None:
+            entries.append(
+                _AnchoredTocEntry(
+                    heading=node.title,
+                    level=int(node.level),
+                    physical_page=int(match.page),
+                )
+            )
+        if node.children:
+            entries.extend(
+                _walk_anchored_entries(
+                    list(node.children),
+                    match_overrides,
+                    prefix=path,
+                )
+            )
     return entries
 
 
-def _safe_int(value: Any) -> int | None:
-    if value is None or value == "":
+def _collect_calibrated_toc_entries(ctx: ToolContext) -> list[_AnchoredTocEntry]:
+    """Primary (post-graft) + parallel pending entries with calibrated pages."""
+    entries: list[_AnchoredTocEntry] = []
+    anchor_raw = ctx.blackboard.skeleton_anchor
+    nodes_raw = ctx.blackboard.skeleton_nodes
+    if isinstance(anchor_raw, dict) and isinstance(nodes_raw, list):
+        nodes = [
+            deserialize_title_node(node)
+            for node in nodes_raw
+            if isinstance(node, dict)
+        ]
+        if nodes:
+            anchor = deserialize_skeleton_anchor(anchor_raw)
+            entries.extend(
+                _walk_anchored_entries(nodes, anchor.match_overrides)
+            )
+
+    for record in ctx.blackboard.pending_skeleton_anchors or []:
+        if record.get("relationship") != "parallel":
+            continue
+        pending_anchor_raw = record.get("skeleton_anchor")
+        pending_nodes_raw = record.get("nodes") or []
+        if not isinstance(pending_anchor_raw, dict) or not isinstance(
+            pending_nodes_raw, list
+        ):
+            continue
+        pending_nodes = [
+            deserialize_title_node(node)
+            for node in pending_nodes_raw
+            if isinstance(node, dict)
+        ]
+        if not pending_nodes:
+            continue
+        pending_anchor = deserialize_skeleton_anchor(pending_anchor_raw)
+        entries.extend(
+            _walk_anchored_entries(pending_nodes, pending_anchor.match_overrides)
+        )
+    return entries
+
+
+def _toc_hierarchies_for_shard(
+    entries: list[_AnchoredTocEntry],
+    *,
+    shard_page_start: int,
+    shard_page_end: int,
+) -> list[dict[str, Any]] | None:
+    """Slice calibrated TOC entries to a shard and prepend open ancestors."""
+    if not entries:
         return None
-    try:
-        return int(value)
-    except (ValueError, TypeError):
+
+    shard_entries: list[_AnchoredTocEntry] = []
+    first_idx: int | None = None
+    for idx, entry in enumerate(entries):
+        if shard_page_start <= entry.physical_page <= shard_page_end:
+            if first_idx is None:
+                first_idx = idx
+            shard_entries.append(entry)
+    if not shard_entries or first_idx is None:
         return None
+
+    # Same ancestor-stack walk previously used by the parse-time splitter:
+    # open ancestors before the shard's first entry, drop trailing siblings.
+    first_entry_level = shard_entries[0].level
+    ancestors: list[dict[str, Any]] = []
+    if first_entry_level > 1:
+        stack: list[_AnchoredTocEntry] = []
+        for ancestor in entries[:first_idx]:
+            while stack and stack[-1].level >= ancestor.level:
+                stack.pop()
+            stack.append(ancestor)
+        while stack and stack[-1].level >= first_entry_level:
+            stack.pop()
+        ancestors = [
+            {"heading": node.heading, "level": node.level}
+            for node in stack
+        ]
+
+    toc_with_level = ancestors + [
+        {"heading": entry.heading, "level": entry.level}
+        for entry in shard_entries
+    ]
+    return [
+        {
+            "toc_range": [shard_page_start, shard_page_end],
+            "toc_range_unit": "page",
+            "source": "calibrated_shard_split",
+            "toc_with_level": toc_with_level,
+        }
+    ]
+
+
+def _attach_shard_toc_hierarchies(ctx: ToolContext, shards: list[Shard]) -> None:
+    """Attach calibrated per-shard TOC slices onto the plan (in place)."""
+    entries = _collect_calibrated_toc_entries(ctx)
+    for shard in shards:
+        shard.toc_hierarchies = _toc_hierarchies_for_shard(
+            entries,
+            shard_page_start=shard.page_start,
+            shard_page_end=shard.page_end,
+        )
 
 
 def _thresholds(ctx: ToolContext) -> tuple[int, int]:
@@ -486,6 +498,7 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     threshold, max_pages = _thresholds(ctx)
     if page_count <= threshold:
         plan = single_shard_plan(page_count)
+        _attach_shard_toc_hierarchies(ctx, plan.shards)
         ctx.blackboard.shard_plan = plan
         return ToolResult(
             status="ok",
@@ -516,6 +529,7 @@ def propose_shard_plan(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
         rationale = "Deterministic plan from blank-like page boundaries (no TOC)."
 
     shards = _cuts_to_shards(cuts, page_count)
+    _attach_shard_toc_hierarchies(ctx, shards)
     enabled = len(shards) > 1
     if not enabled:
         reason = "not_needed"

@@ -22,6 +22,8 @@ from app.services.document_agent.structure.hierarchy_locator import (
     ResolvedHierarchyRange,
     TitleNode,
     collapse_intermediate_single_child_chains,
+    coverage_by_path,
+    deepest_covering_path,
     extract_toc_nodes,
     iter_leaf_title_nodes,
     resolve_hierarchy_page_ranges,
@@ -100,7 +102,6 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
     ctx.blackboard.skeleton_nodes = [
         serialize_title_node(node) for node in resolve_nodes
     ]
-    ctx.blackboard.toc_page_offset = skeleton_anchor.offset
     ctx.blackboard.pending_skeleton_anchors = pending_records
 
 
@@ -209,10 +210,14 @@ def classify_toc_relationship(
 ) -> str:
     """Classify a pending TOC as parallel or contained vs primary ranges.
 
-    parallel: the pending TOC covers pages beyond the primary tree's *anchored*
-              content (i.e. the last explicitly-located section start page).
-    contained: the pending TOC's content falls strictly within a primary
-              section's explicitly-anchored range.
+    contained: the pending TOC's page span fits inside the span of some primary
+               node at any depth, so it refines structure the primary tree
+               already covers. Graft hosts it under that node.
+    parallel:  no primary node covers the span, so it describes content the
+               primary tree does not structure at all.
+
+    Uses the same ancestor coverage as ``toc_graft`` so classification and
+    grafting agree on geometry.
     """
     leaves = [
         node
@@ -232,27 +237,12 @@ def classify_toc_relationship(
     if first_physical < 1 or first_physical > page_count:
         return "unresolvable"
 
-    if not primary_ranges:
-        return "parallel"
-
-    # Use the last *start_page* among primary ranges as the boundary of
-    # explicitly-anchored content. The end_page of the last section is often
-    # extended to page_count by default and doesn't reflect real content coverage.
-    last_anchored_start = max(
-        (r.start_page for r in primary_ranges if r.start_page is not None), default=0
+    host = deepest_covering_path(
+        coverage_by_path(primary_ranges),
+        start=first_physical,
+        end=last_physical,
     )
-
-    if first_physical > last_anchored_start:
-        return "parallel"
-
-    min_level = min(r.level for r in primary_ranges)
-    top_level_ranges = [r for r in primary_ranges if r.level == min_level]
-    for r in top_level_ranges:
-        if r.start_page and r.end_page:
-            if r.start_page <= first_physical and last_physical <= r.end_page:
-                return "contained"
-
-    return "parallel"
+    return "contained" if host is not None else "parallel"
 
 
 def _anchor_pending_tocs(

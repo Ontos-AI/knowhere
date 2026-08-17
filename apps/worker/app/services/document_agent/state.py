@@ -37,7 +37,6 @@ class AgentBlackboard:
     toc_result: TocResult | None = None
     toc_hierarchies: list[dict[str, Any]] | None = None
     h1_result: H1BoundaryResult | None = None
-    toc_page_offset: int | None = None
     skeleton_anchor: dict[str, Any] | None = None
     skeleton_nodes: list[dict[str, Any]] | None = None
     pending_skeleton_anchors: list[dict[str, Any]] = field(default_factory=list)

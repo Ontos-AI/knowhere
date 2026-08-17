@@ -8,9 +8,10 @@ from typing import Any
 from loguru import logger
 
 from app.services.document_agent.structure.hierarchy_locator import (
-    ResolvedHierarchyRange,
     TitleMatch,
     TitleNode,
+    coverage_by_path,
+    deepest_covering_path,
     resolve_hierarchy_page_ranges,
 )
 
@@ -44,7 +45,7 @@ def graft_contained_toc(
         body_pages=body_pages,
         match_overrides=overrides,
     )
-    coverage = _coverage_by_path(ranges)
+    coverage = coverage_by_path(ranges)
     nodes = _graft_children(
         parent=None,
         parent_path=(),
@@ -57,24 +58,6 @@ def graft_contained_toc(
         events=events,
     )
     return ContainedGraftResult(nodes=nodes, match_overrides=overrides, events=events)
-
-
-def _coverage_by_path(
-    ranges: list[ResolvedHierarchyRange],
-) -> dict[tuple[str, ...], tuple[int, int]]:
-    coverage: dict[tuple[str, ...], tuple[int, int]] = {}
-    for item in ranges:
-        for depth in range(1, len(item.path_titles) + 1):
-            path = item.path_titles[:depth]
-            span = coverage.get(path)
-            if span is None:
-                coverage[path] = (item.start_page, item.end_page)
-            else:
-                coverage[path] = (
-                    min(span[0], item.start_page),
-                    max(span[1], item.end_page),
-                )
-    return coverage
 
 
 def _graft_children(
@@ -160,13 +143,8 @@ def _graft_one_child(
                 "title_equal": matched.title == child.title,
             }
         )
-        _remap_overrides(
-            contained_overrides=contained_overrides,
-            primary_overrides=primary_overrides,
-            old_prefix=contained_path,
-            new_prefix=matched_path,
-            drop_root=True,
-        )
+        # Do not remap descendant overrides here — only successfully
+        # attached/deduped children may write into primary_overrides.
         new_matched = replace(
             matched,
             children=_graft_children(
@@ -199,26 +177,38 @@ def _graft_one_child(
                 contained_overrides=contained_overrides,
                 events=events,
             )
+        reason = (
+            "outside_parent_coverage"
+            if span is not None
+            else "missing_parent_coverage"
+        )
+        _record_skip(
+            events=events,
+            contained_path=contained_path,
+            start=start,
+            reason=reason,
+            parent_path=parent_path,
+            parent_span=span,
+        )
         return primary_children
 
-    covering = _longest_covering_path(coverage, start)
+    covering = deepest_covering_path(coverage, start=start, end=start)
     if covering is None:
-        events.append(
-            {
-                "action": "skip",
-                "contained_path": contained_path,
-                "start": start,
-            }
+        _record_skip(
+            events=events,
+            contained_path=contained_path,
+            start=start,
+            reason="no_covering_path",
         )
         return primary_children
     covering_node = _node_at_path(primary_children, covering)
     if covering_node is None:
-        events.append(
-            {
-                "action": "skip",
-                "contained_path": contained_path,
-                "start": start,
-            }
+        _record_skip(
+            events=events,
+            contained_path=contained_path,
+            start=start,
+            reason="covering_node_missing",
+            parent_path=covering,
         )
         return primary_children
     updated_parent = replace(
@@ -291,6 +281,28 @@ def _sibling_hits(
     return hits
 
 
+def _record_skip(
+    *,
+    events: list[dict[str, Any]],
+    contained_path: tuple[str, ...],
+    start: int,
+    reason: str,
+    parent_path: tuple[str, ...] | None = None,
+    parent_span: tuple[int, int] | None = None,
+) -> None:
+    event: dict[str, Any] = {
+        "action": "skip",
+        "contained_path": contained_path,
+        "start": start,
+        "reason": reason,
+    }
+    if parent_path is not None:
+        event["parent_path"] = parent_path
+    if parent_span is not None:
+        event["parent_span"] = list(parent_span)
+    events.append(event)
+
+
 def _remap_overrides(
     *,
     contained_overrides: dict[tuple[str, ...], TitleMatch],
@@ -335,19 +347,6 @@ def _insert_by_start(
     updated = list(siblings)
     updated.insert(insert_at, new_node)
     return updated
-
-
-def _longest_covering_path(
-    coverage: dict[tuple[str, ...], tuple[int, int]],
-    start: int,
-) -> tuple[str, ...] | None:
-    covering: tuple[str, ...] | None = None
-    for path, span in coverage.items():
-        if span[0] <= start <= span[1] and (
-            covering is None or len(path) > len(covering)
-        ):
-            covering = path
-    return covering
 
 
 def _node_at_path(nodes: list[TitleNode], path: tuple[str, ...]) -> TitleNode | None:

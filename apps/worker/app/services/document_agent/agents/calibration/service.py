@@ -42,12 +42,14 @@ def calibrate_offset(
     if page_texts and not ctx.blackboard.page_full_text_cache:
         ctx.blackboard.page_full_text_cache = dict(page_texts)
 
+    max_rounds = max(1, int(ctx.settings.get("calibration_max_rounds") or 16))
     try:
         phase1 = run_calibration_phase1(
             ctx=ctx,
             toc_hierarchies=hierarchies,
             region_index=0,
             page_count=int(page_count or ctx.blackboard.page_count or 0),
+            max_rounds=max_rounds,
         )
     except Exception as exc:
         logger.warning("[calibration] Phase-1 failed: {}", exc)

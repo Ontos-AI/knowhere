@@ -22,6 +22,7 @@ _DEBUG_VISUAL_DIRS = {
     "verify_pages",
     "agent_visuals",
     "ocr_pages",
+    "calibration_inspect",
 }
 _PAGE_MEMORY_VISUAL_DIRS = {"pages", "asset_annotate"}
 
