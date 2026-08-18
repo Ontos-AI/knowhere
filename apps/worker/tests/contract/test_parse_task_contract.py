@@ -163,6 +163,12 @@ def test_parse_task_should_publish_each_non_null_source_path_once(
                     "path": f"{source_file_name}/Root/Shared",
                 },
                 {
+                    "know_id": "nul-duplicate-shared-path",
+                    "type": "text",
+                    "content": "NUL duplicate shared-path chunk",
+                    "path": f"{source_file_name}/Root\x00/Shared",
+                },
+                {
                     "know_id": "first-null-path",
                     "type": "text",
                     "content": "first null-path chunk",
@@ -198,6 +204,7 @@ def test_parse_task_should_publish_each_non_null_source_path_once(
     assert [row["chunk_id"] for row in job_chunks] == [
         "first-shared-path",
         "duplicate-shared-path",
+        "nul-duplicate-shared-path",
         "first-null-path",
         "second-null-path",
     ]
