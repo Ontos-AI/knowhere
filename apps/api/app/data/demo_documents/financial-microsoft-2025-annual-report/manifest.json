@@ -1,96 +1,180 @@
 {
   "version": "2.0",
-  "job_id": "job_922992fe94d2",
-  "data_id": null,
-  "source_file_name": "2025_AnnualReport.docx",
-  "processing_date": "2026-06-16T03:37:46.586494Z",
+  "job_id": "job_b9eb8b0f3f50",
+  "data_id": "demo-financial-microsoft-2025-annual-report",
+  "source_file_name": "Microsoft 2025 Annual Report.docx",
+  "processing_date": "2026-08-18T18:00:17.755532Z",
   "processing": {
     "page_count": 72,
     "billing_status": "charged",
     "cost": {
-      "micro_dollars": 108000,
-      "credits": 0.108
+      "micro_dollars": 1080000,
+      "credits": 1.08
+    },
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-18:874ab8b6c9e4",
+      "total_input_cost": 0.01262366,
+      "total_output_cost": 0.0021504,
+      "total_cost": 0.01477406,
+      "by_model": {
+        "deepseek-chat": {
+          "input_tokens": 90169,
+          "output_tokens": 7680,
+          "calls": 70,
+          "input_rate_per_1m": 0.14,
+          "output_rate_per_1m": 0.28,
+          "input_cost": 0.01262366,
+          "output_cost": 0.0021504,
+          "total_cost": 0.01477406,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.14,
+            "output_per_1m": 0.28,
+            "source": "DeepSeek official pricing",
+            "effective_date": "2026-06-11"
+          }
+        }
+      },
+      "by_task": {
+        "parser.heading_hierarchy": {
+          "input_cost": 0.00015918,
+          "output_cost": 1.876e-05,
+          "total_cost": 0.00017794,
+          "models": {
+            "deepseek-chat": {
+              "input_tokens": 1137,
+              "output_tokens": 67,
+              "calls": 1,
+              "input_rate_per_1m": 0.14,
+              "output_rate_per_1m": 0.28,
+              "input_cost": 0.00015918,
+              "output_cost": 1.876e-05,
+              "total_cost": 0.00017794,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.14,
+                "output_per_1m": 0.28,
+                "source": "DeepSeek official pricing",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        },
+        "summary.asset": {
+          "input_cost": 0.01246448,
+          "output_cost": 0.00213164,
+          "total_cost": 0.01459612,
+          "models": {
+            "deepseek-chat": {
+              "input_tokens": 89032,
+              "output_tokens": 7613,
+              "calls": 69,
+              "input_rate_per_1m": 0.14,
+              "output_rate_per_1m": 0.28,
+              "input_cost": 0.01246448,
+              "output_cost": 0.00213164,
+              "total_cost": 0.01459612,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.14,
+                "output_per_1m": 0.28,
+                "source": "DeepSeek official pricing",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        }
+      },
+      "missing_pricing_models": []
     },
     "timing": {
-      "started_at": "2026-06-16T03:35:08.048494+00:00",
-      "completed_at": "2026-06-16T03:37:46.549470+00:00",
-      "duration_ms": 158500
+      "started_at": "2026-08-18T17:57:54.877962+00:00",
+      "completed_at": "2026-08-18T18:00:17.715945+00:00",
+      "duration_ms": 142837
     },
     "stages": {
       "timing_ms": {
         "document.profile": 0,
-        "heading.merge_pre_pass_llm": 1080,
-        "heading.hierarchy_llm_call": 1606,
-        "heading.hierarchy_llm": 1613,
-        "document.cleanup_unreferenced_images": 0,
+        "heading.hierarchy_llm_call": 1568,
+        "heading.hierarchy_llm": 1586,
+        "document.cleanup_unreferenced_images": 2,
         "document.compress_images": 0,
-        "worker.parse.document": 158375
+        "worker.parse.document": 142658
       },
       "token_usage": {
-        "prompt_tokens": 97895,
-        "completion_tokens": 5293,
-        "total_tokens": 103188
+        "prompt_tokens": 90169,
+        "completion_tokens": 7680,
+        "total_tokens": 97849,
+        "calls": 70,
+        "by_model": {
+          "deepseek-chat": {
+            "prompt_tokens": 90169,
+            "completion_tokens": 7680,
+            "total_tokens": 97849,
+            "calls": 70
+          }
+        },
+        "by_task": {
+          "parser.heading_hierarchy": {
+            "prompt_tokens": 1137,
+            "completion_tokens": 67,
+            "total_tokens": 1204,
+            "calls": 1,
+            "models": {
+              "deepseek-chat": {
+                "prompt_tokens": 1137,
+                "completion_tokens": 67,
+                "total_tokens": 1204,
+                "calls": 1
+              }
+            }
+          },
+          "summary.asset": {
+            "prompt_tokens": 89032,
+            "completion_tokens": 7613,
+            "total_tokens": 96645,
+            "calls": 69,
+            "models": {
+              "deepseek-chat": {
+                "prompt_tokens": 89032,
+                "completion_tokens": 7613,
+                "total_tokens": 96645,
+                "calls": 69
+              }
+            }
+          }
+        }
       }
     }
   },
   "statistics": {
-    "total_chunks": 122,
-    "text_chunks": 49,
+    "total_chunks": 85,
+    "text_chunks": 12,
     "image_chunks": 4,
     "table_chunks": 69,
+    "page_chunks": 0,
     "total_pages": null
   },
   "HIERARCHY": {
-    "**Preface**": {
-      "**Preface** part 1": {},
-      "**Preface** part 2": {},
-      "**Preface** part 3": {},
-      "**Preface** part 4": {},
-      "**Preface** part 5": {},
-      "**Preface** part 6": {},
-      "**Preface** part 7": {},
-      "**Preface** part 8": {},
-      "**Preface** part 9": {},
-      "**Preface** part 10": {},
-      "**Preface** part 11": {},
-      "**Preface** part 12": {},
-      "**Preface** part 13": {},
-      "**Preface** part 14": {},
-      "**Preface** part 15": {},
-      "**Preface** part 16": {},
-      "**Preface** part 17": {},
-      "**Preface** part 18": {},
-      "**Preface** part 19": {},
-      "**Preface** part 20": {},
-      "**Preface** part 21": {},
-      "**Preface** part 22": {},
-      "**Preface** part 23": {},
-      "**Preface** part 24": {},
-      "**Preface** part 25": {},
-      "**Preface** part 26": {},
-      "**Preface** part 27": {},
-      "**Preface** part 28": {},
-      "**Preface** part 29": {},
-      "**Preface** part 30": {},
-      "**Preface** part 31": {},
-      "**Preface** part 32": {},
-      "**Preface** part 33": {},
-      "**Preface** part 34": {},
-      "**Preface** part 35": {},
-      "**Preface** part 36": {},
-      "**Preface** part 37": {},
-      "**Preface** part 38": {},
-      "**Preface** part 39": {},
-      "**Preface** part 40": {},
-      "**Preface** part 41": {},
-      "**Preface** part 42": {},
-      "**Preface** part 43": {},
-      "**Preface** part 44": {},
-      "**Preface** part 45": {},
-      "**Preface** part 46": {},
-      "**Preface** part 47": {},
-      "**Preface** part 48": {}
-    },
-    "4.\tEnvironmental, Social, and Public Policy Committee": {}
+    "U.S. and foreign components of income before income taxes were as follows:": {
+      "U.S. and foreign components of income before income taxes were as follows: part 1": {},
+      "U.S. and foreign components of income before income taxes were as follows: part 2": {},
+      "U.S. and foreign components of income before income taxes were as follows: part 3": {},
+      "U.S. and foreign components of income before income taxes were as follows: part 4": {},
+      "U.S. and foreign components of income before income taxes were as follows: part 5": {},
+      "U.S. and foreign components of income before income taxes were as follows: part 6": {},
+      "U.S. and foreign components of income before income taxes were as follows: part 7": {},
+      "U.S. and foreign components of income before income taxes were as follows: part 8": {},
+      "U.S. and foreign components of income before income taxes were as follows: part 9": {},
+      "U.S. and foreign components of income before income taxes were as follows: part 10": {},
+      "U.S. and foreign components of income before income taxes were as follows: part 11": {},
+      "U.S. and foreign components of income before income taxes were as follows: part 12": {}
+    }
   }
 }

@@ -1,31 +1,251 @@
 {
   "version": "2.0",
-  "job_id": "job_demo_research_rag_realized",
-  "data_id": null,
+  "job_id": "job_e9c30a85c60b",
+  "data_id": "demo-research-rag-realized",
   "source_file_name": "Retrieval-Augmented Generation Realized.pdf",
-  "processing_date": "2026-06-17T11:37:41.211902Z",
+  "processing_date": "2026-08-18T18:04:44.041120Z",
   "processing": {
-    "page_count": null,
-    "billing_status": null,
+    "page_count": 35,
+    "billing_status": "charged",
     "cost": {
-      "micro_dollars": null,
-      "credits": null
+      "micro_dollars": 525000,
+      "credits": 0.525
     },
-    "cost_estimate": {},
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-18:874ab8b6c9e4",
+      "total_input_cost": 0.0,
+      "total_output_cost": 0.0,
+      "total_cost": 0.0,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 42659,
+          "output_tokens": 2012,
+          "calls": 9,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 19770,
+              "output_tokens": 240,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "calibration.react_loop": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 12602,
+              "output_tokens": 1350,
+              "calls": 4,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "calibration.inspect_pages": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 8206,
+              "output_tokens": 366,
+              "calls": 3,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.page_locate": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 2081,
+              "output_tokens": 56,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
+    },
     "timing": {
-      "started_at": null,
-      "completed_at": null,
-      "duration_ms": null
+      "started_at": "2026-08-18T18:00:11.234156+00:00",
+      "completed_at": "2026-08-18T18:04:44.034873+00:00",
+      "duration_ms": 272800
     },
-    "stages": {}
+    "stages": {
+      "timing_ms": {
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 140525,
+        "page_memory.skeleton": 9,
+        "page_memory.node_summary": 36197,
+        "page_memory.node_rows": 74,
+        "page_memory.node_assembly": 36276,
+        "worker.parse.document": 272665
+      },
+      "token_usage": {
+        "prompt_tokens": 42659,
+        "completion_tokens": 2012,
+        "total_tokens": 44671,
+        "calls": 9,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 42659,
+            "completion_tokens": 2012,
+            "total_tokens": 44671,
+            "calls": 9
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 19770,
+            "completion_tokens": 240,
+            "total_tokens": 20010,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 19770,
+                "completion_tokens": 240,
+                "total_tokens": 20010,
+                "calls": 1
+              }
+            }
+          },
+          "calibration.react_loop": {
+            "prompt_tokens": 12602,
+            "completion_tokens": 1350,
+            "total_tokens": 13952,
+            "calls": 4,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 12602,
+                "completion_tokens": 1350,
+                "total_tokens": 13952,
+                "calls": 4
+              }
+            }
+          },
+          "calibration.inspect_pages": {
+            "prompt_tokens": 8206,
+            "completion_tokens": 366,
+            "total_tokens": 8572,
+            "calls": 3,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 8206,
+                "completion_tokens": 366,
+                "total_tokens": 8572,
+                "calls": 3
+              }
+            }
+          },
+          "page_memory.page_locate": {
+            "prompt_tokens": 2081,
+            "completion_tokens": 56,
+            "total_tokens": 2137,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 2081,
+                "completion_tokens": 56,
+                "total_tokens": 2137,
+                "calls": 1
+              }
+            }
+          }
+        }
+      }
+    }
   },
   "statistics": {
-    "total_chunks": 41,
-    "text_chunks": 41,
-    "image_chunks": 0,
-    "table_chunks": 0,
-    "page_chunks": 0,
+    "total_chunks": 59,
+    "text_chunks": 0,
+    "image_chunks": 27,
+    "table_chunks": 3,
+    "page_chunks": 29,
     "total_pages": null
   },
-  "HIERARCHY": {}
+  "HIERARCHY": {
+    "Contents": {},
+    "About This White Paper": {},
+    "Key Takeaways": {},
+    "Section 1: RAG Industrialization - Landscape & Strategy": {
+      "Let's Start with a Crash Course of RAG": {},
+      "Wait! Naive RAG Doesn't Work Well!": {},
+      "So, What Are Some Techniques to Enhance RAG?": {},
+      "And What Tools Can I Use to Develop a RAG System?": {},
+      "Alright, How Can I Strategically Prioritize My Development Focus to Industrialize a RAG Project?": {}
+    },
+    "Section 2: RAG Recipes for Real-World Challenges": {
+      "The Cold Start Recipe: Data-Driven Chunking & Embedding Strategy Without Evaluation Dataset": {},
+      "The Virtual Havruta Recipe: Optimizing Queries for Multifaceted Contexts & Precise Citations": {},
+      "The Deepset Recipe: Unlocking the Mastery of Metadata for Filtering, Searching, and Reranking": {},
+      "The Jina AI Recipe: Agent-Driven SQL Scoping and Task-Specific Finetuning for Patent Search": {},
+      "The RAGAR Recipe: Multimodal RAG-augmented Reasoning for Fact-checking": {
+        "Background & Goals of this Recipe": {},
+        "Challenges Addressed": {},
+        "The RAGAR Approaches: Chain of RAG (CoRAG) & Tree of RAG (ToRAG)": {},
+        "The RAGAR Recipe: Multimodal RAG-augmented Reasoning for Fact-checking": {
+          "RAG-Augmented Reasoning Technique (Chain of RAG)": {},
+          "RAG-Augmented Reasoning Technique (Tree of RAG)": {}
+        },
+        "Chain of RAG & Tree of RAG": {},
+        "RAG-enhanced Agents for Enterprises": {}
+      }
+    },
+    "Section 3: A Deep Dive into RAG Evaluation & Metrics": {
+      "Now, how do we assess RAG systems?": {},
+      "A Further Look into Existing RAG Evaluation Frameworks": {},
+      "Unveiling the Mechanisms Behind These Metrics": {},
+      "Reflections and Future Opportunities in RAG Technology": {}
+    },
+    "References": {},
+    "Authors": {},
+    "Contributors": {},
+    "Contributing Companies": {},
+    "About appliedAI Initiative GmbH": {},
+    "Acknowledgement": {}
+  }
 }

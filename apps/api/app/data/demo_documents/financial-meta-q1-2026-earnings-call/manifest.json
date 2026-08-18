@@ -1,64 +1,188 @@
 {
   "version": "2.0",
-  "job_id": "job_12a9a381bb04",
-  "data_id": null,
-  "source_file_name": "META-Q1-2026-Earnings-Call-Transcript.pdf",
-  "processing_date": "2026-06-16T03:35:02.680217Z",
+  "job_id": "job_fc7d8542b353",
+  "data_id": "demo-financial-meta-q1-2026-earnings-call",
+  "source_file_name": "Meta Q1 2026 Earnings Call Transcript.pdf",
+  "processing_date": "2026-08-18T17:53:41.004680Z",
   "processing": {
     "page_count": 20,
     "billing_status": "charged",
     "cost": {
-      "micro_dollars": 30000,
-      "credits": 0.03
+      "micro_dollars": 300000,
+      "credits": 0.3
+    },
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-18:874ab8b6c9e4",
+      "total_input_cost": 9.632e-05,
+      "total_output_cost": 1.148e-05,
+      "total_cost": 0.0001078,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 16647,
+          "output_tokens": 198,
+          "calls": 1,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        },
+        "deepseek-chat": {
+          "input_tokens": 688,
+          "output_tokens": 41,
+          "calls": 1,
+          "input_rate_per_1m": 0.14,
+          "output_rate_per_1m": 0.28,
+          "input_cost": 9.632e-05,
+          "output_cost": 1.148e-05,
+          "total_cost": 0.0001078,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.14,
+            "output_per_1m": 0.28,
+            "source": "DeepSeek official pricing",
+            "effective_date": "2026-06-11"
+          }
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 16647,
+              "output_tokens": 198,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.hierarchy": {
+          "input_cost": 9.632e-05,
+          "output_cost": 1.148e-05,
+          "total_cost": 0.0001078,
+          "models": {
+            "deepseek-chat": {
+              "input_tokens": 688,
+              "output_tokens": 41,
+              "calls": 1,
+              "input_rate_per_1m": 0.14,
+              "output_rate_per_1m": 0.28,
+              "input_cost": 9.632e-05,
+              "output_cost": 1.148e-05,
+              "total_cost": 0.0001078,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.14,
+                "output_per_1m": 0.28,
+                "source": "DeepSeek official pricing",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
     },
     "timing": {
-      "started_at": "2026-06-16T03:34:17.225197+00:00",
-      "completed_at": "2026-06-16T03:35:02.672609+00:00",
-      "duration_ms": 45447
+      "started_at": "2026-08-18T17:51:48.057538+00:00",
+      "completed_at": "2026-08-18T17:53:41.001706+00:00",
+      "duration_ms": 112944
     },
     "stages": {
       "timing_ms": {
-        "document.profile": 4249,
-        "pdf.extract.standard": 34338,
-        "toc.detect_range_llm": 1055,
-        "md.detect_toc": 1090,
-        "heading.hierarchy_llm_call": 2513,
-        "heading.hierarchy_llm": 2522,
-        "md.predict_headings": 2839,
-        "md.deferred_summaries": 2622,
-        "md.build_dataframe": 1,
-        "pdf.parse_md": 6799,
-        "document.cleanup_unreferenced_images": 0,
-        "document.compress_images": 0,
-        "worker.parse.document": 45392
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 32209,
+        "page_memory.skeleton": 0,
+        "page_memory.title_render": 15122,
+        "page_memory.title_detection": 20065,
+        "page_memory.fine_hierarchy": 1383,
+        "page_memory.render": 14446,
+        "page_memory.tag": 18147,
+        "page_memory.assets": 4,
+        "page_memory.node_summary": 11400,
+        "page_memory.node_rows": 21,
+        "page_memory.node_assembly": 11437,
+        "worker.parse.document": 112843
       },
       "token_usage": {
-        "prompt_tokens": 6675,
-        "completion_tokens": 170,
-        "total_tokens": 6845
+        "prompt_tokens": 17335,
+        "completion_tokens": 239,
+        "total_tokens": 17574,
+        "calls": 2,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 16647,
+            "completion_tokens": 198,
+            "total_tokens": 16845,
+            "calls": 1
+          },
+          "deepseek-chat": {
+            "prompt_tokens": 688,
+            "completion_tokens": 41,
+            "total_tokens": 729,
+            "calls": 1
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 16647,
+            "completion_tokens": 198,
+            "total_tokens": 16845,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 16647,
+                "completion_tokens": 198,
+                "total_tokens": 16845,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.hierarchy": {
+            "prompt_tokens": 688,
+            "completion_tokens": 41,
+            "total_tokens": 729,
+            "calls": 1,
+            "models": {
+              "deepseek-chat": {
+                "prompt_tokens": 688,
+                "completion_tokens": 41,
+                "total_tokens": 729,
+                "calls": 1
+              }
+            }
+          }
+        }
       }
     }
   },
   "statistics": {
-    "total_chunks": 13,
-    "text_chunks": 12,
+    "total_chunks": 3,
+    "text_chunks": 0,
     "image_chunks": 0,
-    "table_chunks": 1,
+    "table_chunks": 0,
+    "page_chunks": 3,
     "total_pages": null
   },
   "HIERARCHY": {
-    "Root": {},
-    "Kenneth Dorell, Director, Investor Relations": {},
-    "Mark Zuckerberg, CEO": {},
-    "Susan Li, CFO": {
-      "Brian Nowak:": {},
-      "Mark Zuckerberg:": {},
-      "Susan Li:": {},
-      "Operator:": {},
-      "Douglas Anmuth:": {},
-      "Susan Li:_2": {},
-      "Operator:_2": {},
-      "Kenneth Gawrelski:": {}
+    "Root": {
+      "Kenneth Dorell, Director, Investor Relations": {},
+      "Mark Zuckerberg, CEO": {},
+      "Susan Li, CFO": {}
     }
   }
 }

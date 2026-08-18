@@ -125,12 +125,11 @@ def test_should_preserve_filename_rooted_sections_when_publishing_demo_chunks() 
     publication_paths = {
         str(chunk.get("path") or "")
         for chunk in publication_chunks
-        if chunk.get("type") == "text"
+        if chunk.get("type") == "page"
     }
 
-    assert source.title in publication_paths
-    assert f"{source.title}/NVIDIA Corp. (NVDA)" in publication_paths
-    assert f"{source.title}/MANAGEMENT DISCUSSION SECTION" in publication_paths
+    assert f"{source.title}/Root/MANAGEMENT DISCUSSION SECTION" in publication_paths
+    assert f"{source.title}/Root/QUESTION AND ANSWER SECTION" in publication_paths
 
 
 @pytest.mark.asyncio
@@ -169,7 +168,7 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
         "financial-spacex-s1"
     )
     assert spacex_source["canonical_document_id"] == "demo-doc-spacex-s1"
-    assert spacex_source["chunk_count"] == 922
+    assert spacex_source["chunk_count"] == 227
     assert spacex_citations[0]["canonical_chunk_id"].startswith(
         f"{SPACEX_DEMO_SOURCE_ID}:"
     )
@@ -181,7 +180,7 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     assert library_sources_by_id["financial-spacex-s1"]["demo_source_id"] == (
         SPACEX_DEMO_SOURCE_ID
     )
-    assert library_sources_by_id["financial-spacex-s1"]["chunk_count"] == 922
+    assert library_sources_by_id["financial-spacex-s1"]["chunk_count"] == 227
     assert library_sources_by_id["stem-statistical-learning"]["status"] == "ready"
     assert library_sources_by_id["stem-statistical-learning"]["demo_source_id"] == (
         "demo-stem-statistical-learning"
@@ -190,12 +189,12 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     research_demo_sources = {
         "research-attention-is-all-you-need": (
             "demo-research-attention-is-all-you-need",
-            16,
+            34,
         ),
-        "research-rag-survey": ("demo-research-rag-survey", 37),
-        "research-rag-realized": ("demo-research-rag-realized", 41),
-        "research-toolformer": ("demo-research-toolformer", 27),
-        "research-ai-agents-overview": ("demo-research-ai-agents-overview", 33),
+        "research-rag-survey": ("demo-research-rag-survey", 35),
+        "research-rag-realized": ("demo-research-rag-realized", 59),
+        "research-toolformer": ("demo-research-toolformer", 41),
+        "research-ai-agents-overview": ("demo-research-ai-agents-overview", 58),
     }
     for library_source_id, (
         expected_demo_source_id,

@@ -1,31 +1,291 @@
 {
   "version": "2.0",
-  "job_id": "job_demo_research_rag_survey",
-  "data_id": null,
+  "job_id": "job_9f032493aca9",
+  "data_id": "demo-research-rag-survey",
   "source_file_name": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf",
-  "processing_date": "2026-06-17T11:37:38.200203Z",
+  "processing_date": "2026-08-18T18:01:34.860565Z",
   "processing": {
-    "page_count": null,
-    "billing_status": null,
+    "page_count": 21,
+    "billing_status": "charged",
     "cost": {
-      "micro_dollars": null,
-      "credits": null
+      "micro_dollars": 315000,
+      "credits": 0.315
     },
-    "cost_estimate": {},
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-18:874ab8b6c9e4",
+      "total_input_cost": 0.004314,
+      "total_output_cost": 0.00087646,
+      "total_cost": 0.00519046,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 16662,
+          "output_tokens": 255,
+          "calls": 1,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        },
+        "deepseek-chat": {
+          "input_tokens": 1950,
+          "output_tokens": 457,
+          "calls": 1,
+          "input_rate_per_1m": 0.14,
+          "output_rate_per_1m": 0.28,
+          "input_cost": 0.000273,
+          "output_cost": 0.00012796,
+          "total_cost": 0.00040096,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.14,
+            "output_per_1m": 0.28,
+            "source": "DeepSeek official pricing",
+            "effective_date": "2026-06-11"
+          }
+        },
+        "qwen3.6-flash": {
+          "input_tokens": 16164,
+          "output_tokens": 499,
+          "calls": 6,
+          "input_rate_per_1m": 0.25,
+          "output_rate_per_1m": 1.5,
+          "input_cost": 0.004041,
+          "output_cost": 0.0007485,
+          "total_cost": 0.0047895,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.25,
+            "output_per_1m": 1.5,
+            "source": "Qwen Cloud official pricing, <=256K input tier",
+            "effective_date": "2026-06-11"
+          }
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 16662,
+              "output_tokens": 255,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.hierarchy": {
+          "input_cost": 0.000273,
+          "output_cost": 0.00012796,
+          "total_cost": 0.00040096,
+          "models": {
+            "deepseek-chat": {
+              "input_tokens": 1950,
+              "output_tokens": 457,
+              "calls": 1,
+              "input_rate_per_1m": 0.14,
+              "output_rate_per_1m": 0.28,
+              "input_cost": 0.000273,
+              "output_cost": 0.00012796,
+              "total_cost": 0.00040096,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.14,
+                "output_per_1m": 0.28,
+                "source": "DeepSeek official pricing",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        },
+        "page_memory.asset_detect": {
+          "input_cost": 0.004041,
+          "output_cost": 0.0007485,
+          "total_cost": 0.0047895,
+          "models": {
+            "qwen3.6-flash": {
+              "input_tokens": 16164,
+              "output_tokens": 499,
+              "calls": 6,
+              "input_rate_per_1m": 0.25,
+              "output_rate_per_1m": 1.5,
+              "input_cost": 0.004041,
+              "output_cost": 0.0007485,
+              "total_cost": 0.0047895,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.25,
+                "output_per_1m": 1.5,
+                "source": "Qwen Cloud official pricing, <=256K input tier",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
+    },
     "timing": {
-      "started_at": null,
-      "completed_at": null,
-      "duration_ms": null
+      "started_at": "2026-08-18T17:58:44.066877+00:00",
+      "completed_at": "2026-08-18T18:01:34.855331+00:00",
+      "duration_ms": 170788
     },
-    "stages": {}
+    "stages": {
+      "timing_ms": {
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 28423,
+        "page_memory.skeleton": 0,
+        "page_memory.title_render": 3264,
+        "page_memory.title_detection": 24489,
+        "page_memory.fine_hierarchy": 2748,
+        "page_memory.render": 6307,
+        "page_memory.tag": 36761,
+        "page_memory.assets": 19839,
+        "page_memory.node_summary": 48679,
+        "page_memory.node_rows": 72,
+        "page_memory.node_assembly": 48771,
+        "worker.parse.document": 170640
+      },
+      "token_usage": {
+        "prompt_tokens": 34776,
+        "completion_tokens": 1211,
+        "total_tokens": 35987,
+        "calls": 8,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 16662,
+            "completion_tokens": 255,
+            "total_tokens": 16917,
+            "calls": 1
+          },
+          "deepseek-chat": {
+            "prompt_tokens": 1950,
+            "completion_tokens": 457,
+            "total_tokens": 2407,
+            "calls": 1
+          },
+          "qwen3.6-flash": {
+            "prompt_tokens": 16164,
+            "completion_tokens": 499,
+            "total_tokens": 16663,
+            "calls": 6
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 16662,
+            "completion_tokens": 255,
+            "total_tokens": 16917,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 16662,
+                "completion_tokens": 255,
+                "total_tokens": 16917,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.hierarchy": {
+            "prompt_tokens": 1950,
+            "completion_tokens": 457,
+            "total_tokens": 2407,
+            "calls": 1,
+            "models": {
+              "deepseek-chat": {
+                "prompt_tokens": 1950,
+                "completion_tokens": 457,
+                "total_tokens": 2407,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.asset_detect": {
+            "prompt_tokens": 16164,
+            "completion_tokens": 499,
+            "total_tokens": 16663,
+            "calls": 6,
+            "models": {
+              "qwen3.6-flash": {
+                "prompt_tokens": 16164,
+                "completion_tokens": 499,
+                "total_tokens": 16663,
+                "calls": 6
+              }
+            }
+          }
+        }
+      }
+    }
   },
   "statistics": {
-    "total_chunks": 37,
-    "text_chunks": 37,
-    "image_chunks": 0,
+    "total_chunks": 35,
+    "text_chunks": 0,
+    "image_chunks": 6,
     "table_chunks": 0,
-    "page_chunks": 0,
+    "page_chunks": 29,
     "total_pages": null
   },
-  "HIERARCHY": {}
+  "HIERARCHY": {
+    "Root": {
+      "I. INTRODUCTION": {},
+      "II. OVERVIEW OF RAG": {
+        "A. Naive RAG": {},
+        "B. Advanced RAG": {},
+        "C. Modular RAG": {},
+        "D. RAG vs Fine-tuning": {}
+      },
+      "III. RETRIEVAL": {
+        "A. Retrieval Source": {
+          "TABLE I": {},
+          "SUMMARY OF RAG METHODS": {}
+        },
+        "B. Indexing Optimization": {},
+        "C. Query Optimization": {},
+        "D. Embedding": {},
+        "E. Adapter": {}
+      },
+      "IV. GENERATION": {
+        "A. Context Curation": {},
+        "B. LLM Fine-tuning": {}
+      },
+      "V. AUGMENTATION PROCESS IN RAG": {
+        "A. Iterative Retrieval": {},
+        "B. Recursive Retrieval": {},
+        "C. Adaptive Retrieval": {}
+      },
+      "VI. TASK AND EVALUATION": {
+        "A. Downstream Task": {},
+        "B. Evaluation Target": {},
+        "C. Evaluation Aspects": {},
+        "D. Evaluation Benchmarks and Tools": {}
+      },
+      "VII. DISCUSSION AND FUTURE PROSPECTS": {
+        "A. RAG vs Long Context": {},
+        "B. RAG Robustness": {},
+        "C. Hybrid Approaches": {},
+        "D. Scaling laws of RAG": {},
+        "E. Production-Ready RAG": {},
+        "F. Multi-modal RAG": {}
+      },
+      "VIII. CONCLUSION": {},
+      "REFERENCES": {}
+    }
+  }
 }

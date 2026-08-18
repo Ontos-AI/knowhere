@@ -1,791 +1,354 @@
 {
   "version": "2.0",
-  "job_id": "spacex-s1.pdf",
-  "data_id": null,
+  "job_id": "job_d69e5bcaa3ad",
+  "data_id": "demo-spacex-s1",
   "source_file_name": "spacex-s1.pdf",
-  "processing_date": "2026-06-02T07:13:21.442431Z",
+  "processing_date": "2026-08-18T18:42:27.145418Z",
   "processing": {
-    "page_count": null,
-    "billing_status": null,
+    "page_count": 407,
+    "billing_status": "charged",
     "cost": {
-      "micro_dollars": null,
-      "credits": null
+      "micro_dollars": 6105000,
+      "credits": 6.105
+    },
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-18:874ab8b6c9e4",
+      "total_input_cost": 0.13260833,
+      "total_output_cost": 0.0300185,
+      "total_cost": 0.16262683,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 54826,
+          "output_tokens": 4897,
+          "calls": 10,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        },
+        "deepseek-chat": {
+          "input_tokens": 24347,
+          "output_tokens": 2000,
+          "calls": 1,
+          "input_rate_per_1m": 0.14,
+          "output_rate_per_1m": 0.28,
+          "input_cost": 0.00340858,
+          "output_cost": 0.00056,
+          "total_cost": 0.00396858,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.14,
+            "output_per_1m": 0.28,
+            "source": "DeepSeek official pricing",
+            "effective_date": "2026-06-11"
+          }
+        },
+        "qwen3.6-flash": {
+          "input_tokens": 516799,
+          "output_tokens": 19639,
+          "calls": 208,
+          "input_rate_per_1m": 0.25,
+          "output_rate_per_1m": 1.5,
+          "input_cost": 0.12919975,
+          "output_cost": 0.0294585,
+          "total_cost": 0.15865825,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.25,
+            "output_per_1m": 1.5,
+            "source": "Qwen Cloud official pricing, <=256K input tier",
+            "effective_date": "2026-06-11"
+          }
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 16662,
+              "output_tokens": 223,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "calibration.react_loop": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 16698,
+              "output_tokens": 4067,
+              "calls": 5,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "calibration.inspect_pages": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 21466,
+              "output_tokens": 607,
+              "calls": 4,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.hierarchy": {
+          "input_cost": 0.00340858,
+          "output_cost": 0.00056,
+          "total_cost": 0.00396858,
+          "models": {
+            "deepseek-chat": {
+              "input_tokens": 24347,
+              "output_tokens": 2000,
+              "calls": 1,
+              "input_rate_per_1m": 0.14,
+              "output_rate_per_1m": 0.28,
+              "input_cost": 0.00340858,
+              "output_cost": 0.00056,
+              "total_cost": 0.00396858,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.14,
+                "output_per_1m": 0.28,
+                "source": "DeepSeek official pricing",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        },
+        "page_memory.asset_detect": {
+          "input_cost": 0.123924,
+          "output_cost": 0.027009,
+          "total_cost": 0.150933,
+          "models": {
+            "qwen3.6-flash": {
+              "input_tokens": 495696,
+              "output_tokens": 18006,
+              "calls": 184,
+              "input_rate_per_1m": 0.25,
+              "output_rate_per_1m": 1.5,
+              "input_cost": 0.123924,
+              "output_cost": 0.027009,
+              "total_cost": 0.150933,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.25,
+                "output_per_1m": 1.5,
+                "source": "Qwen Cloud official pricing, <=256K input tier",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        },
+        "page_memory.table_continuity": {
+          "input_cost": 0.00527575,
+          "output_cost": 0.0024495,
+          "total_cost": 0.00772525,
+          "models": {
+            "qwen3.6-flash": {
+              "input_tokens": 21103,
+              "output_tokens": 1633,
+              "calls": 24,
+              "input_rate_per_1m": 0.25,
+              "output_rate_per_1m": 1.5,
+              "input_cost": 0.00527575,
+              "output_cost": 0.0024495,
+              "total_cost": 0.00772525,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.25,
+                "output_per_1m": 1.5,
+                "source": "Qwen Cloud official pricing, <=256K input tier",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
     },
     "timing": {
-      "started_at": null,
-      "completed_at": null,
-      "duration_ms": null
+      "started_at": "2026-08-18T18:02:58.416872+00:00",
+      "completed_at": "2026-08-18T18:42:27.131655+00:00",
+      "duration_ms": 2368714
+    },
+    "stages": {
+      "timing_ms": {
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 252893,
+        "page_memory.skeleton": 0,
+        "page_memory.title_render": 41892,
+        "page_memory.title_detection": 451678,
+        "page_memory.fine_hierarchy": 9654,
+        "page_memory.render": 33451,
+        "page_memory.tag": 386708,
+        "page_memory.assets": 1185350,
+        "page_memory.node_summary": 6017,
+        "page_memory.node_rows": 177,
+        "page_memory.node_assembly": 6234,
+        "worker.parse.document": 2368038
+      },
+      "token_usage": {
+        "prompt_tokens": 595972,
+        "completion_tokens": 26536,
+        "total_tokens": 622508,
+        "calls": 219,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 54826,
+            "completion_tokens": 4897,
+            "total_tokens": 59723,
+            "calls": 10
+          },
+          "deepseek-chat": {
+            "prompt_tokens": 24347,
+            "completion_tokens": 2000,
+            "total_tokens": 26347,
+            "calls": 1
+          },
+          "qwen3.6-flash": {
+            "prompt_tokens": 516799,
+            "completion_tokens": 19639,
+            "total_tokens": 536438,
+            "calls": 208
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 16662,
+            "completion_tokens": 223,
+            "total_tokens": 16885,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 16662,
+                "completion_tokens": 223,
+                "total_tokens": 16885,
+                "calls": 1
+              }
+            }
+          },
+          "calibration.react_loop": {
+            "prompt_tokens": 16698,
+            "completion_tokens": 4067,
+            "total_tokens": 20765,
+            "calls": 5,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 16698,
+                "completion_tokens": 4067,
+                "total_tokens": 20765,
+                "calls": 5
+              }
+            }
+          },
+          "calibration.inspect_pages": {
+            "prompt_tokens": 21466,
+            "completion_tokens": 607,
+            "total_tokens": 22073,
+            "calls": 4,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 21466,
+                "completion_tokens": 607,
+                "total_tokens": 22073,
+                "calls": 4
+              }
+            }
+          },
+          "page_memory.hierarchy": {
+            "prompt_tokens": 24347,
+            "completion_tokens": 2000,
+            "total_tokens": 26347,
+            "calls": 1,
+            "models": {
+              "deepseek-chat": {
+                "prompt_tokens": 24347,
+                "completion_tokens": 2000,
+                "total_tokens": 26347,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.asset_detect": {
+            "prompt_tokens": 495696,
+            "completion_tokens": 18006,
+            "total_tokens": 513702,
+            "calls": 184,
+            "models": {
+              "qwen3.6-flash": {
+                "prompt_tokens": 495696,
+                "completion_tokens": 18006,
+                "total_tokens": 513702,
+                "calls": 184
+              }
+            }
+          },
+          "page_memory.table_continuity": {
+            "prompt_tokens": 21103,
+            "completion_tokens": 1633,
+            "total_tokens": 22736,
+            "calls": 24,
+            "models": {
+              "qwen3.6-flash": {
+                "prompt_tokens": 21103,
+                "completion_tokens": 1633,
+                "total_tokens": 22736,
+                "calls": 24
+              }
+            }
+          }
+        }
+      }
     }
   },
   "statistics": {
-    "total_chunks": 922,
-    "text_chunks": 670,
-    "image_chunks": 99,
-    "table_chunks": 153,
+    "total_chunks": 227,
+    "text_chunks": 0,
+    "image_chunks": 94,
+    "table_chunks": 132,
+    "page_chunks": 1,
     "total_pages": null
   },
   "HIERARCHY": {
-    "UNITED STATES SECURITIES AND EXCHANGE COMMISSION WASHINGTON, DC 20549 FORM S-1 REGISTRATION STATEMENT UNDER THE SECURITIES ACT OF 1933": {},
-    "(Exact name of registrant as specified in its charter)": {
-      "1 Rocket Road": {},
-      "1 Rocket Road_2": {},
-      "1 Rocket Road_3": {}
-    },
-    "SPACEX": {},
-    "BUILDING THE INFRASTRUCTURE OF THE FUTURE": {},
-    "SPACE": {},
-    "HIGHLIGHTS": {},
-    "CONNECTIVITY": {},
-    "HIGHLIGHTS_2": {},
-    "HIGHLIGHTS_3": {},
-    "OUR MISSION": {},
-    "General Information": {
-      "Basis of Presentation": {},
-      "Industry and Market Data": {},
-      "Trademarks and Trade Names": {}
-    },
-    "GLOSSARY OF TERMS": {},
-    "PROSPECTUS SUMMARY": {
-      "Our Mission": {},
-      "Overview": {},
-      "Why This Matters Now": {},
-      "Who We Are": {},
-      "Our Unparalleled Launch Capabilities": {},
-      "Our Leading Capabilities Across Space, Connectivity, and AI": {},
-      "Our Repeatable Business Model": {},
-      "Our Engineering-First Culture": {},
-      "Our AI Compute Infrastructure Advantage and Growth Strategy": {},
-      "Our Strengths": {},
-      "Our Growth Strategies": {
-        "Space": {},
-        "Connectivity": {},
-        "AI": {},
-        "Future Markets": {}
-      },
-      "Our Market Opportunity": {},
-      "Our Challenges": {},
-      "Recent Developments": {
-        "Collaboration with Cursor": {},
-        "Compute Services Agreements with Third Parties": {},
-        "Our Controlled Company Status": {}
-      },
-      "Corporate Information": {},
-      "Summary of Risk Factors": {},
-      "Summary Historical Consolidated Financial and Operating Data": {
-        "Capital Expenditures:": {},
-        "Segment Operating and Financial Data (unaudited)": {}
-      }
-    },
-    "RISK FACTORS": {},
-    "RISK FACTORS_2": {},
-    "CAUTIONARY STATEMENT REGARDING FORWARD-LOOKING STATEMENTS": {},
-    "USE OF PROCEEDS": {},
-    "DIVIDEND POLICY": {},
-    "CAPITALIZATION": {},
-    "DILUTION": {},
-    "MANAGEMENT'S DISCUSSION AND ANALYSIS OF FINANCIAL CONDITION AND RESULTS OF OPERATIONS": {
-      "Our Mission": {},
-      "Overview": {},
-      "Our Repeatable Business Model": {},
-      "Segments in Our Vertically-Integrated Innovation Engine": {
-        "Space": {
-          "Falcon 9 First Stage Booster Landing": {},
-          "COLOSSUS II Facility in Memphis, Tennessee": {}
-        }
-      },
-      "Our Capital Allocation and Funding Strategy": {},
-      "Key Business Metrics": {
-        "Space": {},
-        "Connectivity": {},
-        "AI": {}
-      },
-      "Segment Income (Loss) from Operations": {
-        "Space Income (Loss) from Operations": {},
-        "Connectivity Income (Loss) from Operations": {},
-        "AI Income (Loss) from Operations": {}
-      },
-      "Segment Adjusted EBITDA": {
-        "Space Segment Adjusted EBITDA": {},
-        "Connectivity Segment Adjusted EBITDA": {},
-        "AI Segment Adjusted EBITDA": {}
-      },
-      "Capital Expenditures": {
-        "Space Capital Expenditures": {},
-        "Connectivity Capital Expenditures": {},
-        "AI Capital Expenditures": {}
-      },
-      "Drivers of Our Performance": {},
-      "Components of Results of Operations": {
-        "Description of Our Segments": {
-          "Space": {
-            "Revenue - Space": {},
-            "Cost of Revenue": {},
-            "Research and Development": {},
-            "Selling, General, and Administrative": {},
-            "Impairment": {}
-          },
-          "Connectivity": {
-            "Expenses - Connectivity": {
-              "Cost of Revenue": {},
-              "Research and Development": {},
-              "Selling, General, and Administrative": {},
-              "Impairment": {}
-            }
-          },
-          "AI": {
-            "Cost of Revenue": {},
-            "Research and Development": {},
-            "Selling, General, and Administrative": {},
-            "Restructuring Charges": {},
-            "Impairment": {}
-          }
-        },
-        "Other Corporate Expenses": {
-          "Interest Expense": {},
-          "Interest Income": {},
-          "Other Income (Expense), Net": {},
-          "Provision for (Benefit from) Income Taxes": {}
-        },
-        "Consolidated Results of Operations": {
-          "Revenue": {},
-          "Cost of Revenue": {},
-          "Research and Development": {},
-          "Selling, General, and Administrative": {},
-          "Impairment": {},
-          "Income (Loss) from Operations": {},
-          "Interest Expense": {},
-          "Interest Income": {},
-          "Other Income (Expense), Net": {},
-          "Provision for (Benefit from) Income Taxes": {}
-        },
-        "Segment Results": {
-          "Revenue": {},
-          "Cost of Revenue": {},
-          "Research and Development": {},
-          "Selling, General, and Administrative": {},
-          "Impairment": {},
-          "Loss from Operations": {},
-          "Revenue_2": {},
-          "Cost of Revenue_2": {},
-          "Research and Development_2": {},
-          "Selling, General, and Administrative_2": {},
-          "Income from Operations": {},
-          "Revenue_3": {},
-          "Cost of Revenue_3": {},
-          "Research and Development_3": {},
-          "Selling, General, and Administrative_3": {},
-          "Loss from Operations_2": {}
-        }
-      },
-      "Comparison of the Years Ended December 31, 2025 and 2024": {
-        "Consolidated Results of Operations": {
-          "Revenue": {},
-          "Cost of Revenue": {},
-          "Research and Development": {},
-          "Selling, General, and Administrative": {},
-          "Restructuring Charges": {},
-          "Impairment": {},
-          "Income (Loss) from Operations": {},
-          "Interest Expense": {},
-          "Interest Income": {},
-          "Other Income (Expense), Net": {},
-          "Provision for (Benefit from) Income Taxes": {}
-        },
-        "Segment Results": {
-          "Revenue": {},
-          "Cost of Revenue": {},
-          "Research and Development": {},
-          "Selling, General, and Administrative": {},
-          "Impairment": {},
-          "Income (Loss) from Operations": {},
-          "Revenue_2": {},
-          "Cost of Revenue_2": {},
-          "Research and Development_2": {},
-          "Selling, General, and Administrative_2": {},
-          "Impairment_2": {},
-          "Income from Operations": {},
-          "Revenue_3": {},
-          "Cost of Revenue_3": {},
-          "Research and Development_3": {},
-          "Selling, General, and Administrative_3": {},
-          "Restructuring Charges": {},
-          "Loss from Operations": {}
-        }
-      },
-      "Comparison of the Years Ended December 31, 2024 and 2023": {
-        "Revenue": {},
-        "Cost of Revenue": {},
-        "Research and Development": {},
-        "Selling, General, and Administrative": {},
-        "Restructuring Charges": {},
-        "Impairment": {},
-        "Income (Loss) from Operations": {},
-        "Interest Expense": {},
-        "Interest Income": {},
-        "Other Income (Expense), net": {},
-        "Benefit from Income Taxes": {
-          "Revenue": {},
-          "Cost of Revenue": {},
-          "Research and Development": {},
-          "Selling, General, and Administrative": {},
-          "Impairment": {},
-          "Income (Loss) from Operations": {},
-          "Revenue_2": {},
-          "Cost of Revenue_2": {},
-          "Research and Development_2": {},
-          "Selling, General, and Administrative_2": {},
-          "Impairment_2": {},
-          "Income from Operations": {},
-          "Revenue_3": {},
-          "Cost of Revenue_3": {},
-          "Research and Development_3": {},
-          "Selling, General, and Administrative_3": {},
-          "Restructuring charges": {},
-          "Impairment_3": {},
-          "Loss from Operations": {}
-        }
-      },
-      "Non-GAAP Financial Measures": {},
-      "Liquidity and Capital Resources": {
-        "Debt Agreements": {
-          "SpaceX Credit Facility": {},
-          "SpaceX Bridge Loan": {}
-        },
-        "Material Cash Commitments": {},
-        "Summary of Cash flows": {
-          "Operating Activities": {},
-          "Investing Activities": {},
-          "Financing Activities": {}
-        }
-      },
-      "Critical Accounting Estimates": {
-        "Revenue Recognition": {},
-        "Property, Plant, and Equipment, Net": {},
-        "Legal and Other Contingencies": {},
-        "Recent Accounting Pronouncements": {}
-      },
-      "Quantitative and Qualitative Disclosures About Market Risk": {
-        "Foreign Currency Risk": {},
-        "Interest Rate Risk": {}
-      }
-    },
-    "BUSINESS": {
-      "Our Mission": {},
-      "Overview": {}
-    },
-    "THE ALGORITHM 01 MAKE THE REQUIREMENTS": {
-      "02 DELETE THE PART OR PROCESS STEP": {},
-      "03 OPTIMIZE": {},
-      "04 ACCELERATE": {},
-      "05 AUTOMATE": {},
-      "Why This Matters Now": {},
-      "Who We Are": {},
-      "Our Unparalleled Launch Capabilities": {},
-      "Our Leading Capabilities Across Space, Connectivity, and AI": {},
-      "Our Global Starlink Subscriber Base": {},
-      "Collaboration with Tesla": {},
-      "Collaboration with Cursor": {},
-      "Compute Services Agreements with Third Parties": {},
-      "Our Repeatable Business Model": {},
-      "Our Engineering-First Culture": {},
-      "Our AI Compute Infrastructure Advantage and Growth Strategy": {},
-      "Industry Overview": {
-        "The Space Industry": {},
-        "Falcon Heavy Boosters Landing": {},
-        "The Connectivity Industry": {
-          "Consumer Broadband": {},
-          "Enterprise and Government Broadband": {},
-          "Satellite-to-Mobile Service": {}
-        },
-        "The AI Industry": {
-          "AI Compute": {},
-          "AI Frontier Models": {},
-          "Consumer and Enterprise Applications": {}
-        }
-      },
-      "Our Strengths": {
-        "Global Leadership in Orbital Launch Services": {},
-        "Truth-Seeking AI Model Enhanced by Real-Time Data": {},
-        "Business Models that Are Incredibly Difficult to Replicate": {},
-        "Mission-Driven Culture and World-Class Talent": {}
-      },
-      "Our Growth Strategies": {
-        "Space": {},
-        "Connectivity": {},
-        "AI": {},
-        "Future Markets": {}
-      },
-      "Our Market Opportunity": {
-        "Space": {},
-        "Connectivity": {},
-        "Artificial Intelligence": {},
-        "Future Markets": {}
-      },
-      "Our Solutions & Services": {
-        "Unparalleled Launch Capability": {
-          "Our Fleet of Launch Vehicles and Spacecraft": {
-            "Falcon 9 Overview": {},
-            "Falcon Heavy Overview": {},
-            "Falcon Heavy": {},
-            "Starman in Orbit": {},
-            "Starship Overview": {},
-            "“Chopstick” Super Heavy Booster Catch": {},
-            "Starship Landing Burn": {},
-            "Dragon Orbiting Earth's Poles": {}
-          }
-        },
-        "Connectivity": {
-          "Starlink Consumer Broadband": {},
-          "96 GBPS": {},
-          "Enterprise Solutions": {},
-          "Enterprise Solutions_2": {
-            "Aviation Connectivity": {},
-            "Maritime Connectivity": {},
-            "Land Mobility and IoT": {},
-            "Starlink Fixed Site": {}
-          },
-          "Government Solutions": {},
-          "Starlink Mobile": {},
-          "Satellite Life": {}
-        },
-        "AI": {
-          "Grok": {},
-          "Terrestrial AI Compute": {},
-          "COLOSSUS II Facility": {},
-          "X Platform": {},
-          "1.3K Following 2371M Followers": {},
-          "5.4K 5.7K 44K 32M": {},
-          "x.ai Joined May 2023 >": {},
-          "5 Following 1.9M Followers": {},
-          "Grok Consumer Products": {}
-        }
-      },
-      "Infrastructure and Facilities": {
-        "Cape Canaveral Space Force Station, Florida": {},
-        "Autonomous Drone Ship \"A Shortfall of Gravitas\"": {}
-      },
-      "Customer Case Studies": {
-        "HIGHLIGHTS": {},
-        "BACKGROUND": {},
-        "KEY BENEFITS": {},
-        "OUR SOLUTION": {},
-        "BACKGROUND_2": {},
-        "Scott Kirby, United Chief Executive Officer": {},
-        "OUR SOLUTION_2": {},
-        "HIGHLIGHTS_2": {},
-        "10 Gbps": {},
-        "KEY BENEFITS_2": {},
-        "BACKGROUND_3": {},
-        "OUR SOLUTION_3": {},
-        "HIGHLIGHTS_3": {},
-        "KEY BENEFITS_3": {},
-        "BACKGROUND_4": {},
-        "OUR SOLUTION_4": {},
-        "HIGHLIGHTS_4": {},
-        "KEY BENEFITS_4": {},
-        "BACKGROUND_5": {},
-        "OUR SOLUTION_5": {},
-        "HURRICANES HELENE + MILTON": {},
-        "BACKGROUND_6": {},
-        "HURRICANE MELISSA": {},
-        "BACKGROUND_7": {},
-        "CALIFORNIA WILDFIRES": {},
-        "BACKGROUND_8": {}
-      },
-      "Competition": {},
-      "Intellectual Property": {},
-      "Human Capital": {},
-      "Regulatory Environment": {
-        "Space": {},
-        "Connectivity": {},
-        "AI": {},
-        "Privacy, Cybersecurity, Data Protection, Online Safety, and Digital Platform Regulation": {},
-        "Environmental, Health, and Safety": {},
-        "Government Contracts": {}
-      },
-      "Legal Proceedings": {}
-    },
-    "MANAGEMENT": {
-      "Executive Officers and Management Directors": {},
-      "Non-Management Directors": {},
-      "Additional Information": {},
-      "Family Relationships": {},
-      "Controlled Company Exemption": {},
-      "Composition of Our Board": {},
-      "Role of our Board in Risk Oversight": {},
-      "Director Independence": {},
-      "Board Leadership Structure": {},
-      "Board Committees": {
-        "Audit Committee": {},
-        "Compensation and Nominating Committee": {}
-      },
-      "Compensation Committee Interlocks and Insider Participation": {},
-      "Code of Business Conduct and Ethics": {},
-      "Corporate Governance Guidelines": {}
-    },
-    "EXECUTIVE COMPENSATION": {
-      "Compensation Discussion and Analysis": {
-        "Our Compensation Philosophy and Objectives": {},
-        "Process for Setting Compensation": {},
-        "Elements of Compensation": {
-          "Base Salary": {},
-          "Long-Term Incentive Compensation": {}
-        },
-        "Other Elements of Compensation": {
-          "Retirement Benefits": {},
-          "Employee Stock Purchase Plans": {},
-          "Perquisites": {}
-        },
-        "Other Matters": {},
-        "Clawback Policy": {},
-        "Executive Compensation Tables": {
-          "Grants of Plan-Based Awards": {},
-          "Outstanding Equity Awards at Fiscal Year-End": {},
-          "Option Exercises and Stock Vested": {}
-        },
-        "Potential Payments Upon Termination or Change in Control": {},
-        "Amended and Restated 2024 Equity Incentive Plan": {
-          "Administration": {},
-          "Stock Subject to A&R 2024 Plan": {},
-          "Eligibility": {},
-          "Types of Awards": {},
-          "Performance Criteria": {},
-          "Transferability": {},
-          "Clawback": {},
-          "Amendment and Termination": {}
-        },
-        "Second Amended and Restated 2017 Employee Stock Purchase Plan": {
-          "Administration": {},
-          "Stock Subject to A&R 2017 ESPP": {},
-          "Eligibility; Limitations": {},
-          "Offerings": {},
-          "Purchase Price": {},
-          "Adjustments": {},
-          "Transferability": {},
-          "Amendment and Termination": {}
-        }
-      },
-      "Director Compensation": {}
-    },
-    "CERTAIN RELATIONSHIPS AND RELATED PERSON TRANSACTIONS": {
-      "Note Regarding the xAI Merger": {},
-      "Transactions with Elon Musk and Affiliated Entities": {},
-      "Transactions with Tesla": {},
-      "Transactions with The Boring Company": {},
-      "Relationships with Musk Industries LLC": {},
-      "Security Services provided to Mr. Musk": {},
-      "Relationship with Antonio J. Gracias and Affiliated Entities": {},
-      "Transactions with Valor Equity Partners and Affiliated Entities": {},
-      "Other Transactions with our Directors and Executive Officers": {},
-      "Investors' Rights Agreement": {
-        "Demand Registration Rights": {},
-        "Piggyback Registration Rights": {}
-      },
-      "Policies and Procedures for Review of Related Person Transactions": {}
-    },
-    "SECURITY OWNERSHIP OF CERTAIN BENEFICIAL OWNERS AND MANAGEMENT": {},
-    "DESCRIPTION OF CAPITAL STOCK": {
-      "General": {},
-      "Common Stock": {
-        "Voting Rights": {},
-        "Election and Removal of Directors": {},
-        "Dividends": {},
-        "Dissolution and Liquidation": {},
-        "Conversion": {},
-        "No Preemptive or Other Rights": {},
-        "Issuance of Additional Shares": {}
-      },
-      "Preferred Stock": {},
-      "Anti-takeover statute under Texas law": {},
-      "Election of Class B Directors": {},
-      "Corporate Opportunities": {},
-      "Exclusive Forum and Venue and Arbitration, Jury Trial Waiver": {},
-      "Stock Ownership Requirement for Derivative Suits": {},
-      "Limitations on Liability and Indemnification of Officers and Directors": {},
-      "Protection for Conflicts of Interest": {},
-      "Registration Rights": {},
-      "Transfer Agent and Registrar": {},
-      "Listing": {}
-    },
-    "SHARES ELIGIBLE FOR FUTURE SALE": {
-      "Sales of Restricted Shares": {},
-      "Lock-Up Agreements": {},
-      "Registration Rights": {},
-      "Rule 144": {},
-      "Regulation S": {},
-      "Rule 701": {},
-      "Stock Issued Under Employee Plans": {},
-      "Distributions": {},
-      "Sale or Disposition of Class A Common Stock": {},
-      "Information Reporting Requirements and Backup Withholding": {},
-      "Additional Withholding Tax on Payments Made to Foreign Accounts": {}
-    },
-    "UNDERWRITING": {
-      "Total": {},
-      "Pricing of the Offering": {},
-      "Directed Share Program": {},
-      "Offerings Outside the United States": {},
-      "Selling Restrictions": {
-        "Argentina": {},
-        "Australia": {},
-        "Brazil": {},
-        "Chile": {},
-        "China": {},
-        "Colombia": {},
-        "Dubai": {},
-        "Hong Kong": {},
-        "India": {},
-        "Indonesia": {},
-        "Israel": {},
-        "Malaysia": {},
-        "Mexico": {},
-        "New Zealand": {},
-        "Peru": {},
-        "Philippines": {},
-        "Qatar": {},
-        "Saudi Arabia": {},
-        "Singapore": {},
-        "South Africa": {},
-        "South Korea": {},
-        "Switzerland": {},
-        "Taiwan": {},
-        "Thailand": {},
-        "United Arab Emirates": {},
-        "United Kingdom": {}
-      }
-    },
-    "LEGAL MATTERS": {},
-    "EXPERTS": {},
-    "WHERE YOU CAN FIND ADDITIONAL INFORMATION": {},
-    "INDEX TO FINANCIAL STATEMENTS": {},
-    "Report of Independent Registered Public Accounting Firm": {
-      "Opinion on the Financial Statements": {},
-      "Basis for Opinion": {},
-      "Significant Transactions with Related Parties": {},
-      "Critical Audit Matters": {}
-    },
-    "NOTES TO THE CONSOLIDATED FINANCIAL STATEMENTS": {
-      "Note 1 - Nature of Business": {},
-      "Note 2 - Summary of Significant Accounting Policies": {
-        "Basis of Presentation": {},
-        "Principles of Consolidation": {},
-        "Use of Estimates": {},
-        "Concentration of Supplier Risk": {},
-        "Cash and Cash Equivalents and Restricted Cash": {},
-        "Marketable Securities": {},
-        "Accounts Receivable, Unbilled Receivables, and Allowance for Credit Losses": {},
-        "Fair Value Measurement": {},
-        "Launch Vehicles and Spacecraft": {},
-        "Inventory": {},
-        "Property, Plant, and Equipment, net": {},
-        "Leases": {},
-        "Goodwill and Indefinite-Lived Intangible Assets": {},
-        "Digital Assets": {},
-        "Loss Contingencies": {},
-        "Joint Ventures and Investments": {},
-        "Revenue Recognition": {},
-        "Space Segment": {},
-        "Connectivity Segment": {},
-        "AI Segment": {},
-        "Cost of Revenue": {},
-        "Warranty on Starlink Kits": {},
-        "Research and Development Expenses": {},
-        "Software Development Costs": {},
-        "Share-Based Compensation": {},
-        "Advertising Expense": {},
-        "Income Taxes": {},
-        "Investment Tax Credits": {},
-        "Foreign Currency": {},
-        "Recent Accounting Pronouncements": {}
-      },
-      "Note 3 - Revenue": {
-        "Deferred revenue": {},
-        "Backlog": {},
-        "Concentration of risk": {}
-      },
-      "Note 4 - Inventory": {},
-      "Note 5 - Property, Plant, and Equipment, Net": {},
-      "Note 6 - Intangible Assets and Goodwill": {
-        "Intangible Assets": {},
-        "Twitter Impairment": {},
-        "Spectrum Transactions": {},
-        "Goodwill": {}
-      },
-      "Note 7 - Digital Assets": {},
-      "Note 8 - Financial Instruments": {},
-      "Note 9 - Investments in Unconsolidated Affiliates": {
-        "Equity method investment": {},
-        "Equity investments without readily determinable fair value": {},
-        "SpaceX ABL Credit Agreement": {},
-        "SpaceX Credit Facility": {},
-        "X 2027 and 2030 Notes": {},
-        "X First Lien Senior Credit Facilities": {},
-        "X Bridge Credit Facilities": {},
-        "xAI First Lien Credit Agreement": {},
-        "xAI 12.5% Secured Senior Notes": {},
-        "xAI Revolving Line of Credit": {},
-        "Other Financings": {}
-      },
-      "Note 11 - Leases": {},
-      "Note 12 - Balance Sheet Components": {},
-      "Note 13 - Redeemable Convertible Preferred Stock and Shareholders' Equity": {
-        "SpaceX Preferred and Common Stock": {},
-        "xAI Redeemable Convertible Preferred Stock and Common Stock": {},
-        "Effect of the xAI Merger": {
-          "xAI Redeemable Convertible Preferred Stock": {},
-          "xAI Warrants": {},
-          "xAI and X Common Stock": {},
-          "Effect of the X Merger": {},
-          "Redeemable Convertible Preferred Stock": {
-            "Dividend Provisions": {},
-            "Liquidation Preference": {},
-            "Conversion Rights": {},
-            "Voting Rights": {},
-            "Classification": {},
-            "Dividend Provisions_2": {},
-            "Liquidation Preference_2": {},
-            "Conversion Rights_2": {},
-            "Voting Rights_2": {},
-            "Classification_2": {}
-          },
-          "Common Stock": {
-            "Dividend Provisions": {},
-            "Liquidation Rights": {},
-            "Conversion Rights": {},
-            "Voting Rights": {}
-          },
-          "Reserve for Unissued Shares of Common Stock": {}
-        },
-        "Share Repurchases": {
-          "SpaceX Share Repurchases": {},
-          "xAI Share Repurchase": {}
-        }
-      },
-      "Note 14 - Earnings per Share": {},
-      "Note 15 - Share-based Compensation": {
-        "X and xAI Mergers": {},
-        "General": {},
-        "Summary Activity under the Plans": {},
-        "ESPP": {},
-        "CEO Award": {},
-        "Performance-based awards": {},
-        "Fair Value Determination": {},
-        "Summary of Share-Based Compensation Information": {}
-      },
-      "Note 16 - Income Taxes": {},
-      "Note 17 - Commitments and Contingencies": {
-        "Unconditional Obligations": {},
-        "Letters of Credit and Surety Bonds": {},
-        "Legal Proceedings": {},
-        "Non-Income Taxes": {},
-        "Indemnifications": {}
-      },
-      "Note 18 - Related Party Transactions": {},
-      "Note 19 - Segments": {},
-      "Note 20 - Restructuring": {},
-      "Note 21 - Subsequent Events": {
-        "Officer Equity Awards": {},
-        "Share Repurchases": {},
-        "Sale-Leaseback Transaction": {},
-        "xAI Merger Closing": {},
-        "Tesla Collaboration": {},
-        "SpaceX Bridge Loan Credit Agreement": {},
-        "Purchase Commitments": {},
-        "Collaboration Agreement": {},
-        "Sale-Leaseback Transaction_2": {},
-        "Asset Acquisition": {},
-        "Cloud Services Agreement": {}
-      }
-    },
-    "NOTES TO THE CONSOLIDATED FINANCIAL STATEMENTS_2": {
-      "Note 1 - Nature of Business": {},
-      "Note 2 - Summary of Significant Accounting Policies": {
-        "Unaudited Interim Financial Statements": {},
-        "Use of Estimates": {},
-        "Cash and Cash Equivalents and Restricted Cash": {},
-        "Significant Accounting Policies": {},
-        "Recent Accounting Pronouncements": {},
-        "Recently adopted accounting pronouncements": {}
-      },
-      "Note 3 - Revenue": {
-        "Deferred revenue": {},
-        "Backlog": {}
-      },
-      "Note 4 - Inventory": {},
-      "Note 5 - Property, Plant, and Equipment, Net": {},
-      "Note 6 - Intangible Assets and Goodwill": {
-        "Intangible Assets": {},
-        "Goodwill": {}
-      },
-      "Note 7 - Financial Instruments": {},
-      "Note 8 - Investments in Unconsolidated Affiliates": {
-        "Equity method investment": {},
-        "Equity investments without readily determinable fair value": {},
-        "SpaceX Bridge Loan": {},
-        "SpaceX Credit Facility": {},
-        "X 2027 and 2030 Notes": {},
-        "X First Lien Senior Credit Facilities": {},
-        "xAI First Lien Credit Agreement": {},
-        "xAI 12.5% Secured Senior Notes": {},
-        "xAI Revolving Line of Credit": {},
-        "Other Financings": {}
-      },
-      "Note 10 - Leases": {},
-      "Note 11 - Balance Sheet Components": {},
-      "Note 12 - Redeemable Convertible Preferred Stock and Shareholders' Equity": {
-        "SpaceX Preferred and Common Stock": {},
-        "xAI Redeemable Convertible Preferred Stock and Common Stock": {},
-        "Effect of the xAI Merger": {
-          "xAI Warrants": {},
-          "xAI and X Common Stock": {},
-          "Effect of the X Merger": {},
-          "Redeemable Convertible Preferred Stock": {
-            "Dividend Provisions": {},
-            "Liquidation Preference": {},
-            "Conversion Rights": {},
-            "Voting Rights": {},
-            "Classification": {}
-          },
-          "Common Stock": {
-            "Dividend Provisions": {},
-            "Liquidation Rights": {},
-            "Conversion Rights": {},
-            "Voting Rights": {}
-          },
-          "Reserve for Unissued Shares of Common Stock": {}
-        },
-        "Share Repurchases": {}
-      },
-      "Note 13 - Earnings per Share": {},
-      "Note 14 - Share-based Compensation": {
-        "X and xAI Mergers": {},
-        "General": {},
-        "Officer Equity Awards": {},
-        "Fair Value Determination": {},
-        "Summary of Share-Based Compensation Information": {}
-      },
-      "Note 15 - Income Taxes": {},
-      "Note 16 - Commitments and Contingencies": {
-        "Unconditional Obligations": {},
-        "Letters of Credit and Surety Bonds": {},
-        "Legal Proceedings": {}
-      },
-      "Note 17 - Related Party Transactions": {},
-      "Note 18 - Segments": {},
-      "Note 19 - Restructuring": {},
-      "Note 20 - Subsequent Events": {
-        "Collaboration Agreement": {},
-        "Sale-Leaseback Transaction": {},
-        "Asset Acquisition": {},
-        "Cloud Services Agreement": {},
-        "Shares": {}
-      }
-    },
-    "PART II": {
-      "INFORMATION NOT REQUIRED IN PROSPECTUS": {},
-      "(a) Exhibits": {},
-      "(b) Financial Statement Schedules": {}
-    },
-    "SIGNATURES": {}
+    "Root": {}
   }
 }

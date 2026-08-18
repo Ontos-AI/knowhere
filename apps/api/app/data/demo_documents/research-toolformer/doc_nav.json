@@ -2,323 +2,367 @@
   "version": "1.0",
   "file_name": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf",
   "stats": {
-    "total_chunks": 27,
-    "text_chunks": 27,
-    "image_chunks": 0,
-    "table_chunks": 0,
-    "page_chunks": 0,
-    "max_depth": 2
+    "total_chunks": 41,
+    "text_chunks": 0,
+    "image_chunks": 4,
+    "table_chunks": 1,
+    "page_chunks": 36,
+    "max_depth": 4
   },
   "sections": [
     {
-      "title": "Page 1",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 1",
-      "level": 1,
-      "summary": "Toolformer: Language Models Can Teach Themselves to Use Tools Timo Schick Jane Dwivedi-Yu Roberto Dessì † Roberta Raileanu Maria Lomeli Luke Zettlemoyer Nicola Cancedda Thomas Scialom Meta AI Research †Universitat Pompeu Fabra Abstract Language models (LMs) exhibit remarkable abilities to solve new tasks from just a few examples or textual instructions, especially at scale. They also, paradoxically, struggle with basic functionality, such as arithmetic or fac- tual lookup, where much simpler and smaller models excel. In this paper, we show that LMs can teach themselves touse external tools via simple APIs and achieve the best of both worlds. We introduce Toolformer, a model trained to...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 2",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 2",
+      "title": "Root",
+      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root",
       "level": 1,
       "summary": "",
-      "chunk_count": 2,
+      "chunk_count": 39,
       "children": [
         {
-          "title": "Part 1",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 2/Part 1",
+          "title": "Abstract",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/Abstract",
           "level": 2,
-          "summary": "x1:i-1 = Pittsburgh is also known as xi:n = the Steel City x* = Pittsburgh is also known as [QA(What …? → Steel City)] the Steel City. ci 1 = What other name is Pittsburgh known by? ci 2 = Which country is Pittsburgh in? ri 1 = Steel City ri 2 = United States Li(ci 1 → Steel City) < min(Li(ci 1 → ε), Li(ε)) Li(ci 2 → United States) > min(Li(ci 2 → ε), Li(ε)) 1 Sample API Calls 2 Execute API Calls 3 Filter API CallsLM Dataset LM Dataset with API Calls Figure 2: Key steps in our approach, illustrated for a question answering tool: Given an input text x, we ﬁrst sample a position i and corresponding API call candidates c1 i,c 2 i,...,c k i . We then execute these API calls and ﬁlter out all...",
+          "summary": "The abstract introduces Toolformer, a model trained to decide which APIs to call and how to incorporate their results into future token prediction. It is trained in a self-supervised way using only a handful of demonstrations per API. The model incorporates tools such as a calculator, Q&A system, search engine, translation system, and calendar, achieving substantially improved zero-shot performance across various downstream tasks.",
           "chunk_count": 1,
           "children": []
         },
         {
-          "title": "Part 2",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 2/Part 2",
+          "title": "1 Introduction",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/1 Introduction",
           "level": 2,
-          "summary": "modifying the existing LM’s vocabulary. For reasons of readability, we still refer to them as “ <API>”, “ </API>” and “→” through- out this section.",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 3",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 3",
-      "level": 1,
-      "summary": "Your task is to add calls to a Question Answering API to a piece of text. The questions should help you get information required to complete the text. You can call the API by writing \"[QA(question)]\" where \"question\" is the question you want to ask. Here are some examples of API calls: Input: Joe Biden was born in Scranton, Pennsylvania. Output: Joe Biden was born in [QA(\"Where was Joe Biden born?\")] Scranton, [QA(\"In which state is Scranton?\")] Pennsylvania. Input: Coca-Cola, or Coke, is a carbonated soft drink manufactured by the Coca-Cola Company. Output: Coca-Cola, or [QA(\"What other name is Coca-Cola known by?\")] Coke, is a carbonated soft drink manufactured by [QA(\"Who manufactures...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 4",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 4",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 4/Part 1",
-          "level": 2,
-          "summary": "x1:i−1, e(ci,r i),x i:n; we proceed analogously for texts with multiple API calls. Doing this for allx∈ C results in the new datasetC∗ augmented with API calls. We use this new dataset to ﬁnetuneM, using a standard language modeling objective. Crucially, apart from inserted API calls the augmented dataset C∗ contains the exact same texts asC, the original dataset. As a consequence, ﬁnetuning M onC∗ exposes it to the same content as ﬁnetuning onC. Moreover, as API calls are inserted in exactly those positions and with exactly those inputs that help M predict future tokens, ﬁnetuning onC∗ enables the language model to decide when and how to use which tool, based purely on its own feedback....",
+          "summary": "The Introduction section outlines the limitations of current large language models, such as their inability to access up-to-date information, tendency to hallucinate facts, and lack of mathematical skills. It proposes 'Toolformer', a model that learns to use external tools like search engines and calculators in a self-supervised manner without requiring extensive human annotations.",
           "chunk_count": 1,
           "children": []
         },
         {
-          "title": "Part 2",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 4/Part 2",
+          "title": "2 Approach",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/2 Approach",
           "level": 2,
-          "summary": "Komatsuzaki, 2021) as our language model M. To reduce the computational cost of annotatingC with API calls, we deﬁne heuristics for some APIs to get a subset ofC for which API calls are more likely to be helpful than for an av- erage text. For example, we only consider texts for the calculator tool if they contain at least three numbers. Details of the heuristics used are given in",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 5",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 5",
-      "level": 1,
-      "summary": "API Name Example Input Example Output Question Answering Where was the Knights of Columbus founded? New Haven, Connecticut Wikipedia Search Fishing Reel Types Spin ﬁshing > Spin ﬁshing is distinguished between ﬂy ﬁshing and bait cast ﬁshing by the type of rod and reel used. There are two types of reels used when spin ﬁshing, the open faced reel and the closed faced reel. Calculator 27 + 4 * 2 35 Calendar ε Today is Monday, January 30, 2023. Machine Translation sûreté nucléaire nuclear safety Table 1: Examples of inputs and outputs for all APIs used. Number of Examples API τf = 0.5 τf = 1.0 τf = 2.0 Question Answering 51,987 18,526 5,135 Wikipedia Search 207,241 60,974 13,944 Calculator...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 6",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 6",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
+          "summary": "The page presents a method for equipping language models with tool-use capabilities via API calls. It details an approach using in-context learning to generate datasets of potential API calls, which are then filtered based on their utility for predicting future tokens. The text includes Figure 2, illustrating the three-step process: sampling API calls, executing them, and filtering them. It also references prior work such as Toolformer (Wang and Komatsuzaki, 2021) and GPT-3 (Brown et al., 2020).",
+          "chunk_count": 5,
+          "children": [
+            {
+              "title": "Sampling API Calls",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/2 Approach/Sampling API Calls",
+              "level": 3,
+              "summary": "The section describes the process of sampling API calls for a Question Answering task. It involves writing a prompt P(x) to encourage a Language Model (LM) to annotate text with API calls. The method calculates the probability p_i of starting an API call at each position i in the sequence. A sampling threshold τ_s is used to filter positions, keeping those where p_i > τ_s. If more than k positions are kept, only the top k are selected. Finally, up to m API calls are sampled for each selected position using the model M.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Executing API Calls",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/2 Approach/Executing API Calls",
+              "level": 3,
+              "summary": "This section describes the process of executing API calls generated by a model M. It explains that execution methods vary depending on the specific API, such as calling another neural network, running a Python script, or using a retrieval system. The output for each call must be formatted as a single text sequence.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Filtering API Calls",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/2 Approach/Filtering API Calls",
+              "level": 3,
+              "summary": "The section 'Filtering API Calls' describes a method to determine whether an API call is helpful for the model. It defines a weighted cross-entropy loss function and compares two scenarios: one where the API call and its result are provided as a prefix, and another where no API call is made or only the input is provided. The text explains that an API call is considered helpful if providing it reduces the loss by at least a specific threshold (τf).",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Model Finetuning",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/2 Approach/Model Finetuning",
+              "level": 3,
+              "summary": "The section describes the final step of the process, which is Model Finetuning. It explains that after sampling and filtering API calls for all APIs, the remaining calls are merged with the original text to create a new training sequence. This involves interleaving the API call and its result into the input text at the specific position where the call was made.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
         {
-          "title": "Part 1",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 6/Part 1",
+          "title": "3 Tools",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/3 Tools",
           "level": 2,
-          "summary": "token, but whenever it is one of thek most likely tokens. For k = 1 , this corresponds to regular greedy decoding; we instead use k = 10 to in- crease the disposition of our model to make use of the APIs that it has access to. At the same time, we only at most one API call per input to make sure the model does not get stuck in a loop where it constantly calls APIs without producing any ac- tual output. The effect of these modiﬁcations is explored in Section 5. 4.2.1 LAMA We evaluate our models on the SQuAD, Google- RE and T-REx subsets of the LAMA benchmark (Petroni et al., 2019). For each of these subsets, the task is to complete a short statement with a miss- ing fact (e.g., a date or a...",
+          "summary": "Section 3 describes five tools used to augment regular language models: a question answering system (Atlas), a calculator, a Wikipedia search engine (BM25), a machine translation system (NLLB), and a calendar API. The section details the specific implementations and constraints for each tool.",
           "chunk_count": 1,
           "children": []
         },
         {
-          "title": "Part 2",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 6/Part 2",
+          "title": "4 Experiments",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/4 Experiments",
           "level": 2,
-          "summary": "this is if the model’s prediction contains an equation (e.g., “The correct answer is 5+3=8”), in which case we consider the ﬁrst number after the “=” sign to be its prediction.",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 7",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 7",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 7/Part 1",
-          "level": 2,
-          "summary": "Model WebQS NQ TriviaQA GPT-J 18.5 12.8 43.9 GPT-J + CC 18.4 12.2 45.6 Toolformer (disabled) 18.9 12.6 46.7 Toolformer 26.3 17.7 48.8 OPT (66B) 18.6 11.4 45.7 GPT-3 (175B) 29.0 22.6 65.9 Table 5: Results for various question answering dataset. Using the Wikipedia search tool for most examples, Toolformer clearly outperforms baselines of the same size, but falls short of GPT-3 (175B). this would make solving the tasks trivial, especially given that the underlying QA system was ﬁnetuned on Natural Questions. Results are shown in Table 5. Once again, Toolformer clearly outperforms all other models based on GPT-J, this time mostly relying on the Wikipedia search API (99.3%) to ﬁnd relevant...",
+          "summary": "Section 4.1 Experimental Setup describes the dataset generation process for the experiments. It specifies that a subset of CCNet is used as the language modeling dataset (C) and GPT-J is used as the language model (M). To reduce annotation costs, heuristics are defined to select subsets of C where API calls are likely to be helpful.",
           "chunk_count": 1,
           "children": []
         },
         {
-          "title": "Part 2",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 7/Part 2",
+          "title": "Appendix A",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/Appendix A",
           "level": 2,
-          "summary": "for the years be- tween 2010 and 2020. DATESET , described in Appendix D, is also generated through a series of templates, but populated using a combination of random dates/durations (e.g., “What day of the week was it 30 days ago?”). Critically, knowing the current date is required to answer these questions.",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 8",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 8",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
+          "summary": "",
+          "chunk_count": 9,
+          "children": [
+            {
+              "title": "Baseline Models",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/Appendix A/Baseline Models",
+              "level": 3,
+              "summary": "The section describes the baseline models used for comparison, including GPT-J (unfinetuned), GPT-J + CC (finetuned on a subset of CCNet without API calls), Toolformer (finetuned on a subset of CCNet augmented with API calls), and Toolformer (disabled) where API calls are disabled during decoding. It also mentions comparisons to larger models OPT (66B) and GPT-3 (175B).",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "4.2 Downstream Tasks",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/Appendix A/4.2 Downstream Tasks",
+              "level": 3,
+              "summary": "Section 4.2 describes the evaluation setup for downstream tasks, focusing on a prompted zero-shot approach where models are instructed to solve tasks in natural language without provided examples. It contrasts this with prior work that uses dataset-specific examples and mentions comparisons against larger baseline models like OPT (66B) and GPT-3 (175B). The section also details the use of standard greedy decoding with a specific modification for Toolformer.",
+              "chunk_count": 6,
+              "children": [
+                {
+                  "title": "4.2.1 LAMA",
+                  "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/Appendix A/4.2 Downstream Tasks/4.2.1 LAMA",
+                  "level": 4,
+                  "summary": "Section 4.2.1 evaluates the Toolformer model on the LAMA benchmark, specifically using the SQuAD, Google-RE, and T-REx subsets to test fact completion tasks. The text explains that examples were filtered to ensure the mask token is the final token and that the Wikipedia Search API was disabled for Toolformer to prevent unfair advantages. Table 3 presents results showing that Toolformer significantly outperforms baseline models like GPT-J and larger models like OPT (66B) and GPT-3 (175B), achieving competitive scores with GPT-3 (175B). The section attributes this success to the model's ability to independently decide to use a question answering tool in almost all cases.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "4.2.2 Math Datasets",
+                  "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/Appendix A/4.2 Downstream Tasks/4.2.2 Math Datasets",
+                  "level": 4,
+                  "summary": "Section 4.2.2 Math Datasets evaluates the mathematical reasoning abilities of models on three benchmarks: ASDiv, SVAMP, and MAWPS. The section describes a zero-shot evaluation setup using a lenient criterion where the model's prediction is checked for containing the first number after an equals sign. Table 4 presents results showing that Toolformer significantly outperforms baseline models (GPT-J, OPT, GPT-3) by leveraging a calculator tool in 97.9% of cases.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "4.2.3 Question Answering",
+                  "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/Appendix A/4.2 Downstream Tasks/4.2.3 Question Answering",
+                  "level": 4,
+                  "summary": "Section 4.2.3 introduces the evaluation of question answering capabilities using three datasets: Web Questions, Natural Questions, and TriviaQA. The section specifies that for evaluation, the system checks if the correct answer is contained within the first 20 words predicted by the model rather than requiring an exact match. Additionally, it notes that for the Toolformer model, the question answering tool is disabled during this specific evaluation.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "4.2.4 Multilingual Question Answering",
+                  "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/Appendix A/4.2 Downstream Tasks/4.2.4 Multilingual Question Answering",
+                  "level": 4,
+                  "summary": "Section 4.2.4 evaluates Toolformer and baseline models on the MLQA multilingual question-answering benchmark, where context is in English but questions are in Arabic, German, Spanish, Hindi, Vietnamese, or Simplified Chinese. Results (Table 6) show that using a machine translation API consistently improves performance across languages, with Toolformer outperforming GPT-J baselines in most cases except for some languages where finetuning on CCNet causes deterioration. OPT and GPT-3 perform poorly due to lack of multilingual training data.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "4.2.5 Temporal Datasets",
+                  "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/Appendix A/4.2 Downstream Tasks/4.2.5 Temporal Datasets",
+                  "level": 4,
+                  "summary": "Section 4.2.5 Temporal Datasets introduces the evaluation of models on temporal datasets to investigate the utility of a calendar API. It describes two datasets: TEMPLAMA, which contains cloze queries about facts that change over time (e.g., 'Cristiano Ronaldo plays for ___') based on Wikidata for years between 2010 and 2020; and DATESET, a new dataset generated using templates with random dates/durations (e.g., 'What day of the week was it 30 days ago?'). Both require knowledge of the current date to answer correctly.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "title": "4.3 Language Modeling",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/Appendix A/4.3 Language Modeling",
+              "level": 3,
+              "summary": "Section 4.3 discusses the language modeling performance of the Toolformer model to ensure it does not degrade during finetuning with API calls. The authors evaluate their models on two datasets: WikiText and a subset of CCNet. Table 8 presents perplexity results for various models (GPT-J, GPT-J + CC, Toolformer) on these datasets, showing that adding API calls does not increase perplexity compared to training without them.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "4.4 Scaling Laws",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/Appendix A/4.4 Scaling Laws",
+              "level": 3,
+              "summary": "Section 4.4 investigates how the ability to use external tools affects performance as the size of the language model (LM) increases. The authors apply their approach to four smaller models from the GPT-2 family (124M, 355M, 775M, and 1.6B parameters) alongside GPT-J, using a subset of three tools: question answering, calculator, and Wikipedia search. The section reports that leveraging provided tools only emerges at around 775M parameters; smaller models perform similarly with or without tools. It is hypothesized that the Wikipedia search API is an exception because it is easy to use. As models grow larger, they improve at solving tasks both with and without API calls, but a large gap remains between predictions made with and without API calls even for the largest model.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
         {
-          "title": "Part 1",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 8/Part 1",
+          "title": "5 Analysis",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/5 Analysis",
           "level": 2,
-          "summary": "Model T EMP LAMA D ATESET GPT-J 13.7 3.9 GPT-J + CC 12.9 2.9 Toolformer (disabled) 12.7 5.9 Toolformer 16.3 27.3 OPT (66B) 14.5 1.3 GPT-3 (175B) 15.5 0.8 Table 7: Results for the temporal datasets. Toolformer outperforms all baselines, but does not make use of the calendar tool for TEMP LAMA. For both tasks, we use the same evaluation as for the original LAMA dataset. Results shown in Table 7 illustrate that Tool- former outperforms all baselines for both TEM- PLAMA and DATESET . However, closer inspec- tion shows that improvements on TEMP LAMA can not be attributed to the calendar tool, which is only used for 0.2% of all examples, but mostly to the Wikipedia search and question answering...",
+          "summary": "The section titled '5 Analysis' begins by introducing a subsection on 'Decoding Strategy', which investigates the effects of a modified decoding strategy previously introduced in Section 4.2. The text explains that this strategy involves generating tokens differently than always generating the most probable one, though the full explanation is cut off at the bottom of the page.",
           "chunk_count": 1,
           "children": []
         },
         {
-          "title": "Part 2",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 8/Part 2",
+          "title": "6 Related Work",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/6 Related Work",
           "level": 2,
-          "summary": "require marginalizing over all potential API calls that the model could make at positiont, which is intractable.",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 9",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 9",
-      "level": 1,
-      "summary": "051015202530 0200040006000Model Parameters (M) LAMA Toolformer Toolformer (disabled) GPT3 0510152025303540 0200040006000Model Parameters (M) QA Benchmarks 051015202530 0200040006000Model Parameters (M) Math Benchmarks Figure 4: Average performance on LAMA, our math benchmarks and our QA benchmarks for GPT-2 models of different sizes and GPT-J ﬁnetuned with our approach, both with and without API calls. While API calls are not helpful to the smallest models, larger models learn how to make good use of them. Even for bigger models, the gap between model predictions with and without API calls remains high. most likely token, we generate the <API> token if it is one of the k most likely...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 10",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 10",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
+          "summary": "This page presents experimental results and analysis regarding a model called Toolformer. Figure 4 displays line charts comparing the performance of Toolformer, Toolformer with disabled API calls, and GPT3 across LAMA, Math Benchmarks, and QA Benchmarks as model parameters increase. Table 9 details Toolformer's performance on T-REx and WebQS datasets for different values of k (the number of most likely tokens considered), showing metrics for overall performance, API call success, and non-call accuracy. The text discusses how increasing k leads to more API calls and improved performance, particularly on WebQS. A section titled 'Data Quality' qualitatively analyzes API calls generated by the approach, referencing Table 10 (not fully visible) and discussing filtering criteria based on score differences. The page concludes with the beginning of Section 6, 'Related Work,' which introduces approaches to augment language models with textual information during pretraining.",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "Tool Use",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/6 Related Work/Tool Use",
+              "level": 3,
+              "summary": "The section discusses approaches to equip language models (LMs) with the ability to use external tools such as search engines, web browsers, calculators, translation systems, and Python interpreters. It categorizes learning methods into those relying on large amounts of human supervision versus few-shot prompting setups. It also mentions TALM as a related self-supervised approach.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Bootstrapping",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/6 Related Work/Bootstrapping",
+              "level": 3,
+              "summary": "The section titled 'Bootstrapping' discusses the concept of using self-training and bootstrapping techniques to improve models. It lists various contexts where these methods have been investigated, including word sense disambiguation, relation extraction, parsing, sequence generation, and few-shot text classification.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
         {
-          "title": "Part 1",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 10/Part 1",
+          "title": "7 Limitations",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/7 Limitations",
           "level": 2,
-          "summary": "Example L− i −L+ i Useful The Flodden Window (a war memorial dedicated to The Middleton Archers), in the Grade I-listed Church of St Leonard in Middleton is said to be the oldest war memorial in the United King- dom. <API> WikiSearch(War memorial Flodden)→ Battle of Flodden > Commemoration > The stained-glass Flodden Window in Middleton Parish Church [. . . ] was constructed by Sir Richard Assheton in memory of the Battle of Flodden and the archers from Middleton who fought in it. </API> Sir Richard Assheton of Middleton (who built St Leonard) was granted knighthood [. . . ] 5.49 \u0013 Note: The WL will be open on Friday, <API> Calendar()→ Today is Thursday, March 9, 2017. </API> March 10,...",
+          "summary": "The section outlines several limitations of the Toolformer approach. Key issues include the inability to use tools in a chain (using one tool's output as another's input) because API calls are generated independently, and the lack of support for interactive tool usage like search engines. Additionally, models are sensitive to prompt wording, the method is sample-inefficient (requiring large datasets for few examples), and it does not account for the computational cost of making API calls.",
           "chunk_count": 1,
           "children": []
         },
         {
-          "title": "Part 2",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 10/Part 2",
+          "title": "8 Conclusion",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/8 Conclusion",
           "level": 2,
-          "summary": "investigated in various contexts, rang- ing from word sense disambiguation (Yarowsky, 1995), relation extraction (Brin, 1999; Agichtein and Gravano, 2000), parsing (McClosky et al., 2006; Reichart and Rappoport, 2007), sequence generation (He et al., 2020), few-shot text classi-",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 11",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 11",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 11/Part 1",
-          "level": 2,
-          "summary": "ﬁcation (Schick and Schütze, 2021a) and retrieval (Izacard and Grave, 2021) to reasoning (Zelikman et al., 2022). In a similar spirit to these approaches, Toolformer is trained on its own predictions after applying a perplexity-based ﬁltering step. 7 Limitations While our approach enables LMs to learn how to use a variety of tools in a self-supervised way, there are some clear limitations to what can be achieved with our method in its current form. One such limi- tation is the inability of Toolformer to use tools in a chain (i.e., using the output of one tool as an input for another tool). This is due to the fact that API calls for each tool are generated independently; as a consequence,...",
+          "summary": "The section introduces Toolformer, a language model designed to learn self-supervised usage of various tools like search engines and calculators through simple API calls. The model is finetuned on sampled API calls filtered by their ability to reduce perplexity on future tokens. It is noted that Toolformer significantly improves zero-shot performance compared to larger models.",
           "chunk_count": 1,
           "children": []
         },
         {
-          "title": "Part 2",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 11/Part 2",
+          "title": "References",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/References",
           "level": 2,
-          "summary": "Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal, Ariel Herbert- V oss, Gretchen Krueger, Tom Henighan, Rewon Child, Aditya Ramesh, Daniel Ziegler, Jeffrey Wu, Clemens Winter, Chris Hesse, Mark Chen, Eric Sigler, Mateusz Litwin, Scott Gray, Benjamin Chess, Jack Clark, Christopher Berner, Sam McCandlish, Alec Radford, Ilya Sutskever, and Dario Amodei. 2020. Language models are few-shot learners. In Advances in Neural Information Processing Systems, volume 33, pages 1877–1901. Curran Associates, Inc.",
-          "chunk_count": 1,
+          "summary": "[SAME-AS Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/7 Limitations p11] Aakanksha Chowdhery, Sharan Narang, Jacob Devlin, Maarten Bosma, Gaurav Mishra, Adam Roberts, Paul Barham, Hyung Won Chung, Charles Sutton, Sebastian Gehrmann, Parker Schuh, Kensen Shi, Sasha Tsvyashchenko, Joshua Maynez, Abhishek Rao, Parker Barnes, Yi Tay, Noam Shazeer, Vin- odkumar Prabhakaran, Emily Reif, Nan Du, Ben Hutchinson, Reiner Pope, James Bradbury, Jacob Austin, Michael Isard, Guy Gur-Ari, Pengcheng Yin, Toju Duke, Anselm Levskaya, Sanjay Ghe- mawat, Sunipa Dev, Henryk Michalewski, Xavier Garcia, Vedant Misra, Kevin Robinson, Liam Fe- dus, Denny Zhou, Daphne Ippolito, David Luan, Hyeontaek Lim, Barret Zoph, Alexander Spiridonov, Ryan Sepassi, David Dohan, Shivani Agrawal, Mark Omernick, Andrew M. Dai, Thanumalayan Sankara- narayana Pillai, Marie Pellat, Aitor Lewkowycz, Erica Moreira, Rewon Child, Oleksandr Polozov, Katherine Lee, Zongwei Zhou, Xuezhi Wang, Bren- nan Saeta, Mark Diaz, Orhan Firat, Michele Catasta, Jason Wei, Kathy Meier-Hellstern, Douglas Eck, Jeff Dean, Slav Petrov, and Noah Fiedel. 2022. Palm: Scaling language modeling with pathways. Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et al. 2021. Training veriﬁers to solve math word problems...Zhang, Stephen Roller, Naman Goyal, Mikel Artetxe, Moya Chen, Shuohui Chen, Christopher De- wan, Mona Diab, Xian Li, Xi Victoria Lin, Todor Mi- haylov, Myle Ott, Sam Shleifer, Kurt Shuster, Daniel Simig, Punit Singh Koura, Anjali Sridhar, Tianlu Wang, and Luke Zettlemoyer. 2022. Opt: Open pre- trained transformer language models.",
+          "chunk_count": 4,
           "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 12",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 12",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
+        },
         {
-          "title": "Part 1",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 12/Part 1",
+          "title": "A API Details",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/A API Details",
           "level": 2,
-          "summary": "Aakanksha Chowdhery, Sharan Narang, Jacob Devlin, Maarten Bosma, Gaurav Mishra, Adam Roberts, Paul Barham, Hyung Won Chung, Charles Sutton, Sebastian Gehrmann, Parker Schuh, Kensen Shi, Sasha Tsvyashchenko, Joshua Maynez, Abhishek Rao, Parker Barnes, Yi Tay, Noam Shazeer, Vin- odkumar Prabhakaran, Emily Reif, Nan Du, Ben Hutchinson, Reiner Pope, James Bradbury, Jacob Austin, Michael Isard, Guy Gur-Ari, Pengcheng Yin, Toju Duke, Anselm Levskaya, Sanjay Ghe- mawat, Sunipa Dev, Henryk Michalewski, Xavier Garcia, Vedant Misra, Kevin Robinson, Liam Fe- dus, Denny Zhou, Daphne Ippolito, David Luan, Hyeontaek Lim, Barret Zoph, Alexander Spiridonov, Ryan Sepassi, David Dohan, Shivani Agrawal,...",
+          "summary": "",
+          "chunk_count": 5,
+          "children": [
+            {
+              "title": "A.1 Implementation",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/A API Details/A.1 Implementation",
+              "level": 3,
+              "summary": "Section A.1 Implementation details the specific models and tools used for four tasks: Question Answering (Atlas model), Calculator (Python script with basic operators), Calendar (date extraction from URLs), and Machine Translation (600M parameter NLLB). It also describes data filtering heuristics applied to the CCNet dataset, such as language detection using fastText and token chunking.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "A.2 Prompts",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/A API Details/A.2 Prompts",
+              "level": 3,
+              "summary": "Section A.2 lists the specific prompts used to sample API calls for the Question Answering and Calculator tools. For Question Answering, the prompt instructs the model to add API calls to text to answer questions, providing examples of input/output pairs involving Joe Biden and Coca-Cola. For the Calculator tool, the prompt begins by defining the task as adding calls to a Calculator API.",
+              "chunk_count": 4,
+              "children": [
+                {
+                  "title": "Wikipedia Search",
+                  "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/A API Details/A.2 Prompts/Wikipedia Search",
+                  "level": 4,
+                  "summary": "The section titled 'Wikipedia Search' explains how to use a Wikipedia Search API to look up information. It provides examples of input prompts and corresponding outputs, such as searching for the meaning of colors on the Ghana flag and risks associated with nanomaterial production.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Machine Translation",
+                  "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/A API Details/A.2 Prompts/Machine Translation",
+                  "level": 4,
+                  "summary": "The section titled 'Machine Translation' explains how to use a Machine Translation API. It instructs the user to complete text by using the tool with the syntax '[MT(text)]', where 'text' is the input to be translated into English. The section provides three examples: translating a book title from Portuguese, translating a German phrase about Morris de Jonge's work, and translating Chinese text regarding Gaochun district in Nanjing.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Calendar",
+                  "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/A API Details/A.2 Prompts/Calendar",
+                  "level": 4,
+                  "summary": "This section explains the usage of a Calendar API tool designed to add calls for processing text. It provides instructions on how to invoke the API using the syntax \"[Calendar()]\" and includes an example where the input 'Today is the first Friday of the year' is processed.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "B Toolformer Training",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/B Toolformer Training",
+          "level": 2,
+          "summary": "The section details the training configuration for Toolformer, specifying a maximum of 25k examples per API, a sequence length of 1,024, and an effective batch size of 128. It notes that models are trained using DeepSpeed's ZeRO-3 on 8 NVIDIA A100 40GB GPUs with BF16 precision. The training runs for up to 2k steps, evaluating perplexity (PPL) every 500 steps on a small development set from CCNet containing 1,000 examples.",
           "chunk_count": 1,
           "children": []
         },
         {
-          "title": "Part 2",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 12/Part 2",
+          "title": "C Zero-Shot Prompts",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/C Zero-Shot Prompts",
           "level": 2,
-          "summary": "1: Long Papers) , pages 1601–1611, Van- couver, Canada. Association for Computational Lin- guistics. Armand Joulin, Edouard Grave, Piotr Bojanowski, Matthijs Douze, Hérve Jégou, and Tomas Mikolov. 2016. Fasttext. zip: Compressing text classiﬁcation models. arXiv preprint arXiv:1612.03651. Nitish Shirish Keskar, Bryan McCann, Lav R. Varsh- ney, Caiming Xiong, and Richard Socher. 2019. Ctrl: A conditional transformer language model for controllable generation. Philipp Koehn. 2005. Europarl: A parallel corpus for statistical machine translation. In Proceedings of machine translation summit x: papers , pages 79–86. Mojtaba Komeili, Kurt Shuster, and Jason Weston. 2022. Internet-augmented...",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 13",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 13",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 13/Part 1",
-          "level": 2,
-          "summary": "Rik Koncel-Kedziorski, Subhro Roy, Aida Amini, Nate Kushman, and Hannaneh Hajishirzi. 2016. MAWPS: A math word problem repository. In Pro- ceedings of the 2016 Conference of the North Amer- ican Chapter of the Association for Computational Linguistics: Human Language Technologies , pages 1152–1157, San Diego, California. Association for Computational Linguistics. Tom Kwiatkowski, Jennimaria Palomaki, Olivia Red- ﬁeld, Michael Collins, Ankur Parikh, Chris Al- berti, Danielle Epstein, Illia Polosukhin, Jacob De- vlin, Kenton Lee, Kristina Toutanova, Llion Jones, Matthew Kelcey, Ming-Wei Chang, Andrew M. Dai, Jakob Uszkoreit, Quoc Le, and Slav Petrov. 2019. Natural questions: A benchmark for...",
-          "chunk_count": 1,
-          "children": []
+          "summary": "",
+          "chunk_count": 4,
+          "children": [
+            {
+              "title": "C.1 LAMA and TEMPLAMA",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/C Zero-Shot Prompts/C.1 LAMA and TEMPLAMA",
+              "level": 3,
+              "summary": "Section C.1 describes the zero-shot prompt used for both LAMA and TEMPLAMA tasks. The prompt instructs the model to complete an input text 'x' so that it is factually correct.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "C.2 Math Benchmarks",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/C Zero-Shot Prompts/C.2 Math Benchmarks",
+              "level": 3,
+              "summary": "Section C.2 Math Benchmarks describes the prompt format used for math benchmarks, which involves providing a context (x) and a question (q) followed by 'The answer is.'",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "C.3 Question Answering",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/C Zero-Shot Prompts/C.3 Question Answering",
+              "level": 3,
+              "summary": "Section C.3 describes the prompt format used for question answering datasets, including DATESET. The method involves prefixing the question with 'Answer the following question:' and appending a question mark if one is not already present.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "C.4 Multilingual Question Answering",
+              "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/C Zero-Shot Prompts/C.4 Multilingual Question Answering",
+              "level": 3,
+              "summary": "Section C.4 describes the prompt format used for Multilingual Question Answering (MLQA). It specifies that given a context x and a question q, the task is to answer the question in English.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
         },
         {
-          "title": "Part 2",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 13/Part 2",
+          "title": "D DATESET",
+          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Root/D DATESET",
           "level": 2,
-          "summary": "Amodei, Ilya Sutskever, et al. 2019. Lan- guage models are unsupervised multitask learners. OpenAI blog, 1(8):9. Roi Reichart and Ari Rappoport. 2007. Self-training for enhancement and domain adaptation of statisti- cal parsers trained on small datasets. In Proceed- ings of the 45th Annual Meeting of the Association of Computational Linguistics, pages 616–623, Prague, Czech Republic. Association for Computational Lin- guistics. Stephen E Robertson, Steve Walker, Susan Jones, Micheline M Hancock-Beaulieu, Mike Gatford, et al. 1995. Okapi at trec-3. Nist Special Publication Sp , 109:109. Timo Schick, Jane Dwivedi-Yu, Zhengbao Jiang, Fabio Petroni, Patrick Lewis, Gautier Izacard, Qingfei...",
+          "summary": "Section D describes the creation of the DATESET dataset. It involves randomly selecting 500 'current dates' and generating relative past/future dates within a four-year range to fill query templates found in Table 11. The section provides an example query ('How many days ago was August 14, 2020?') and explains that a Calendar tool is used to return the current date (e.g., 'Today is Sunday, November 20, 2020').",
           "chunk_count": 1,
           "children": []
         }
       ]
-    },
-    {
-      "title": "Page 14",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 14",
-      "level": 1,
-      "summary": "16th Conference of the European Chapter of the As- sociation for Computational Linguistics: Main V ol- ume, pages 255–269, Online. Association for Com- putational Linguistics. Timo Schick and Hinrich Schütze. 2021b. Generating datasets with pretrained language models. In Pro- ceedings of the 2021 Conference on Empirical Meth- ods in Natural Language Processing , pages 6943– 6951, Online and Punta Cana, Dominican Republic. Association for Computational Linguistics. Kurt Shuster, Jing Xu, Mojtaba Komeili, Da Ju, Eric Michael Smith, Stephen Roller, Megan Ung, Moya Chen, Kushal Arora, Joshua Lane, Morteza Behrooz, William Ngan, Spencer Poff, Naman Goyal, Arthur Szlam, Y-Lan Boureau, Melanie...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 15",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 15",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 15/Part 1",
-          "level": 2,
-          "summary": "A API Details When sampling and ﬁltering API calls, by default we use values of τs = 0.05 andτf = 1.0 – i.e., we only make API calls at positions where the probability of the <API> token is at least 5%, and we keep API calls if they reduce the loss by at least 1.0. We only keep the topk = 5 such positions and sample up to m = 5 API calls for each position identiﬁed in a piece of text. Due to the heuristic ﬁltering described below, we generate API calls for the calculator and machine translation system on only a small subset of C; to compensate for this, we set τs = 0.0, k = 20 andm = 10 for these tools. As the resulting sets of API calls are still comparably small, we additionally setτf =...",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 2",
-          "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 15/Part 2",
-          "level": 2,
-          "summary": "by?\")] Coke, is a carbonated soft drink manufactured by [QA(\"Who manufactures Coca-Cola?\")] the Coca-Cola Company. Input: x Output: Calculator We use the following prompt for the calculator: Your task is to add calls to a Calculator API to a piece of text.",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 16",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 16",
-      "level": 1,
-      "summary": "The calls should help you get information required to complete the text. You can call the API by writing \"[Calculator(expression)]\" where \"expression\" is the expression to be computed. Here are some examples of API calls: Input: The number in the next term is 18 + 12 x 3 = 54. Output: The number in the next term is 18 + 12 x 3 = [Calculator(18 + 12 * 3)] 54. Input: The population is 658,893 people. This is 11.4% of the national average of 5,763,868 people. Output: The population is 658,893 people. This is 11.4% of the national average of [Calculator(658,893 / 11.4%)] 5,763,868 people. Input: A total of 252 qualifying matches were played, and 723 goals were scored (an average of 2.87 per...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 17",
-      "path": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf/Page 17",
-      "level": 1,
-      "summary": "Input: The president of the United States is Joe Biden. Output: The president of the United States is [Calendar()] Joe Biden. Input: The current day of the week is Wednesday. Output: The current day of the week is [Calendar()] Wednesday. Input: The number of days from now until Christmas is 30. Output: The number of days from now until Christmas is [Calendar()] 30. Input: The store is never open on the weekend, so today it is closed. Output: The store is never open on the weekend, so today [Calendar()] it is closed. Input: x Output: B Toolformer Training We use up to 25k examples per API. Max sequence length 1,024. Effective batch size of 128. All mod- els are trained using DeepSpeed’s...",
-      "chunk_count": 1,
-      "children": []
     }
   ],
   "resources": {
-    "images": [],
-    "tables": []
+    "images": [
+      {
+        "path": "images/image_page_1_figure_1.png",
+        "summary": "Figure 1: Exemplary predictions of Toolformer. [images/image_page_1_figure_1.png]"
+      },
+      {
+        "path": "images/image_page_2_figure_1.png",
+        "summary": "Figure 2: Key steps in our approach, illustrated for a question answering tool [images/image_page_2_figure_1.png]"
+      },
+      {
+        "path": "images/image_page_3_figure_1.png",
+        "summary": "An exemplary prompt P(x) used to generate API calls for the question answering tool. [images/image_page_3_figure_1.png]"
+      },
+      {
+        "path": "images/image_page_9_figure_1.png",
+        "summary": "Figure 4: Average performance on LAMA, our math benchmarks and our QA benchmarks for GPT-2 models of different sizes and GPT-J finetuned with our approach, both with and without API calls. [images/image_page_9_figure_1.png]"
+      }
+    ],
+    "tables": [
+      {
+        "path": "tables/table_page_9_2.html",
+        "summary": "tables/table_page_9_2.html"
+      }
+    ]
   }
 }

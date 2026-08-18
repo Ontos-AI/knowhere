@@ -1,325 +1,217 @@
 {
   "version": "2.0",
-  "job_id": "job_232bb2ef34f5",
-  "data_id": null,
-  "source_file_name": "GOOG-10-K-2025.pdf",
-  "processing_date": "2026-06-16T03:34:57.577101Z",
+  "job_id": "job_57cae6fdb820",
+  "data_id": "demo-financial-goog-10-k-2025",
+  "source_file_name": "GOOG 10-K 2025.pdf",
+  "processing_date": "2026-08-18T18:34:14.672475Z",
   "processing": {
     "page_count": 99,
     "billing_status": "charged",
     "cost": {
-      "micro_dollars": 148500,
-      "credits": 0.1485
+      "micro_dollars": 1485000,
+      "credits": 1.485
+    },
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-18:874ab8b6c9e4",
+      "total_input_cost": 0.00143066,
+      "total_output_cost": 0.00056,
+      "total_cost": 0.00199066,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 19286,
+          "output_tokens": 2704,
+          "calls": 2,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        },
+        "deepseek-chat": {
+          "input_tokens": 10219,
+          "output_tokens": 2000,
+          "calls": 1,
+          "input_rate_per_1m": 0.14,
+          "output_rate_per_1m": 0.28,
+          "input_cost": 0.00143066,
+          "output_cost": 0.00056,
+          "total_cost": 0.00199066,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.14,
+            "output_per_1m": 0.28,
+            "source": "DeepSeek official pricing",
+            "effective_date": "2026-06-11"
+          }
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 16663,
+              "output_tokens": 204,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "calibration.react_loop": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 2623,
+              "output_tokens": 2500,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.hierarchy": {
+          "input_cost": 0.00143066,
+          "output_cost": 0.00056,
+          "total_cost": 0.00199066,
+          "models": {
+            "deepseek-chat": {
+              "input_tokens": 10219,
+              "output_tokens": 2000,
+              "calls": 1,
+              "input_rate_per_1m": 0.14,
+              "output_rate_per_1m": 0.28,
+              "input_cost": 0.00143066,
+              "output_cost": 0.00056,
+              "total_cost": 0.00199066,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.14,
+                "output_per_1m": 0.28,
+                "source": "DeepSeek official pricing",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
     },
     "timing": {
-      "started_at": "2026-06-16T03:29:57.593829+00:00",
-      "completed_at": "2026-06-16T03:34:57.538564+00:00",
-      "duration_ms": 299944
+      "started_at": "2026-08-18T18:26:30.972607+00:00",
+      "completed_at": "2026-08-18T18:34:14.669230+00:00",
+      "duration_ms": 463696
     },
     "stages": {
       "timing_ms": {
-        "document.profile": 7552,
-        "pdf.extract.standard": 239927,
-        "toc.detect_range_llm": 1437,
-        "heading.hierarchy_llm_call": 17771,
-        "toc.parse_hierarchy_llm": 1267,
-        "md.detect_toc": 2774,
-        "heading.merge_pre_pass_llm": 2196,
-        "heading.hierarchy_llm": 16541,
-        "md.predict_headings": 20573,
-        "md.deferred_summaries": 27874,
-        "md.build_dataframe": 3,
-        "pdf.parse_md": 52091,
-        "document.cleanup_unreferenced_images": 3,
-        "document.compress_images": 0,
-        "worker.parse.document": 299579
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 160639,
+        "page_memory.skeleton": 0,
+        "page_memory.title_render": 55869,
+        "page_memory.title_detection": 117709,
+        "page_memory.fine_hierarchy": 9751,
+        "page_memory.render": 22532,
+        "page_memory.tag": 90971,
+        "page_memory.assets": 7,
+        "page_memory.node_summary": 5980,
+        "page_memory.node_rows": 37,
+        "page_memory.node_assembly": 6020,
+        "worker.parse.document": 463572
       },
       "token_usage": {
-        "prompt_tokens": 15915,
-        "completion_tokens": 3407,
-        "total_tokens": 19322
+        "prompt_tokens": 29505,
+        "completion_tokens": 4704,
+        "total_tokens": 34209,
+        "calls": 3,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 19286,
+            "completion_tokens": 2704,
+            "total_tokens": 21990,
+            "calls": 2
+          },
+          "deepseek-chat": {
+            "prompt_tokens": 10219,
+            "completion_tokens": 2000,
+            "total_tokens": 12219,
+            "calls": 1
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 16663,
+            "completion_tokens": 204,
+            "total_tokens": 16867,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 16663,
+                "completion_tokens": 204,
+                "total_tokens": 16867,
+                "calls": 1
+              }
+            }
+          },
+          "calibration.react_loop": {
+            "prompt_tokens": 2623,
+            "completion_tokens": 2500,
+            "total_tokens": 5123,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 2623,
+                "completion_tokens": 2500,
+                "total_tokens": 5123,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.hierarchy": {
+            "prompt_tokens": 10219,
+            "completion_tokens": 2000,
+            "total_tokens": 12219,
+            "calls": 1,
+            "models": {
+              "deepseek-chat": {
+                "prompt_tokens": 10219,
+                "completion_tokens": 2000,
+                "total_tokens": 12219,
+                "calls": 1
+              }
+            }
+          }
+        }
       }
     }
   },
   "statistics": {
-    "total_chunks": 300,
-    "text_chunks": 226,
-    "image_chunks": 2,
-    "table_chunks": 72,
+    "total_chunks": 1,
+    "text_chunks": 0,
+    "image_chunks": 0,
+    "table_chunks": 0,
+    "page_chunks": 1,
     "total_pages": null
   },
   "HIERARCHY": {
-    "Root": {},
-    "PART I": {
-      "ITEM 1. BUSINESS": {
-        "Overview": {
-          "Access and Technology for Everyone": {},
-          "Making AI Helpful for Everyone": {},
-          "Moonshots": {},
-          "Privacy and Security": {},
-          "Google": {},
-          "Google Services": {
-            "Serving Our Users": {},
-            "How We Make Money": {},
-            "Google Cloud": {},
-            "Other Bets": {}
-          },
-          "Competition": {},
-          "Culture and Workforce": {},
-          "Government Regulation": {},
-          "Intellectual Property": {},
-          "Available Information": {}
-        }
-      },
-      "ITEM 1A. RISK FACTORS": {
-        "Risks Specific to our Company": {},
-        "Risks Related to our Industry": {},
-        "Risks Related to Laws, Regulations, and Policies": {},
-        "Risks Related to Ownership of Our Stock": {},
-        "General Risks": {}
-      },
-      "ITEM 1B. UNRESOLVED STAFF COMMENTS": {},
-      "ITEM 1C. CYBERSECURITY": {},
-      "ITEM 2. PROPERTIES": {},
-      "ITEM 3. LEGAL PROCEEDINGS": {},
-      "ITEM 4. MINE SAFETY DISCLOSURES": {}
-    },
-    "PART II": {
-      "Holders of Record": {},
-      "Dividend Program": {},
-      "Issuer Purchases of Equity Securities": {},
-      "Stock Performance Graphs": {
-        "COMPARISON OF CUMULATIVE 5-YEAR TOTAL RETURN\\* ALPHABET INC. CLASS A COMMON STOCK": {},
-        "COMPARISON OF CUMULATIVE 5-YEAR TOTAL RETURN\\* ALPHABET INC. CLASS C CAPITAL STOCK": {}
-      },
-      "ITEM 6. [Reserved]": {
-        "Understanding Alphabet's Financial Results": {},
-        "Trends in Our Business and Financial Effect": {},
-        "Revenues and Monetization Metrics": {
-          "Google Services": {
-            "Google Advertising": {},
-            "Google Subscriptions, Platforms, and Devices": {},
-            "Google Cloud": {},
-            "Other Bets": {}
-          }
-        },
-        "Costs and Expenses": {
-          "Cost of Revenues": {},
-          "Operating Expenses": {},
-          "Other Income (Expense), Net": {},
-          "Provision for Income Taxes": {}
-        },
-        "Executive Overview": {},
-        "Other Information:": {},
-        "Financial Results": {
-          "Revenues": {
-            "Google Services": {
-              "YouTube ads": {},
-              "Google Network": {}
-            },
-            "Monetization Metrics": {},
-            "Google Subscriptions, Platforms, and Devices": {},
-            "Google Cloud": {},
-            "Revenues by Geography": {}
-          }
-        },
-        "Costs and Expenses_2": {
-          "Cost of Revenues": {},
-          "Research and Development": {},
-          "Sales and Marketing": {},
-          "General and Administrative": {}
-        },
-        "Segment Profitability": {
-          "Google Services": {},
-          "Google Cloud": {},
-          "Other Bets": {},
-          "Other Income (Expense), Net": {},
-          "Provision for Income Taxes": {}
-        },
-        "Financial Condition": {
-          "Cash, Cash Equivalents, and Marketable Securities": {},
-          "Sources, Uses of Cash and Related Trends": {
-            "Cash Provided by Operating Activities": {},
-            "Cash Used in Investing Activities": {},
-            "Cash Used in Financing Activities": {}
-          },
-          "Liquidity and Material Cash Requirements": {},
-          "Capital Expenditures and Leases": {
-            "Capital Expenditures": {},
-            "Leases": {},
-            "Financing": {},
-            "Share Repurchase Program": {},
-            "Dividend Program": {},
-            "Accrued Legal and Regulatory": {},
-            "Taxes": {},
-            "Purchase Commitments and Other Contractual Obligations": {},
-            "Pending Acquisitions": {}
-          }
-        },
-        "Critical Accounting Estimates": {
-          "Fair Value Measurements of Non-Marketable Equity Securities": {},
-          "Property and Equipment": {},
-          "Income Taxes": {},
-          "Loss Contingencies": {}
-        }
-      },
-      "ITEM 7A. QUANTITATIVE AND QUALITATIVE DISCLOSURES ABOUT MARKET RISK": {
-        "Foreign Currency Exchange Risk": {},
-        "Interest Rate Risk": {},
-        "Equity Investment Risk": {}
-      },
-      "ITEM 8. FINANCIAL STATEMENTS AND SUPPLEMENTARY DATA": {
-        "INDEX TO CONSOLIDATED FINANCIAL STATEMENTS": {
-          "REPORT OF INDEPENDENT REGISTERED PUBLIC ACCOUNTING FIRM": {
-            "Opinion on the Financial Statements": {},
-            "Basis for Opinion": {},
-            "Critical Audit Matter": {}
-          },
-          "REPORT OF INDEPENDENT REGISTERED PUBLIC ACCOUNTING FIRM_2": {
-            "Opinion on Internal Control Over Financial Reporting": {},
-            "Basis for Opinion": {},
-            "Definition and Limitations of Internal Control Over Financial Reporting": {}
-          }
-        },
-        "Alphabet Inc. NOTES TO CONSOLIDATED FINANCIAL STATEMENTS": {
-          "Note 1. Summary of Significant Accounting Policies": {
-            "Nature of Operations": {},
-            "Basis of Consolidation": {},
-            "Use of Estimates": {},
-            "Revenue Recognition": {
-              "Google Advertising": {},
-              "Google Subscriptions, Platforms, and Devices": {},
-              "Google Cloud": {},
-              "Arrangements with Multiple Performance Obligations": {},
-              "Customer Incentives and Credits": {},
-              "Sales Commissions": {}
-            },
-            "Cost of Revenues": {},
-            "Software Development Costs": {},
-            "Stock-Based Compensation": {},
-            "Advertising and Promotional Expenses": {},
-            "Fair Value Measurements": {},
-            "Financial Instruments": {
-              "Credit Risks": {},
-              "Cash Equivalents": {},
-              "Marketable Securities": {},
-              "Non-Marketable Securities": {},
-              "Derivative Financial Instruments": {},
-              "Financial Guarantees": {},
-              "Accounts Receivable": {},
-              "Convertible Notes": {},
-              "Other": {}
-            },
-            "Impairment of Investments": {},
-            "Inventory": {},
-            "Variable Interest Entities": {},
-            "Property and Equipment": {},
-            "Goodwill": {},
-            "Leases": {},
-            "Impairment of Long-Lived Assets": {},
-            "Income Taxes": {},
-            "Business Combinations": {},
-            "Foreign Currency": {},
-            "Recently Issued Accounting Pronouncements Not Yet Adopted": {},
-            "Recently Adopted Accounting Pronouncements": {},
-            "Prior Period Reclassifications": {}
-          },
-          "Note 2. Revenues": {
-            "Disaggregated Revenues": {},
-            "Revenue Backlog": {},
-            "Deferred Revenues": {}
-          },
-          "Note 3. Financial Instruments": {
-            "Fair Value Measurements": {
-              "Investments Measured at Fair Value on a Recurring Basis": {},
-              "Investments Measured at Fair Value on a Nonrecurring Basis": {}
-            },
-            "Debt and Equity Securities": {
-              "Debt Securities": {},
-              "Non-marketable Securities": {},
-              "Gains and Losses on Equity Securities": {},
-              "Derivative Financial Instruments": {
-                "Cash Flow Hedges": {},
-                "Fair Value Hedges": {},
-                "Net Investment Hedges": {},
-                "Derivatives Not Designated as Hedging Instruments": {},
-                "Offsetting of Derivatives": {}
-              }
-            }
-          },
-          "Note 4. Leases": {},
-          "Note 5. Variable Interest Entities": {
-            "Consolidated VIEs": {},
-            "Unconsolidated VIEs": {}
-          },
-          "Note 6. Debt": {
-            "Short-Term Debt": {},
-            "Long-Term Debt": {},
-            "Credit Facility": {}
-          },
-          "Note 7. Supplemental Financial Statement Information": {
-            "Accounts Receivable": {},
-            "Property and Equipment, Net": {},
-            "Accrued Expenses and Other Current Liabilities": {},
-            "Accumulated Other Comprehensive Income (Loss)": {},
-            "Other Income (Expense), Net": {}
-          },
-          "Note 8. Acquisitions": {},
-          "Note 9. Goodwill": {},
-          "Note 10. Commitments and Contingencies": {
-            "Commitments": {},
-            "Financial Guarantees": {},
-            "Indemnifications": {},
-            "Legal Matters": {
-              "Antitrust Matters": {},
-              "Privacy Matters": {},
-              "Patent and Intellectual Property Claims": {},
-              "Other": {}
-            },
-            "Non-Income Taxes": {}
-          },
-          "Note 11. Stockholders' Equity": {
-            "Share Repurchases": {},
-            "Dividends": {}
-          },
-          "Note 12. Net Income Per Share": {},
-          "Note 13. Compensation Plans": {
-            "Stock Plans": {},
-            "Stock-Based Compensation": {},
-            "Stock-Based Award Activities": {}
-          },
-          "Note 14. Income Taxes": {
-            "Deferred Income Taxes": {},
-            "Uncertain Tax Positions": {}
-          },
-          "Note 15. Information about Segments and Geographic Areas": {},
-          "Note 16. Subsequent Event": {}
-        }
-      },
-      "ITEM 9A. CONTROLS AND PROCEDURES": {
-        "Evaluation of Disclosure Controls and Procedures": {},
-        "Changes in Internal Control over Financial Reporting": {},
-        "Management's Report on Internal Control over Financial Reporting": {},
-        "Limitations on Effectiveness of Controls and Procedures": {}
-      },
-      "ITEM 9B. OTHER INFORMATION": {},
-      "ITEM 9C. DISCLOSURE REGARDING FOREIGN JURISDICTIONS THAT PREVENT INSPECTIONS": {}
-    },
-    "PART III": {
-      "ITEM 10. DIRECTORS, EXECUTIVE OFFICERS, AND CORPORATE GOVERNANCE": {},
-      "ITEM 11. EXECUTIVE COMPENSATION": {},
-      "ITEM 13. CERTAIN RELATIONSHIPS AND RELATED TRANSACTIONS, AND DIRECTOR INDEPENDENCE": {},
-      "ITEM 14. PRINCIPAL ACCOUNTANT FEES AND SERVICES": {}
-    },
-    "PART IV": {
-      "ITEM 15. EXHIBITS, FINANCIAL STATEMENT SCHEDULES": {
-        "1. Consolidated Financial Statements": {},
-        "2. Financial Statement Schedules": {},
-        "3. Exhibits": {}
-      },
-      "ITEM 16. FORM 10-K SUMMARY": {},
-      "SIGNATURES": {},
-      "POWER OF ATTORNEY": {}
-    }
+    "Root": {}
   }
 }

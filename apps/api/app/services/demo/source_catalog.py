@@ -134,7 +134,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=7_441_414,
         asset_directory="spacex-s1",
-        chunk_count=922,
+        chunk_count=227,
         examples=(
             DemoExampleDefinition(
                 id="demo-spacex-s1-starlink-scale",
@@ -149,13 +149,11 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 ),
                 citations=(
                     DemoCitationDefinition(
-                        section_path="spacex-s1.pdf/PROSPECTUS SUMMARY/Overview",
+                        section_path="spacex-s1.pdf/Root",
                         description="Starlink network scale",
                         content=(
-                            "powered by approximately 9,600 Starlink broadband "
-                            "and mobile satellites in Low-Earth Orbit, delivering "
-                            "connectivity to millions of consumer, enterprise, "
-                            "and government customers across 164 countries"
+                            "approximately 9,600 Starlink broadband "
+                            "and mobile satellites"
                         ),
                     ),
                 ),
@@ -171,15 +169,10 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 ),
                 citations=(
                     DemoCitationDefinition(
-                        section_path=(
-                            "spacex-s1.pdf/PROSPECTUS SUMMARY/"
-                            "Our Unparalleled Launch Capabilities"
-                        ),
+                        section_path="spacex-s1.pdf/Root",
                         description="Falcon 9 booster reuse",
                         content=(
-                            "As of March 31, 2026, our Falcon 9 rockets have "
-                            "demonstrated the ability to refly a first-stage "
-                            "34 times."
+                            "refly a first-stage 34 times"
                         ),
                     ),
                 ),
@@ -193,7 +186,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 ),
                 citations=(
                     DemoCitationDefinition(
-                        section_path="spacex-s1.pdf/SPACEX",
+                        section_path="spacex-s1.pdf/Root",
                         description="Class A common stock offering",
                         content=(
                             "This is the initial public offering of shares of "
@@ -212,7 +205,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=288_661,
         asset_directory="financial-nvda-q1-fy27-earnings-call",
-        chunk_count=44,
+        chunk_count=17,
         examples=(),
         original_file_name=None,
     ),
@@ -223,7 +216,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=306_317,
         asset_directory="financial-nvda-q4-fy26-earnings-call",
-        chunk_count=63,
+        chunk_count=24,
         examples=(),
         original_file_name=None,
     ),
@@ -234,7 +227,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=75_796,
         asset_directory="financial-nvda-q1-fy27-cfo-commentary",
-        chunk_count=19,
+        chunk_count=11,
         examples=(),
         original_file_name=None,
     ),
@@ -256,7 +249,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=3_371_774,
         asset_directory="financial-nvda-q1-fy27-presentation",
-        chunk_count=39,
+        chunk_count=28,
         examples=(),
         original_file_name=None,
     ),
@@ -300,7 +293,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=940_068,
         asset_directory="financial-goog-10-k-2025",
-        chunk_count=300,
+        chunk_count=1,
         examples=(),
         original_file_name=None,
     ),
@@ -322,7 +315,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=239_814,
         asset_directory="financial-meta-q1-2026-presentation",
-        chunk_count=55,
+        chunk_count=32,
         examples=(),
         original_file_name=None,
     ),
@@ -333,7 +326,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=131_758,
         asset_directory="financial-meta-q1-2026-earnings-call",
-        chunk_count=13,
+        chunk_count=3,
         examples=(),
         original_file_name=None,
     ),
@@ -346,7 +339,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         ),
         size_bytes=1_044_155,
         asset_directory="financial-microsoft-2025-annual-report",
-        chunk_count=122,
+        chunk_count=85,
         examples=(),
         original_file_name=None,
     ),
@@ -357,7 +350,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=346_418,
         asset_directory="financial-alibaba-fy2026-interim-report",
-        chunk_count=216,
+        chunk_count=125,
         examples=(),
         original_file_name=None,
     ),
@@ -368,7 +361,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=2_215_244,
         asset_directory="research-attention-is-all-you-need",
-        chunk_count=16,
+        chunk_count=34,
         examples=(),
         original_file_name=None,
     ),
@@ -379,7 +372,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=1_662_567,
         asset_directory="research-rag-survey",
-        chunk_count=37,
+        chunk_count=35,
         examples=(),
         original_file_name=None,
     ),
@@ -390,7 +383,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=3_979_559,
         asset_directory="research-rag-realized",
-        chunk_count=41,
+        chunk_count=59,
         examples=(),
         original_file_name=None,
     ),
@@ -401,7 +394,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=657_966,
         asset_directory="research-toolformer",
-        chunk_count=27,
+        chunk_count=41,
         examples=(),
         original_file_name=None,
     ),
@@ -412,7 +405,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=4_928_076,
         asset_directory="research-ai-agents-overview",
-        chunk_count=33,
+        chunk_count=58,
         examples=(),
         original_file_name=None,
     ),
@@ -423,7 +416,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=1_363_617,
         asset_directory="stem-jurafsky-transformers",
-        chunk_count=46,
+        chunk_count=47,
         examples=(),
         original_file_name=None,
     ),
@@ -445,7 +438,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=2_619_505,
         asset_directory="stem-deep-learning-transformer-network",
-        chunk_count=25,
+        chunk_count=18,
         examples=(),
         original_file_name=None,
     ),
@@ -467,7 +460,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=1_208_674,
         asset_directory="stem-introduction-statistical-learning-theory",
-        chunk_count=62,
+        chunk_count=49,
         examples=(),
         original_file_name=None,
     ),

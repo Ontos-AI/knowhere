@@ -1,1300 +1,689 @@
 {
   "chunks": [
     {
-      "chunk_id": "27d6fee5-9ea2-5b39-bb59-dec0c5d8310a",
-      "type": "text",
-      "content": "Transformer network\nJan Platoš, Radek Svoboda\nMay 5, 2026\nDepartment of Computer Science\nFaculty of Electrical Engineering and Computer Science\nVŠB - Technical University of Ostrava",
-      "path": "dl_10.pdf/Deep Learning Transformer network",
+      "chunk_id": "asset_56e51dc3-c9d9-5f70-92c7-cd86bb4369df",
+      "type": "image",
+      "content": "[images/image_page_4_figure_1.png]",
+      "path": "images/image_page_4_figure_1.png",
       "metadata": {
-        "length": 181,
+        "length": 34,
         "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "tokens": [
-          "Transformer",
-          "network",
-          "Jan",
-          "Plato",
-          "Radek",
-          "Svoboda",
-          "May",
-          "2026",
-          "Department",
-          "Computer",
-          "Science",
-          "Faculty",
-          "Electrical",
-          "Engineering",
-          "Technical",
-          "University",
-          "Ostrava"
+        "page_nums": [
+          4
         ],
+        "file_path": "images/image_page_4_figure_1.png",
         "keywords": [],
-        "connect_to": []
+        "tokens": []
       }
     },
     {
-      "chunk_id": "b9402e80-2196-55ca-ae71-353fa1f39582",
-      "type": "text",
-      "content": "- Recurrent neural network works in synchronized serial way.\n- This prevent efficient computation in parallel.\n- The attention-mechanism looks at an input sequence and decides at each step which other parts of the sequence are important.\n- The attention mechanism helps the decoder to focus on the important part of the input sequence.",
-      "path": "dl_10.pdf/Deep Learning Transformer network/Transformer network",
-      "metadata": {
-        "length": 335,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "tokens": [
-          "Recurrent",
-          "neural",
-          "network",
-          "works",
-          "synchronized",
-          "serial",
-          "This",
-          "prevent",
-          "efficient",
-          "computation",
-          "parallel",
-          "The",
-          "attention",
-          "mechanism",
-          "input",
-          "sequence",
-          "decides",
-          "step",
-          "parts",
-          "important",
-          "helps",
-          "decoder",
-          "focus",
-          "part"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "1eaeda53-06bd-57e7-b424-15c56a5602a6",
+      "chunk_id": "asset_44a932b9-0d2e-5ae6-9783-51dcecdcba34",
       "type": "image",
-      "content": "\n- Inspired by how humans read – we don't process all words equally. <details>0\n[images/image-1-Attention Mechanism Process.jpg]\n",
-      "path": "images/image-1-Attention Mechanism Process.jpg",
-      "metadata": {
-        "length": 112,
-        "summary": "image-1\n1. Input: sequence of words (e.g., \"The animal didn't cross ...\")\n2. Compute attention scores for every pair of words (represented by a grid matrix)\n3. Form weighted sum of word representations\n4. Output: context-aware representations",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "images/image-1-Attention Mechanism Process.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "f1724798-2e92-5e82-a75c-a615cee8c88c",
-      "type": "image",
-      "content": "\n$$ <details>0\n[images/image-2-Attention Matrix Heatmap.jpg]\n",
-      "path": "images/image-2-Attention Matrix Heatmap.jpg",
-      "metadata": {
-        "length": 47,
-        "summary": "image-2\nChart Title: Words attended to (X-axis) vs. Words attending (Y-axis)\nData Source: Attention weights between word pairs\n\nKey Data Points:\n- Highest attention values (0.4):\n  - \"animal\" -> \"animal\" (Self-attention)\n  - \"didn't\" -> \"didn't\" (Self-attention)\n  - \"cross\" -> \"cross\" (Self-attention)\n- Notable cross-word attention (0.3):\n  - \"The\" -> \"animal\"\n  - \"the\" -> \"the\"\n  - \"street\" -> \"street\" (Self-attention)\n- Lowest attention values (0.1):\n  - Most off-diagonal interactions show minimal attention (0.1)\n\nScale Range: 0.10 to 0.40\nWords Involved: The, animal, didn't, cross, the, street",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "images/image-2-Attention Matrix Heatmap.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "6907e0d7-0e26-5f71-962b-2fff66d237f0",
-      "type": "table",
-      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Words attended to</th>\n      <th>The</th>\n      <th>animal</th>\n      <th>didn't</th>\n      <th>cross</th>\n      <th>the</th>\n      <th>street</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>The</td>\n      <td>0.2</td>\n      <td>0.3</td>\n      <td>0.1</td>\n      <td>0.1</td>\n      <td>0.2</td>\n      <td>0.1</td>\n    </tr>\n    <tr>\n      <td>animal</td>\n      <td>0.1</td>\n      <td>0.4</td>\n      <td>0.2</td>\n      <td>0.1</td>\n      <td>0.1</td>\n      <td>0.1</td>\n    </tr>\n    <tr>\n      <td>didn't</td>\n      <td>0.1</td>\n      <td>0.2</td>\n      <td>0.4</td>\n      <td>0.1</td>\n      <td>0.1</td>\n      <td>0.1</td>\n    </tr>\n    <tr>\n      <td>words crossing</td>\n      <td>0.1</td>\n      <td>0.1</td>\n      <td>0.1</td>\n      <td>0.4</td>\n      <td>0.2</td>\n      <td>0.1</td>\n    </tr>\n    <tr>\n      <td>the</td>\n      <td>0.1</td>\n      <td>0.2</td>\n      <td>0.1</td>\n      <td>0.2</td>\n      <td>0.3</td>\n      <td>0.1</td>\n    </tr>\n    <tr>\n      <td>street</td>\n      <td>0.1</td>\n      <td>0.1</td>\n      <td>0.2</td>\n      <td>0.2</td>\n      <td>0.1</td>\n      <td>0.3</td>\n    </tr>\n  </tbody>\n</table>",
-      "path": "tables/table-0 Attention Matrix.html",
-      "metadata": {
-        "length": 1223,
-        "summary": "table-1\nThe table shows attention weights between words in a sentence. Each row indicates how much a word attends to others, with diagonal values often highest.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "tables/table-0 Attention Matrix.html",
-        "keywords": [
-          "attention",
-          "weights",
-          "words"
-        ],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "3e6d769c-acf4-584b-9847-90f9e015564d",
-      "type": "image",
-      "content": "\n</details> <details>0\n[images/image-3-Word Alignment Matrix.jpg]\n",
-      "path": "images/image-3-Word Alignment Matrix.jpg",
-      "metadata": {
-        "length": 55,
-        "summary": "image-3\nThe image displays a diagonal alignment matrix visualizing the correspondence between English and French phrases.\n\n**English Text (Top Axis):**\n\"The agreement on the European Economic Area was signed in August 1992 <end>\"\n\n**French Text (Left Axis):**\n\"L'accord sur la zone économique européenne a été signé en août 1992 <end>\"\n\n**Alignment Pattern:**\n- The matrix shows a strong diagonal pattern, indicating a direct word-for-word translation structure.\n- Key alignments visible include: \"agreement\" <-> \"accord\", \"European Economic Area\" <-> \"zone économique européenne\", \"signed\" <-> \"signé\", and \"August 1992\" <-> \"août 1992\".",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "images/image-3-Word Alignment Matrix.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "6d3df7f5-0233-521d-8ada-14352cc1fe99",
-      "type": "table",
-      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>The agreement on the European Economic Area was signed in August 1992</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>L'</td>\n      <td></td>\n    </tr>\n    <tr>\n      <td>accord</td>\n      <td>(not labeled)</td>\n    </tr>\n    <tr>\n      <td>sur</td>\n      <td>(not labeled)</td>\n    </tr>\n    <tr>\n      <td>la</td>\n      <td>(not labeled)</td>\n    </tr>\n    <tr>\n      <td>zone</td>\n      <td>(not labeled)</td>\n    </tr>\n    <tr>\n      <td>économique</td>\n      <td>(not labeled)</td>\n    </tr>\n    <tr>\n      <td>européenne</td>\n      <td>(not labeled)</td>\n    </tr>\n    <tr>\n      <td>a</td>\n      <td>(not labeled)</td>\n    </tr>\n    <tr>\n      <td>été</td>\n      <td>(not labeled)</td>\n    </tr>\n    <tr>\n      <td>signé</td>\n      <td>(not labeled)</td>\n    </tr>\n    <tr>\n      <td>en</td>\n      <td>(not labeled)</td>\n    </tr>\n    <tr>\n      <td>août</td>\n      <td>(not labeled)</td>\n    </tr>\n    <tr>\n      <td>1992</td>\n      <td>(not labeled)</td>\n    </tr>\n    <tr>\n      <td>.</td>\n      <td>(not labeled)</td>\n    </tr>\n    <tr>\n      <td>&lt;end&gt;</td>\n      <td>(not labeled)</td>\n    </tr>\n  </tbody>\n</table>",
-      "path": "tables/table-1 EEA Agreement.html",
-      "metadata": {
-        "length": 1249,
-        "summary": "table-2\nThe agreement on the European Economic Area was signed in August 1992.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "tables/table-1 EEA Agreement.html",
-        "keywords": [
-          "European Economic Area",
-          "agreement",
-          "1992"
-        ],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "423b548a-1bc4-5fea-8bc7-000e30d5e142",
-      "type": "image",
-      "content": "\n- For each input that the LSTM (Encoder) reads, the attention-mechanism takes into account several other inputs at the same time and decides which ones are important by attributing different weights to those inputs. <details>0\n[images/image-4-Transformer Architecture Diagram.jpg]\n",
-      "path": "images/image-4-Transformer Architecture Diagram.jpg",
-      "metadata": {
-        "length": 260,
-        "summary": "image-4\n- **Input Side (Encoder):**\n  - Inputs flow into Input Embedding.\n  - Combined with Positional Encoding.\n  - Passes through N identical layers (labeled Nx).\n  - Each layer contains:\n    - Multi-Head Attention block followed by Add & Norm.\n    - Feed Forward block followed by Add & Norm.\n\n- **Output Side (Decoder):**\n  - Outputs (shifted right) flow into Output Embedding.\n  - Combined with Positional Encoding.\n  - Passes through N identical layers (labeled Nx).\n  - Each layer contains:\n    - Masked Multi-Head Attention block followed by Add & Norm.\n    - Multi-Head Attention block followed by Add & Norm.\n    - Feed Forward block followed by Add & Norm.\n\n- **Final Output:**\n  - Linear layer processes the final decoder output.\n  - Softmax layer produces Output Probabilities.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "images/image-4-Transformer Architecture Diagram.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "9d610904-929b-540c-b017-aef3358c325d",
-      "type": "text",
-      "content": "- Allows the model to focus on relevant parts of the input when processing each word.\n- Inspired by how humans read – we don't process all words equally.\n- For each word:\n• Computes how much attention it should pay to every other word in the sentence.\n- Creates a weighted sum of all word representations.\n\\- Output: a context-aware representation of each word in the sentence.\n\n- Inspired by how humans read – we don't process all words equally. <details>0\n[images/image-1-Attention Mechanism Process.jpg]\n\n<details>\n<summary>flowchart</summary>\n```mermaid\ngraph TD\nA[\"Attention\"] --> B[\"Input: sequence of words\\nThe animal didn't cross ...\"]\nB --> C[\"Compute attention scores for every pair of words\"]\nC --> D[\"Form weighted sum of word representations\"]\nD --> E[\"Output: context-aware representations\"]\n```\n</details>\n• Each input word is projected into three vectors:\n- Query (Q) – What we are looking for.\n• Key (K) – What each word offers.\n- Value (V) – The content/information of each word.\n\\- For each word, compute attention weights:\n$$\n\\text { Attention } (Q, K, V) = \\text { softmax } \\left(\\frac {Q K ^ {T}}{\\sqrt {d _ {k}}}\\right) V\n$$\n\\- The result is a new representation that captures the context of the word.\nSelf-Attention Heatmap\n\n$$ <details>0\n[images/image-2-Attention Matrix Heatmap.jpg]\n\n<details>\n<summary>heatmap</summary>\n\n[tables/table-0 Attention Matrix.html]\n\n</details>\n\n</details> <details>0\n[images/image-3-Word Alignment Matrix.jpg]\n\n<details>\n<summary>heatmap</summary>\n\n[tables/table-1 EEA Agreement.html]\n\n</details>\n- The attention allows you to look at the totality of a sentence to make connections between any particular word and its relevant context.\n- For each input that the LSTM (Encoder) reads, the attention-mechanism takes into account several other inputs at the same time and decides which ones are important by attributing different weights to those inputs.\n- The Decoder will then take as input the encoded sentence and the weights provided by the attention-mechanism.\n- Transformer is a novel architecture that utilize Attention to process Sequence2Sequence tasks.\n- It consist on Encoder and Decoder but they are not based on the recurrent connections.\n- Encoder and Decoder are composed of modules that can be stacked on top of each other multiple times (Nx).\n\n- For each input that the LSTM (Encoder) reads, the attention-mechanism takes into account several other inputs at the same time and decides which ones are important by attributing different weights to those inputs. <details>0\n[images/image-4-Transformer Architecture Diagram.jpg]\n\n<details>\n<summary>flowchart</summary>\n```mermaid\ngraph TD\nA[\"Inputs\"] --> B[\"Input Embedding\"]\nB --> C[\"Add & Norm\"]\nC --> D[\"Multi-Head Attention\"]\nD --> E[\"Add & Norm\"]\nE --> F[\"Feed Forward\"]\nF --> G[\"Add & Norm\"]\nG --> H[\"Feed Forward\"]\nH --> I[\"Output Probabilities\"]\nI --> J[\"Softmax\"]\nJ --> K[\"Linear\"]\nK --> L[\"Add & Norm\"]\nL --> M[\"Multi-Head Attention\"]\nM --> N[\"Masked Multi-Head Attention\"]\nN --> O[\"Add & Norm\"]\nO --> P[\"Multi-Head Attention\"]\nP --> Q[\"Add & Norm\"]\nQ --> R[\"Feed Forward\"]\nR --> S[\"Add & Norm\"]\nS --> T[\"Multi-Head Attention\"]\nT --> U[\"Masked Multi-Head Attention\"]\nU --> V[\"Output Embedding\"]\nV --> W[\"Positional Encoding\"]\nW --> X[\"Positational Encoding\"]\nX --> Y[\"Nx\"]\nY --> Z[\"Positational Encoding\"]\nZ --> AA[\"Inputs\"]\n```\n</details>\nFigure 1: The Transformer - model architecture.",
-      "path": "dl_10.pdf/Deep Learning Transformer network/Transformer network/Transformer network - Attention- What it is?",
-      "metadata": {
-        "length": 3397,
-        "summary": "The passage explains the attention mechanism, which allows a model to focus on relevant parts of input when processing each word, inspired by human reading. It describes how for each word, attention computes scores for every other word, then creates a weighted sum of representations to produce context-aware outputs. Key components include Query, Key, and Value vectors, with the formula Attention(Q,K,V)=softmax(QK^T/√d_k)V. The Transformer architecture is introduced as a novel sequence-to-sequence model using attention without recurrent connections, consisting of stacked encoder and decoder modules with multi-head attention, feed-forward layers, and normalization.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "tokens": [
-          "Allows",
-          "model",
-          "focus",
-          "relevant",
-          "parts",
-          "input",
-          "processing",
-          "word",
-          "Inspired",
-          "humans",
-          "read",
-          "don",
-          "process",
-          "words",
-          "equally",
-          "For",
-          "Computes",
-          "attention",
-          "pay",
-          "sentence",
-          "Creates",
-          "weighted",
-          "sum",
-          "representations",
-          "Output",
-          "context",
-          "aware",
-          "representation",
-          "details",
-          "summary",
-          "flowchart",
-          "mermaid",
-          "graph",
-          "TD",
-          "Attention",
-          "Input",
-          "sequence",
-          "nThe",
-          "animal",
-          "didn",
-          "cross",
-          "Compute",
-          "scores",
-          "pair",
-          "Form",
-          "Each",
-          "projected",
-          "vectors",
-          "Query",
-          "What",
-          "Key",
-          "offers",
-          "Value",
-          "The",
-          "content",
-          "information",
-          "compute",
-          "weights",
-          "text",
-          "softmax",
-          "left",
-          "frac",
-          "sqrt",
-          "result",
-          "captures",
-          "Self",
-          "Heatmap",
-          "heatmap",
-          "totality",
-          "make",
-          "connections",
-          "LSTM",
-          "Encoder",
-          "reads",
-          "mechanism",
-          "takes",
-          "account",
-          "inputs",
-          "time",
-          "decides",
-          "important",
-          "attributing",
-          "Decoder",
-          "encoded",
-          "provided",
-          "Transformer",
-          "architecture",
-          "utilize",
-          "Sequence2Sequence",
-          "tasks",
-          "It",
-          "consist",
-          "based",
-          "recurrent",
-          "composed",
-          "modules",
-          "stacked",
-          "top",
-          "multiple",
-          "times",
-          "Nx",
-          "Inputs",
-          "Embedding",
-          "Add",
-          "Norm",
-          "Multi",
-          "Head",
-          "Feed",
-          "Forward",
-          "Probabilities",
-          "Softmax",
-          "Linear",
-          "Masked",
-          "Positional",
-          "Encoding",
-          "Positational",
-          "AA",
-          "Figure"
-        ],
-        "keywords": [
-          "Attention",
-          "Transformer",
-          "Self-Attention"
-        ],
-        "connect_to": [
-          {
-            "target": "1eaeda53-06bd-57e7-b424-15c56a5602a6",
-            "relation": "embeds",
-            "ref": "[images/image-1-Attention Mechanism Process.jpg]",
-            "position": {
-              "start": 458,
-              "end": 506
-            }
-          },
-          {
-            "target": "f1724798-2e92-5e82-a75c-a615cee8c88c",
-            "relation": "embeds",
-            "ref": "[images/image-2-Attention Matrix Heatmap.jpg]",
-            "position": {
-              "start": 1265,
-              "end": 1310
-            }
-          },
-          {
-            "target": "6907e0d7-0e26-5f71-962b-2fff66d237f0",
-            "relation": "embeds",
-            "ref": "[tables/table-0 Attention Matrix.html]",
-            "position": {
-              "start": 1350,
-              "end": 1388
-            }
-          },
-          {
-            "target": "3e6d769c-acf4-584b-9847-90f9e015564d",
-            "relation": "embeds",
-            "ref": "[images/image-3-Word Alignment Matrix.jpg]",
-            "position": {
-              "start": 1424,
-              "end": 1466
-            }
-          },
-          {
-            "target": "6d3df7f5-0233-521d-8ada-14352cc1fe99",
-            "relation": "embeds",
-            "ref": "[tables/table-1 EEA Agreement.html]",
-            "position": {
-              "start": 1506,
-              "end": 1541
-            }
-          },
-          {
-            "target": "423b548a-1bc4-5fea-8bc7-000e30d5e142",
-            "relation": "embeds",
-            "ref": "[images/image-4-Transformer Architecture Diagram.jpg]",
-            "position": {
-              "start": 2543,
-              "end": 2596
-            }
-          }
-        ]
-      }
-    },
-    {
-      "chunk_id": "110b737c-863a-5280-b5d2-8ef52a99d69f",
-      "type": "image",
-      "content": "\n$$ <details>0\n[images/image-5-Heatmap Visualization.jpg]\n",
-      "path": "images/image-5-Heatmap Visualization.jpg",
-      "metadata": {
-        "length": 47,
-        "summary": "image-5\nChart Title: None visible\nAxis Labels:\n- X-axis: time step (range 0 to 196)\n- Y-axis: input dimension (range 0 to 11)\nColor Scale: Range from -0.8 (dark purple/black) to 0.8 (light beige/white), with 0.0 represented by red/orange.\n\nKey Data Patterns:\n- Input dimensions 0, 1, and 2 exhibit a high-frequency alternating pattern of dark and light vertical stripes across all time steps.\n- Input dimensions 3 through 5 show lower frequency oscillations with broader bands of color variation.\n- Input dimensions 6 through 11 display large, solid horizontal bands of uniform color, indicating stable values over the entire time range.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "images/image-5-Heatmap Visualization.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "f6798ffe-dc58-54f3-879b-58a56696955a",
-      "type": "table",
-      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>input dimension</th>\n      <th>0</th>\n      <th>1</th>\n      <th>2</th>\n      <th>3</th>\n      <th>4</th>\n      <th>5</th>\n      <th>6</th>\n      <th>7</th>\n      <th>8</th>\n      <th>9</th>\n      <th>10</th>\n      <th>11</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>0</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n    </tr>\n    <tr>\n      <td>1</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n    </tr>\n    <tr>\n      <td>2</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n    </tr>\n    <tr>\n      <td>3</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n    </tr>\n    <tr>\n      <td>4</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n    </tr>\n    <tr>\n      <td>5</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n    </tr>\n    <tr>\n      <td>6</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n    </tr>\n    <tr>\n      <td>7</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n    </tr>\n    <tr>\n      <td>8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n    </tr>\n    <tr>\n      <td>9</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n    </tr>\n    <tr>\n      <td>10</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n    </tr>\n    <tr>\n      <td>11</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n      <td>-0.8</td>\n    </tr>\n  </tbody>\n</table>",
-      "path": "tables/table-2 Constant Matrix.html",
-      "metadata": {
-        "length": 3684,
-        "summary": "table-3\nThe table shows a 12x12 matrix where every entry is -0.8, indicating a uniform constant value across all rows and columns.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "tables/table-2 Constant Matrix.html",
-        "keywords": [
-          "constant",
-          "matrix",
-          "negative"
-        ],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "1010af9e-309e-5f34-a3fa-da7abc85e111",
-      "type": "image",
-      "content": "\n- Positional vectors are trainable. <details>0\n[images/image-6-Heatmap Visualization.jpg]\n",
-      "path": "images/image-6-Heatmap Visualization.jpg",
-      "metadata": {
-        "length": 80,
-        "summary": "image-6\nChart Title: Embedding dimension heatmap\nX-axis: Embedding dimension (0 to 15)\nY-axis: Position (0 to 48)\nData Pattern: The visualization displays a gradient of values across embedding dimensions. Dimensions 0-2 show high variability with alternating red and blue bands, indicating fluctuating positive and negative values. Dimension 3 shows a transition zone. Dimensions 4 through 15 are predominantly solid red, suggesting consistently high or positive values across all positions for these dimensions.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "images/image-6-Heatmap Visualization.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "faa0f7be-7ef5-5301-a204-4815d171fd9e",
-      "type": "table",
-      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Position</th>\n      <th>0</th>\n      <th>1</th>\n      <th>2</th>\n      <th>3</th>\n      <th>4</th>\n      <th>5</th>\n      <th>6</th>\n      <th>7</th>\n      <th>8</th>\n      <th>9</th>\n      <th>10</th>\n      <th>11</th>\n      <th>12</th>\n      <th>13</th>\n      <th>14</th>\n      <th>15</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>48</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n    </tr>\n    <tr>\n      <td>45</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n    </tr>\n    <tr>\n      <td>39</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n    </tr>\n    <tr>\n      <td>36</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n    </tr>\n    <tr>\n      <td>33</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n    </tr>\n    <tr>\n      <td>30</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n      <td>Low</td>\n    </tr>\n  </tbody>\n</table>",
-      "path": "tables/table-3 Low Values Table.html",
-      "metadata": {
-        "length": 2481,
-        "summary": "table-4\nThe table shows six rows (positions 48,45,39,36,33,30) each with 16 columns all containing the value 'Low'.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "tables/table-3 Low Values Table.html",
-        "keywords": [
-          "Low",
-          "Table",
-          "Data"
-        ],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "1367db09-0636-5d8c-9612-6180cb429703",
-      "type": "image",
-      "content": "\n</details> <details>0\n[images/image-7-Heatmap Visualization.jpg]\n",
-      "path": "images/image-7-Heatmap Visualization.jpg",
-      "metadata": {
-        "length": 55,
-        "summary": "image-7\nChart Title: Embedding dimension heatmap\nX-axis Label: Embedding dimension (Range: 0 to 15)\nY-axis Label: Position (Range: 0 to 48)\nData Representation: A grid of colored blocks representing values across embedding dimensions and positions.\nColor Scale: The visualization uses a diverging color scheme ranging from dark blue (likely low values) through light blue/white (neutral) to orange/red (high values).\nNotable Patterns:\n- Strong positive values (red/orange) are concentrated in the column for Embedding dimension 7, specifically at Positions 27 through 39.\n- Strong negative values (dark blue) appear in columns 2, 8, and 14.\n- Most other areas show neutral or weak values (light blue/white).",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "images/image-7-Heatmap Visualization.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "916ae609-9e8b-5734-a470-d9b3466dc51c",
-      "type": "table",
-      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>Position</th>\n      <th>0</th>\n      <th>1</th>\n      <th>2</th>\n      <th>3</th>\n      <th>4</th>\n      <th>5</th>\n      <th>6</th>\n      <th>7</th>\n      <th>8</th>\n      <th>9</th>\n      <th>10</th>\n      <th>11</th>\n      <th>12</th>\n      <th>13</th>\n      <th>14</th>\n      <th>15</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>0</td>\n      <td>Blue</td>\n      <td>Orange</td>\n      <td>Light Blue</td>\n      <td>Red</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Red</td>\n      <td>Light Blue</td>\n      <td>Dark Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n    </tr>\n    <tr>\n      <td>1</td>\n      <td>Blue</td>\n      <td>Orange</td>\n      <td>Light Blue</td>\n      <td>Red</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Red</td>\n      <td>Light Blue</td>\n      <td>Dark Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n    </tr>\n    <tr>\n      <td>2</td>\n      <td>Dark Blue</td>\n      <td>Orange</td>\n      <td>Light Blue</td>\n      <td>Red</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Red</td>\n      <td>Light Blue</td>\n      <td>Dark Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n    </tr>\n    <tr>\n      <td>3</td>\n      <td>Orange</td>\n      <td>Orange</td>\n      <td>Light Blue</td>\n      <td>Red</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Red</td>\n      <td>Light Blue</td>\n      <td>Dark Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n    </tr>\n    <tr>\n      <td>4</td>\n      <td>Orange</td>\n      <td>Orange</td>\n      <td>Light Blue</td>\n      <td>Red</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Red</td>\n      <td>Light Blue</td>\n      <td>Dark Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n    </tr>\n    <tr>\n      <td>5</td>\n      <td>Medium Blue</td>\n      <td>Orange</td>\n      <td>Light Blue</td>\n      <td>Red</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Red</td>\n      <td>Light Blue</td>\n      <td>Dark Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n    </tr>\n    <tr>\n      <td>6</td>\n      <td>Medium Orange</td>\n      <td>Orange</td>\n      <td>Light Blue</td>\n      <td>Red</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Red</td>\n      <td>Light Blue</td>\n      <td>Dark Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n      <td>Light Blue</td>\n    </tr>\n  </tbody>\n</table>",
-      "path": "tables/table-4 Color Pattern Table.html",
-      "metadata": {
-        "length": 3449,
-        "summary": "table-5\nThe table shows a repeating pattern of colors across rows, with Blue, Orange, Light Blue, Red, and Dark Blue in columns 0-15 for rows 0-6.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "tables/table-4 Color Pattern Table.html",
-        "keywords": [
-          "colors",
-          "pattern",
-          "table"
-        ],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "5cb2697e-5ddb-570a-93f7-578372834aa0",
-      "type": "image",
-      "content": "\n$$ <details>0\n[images/image-8-$$ _detail.jpg]\n",
-      "path": "images/image-8-$$ _detail.jpg",
-      "metadata": {
-        "length": 47,
-        "summary": "image-8\n$$ <details>0",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "images/image-8-$$ _detail.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "93577511-1d14-53bd-b03e-58ee85033f71",
-      "type": "image",
-      "content": "\nE --> G[\"K\"] <details>0\n[images/image-9-E --_ G[_K.jpg]\n",
-      "path": "images/image-9-E --_ G[_K.jpg",
+      "content": "Self-Attention Heatmap\n[images/image_page_6_figure_1.png]",
+      "path": "images/image_page_6_figure_1.png",
       "metadata": {
         "length": 57,
-        "summary": "image-9\nE --> G[\"K\"] <details>0",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "images/image-9-E --_ G[_K.jpg",
+        "summary": "",
+        "page_nums": [
+          6
+        ],
+        "file_path": "images/image_page_6_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "cf59c8f4-65f0-5cca-878f-1e98ebb2a9d0",
-      "type": "text",
-      "content": "- Transformers do not have recurrence or convolution.\n• Therefore, they have no built-in sense of word order.\n- Positional encoding injects information about the position of each token in the sequence.\n• These encodings are added to the input embeddings.\n- Uses sinusoidal functions to ensure unique and continuous position representation.\n$$\n\\mathsf {P E} _ {(p o s, 2 i)} = \\sin \\left(\\frac {p o s}{1 0 0 0 0 ^ {2 i / d _ {\\mathrm{model}}}}\\right)\n$$\n$$\n\\mathsf {P E} _ {(p o s, 2 i + 1)} = \\cos \\left(\\frac {p o s}{1 0 0 0 0 ^ {2 i / d _ {\\mathrm{model}}}}\\right)\n$$\n- pos is the position in the sequence (e.g., 0, 1, 2, ...).\n- $i$ is the dimension index.\n- $d_{model}$ is the total dimension of the embedding vector.\nSinusoid absolute positional encoding\n\n$$ <details>0\n[images/image-5-Heatmap Visualization.jpg]\n\n<details>\n<summary>heatmap</summary>\n\n[tables/table-2 Constant Matrix.html]\n\nThe data is a heatmap with a color scale ranging from ~-1 to ~1 for each row and column of the time step axis.\n</details>\n\\- Sinusoidal functions are used to provide:\n- Unique yet smoothly varying encoding for each position.\n- Ability to interpolate or generalize to longer sequences.\n- Simple mathematical patterns that can capture relative distances.\n• Alternative: learned positional encodings\n- Positional vectors are trainable.\n- More flexible, but limited to sequence lengths seen during training.\n\\- Without PE:\n\\- Model loses word order completely (e.g., “dog bites man” = “man bites dog”).\nSinusoidal Positional Encoding\n\n- Positional vectors are trainable. <details>0\n[images/image-6-Heatmap Visualization.jpg]\n\n<details>\n<summary>heatmap</summary>\n\n[tables/table-3 Low Values Table.html]\n\n</details>\nLearned Positional Encoding (simulated)\n\n</details> <details>0\n[images/image-7-Heatmap Visualization.jpg]\n\n<details>\n<summary>heatmap</summary>\n\n[tables/table-4 Color Pattern Table.html]\n\n</details>\n- Instead of computing attention once, we do it in parallel multiple times (heads).\n• Each head learns different projections of Q, K, V with its own parameters:\n$$\n\\text { head } _ {i} = \\text { Attention } (Q W _ {i} ^ {Q}, K W _ {i} ^ {K}, V W _ {i} ^ {V})\n$$\n\\- All heads are concatenated and projected again:\n$$\n\\operatorname{MultiHead} (Q, K, V) = \\operatorname{Concat} \\left(\\operatorname{head} _ {1}, \\dots , \\operatorname{head} _ {h}\\right) W ^ {O}\n$$\n\\- This allows the model to jointly attend to information from different representation subspaces.\nScaled Dot-Product Attention\n\n$$ <details>0\n[images/image-8-$$ _detail.jpg]\n\n<details>\n<summary>flowchart</summary>\n```mermaid\ngraph TD\nA[\"MatMul\"] --> B[\"SoftMax\"]\nB --> C[\"Mask (opt.)\"]\nC --> D[\"Scale\"]\nD --> E[\"MatMul\"]\nE --> F[\"Q\"]\nE --> G[\"K\"]\nE --> H[\"V\"]\n```\n</details>\nMulti-Head Attention\n\nE --> G[\"K\"] <details>0\n[images/image-9-E --_ G[_K.jpg]\n\n<details>\n<summary>flowchart</summary>\n```mermaid\ngraph TD\nA[\"Linear\"] --> B[\"Concat\"]\nB --> C[\"Scaled Dot-Product Attention\"]\nC --> D[\"Linear\"]\nC --> E[\"Linear\"]\nC --> F[\"Linear\"]\nD --> G[\"V\"]\nE --> H[\"K\"]\nF --> I[\"Q\"]\nG --> C\nH --> C\nI --> C\nC --> J[\"h\"]\n```\n</details>\nFigure 2: (left) Scaled Dot-Product Attention. (right) Multi-Head Attention consists of several attention layers running in parallel.\n- Multi-head attention = multiple attention mechanisms in parallel.\n• Each head uses its own learned projection matrices:\n$$\nQ W _ {i} ^ {Q}, \\quad K W _ {i} ^ {K}, \\quad V W _ {i} ^ {V}\n$$\n- Different heads can focus on different types of relationships (e.g. syntax, semantics).\n- The outputs of all heads are concatenated and linearly projected:\n$$\n\\operatorname{Concat} \\left(\\text {head} _ {1}, \\dots , \\text {head} _ {h}\\right) W ^ {0}\n$$\n\\- Encoder and decoder use multi-head attention differently:\n- Encoder: attends to all positions in the input.\n- Decoder: attends to previous positions (masked).\n- Encoder-decoder: decoder attends to encoder output.",
-      "path": "dl_10.pdf/Deep Learning Transformer network/Transformer network/Transformer network - Positional encoding- What is?",
+      "chunk_id": "asset_6d8f112e-dd7c-534f-ba4a-cde98e3c2ca9",
+      "type": "image",
+      "content": "[images/image_page_7_figure_1.png]",
+      "path": "images/image_page_7_figure_1.png",
       "metadata": {
-        "length": 3834,
-        "summary": "The content explains positional encoding in Transformers, which injects word order information using sinusoidal functions. It covers the formulas for PE, the benefits of sinusoidal encoding (unique, continuous, generalizable), and contrasts it with learned positional encodings. It then introduces multi-head attention, where multiple attention heads run in parallel with different learned projections, allowing the model to attend to different representation subspaces. The encoder and decoder use multi-head attention differently: encoder attends to all input positions, decoder attends to previous positions (masked), and encoder-decoder attention allows the decoder to attend to encoder output.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "tokens": [
-          "Transformers",
-          "recurrence",
-          "convolution",
-          "Therefore",
-          "built",
-          "sense",
-          "word",
-          "order",
-          "Positional",
-          "encoding",
-          "injects",
-          "information",
-          "position",
-          "token",
-          "sequence",
-          "These",
-          "encodings",
-          "added",
-          "input",
-          "embeddings",
-          "Uses",
-          "sinusoidal",
-          "functions",
-          "ensure",
-          "unique",
-          "continuous",
-          "representation",
-          "mathsf",
-          "sin",
-          "left",
-          "frac",
-          "mathrm",
-          "model",
-          "cos",
-          "pos",
-          "dimension",
-          "index",
-          "total",
-          "embedding",
-          "vector",
-          "Sinusoid",
-          "absolute",
-          "positional",
-          "details",
-          "summary",
-          "heatmap",
-          "The",
-          "data",
-          "color",
-          "scale",
-          "ranging",
-          "row",
-          "column",
-          "time",
-          "step",
-          "axis",
-          "Sinusoidal",
-          "provide",
-          "Unique",
-          "smoothly",
-          "varying",
-          "Ability",
-          "interpolate",
-          "generalize",
-          "longer",
-          "sequences",
-          "Simple",
-          "mathematical",
-          "patterns",
-          "capture",
-          "relative",
-          "distances",
-          "Alternative",
-          "learned",
-          "vectors",
-          "trainable",
-          "More",
-          "flexible",
-          "limited",
-          "lengths",
-          "training",
-          "Without",
-          "PE",
-          "Model",
-          "loses",
-          "completely",
-          "dog",
-          "bites",
-          "man",
-          "Encoding",
-          "Learned",
-          "simulated",
-          "Instead",
-          "computing",
-          "attention",
-          "parallel",
-          "multiple",
-          "times",
-          "heads",
-          "Each",
-          "head",
-          "learns",
-          "projections",
-          "parameters",
-          "text",
-          "Attention",
-          "All",
-          "concatenated",
-          "projected",
-          "operatorname",
-          "MultiHead",
-          "Concat",
-          "dots",
-          "This",
-          "jointly",
-          "attend",
-          "subspaces",
-          "Scaled",
-          "Dot",
-          "Product",
-          "flowchart",
-          "mermaid",
-          "graph",
-          "TD",
-          "MatMul",
-          "SoftMax",
-          "Mask",
-          "opt",
-          "Scale",
-          "Multi",
-          "Head",
-          "Linear",
-          "Figure",
-          "consists",
-          "layers",
-          "running",
-          "mechanisms",
-          "projection",
-          "matrices",
-          "quad",
-          "Different",
-          "focus",
-          "types",
-          "relationships",
-          "syntax",
-          "semantics",
-          "outputs",
-          "linearly",
-          "Encoder",
-          "decoder",
-          "multi",
-          "differently",
-          "attends",
-          "positions",
-          "Decoder",
-          "previous",
-          "masked",
-          "encoder",
-          "output"
+        "length": 34,
+        "summary": "",
+        "page_nums": [
+          7
+        ],
+        "file_path": "images/image_page_7_figure_1.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_aeef09aa-8bbe-5d26-9158-93a517801f38",
+      "type": "image",
+      "content": "Figure 1: The Transformer - model architecture.\n[images/image_page_9_figure_1.png]",
+      "path": "images/image_page_9_figure_1.png",
+      "metadata": {
+        "length": 82,
+        "summary": "",
+        "page_nums": [
+          9
+        ],
+        "file_path": "images/image_page_9_figure_1.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_8efcf1dd-2bab-52da-9283-fdada9dd99dd",
+      "type": "image",
+      "content": "Sinusoid absolute positional encoding\n[images/image_page_12_figure_1.png]",
+      "path": "images/image_page_12_figure_1.png",
+      "metadata": {
+        "length": 73,
+        "summary": "",
+        "page_nums": [
+          12
+        ],
+        "file_path": "images/image_page_12_figure_1.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_dd03a048-28c2-5b98-903d-fe7da2181d27",
+      "type": "image",
+      "content": "Transformer network - Positional encoding- Comparison\n[images/image_page_14_figure_1.png]",
+      "path": "images/image_page_14_figure_1.png",
+      "metadata": {
+        "length": 89,
+        "summary": "",
+        "page_nums": [
+          14
+        ],
+        "file_path": "images/image_page_14_figure_1.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_4b2c864f-2a80-557e-a04b-8f1a38d1a926",
+      "type": "image",
+      "content": "Figure 2: (left) Scaled Dot-Product Attention. (right) Multi-Head Attention consists of several attention layers running in parallel.\n[images/image_page_16_figure_1.png]",
+      "path": "images/image_page_16_figure_1.png",
+      "metadata": {
+        "length": 169,
+        "summary": "",
+        "page_nums": [
+          16
+        ],
+        "file_path": "images/image_page_16_figure_1.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_38e0e68e-dd28-5c97-80c8-8970c67d091d",
+      "type": "image",
+      "content": "Transformer Inference (Autoregressive Decoding)\n[images/image_page_22_figure_1.png]",
+      "path": "images/image_page_22_figure_1.png",
+      "metadata": {
+        "length": 83,
+        "summary": "",
+        "page_nums": [
+          22
+        ],
+        "file_path": "images/image_page_22_figure_1.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_892ca85f-b88a-5eee-a484-7963ad828844",
+      "type": "image",
+      "content": "Transformer network - BERT\n[images/image_page_25_figure_1.png]",
+      "path": "images/image_page_25_figure_1.png",
+      "metadata": {
+        "length": 62,
+        "summary": "",
+        "page_nums": [
+          25
+        ],
+        "file_path": "images/image_page_25_figure_1.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_af94d033-fb2a-5e38-8f28-9e8d54c0e97a",
+      "type": "image",
+      "content": "[images/image_page_29_figure_1.png]",
+      "path": "images/image_page_29_figure_1.png",
+      "metadata": {
+        "length": 35,
+        "summary": "",
+        "page_nums": [
+          29
+        ],
+        "file_path": "images/image_page_29_figure_1.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "node_ef59209c-b2b9-58d8-808e-e05afb64083c",
+      "type": "page",
+      "content": "Deep Learning\nTransformer network\nJan Platoš, Radek Svoboda\nMay 5, 2026\nDepartment of Computer Science\nFaculty of Electrical Engineering and Computer Science\nVŠB - Technical University of Ostrava",
+      "path": "Deep Learning - Transformer Network.pdf/Root/Deep Learning",
+      "metadata": {
+        "length": 195,
+        "summary": "The slide serves as a title page for a presentation or document section on Deep Learning, specifically focusing on Transformer networks. It lists the authors Jan Platoš and Radek Svoboda, the date May 5, 2026, and their affiliation with the Department of Computer Science at VSB - Technical University of Ostrava.",
+        "page_nums": [
+          1
         ],
         "keywords": [
-          "Positional Encoding",
-          "Multi-Head Attention",
-          "Transformer"
+          "Jan Platoš",
+          "Radek Svoboda",
+          "Department of Computer Science",
+          "Faculty of Electrical Engineering and Computer Science",
+          "VSB - Technical University of Ostrava"
         ],
-        "connect_to": [
+        "connect_to": [],
+        "page_assets": [
           {
-            "target": "110b737c-863a-5280-b5d2-8ef52a99d69f",
-            "relation": "embeds",
-            "ref": "[images/image-5-Heatmap Visualization.jpg]",
-            "position": {
-              "start": 775,
-              "end": 817
-            }
-          },
-          {
-            "target": "f6798ffe-dc58-54f3-879b-58a56696955a",
-            "relation": "embeds",
-            "ref": "[tables/table-2 Constant Matrix.html]",
-            "position": {
-              "start": 857,
-              "end": 894
-            }
-          },
-          {
-            "target": "1010af9e-309e-5f34-a3fa-da7abc85e111",
-            "relation": "embeds",
-            "ref": "[images/image-6-Heatmap Visualization.jpg]",
-            "position": {
-              "start": 1574,
-              "end": 1616
-            }
-          },
-          {
-            "target": "faa0f7be-7ef5-5301-a204-4815d171fd9e",
-            "relation": "embeds",
-            "ref": "[tables/table-3 Low Values Table.html]",
-            "position": {
-              "start": 1656,
-              "end": 1694
-            }
-          },
-          {
-            "target": "1367db09-0636-5d8c-9612-6180cb429703",
-            "relation": "embeds",
-            "ref": "[images/image-7-Heatmap Visualization.jpg]",
-            "position": {
-              "start": 1770,
-              "end": 1812
-            }
-          },
-          {
-            "target": "916ae609-9e8b-5734-a470-d9b3466dc51c",
-            "relation": "embeds",
-            "ref": "[tables/table-4 Color Pattern Table.html]",
-            "position": {
-              "start": 1852,
-              "end": 1893
-            }
-          },
-          {
-            "target": "5cb2697e-5ddb-570a-93f7-578372834aa0",
-            "relation": "embeds",
-            "ref": "[images/image-8-$$ _detail.jpg]",
-            "position": {
-              "start": 2509,
-              "end": 2540
-            }
-          },
-          {
-            "target": "93577511-1d14-53bd-b03e-58ee85033f71",
-            "relation": "embeds",
-            "ref": "[images/image-9-E --_ G[_K.jpg]",
-            "position": {
-              "start": 2788,
-              "end": 2819
-            }
+            "page_num": 1,
+            "artifact_ref": "page_citation_assets/page-1.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
           }
         ]
       }
     },
     {
-      "chunk_id": "ea4f6fa9-15a7-55d0-99d2-066cbc5f164e",
-      "type": "text",
-      "content": "- Uses teacher forcing – the true previous output is fed into the decoder.\n- The target sequence is right-shifted by one position.\n- A <sos> token is added at the beginning, and <eos> at the end.\n- A causal mask ensures decoder only sees previous positions.\n- Loss is computed between decoder output and original target sequence.\n- The target sequence is right-shifted to prevent the model from copying input.\n- A <sos> token is added at the beginning, and <eos> at the end.\n- A causal mask ensures that each decoder step sees only previous tokens.\n- The loss is computed against the original (unshifted) target sequence.",
-      "path": "dl_10.pdf/Deep Learning Transformer network/Training a Transformer (Seq2Seq model):",
+      "chunk_id": "node_4df12add-23cc-5ed6-9548-3b6f18909422",
+      "type": "page",
+      "content": "[SAME-AS Deep Learning - Transformer Network.pdf/Root/Deep Learning p1]\n\nTransformer network\n\nTransformer network\n• Recurrent neural network works in synchronized serial way.\n• This prevent efficient computation in parallel.\n• The attention-mechanism looks at an input sequence and decides at each\nstep which other parts of the sequence are important.\n• The attention mechanism helps the decoder to focus on the important part\nof the input sequence.\n1\n\nTransformer network - Attention- What it is?\n• Allows the model to focus on relevant parts\nof the input when processing each word.\n• Inspired by how humans read – we don’t\nprocess all words equally.\n• For each word:\n• Computes how much attention it should\npay to every other word in the sentence.\n• Creates a weighted sum of all word\nrepresentations.\n• Output: a context-aware representation of\neach word in the sentence.\n2\n\nTransformer network - Query, Key, and Value\n• Each input word is projected into three vectors:\n• Query (Q) – What we are looking for.\n• Key (K) – What each word offers.\n• Value (V) – The content/information of each word.\n• For each word, compute attention weights:\nAttention(Q, K, V) = softmax\n \nQKT\np\ndk\n!\nV\n• The result is a new representation that captures the context of the word.\n3\n\nTransformer network - Attention\n4\n\nTransformer network - Attention\n5\n\nTransformer network - Attention\n• The attention allows you to look at the totality of a sentence to make\nconnections between any particular word and its relevant context.\n• For each input that the LSTM (Encoder) reads, the attention-mechanism takes\ninto account several other inputs at the same time and decides which ones\nare important by attributing different weights to those inputs.\n• The Decoder will then take as input the encoded sentence and the weights\nprovided by the attention-mechanism.\n6\n\nTransformer network - Attention\n• Transformer is a novel architecture\nthat utilize Attention to process\nSequence2Sequence tasks.\n• It consist on Encoder and Decoder\nbut they are not based on the\nrecurrent connections.\n• Encoder and Decoder are composed\nof modules that can be stacked on\ntop of each other multiple times\n(Nx).\n7\n\nTransformer network - Positional encoding- What is?\n• Transformers do not have recurrence or convolution.\n• Therefore, they have no built-in sense of word order.\n• Positional encoding injects information about the position of each token in\nthe sequence.\n• These encodings are added to the input embeddings.\n• Uses sinusoidal functions to ensure unique and continuous position\nrepresentation.\n8\n\nTransformer network - Positional encoding- Formula\nPE(pos,2i) = sin\n\u0010\npos\n100002i/dmodel\n\u0011\nPE(pos,2i+1) = cos\n\u0010\npos\n100002i/dmodel\n\u0011\n• pos is the position in the sequence (e.g., 0, 1, 2, ...).\n• i is the dimension index.\n• dmodel is the total dimension of the embedding vector.\n9\n\nTransformer network - Positional encoding- Formula\n10",
+      "path": "Deep Learning - Transformer Network.pdf/Root/Transformer network",
       "metadata": {
-        "length": 621,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "tokens": [
-          "Uses",
-          "teacher",
-          "forcing",
-          "true",
-          "previous",
-          "output",
-          "fed",
-          "decoder",
-          "The",
-          "target",
-          "sequence",
-          "shifted",
-          "position",
-          "sos",
-          "token",
-          "added",
-          "beginning",
-          "eos",
-          "end",
-          "causal",
-          "mask",
-          "ensures",
-          "sees",
-          "positions",
-          "Loss",
-          "computed",
-          "original",
-          "prevent",
-          "model",
-          "copying",
-          "input",
-          "step",
-          "tokens",
-          "loss",
-          "unshifted"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "8a8721e3-5d3a-5a6e-bf94-a66ff306e428",
-      "type": "image",
-      "content": "\n3. Predict the first output token. <details>0\n[images/image-10-Attention Mechanism Visualization.jpg]\n",
-      "path": "images/image-10-Attention Mechanism Visualization.jpg",
-      "metadata": {
-        "length": 80,
-        "summary": "image-10\nTop Layer (Source Tokens): A, man, is, walking, .\nBottom Layer (Target Tokens): <sos>, Un, homme, marche, .\nRelationships: Dense connections (attention weights) link each source token to every target token.\nContext: Illustrates a sequence-to-sequence model translating English (\"A man is walking\") to French (\"Un homme marche\").",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "images/image-10-Attention Mechanism Visualization.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "ca042cfe-7e47-58d7-bdc6-8e5a938016f4",
-      "type": "image",
-      "content": "\n- As opposed to directional models, which read the text input sequentially (left-to-right or right-to-left), the Transformer encoder reads the entire sequence of words at once. <details>0\n[images/image-11-Transformer Encoder Architecture.jpg]\n",
-      "path": "images/image-11-Transformer Encoder Architecture.jpg",
-      "metadata": {
-        "length": 222,
-        "summary": "image-11\n- Input Sequence: W1, W2, W3, [MASK], W5 (where W4 is masked)\n- Embedding Layer: Converts input tokens into embeddings\n- Core Component: Transformer encoder block\n- Output Representation: O1, O2, O3, O4, O5\n- Classification Layer: Fully-connected layer + GELU activation + Normalization\n- Final Output: Predicted probabilities w'1 through w'5 via embedding to vocabulary and softmax",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "images/image-11-Transformer Encoder Architecture.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "40f3c966-8ee4-5a7e-acb8-a9dd94ca1ff5",
-      "type": "table",
-      "content": "<table><tr><td rowspan=\"2\">Input</td><td colspan=\"6\">[MASK]</td><td colspan=\"5\">[MASK]</td></tr><tr><td>[CLS]</td><td>my</td><td>dog</td><td>is</td><td>cute</td><td>[SEP]</td><td>he</td><td>likes</td><td>play</td><td>##ing</td><td>[SEP]</td></tr><tr><td>Token Embeddings</td><td> $E_{[CLS]}$ </td><td> $E_{my}$ </td><td> $E_{[MASK]}$ </td><td> $E_{is}$ </td><td> $E_{cute}$ </td><td> $E_{[SEP]}$ </td><td> $E_{he}$ </td><td> $E_{[MASK]}$ </td><td> $E_{play}$ </td><td> $E_{##ing}$ </td><td> $E_{[SEP]}$ </td></tr><tr><td rowspan=\"2\">Sentence Embedding</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr><tr><td> $E_A$ </td><td> $E_A$ </td><td> $E_A$ </td><td> $E_A$ </td><td> $E_A$ </td><td> $E_A$ </td><td> $E_B$ </td><td> $E_B$ </td><td> $E_B$ </td><td> $E_B$ </td><td> $E_B$ </td></tr><tr><td rowspan=\"2\">Transformer Positional Embedding</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td><td>+</td></tr><tr><td> $E_0$ </td><td> $E_1$ </td><td> $E_2$ </td><td> $E_3$ </td><td> $E_4$ </td><td> $E_5$ </td><td> $E_6$ </td><td> $E_7$ </td><td> $E_8$ </td><td> $E_9$ </td><td> $E_{10}$ </td></tr></table>",
-      "path": "tables/table-5 BERT Embeddings.html",
-      "metadata": {
-        "length": 1224,
-        "summary": "table-6\nThe table shows BERT input embeddings: token, sentence (A/B), and positional embeddings for two sentences separated by [SEP], with [MASK] tokens.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "file_path": "tables/table-5 BERT Embeddings.html",
-        "keywords": [
-          "BERT",
-          "Embeddings",
-          "Tokens"
-        ],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "81edf90e-6892-5363-a7b8-3f571e070f9c",
-      "type": "text",
-      "content": "1. Input the full encoder sequence.\n2. Start decoder with <sos> token.\n3. Predict the first output token.\n4. Append it to the decoder input and repeat.\n5. Stop when the model predicts <eos>.\nAt each step, the decoder sees its own past outputs and the encoder context.\nTransformer Inference (Autoregressive Decoding)\n\n3. Predict the first output token. <details>0\n[images/image-10-Attention Mechanism Visualization.jpg]\n\n<details>\n<summary>flowchart</summary>\n```mermaid\ngraph TD\nA[\"A\"] --> Un[\"Un\"]\nman[\"man\"] --> Un\nis[\"is\"] --> Un\nwalking[\"walking\"] --> Un\nUn --> homme[\"homme\"]\nhomme --> marche[\"marche\"]\nmarche --> u[\"u\"]\n```\n</details>\n• BERT - Bidirectional Encoder Representations from Transformers.\n- Uses a Transformer-based network with pre-trained deep bidirectional representations from unlabeled text by jointly conditioning on both left and right context in all layers.\n- BERT makes use of Transformer, an attention mechanism that learns contextual relations between words (or sub-words) in a text.\n- Transformer includes two separate mechanisms — an encoder that reads the text input and a decoder that produces a prediction for the task. Since BERT's goal is to generate a language model, only the encoder mechanism is necessary.\n- As opposed to directional models, which read the text input sequentially (left-to-right or right-to-left), the Transformer encoder reads the entire sequence of words at once.\n- Therefore it is considered bidirectional, though it would be more accurate to say that it's non-directional. This characteristic allows the model to learn the context of a word based on all of its surroundings (left and right of the word).\n- The input is a sequence of tokens, which are first embedded into vectors and then processed in the neural network.\n- The output is a sequence of vectors of size H, in which each vector corresponds to an input token with the same index.\n- When training language models, there is a challenge of defining a prediction goal.\n\n- As opposed to directional models, which read the text input sequentially (left-to-right or right-to-left), the Transformer encoder reads the entire sequence of words at once. <details>0\n[images/image-11-Transformer Encoder Architecture.jpg]\n\n<details>\n<summary>flowchart</summary>\n```mermaid\ngraph TD\nA[\"Embedding\"] --> B[\"W1\"]\nA --> C[\"W2\"]\nA --> D[\"W3\"]\nA --> E[\"[MASK\"]]\nA --> F[\"W5\"]\nB --> G[\"W1\"]\nC --> H[\"W2\"]\nD --> I[\"W3\"]\nE --> J[\"W4\"]\nF --> K[\"W5\"]\nL[\"Embedding to vocab + softmax\"] --> M[\"Classification Layer: Fully-connected layer + GELU + Norm\"]\nM --> N[\"O1\"]\nM --> O[\"O2\"]\nM --> P[\"O3\"]\nM --> Q[\"O4\"]\nM --> R[\"O5\"]\nN --> S[\"Transformer encoder\"]\nO --> S\nP --> S\nQ --> S\nR --> S\n```\n</details>\n- Before feeding word sequences into BERT, 15% of the words in each sequence are replaced with a [MASK] token.\n- The model then attempts to predict the original value of the masked words, based on the context provided by the other, non-masked, words in the sequence.\n- In technical terms, the prediction of the output words requires:\n1. Adding a classification layer on top of the encoder output.\n2. Multiplying the output vectors by the embedding matrix, transforming them into the vocabulary dimension.\n3. Calculating the probability of each word in the vocabulary with softmax.\n\\- The BERT loss function takes into consideration only the prediction of the masked values and ignores the prediction of the non-masked words.\n- In the BERT training process, the model receives pairs of sentences as input and learns to predict if the second sentence in the pair is the subsequent sentence in the original document.\n- During training, 50% of the inputs are a pair in which the second sentence is the subsequent sentence in the original document, while in the other 50% a random sentence from the corpus is chosen as the second sentence.\n- The assumption is that the random sentence will be disconnected from the first sentence.\n\\- To help the model distinguish between the two sentences in training, the input is processed in the following way before entering the model:\n1. A [CLS] token is inserted at the beginning of the first sentence and a [SEP] token is inserted at the end of each sentence.\n2. A sentence embedding indicating Sentence A or Sentence B is added to each token. Sentence embeddings are similar in concept to token embeddings with a vocabulary of 2.\n3. A positional embedding is added to each token to indicate its position in the sequence. The concept and implementation of positional embedding are presented in the Transformer paper.\n\n[tables/table-5 BERT Embeddings.html]\n\n\\- To predict if the second sentence is indeed connected to the first, the following steps are performed:\n1. The entire input sequence goes through the Transformer model.\n2. The output of the [CLS] token is transformed into a $2 \\times 1$ shaped vector, using a simple classification layer (learned matrices of weights and biases).\n3. Calculating the probability of IsNextSequence with softmax.\n\\- When training the BERT model, Masked LM and Next Sentence Prediction are trained together, with the goal of minimizing the combined loss function of the two strategies.",
-      "path": "dl_10.pdf/Deep Learning Transformer network/Inference – autoregressive decoding:",
-      "metadata": {
-        "length": 5109,
-        "summary": "The passage describes two main topics: autoregressive decoding in Transformer inference, where the decoder generates tokens step-by-step using past outputs and encoder context until an <eos> token is produced; and BERT (Bidirectional Encoder Representations from Transformers), a bidirectional model using only the Transformer encoder to learn contextual word representations from unlabeled text. BERT is trained with masked language modeling (predicting masked tokens) and next sentence prediction, using special tokens like [CLS] and [SEP], along with sentence and positional embeddings.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "tokens": [
-          "Input",
-          "full",
-          "encoder",
-          "sequence",
-          "Start",
-          "decoder",
-          "sos",
-          "token",
-          "Predict",
-          "output",
-          "Append",
-          "input",
-          "repeat",
-          "Stop",
-          "model",
-          "predicts",
-          "eos",
-          "At",
-          "step",
-          "sees",
-          "past",
-          "outputs",
-          "context",
-          "Transformer",
-          "Inference",
-          "Autoregressive",
-          "Decoding",
-          "details",
-          "summary",
-          "flowchart",
-          "mermaid",
-          "graph",
-          "TD",
-          "Un",
-          "man",
-          "walking",
-          "homme",
-          "marche",
-          "BERT",
-          "Bidirectional",
-          "Encoder",
-          "Representations",
-          "Transformers",
-          "Uses",
-          "based",
-          "network",
-          "pre",
-          "trained",
-          "deep",
-          "bidirectional",
-          "representations",
-          "unlabeled",
-          "text",
-          "jointly",
-          "conditioning",
-          "left",
-          "layers",
-          "makes",
-          "attention",
-          "mechanism",
-          "learns",
-          "contextual",
-          "relations",
-          "words",
-          "includes",
-          "separate",
-          "mechanisms",
-          "reads",
-          "produces",
-          "prediction",
-          "task",
-          "Since",
-          "goal",
-          "generate",
-          "language",
-          "As",
-          "opposed",
-          "directional",
-          "models",
-          "read",
-          "sequentially",
-          "entire",
-          "Therefore",
-          "considered",
-          "accurate",
-          "This",
-          "characteristic",
-          "learn",
-          "word",
-          "surroundings",
-          "The",
-          "tokens",
-          "embedded",
-          "vectors",
-          "processed",
-          "neural",
-          "size",
-          "vector",
-          "corresponds",
-          "index",
-          "When",
-          "training",
-          "challenge",
-          "defining",
-          "Embedding",
-          "W1",
-          "W2",
-          "W3",
-          "MASK",
-          "W5",
-          "W4",
-          "vocab",
-          "softmax",
-          "Classification",
-          "Layer",
-          "Fully",
-          "connected",
-          "layer",
-          "GELU",
-          "Norm",
-          "O1",
-          "O2",
-          "O3",
-          "O4",
-          "O5",
-          "Before",
-          "feeding",
-          "sequences",
-          "15%",
-          "replaced",
-          "attempts",
-          "predict",
-          "original",
-          "masked",
-          "provided",
-          "In",
-          "technical",
-          "terms",
-          "requires",
-          "Adding",
-          "classification",
-          "top",
-          "Multiplying",
-          "embedding",
-          "matrix",
-          "transforming",
-          "vocabulary",
-          "dimension",
-          "Calculating",
-          "probability",
-          "loss",
-          "function",
-          "takes",
-          "consideration",
-          "values",
-          "ignores",
-          "process",
-          "receives",
-          "pairs",
-          "sentences",
-          "sentence",
-          "pair",
-          "subsequent",
-          "document",
-          "During",
-          "50%",
-          "inputs",
-          "random",
-          "corpus",
-          "chosen",
-          "assumption",
-          "disconnected",
-          "To",
-          "distinguish",
-          "entering",
-          "CLS",
-          "inserted",
-          "beginning",
-          "SEP",
-          "end",
-          "indicating",
-          "Sentence",
-          "added",
-          "embeddings",
-          "similar",
-          "concept",
-          "positional",
-          "position",
-          "implementation",
-          "presented",
-          "paper",
-          "html",
-          "steps",
-          "performed",
-          "transformed",
-          "times",
-          "shaped",
-          "simple",
-          "learned",
-          "matrices",
-          "weights",
-          "biases",
-          "IsNextSequence",
-          "Masked",
-          "LM",
-          "Next",
-          "Prediction",
-          "minimizing",
-          "combined",
-          "strategies"
+        "length": 2896,
+        "summary": "This section introduces the Transformer network, contrasting it with recurrent neural networks by highlighting its ability to perform parallel computation. It explains the core concept of the attention mechanism, which allows the model to focus on relevant parts of an input sequence, inspired by human reading. The section details how each word is projected into Query (Q), Key (K), and Value (V) vectors to compute attention weights using a specific formula, resulting in a new context-aware representation for each word.",
+        "page_nums": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12
         ],
         "keywords": [
-          "BERT",
-          "Transformer",
-          "Autoregressive Decoding"
+          "Jan Platoš",
+          "Radek Svoboda",
+          "Department of Computer Science",
+          "Faculty of Electrical Engineering and Computer Science",
+          "VŠB - Technical University of Ostrava"
         ],
         "connect_to": [
           {
-            "target": "8a8721e3-5d3a-5a6e-bf94-a66ff306e428",
+            "target": "asset_56e51dc3-c9d9-5f70-92c7-cd86bb4369df",
             "relation": "embeds",
-            "ref": "[images/image-10-Attention Mechanism Visualization.jpg]",
-            "position": {
-              "start": 363,
-              "end": 418
-            }
+            "ref": "[images/image_page_4_figure_1.png]"
           },
           {
-            "target": "ca042cfe-7e47-58d7-bdc6-8e5a938016f4",
+            "target": "asset_44a932b9-0d2e-5ae6-9783-51dcecdcba34",
             "relation": "embeds",
-            "ref": "[images/image-11-Transformer Encoder Architecture.jpg]",
-            "position": {
-              "start": 2177,
-              "end": 2231
-            }
+            "ref": "[images/image_page_6_figure_1.png]"
           },
           {
-            "target": "40f3c966-8ee4-5a7e-acb8-a9dd94ca1ff5",
+            "target": "asset_6d8f112e-dd7c-534f-ba4a-cde98e3c2ca9",
             "relation": "embeds",
-            "ref": "[tables/table-5 BERT Embeddings.html]",
-            "position": {
-              "start": 4552,
-              "end": 4589
-            }
+            "ref": "[images/image_page_7_figure_1.png]"
+          },
+          {
+            "target": "asset_aeef09aa-8bbe-5d26-9158-93a517801f38",
+            "relation": "embeds",
+            "ref": "[images/image_page_9_figure_1.png]"
+          },
+          {
+            "target": "asset_8efcf1dd-2bab-52da-9283-fdada9dd99dd",
+            "relation": "embeds",
+            "ref": "[images/image_page_12_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 1,
+            "artifact_ref": "page_citation_assets/page-1.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 2,
+            "artifact_ref": "page_citation_assets/page-2.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 3,
+            "artifact_ref": "page_citation_assets/page-3.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 4,
+            "artifact_ref": "page_citation_assets/page-4.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 5,
+            "artifact_ref": "page_citation_assets/page-5.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 6,
+            "artifact_ref": "page_citation_assets/page-6.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 7,
+            "artifact_ref": "page_citation_assets/page-7.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 8,
+            "artifact_ref": "page_citation_assets/page-8.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 9,
+            "artifact_ref": "page_citation_assets/page-9.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 10,
+            "artifact_ref": "page_citation_assets/page-10.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 11,
+            "artifact_ref": "page_citation_assets/page-11.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 12,
+            "artifact_ref": "page_citation_assets/page-12.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
           }
         ]
       }
     },
     {
-      "chunk_id": "bab774c6-87e7-54fe-8c90-4d6daf3c590a",
-      "type": "text",
-      "content": "\\- BERT can be used for a wide variety of language tasks, while only adding a small layer to the core model:\n1. Classification tasks such as sentiment analysis are done similarly to Next Sentence classification, by adding a classification layer on top of the Transformer output for the [CLS] token.\n2. In Question Answering tasks (e.g. SQuAD v1.1), the software receives a question regarding a text sequence and is required to mark the answer in the sequence. Using BERT, a Q&A model can be trained by learning two extra vectors that mark the beginning and the end of the answer.\n3. In Named Entity Recognition (NER), the software receives a text sequence and is required to mark the various types of entities (Person, Organization, Date, etc) that appear in the text. Using BERT, a NER model can be trained by feeding the output vector of each token into a classification layer that predicts the NER label.\n1. What is a Transformer? by Maxime,\nhttps://medium.com/inside-machine-learning/\nwhat-is-a-transformer-d07dd1fbec04\n2. A Beginner's Guide to Attention Mechanisms and Memory Networks https://wiki.pathmind.com/attention-mechanism-memory-network\n3. What is Teacher Forcing for Recurrent Neural Networks? by Jason Brownlee https://machinelearningmastery.com/ teacher-forcing-for-recurrent-neural-networks/\n4. Positional Encoding: Everything You Need to Know by Darjan Salaj\nhttps://www.inovex.de/de/blog/\npositional-encoding-everything-you-need-to-know",
-      "path": "dl_10.pdf/Deep Learning Transformer network/Transformer network - BERT - How to use BERT (Fine-tuning)",
+      "chunk_id": "node_5e806dd9-cc49-5879-9345-25e46132be1c",
+      "type": "page",
+      "content": "Transformer network - Positional encoding- Notes\n• Sinusoidal functions are used to provide:\n• Unique yet smoothly varying encoding for each position.\n• Ability to interpolate or generalize to longer sequences.\n• Simple mathematical patterns that can capture relative distances.\n• Alternative: learned positional encodings\n• Positional vectors are trainable.\n• More flexible, but limited to sequence lengths seen during training.\n• Without PE:\n• Model loses word order completely (e.g., “dog bites man” = “man bites dog”).\n11",
+      "path": "Deep Learning - Transformer Network.pdf/Root/Transformer network/Sinusoidal functions are used to provide:",
       "metadata": {
-        "length": 1456,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "tokens": [
-          "BERT",
-          "wide",
-          "variety",
-          "language",
-          "tasks",
-          "adding",
-          "small",
-          "layer",
-          "core",
-          "model",
-          "Classification",
-          "sentiment",
-          "analysis",
-          "similarly",
-          "Next",
-          "Sentence",
-          "classification",
-          "top",
-          "Transformer",
-          "output",
-          "CLS",
-          "token",
-          "In",
-          "Question",
-          "Answering",
-          "SQuAD",
-          "v1.1",
-          "software",
-          "receives",
-          "question",
-          "text",
-          "sequence",
-          "required",
-          "mark",
-          "answer",
-          "Using",
-          "trained",
-          "learning",
-          "extra",
-          "vectors",
-          "beginning",
-          "end",
-          "Named",
-          "Entity",
-          "Recognition",
-          "NER",
-          "types",
-          "entities",
-          "Person",
-          "Organization",
-          "Date",
-          "feeding",
-          "vector",
-          "predicts",
-          "label",
-          "What",
-          "Maxime",
-          "https",
-          "medium",
-          "inside",
-          "machine",
-          "transformer",
-          "d07dd1fbec04",
-          "Beginner",
-          "Guide",
-          "Attention",
-          "Mechanisms",
-          "Memory",
-          "Networks",
-          "wiki",
-          "pathmind",
-          "attention",
-          "mechanism",
-          "memory",
-          "network",
-          "Teacher",
-          "Forcing",
-          "Recurrent",
-          "Neural",
-          "Jason",
-          "Brownlee",
-          "machinelearningmastery",
-          "teacher",
-          "forcing",
-          "recurrent",
-          "neural",
-          "networks",
-          "Positional",
-          "Encoding",
-          "Everything",
-          "You",
-          "Need",
-          "Know",
-          "Darjan",
-          "Salaj",
-          "www",
-          "inovex",
-          "de",
-          "blog",
-          "positional",
-          "encoding"
+        "length": 525,
+        "summary": "This section outlines the benefits of using sinusoidal functions for positional encoding in Transformer networks. It highlights that these functions provide a unique yet smoothly varying encoding for each position, allow for interpolation or generalization to longer sequences, and utilize simple mathematical patterns to capture relative distances.",
+        "page_nums": [
+          13
         ],
         "keywords": [],
-        "connect_to": []
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 13,
+            "artifact_ref": "page_citation_assets/page-13.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          }
+        ]
       }
     },
     {
-      "chunk_id": "5bc569ab-8bf7-519b-be49-f56f4787c1b8",
-      "type": "text",
-      "content": "5. Luong, Minh-Thang, Hieu Pham, and Christopher D. Manning. \"Effective approaches to attention-based neural machine translation.\" arXiv preprint arXiv:1508.04025 (2015).\n6. Devlin, Jacob, et al. \"Bert: Pre-training of deep bidirectional transformers for language understanding.\" arXiv preprint arXiv:1810.04805 (2018).\n7. BERT Explained: State of the art language model for NLP by Rani Horev\nhttps://towardsdatascience.com/\nbert-explained-state-of-the-art-language-model-for-nlp-f8b21a\n8. Understanding BERT Transformer: Attention isn't all you need by Damien Sileo https://medium.com/synapse-dev/understanding-bert-transformer-attention-isnt-all-you-need-58",
-      "path": "dl_10.pdf/Deep Learning Transformer network/Transformer network - References ii",
+      "chunk_id": "node_f249d065-8516-5eff-af9f-ccc30ab5e391",
+      "type": "page",
+      "content": "[SAME-AS Deep Learning - Transformer Network.pdf/Root/Transformer network/Sinusoidal functions are used to provide: p13]",
+      "path": "Deep Learning - Transformer Network.pdf/Root/Transformer network/Alternative: learned positional encodings",
       "metadata": {
-        "length": 659,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Deep Learning Transformer network",
-        "tokens": [
-          "Luong",
-          "Minh",
-          "Thang",
-          "Hieu",
-          "Pham",
-          "Christopher",
-          "Manning",
-          "Effective",
-          "approaches",
-          "attention",
-          "based",
-          "neural",
-          "machine",
-          "translation",
-          "arXiv",
-          "preprint",
-          "1508.04025",
-          "2015",
-          "Devlin",
-          "Jacob",
-          "al",
-          "Bert",
-          "Pre",
-          "training",
-          "deep",
-          "bidirectional",
-          "transformers",
-          "language",
-          "understanding",
-          "1810.04805",
-          "2018",
-          "BERT",
-          "Explained",
-          "State",
-          "art",
-          "model",
-          "NLP",
-          "Rani",
-          "Horev",
-          "https",
-          "towardsdatascience",
-          "bert",
-          "explained",
-          "state",
-          "nlp",
-          "f8b21a",
-          "Understanding",
-          "Transformer",
-          "Attention",
-          "isn",
-          "Damien",
-          "Sileo",
-          "medium",
-          "synapse",
-          "dev",
-          "transformer",
-          "isnt",
-          "58"
+        "length": 120,
+        "summary": "This section describes an alternative to sinusoidal positional encodings known as learned positional encodings. It notes that in this approach, the positional vectors are trainable parameters. While this method offers more flexibility, it is limited to handling sequence lengths that were seen during the training phase.",
+        "page_nums": [
+          13
         ],
         "keywords": [],
-        "connect_to": []
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 13,
+            "artifact_ref": "page_citation_assets/page-13.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_9edf6b35-1fef-5308-bc56-894933738273",
+      "type": "page",
+      "content": "[SAME-AS Deep Learning - Transformer Network.pdf/Root/Transformer network/Sinusoidal functions are used to provide: p13]\n\nTransformer network - Positional encoding- Comparison\n12\n\nTransformer network - Multi-head Attention- What is?\n• Instead of computing attention once, we do it in parallel multiple times\n(heads).\n• Each head learns different projections of Q, K, V with its own parameters:\nheadi = Attention(QWQ\ni , KWK\ni , VWV\ni )\n• All heads are concatenated and projected again:\nMultiHead(Q, K, V) = Concat(head1, ..., headh)WO\n• This allows the model to jointly attend to information from different\nrepresentation subspaces.\n13\n\nTransformer network - Multi-head Attention\n14\n\nTransformer network - Multi-head Attention\n• Multi-head attention = multiple attention mechanisms in parallel.\n• Each head uses its own learned projection matrices:\nQWQ\ni ,\nKWK\ni ,\nVWV\ni\n• Different heads can focus on different types of relationships (e.g. syntax,\nsemantics).\n• The outputs of all heads are concatenated and linearly projected:\nConcat(head1, ..., headh)WO\n15\n\nTransformer network - Multi-head Attention\n• Encoder and decoder use multi-head attention differently:\n• Encoder: attends to all positions in the input.\n• Decoder: attends to previous positions (masked).\n• Encoder-decoder: decoder attends to encoder output.\n16",
+      "path": "Deep Learning - Transformer Network.pdf/Root/Transformer network/Without PE:",
+      "metadata": {
+        "length": 1321,
+        "summary": "The section titled 'Without PE' explains the critical role of positional encoding in Transformer networks. It states that without positional encoding (PE), a model loses the ability to understand word order, treating sentences with the same words but different arrangements as identical.",
+        "page_nums": [
+          13,
+          14,
+          15,
+          16,
+          17,
+          18
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "asset_dd03a048-28c2-5b98-903d-fe7da2181d27",
+            "relation": "embeds",
+            "ref": "[images/image_page_14_figure_1.png]"
+          },
+          {
+            "target": "asset_4b2c864f-2a80-557e-a04b-8f1a38d1a926",
+            "relation": "embeds",
+            "ref": "[images/image_page_16_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 13,
+            "artifact_ref": "page_citation_assets/page-13.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 14,
+            "artifact_ref": "page_citation_assets/page-14.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 15,
+            "artifact_ref": "page_citation_assets/page-15.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 16,
+            "artifact_ref": "page_citation_assets/page-16.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 17,
+            "artifact_ref": "page_citation_assets/page-17.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 18,
+            "artifact_ref": "page_citation_assets/page-18.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_c658a800-2d3f-573c-b78e-a182d111ad02",
+      "type": "page",
+      "content": "Transformer network - Training\nTraining a Transformer (Seq2Seq model):\n• Uses teacher forcing – the true previous output is fed into the decoder.\n• The target sequence is right-shifted by one position.\n• A <sos> token is added at the beginning, and <eos> at the end.\n• A causal mask ensures decoder only sees previous positions.\n• Loss is computed between decoder output and original target sequence.\n17\n\nTransformer network - Training- Decoder Preparation\n• The target sequence is right-shifted to prevent the model from copying input.\n• A <sos> token is added at the beginning, and <eos> at the end.\n• A causal mask ensures that each decoder step sees only previous tokens.\n• The loss is computed against the original (unshifted) target sequence.\n18",
+      "path": "Deep Learning - Transformer Network.pdf/Root/Training a Transformer (Seq2Seq model):",
+      "metadata": {
+        "length": 751,
+        "summary": "The section details the training process for a Transformer Seq2Seq model, specifically focusing on decoder preparation. It explains that teacher forcing is used where the true previous output is fed into the decoder. The target sequence is right-shifted by one position to prevent the model from copying input, with <sos> and <eos> tokens added at the beginning and end respectively. A causal mask ensures the decoder only sees previous positions during each step. Finally, the loss is computed between the decoder output and the original (unshifted) target sequence.",
+        "page_nums": [
+          19,
+          20
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 19,
+            "artifact_ref": "page_citation_assets/page-19.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 20,
+            "artifact_ref": "page_citation_assets/page-20.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_2bf0dbc9-61d1-592b-967f-844268f97bee",
+      "type": "page",
+      "content": "Transformer network - Inference\nInference – autoregressive decoding:\n1. Input the full encoder sequence.\n2. Start decoder with <sos> token.\n3. Predict the first output token.\n4. Append it to the decoder input and repeat.\n5. Stop when the model predicts <eos>.\nAt each step, the decoder sees its own past outputs and the encoder context.\n19\n\nTransformer network - Inference\n20\n\nTransformer network - BERT\n• BERT - Bidirectional Encoder Representations from Transformers.\n• Uses a Transformer-based network with pre-trained deep bidirectional\nrepresentations from unlabeled text by jointly conditioning on both left and\nright context in all layers.\n• BERT makes use of Transformer, an attention mechanism that learns\ncontextual relations between words (or sub-words) in a text.\n• Transformer includes two separate mechanisms — an encoder that reads the\ntext input and a decoder that produces a prediction for the task. Since BERT’s\ngoal is to generate a language model, only the encoder mechanism is\nnecessary.\n21\n\nTransformer network - BERT\n• As opposed to directional models, which read the text input sequentially\n(left-to-right or right-to-left), the Transformer encoder reads the entire\nsequence of words at once.\n• Therefore it is considered bidirectional, though it would be more accurate to\nsay that it’s non-directional. This characteristic allows the model to learn the\ncontext of a word based on all of its surroundings (left and right of the word).\n• The input is a sequence of tokens, which are first embedded into vectors and\nthen processed in the neural network.\n• The output is a sequence of vectors of size H, in which each vector\ncorresponds to an input token with the same index.\n• When training language models, there is a challenge of defining a prediction\ngoal.\n22\n\nTransformer network - BERT\n23\n\nTransformer network - BERT - Masked LM\n• Before feeding word sequences into BERT, 15% of the words in each sequence\nare replaced with a [MASK] token.\n• The model then attempts to predict the original value of the masked words,\nbased on the context provided by the other, non-masked, words in the\nsequence.\n• In technical terms, the prediction of the output words requires:\n1. Adding a classification layer on top of the encoder output.\n2. Multiplying the output vectors by the embedding matrix, transforming them\ninto the vocabulary dimension.\n3. Calculating the probability of each word in the vocabulary with softmax.\n• The BERT loss function takes into consideration only the prediction of the\nmasked values and ignores the prediction of the non-masked words.\n24\n\nTransformer network - BERT - Next Sentence Prediction (NSP)\n• In the BERT training process, the model receives pairs of sentences as input\nand learns to predict if the second sentence in the pair is the subsequent\nsentence in the original document.\n• During training, 50% of the inputs are a pair in which the second sentence is\nthe subsequent sentence in the original document, while in the other 50% a\nrandom sentence from the corpus is chosen as the second sentence.\n• The assumption is that the random sentence will be disconnected from the\nfirst sentence.\n25\n\nTransformer network - BERT - Next Sentence Prediction (NSP)\n• To help the model distinguish between the two sentences in training, the\ninput is processed in the following way before entering the model:\n1. A [CLS] token is inserted at the beginning of the first sentence and a [SEP] token\nis inserted at the end of each sentence.\n2. A sentence embedding indicating Sentence A or Sentence B is added to each\ntoken. Sentence embeddings are similar in concept to token embeddings with a\nvocabulary of 2.\n3. A positional embedding is added to each token to indicate its position in the\nsequence. The concept and implementation of positional embedding are\npresented in the Transformer paper.\n26\n\nTransformer network - BERT - Next Sentence Prediction (NSP)\n27\n\nTransformer network - BERT - Next Sentence Prediction (NSP)\n• To predict if the second sentence is indeed connected to the first, the\nfollowing steps are performed:\n1. The entire input sequence goes through the Transformer model.\n2. The output of the [CLS] token is transformed into a 2×1 shaped vector, using a\nsimple classification layer (learned matrices of weights and biases).\n3. Calculating the probability of IsNextSequence with softmax.\n• When training the BERT model, Masked LM and Next Sentence Prediction are\ntrained together, with the goal of minimizing the combined loss function of\nthe two strategies.\n28\n\nTransformer network - BERT - How to use BERT (Fine-tuning)\n• BERT can be used for a wide variety of language tasks, while only adding a\nsmall layer to the core model:\n1. Classification tasks such as sentiment analysis are done similarly to Next\nSentence classification, by adding a classification layer on top of the\nTransformer output for the [CLS] token.\n2. In Question Answering tasks (e.g. SQuAD v1.1), the software receives a question\nregarding a text sequence and is required to mark the answer in the sequence.\nUsing BERT, a Q&A model can be trained by learning two extra vectors that mark\nthe beginning and the end of the answer.\n3. In Named Entity Recognition (NER), the software receives a text sequence and is\nrequired to mark the various types of entities (Person, Organization, Date, etc)\nthat appear in the text. Using BERT, a NER model can be trained by feeding the\noutput vector of each token into a classification layer that predicts the NER\nlabel.\n29\n\nTransformer network - References i\n1. What is a Transformer? by Maxime,\nhttps://medium.com/inside-machine-learning/\nwhat-is-a-transformer-d07dd1fbec04\n2. A Beginner’s Guide to Attention Mechanisms and Memory Networks https:\n//wiki.pathmind.com/attention-mechanism-memory-network\n3. What is Teacher Forcing for Recurrent Neural Networks? by Jason Brownlee\nhttps://machinelearningmastery.com/\nteacher-forcing-for-recurrent-neural-networks/\n4. Positional Encoding: Everything You Need to Know by Darjan Salaj\nhttps://www.inovex.de/de/blog/\npositional-encoding-everything-you-need-to-know\n30\n\nTransformer network - References ii\n5. Luong, Minh-Thang, Hieu Pham, and Christopher D. Manning. ”Effective\napproaches to attention-based neural machine translation.” arXiv preprint\narXiv:1508.04025 (2015).\n6. Devlin, Jacob, et al. ”Bert: Pre-training of deep bidirectional transformers for\nlanguage understanding.” arXiv preprint arXiv:1810.04805 (2018).\n7. BERT Explained: State of the art language model for NLP by Rani Horev\nhttps://towardsdatascience.com/\nbert-explained-state-of-the-art-language-model-for-nlp-f8b21a\n8. Understanding BERT Transformer: Attention isn’t all you need by Damien\nSileo https://medium.com/synapse-dev/\nunderstanding-bert-transformer-attention-isnt-all-you-need-58\n31",
+      "path": "Deep Learning - Transformer Network.pdf/Root/Inference – autoregressive decoding:",
+      "metadata": {
+        "length": 6781,
+        "summary": "The section titled 'Inference – autoregressive decoding' outlines the step-by-step process for generating text with a Transformer model. The procedure involves inputting the full encoder sequence, starting the decoder with a special start-of-sequence token (<sos>), predicting the first output token, and then iteratively appending each new prediction to the decoder's input until an end-of-sequence token (<eos>) is generated. A key characteristic highlighted is that at every step, the decoder has access to its own previously generated outputs as well as the context from the encoder.",
+        "page_nums": [
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "asset_38e0e68e-dd28-5c97-80c8-8970c67d091d",
+            "relation": "embeds",
+            "ref": "[images/image_page_22_figure_1.png]"
+          },
+          {
+            "target": "asset_892ca85f-b88a-5eee-a484-7963ad828844",
+            "relation": "embeds",
+            "ref": "[images/image_page_25_figure_1.png]"
+          },
+          {
+            "target": "asset_af94d033-fb2a-5e38-8f28-9e8d54c0e97a",
+            "relation": "embeds",
+            "ref": "[images/image_page_29_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 21,
+            "artifact_ref": "page_citation_assets/page-21.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 22,
+            "artifact_ref": "page_citation_assets/page-22.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 23,
+            "artifact_ref": "page_citation_assets/page-23.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 24,
+            "artifact_ref": "page_citation_assets/page-24.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 25,
+            "artifact_ref": "page_citation_assets/page-25.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 26,
+            "artifact_ref": "page_citation_assets/page-26.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 27,
+            "artifact_ref": "page_citation_assets/page-27.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 28,
+            "artifact_ref": "page_citation_assets/page-28.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 29,
+            "artifact_ref": "page_citation_assets/page-29.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 30,
+            "artifact_ref": "page_citation_assets/page-30.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 31,
+            "artifact_ref": "page_citation_assets/page-31.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 32,
+            "artifact_ref": "page_citation_assets/page-32.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          },
+          {
+            "page_num": 33,
+            "artifact_ref": "page_citation_assets/page-33.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_403d5c01-8676-5c27-9a3f-a7327eec73e7",
+      "type": "page",
+      "content": "Questions?",
+      "path": "Deep Learning - Transformer Network.pdf/Root/Questions?",
+      "metadata": {
+        "length": 10,
+        "summary": "",
+        "page_nums": [
+          34
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 34,
+            "artifact_ref": "page_citation_assets/page-34.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 908,
+            "height": 511
+          }
+        ]
       }
     }
   ]
