@@ -19,7 +19,7 @@ def _normalize_page(raw: Any) -> int | None:
 
 
 def _flat_toc_to_forest(entries: list[list[Any]]) -> list[dict[str, Any]]:
-    """Convert flat ``[level, title, page, ...]`` rows into a nested forest."""
+    """Convert flat ``[level, title, page]`` rows into a nested forest."""
     roots: list[dict[str, Any]] = []
     stack: list[dict[str, Any]] = []
     for row in entries:
@@ -43,12 +43,6 @@ def _flat_toc_to_forest(entries: list[list[Any]]) -> list[dict[str, Any]]:
             roots.append(node)
         stack.append(node)
     return roots
-
-
-def _subtree_has_page(node: dict[str, Any]) -> bool:
-    if node.get("page") is not None:
-        return True
-    return any(_subtree_has_page(child) for child in node.get("children") or [])
 
 
 def prune_outline_forest(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -85,7 +79,7 @@ def _count_nodes(nodes: list[dict[str, Any]]) -> int:
 @register_tool(
     name="probe.outline",
     description=(
-        "Read PDF bookmark outline via get_toc(simple=False) and return a pruned tree. "
+        "Read PDF bookmark outline via get_toc(simple=True) and return a pruned tree. "
         "No-page parents are kept when children have pages; no-page leaves/subtrees are dropped."
     ),
     parameters={
@@ -102,7 +96,7 @@ def probe_outline(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
     doc = fitz.open(ctx.pdf_path)
     try:
-        raw = doc.get_toc(simple=False) or []
+        raw = doc.get_toc(simple=True) or []
         page_count = int(doc.page_count)
     finally:
         doc.close()

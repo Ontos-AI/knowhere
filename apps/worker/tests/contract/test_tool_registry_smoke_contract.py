@@ -17,7 +17,14 @@ from app.services.document_agent.tools.inspect_pages import inspect_pages
 
 
 def test_probe_and_inspect_registered() -> None:
-    for name in ("probe.outline", "probe.links", "inspect.pages", "ocr.pages", "grep.text"):
+    for name in (
+        "probe.outline",
+        "probe.links",
+        "judge.toc_source",
+        "inspect.pages",
+        "ocr.pages",
+        "grep.text",
+    ):
         assert REGISTRY.get(name) is not None, name
 
 

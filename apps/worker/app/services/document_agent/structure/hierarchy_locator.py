@@ -22,6 +22,7 @@ TitleMatchSource = Literal[
     "bulk_offset",
     "inspect_vlm",
     "physical_hint",
+    "pdf_outline",
 ]
 
 

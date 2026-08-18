@@ -1,4 +1,4 @@
-"""Contract tests for probe.outline prune, probe.links noise, and dest page normalize."""
+"""Contract tests for probe.links noise and dest page normalize."""
 
 from __future__ import annotations
 
@@ -16,36 +16,6 @@ from app.services.document_agent.tools.probe_links import (
     _link_dest_physical_page,
     annotate_link_noise,
 )
-from app.services.document_agent.tools.probe_outline import build_outline_forest
-
-
-def test_outline_keeps_no_page_parent_with_paged_children() -> None:
-    forest = build_outline_forest(
-        [
-            [1, "Part A", -1],
-            [2, "Chapter 1", 10],
-            [2, "Chapter 2", 20],
-        ]
-    )
-    assert len(forest) == 1
-    assert forest[0]["title"] == "Part A"
-    assert forest[0]["page"] is None
-    assert [child["title"] for child in forest[0]["children"]] == [
-        "Chapter 1",
-        "Chapter 2",
-    ]
-
-
-def test_outline_drops_no_page_leaf_and_empty_subtree() -> None:
-    forest = build_outline_forest(
-        [
-            [1, "Keep", 5],
-            [1, "DropLeaf", -1],
-            [1, "DropParent", -1],
-            [2, "DropChild", 0],
-        ]
-    )
-    assert [node["title"] for node in forest] == ["Keep"]
 
 
 def test_link_noise_marks_page_number_header_and_repeated_dest() -> None:

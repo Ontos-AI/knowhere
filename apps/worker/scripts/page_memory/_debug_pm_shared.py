@@ -331,7 +331,7 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
         )
 
     method = toc.get("method", "none")
-    if method not in {"vlm_batch", "none"}:
+    if method not in {"vlm_batch", "pdf_outline", "none"}:
         method = "none"
 
     return PageAnatomyMap(

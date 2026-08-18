@@ -748,6 +748,7 @@ class SkeletonAnchor:
     bulk_count: int
     pruned_count: int = 0
     locate_method: str = "offset_only"
+    source: str = ""
 
 
 def serialize_title_match(match: TitleMatch) -> dict[str, Any]:
@@ -776,6 +777,7 @@ def serialize_skeleton_anchor(anchor: SkeletonAnchor) -> dict[str, Any]:
         "bulk_count": int(anchor.bulk_count or 0),
         "pruned_count": int(anchor.pruned_count or 0),
         "locate_method": anchor.locate_method,
+        "source": anchor.source,
     }
 
 
@@ -852,6 +854,7 @@ def deserialize_skeleton_anchor(data: dict[str, Any]) -> SkeletonAnchor:
         bulk_count=int(data.get("bulk_count") or 0),
         pruned_count=int(data.get("pruned_count") or 0),
         locate_method=str(data.get("locate_method") or "offset_only"),
+        source=str(data.get("source") or ""),
     )
 
 

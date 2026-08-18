@@ -217,7 +217,7 @@ def _map_toc_profile(coordinator: ProfileCoordinator) -> ParserTocProfile:
         )
         for item in toc_result.evidence
     ]
-    source = "pdf_vlm" if toc_result.method != "none" else "none"
+    source = toc_result.profile_source
     return ParserTocProfile(
         toc_pages=list(toc_result.toc_pages),
         hierarchies=coordinator.blackboard.toc_hierarchies,

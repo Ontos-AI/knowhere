@@ -11,6 +11,7 @@ from loguru import logger
 from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
+    anchor_hierarchy_from_offset,
     deserialize_skeleton_anchor,
     deserialize_title_node,
     serialize_skeleton_anchor,
@@ -20,12 +21,14 @@ from app.services.document_agent.structure.anchoring_primitives import (
 )
 from app.services.document_agent.structure.hierarchy_locator import (
     ResolvedHierarchyRange,
+    TitleMatch,
     TitleNode,
     collapse_intermediate_single_child_chains,
     coverage_by_path,
     deepest_covering_path,
     extract_toc_nodes,
     iter_leaf_title_nodes,
+    normalize_heading_text,
     resolve_hierarchy_page_ranges,
 )
 
@@ -103,6 +106,100 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
         serialize_title_node(node) for node in resolve_nodes
     ]
     ctx.blackboard.pending_skeleton_anchors = pending_records
+
+
+def run_outline_anchoring(ctx: ToolContext) -> None:
+    """Anchor adopted PDF outline with physical-page overrides (zero calibrate VLM)."""
+    page_count = int(ctx.blackboard.page_count or 0)
+    hierarchies = list(ctx.blackboard.toc_hierarchies or [])
+    if page_count <= 0 or not hierarchies:
+        return
+
+    page_texts = dict(ctx.blackboard.page_full_text_cache)
+    if not page_texts:
+        raise ValueError(
+            "page_full_text_cache missing; run text scan before TOC anchoring"
+        )
+
+    primary = hierarchies
+    nodes = extract_toc_nodes(primary)
+    if not nodes:
+        return
+    nodes = collapse_intermediate_single_child_chains(nodes)
+
+    toc_result = ctx.blackboard.toc_result
+    body_pages = body_pages_excluding_toc(
+        getattr(toc_result, "toc_pages", None),
+        page_count,
+    )
+    overrides = outline_physical_overrides(primary)
+
+    resolve_nodes, skeleton_anchor = anchor_hierarchy_from_offset(
+        nodes=nodes,
+        offset_hint=0,
+        calibration_overrides=overrides,
+        page_texts=page_texts,
+        body_pages=body_pages,
+        page_count=page_count,
+        ctx=ctx,
+    )
+    skeleton_anchor = replace(skeleton_anchor, source="pdf_outline")
+    ctx.blackboard.skeleton_anchor = serialize_skeleton_anchor(skeleton_anchor)
+    ctx.blackboard.skeleton_nodes = [
+        serialize_title_node(node) for node in resolve_nodes
+    ]
+    ctx.blackboard.pending_skeleton_anchors = []
+    logger.info(
+        "{} outline anchoring: overrides={} pruned={} nodes={}",
+        _LOG_PREFIX,
+        len(skeleton_anchor.match_overrides),
+        skeleton_anchor.pruned_count,
+        len(resolve_nodes),
+    )
+
+
+def outline_physical_overrides(
+    hierarchies: list[dict[str, Any]],
+) -> dict[tuple[str, ...], TitleMatch]:
+    """Build path→physical TitleMatch from outline rows carrying ``physical_page``."""
+    overrides: dict[tuple[str, ...], TitleMatch] = {}
+    for hierarchy in hierarchies:
+        entries = hierarchy.get("toc_with_level") or []
+        if not isinstance(entries, list):
+            continue
+        stack: list[tuple[int, str]] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            title = normalize_heading_text(str(entry.get("heading") or ""))
+            if not title or len(title) < 2:
+                continue
+            try:
+                level = int(entry.get("level") or 1)
+            except (TypeError, ValueError):
+                level = 1
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+            stack.append((level, title))
+            path = tuple(item[1] for item in stack)
+            raw_page = entry.get("physical_page")
+            if raw_page is None:
+                continue
+            try:
+                page = int(raw_page)
+            except (TypeError, ValueError):
+                continue
+            if page < 1:
+                continue
+            overrides[path] = TitleMatch(
+                page=page,
+                confidence=1.0,
+                source="pdf_outline",
+                matched_line="",
+                score=1.0,
+                candidates=[page],
+            )
+    return overrides
 
 
 def select_global_toc_hierarchies(

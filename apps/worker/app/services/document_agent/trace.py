@@ -140,7 +140,7 @@ class ParseRunRecorder:
                 "toc_pages": list(toc_result.toc_pages),
                 "hierarchies": self._anatomy.toc_hierarchies,
                 "evidence": [item.to_dict() for item in toc_result.evidence],
-                "source": "pdf_vlm" if toc_result.method != "none" else "none",
+                "source": toc_result.profile_source,
                 "method": toc_result.method,
                 "notes": toc_result.notes,
                 "attempted": bool(
