@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from sqlalchemy import delete
@@ -16,6 +16,34 @@ from shared.services.retrieval.search.lexical_text import (
     build_term_search_text,
     section_path_from_chunk_path,
 )
+from shared.utils.json_utils import remove_nul_characters
+
+
+def deduplicate_chunks_by_source_path(
+    chunks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep the first chunk for each non-null source path.
+
+    The revision-path uniqueness constraint applies to non-null
+    ``source_chunk_path`` values. Text chunks without a source path are
+    intentionally retained because PostgreSQL permits multiple NULL values
+    for that constraint and those chunks can carry distinct content.
+    """
+    seen_source_paths: set[str] = set()
+    deduplicated_chunks: list[dict[str, Any]] = []
+
+    for chunk in chunks:
+        source_path = _get_source_path(
+            chunk=chunk,
+            chunk_metadata=_get_chunk_metadata(chunk),
+        )
+        if source_path is not None:
+            if source_path in seen_source_paths:
+                continue
+            seen_source_paths.add(source_path)
+        deduplicated_chunks.append(chunk)
+
+    return deduplicated_chunks
 
 
 def replace_document_revision_content(
@@ -31,8 +59,12 @@ def replace_document_revision_content(
         db=db, scope=scope, section_summaries=section_summaries,
     )
     for index, chunk in enumerate(chunks):
-        chunk_metadata = _get_chunk_metadata(chunk)
-        source_path = _get_source_path(chunk=chunk, chunk_metadata=chunk_metadata)
+        safe_chunk = cast(dict[str, Any], remove_nul_characters(chunk))
+        chunk_metadata = _get_chunk_metadata(safe_chunk)
+        source_path = _get_source_path(
+            chunk=safe_chunk,
+            chunk_metadata=chunk_metadata,
+        )
         section_path = section_path_from_chunk_path(
             source_path,
             source_file_name=scope.source_file_name,
@@ -40,7 +72,7 @@ def replace_document_revision_content(
         section = section_publisher.ensure_section(section_path)
         db.add(
             _build_document_chunk(
-                chunk=chunk,
+                chunk=safe_chunk,
                 chunk_metadata=chunk_metadata,
                 source_path=source_path,
                 section=section,
@@ -60,7 +92,10 @@ class DocumentSectionPublisher:
     ) -> None:
         self._db = db
         self._scope = scope
-        self._section_summaries = section_summaries or {}
+        self._section_summaries = cast(
+            dict[str, str],
+            remove_nul_characters(section_summaries or {}),
+        )
         self._sections_by_path: dict[str, DocumentSection] = {}
 
     def ensure_section(self, section_path: str) -> DocumentSection:
@@ -179,7 +214,11 @@ def _get_source_path(
     chunk_metadata: dict[str, Any],
 ) -> str | None:
     source_path = chunk_metadata.get("path") or chunk.get("path")
-    return str(source_path) if source_path is not None else None
+    if source_path is None:
+        return None
+
+    normalized_source_path = str(source_path)
+    return normalized_source_path or None
 
 
 def _get_sort_order(chunk: dict[str, Any], fallback_sort_order: int) -> int:
