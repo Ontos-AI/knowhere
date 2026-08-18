@@ -22,7 +22,7 @@ from app.services.document_agent.manifest import (
     TocResult,
     ToolContext,
 )
-from app.services.document_agent.state import AgentBlackboard
+from app.services.document_agent.state import ProfileBlackboard
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
     serialize_skeleton_anchor,
@@ -356,7 +356,7 @@ def _ctx(*, page_count: int) -> ToolContext:
     return ToolContext(
         pdf_path="/tmp/doc.pdf",
         job_id="job-graft",
-        blackboard=AgentBlackboard(page_count=page_count),
+        blackboard=ProfileBlackboard(page_count=page_count),
         budget=BudgetTracker(plan_budget=50_000, visual_budget=80_000),
         trace=None,
         settings={},
@@ -371,7 +371,7 @@ def _anchor(pages: dict[tuple[str, ...], int]) -> SkeletonAnchor:
         null_page_report=[],
         bulk_count=len(pages),
         pruned_count=0,
-        locate_agent="offset_guided_bulk",
+        locate_method="offset_guided_bulk",
     )
 
 
@@ -402,15 +402,15 @@ def test_parallel_pending_is_not_grafted() -> None:
     anchoring_globals = run_toc_anchoring.__globals__
     with (
         patch(
-            "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
+            "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
             side_effect=fake_anchor_hierarchy,
         ),
         patch(
-            "app.services.document_agent.agents.calibration.service.calibrate_offset",
+            "app.services.document_agent.calibration.service.calibrate_offset",
             return_value=object(),
         ),
         patch(
-            "app.services.document_agent.agents.calibration.procedure.pick_primary_offset",
+            "app.services.document_agent.calibration.procedure.pick_primary_offset",
             return_value=0,
         ),
         patch.dict(
@@ -418,7 +418,7 @@ def test_parallel_pending_is_not_grafted() -> None:
             {"classify_toc_relationship": lambda **_kwargs: "parallel"},
         ),
         patch(
-            "app.services.document_agent.agents.calibration.procedure.finalize_calibration_result",
+            "app.services.document_agent.calibration.procedure.finalize_calibration_result",
             return_value=([pending], _anchor({("App",): 22}), True),
         ),
     ):
@@ -461,15 +461,15 @@ def test_profile_grafts_contained_and_keeps_original_pending() -> None:
     anchoring_globals = run_toc_anchoring.__globals__
     with (
         patch(
-            "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
+            "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
             return_value=([primary], _anchor({("第一章",): 10})),
         ),
         patch(
-            "app.services.document_agent.agents.calibration.service.calibrate_offset",
+            "app.services.document_agent.calibration.service.calibrate_offset",
             return_value=object(),
         ),
         patch(
-            "app.services.document_agent.agents.calibration.procedure.pick_primary_offset",
+            "app.services.document_agent.calibration.procedure.pick_primary_offset",
             return_value=0,
         ),
         patch.dict(
@@ -477,7 +477,7 @@ def test_profile_grafts_contained_and_keeps_original_pending() -> None:
             {"classify_toc_relationship": lambda **_kwargs: "contained"},
         ),
         patch(
-            "app.services.document_agent.agents.calibration.procedure.finalize_calibration_result",
+            "app.services.document_agent.calibration.procedure.finalize_calibration_result",
             return_value=(
                 [contained],
                 _anchor({("第一章",): 10, ("第一章", "1.2"): 12}),

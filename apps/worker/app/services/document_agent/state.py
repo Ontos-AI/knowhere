@@ -1,4 +1,4 @@
-"""State carried by the document profile agent."""
+"""State carried by the document profile workflow."""
 
 from __future__ import annotations
 
@@ -7,18 +7,18 @@ from enum import Enum
 from typing import Any
 
 from app.services.document_agent.manifest import (
-    AgentVerdict,
     DocumentProfile,
     H1BoundaryResult,
     PageFeature,
     PageLabel,
+    ProfileVerdict,
     ShardPlan,
     TocAnchorPage,
     TocResult,
 )
 
 
-class DocumentAgentState(str, Enum):
+class ProfileState(str, Enum):
     INIT = "init"
     RUNNING = "running"
     READY = "ready"
@@ -26,7 +26,7 @@ class DocumentAgentState(str, Enum):
 
 
 @dataclass
-class AgentBlackboard:
+class ProfileBlackboard:
     page_count: int = 0
     document_profile: DocumentProfile | None = None
     page_features: list[PageFeature] = field(default_factory=list)
@@ -42,9 +42,7 @@ class AgentBlackboard:
     pending_skeleton_anchors: list[dict[str, Any]] = field(default_factory=list)
     shard_plan: ShardPlan | None = None
     validation_report: dict[str, Any] | None = None
-    verdict: AgentVerdict | None = None
-    step_history: list[dict[str, Any]] = field(default_factory=list)
+    verdict: ProfileVerdict | None = None
     page_full_text_cache: dict[int, str] = field(default_factory=dict)
     global_signals: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
-

@@ -10,8 +10,8 @@ from typing import Any
 
 from loguru import logger
 
-from app.services.document_agent.agents.calibration.phase1 import run_calibration_phase1
-from app.services.document_agent.agents.calibration.types import (
+from app.services.document_agent.calibration.phase1 import run_calibration_phase1
+from app.services.document_agent.calibration.types import (
     FAILURE_TOC_EMPTY,
     CalibrationResult,
 )

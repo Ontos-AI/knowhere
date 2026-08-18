@@ -16,7 +16,7 @@ from typing import Any
 
 from loguru import logger
 
-from app.services.document_agent.agents.calibration.types import (
+from app.services.document_agent.calibration.types import (
     CalibrationRegime,
     CalibrationResult,
     CalibrationSegment,
@@ -39,7 +39,7 @@ from app.services.document_agent.structure.anchoring_primitives import (
     serialize_skeleton_anchor,
 )
 from app.services.document_agent.structure import anchoring_primitives as _anchoring
-from app.services.document_agent.structure.page_locate_agent import (
+from app.services.document_agent.structure.section_page_verify import (
     verify_section_page_choice,
 )
 
@@ -108,7 +108,7 @@ def seed_overrides_from_samples(
             overrides[path] = TitleMatch(
                 page=int(sample.physical),
                 confidence=0.85,
-                source="agent_vlm",
+                source="inspect_vlm",
                 matched_line="",
                 score=0.85,
                 candidates=[int(sample.physical)],
@@ -407,7 +407,7 @@ def anchor_hierarchy_from_regimes(
     else:
         offset_status = "ok"
 
-    locate_agent = (
+    locate_method = (
         "offset_guided_bulk"
         if match_overrides and (regime_bulk > 0 or seed)
         else "offset_only"
@@ -421,7 +421,7 @@ def anchor_hierarchy_from_regimes(
         null_page_report=null_page_report,
         bulk_count=bulk_count,
         pruned_count=total_pruned,
-        locate_agent=locate_agent,
+        locate_method=locate_method,
     )
 
 
@@ -500,7 +500,7 @@ def _annotate_regimes_from_anchor(
                 no_toc_entry_indices=no_toc,
                 notes=(
                     f"production_bulk={anchor.bulk_count}; "
-                    f"locate_agent={anchor.locate_agent}; "
+                    f"locate_method={anchor.locate_method}; "
                     f"regime_anchored={len(ok_indices)}"
                 ),
             )
@@ -556,7 +556,7 @@ def finalize_calibration_result(
     complete = sum(len(r.segments) for r in regimes)
     notes_parts = [result.notes] if result.notes else []
     notes_parts.append(
-        f"phase2 production locate_agent={anchor.locate_agent} "
+        f"phase2 production locate_method={anchor.locate_method} "
         f"bulk={anchor.bulk_count} complete_regime_segments={complete}"
     )
     finalized = CalibrationResult(

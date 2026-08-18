@@ -22,7 +22,7 @@ from app.services.document_agent.manifest import (
     TocResult,
     ToolContext,
 )
-from app.services.document_agent.state import AgentBlackboard
+from app.services.document_agent.state import ProfileBlackboard
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
     serialize_skeleton_anchor,
@@ -45,7 +45,7 @@ def _ctx(*, page_count: int = 10) -> ToolContext:
     return ToolContext(
         pdf_path="/tmp/doc.pdf",
         job_id="job-wire",
-        blackboard=AgentBlackboard(page_count=page_count),
+        blackboard=ProfileBlackboard(page_count=page_count),
         budget=BudgetTracker(plan_budget=50_000, visual_budget=80_000),
         trace=None,
         settings={},
@@ -86,7 +86,7 @@ def _anchor(*, title: str = "Ch1", page: int = 2) -> SkeletonAnchor:
         null_page_report=[],
         bulk_count=1,
         pruned_count=0,
-        locate_agent="offset_guided_bulk",
+        locate_method="offset_guided_bulk",
     )
 
 
@@ -150,7 +150,7 @@ def test_profile_toc_anchoring_writes_skeleton_anchor() -> None:
         return [_node()], _anchor()
 
     with patch(
-        "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
+        "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
         side_effect=fake_anchor_hierarchy,
     ):
         run_toc_anchoring(ctx)
@@ -170,15 +170,15 @@ def test_c4_resolve_does_not_call_calibration() -> None:
 
     with (
         patch(
-            "app.services.document_agent.agents.calibration.service.calibrate_offset",
+            "app.services.document_agent.calibration.service.calibrate_offset",
             side_effect=_boom,
         ),
         patch(
-            "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
+            "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
             side_effect=_boom,
         ),
         patch(
-            "app.services.document_agent.agents.calibration.procedure.finalize_calibration_result",
+            "app.services.document_agent.calibration.procedure.finalize_calibration_result",
             side_effect=_boom,
         ),
     ):
@@ -236,7 +236,7 @@ def test_shard_plan_reads_offset_and_does_not_calibrate() -> None:
             null_page_report=[],
             bulk_count=2,
             pruned_count=0,
-            locate_agent="offset_guided_bulk",
+            locate_method="offset_guided_bulk",
         )
     )
     ctx.blackboard.toc_result = TocResult(method="vlm_batch")
@@ -248,7 +248,7 @@ def test_shard_plan_reads_offset_and_does_not_calibrate() -> None:
         raise AssertionError("shard plan must not recalibrate")
 
     with patch(
-        "app.services.document_agent.agents.calibration.service.calibrate_offset",
+        "app.services.document_agent.calibration.service.calibrate_offset",
         side_effect=_boom,
     ):
         result = propose_shard_plan(ctx, {})
@@ -292,7 +292,7 @@ def test_profile_classifies_pending_toc_before_finalize() -> None:
 
     with (
         patch(
-            "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
+            "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
             return_value=([_node()], _anchor()),
         ),
         patch.dict(
@@ -311,15 +311,15 @@ def test_profile_classifies_pending_toc_before_finalize() -> None:
             },
         ),
         patch(
-            "app.services.document_agent.agents.calibration.service.calibrate_offset",
+            "app.services.document_agent.calibration.service.calibrate_offset",
             return_value=object(),
         ),
         patch(
-            "app.services.document_agent.agents.calibration.procedure.pick_primary_offset",
+            "app.services.document_agent.calibration.procedure.pick_primary_offset",
             return_value=0,
         ),
         patch(
-            "app.services.document_agent.agents.calibration.procedure.finalize_calibration_result",
+            "app.services.document_agent.calibration.procedure.finalize_calibration_result",
             side_effect=fake_finalize,
         ),
     ):
@@ -345,7 +345,7 @@ def test_profile_skips_finalize_for_unresolvable_pending_toc() -> None:
 
     with (
         patch(
-            "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
+            "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
             return_value=([_node()], _anchor()),
         ),
         patch.dict(
@@ -364,15 +364,15 @@ def test_profile_skips_finalize_for_unresolvable_pending_toc() -> None:
             },
         ),
         patch(
-            "app.services.document_agent.agents.calibration.service.calibrate_offset",
+            "app.services.document_agent.calibration.service.calibrate_offset",
             return_value=object(),
         ),
         patch(
-            "app.services.document_agent.agents.calibration.procedure.pick_primary_offset",
+            "app.services.document_agent.calibration.procedure.pick_primary_offset",
             return_value=0,
         ),
         patch(
-            "app.services.document_agent.agents.calibration.procedure.finalize_calibration_result",
+            "app.services.document_agent.calibration.procedure.finalize_calibration_result",
             side_effect=_boom,
         ),
     ):

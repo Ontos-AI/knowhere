@@ -102,9 +102,9 @@ def render_document_pages(
             timeout=timeout,
         )
     else:
-        from app.services.document_agent.state import AgentBlackboard
+        from app.services.document_agent.state import ProfileBlackboard
 
-        blackboard = AgentBlackboard()
+        blackboard = ProfileBlackboard()
         blackboard.page_count = page_count
         tmp_ctx = ToolContext(
             pdf_path=pdf_path,
@@ -113,7 +113,7 @@ def render_document_pages(
             budget=None,
             trace=None,
             output_dir=output_dir,
-            settings={"agent_png_dpi": str(dpi)},
+            settings={"profile_png_dpi": str(dpi)},
         )
         pngs = render_pages(
             tmp_ctx,

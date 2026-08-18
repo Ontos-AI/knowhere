@@ -11,7 +11,7 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 from app.services.document_agent.budget import BudgetTracker
 from app.services.document_agent.manifest import PageFeature, TocResult, ToolContext
-from app.services.document_agent.state import AgentBlackboard
+from app.services.document_agent.state import ProfileBlackboard
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
     serialize_skeleton_anchor,
@@ -43,7 +43,7 @@ def _ctx(*, page_count: int, blank_pages: list[int] | None = None) -> ToolContex
     ctx = ToolContext(
         pdf_path="/tmp/doc.pdf",
         job_id="job-shard",
-        blackboard=AgentBlackboard(page_count=page_count),
+        blackboard=ProfileBlackboard(page_count=page_count),
         budget=BudgetTracker(plan_budget=50_000, visual_budget=80_000),
         trace=None,
         settings={
@@ -91,7 +91,7 @@ def _seed_skeleton(
             null_page_report=[],
             bulk_count=len(overrides),
             pruned_count=0,
-            locate_agent="offset_guided_bulk",
+            locate_method="offset_guided_bulk",
         )
     )
     if pending_records is not None:
@@ -359,7 +359,7 @@ def test_pending_toc_forest_is_packed_separately() -> None:
                         null_page_report=[],
                         bulk_count=1,
                         pruned_count=0,
-                        locate_agent="offset_guided_bulk",
+                        locate_method="offset_guided_bulk",
                     )
                 ),
             }
@@ -422,7 +422,7 @@ def test_contained_pending_toc_does_not_cut() -> None:
                         null_page_report=[],
                         bulk_count=1,
                         pruned_count=0,
-                        locate_agent="offset_guided_bulk",
+                        locate_method="offset_guided_bulk",
                     )
                 ),
             }

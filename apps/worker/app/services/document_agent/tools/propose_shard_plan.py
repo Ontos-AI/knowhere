@@ -173,11 +173,11 @@ def _attach_shard_toc_hierarchies(ctx: ToolContext, shards: list[Shard]) -> None
 def _thresholds(ctx: ToolContext) -> tuple[int, int]:
     threshold = int(
         ctx.settings.get("shard_threshold")
-        or os.environ.get("PARSE_AGENT_SHARD_THRESHOLD", "200")
+        or os.environ.get("PARSE_PROFILE_SHARD_THRESHOLD", "200")
     )
     max_pages = int(
         ctx.settings.get("max_pages_per_shard")
-        or os.environ.get("PARSE_AGENT_MAX_PAGES_PER_SHARD", "200")
+        or os.environ.get("PARSE_PROFILE_MAX_PAGES_PER_SHARD", "200")
     )
     return threshold, max_pages
 

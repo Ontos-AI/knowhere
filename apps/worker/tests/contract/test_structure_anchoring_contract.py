@@ -17,7 +17,7 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 from app.services.document_agent.budget import BudgetTracker
 from app.services.document_agent.manifest import ToolContext
-from app.services.document_agent.state import AgentBlackboard
+from app.services.document_agent.state import ProfileBlackboard
 from app.services.document_agent.structure.hierarchy_locator import TitleMatch, TitleNode
 from app.services.document_agent.structure import anchoring_primitives as anchoring
 
@@ -25,7 +25,7 @@ from app.services.document_agent.structure import anchoring_primitives as anchor
 @contextmanager
 def _patch_verify(fake_verify: Callable[..., dict[str, Any]]) -> Iterator[None]:
     """Patch verify on the module dict closed over by live anchoring code."""
-    from app.services.document_agent.agents.calibration import procedure
+    from app.services.document_agent.calibration import procedure
 
     dicts = [procedure.offset_guided_anchoring.__globals__, anchoring.__dict__]
     seen: set[int] = set()
@@ -51,7 +51,7 @@ def _ctx() -> ToolContext:
     return ToolContext(
         pdf_path="/tmp/doc.pdf",
         job_id="job-anchor",
-        blackboard=AgentBlackboard(),
+        blackboard=ProfileBlackboard(),
         budget=BudgetTracker(plan_budget=50_000, visual_budget=80_000),
         trace=None,
         settings={"vlm_model": "test-vlm"},
@@ -134,7 +134,7 @@ def test_phase2_bulk_via_mocked_offset() -> None:
         ("Intro",): TitleMatch(
             page=5,
             confidence=0.9,
-            source="agent_vlm",
+            source="inspect_vlm",
             matched_line="",
             score=0.9,
             candidates=[5],
@@ -175,10 +175,10 @@ def test_anchor_hierarchy_uses_calibration_phase1() -> None:
 
     # Contract conftest evicts cached ``app.*`` modules, so resolve the live
     # orchestrator inside the test rather than at import time.
-    from app.services.document_agent.agents.calibration.orchestrator import (
+    from app.services.document_agent.calibration.orchestrator import (
         anchor_hierarchy,
     )
-    from app.services.document_agent.agents.calibration.types import (
+    from app.services.document_agent.calibration.types import (
         CalibrationRegime,
         CalibrationResult,
         CalibrationSample,
@@ -207,7 +207,7 @@ def test_anchor_hierarchy_uses_calibration_phase1() -> None:
 
     with (
         patch(
-            "app.services.document_agent.agents.calibration.service.calibrate_offset",
+            "app.services.document_agent.calibration.service.calibrate_offset",
             return_value=phase1,
         ),
         _patch_verify(fake_verify),
@@ -275,11 +275,11 @@ def test_bisect_all_fail_returns_minus_one() -> None:
 
 def test_phase2_all_bisect_fail_does_not_invent_first_leaf() -> None:
     """When every Phase-2 probe fails, do not bulk-anchor the first TOC leaf."""
-    from app.services.document_agent.agents.calibration.procedure import (
+    from app.services.document_agent.calibration.procedure import (
         anchor_hierarchy_from_regimes,
     )
-    from app.services.document_agent.agents.calibration.scan import TitleScanResult
-    from app.services.document_agent.agents.calibration.types import (
+    from app.services.document_agent.calibration.scan import TitleScanResult
+    from app.services.document_agent.calibration.types import (
         CalibrationRegime,
         CalibrationResult,
         CalibrationSample,
@@ -321,7 +321,7 @@ def test_phase2_all_bisect_fail_does_not_invent_first_leaf() -> None:
     with (
         _patch_verify(fake_verify),
         patch(
-            "app.services.document_agent.agents.calibration.scan.scan_title_forward",
+            "app.services.document_agent.calibration.scan.scan_title_forward",
             fake_scan,
         ),
     ):
@@ -348,11 +348,11 @@ def test_phase2_all_bisect_fail_does_not_invent_first_leaf() -> None:
 
 def test_phase2_recalibrate_uses_forward_scan_beyond_plus_five() -> None:
     """Breakpoint suffix reuses Phase-1 forward scan (not a +1..+5 grid)."""
-    from app.services.document_agent.agents.calibration.procedure import (
+    from app.services.document_agent.calibration.procedure import (
         anchor_hierarchy_from_regimes,
     )
-    from app.services.document_agent.agents.calibration.scan import TitleScanResult
-    from app.services.document_agent.agents.calibration.types import (
+    from app.services.document_agent.calibration.scan import TitleScanResult
+    from app.services.document_agent.calibration.types import (
         CalibrationRegime,
         CalibrationResult,
         CalibrationSample,
@@ -410,7 +410,7 @@ def test_phase2_recalibrate_uses_forward_scan_beyond_plus_five() -> None:
     with (
         _patch_verify(fake_verify),
         patch(
-            "app.services.document_agent.agents.calibration.scan.scan_title_forward",
+            "app.services.document_agent.calibration.scan.scan_title_forward",
             fake_scan,
         ),
     ):
@@ -439,11 +439,11 @@ def test_phase2_recalibrate_uses_forward_scan_beyond_plus_five() -> None:
 
 def test_phase2_recalibrate_miss_drops_suffix_from_tree() -> None:
     """When suffix cannot be recalibrated, those leaves leave the TOC tree."""
-    from app.services.document_agent.agents.calibration.procedure import (
+    from app.services.document_agent.calibration.procedure import (
         anchor_hierarchy_from_regimes,
     )
-    from app.services.document_agent.agents.calibration.scan import TitleScanResult
-    from app.services.document_agent.agents.calibration.types import (
+    from app.services.document_agent.calibration.scan import TitleScanResult
+    from app.services.document_agent.calibration.types import (
         CalibrationRegime,
         CalibrationResult,
         CalibrationSample,
@@ -493,7 +493,7 @@ def test_phase2_recalibrate_miss_drops_suffix_from_tree() -> None:
     with (
         _patch_verify(fake_verify),
         patch(
-            "app.services.document_agent.agents.calibration.scan.scan_title_forward",
+            "app.services.document_agent.calibration.scan.scan_title_forward",
             fake_scan,
         ),
     ):
@@ -568,10 +568,10 @@ def test_parent_backfill_skips_unanchored_and_out_of_range() -> None:
 
 def test_multi_regime_phase2_merges_physical_overrides() -> None:
     """Roman + decimal + prefixed each apply their own offset → physical pages."""
-    from app.services.document_agent.agents.calibration.procedure import (
+    from app.services.document_agent.calibration.procedure import (
         anchor_hierarchy_from_regimes,
     )
-    from app.services.document_agent.agents.calibration.types import (
+    from app.services.document_agent.calibration.types import (
         CalibrationRegime,
         CalibrationResult,
         CalibrationSample,

@@ -14,24 +14,24 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 import pytest
 
-from app.services.document_agent.agents.calibration import phase1 as phase1_module
-from app.services.document_agent.agents.calibration.phase1 import (
+from app.services.document_agent.calibration import phase1 as phase1_module
+from app.services.document_agent.calibration.phase1 import (
     PROBES_PER_REGIME,
     run_calibration_phase1,
 )
-from app.services.document_agent.agents.calibration.scan import TitleScanResult
-from app.services.document_agent.agents.calibration.types import (
+from app.services.document_agent.calibration.scan import TitleScanResult
+from app.services.document_agent.calibration.types import (
     FAILURE_NO_OFFSET,
     FAILURE_PAGE_COUNT_MISSING,
     FAILURE_TOC_EMPTY,
 )
 from app.services.document_agent.budget import BudgetTracker
 from app.services.document_agent.manifest import ToolContext
-from app.services.document_agent.state import AgentBlackboard
+from app.services.document_agent.state import ProfileBlackboard
 
 
 def _ctx(page_count: int = 60) -> ToolContext:
-    blackboard = AgentBlackboard()
+    blackboard = ProfileBlackboard()
     blackboard.page_count = page_count
     return ToolContext(
         pdf_path="/tmp/doc.pdf",

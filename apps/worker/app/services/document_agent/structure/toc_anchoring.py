@@ -35,7 +35,7 @@ _LOG_PREFIX = "[profile.toc_anchoring]"
 
 def run_toc_anchoring(ctx: ToolContext) -> None:
     """Anchor extracted TOC hierarchies onto the profile blackboard."""
-    from app.services.document_agent.agents.calibration.orchestrator import (
+    from app.services.document_agent.calibration.orchestrator import (
         anchor_hierarchy,
     )
 
@@ -254,11 +254,11 @@ def _anchor_pending_tocs(
     body_pages: list[int],
     primary_ranges: list[ResolvedHierarchyRange],
 ) -> list[dict[str, Any]]:
-    from app.services.document_agent.agents.calibration.procedure import (
+    from app.services.document_agent.calibration.procedure import (
         finalize_calibration_result,
         pick_primary_offset,
     )
-    from app.services.document_agent.agents.calibration.service import (
+    from app.services.document_agent.calibration.service import (
         calibrate_offset,
     )
 

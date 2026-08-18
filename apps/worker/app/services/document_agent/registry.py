@@ -6,13 +6,13 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from app.services.document_agent.manifest import ToolContext, ToolResult
-from app.services.document_agent.state import AgentBlackboard
+from app.services.document_agent.state import ProfileBlackboard
 
 ToolHandler = Callable[[ToolContext, dict[str, Any]], ToolResult]
-Precondition = Callable[[AgentBlackboard], tuple[bool, str]]
+Precondition = Callable[[ProfileBlackboard], tuple[bool, str]]
 
 
-def _always(_blackboard: AgentBlackboard) -> tuple[bool, str]:
+def _always(_blackboard: ProfileBlackboard) -> tuple[bool, str]:
     return True, ""
 
 
@@ -35,7 +35,7 @@ class ToolRegistry:
     def get(self, name: str) -> ToolSpec | None:
         return self._tools.get(name)
 
-    def allowed_names(self, blackboard: AgentBlackboard) -> list[str]:
+    def allowed_names(self, blackboard: ProfileBlackboard) -> list[str]:
         return [
             name
             for name, tool in self._tools.items()
@@ -45,7 +45,7 @@ class ToolRegistry:
     def _preconditions_met(
         self,
         tool: ToolSpec,
-        blackboard: AgentBlackboard,
+        blackboard: ProfileBlackboard,
     ) -> tuple[bool, str]:
         for check in tool.preconditions:
             ok, reason = check(blackboard)
@@ -102,33 +102,26 @@ def register_tool(
     return _decorator
 
 
-def has_page_features(blackboard: AgentBlackboard) -> tuple[bool, str]:
+def has_page_features(blackboard: ProfileBlackboard) -> tuple[bool, str]:
     return bool(blackboard.page_features), "page_features missing; run bootstrap probe first"
 
 
-def has_page_labels(blackboard: AgentBlackboard) -> tuple[bool, str]:
+def has_page_labels(blackboard: ProfileBlackboard) -> tuple[bool, str]:
     return bool(blackboard.page_labels), "page_labels missing; run bootstrap classify first"
 
 
-def has_doc_stats(blackboard: AgentBlackboard) -> tuple[bool, str]:
+def has_doc_stats(blackboard: ProfileBlackboard) -> tuple[bool, str]:
     return bool(blackboard.doc_stats), "doc_stats missing; run bootstrap aggregate first"
 
 
-def has_document_profile(blackboard: AgentBlackboard) -> tuple[bool, str]:
-    return (
-        blackboard.document_profile is not None,
-        "document_profile missing; run coarse profile first",
-    )
-
-
-def has_page_full_text(blackboard: AgentBlackboard) -> tuple[bool, str]:
+def has_page_full_text(blackboard: ProfileBlackboard) -> tuple[bool, str]:
     return (
         bool(blackboard.page_full_text_cache),
         "page_full_text_cache missing; run text scan first",
     )
 
 
-def not_is_scanned(blackboard: AgentBlackboard) -> tuple[bool, str]:
+def not_is_scanned(blackboard: ProfileBlackboard) -> tuple[bool, str]:
     profile = blackboard.document_profile
     return (
         profile is not None and not profile.is_scanned,
@@ -136,17 +129,9 @@ def not_is_scanned(blackboard: AgentBlackboard) -> tuple[bool, str]:
     )
 
 
-def has_toc_anchors(blackboard: AgentBlackboard) -> tuple[bool, str]:
-    return bool(blackboard.toc_anchor_pages), "toc anchors missing; call find_toc_anchors first"
-
-
-def has_toc_result(blackboard: AgentBlackboard) -> tuple[bool, str]:
+def has_toc_result(blackboard: ProfileBlackboard) -> tuple[bool, str]:
     return blackboard.toc_result is not None, "toc_result missing; call extract_toc first"
 
 
-def has_toc_hierarchies(blackboard: AgentBlackboard) -> tuple[bool, str]:
-    return bool(blackboard.toc_hierarchies), "toc_hierarchies missing; call extract_toc first"
-
-
-def has_shard_plan(blackboard: AgentBlackboard) -> tuple[bool, str]:
+def has_shard_plan(blackboard: ProfileBlackboard) -> tuple[bool, str]:
     return blackboard.shard_plan is not None, "shard_plan missing; call propose_shard first"

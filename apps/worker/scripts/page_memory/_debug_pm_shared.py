@@ -219,10 +219,10 @@ def build_ctx(
     asset_extraction_enabled: bool = False,
 ):
     from app.services.document_agent.manifest import ToolContext
-    from app.services.document_agent.state import AgentBlackboard
+    from app.services.document_agent.state import ProfileBlackboard
     from app.services.document_agent.budget import BudgetTracker
 
-    blackboard = AgentBlackboard()
+    blackboard = ProfileBlackboard()
     blackboard.page_count = page_count
     blackboard.page_full_text_cache = dict(page_texts)
 
@@ -240,7 +240,7 @@ def build_ctx(
         settings={
             "vlm_model": vmodel,
             "model": reason_model,
-            "agent_png_dpi": os.environ.get("AGENT_PNG_DPI", "144"),
+            "profile_png_dpi": os.environ.get("AGENT_PNG_DPI", "144"),
         },
     )
 

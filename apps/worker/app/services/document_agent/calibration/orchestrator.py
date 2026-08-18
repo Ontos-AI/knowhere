@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.document_agent.agents.calibration.procedure import (
+from app.services.document_agent.calibration.procedure import (
     finalize_calibration_result,
     flat_toc_entries,
 )
-from app.services.document_agent.agents.calibration import service
+from app.services.document_agent.calibration import service
 from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.structure.hierarchy_locator import TitleNode
 from app.services.document_agent.structure.anchoring_primitives import (

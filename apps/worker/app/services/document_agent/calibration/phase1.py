@@ -13,11 +13,11 @@ from typing import Any
 
 from loguru import logger
 
-from app.services.document_agent.agents.calibration.scan import (
+from app.services.document_agent.calibration.scan import (
     TitleScanResult,
     scan_title_forward,
 )
-from app.services.document_agent.agents.calibration.types import (
+from app.services.document_agent.calibration.types import (
     FAILURE_NO_OFFSET,
     FAILURE_PAGE_COUNT_MISSING,
     FAILURE_TOC_EMPTY,

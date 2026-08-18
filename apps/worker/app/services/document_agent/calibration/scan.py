@@ -13,7 +13,7 @@ from typing import Any
 
 from loguru import logger
 
-from app.services.document_agent.agents.calibration.prompts import (
+from app.services.document_agent.calibration.prompts import (
     SECTION_START_ANSWER_KEYS,
     build_section_start_question,
     coerce_found,

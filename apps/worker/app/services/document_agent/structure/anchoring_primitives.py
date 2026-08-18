@@ -1,5 +1,5 @@
 """Shared hierarchy anchoring: Phase-2 bulk/bisect/null-page + SkeletonAnchor.
-Phase-1 offset discovery lives in ``document_agent.agents.calibration``.
+Phase-1 offset discovery lives in ``document_agent.calibration``.
 ``anchor_hierarchy`` composes Phase-1 + Phase-2 for production callers.
 """
 
@@ -17,7 +17,7 @@ from app.services.document_agent.structure.hierarchy_locator import (
     last_leaf_start_under,
     locate_title_compact_strict,
 )
-from app.services.document_agent.structure.page_locate_agent import (
+from app.services.document_agent.structure.section_page_verify import (
     verify_section_page_choice,
 )
 from loguru import logger
@@ -291,7 +291,7 @@ def _visual_rtl_locate_parent(
         candidate = TitleMatch(
             page=page,
             confidence=0.0,
-            source="agent_vlm",
+            source="inspect_vlm",
             matched_line="",
             score=0.0,
             candidates=[page],
@@ -312,7 +312,7 @@ def _visual_rtl_locate_parent(
             TitleMatch(
                 page=page,
                 confidence=confidence,
-                source="agent_vlm",
+                source="inspect_vlm",
                 matched_line="",
                 score=confidence,
                 candidates=[page],
@@ -379,7 +379,7 @@ def _verify_offset_tail(
     candidate = TitleMatch(
         page=expected_page,
         confidence=0.0,
-        source="agent_vlm",
+        source="inspect_vlm",
         matched_line="",
         score=0.0,
         candidates=[expected_page],
@@ -418,7 +418,7 @@ def _vlm_confirm_single_page(
     candidate = TitleMatch(
         page=expected_page,
         confidence=0.0,
-        source="agent_vlm",
+        source="inspect_vlm",
         matched_line="",
         score=0.0,
         candidates=[expected_page],
@@ -487,7 +487,7 @@ def bulk_offset_matches(
         matches[path_titles] = TitleMatch(
             page=page,
             confidence=0.88,
-            source="agent_vlm",
+            source="inspect_vlm",
             matched_line="",
             score=0.88,
             candidates=[page],
@@ -588,7 +588,7 @@ def _recalibrate_after_breakpoint(
         return None
 
     # Lazy import: scan → inspect_pages → tools must not load at module import.
-    from app.services.document_agent.agents.calibration.scan import scan_title_forward
+    from app.services.document_agent.calibration.scan import scan_title_forward
 
     start_page = entry_printed_page + old_offset + 1
     if start_page > page_count:
@@ -748,7 +748,7 @@ class SkeletonAnchor:
     null_page_report: list[dict[str, Any]]
     bulk_count: int
     pruned_count: int = 0
-    locate_agent: str = "offset_only"
+    locate_method: str = "offset_only"
 
 
 def serialize_title_match(match: TitleMatch) -> dict[str, Any]:
@@ -776,15 +776,20 @@ def serialize_skeleton_anchor(anchor: SkeletonAnchor) -> dict[str, Any]:
         "null_page_report": list(anchor.null_page_report or []),
         "bulk_count": int(anchor.bulk_count or 0),
         "pruned_count": int(anchor.pruned_count or 0),
-        "locate_agent": anchor.locate_agent,
+        "locate_method": anchor.locate_method,
     }
 
 
 def deserialize_title_match(data: dict[str, Any]) -> TitleMatch:
+    raw_source = str(data.get("source") or "inspect_vlm")
+    if raw_source == "agent_vlm":
+        raw_source = "inspect_vlm"
+    elif raw_source == "agent_heuristic":
+        raw_source = "inspect_heuristic"
     return TitleMatch(
         page=int(data["page"]),
         confidence=float(data.get("confidence") or 0.0),
-        source=data.get("source") or "agent_vlm",  # type: ignore[arg-type]
+        source=raw_source,  # type: ignore[arg-type]
         matched_line=str(data.get("matched_line") or ""),
         score=float(data.get("score") or 0.0),
         candidates=[int(p) for p in (data.get("candidates") or [])],
@@ -852,7 +857,9 @@ def deserialize_skeleton_anchor(data: dict[str, Any]) -> SkeletonAnchor:
         null_page_report=list(data.get("null_page_report") or []),
         bulk_count=int(data.get("bulk_count") or 0),
         pruned_count=int(data.get("pruned_count") or 0),
-        locate_agent=str(data.get("locate_agent") or "offset_only"),
+        locate_method=str(
+            data.get("locate_method") or data.get("locate_agent") or "offset_only"
+        ),
     )
 
 
@@ -890,11 +897,11 @@ def anchor_hierarchy_from_offset(
 
     if offset_matches is not None:
         match_overrides = offset_matches
-        locate_agent = "offset_guided_bulk"
+        locate_method = "offset_guided_bulk"
         bulk_count = len(offset_matches)
     else:
         match_overrides = seed_overrides
-        locate_agent = "offset_only"
+        locate_method = "offset_only"
         bulk_count = 0
 
     working, unanchored_removed = prune_unanchored_toc_leaves(
@@ -922,5 +929,5 @@ def anchor_hierarchy_from_offset(
         null_page_report=null_page_report,
         bulk_count=bulk_count,
         pruned_count=pruned_count,
-        locate_agent=locate_agent,
+        locate_method=locate_method,
     )

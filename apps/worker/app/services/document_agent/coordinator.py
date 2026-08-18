@@ -15,7 +15,7 @@ from app.services.document_agent.bootstrap import (
 )
 from app.services.document_agent.budget import BudgetTracker, StageEnvelope
 from app.services.document_agent.manifest import (
-    AgentVerdict,
+    ProfileVerdict,
     DocumentProfile,
     PageAnatomyMap,
     TocResult,
@@ -26,7 +26,7 @@ from app.services.document_agent.pdf_text import read_page_texts
 from app.services.document_agent.persist import build_anatomy_map, persist_anatomy_map
 from app.services.document_agent.coarse_profile import CoarseProfiler
 from app.services.document_agent.registry import REGISTRY
-from app.services.document_agent.state import AgentBlackboard, DocumentAgentState
+from app.services.document_agent.state import ProfileBlackboard, ProfileState
 from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
 from app.services.document_agent import tools as _registered_tools  # noqa: F401
 from app.services.document_agent.trace import ParseRunRecorder
@@ -44,35 +44,35 @@ class ProfileCoordinator:
         model: str | None = None,
         settings: dict[str, Any] | None = None,
     ) -> None:
-        self.state = DocumentAgentState.INIT
-        self.blackboard = AgentBlackboard()
+        self.state = ProfileState.INIT
+        self.blackboard = ProfileBlackboard()
         self.budget = BudgetTracker(
-            plan_budget=int(os.environ.get("PARSE_AGENT_PLAN_BUDGET", "50000")),
-            visual_budget=int(os.environ.get("PARSE_AGENT_VISUAL_BUDGET", "120000")),
+            plan_budget=int(os.environ.get("PARSE_PROFILE_PLAN_BUDGET", "50000")),
+            visual_budget=int(os.environ.get("PARSE_PROFILE_VISUAL_BUDGET", "120000")),
             visual_stage_envelopes={
                 "toc_confirm": StageEnvelope(
                     min_guarantee=int(
-                        os.environ.get("PARSE_AGENT_TOC_CONFIRM_MIN_BUDGET", "8000")
+                        os.environ.get("PARSE_PROFILE_TOC_CONFIRM_MIN_BUDGET", "8000")
                     ),
-                    cap=int(os.environ.get("PARSE_AGENT_TOC_CONFIRM_CAP", "24000")),
+                    cap=int(os.environ.get("PARSE_PROFILE_TOC_CONFIRM_CAP", "24000")),
                 ),
                 "coarse_profile": StageEnvelope(
                     min_guarantee=int(
-                        os.environ.get("PARSE_AGENT_COARSE_PROFILE_MIN_BUDGET", "12000")
+                        os.environ.get("PARSE_PROFILE_COARSE_PROFILE_MIN_BUDGET", "12000")
                     ),
-                    cap=int(os.environ.get("PARSE_AGENT_COARSE_PROFILE_CAP", "36000")),
+                    cap=int(os.environ.get("PARSE_PROFILE_COARSE_PROFILE_CAP", "36000")),
                 ),
                 "calibration": StageEnvelope(
                     min_guarantee=int(
-                        os.environ.get("PARSE_AGENT_CALIBRATION_MIN_BUDGET", "12000")
+                        os.environ.get("PARSE_PROFILE_CALIBRATION_MIN_BUDGET", "12000")
                     ),
-                    cap=int(os.environ.get("PARSE_AGENT_CALIBRATION_CAP", "40000")),
+                    cap=int(os.environ.get("PARSE_PROFILE_CALIBRATION_CAP", "40000")),
                 ),
                 "page_tagging": StageEnvelope(
                     min_guarantee=int(
-                        os.environ.get("PARSE_AGENT_PAGE_TAGGING_MIN_BUDGET", "0")
+                        os.environ.get("PARSE_PROFILE_PAGE_TAGGING_MIN_BUDGET", "0")
                     ),
-                    cap=int(os.environ.get("PARSE_AGENT_PAGE_TAGGING_CAP", "0")) or None,
+                    cap=int(os.environ.get("PARSE_PROFILE_PAGE_TAGGING_CAP", "0")) or None,
                 ),
             },
         )
@@ -117,7 +117,7 @@ class ProfileCoordinator:
             raise
 
     def _run_coarse(self) -> DocumentProfile:
-        self.state = DocumentAgentState.RUNNING
+        self.state = ProfileState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
         profile = self._ensure_coarse_profile(actor="coarse_profile")
@@ -136,7 +136,7 @@ class ProfileCoordinator:
         return profile
 
     def _run_structural(self, *, skip_shard_plan: bool = False) -> PageAnatomyMap:
-        self.state = DocumentAgentState.RUNNING
+        self.state = ProfileState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
         # Prefer assets before TOC so cold structural matches coarse order.
@@ -161,7 +161,7 @@ class ProfileCoordinator:
     def _run_lightweight_anatomy(
         self, *, skip_shard_plan: bool = False
     ) -> PageAnatomyMap:
-        self.state = DocumentAgentState.RUNNING
+        self.state = ProfileState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
         # Same relative order as coarse: assets before any TOC placeholder.
@@ -245,7 +245,7 @@ class ProfileCoordinator:
             )
             return
 
-        self.blackboard.verdict = AgentVerdict(
+        self.blackboard.verdict = ProfileVerdict(
             status="abort",
             rationale="Shard validation failed after single-shard fallback.",
         )
@@ -263,7 +263,7 @@ class ProfileCoordinator:
             tool_name="persist.anatomy_map",
             tool_args={},
         )
-        self.state = DocumentAgentState.READY
+        self.state = ProfileState.READY
         self.trace.write_trace_artifact(
             self.ctx.output_dir,
             final_status="ready",
@@ -276,7 +276,7 @@ class ProfileCoordinator:
 
     def _record_failure(self, exc: Exception) -> None:
         logger.error(f"[document_agent] profile failed: {exc}")
-        self.state = DocumentAgentState.FAILED
+        self.state = ProfileState.FAILED
         self.trace.write_trace_artifact(
             self.ctx.output_dir,
             final_status="failed",

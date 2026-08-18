@@ -64,7 +64,7 @@ class DocumentProfile:
 
 
 @dataclass
-class AgentVerdict:
+class ProfileVerdict:
     status: VerdictStatus
     rationale: str
 

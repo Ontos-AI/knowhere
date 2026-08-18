@@ -20,8 +20,8 @@ from app.services.document_parser.structure.body_boundary import (
 TitleMatchSource = Literal[
     "anchored",
     "h1_result",
-    "agent_vlm",
-    "agent_heuristic",
+    "inspect_vlm",
+    "inspect_heuristic",
 ]
 
 
@@ -662,8 +662,8 @@ def _choose_best_hit(
     confidence_by_source = {
         "anchored": 0.92,
         "h1_result": 0.88,
-        "agent_vlm": 0.75,
-        "agent_heuristic": 0.5,
+        "inspect_vlm": 0.75,
+        "inspect_heuristic": 0.5,
     }
     return TitleMatch(
         page=best.page,

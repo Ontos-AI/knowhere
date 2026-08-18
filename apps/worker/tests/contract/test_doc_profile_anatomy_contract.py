@@ -388,9 +388,9 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
                 )
             ],
         )
-        from app.services.document_agent.manifest import AgentVerdict
+        from app.services.document_agent.manifest import ProfileVerdict
 
-        coordinator.blackboard.verdict = AgentVerdict(
+        coordinator.blackboard.verdict = ProfileVerdict(
             status="success", rationale="ok"
         )
 
@@ -530,9 +530,9 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
                 )
             ],
         )
-        from app.services.document_agent.manifest import AgentVerdict
+        from app.services.document_agent.manifest import ProfileVerdict
 
-        coordinator.blackboard.verdict = AgentVerdict(
+        coordinator.blackboard.verdict = ProfileVerdict(
             status="success", rationale="ok"
         )
 
@@ -607,9 +607,9 @@ def test_run_coarse_runs_coarse_profile_then_text_scan_then_toc(
                 )
             ],
         )
-        from app.services.document_agent.manifest import AgentVerdict
+        from app.services.document_agent.manifest import ProfileVerdict
 
-        coordinator.blackboard.verdict = AgentVerdict(
+        coordinator.blackboard.verdict = ProfileVerdict(
             status="success", rationale="ok"
         )
 

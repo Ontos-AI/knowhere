@@ -18,7 +18,7 @@ from app.services.document_agent.validators import validate_anatomy_map
 def _max_pages(ctx: ToolContext) -> int:
     return int(
         ctx.settings.get("max_pages_per_shard")
-        or os.environ.get("PARSE_AGENT_MAX_PAGES_PER_SHARD", "200")
+        or os.environ.get("PARSE_PROFILE_MAX_PAGES_PER_SHARD", "200")
     )
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.document_agent.agents.calibration.prompts import (
+from app.services.document_agent.calibration.prompts import (
     SECTION_START_ANSWER_KEYS,
     build_section_start_question,
     coerce_found,
@@ -37,7 +37,7 @@ def verify_section_page_choice(
             "selected_page": None,
             "candidate_pages": [],
             "confidence": 0.0,
-            "source": "agent_vlm",
+            "source": "inspect_vlm",
             "reason": "no candidates",
         }
     if ctx is None:
@@ -45,7 +45,7 @@ def verify_section_page_choice(
             "selected_page": None,
             "candidate_pages": pages,
             "confidence": 0.0,
-            "source": "agent_vlm",
+            "source": "inspect_vlm",
             "reason": "ctx missing",
         }
 
@@ -69,7 +69,7 @@ def verify_section_page_choice(
             "selected_page": None,
             "candidate_pages": pages,
             "confidence": 0.0,
-            "source": "agent_vlm",
+            "source": "inspect_vlm",
             "reason": result.error or "inspect.pages failed",
             "latency_ms": result.latency_ms,
             "tokens_used": result.tokens_used,
@@ -83,7 +83,7 @@ def verify_section_page_choice(
             "selected_page": None,
             "candidate_pages": pages,
             "confidence": 0.0,
-            "source": "agent_vlm",
+            "source": "inspect_vlm",
             "reason": str((result.payload or {}).get("answer") or "not found"),
             "latency_ms": result.latency_ms,
             "tokens_used": result.tokens_used,
@@ -92,7 +92,7 @@ def verify_section_page_choice(
         "selected_page": found_page,
         "candidate_pages": pages,
         "confidence": VLM_CONFIRMED_DEFAULT_CONFIDENCE,
-        "source": "agent_vlm",
+        "source": "inspect_vlm",
         "reason": str((result.payload or {}).get("answer") or ""),
         "latency_ms": result.latency_ms,
         "tokens_used": result.tokens_used,

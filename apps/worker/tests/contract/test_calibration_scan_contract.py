@@ -14,18 +14,18 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 import pytest
 
-from app.services.document_agent.agents.calibration import scan as scan_module
-from app.services.document_agent.agents.calibration.scan import (
+from app.services.document_agent.calibration import scan as scan_module
+from app.services.document_agent.calibration.scan import (
     DEFAULT_WINDOW_SCHEDULE,
     scan_title_forward,
 )
 from app.services.document_agent.budget import BudgetTracker
 from app.services.document_agent.manifest import ToolContext, ToolResult
-from app.services.document_agent.state import AgentBlackboard
+from app.services.document_agent.state import ProfileBlackboard
 
 
 def _ctx(page_count: int = 60) -> ToolContext:
-    blackboard = AgentBlackboard()
+    blackboard = ProfileBlackboard()
     blackboard.page_count = page_count
     return ToolContext(
         pdf_path="/tmp/doc.pdf",

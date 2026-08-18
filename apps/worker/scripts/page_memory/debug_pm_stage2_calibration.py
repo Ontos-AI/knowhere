@@ -199,7 +199,7 @@ def main() -> int:
             "bulk_count": skeleton_anchor.get("bulk_count")
             if isinstance(skeleton_anchor, dict)
             else None,
-            "locate_agent": skeleton_anchor.get("locate_agent")
+            "locate_method": skeleton_anchor.get("locate_method")
             if isinstance(skeleton_anchor, dict)
             else None,
             "skeleton_count": len(skeletons),
