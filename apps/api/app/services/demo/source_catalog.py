@@ -45,7 +45,7 @@ class DemoSourceDefinition:
 
 
 _DATA_ROOT = Path(__file__).resolve().parents[2] / "data" / "demo_documents"
-_ASSET_DIRECTORY_NAMES = frozenset({"images", "tables"})
+_ASSET_DIRECTORY_NAMES = frozenset({"images", "tables", "page_citation_assets"})
 _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
     DemoSourceDefinition(
         demo_source_id="demo-tsla-q4-2025",
@@ -54,7 +54,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=5_648_867,
         asset_directory="tsla-q4-2025",
-        chunk_count=70,
+        chunk_count=71,
         examples=(
             DemoExampleDefinition(
                 id="demo-tsla-q4-2025-xai",
@@ -92,13 +92,14 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 citations=(
                     DemoCitationDefinition(
                         section_path=(
-                            "TSLA-Q4-2025-Update.pdf/SUMMARY/"
+                            "TSLA-Q4-2025-Update.pdf/"
+                            "MANUFACTURING & HARDWARE/"
                             "Energy generation and storage"
                         ),
                         description="Storage deployment growth",
                         content=(
-                            "We achieved our highest quarterly energy storage "
-                            "deployments, driven by record Megapack deployments."
+                            "record quarterly energy storage deployments "
+                            "driven by Megapack"
                         ),
                     ),
                 ),
@@ -115,7 +116,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 ),
                 citations=(
                     DemoCitationDefinition(
-                        section_path=("TSLA-Q4-2025-Update.pdf/OUTLOOK/Product"),
+                        section_path=("TSLA-Q4-2025-Update.pdf/OUTLOOK/Volume"),
                         description="2026 production plans",
                         content=(
                             "Cybercab, Tesla Semi and Megapack 3 are on schedule "

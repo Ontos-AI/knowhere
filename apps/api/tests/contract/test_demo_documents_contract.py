@@ -58,7 +58,11 @@ class FakeResultStorage:
         if not artifact_ref:
             return None
         normalized = str(artifact_ref).strip().replace("\\", "/").lstrip("/")
-        if normalized.startswith("images/") or normalized.startswith("tables/"):
+        if (
+            normalized.startswith("images/")
+            or normalized.startswith("tables/")
+            or normalized.startswith("page_citation_assets/")
+        ):
             return normalized
         return None
 
@@ -157,7 +161,7 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     assert SPACEX_DEMO_SOURCE_ID in sources_by_id
     assert source["demo_source_id"] == DEMO_SOURCE_ID
     assert source["canonical_document_id"] == "demo-doc-tsla-q4-2025"
-    assert source["chunk_count"] == 70
+    assert source["chunk_count"] == 71
     assert source["original_file"]["can_download"] is False
     assert citation["canonical_document_id"] == "demo-doc-tsla-q4-2025"
     assert citation["canonical_chunk_id"].startswith(f"{DEMO_SOURCE_ID}:")
@@ -386,7 +390,7 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
         "status": "active",
         "source_file_name": "TSLA-Q4-2025-Update.pdf",
     }
-    assert len(chunk_rows) == 70
+    assert len(chunk_rows) == 71
     assert len(job_rows) == 1
     job_row = job_rows[0]
     assert job_row["status"] == "done"
@@ -413,6 +417,9 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
     uploaded_files = fake_result_storage.raw_files_by_job_id[str(job_row["job_id"])]
     assert any(file_path.startswith("images/") for file_path in uploaded_files)
     assert any(file_path.startswith("tables/") for file_path in uploaded_files)
+    assert any(
+        file_path.startswith("page_citation_assets/") for file_path in uploaded_files
+    )
 
 
 @pytest.mark.asyncio
