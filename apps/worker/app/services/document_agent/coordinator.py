@@ -426,7 +426,6 @@ class ProfileCoordinator:
 
         profile, result = CoarseProfiler(self.ctx).classify()
         self.blackboard.document_profile = profile
-        self.blackboard.global_signals["document_profile"] = profile.to_dict()
         self.trace.record_step(
             round_index=self.round_index,
             actor=actor,

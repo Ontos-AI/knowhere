@@ -486,13 +486,12 @@ def bulk_offset_matches(
         page = node.printed_page + offset
         matches[path_titles] = TitleMatch(
             page=page,
-            confidence=0.88,
-            source="inspect_vlm",
+            confidence=0.90,
+            source="bulk_offset",
             matched_line="",
-            score=0.88,
+            score=0.90,
             candidates=[page],
             evidence={
-                "bulk_offset": True,
                 "offset": offset,
                 "printed_page": node.printed_page,
             },
@@ -781,15 +780,10 @@ def serialize_skeleton_anchor(anchor: SkeletonAnchor) -> dict[str, Any]:
 
 
 def deserialize_title_match(data: dict[str, Any]) -> TitleMatch:
-    raw_source = str(data.get("source") or "inspect_vlm")
-    if raw_source == "agent_vlm":
-        raw_source = "inspect_vlm"
-    elif raw_source == "agent_heuristic":
-        raw_source = "inspect_heuristic"
     return TitleMatch(
         page=int(data["page"]),
         confidence=float(data.get("confidence") or 0.0),
-        source=raw_source,  # type: ignore[arg-type]
+        source=str(data.get("source") or "bulk_offset"),  # type: ignore[arg-type]
         matched_line=str(data.get("matched_line") or ""),
         score=float(data.get("score") or 0.0),
         candidates=[int(p) for p in (data.get("candidates") or [])],
@@ -857,9 +851,7 @@ def deserialize_skeleton_anchor(data: dict[str, Any]) -> SkeletonAnchor:
         null_page_report=list(data.get("null_page_report") or []),
         bulk_count=int(data.get("bulk_count") or 0),
         pruned_count=int(data.get("pruned_count") or 0),
-        locate_method=str(
-            data.get("locate_method") or data.get("locate_agent") or "offset_only"
-        ),
+        locate_method=str(data.get("locate_method") or "offset_only"),
     )
 
 
@@ -875,7 +867,7 @@ def anchor_hierarchy_from_offset(
 ) -> tuple[list[TitleNode], SkeletonAnchor]:
     """Production prune → bulk → null-page given a precomputed offset.
 
-    Phase-2 entry after Agent ``calibrate_offset`` (Phase-1).
+    Phase-2 entry after ``calibrate_offset`` (Phase-1).
     """
     seed_overrides = dict(calibration_overrides or {})
     pruned_count = 0

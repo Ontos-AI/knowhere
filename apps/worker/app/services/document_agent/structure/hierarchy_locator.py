@@ -19,9 +19,9 @@ from app.services.document_parser.structure.body_boundary import (
 
 TitleMatchSource = Literal[
     "anchored",
-    "h1_result",
+    "bulk_offset",
     "inspect_vlm",
-    "inspect_heuristic",
+    "physical_hint",
 ]
 
 
@@ -604,7 +604,7 @@ def _match_physical_hint(
     return TitleMatch(
         page=node.physical_page_hint,
         confidence=0.88,
-        source="h1_result",
+        source="physical_hint",
         matched_line="",
         score=0.88,
         candidates=[node.physical_page_hint],
@@ -661,9 +661,9 @@ def _choose_best_hit(
     pages = sorted({hit.page for hit in ordered})
     confidence_by_source = {
         "anchored": 0.92,
-        "h1_result": 0.88,
+        "bulk_offset": 0.90,
+        "physical_hint": 0.88,
         "inspect_vlm": 0.75,
-        "inspect_heuristic": 0.5,
     }
     return TitleMatch(
         page=best.page,

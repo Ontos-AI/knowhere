@@ -265,8 +265,6 @@ def resolve_anatomy_cache_path(out_dir: Path) -> Path:
 
 def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
     from app.services.document_agent.manifest import (
-        H1BoundaryResult,
-        H1Candidate,
         PageAnatomyMap,
         PageFeature,
         PageLabel,
@@ -281,7 +279,6 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
     logger.info(f"⏩ Reusing cached anatomy: {cache_path}")
     data = json.loads(cache_path.read_text(encoding="utf-8"))
     toc = data.get("toc_result") or {}
-    h1 = data.get("h1_result") or {}
     sp = data.get("shard_plan") or {}
 
     page_features = []
@@ -317,7 +314,7 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
             TocAnchorPage(
                 page=int(candidate.get("page", 0)),
                 png_path=str(candidate.get("png_path") or ""),
-                source=candidate.get("source", "text_scan"),
+                source="text_scan",
             )
         )
     evidence = []
@@ -333,6 +330,10 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
             )
         )
 
+    method = toc.get("method", "none")
+    if method not in {"vlm_batch", "none"}:
+        method = "none"
+
     return PageAnatomyMap(
         job_id=data.get("job_id", job_id),
         file_path=data.get("file_path", pdf_path),
@@ -343,21 +344,9 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
             toc_pages=list(toc.get("toc_pages", [])),
             candidates=candidates,
             evidence=evidence,
-            method=toc.get("method", "none"),
+            method=method,  # type: ignore[arg-type]
             notes=str(toc.get("notes") or ""),
             failure_kind=toc.get("failure_kind", "none"),
-        ),
-        h1_result=H1BoundaryResult(
-            h1_candidates=[
-                H1Candidate(
-                    title=c.get("title", ""),
-                    page=int(c.get("page", 0)),
-                    confidence=float(c.get("confidence", 0) or 0),
-                    matched_line=c.get("matched_line", ""),
-                    source=c.get("source", "none"),
-                )
-                for c in h1.get("h1_candidates", [])
-            ],
         ),
         shard_plan=ShardPlan(
             enabled=bool(sp.get("enabled", False)),
@@ -473,8 +462,6 @@ def run_profile(
     logger.info(f"   page_count={anatomy.page_count}")
     logger.info(f"   toc_pages={anatomy.toc_result.toc_pages}")
     logger.info(f"   has_asset_pages={asset_pages}/{anatomy.page_count}")
-    if anatomy.h1_result:
-        logger.info(f"   h1_candidates={len(anatomy.h1_result.h1_candidates)}")
     logger.info(
         "   shard_plan.enabled={} shards={}",
         anatomy.shard_plan.enabled,

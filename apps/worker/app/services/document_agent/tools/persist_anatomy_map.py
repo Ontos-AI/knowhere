@@ -35,7 +35,6 @@ def build_anatomy_map(ctx: ToolContext) -> PageAnatomyMap:
         page_features=ctx.blackboard.page_features,
         page_labels=ctx.blackboard.page_labels,
         toc_result=ctx.blackboard.toc_result,
-        h1_result=ctx.blackboard.h1_result,
         shard_plan=ctx.blackboard.shard_plan,
         document_profile=ctx.blackboard.document_profile,
         toc_hierarchies=ctx.blackboard.toc_hierarchies,

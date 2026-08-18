@@ -730,13 +730,6 @@ def extract_toc_with_boundaries(
         failure_kind="none",
     )
     ctx.blackboard.toc_hierarchies = toc_hierarchies if toc_hierarchies else None
-    ctx.blackboard.global_signals["vlm_toc_entries"] = {
-        "model": model,
-        "toc_pages": all_toc_pages_sorted,
-        "total_entries": len(all_entries),
-        "entries": all_entries,
-        "batch_meta": batch_meta,
-    }
 
     # Build toc_ranges from confirmed TOC pages for summary
     toc_ranges_out: list[list[int]] = []

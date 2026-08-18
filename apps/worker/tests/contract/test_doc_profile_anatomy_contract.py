@@ -18,7 +18,6 @@ from app.services.document_agent.coordinator import ProfileCoordinator
 from app.services.document_agent.trace import ParseRunRecorder
 from app.services.document_agent.manifest import (
     DocumentProfile,
-    H1BoundaryResult,
     PageAnatomyMap,
     PageFeature,
     PageLabel,
@@ -250,7 +249,6 @@ def test_parse_run_recorder_doc_profile_uses_final_anatomy_toc() -> None:
             PageLabel(page=2, kind="normal", confidence=1.0),
         ],
         toc_result=TocResult(toc_pages=[2], method="vlm_batch", notes="ok"),
-        h1_result=H1BoundaryResult(method="toc_grep"),
         shard_plan=ShardPlan(enabled=False, reason="not_needed"),
         toc_hierarchies=[{"toc_range": [2, 2], "toc_tree": {}}],
         global_signals={"toc_profile_attempted": True},
@@ -303,7 +301,6 @@ def test_parse_run_recorder_profile_only_row_is_updated_by_anatomy_flush() -> No
         page_features=[_page_feature(1)],
         page_labels=[PageLabel(page=1, kind="normal", confidence=1.0)],
         toc_result=TocResult(toc_pages=[2], method="vlm_batch", notes="ok"),
-        h1_result=H1BoundaryResult(method="toc_grep"),
         shard_plan=ShardPlan(enabled=False, reason="not_needed"),
         toc_hierarchies=[{"toc_range": [2, 2], "toc_tree": {}}],
         global_signals={"toc_profile_attempted": True},
@@ -1256,7 +1253,6 @@ def test_pdf_shard_pipeline_accepts_single_shard_fast_path(
                 PageLabel(page=2, kind="normal", confidence=1.0),
             ],
             toc_result=TocResult(method="none"),
-            h1_result=H1BoundaryResult(method="none"),
             shard_plan=ShardPlan(
                 enabled=False,
                 reason="not_needed",
@@ -1344,7 +1340,6 @@ def test_pdf_shard_pipeline_does_not_use_markdown_toc_detector(
                 PageLabel(page=3, kind="normal", confidence=1.0),
             ],
             toc_result=TocResult(method="none"),
-            h1_result=H1BoundaryResult(method="none"),
             shard_plan=ShardPlan(
                 enabled=False,
                 reason="not_needed",

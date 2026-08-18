@@ -73,24 +73,12 @@ class ProfileVerdict:
 
 
 @dataclass
-class TocCandidate:
-    title: str
-    normalized_title: str
-    source_page: int
-    line_index: int
-    numbering: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
 class TocAnchorPage:
     """A candidate TOC start page identified by keyword scan, pending VLM confirmation."""
 
     page: int  # 1-based page number
     png_path: str  # local PNG path for VLM inspection
-    source: Literal["page_label", "text_scan", "visual_scan"]  # how this anchor was discovered
+    source: Literal["text_scan"] = "text_scan"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -112,7 +100,7 @@ class TocResult:
     toc_pages: list[int] = field(default_factory=list)
     candidates: list[TocAnchorPage] = field(default_factory=list)
     evidence: list[TocEvidence] = field(default_factory=list)
-    method: Literal["toc_marker", "vlm_progressive", "vlm_batch", "visual_scan", "none"] = "none"
+    method: Literal["vlm_batch", "none"] = "none"
     notes: str = ""
     failure_kind: TocFailureKind = "none"
 
@@ -120,31 +108,6 @@ class TocResult:
         data = asdict(self)
         data["candidates"] = [candidate.to_dict() for candidate in self.candidates]
         data["evidence"] = [item.to_dict() for item in self.evidence]
-        return data
-
-
-@dataclass
-class H1Candidate:
-    title: str
-    page: int
-    confidence: float
-    matched_line: str
-    source: Literal["toc_exact_top", "toc_fuzzy_top", "heading_grep", "toc_grep", "h2_refine", "none"]
-    evidence: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class H1BoundaryResult:
-    h1_candidates: list[H1Candidate] = field(default_factory=list)
-    method: Literal["toc_grep", "heading_grep", "none"] = "none"
-    notes: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        data = asdict(self)
-        data["h1_candidates"] = [candidate.to_dict() for candidate in self.h1_candidates]
         return data
 
 
@@ -210,7 +173,6 @@ class PageAnatomyMap:
     page_labels: list[PageLabel]
     toc_result: TocResult
     shard_plan: ShardPlan
-    h1_result: H1BoundaryResult | None = None
     document_profile: DocumentProfile | None = None
     toc_hierarchies: list[dict[str, Any]] | None = None
     skeleton_anchor: dict[str, Any] | None = None
@@ -231,7 +193,6 @@ class PageAnatomyMap:
             "page_features": [feature.to_dict() for feature in self.page_features],
             "page_labels": [label.to_dict() for label in self.page_labels],
             "toc_result": self.toc_result.to_dict(),
-            "h1_result": self.h1_result.to_dict() if self.h1_result else None,
             "shard_plan": self.shard_plan.to_dict(),
             "document_profile": self.document_profile.to_dict()
             if self.document_profile

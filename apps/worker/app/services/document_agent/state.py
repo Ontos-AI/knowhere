@@ -8,7 +8,6 @@ from typing import Any
 
 from app.services.document_agent.manifest import (
     DocumentProfile,
-    H1BoundaryResult,
     PageFeature,
     PageLabel,
     ProfileVerdict,
@@ -36,7 +35,6 @@ class ProfileBlackboard:
     toc_anchor_pages: list[TocAnchorPage] = field(default_factory=list)
     toc_result: TocResult | None = None
     toc_hierarchies: list[dict[str, Any]] | None = None
-    h1_result: H1BoundaryResult | None = None
     skeleton_anchor: dict[str, Any] | None = None
     skeleton_nodes: list[dict[str, Any]] | None = None
     pending_skeleton_anchors: list[dict[str, Any]] = field(default_factory=list)
@@ -45,4 +43,3 @@ class ProfileBlackboard:
     verdict: ProfileVerdict | None = None
     page_full_text_cache: dict[int, str] = field(default_factory=dict)
     global_signals: dict[str, Any] = field(default_factory=dict)
-    errors: list[str] = field(default_factory=list)
