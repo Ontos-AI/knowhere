@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any
 from unittest.mock import patch
+from typing import Any
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
@@ -278,6 +278,7 @@ def test_phase2_all_bisect_fail_does_not_invent_first_leaf() -> None:
     from app.services.document_agent.agents.calibration.procedure import (
         anchor_hierarchy_from_regimes,
     )
+    from app.services.document_agent.agents.calibration.scan import TitleScanResult
     from app.services.document_agent.agents.calibration.types import (
         CalibrationRegime,
         CalibrationResult,
@@ -308,7 +309,22 @@ def test_phase2_all_bisect_fail_does_not_invent_first_leaf() -> None:
     def fake_verify(**kwargs: Any) -> dict[str, Any]:
         return {"selected_page": None, "confidence": 0.0, "reason": "miss"}
 
-    with _patch_verify(fake_verify):
+    def fake_scan(**kwargs: Any) -> TitleScanResult:
+        return TitleScanResult(
+            title=str(kwargs.get("title") or ""),
+            found=False,
+            found_page=None,
+            scanned_pages=[],
+            next_start=None,
+        )
+
+    with (
+        _patch_verify(fake_verify),
+        patch(
+            "app.services.document_agent.agents.calibration.scan.scan_title_forward",
+            fake_scan,
+        ),
+    ):
         working, anchor = anchor_hierarchy_from_regimes(
             nodes=leaves,
             result=phase1,
@@ -330,11 +346,103 @@ def test_phase2_all_bisect_fail_does_not_invent_first_leaf() -> None:
     assert anchor.pruned_count >= 3
 
 
+def test_phase2_recalibrate_uses_forward_scan_beyond_plus_five() -> None:
+    """Breakpoint suffix reuses Phase-1 forward scan (not a +1..+5 grid)."""
+    from app.services.document_agent.agents.calibration.procedure import (
+        anchor_hierarchy_from_regimes,
+    )
+    from app.services.document_agent.agents.calibration.scan import TitleScanResult
+    from app.services.document_agent.agents.calibration.types import (
+        CalibrationRegime,
+        CalibrationResult,
+        CalibrationSample,
+    )
+
+    leaves = [
+        _leaf("Ch1", 1),
+        _leaf("Ch2", 5),
+        _leaf("Ch3", 20),
+        _leaf("Ch4", 30),
+    ]
+    phase1 = CalibrationResult(
+        status="ok",
+        offset=10,
+        regimes=[
+            CalibrationRegime(
+                kind="decimal",
+                offset=10,
+                offset_status="ok",
+                entry_indices=[0, 1, 2, 3],
+                samples=[CalibrationSample(title="Ch1", physical=11)],
+            )
+        ],
+    )
+    ctx = _ctx()
+
+    def fake_verify(**kwargs: Any) -> dict[str, Any]:
+        expected = int(kwargs["candidate_matches"][0].page)
+        title = str(kwargs.get("title") or "")
+        # Prefix at offset=10; after forward-scan recalibrate, suffix uses +16.
+        ok = {
+            ("Ch1", 11),
+            ("Ch2", 15),
+            ("Ch3", 36),  # 20+16
+            ("Ch4", 46),  # 30+16
+        }
+        if (title, expected) in ok:
+            return {"selected_page": expected, "confidence": 0.95, "reason": "ok"}
+        return {"selected_page": None, "confidence": 0.0, "reason": "miss"}
+
+    def fake_scan(**kwargs: Any) -> TitleScanResult:
+        title = str(kwargs.get("title") or "")
+        start = int(kwargs.get("start_page") or 0)
+        # Old slot for Ch3 was page 30; scan starts at 31 and finds 36 → offset 16.
+        assert title == "Ch3"
+        assert start == 31
+        return TitleScanResult(
+            title=title,
+            found=True,
+            found_page=36,
+            scanned_pages=[31, 32, 33, 34, 35, 36],
+            next_start=37,
+        )
+
+    with (
+        _patch_verify(fake_verify),
+        patch(
+            "app.services.document_agent.agents.calibration.scan.scan_title_forward",
+            fake_scan,
+        ),
+    ):
+        working, anchor = anchor_hierarchy_from_regimes(
+            nodes=leaves,
+            result=phase1,
+            entries=[
+                {"heading": "Ch1", "level": 1, "page_number": 1},
+                {"heading": "Ch2", "level": 1, "page_number": 5},
+                {"heading": "Ch3", "level": 1, "page_number": 20},
+                {"heading": "Ch4", "level": 1, "page_number": 30},
+            ],
+            page_texts={11: "Ch1", 15: "Ch2", 36: "Ch3", 46: "Ch4"},
+            body_pages=list(range(1, 60)),
+            page_count=60,
+            ctx=ctx,
+        )
+
+    titles = [n.title for n in working]
+    assert titles == ["Ch1", "Ch2", "Ch3", "Ch4"]
+    assert anchor.match_overrides[("Ch1",)].page == 11
+    assert anchor.match_overrides[("Ch2",)].page == 15
+    assert anchor.match_overrides[("Ch3",)].page == 36  # 20+16
+    assert anchor.match_overrides[("Ch4",)].page == 46  # 30+16
+
+
 def test_phase2_recalibrate_miss_drops_suffix_from_tree() -> None:
     """When suffix cannot be recalibrated, those leaves leave the TOC tree."""
     from app.services.document_agent.agents.calibration.procedure import (
         anchor_hierarchy_from_regimes,
     )
+    from app.services.document_agent.agents.calibration.scan import TitleScanResult
     from app.services.document_agent.agents.calibration.types import (
         CalibrationRegime,
         CalibrationResult,
@@ -367,14 +475,28 @@ def test_phase2_recalibrate_miss_drops_suffix_from_tree() -> None:
     def fake_verify(**kwargs: Any) -> dict[str, Any]:
         expected = int(kwargs["candidate_matches"][0].page)
         title = str(kwargs.get("title") or "")
-        # Prefix Ch1/Ch2 at offset=10 confirm; Ch3/Ch4 and recalibrate (+1..+5) miss.
+        # Prefix Ch1/Ch2 at offset=10 confirm; Ch3/Ch4 miss under old offset.
         ok_pages = {11, 15}  # 1+10, 5+10
         if expected in ok_pages and title in {"Ch1", "Ch2"}:
             return {"selected_page": expected, "confidence": 0.95, "reason": "ok"}
-        # Tail / bisect mid / recalibrate probes for Ch3/Ch4 all fail.
         return {"selected_page": None, "confidence": 0.1, "reason": "miss"}
 
-    with _patch_verify(fake_verify):
+    def fake_scan(**kwargs: Any) -> TitleScanResult:
+        return TitleScanResult(
+            title=str(kwargs.get("title") or ""),
+            found=False,
+            found_page=None,
+            scanned_pages=[],
+            next_start=None,
+        )
+
+    with (
+        _patch_verify(fake_verify),
+        patch(
+            "app.services.document_agent.agents.calibration.scan.scan_title_forward",
+            fake_scan,
+        ),
+    ):
         working, anchor = anchor_hierarchy_from_regimes(
             nodes=leaves,
             result=phase1,

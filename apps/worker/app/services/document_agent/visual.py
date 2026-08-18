@@ -16,12 +16,17 @@ from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
 
 
 _DEBUG_VISUAL_DIRS = {
+    "coarse_profile_pages",
+    "calibration_verify",
+    "calibration_scan",
+    "toc_pages",
+    "ocr_pages",
+    "inspect_pages",
+    "agent_visuals",
+    # Legacy artifact dirs from older runs; keep listed so purge still cleans them.
     "planner_pages",
     "page_locate_pages",
-    "toc_pages",
     "verify_pages",
-    "agent_visuals",
-    "ocr_pages",
     "calibration_inspect",
 }
 _PAGE_MEMORY_VISUAL_DIRS = {"pages", "asset_annotate"}

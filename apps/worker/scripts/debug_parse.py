@@ -66,11 +66,18 @@ DEFAULT_SJSYJ_PDF = Path(
 PRODUCTION_OUTPUT_ROOT = Path("~/.knowhere/chengke_kb").expanduser()
 AGENT_TRANSIENT_DIRS = (
     "_doc_agent",
-    "planner_pages",
+    "coarse_profile_pages",
+    "calibration_scan",
+    "calibration_verify",
     "toc_pages",
+    "ocr_pages",
     "inspect_pages",
-    "verify_pages",
     "agent_visuals",
+    # Legacy dirs from older runs.
+    "planner_pages",
+    "page_locate_pages",
+    "verify_pages",
+    "calibration_inspect",
 )
 
 # ══════════════════════════════════════════════════════════════════════════════

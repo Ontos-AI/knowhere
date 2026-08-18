@@ -212,11 +212,10 @@ class ProfileCoordinator:
         return result
 
     def _finalize_shard_plan(self) -> None:
-        """Deterministic propose → validate → verdict (former executor fallback).
+        """Deterministic propose → validate → verdict.
 
-        Cut logic stays entirely inside ``propose.shard_plan``. On invalid
-        validation, fall back to ``single_shard_plan`` and re-validate — the
-        same sequence the removed ReAct executor used in deterministic mode.
+        Cut logic stays inside ``propose.shard_plan``. On invalid validation,
+        fall back to ``single_shard_plan`` and re-validate.
         """
         if self.blackboard.shard_plan is None:
             self._dispatch_anatomy_tool(tool_name="propose.shard_plan")

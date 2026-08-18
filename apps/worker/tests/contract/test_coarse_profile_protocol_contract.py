@@ -32,9 +32,6 @@ def test_parse_profile_reads_classification_fields() -> None:
             "rationale": "scanned PDF not atlas",
             "header_y": None,
             "footer_y": None,
-            # Legacy agent keys must be ignored.
-            "next_action": "verdict_now",
-            "grep_query": "",
         }
     )
     profile = _parse_profile(raw)

@@ -24,16 +24,6 @@ class ToolSpec:
     preconditions: tuple[Precondition, ...]
     handler: ToolHandler
 
-    def to_openai_schema(self) -> dict[str, Any]:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.parameters,
-            },
-        }
-
 
 class ToolRegistry:
     def __init__(self) -> None:
@@ -44,13 +34,6 @@ class ToolRegistry:
 
     def get(self, name: str) -> ToolSpec | None:
         return self._tools.get(name)
-
-    def openai_specs(self, blackboard: AgentBlackboard) -> list[dict[str, Any]]:
-        return [
-            tool.to_openai_schema()
-            for tool in self._tools.values()
-            if self._preconditions_met(tool, blackboard)[0]
-        ]
 
     def allowed_names(self, blackboard: AgentBlackboard) -> list[str]:
         return [

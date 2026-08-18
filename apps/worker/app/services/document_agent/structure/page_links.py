@@ -1,13 +1,12 @@
-"""PDF internal page-link reading helpers.
+"""PDF internal page-link helpers for ``probe.links``.
 
-Not used by the TOC / skeleton pipeline. Kept for future cross-page reference
-work (e.g. figure caption → destination page).
+Reads ``page.get_links()`` only. Does not attach or enrich TOC hierarchies;
+TOC extraction stays on the VLM / keyword path.
 
 Page-number convention (all 1-based after normalize):
   - ``get_links()`` dest ``page``: ``int`` is 0-based (+1); digit ``str`` is
     already 1-based (unresolved URI parse).
-  - TODO(bookmarks): ``doc.get_toc()`` outline display page is 1-based; raw
-    ``meta.page`` (when used) is 0-based and needs ``+1``.
+  - Bookmark outline (``doc.get_toc()``) is handled by ``probe.outline``.
 """
 
 from __future__ import annotations
@@ -17,11 +16,13 @@ from typing import Any
 
 
 @dataclass(frozen=True)
-class TocPageLink:
-    toc_page: int  # 1-based
+class PageLink:
+    source_page: int  # 1-based
     dest_physical_page: int  # 1-based
     anchor_text: str
     kind: int | None = None
+    from_y0: float | None = None
+    page_height: float | None = None
 
 
 def _anchor_text_for_rect(page: Any, rect: Any) -> str:
@@ -54,22 +55,22 @@ def _link_dest_physical_page(raw_page: Any) -> int:
     return int(raw_page)
 
 
-def collect_toc_page_links(pdf_path: str, toc_pages: list[int]) -> list[TocPageLink]:
+def collect_page_links(pdf_path: str, pages: list[int]) -> list[PageLink]:
     """Collect internal page hyperlinks on the given pages with nearby anchor text."""
     import fitz
 
-    if not toc_pages:
+    if not pages:
         return []
 
-    out: list[TocPageLink] = []
+    out: list[PageLink] = []
     doc = fitz.open(pdf_path)
     try:
-        for toc_page in toc_pages:
-            if toc_page < 1 or toc_page > doc.page_count:
+        for source_page in pages:
+            if source_page < 1 or source_page > doc.page_count:
                 continue
-            page = doc[toc_page - 1]
+            page = doc[source_page - 1]
+            page_height = float(page.rect.height) if page.rect is not None else None
             for link in page.get_links() or []:
-                # Page hyperlinks only (NAMED/GOTO via get_links). Not bookmarks.
                 dest_raw = link.get("page")
                 if dest_raw is None:
                     continue
@@ -86,12 +87,15 @@ def collect_toc_page_links(pdf_path: str, toc_pages: list[int]) -> list[TocPageL
                 if not anchor:
                     continue
                 kind = link.get("kind")
+                from_y0 = float(rect.y0) if hasattr(rect, "y0") else float(rect[1])
                 out.append(
-                    TocPageLink(
-                        toc_page=toc_page,
+                    PageLink(
+                        source_page=source_page,
                         dest_physical_page=dest_physical,
                         anchor_text=anchor,
                         kind=int(kind) if kind is not None else None,
+                        from_y0=from_y0,
+                        page_height=page_height,
                     )
                 )
     finally:

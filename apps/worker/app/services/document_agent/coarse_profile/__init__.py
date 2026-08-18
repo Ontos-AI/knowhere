@@ -1,7 +1,5 @@
-"""One-shot VLM coarse document profiling (not an agent planner)."""
+"""One-shot VLM coarse document profiling."""
 
-from app.services.document_agent.coarse_profile.classifier import (
-    CoarseProfiler,
-)
+from app.services.document_agent.coarse_profile.classifier import CoarseProfiler
 
 __all__ = ["CoarseProfiler"]

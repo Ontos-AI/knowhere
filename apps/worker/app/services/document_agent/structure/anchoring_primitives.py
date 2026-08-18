@@ -331,7 +331,6 @@ def _visual_rtl_locate_parent(
 
 _TAIL_VERIFY_CONFIDENCE_THRESHOLD = 0.6
 _MAX_RECALIBRATE_DEPTH = 5
-_MAX_RECALIBRATE_DELTA = 5
 
 
 def _verify_offset_tail(
@@ -578,29 +577,59 @@ def _recalibrate_after_breakpoint(
     ctx: ToolContext,
     page_count: int,
 ) -> int | None:
-    """Probe offsets old_offset+1, +2, ... to find new offset after breakpoint.
+    """Re-find offset for the first remaining leaf after a breakpoint.
 
-    Monotonicity guarantees new offset > old offset, so search space is tiny.
+    Same mechanic as Phase-1: forward ``inspect.pages`` scan until the title
+    START is found. Monotonicity says the physical page is strictly after the
+    failed ``printed + old_offset`` slot, so the scan cursor starts there.
     """
     entry_printed_page = entry_node.printed_page
     if entry_printed_page is None:
         return None
-    for delta in range(1, _MAX_RECALIBRATE_DELTA + 1):
-        new_offset = old_offset + delta
-        if _vlm_confirm_single_page(
-            ctx=ctx,
-            title=entry_node.title,
-            expected_page=entry_printed_page + new_offset,
-            page_count=page_count,
-        ):
-            logger.info(
-                "[structure_anchoring] recalibrate: title={!r} new_offset={} (delta=+{})",
-                entry_node.title,
-                new_offset,
-                delta,
-            )
-            return new_offset
-    return None
+
+    # Lazy import: scan → inspect_pages → tools must not load at module import.
+    from app.services.document_agent.agents.calibration.scan import scan_title_forward
+
+    start_page = entry_printed_page + old_offset + 1
+    if start_page > page_count:
+        return None
+
+    scan = scan_title_forward(
+        ctx=ctx,
+        title=entry_node.title,
+        start_page=start_page,
+        page_count=page_count,
+    )
+    if not scan.found or scan.found_page is None:
+        logger.info(
+            "[structure_anchoring] recalibrate miss: title={!r} start={} scanned={}",
+            entry_node.title,
+            start_page,
+            scan.scanned_pages,
+        )
+        return None
+
+    new_offset = int(scan.found_page) - entry_printed_page
+    if new_offset <= old_offset:
+        logger.info(
+            "[structure_anchoring] recalibrate rejected non-monotonic offset: "
+            "title={!r} old={} new={} found_page={}",
+            entry_node.title,
+            old_offset,
+            new_offset,
+            scan.found_page,
+        )
+        return None
+
+    logger.info(
+        "[structure_anchoring] recalibrate: title={!r} new_offset={} "
+        "(delta=+{}, found_page={})",
+        entry_node.title,
+        new_offset,
+        new_offset - old_offset,
+        scan.found_page,
+    )
+    return new_offset
 
 
 def offset_guided_anchoring(
@@ -618,7 +647,7 @@ def offset_guided_anchoring(
       2. If pass → bulk apply all leaves (Theorem 1)
       3. If fail → binary search for last valid index (``-1`` if none)
       4. Bulk apply only verified prefix (empty when breakpoint is ``-1``)
-      5. Recalibrate remaining[0] with offset+1, +2, ... (monotonicity)
+      5. Recalibrate remaining[0] via Phase-1 forward scan from printed+old+1
       6. Recurse on remaining segment with new offset
       7. If recalibrate fails → keep prefix only (caller prunes the rest)
 

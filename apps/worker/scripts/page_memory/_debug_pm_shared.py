@@ -412,7 +412,7 @@ def run_profile(
     """Run page-memory profile exactly like production ``memory_service.run``.
 
     Uses ``profile_document(..., skip_shard_plan=True, oversized_policy="page_memory")``
-    so coarse → anatomy matches the live track (no ReAct shard planning).
+    so coarse → anatomy matches the live track (no LLM shard planning).
 
     ``skip_toc_anchoring=True`` stops after TOC extract (legacy monolithic
     helper). Prefer staged debug: Stage-0 bootstrap then Stage-1 TOC.

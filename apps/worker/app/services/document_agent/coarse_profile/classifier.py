@@ -136,7 +136,7 @@ def _parse_margin_ratio(value: Any) -> float | None:
 
 
 def _parse_profile(raw: str) -> DocumentProfile:
-    """Parse VLM JSON into ``DocumentProfile``. Extra keys are ignored."""
+    """Parse coarse-profile VLM JSON into ``DocumentProfile``."""
     data = json.loads(raw)
     if not isinstance(data, dict):
         raise ValueError("coarse profile output must be a JSON object")

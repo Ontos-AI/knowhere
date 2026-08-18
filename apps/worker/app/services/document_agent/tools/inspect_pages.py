@@ -1,4 +1,4 @@
-"""Generic inspect.pages tool: open physical pages, render, answer a question."""
+"""Generic inspect.pages tool: render physical pages to PNG and VLM-answer a question."""
 
 from __future__ import annotations
 
@@ -11,11 +11,44 @@ from typing import Any, cast
 from loguru import logger
 
 from app.services.document_agent.manifest import ToolContext, ToolResult
+from app.services.document_agent.registry import has_page_features, register_tool
 
 
 _DEFAULT_PAGE_CAP = 5
 
 
+@register_tool(
+    name="inspect.pages",
+    description=(
+        "Render one or more physical PDF pages to PNG and answer a question via VLM. "
+        "Optional answer_keys request extra JSON fields besides answer."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "pages": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "1-based physical pages to inspect",
+            },
+            "question": {
+                "type": "string",
+                "description": "Question about the rendered page image(s)",
+            },
+            "answer_keys": {
+                "type": "object",
+                "additionalProperties": {"type": "string"},
+                "description": "Optional extra JSON keys → type/description hints",
+            },
+            "page_cap": {
+                "type": "integer",
+                "description": "Max pages per call (batch size cap)",
+            },
+        },
+        "required": ["pages", "question"],
+    },
+    preconditions=(has_page_features,),
+)
 def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     """Open one or more physical PDF pages, render them, and answer ``question``.
 

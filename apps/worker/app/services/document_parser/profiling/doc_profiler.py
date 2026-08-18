@@ -44,7 +44,7 @@ def profile_document(
         job_id: Parse job id for profile trace artifacts
         output_dir: Parser output directory
         skip_shard_plan: When True, lightweight and structural anatomy skip
-            LLM/ReAct shard planning and populate a single-shard placeholder.
+            LLM shard planning and populate a single-shard placeholder.
             Used by the page-memory track, which never consumes the shard plan.
             Chunk-track keeps the default (False) so oversized MinerU sharding
             still receives a real plan.
