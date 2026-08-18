@@ -24,7 +24,7 @@ from app.services.document_agent.manifest import (
 )
 from app.services.document_agent.pdf_text import read_page_texts
 from app.services.document_agent.persist import build_anatomy_map, persist_anatomy_map
-from app.services.document_agent.planner import ProfilePlanner
+from app.services.document_agent.coarse_profile import CoarseProfiler
 from app.services.document_agent.registry import REGISTRY
 from app.services.document_agent.state import AgentBlackboard, DocumentAgentState
 from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
@@ -56,17 +56,11 @@ class ProfileCoordinator:
                     ),
                     cap=int(os.environ.get("PARSE_AGENT_TOC_CONFIRM_CAP", "24000")),
                 ),
-                "coarse_planner": StageEnvelope(
+                "coarse_profile": StageEnvelope(
                     min_guarantee=int(
-                        os.environ.get("PARSE_AGENT_COARSE_PLANNER_MIN_BUDGET", "12000")
+                        os.environ.get("PARSE_AGENT_COARSE_PROFILE_MIN_BUDGET", "12000")
                     ),
-                    cap=int(os.environ.get("PARSE_AGENT_COARSE_PLANNER_CAP", "36000")),
-                ),
-                "structural_react": StageEnvelope(
-                    min_guarantee=int(
-                        os.environ.get("PARSE_AGENT_STRUCTURAL_REACT_MIN_BUDGET", "24000")
-                    ),
-                    cap=int(os.environ.get("PARSE_AGENT_STRUCTURAL_REACT_CAP", "64000")),
+                    cap=int(os.environ.get("PARSE_AGENT_COARSE_PROFILE_CAP", "36000")),
                 ),
                 "calibration": StageEnvelope(
                     min_guarantee=int(
@@ -97,7 +91,7 @@ class ProfileCoordinator:
         self.trace = ParseRunRecorder(job_id=job_id, db=db)
         self.ctx.trace = self.trace
         self.round_index = 0
-        self._planner_cache: tuple[DocumentProfile, Any, ToolResult] | None = None
+        self._coarse_profile_cache: DocumentProfile | None = None
 
     def run_coarse(self) -> DocumentProfile:
         try:
@@ -126,9 +120,7 @@ class ProfileCoordinator:
         self.state = DocumentAgentState.RUNNING
         if not self.blackboard.page_features:
             self._run_bootstrap()
-        profile, _initial_decision, _planner_result = self._propose_profile(
-            actor="planner:coarse"
-        )
+        profile = self._ensure_coarse_profile(actor="coarse_profile")
         self._run_text_scan()
         # Asset coarse probe is independent of TOC; run it before TOC so
         # PROFILE / debug Stage-0 share the same order as later anatomy/shard
@@ -155,7 +147,7 @@ class ProfileCoordinator:
             self._ensure_toc_profile(strict=True)
         else:
             self._ensure_disabled_toc_placeholder()
-        self._propose_profile(actor="planner")
+        self._ensure_coarse_profile(actor="coarse_profile")
         if skip_shard_plan:
             # Page-memory oversized path never consumes shard_plan; only
             # build_anatomy_map's invariant needs a non-empty plan.
@@ -256,7 +248,7 @@ class ProfileCoordinator:
 
         self.blackboard.verdict = AgentVerdict(
             status="abort",
-            rationale="Maximum executor rounds reached.",
+            rationale="Shard validation failed after single-shard fallback.",
         )
         raise RuntimeError(
             f"profile aborted: {self.blackboard.verdict.rationale}"
@@ -348,7 +340,7 @@ class ProfileCoordinator:
     def _run_text_scan(self) -> None:
         profile = self.blackboard.document_profile
         if profile is None:
-            raise RuntimeError("document_profile missing; run planner first")
+            raise RuntimeError("document_profile missing; run coarse profile first")
         page_count = int(self.blackboard.page_count or 0)
         pages = list(range(1, page_count + 1))
         if not pages:
@@ -428,24 +420,25 @@ class ProfileCoordinator:
                 notes="TOC extraction completed without a result",
             )
 
-    def _propose_profile(self, *, actor: str) -> tuple[DocumentProfile, Any, ToolResult]:
-        if self._planner_cache is not None:
-            return self._planner_cache
+    def _ensure_coarse_profile(self, *, actor: str) -> DocumentProfile:
+        """Run one-shot coarse VLM classification once; cache the profile."""
+        if self._coarse_profile_cache is not None:
+            return self._coarse_profile_cache
 
-        profile, initial_decision, planner_result = ProfilePlanner(self.ctx).propose()
+        profile, result = CoarseProfiler(self.ctx).classify()
         self.blackboard.document_profile = profile
         self.blackboard.global_signals["document_profile"] = profile.to_dict()
         self.trace.record_step(
             round_index=self.round_index,
             actor=actor,
-            action_type="plan",
-            result=planner_result,
+            action_type="coarse_profile",
+            result=result,
             tool_name=None,
             tool_args={},
         )
         self.round_index += 1
-        self._planner_cache = (profile, initial_decision, planner_result)
-        return self._planner_cache
+        self._coarse_profile_cache = profile
+        return profile
 
     def _dispatch_profile_tool(self, *, tool_name: str, actor: str) -> ToolResult:
         result = REGISTRY.dispatch(tool_name, self.ctx, {})

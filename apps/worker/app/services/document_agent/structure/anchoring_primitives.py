@@ -290,10 +290,10 @@ def _visual_rtl_locate_parent(
             continue
         candidate = TitleMatch(
             page=page,
-            confidence=0.4,
-            source="agent_heuristic",
+            confidence=0.0,
+            source="agent_vlm",
             matched_line="",
-            score=0.4,
+            score=0.0,
             candidates=[page],
             evidence={"null_page_parent_probe": True},
         )
@@ -308,28 +308,11 @@ def _visual_rtl_locate_parent(
         confidence = float(result.get("confidence") or 0.0)
         if selected != page or confidence < _NULL_PARENT_VISUAL_CONFIDENCE:
             continue
-        if result.get("source") == "agent_vlm":
-            return (
-                TitleMatch(
-                    page=page,
-                    confidence=confidence,
-                    source="agent_vlm",
-                    matched_line="",
-                    score=confidence,
-                    candidates=[page],
-                    evidence={
-                        "accept": "visual_rtl",
-                        "reason": result.get("reason", ""),
-                        "visual_verify_calls": visual_calls,
-                    },
-                ),
-                visual_calls,
-            )
         return (
             TitleMatch(
                 page=page,
                 confidence=confidence,
-                source="agent_heuristic",
+                source="agent_vlm",
                 matched_line="",
                 score=confidence,
                 candidates=[page],
@@ -396,10 +379,10 @@ def _verify_offset_tail(
 
     candidate = TitleMatch(
         page=expected_page,
-        confidence=0.4,
-        source="agent_heuristic",
+        confidence=0.0,
+        source="agent_vlm",
         matched_line="",
-        score=0.4,
+        score=0.0,
         candidates=[expected_page],
         evidence={"tail_verify_probe": True},
     )
@@ -435,10 +418,10 @@ def _vlm_confirm_single_page(
         return False
     candidate = TitleMatch(
         page=expected_page,
-        confidence=0.4,
-        source="agent_heuristic",
+        confidence=0.0,
+        source="agent_vlm",
         matched_line="",
-        score=0.4,
+        score=0.0,
         candidates=[expected_page],
         evidence={"bisect_probe": True},
     )
@@ -461,10 +444,17 @@ def _bisect_offset_breakpoint(
     ctx: ToolContext,
     page_count: int,
 ) -> int:
-    """Binary search for the last leaf index where offset is valid. O(log n) VLM calls."""
+    """Return the last leaf index where ``offset`` holds, or ``-1`` if none do.
+
+    Does not assume the first leaf is valid: every candidate index is confirmed
+    (or rejected) before it can become the breakpoint. O(log n) VLM calls.
+    """
+    if not leaves:
+        return -1
     lo, hi = 0, len(leaves) - 1
-    while lo < hi:
-        mid = (lo + hi + 1) // 2
+    last_valid = -1
+    while lo <= hi:
+        mid = (lo + hi) // 2
         _, node = leaves[mid]
         if node.printed_page is None:
             hi = mid - 1
@@ -473,15 +463,16 @@ def _bisect_offset_breakpoint(
         if _vlm_confirm_single_page(
             ctx=ctx, title=node.title, expected_page=expected, page_count=page_count
         ):
-            lo = mid
+            last_valid = mid
+            lo = mid + 1
         else:
             hi = mid - 1
     logger.info(
         "[structure_anchoring] bisect breakpoint: last_valid_index={} / total={}",
-        lo,
+        last_valid,
         len(leaves),
     )
-    return lo
+    return last_valid
 
 
 def bulk_offset_matches(
@@ -625,13 +616,14 @@ def offset_guided_anchoring(
     Strategy:
       1. Tail verify last leaf with current offset
       2. If pass → bulk apply all leaves (Theorem 1)
-      3. If fail → binary search for breakpoint
-      4. Bulk apply leaves before breakpoint
-      5. Recalibrate: probe remaining[0] with offset+1, +2, ... (monotonicity)
+      3. If fail → binary search for last valid index (``-1`` if none)
+      4. Bulk apply only verified prefix (empty when breakpoint is ``-1``)
+      5. Recalibrate remaining[0] with offset+1, +2, ... (monotonicity)
       6. Recurse on remaining segment with new offset
-      7. If recalibrate fails → return partial (caller falls back for remainder)
+      7. If recalibrate fails → keep prefix only (caller prunes the rest)
 
-    Returns match_overrides for all anchored leaves, or None for full fallback.
+    Returns match_overrides for anchored leaves (including Phase-1 seeds), or
+    None when nothing was anchored.
     """
     leaves = [
         (path, node)
@@ -687,13 +679,15 @@ def _anchor_segment_recursive(
         matches.update(bulk)
         return
 
-    bp = _bisect_offset_breakpoint(leaves=leaves, offset=offset, ctx=ctx, page_count=page_count)
-    confirmed_leaves = leaves[: bp + 1]
+    bp = _bisect_offset_breakpoint(
+        leaves=leaves, offset=offset, ctx=ctx, page_count=page_count
+    )
+    # bp == -1 → no leaf confirmed under this offset; do not invent a prefix.
+    confirmed_leaves = leaves[: bp + 1] if bp >= 0 else []
     if confirmed_leaves:
-        bulk = bulk_offset_matches(confirmed_leaves, offset)
-        matches.update(bulk)
+        matches.update(bulk_offset_matches(confirmed_leaves, offset))
 
-    remaining = leaves[bp + 1:]
+    remaining = leaves[bp + 1 :] if bp >= 0 else list(leaves)
     if not remaining:
         return
 

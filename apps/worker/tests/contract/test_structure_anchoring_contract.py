@@ -252,6 +252,84 @@ def test_prune_unanchored_suffix_removes_toc_leaves() -> None:
     assert ("A",) in overrides and ("B",) in overrides
 
 
+def test_bisect_all_fail_returns_minus_one() -> None:
+    """No confirmed leaf under the offset ⇒ breakpoint is -1, not index 0."""
+    leaves = [
+        (("C1",), _leaf("C1", 1)),
+        (("C2",), _leaf("C2", 2)),
+        (("C3",), _leaf("C3", 3)),
+    ]
+
+    def fake_verify(**kwargs: Any) -> dict[str, Any]:
+        return {"selected_page": None, "confidence": 0.0, "reason": "miss"}
+
+    with _patch_verify(fake_verify):
+        bp = anchoring._bisect_offset_breakpoint(
+            leaves=leaves,
+            offset=0,
+            ctx=_ctx(),
+            page_count=10,
+        )
+    assert bp == -1
+
+
+def test_phase2_all_bisect_fail_does_not_invent_first_leaf() -> None:
+    """When every Phase-2 probe fails, do not bulk-anchor the first TOC leaf."""
+    from app.services.document_agent.agents.calibration.procedure import (
+        anchor_hierarchy_from_regimes,
+    )
+    from app.services.document_agent.agents.calibration.types import (
+        CalibrationRegime,
+        CalibrationResult,
+        CalibrationSample,
+    )
+
+    leaves = [
+        _leaf("Ch1", 1),
+        _leaf("Ch2", 5),
+        _leaf("Ch3", 20),
+    ]
+    # Phase-1 sample is a different title so Ch1 is not protected by seed.
+    phase1 = CalibrationResult(
+        status="ok",
+        offset=10,
+        regimes=[
+            CalibrationRegime(
+                kind="decimal",
+                offset=10,
+                offset_status="ok",
+                entry_indices=[0, 1, 2],
+                samples=[CalibrationSample(title="Other", physical=99)],
+            )
+        ],
+    )
+    ctx = _ctx()
+
+    def fake_verify(**kwargs: Any) -> dict[str, Any]:
+        return {"selected_page": None, "confidence": 0.0, "reason": "miss"}
+
+    with _patch_verify(fake_verify):
+        working, anchor = anchor_hierarchy_from_regimes(
+            nodes=leaves,
+            result=phase1,
+            entries=[
+                {"heading": "Ch1", "level": 1, "page_number": 1},
+                {"heading": "Ch2", "level": 1, "page_number": 5},
+                {"heading": "Ch3", "level": 1, "page_number": 20},
+            ],
+            page_texts={11: "noise", 15: "noise", 30: "noise"},
+            body_pages=list(range(1, 50)),
+            page_count=50,
+            ctx=ctx,
+        )
+
+    assert working == []
+    assert ("Ch1",) not in anchor.match_overrides
+    assert ("Ch2",) not in anchor.match_overrides
+    assert ("Ch3",) not in anchor.match_overrides
+    assert anchor.pruned_count >= 3
+
+
 def test_phase2_recalibrate_miss_drops_suffix_from_tree() -> None:
     """When suffix cannot be recalibrated, those leaves leave the TOC tree."""
     from app.services.document_agent.agents.calibration.procedure import (

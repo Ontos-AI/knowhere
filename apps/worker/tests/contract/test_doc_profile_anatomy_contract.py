@@ -128,7 +128,7 @@ def test_toc_extraction_degrades_to_empty_result_on_failure(tmp_path: Path) -> N
     assert coordinator.blackboard.toc_hierarchies is None
 
 
-def test_run_lightweight_anatomy_builds_single_shard_without_planner_llm(
+def test_run_lightweight_anatomy_builds_single_shard_without_coarse_vlm(
     tmp_path: Path,
 ) -> None:
     output_dir = tmp_path / "profile"
@@ -165,7 +165,7 @@ def test_run_lightweight_anatomy_builds_single_shard_without_planner_llm(
     assert "visual_stages" in trace_data["summary"]["budget"]
 
 
-def test_run_coarse_runs_asset_probe_after_planner(monkeypatch, tmp_path: Path) -> None:
+def test_run_coarse_runs_asset_probe_after_coarse_profile(monkeypatch, tmp_path: Path) -> None:
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "doc.pdf"),
         job_id="job-asset-probe-after-coarse",
@@ -183,15 +183,14 @@ def test_run_coarse_runs_asset_probe_after_planner(monkeypatch, tmp_path: Path) 
 
     calls: list[str] = []
 
-    def fake_propose(_self):
-        calls.append("planner")
+    def fake_classify(_self):
+        calls.append("coarse_profile")
         return (
             DocumentProfile(
                 is_scanned=False,
                 category="Research Report",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             ),
-            None,
             ToolResult(status="ok", payload={}),
         )
 
@@ -212,7 +211,7 @@ def test_run_coarse_runs_asset_probe_after_planner(monkeypatch, tmp_path: Path) 
         calls.append("toc")
         coordinator.blackboard.toc_result = TocResult(method="none")
 
-    monkeypatch.setattr(coordinator_module.ProfilePlanner, "propose", fake_propose)
+    monkeypatch.setattr(coordinator_module.CoarseProfiler, "classify", fake_classify)
     monkeypatch.setattr(coordinator_module, "probe_page_assets", fake_probe_page_assets)
     monkeypatch.setattr(coordinator_module, "aggregate_doc_stats", fake_aggregate)
     monkeypatch.setattr(coordinator, "_run_text_scan", fake_text_scan)
@@ -222,7 +221,7 @@ def test_run_coarse_runs_asset_probe_after_planner(monkeypatch, tmp_path: Path) 
 
     assert profile.category == "Research Report"
     assert calls == [
-        "planner",
+        "coarse_profile",
         "text_scan",
         "probe.page_assets",
         "aggregate.doc_stats",
@@ -365,11 +364,10 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
     monkeypatch.setattr(coordinator, "_persist_ready_anatomy", fake_persist)
 
     monkeypatch.setattr(
-        coordinator_module.ProfilePlanner,
-        "propose",
+        coordinator_module.CoarseProfiler,
+        "classify",
         lambda self: (
             coordinator.blackboard.document_profile,
-            None,
             ToolResult(status="ok", payload={}),
         ),
     )
@@ -442,11 +440,10 @@ def test_run_structural_skip_shard_plan_uses_placeholder_without_finalize(
         lambda _anatomy: None,
     )
     monkeypatch.setattr(
-        coordinator_module.ProfilePlanner,
-        "propose",
+        coordinator_module.CoarseProfiler,
+        "classify",
         lambda self: (
             coordinator.blackboard.document_profile,
-            None,
             ToolResult(status="ok", payload={}),
         ),
     )
@@ -509,11 +506,10 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
     monkeypatch.setattr(coordinator, "_persist_ready_anatomy", fake_persist)
 
     monkeypatch.setattr(
-        coordinator_module.ProfilePlanner,
-        "propose",
+        coordinator_module.CoarseProfiler,
+        "classify",
         lambda self: (
             coordinator.blackboard.document_profile,
-            None,
             ToolResult(status="ok", payload={}),
         ),
     )
@@ -549,13 +545,13 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
     assert anatomy.toc_result.toc_pages == []
 
 
-def test_run_coarse_runs_planner_then_text_scan_then_toc(
+def test_run_coarse_runs_coarse_profile_then_text_scan_then_toc(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "oversized.pdf"),
-        job_id="job-planner-then-toc",
+        job_id="job-coarse-then-toc",
         output_dir=str(tmp_path / "profile"),
         settings={"toc_profile_enabled": True},
     )
@@ -582,19 +578,18 @@ def test_run_coarse_runs_planner_then_text_scan_then_toc(
     monkeypatch.setattr(coordinator, "_run_text_scan", fake_text_scan)
     monkeypatch.setattr(coordinator, "_persist_ready_anatomy", fake_persist)
 
-    def fake_propose(_self):
-        calls.append("planner")
+    def fake_classify(_self):
+        calls.append("coarse_profile")
         return (
             DocumentProfile(
                 is_scanned=False,
                 category="Prospectus",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             ),
-            None,
             ToolResult(status="ok", payload={}),
         )
 
-    monkeypatch.setattr(coordinator_module.ProfilePlanner, "propose", fake_propose)
+    monkeypatch.setattr(coordinator_module.CoarseProfiler, "classify", fake_classify)
 
     def fake_finalize() -> None:
         coordinator.blackboard.shard_plan = ShardPlan(
@@ -623,7 +618,7 @@ def test_run_coarse_runs_planner_then_text_scan_then_toc(
     coordinator.run_coarse()
     anatomy = coordinator.run_structural()
 
-    assert calls == ["planner", "text_scan", "toc", "persist"]
+    assert calls == ["coarse_profile", "text_scan", "toc", "persist"]
     assert anatomy.toc_result.toc_pages == [17]
 
 

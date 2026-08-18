@@ -13,15 +13,16 @@ from typing import Any
 
 from loguru import logger
 
+from app.services.document_agent.agents.calibration.prompts import (
+    SECTION_START_ANSWER_KEYS,
+    build_section_start_question,
+    coerce_found,
+    coerce_found_page,
+)
 from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.tools.inspect_pages import inspect_pages
 
 DEFAULT_WINDOW_SCHEDULE: tuple[int, ...] = (2, 4, 6, 10)
-
-_ANSWER_KEYS = {
-    "found": "boolean, true only when the section heading starts on one of these pages",
-    "found_page": "number|null, the physical page number where it starts",
-}
 
 
 @dataclass
@@ -62,33 +63,6 @@ class TitleScanResult:
         }
 
 
-def _build_question(title: str) -> str:
-    return (
-        f"Does the section titled {title!r} START on one of these pages, as a "
-        "body heading? A table-of-contents line, a running header or footer, or "
-        "a passing mention in body text does not count. Report the physical page "
-        "number printed in the page label above each image."
-    )
-
-
-def _coerce_found(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value != 0
-    if isinstance(value, str):
-        return value.strip().lower() in {"true", "1", "yes"}
-    return False
-
-
-def _coerce_found_page(value: Any, *, pages: list[int]) -> int | None:
-    try:
-        page = int(value)
-    except (TypeError, ValueError):
-        return None
-    return page if page in pages else None
-
-
 def scan_title_forward(
     *,
     ctx: ToolContext,
@@ -118,8 +92,8 @@ def scan_title_forward(
             {
                 "pages": pages,
                 "page_cap": len(pages),
-                "question": _build_question(title),
-                "answer_keys": _ANSWER_KEYS,
+                "question": build_section_start_question(title),
+                "answer_keys": SECTION_START_ANSWER_KEYS,
                 "folder_name": "calibration_scan",
                 "prefix": "scan",
                 "usage_task": "calibration.scan_title_forward",
@@ -140,8 +114,8 @@ def scan_title_forward(
             break
 
         fields = (result.payload or {}).get("fields") or {}
-        found_page = _coerce_found_page(fields.get("found_page"), pages=pages)
-        found = _coerce_found(fields.get("found")) and found_page is not None
+        found_page = coerce_found_page(fields.get("found_page"), pages=pages)
+        found = coerce_found(fields.get("found")) and found_page is not None
         rounds.append(ScanRound(pages=pages, found=found, found_page=found_page))
         if found:
             logger.info(

@@ -1,10 +1,10 @@
-"""Coarse planner page sampling."""
+"""Coarse profile page sampling."""
 
 from __future__ import annotations
 
 import random
 
-from app.services.document_agent.planner.planner import _sample_pages
+from app.services.document_agent.coarse_profile.classifier import _sample_pages
 
 
 def test_sample_pages_with_extrema_keeps_extrema_first() -> None:

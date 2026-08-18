@@ -24,7 +24,7 @@ def test_visual_stage_envelope_preserves_other_stage_guarantee() -> None:
         visual_budget=100,
         visual_stage_envelopes={
             "toc_confirm": StageEnvelope(min_guarantee=30, cap=60),
-            "coarse_planner": StageEnvelope(min_guarantee=40, cap=70),
+            "coarse_profile": StageEnvelope(min_guarantee=40, cap=70),
         },
     )
 
@@ -36,9 +36,9 @@ def test_visual_stage_envelope_preserves_other_stage_guarantee() -> None:
     assert snapshot["visual"]["used"] == 25
     assert snapshot["visual_stages"]["toc_confirm"]["used"] == 25
 
-    assert budget.try_reserve("visual", 40, stage="coarse_planner") is True
-    budget.refund("visual", est=40, stage="coarse_planner")
-    assert budget.snapshot()["visual_stages"]["coarse_planner"]["reserved"] == 0
+    assert budget.try_reserve("visual", 40, stage="coarse_profile") is True
+    budget.refund("visual", est=40, stage="coarse_profile")
+    assert budget.snapshot()["visual_stages"]["coarse_profile"]["reserved"] == 0
 
 
 def test_visual_stage_cap_rejects_overage_while_legacy_calls_remain_supported() -> None:

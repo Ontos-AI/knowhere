@@ -132,7 +132,10 @@ def has_doc_stats(blackboard: AgentBlackboard) -> tuple[bool, str]:
 
 
 def has_document_profile(blackboard: AgentBlackboard) -> tuple[bool, str]:
-    return blackboard.document_profile is not None, "document_profile missing; run planner first"
+    return (
+        blackboard.document_profile is not None,
+        "document_profile missing; run coarse profile first",
+    )
 
 
 def has_page_full_text(blackboard: AgentBlackboard) -> tuple[bool, str]:

@@ -135,7 +135,6 @@ def _profile_pdf_with_db(
         db=db,
         model=settings.IMAGE_MODEL,
         settings={
-            "planner_model": settings.IMAGE_MODEL,
             "vlm_model": settings.IMAGE_MODEL,
             "toc_profile_enabled": page_toc_enabled,
             "skip_toc_anchoring": bool(skip_toc_anchoring),

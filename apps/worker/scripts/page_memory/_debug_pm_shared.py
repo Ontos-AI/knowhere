@@ -501,7 +501,6 @@ def _build_debug_coordinator(
     agent_output_dir = out_dir / "_doc_agent"
     agent_output_dir.mkdir(parents=True, exist_ok=True)
     merged = {
-        "planner_model": settings.IMAGE_MODEL,
         "vlm_model": settings.IMAGE_MODEL,
         "toc_profile_enabled": True,
         "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,

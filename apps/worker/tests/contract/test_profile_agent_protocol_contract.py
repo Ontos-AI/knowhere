@@ -1,4 +1,4 @@
-"""Protocol tests: planner next_action and deterministic shard finalize."""
+"""Protocol tests: coarse profile parse + deterministic shard finalize."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
+from app.services.document_agent.coarse_profile.classifier import _parse_profile
 from app.services.document_agent.coordinator import ProfileCoordinator
 from app.services.document_agent.manifest import (
     DocumentProfile,
@@ -19,10 +20,9 @@ from app.services.document_agent.manifest import (
     PageLabel,
     TocResult,
 )
-from app.services.document_agent.planner.planner import _parse_profile_and_decision
 
 
-def test_planner_verdict_now_falls_through_to_ready_to_shard() -> None:
+def test_parse_profile_reads_classification_fields() -> None:
     raw = json.dumps(
         {
             "is_scanned": True,
@@ -32,48 +32,33 @@ def test_planner_verdict_now_falls_through_to_ready_to_shard() -> None:
             "rationale": "scanned PDF not atlas",
             "header_y": None,
             "footer_y": None,
+            # Legacy agent keys must be ignored.
             "next_action": "verdict_now",
             "grep_query": "",
         }
     )
-    profile, decision = _parse_profile_and_decision(raw)
+    profile = _parse_profile(raw)
     assert profile.is_scanned is True
-    assert decision.action == "tool_call"
-    assert decision.tool_name == "propose.shard_plan"
-    assert decision.verdict is None
+    assert profile.category == "Feasibility Study Report"
+    assert profile.routing_category == "generic"
+    assert profile.language == "zh"
 
 
-def test_planner_ready_to_shard_proposes_shard_plan() -> None:
+def test_parse_profile_rejects_invalid_header_footer_order() -> None:
     raw = json.dumps(
         {
             "is_scanned": False,
             "category": "Report",
             "routing_category": "generic",
             "language": "en",
-            "rationale": "enough evidence",
-            "next_action": "ready_to_shard",
+            "rationale": "ok",
+            "header_y": 0.8,
+            "footer_y": 0.2,
         }
     )
-    _profile, decision = _parse_profile_and_decision(raw)
-    assert decision.action == "tool_call"
-    assert decision.tool_name == "propose.shard_plan"
-
-
-def test_planner_legacy_inspect_more_falls_through_to_ready_to_shard() -> None:
-    raw = json.dumps(
-        {
-            "is_scanned": False,
-            "category": "Report",
-            "routing_category": "generic",
-            "language": "en",
-            "rationale": "need more pages",
-            "next_action": "inspect_more",
-            "inspect_pages": [3, 8],
-        }
-    )
-    _profile, decision = _parse_profile_and_decision(raw)
-    assert decision.tool_name == "propose.shard_plan"
-    assert decision.tool_args == {}
+    profile = _parse_profile(raw)
+    assert profile.header_y is None
+    assert profile.footer_y is None
 
 
 def _seed_pages(coordinator: ProfileCoordinator, page_count: int) -> None:

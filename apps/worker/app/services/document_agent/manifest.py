@@ -1,4 +1,4 @@
-"""Contracts for the hierarchy-first document profile agent."""
+"""Contracts for the hierarchy-first document profile workflow."""
 
 from __future__ import annotations
 
@@ -10,10 +10,7 @@ from typing import Any, Literal
 PageKind = Literal["normal", "landscape"]
 TocFailureKind = Literal["none", "confirm_failed", "rejected_all", "degraded"]
 
-# Executor loop steps are always tool calls. Profile success/abort is owned
-# exclusively by the ``verdict`` tool (AgentVerdict.status), not by a separate
-# ReflexionAction shortcut.
-ReflexionAction = Literal["tool_call"]
+# Profile success/abort is owned exclusively by the ``verdict`` tool.
 VerdictStatus = Literal["success", "abort"]
 
 
@@ -73,24 +70,6 @@ class AgentVerdict:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-
-@dataclass
-class ReflexionDecision:
-    action: ReflexionAction
-    rationale: str
-    tool_name: str | None = None
-    tool_args: dict[str, Any] = field(default_factory=dict)
-    verdict: AgentVerdict | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "action": self.action,
-            "rationale": self.rationale,
-            "tool_name": self.tool_name,
-            "tool_args": dict(self.tool_args),
-            "verdict": self.verdict.to_dict() if self.verdict else None,
-        }
 
 
 @dataclass

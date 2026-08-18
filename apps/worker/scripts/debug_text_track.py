@@ -88,7 +88,6 @@ def _stage_profile(pdf_path: str, filename: str, out_dir: Path, model: str | Non
         output_dir=str(doc_agent_dir),
         model=vlm_model,
         settings={
-            "planner_model": vlm_model,
             "vlm_model": vlm_model,
             "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
             # Debug PROFILE must exercise the same TOC → run_toc_anchoring path

@@ -9,8 +9,7 @@ from typing import Literal
 
 BudgetStage = Literal[
     "toc_confirm",
-    "coarse_planner",
-    "structural_react",
+    "coarse_profile",
     "calibration",
     "page_tagging",
 ]
