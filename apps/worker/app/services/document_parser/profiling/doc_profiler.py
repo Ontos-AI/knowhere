@@ -51,10 +51,10 @@ def profile_document(
         oversized_policy: Controls oversized PDF admission. ``chunk`` applies
             the MinerU shard gate, while ``page_memory`` lets the page-memory
             track continue to structural profiling.
-        skip_toc_anchoring: When True, TOC find/extract/link-attach still run,
-            but ``run_toc_anchoring`` is skipped. Used by the staged debug
-            path (Stage-1 TOC after Stage-0 bootstrap) so calibration stays
-            in Stage-2.
+        skip_toc_anchoring: When True, TOC find/extract still run, but
+            ``run_toc_anchoring`` is skipped. Used by the staged debug path
+            (Stage-1 TOC after Stage-0 bootstrap) so calibration stays in
+            Stage-2.
 
     Returns:
         ParserDocumentProfile

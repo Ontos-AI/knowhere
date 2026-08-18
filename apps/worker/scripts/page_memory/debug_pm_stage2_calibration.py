@@ -17,7 +17,6 @@ Requires Stage 0 → Stage 1 first:
 Usage:
   cd apps/worker
   uv run python scripts/page_memory/debug_pm_stage2_calibration.py --file /path/to/doc.pdf
-  uv run python scripts/page_memory/debug_pm_stage2_calibration.py --file /path/to/doc.pdf --no-links
 """
 
 from __future__ import annotations
@@ -52,12 +51,6 @@ from _debug_pm_shared import (
 )
 
 
-def _strip_links(hierarchies: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    from app.services.document_agent.agents.calibration.tools import strip_toc_links
-
-    return strip_toc_links(hierarchies)
-
-
 def _pending_summary(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for record in records:
@@ -77,17 +70,6 @@ def _pending_summary(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def main() -> int:
     parser = base_argparser(
         "Stage 2: Production run_toc_anchoring (calibrate + classify + graft)"
-    )
-    parser.add_argument(
-        "--no-links",
-        action="store_true",
-        help="Strip link.physical_page from TOC entries before anchoring",
-    )
-    parser.add_argument(
-        "--max-rounds",
-        type=int,
-        default=16,
-        help="Max ReAct rounds for calibration Phase-1 (via ctx.settings)",
     )
     args = parser.parse_args()
 
@@ -121,18 +103,11 @@ def main() -> int:
     anatomy = load_anatomy_cache(anatomy_cache, pdf_path, filename)
     page_count = int(anatomy.page_count or 0)
     hierarchies = list(getattr(anatomy, "toc_hierarchies", None) or [])
-    if args.no_links:
-        hierarchies = _strip_links(hierarchies)
 
     logger.info("█" * 70)
     logger.info(f"  STAGE 2: run_toc_anchoring (production) — {filename}")
     logger.info(f"  OUTPUT: {out_dir}")
-    logger.info(
-        "  no_links={} regions={} max_rounds={}",
-        bool(args.no_links),
-        len(hierarchies),
-        int(args.max_rounds),
-    )
+    logger.info("  regions={}", len(hierarchies))
     logger.info("█" * 70)
 
     t_start = time.time()
@@ -149,7 +124,6 @@ def main() -> int:
             settings_extra={
                 # Stage-1 already extracted TOC; Stage-2 only anchors.
                 "skip_toc_anchoring": False,
-                "calibration_max_rounds": max(1, int(args.max_rounds)),
             },
         )
         load_stage0_into_coordinator(coordinator, out_dir)
@@ -208,7 +182,6 @@ def main() -> int:
             "pending_skeleton_anchors": pending_records,
             "pending_summary": pending_summary,
             "skeletons": _serialize_skeletons(skeletons),
-            "no_links": bool(args.no_links),
         },
     )
 
@@ -231,7 +204,6 @@ def main() -> int:
             else None,
             "skeleton_count": len(skeletons),
             "pending": pending_summary,
-            "no_links": bool(args.no_links),
         },
     )
     token_cost_tracker.snapshot_stage("toc_anchoring")

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # ruff: noqa: E402
-"""Stage 1: TOC Find → extract → link attach (no calibration).
+"""Stage 1: TOC Find → extract (no calibration).
 
 Resumes Stage-0 blackboard (``stage0_state.json`` + ``page_full_text_cache.json``,
 including asset-probe ``has_asset`` flags) and runs the production TOC segment:
-  find.toc_anchor_pages → extract.toc_with_boundaries → attach links
+  find.toc_anchor_pages → extract.toc_with_boundaries
   → persist doc_profile.json
 
 Requires Stage 0 first:
@@ -54,9 +54,8 @@ def _count_hierarchy_keys(tree: dict) -> int:
     return total
 
 
-def _count_linked_entries(toc_hierarchies: list | None) -> tuple[int, int]:
+def _count_toc_entries(toc_hierarchies: list | None) -> int:
     total = 0
-    linked = 0
     for region in toc_hierarchies or []:
         if not isinstance(region, dict):
             continue
@@ -64,28 +63,24 @@ def _count_linked_entries(toc_hierarchies: list | None) -> tuple[int, int]:
         if not isinstance(entries, list):
             continue
         for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            total += 1
-            link = entry.get("link")
-            if isinstance(link, dict) and link.get("physical_page") is not None:
-                linked += 1
-    return linked, total
+            if isinstance(entry, dict):
+                total += 1
+    return total
 
 
 def main() -> int:
-    parser = base_argparser("Stage 1: TOC Find → extract → link (no calibration)")
+    parser = base_argparser("Stage 1: TOC Find → extract (no calibration)")
     parser.add_argument(
         "--reuse-anatomy",
         action="store_true",
-        help="Reuse cached Stage-1 doc_profile.json (skip Find/extract/link)",
+        help="Reuse cached Stage-1 doc_profile.json (skip Find/extract)",
     )
     args = parser.parse_args()
 
     pdf_path, filename, out_dir = resolve_paths(args)
 
     logger.info("█" * 70)
-    logger.info(f"  STAGE 1: TOC FIND → EXTRACT → LINK — {filename}")
+    logger.info(f"  STAGE 1: TOC FIND → EXTRACT — {filename}")
     logger.info(f"  OUTPUT: {out_dir}")
     logger.info("█" * 70)
 
@@ -111,7 +106,7 @@ def main() -> int:
         profile_source = "stage0_resume_toc"
 
     page_count = anatomy.page_count
-    linked, total = _count_linked_entries(list(anatomy.toc_hierarchies or []))
+    total = _count_toc_entries(list(anatomy.toc_hierarchies or []))
     record_stage(
         trace_stages,
         "toc",
@@ -120,7 +115,6 @@ def main() -> int:
             "source": profile_source,
             "toc_pages": anatomy.toc_result.toc_pages,
             "toc_entries": total,
-            "toc_entries_with_link": linked,
             "skip_toc_anchoring": True,
             "skeleton_anchor": getattr(anatomy, "skeleton_anchor", None),
         },
@@ -131,7 +125,7 @@ def main() -> int:
     logger.info("=" * 70)
     logger.info("🧠 TOC hierarchy (Stage-1 debug dump)")
     logger.info("=" * 70)
-    logger.info("   TOC entries with link: {}/{}", linked, total)
+    logger.info("   TOC entries: {}", total)
 
     hierarchy_tree = toc_hierarchies_to_hierarchy_tree(anatomy.toc_hierarchies)
     toc_path = write_toc_hierarchy_artifact(
@@ -141,7 +135,6 @@ def main() -> int:
             "source": "toc_hierarchies_raw",
             "region_count": len(list(anatomy.toc_hierarchies or [])),
             "hierarchy_key_count": _count_hierarchy_keys(hierarchy_tree),
-            "toc_entries_with_link": linked,
             "toc_entries": total,
         },
     )

@@ -1,6 +1,6 @@
 """Phase-2 completion aligned with production anchoring.
 
-After the agent submits candidate regime offsets, this module:
+After Phase-1 returns candidate regime offsets, this module:
 1. Builds TitleNodes the same way production does
 2. Runs Phase-2 **per regime** (prune → bulk/bisect → recalibrate)
 3. Merges physical-page ``match_overrides`` across regimes
@@ -114,7 +114,7 @@ def seed_overrides_from_samples(
                 candidates=[int(sample.physical)],
                 evidence={
                     "calibration": True,
-                    "method": "agent_phase1",
+                    "method": "phase1_forward_scan",
                     "regime_kind": regime.kind,
                 },
             )
@@ -568,7 +568,7 @@ def finalize_calibration_result(
         notes="; ".join(p for p in notes_parts if p),
         failure_kind=result.failure_kind,
         region_index=result.region_index,
-        history_tail=list(result.history_tail),
+        scans=list(result.scans),
     )
     return working, anchor, finalized
 
@@ -577,7 +577,6 @@ def build_calibration_payload(
     *,
     anchor: SkeletonAnchor,
     result: CalibrationResult,
-    no_links: bool,
     region_payloads: list[dict[str, Any]] | None = None,
     tool_calls: int | None = None,
 ) -> dict[str, Any]:
@@ -594,7 +593,6 @@ def build_calibration_payload(
             "tool_calls": int(tool_calls if tool_calls is not None else result.tool_calls),
             "notes": result.notes,
             "failure_kind": result.failure_kind,
-            "no_links": no_links,
         }
     )
     return payload

@@ -47,7 +47,9 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             continue
         if 1 <= page <= page_count and page not in pages:
             pages.append(page)
-    page_cap = int(ctx.settings.get("inspect_page_cap") or _DEFAULT_PAGE_CAP)
+    page_cap = int(
+        args.get("page_cap") or ctx.settings.get("inspect_page_cap") or _DEFAULT_PAGE_CAP
+    )
     pages = pages[: max(page_cap, 1)]
     if not pages:
         return ToolResult(
@@ -90,13 +92,22 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         if not ctx.budget.try_reserve("visual", est, stage=stage_name):
             return ToolResult(
                 status="error",
-                error="calibration visual budget exhausted",
+                error=f"{stage_name} visual budget exhausted",
                 latency_ms=int((time.monotonic() - start) * 1000),
             )
 
+    raw_answer_keys = args.get("answer_keys")
+    answer_keys = (
+        {str(key): str(desc) for key, desc in raw_answer_keys.items()}
+        if isinstance(raw_answer_keys, dict) and raw_answer_keys
+        else {}
+    )
+    schema_fields = ", ".join(
+        ['"answer": string'] + [f'"{key}": {desc}' for key, desc in answer_keys.items()]
+    )
     prompt = (
         "Answer the question about the provided PDF page image(s). "
-        'Return strict JSON object with keys: {"answer": string}. '
+        f"Return strict JSON object with keys: {{{schema_fields}}}. "
         "Include the word json in your reasoning.\n\n"
         f"Pages: {pages}\nQuestion: {question}\n"
     )
@@ -144,13 +155,17 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             latency_ms=int((time.monotonic() - start) * 1000),
         )
 
+    fields = {key: payload.get(key) for key in answer_keys}
+    result_payload: dict[str, Any] = {
+        "pages": pages,
+        "question": question,
+        "answer": payload.get("answer"),
+    }
+    if fields:
+        result_payload["fields"] = fields
     return ToolResult(
         status="ok",
-        payload={
-            "pages": pages,
-            "question": question,
-            "answer": payload.get("answer"),
-        },
+        payload=result_payload,
         latency_ms=int((time.monotonic() - start) * 1000),
         tokens_used=tokens_used,
         output_summary={"pages": pages, "answer": payload.get("answer")},

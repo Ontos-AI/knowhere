@@ -1,4 +1,4 @@
-"""Protocol tests: planner next_action and executor finish ownership."""
+"""Protocol tests: planner next_action and deterministic shard finalize."""
 
 from __future__ import annotations
 
@@ -12,19 +12,14 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from app.services.document_agent.budget import BudgetTracker
-from app.services.document_agent.executor.react_loop import (
-    ReActExecutor,
-    _parse_decision,
-)
+from app.services.document_agent.coordinator import ProfileCoordinator
 from app.services.document_agent.manifest import (
     DocumentProfile,
-    ReflexionDecision,
-    ToolContext,
+    PageFeature,
+    PageLabel,
+    TocResult,
 )
 from app.services.document_agent.planner.planner import _parse_profile_and_decision
-from app.services.document_agent.tools import REGISTRY
-from app.services.document_agent.state import AgentBlackboard
 
 
 def test_planner_verdict_now_falls_through_to_ready_to_shard() -> None:
@@ -81,37 +76,8 @@ def test_planner_legacy_inspect_more_falls_through_to_ready_to_shard() -> None:
     assert decision.tool_args == {}
 
 
-def test_executor_legacy_verdict_now_without_status_becomes_shard() -> None:
-    decision = _parse_decision(
-        json.dumps(
-            {
-                "action": "verdict_now",
-                "rationale": "classification done",
-            }
-        )
-    )
-    assert decision.action == "tool_call"
-    assert decision.tool_name == "propose.shard_plan"
-
-
-def test_executor_legacy_verdict_now_with_abort_status_uses_verdict_tool() -> None:
-    decision = _parse_decision(
-        json.dumps(
-            {
-                "action": "verdict_now",
-                "rationale": "cannot profile",
-                "verdict": {"status": "abort", "rationale": "cannot profile"},
-            }
-        )
-    )
-    assert decision.action == "tool_call"
-    assert decision.tool_name == "verdict"
-    assert decision.tool_args["status"] == "abort"
-
-
-def _seed_pages(blackboard: AgentBlackboard, page_count: int) -> None:
-    from app.services.document_agent.manifest import PageFeature, PageLabel
-
+def _seed_pages(coordinator: ProfileCoordinator, page_count: int) -> None:
+    blackboard = coordinator.blackboard
     blackboard.page_count = page_count
     blackboard.doc_stats = {"page_count": page_count}
     blackboard.page_features = [
@@ -135,77 +101,44 @@ def _seed_pages(blackboard: AgentBlackboard, page_count: int) -> None:
         PageLabel(page=page, kind="normal", confidence=0.9)
         for page in range(1, page_count + 1)
     ]
-
-
-def test_executor_initial_ready_to_shard_reaches_success_without_abort() -> None:
-    blackboard = AgentBlackboard()
-    _seed_pages(blackboard, 4)
-    blackboard.document_profile = DocumentProfile(
-        is_scanned=True,
-        category="Feasibility Study Report",
-        routing_category="generic",
-        rationale="scanned PDF not atlas",
-    )
-    from app.services.document_agent.manifest import TocResult
-
-    blackboard.toc_result = TocResult(method="none", notes="no toc")
-    ctx = ToolContext(
-        pdf_path="/tmp/scanned.pdf",
-        job_id="job-scanned",
-        blackboard=blackboard,
-        budget=BudgetTracker(plan_budget=50_000, visual_budget=80_000),
-        trace=None,
-        settings={},  # deterministic executor (no LLM)
-    )
-    initial = ReflexionDecision(
-        action="tool_call",
-        rationale="ready",
-        tool_name="propose.shard_plan",
-        tool_args={},
-    )
-    result = ReActExecutor(
-        ctx,
-        registry=REGISTRY,
-        max_rounds=10,
-        initial_decision=initial,
-    ).run()
-    assert result.verdict.status == "success"
-    assert blackboard.shard_plan is not None
-    assert len(blackboard.shard_plan.shards) >= 1
-
-
-def test_executor_empty_initial_tool_falls_through_to_success() -> None:
-    """Missing tool_name must coerce to propose.shard_plan, not abort."""
-    blackboard = AgentBlackboard()
-    _seed_pages(blackboard, 3)
-    from app.services.document_agent.manifest import TocResult
-
     blackboard.toc_result = TocResult(method="none", notes="no toc")
     blackboard.document_profile = DocumentProfile(
         is_scanned=True,
         category="Report",
         routing_category="generic",
+        rationale="fixture",
     )
-    ctx = ToolContext(
-        pdf_path="/tmp/scanned.pdf",
-        job_id="job-legacy",
-        blackboard=blackboard,
-        budget=BudgetTracker(plan_budget=50_000, visual_budget=80_000),
-        trace=None,
-        settings={},
+
+
+def test_finalize_shard_plan_reaches_success(tmp_path) -> None:
+    coordinator = ProfileCoordinator(
+        pdf_path=str(tmp_path / "doc.pdf"),
+        job_id="job-finalize",
+        output_dir=str(tmp_path / "out"),
     )
-    initial = ReflexionDecision(
-        action="tool_call",
-        rationale="stale empty decision",
-        tool_name=None,
-        tool_args={},
+    (tmp_path / "out").mkdir()
+    _seed_pages(coordinator, 4)
+
+    coordinator._finalize_shard_plan()
+
+    assert coordinator.blackboard.verdict is not None
+    assert coordinator.blackboard.verdict.status == "success"
+    assert coordinator.blackboard.shard_plan is not None
+    assert len(coordinator.blackboard.shard_plan.shards) >= 1
+
+
+def test_finalize_shard_plan_creates_plan_when_missing(tmp_path) -> None:
+    coordinator = ProfileCoordinator(
+        pdf_path=str(tmp_path / "doc.pdf"),
+        job_id="job-finalize-missing",
+        output_dir=str(tmp_path / "out"),
     )
-    result = ReActExecutor(
-        ctx,
-        registry=REGISTRY,
-        max_rounds=10,
-        initial_decision=initial,
-    ).run()
-    assert result.verdict.status == "success"
-    assert blackboard.shard_plan is not None
-    assert len(blackboard.shard_plan.shards) == 1
+    (tmp_path / "out").mkdir()
+    _seed_pages(coordinator, 3)
+    assert coordinator.blackboard.shard_plan is None
+
+    coordinator._finalize_shard_plan()
+
+    assert coordinator.blackboard.shard_plan is not None
+    assert len(coordinator.blackboard.shard_plan.shards) == 1
+    assert coordinator.blackboard.verdict.status == "success"

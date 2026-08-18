@@ -1,28 +1,19 @@
-"""Attach TOC-page hyperlinks onto VLM entries before calibration.
+"""PDF internal page-link reading helpers.
 
-PROFILE calls this after ``extract.toc_with_boundaries`` and before
-``run_toc_anchoring``. Only runs when TOC pages actually contain internal
-page hyperlinks (``page.get_links()``).
+Not used by the TOC / skeleton pipeline. Kept for future cross-page reference
+work (e.g. figure caption → destination page).
 
 Page-number convention (all 1-based after normalize):
   - ``get_links()`` dest ``page``: ``int`` is 0-based (+1); digit ``str`` is
     already 1-based (unresolved URI parse).
-  - VLM / probe pages: already 1-based.
-  - TODO(bookmarks): ``get_toc()`` ``meta.page`` is 0-based — add 1 when wired.
-
-Matching (strict):
-  - Walk VLM ``toc_with_level`` entries in order, once each.
-  - ``heading.strip() in anchor_text.strip()``.
-  - Attach only when exactly one link hits; zero or many → leave unmatched.
-  - Cross-line / truncated anchors are not special-cased.
+  - TODO(bookmarks): ``doc.get_toc()`` outline display page is 1-based; raw
+    ``meta.page`` (when used) is 0-based and needs ``+1``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-
-from loguru import logger
 
 
 @dataclass(frozen=True)
@@ -31,29 +22,6 @@ class TocPageLink:
     dest_physical_page: int  # 1-based
     anchor_text: str
     kind: int | None = None
-
-
-@dataclass(frozen=True)
-class TocLinkEnrichStats:
-    toc_pages_scanned: list[int]
-    links_raw: int
-    links_internal: int
-    entries_total: int
-    entries_matched: int
-    skipped_no_links: bool = False
-
-
-def _toc_pages_from_hierarchy(hierarchy: dict[str, Any]) -> list[int]:
-    """Physical pages that are actual TOC content (not VLM scan expansion)."""
-    pages: set[int] = set()
-    toc_range = hierarchy.get("toc_range")
-    if isinstance(toc_range, (list, tuple)) and len(toc_range) >= 2:
-        start, end = int(toc_range[0]), int(toc_range[1])
-        if start > 0 and end >= start:
-            pages.update(range(start, end + 1))
-    # Do NOT include scan_range: that window often covers non-TOC body pages
-    # used only for VLM boundary detection.
-    return sorted(pages)
 
 
 def _anchor_text_for_rect(page: Any, rect: Any) -> str:
@@ -80,10 +48,6 @@ def _link_dest_physical_page(raw_page: Any) -> int:
     PyMuPDF exposes two shapes for the same field:
       - ``int``: resolved name-tree / GOTO path → 0-based → add 1
       - digit ``str``: unresolved URI parse (``uri_to_dict``) → already 1-based
-
-    TODO(bookmarks): ``doc.get_toc()`` outline ``meta.page`` is 0-based. When
-    bookmark signal is wired into calibration, convert that field with ``+1``
-    (or use get_toc's 1-based display page) before merging with links / VLM.
     """
     if isinstance(raw_page, int):
         return raw_page + 1
@@ -91,7 +55,7 @@ def _link_dest_physical_page(raw_page: Any) -> int:
 
 
 def collect_toc_page_links(pdf_path: str, toc_pages: list[int]) -> list[TocPageLink]:
-    """Collect internal page hyperlinks on TOC pages with nearby anchor text."""
+    """Collect internal page hyperlinks on the given pages with nearby anchor text."""
     import fitz
 
     if not toc_pages:
@@ -133,127 +97,3 @@ def collect_toc_page_links(pdf_path: str, toc_pages: list[int]) -> list[TocPageL
     finally:
         doc.close()
     return out
-
-
-def match_toc_entries_to_links(
-    entries: list[dict[str, Any]],
-    links: list[TocPageLink],
-) -> tuple[list[dict[str, Any]], int]:
-    """Attach ``link`` when heading.strip() is in exactly one link anchor."""
-    matched = 0
-    enriched: list[dict[str, Any]] = []
-
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        new_entry = {
-            "heading": entry.get("heading"),
-            "level": entry.get("level"),
-            "page_number": entry.get("page_number"),
-        }
-        for key, value in entry.items():
-            if key in new_entry or key == "link":
-                continue
-            new_entry[key] = value
-
-        heading = str(entry.get("heading") or "").strip()
-        if not heading or not links:
-            enriched.append(new_entry)
-            continue
-
-        hits = [
-            link
-            for link in links
-            if heading in str(link.anchor_text or "").strip()
-        ]
-        if len(hits) != 1:
-            enriched.append(new_entry)
-            continue
-
-        new_entry["link"] = {
-            "physical_page": hits[0].dest_physical_page,
-        }
-        matched += 1
-        enriched.append(new_entry)
-
-    return enriched, matched
-
-
-def enrich_toc_hierarchies_with_links(
-    *,
-    pdf_path: str,
-    toc_hierarchies: list[dict[str, Any]] | None,
-) -> tuple[list[dict[str, Any]], TocLinkEnrichStats]:
-    """Attach optional ``link`` fields onto matching TOC entries.
-
-    If TOC pages have no internal links, hierarchies are returned unchanged.
-    """
-    hierarchies = [dict(h) for h in (toc_hierarchies or []) if isinstance(h, dict)]
-    if not hierarchies:
-        return [], TocLinkEnrichStats(
-            toc_pages_scanned=[],
-            links_raw=0,
-            links_internal=0,
-            entries_total=0,
-            entries_matched=0,
-            skipped_no_links=True,
-        )
-
-    toc_pages: list[int] = []
-    seen: set[int] = set()
-    for hierarchy in hierarchies:
-        for page in _toc_pages_from_hierarchy(hierarchy):
-            if page not in seen:
-                seen.add(page)
-                toc_pages.append(page)
-
-    links = collect_toc_page_links(pdf_path, toc_pages)
-    if not links:
-        logger.info(
-            "[toc_link_enrich] no internal links on TOC pages {}; skip",
-            toc_pages,
-        )
-        return hierarchies, TocLinkEnrichStats(
-            toc_pages_scanned=toc_pages,
-            links_raw=0,
-            links_internal=0,
-            entries_total=sum(
-                len(h.get("toc_with_level") or [])
-                for h in hierarchies
-                if isinstance(h.get("toc_with_level"), list)
-            ),
-            entries_matched=0,
-            skipped_no_links=True,
-        )
-
-    total_entries = 0
-    total_matched = 0
-    out: list[dict[str, Any]] = []
-    for hierarchy in hierarchies:
-        entries = hierarchy.get("toc_with_level")
-        if not isinstance(entries, list):
-            out.append(hierarchy)
-            continue
-        enriched_entries, matched = match_toc_entries_to_links(entries, links)
-        total_entries += len(enriched_entries)
-        total_matched += matched
-        new_hierarchy = dict(hierarchy)
-        new_hierarchy["toc_with_level"] = enriched_entries
-        out.append(new_hierarchy)
-
-    stats = TocLinkEnrichStats(
-        toc_pages_scanned=toc_pages,
-        links_raw=len(links),
-        links_internal=len(links),
-        entries_total=total_entries,
-        entries_matched=total_matched,
-        skipped_no_links=False,
-    )
-    logger.info(
-        "[toc_link_enrich] toc_pages={} links={} entries={}/{} matched",
-        toc_pages,
-        len(links),
-        total_matched,
-        total_entries,
-    )
-    return out, stats

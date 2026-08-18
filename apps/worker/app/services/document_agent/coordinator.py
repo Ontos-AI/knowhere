@@ -1,4 +1,4 @@
-"""ReAct-style coordinator for the document profile agent."""
+"""Coordinator for the document profile workflow."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from app.services.document_agent.bootstrap import (
     probe_page_features,
 )
 from app.services.document_agent.budget import BudgetTracker, StageEnvelope
-from app.services.document_agent.executor import ReActExecutor
 from app.services.document_agent.manifest import (
+    AgentVerdict,
     DocumentProfile,
     PageAnatomyMap,
     TocResult,
@@ -28,9 +28,6 @@ from app.services.document_agent.planner import ProfilePlanner
 from app.services.document_agent.registry import REGISTRY
 from app.services.document_agent.state import AgentBlackboard, DocumentAgentState
 from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
-from app.services.document_agent.structure.toc_link_enrichment import (
-    enrich_toc_hierarchies_with_links,
-)
 from app.services.document_agent import tools as _registered_tools  # noqa: F401
 from app.services.document_agent.trace import ParseRunRecorder
 from app.services.document_agent.validators import single_shard_plan
@@ -158,24 +155,13 @@ class ProfileCoordinator:
             self._ensure_toc_profile(strict=True)
         else:
             self._ensure_disabled_toc_placeholder()
-        profile, initial_decision, _planner_result = self._propose_profile(
-            actor="planner"
-        )
+        self._propose_profile(actor="planner")
         if skip_shard_plan:
             # Page-memory oversized path never consumes shard_plan; only
             # build_anatomy_map's invariant needs a non-empty plan.
             self._apply_single_shard_placeholder()
         else:
-            executor_result = ReActExecutor(
-                self.ctx,
-                registry=REGISTRY,
-                max_rounds=int(self.ctx.settings.get("max_rounds", 30)),
-                initial_decision=initial_decision,
-            ).run()
-            if executor_result.verdict.status != "success":
-                raise RuntimeError(
-                    f"profile aborted: {executor_result.verdict.rationale}"
-                )
+            self._finalize_shard_plan()
         anatomy = build_anatomy_map(self.ctx)
         self._persist_ready_anatomy(anatomy)
         return anatomy
@@ -204,24 +190,77 @@ class ProfileCoordinator:
             # (kept for chunk-track oversized MinerU sharding).
             self._apply_single_shard_placeholder()
         else:
-            result = REGISTRY.dispatch("propose.shard_plan", self.ctx, {})
-            self.trace.record_step(
-                round_index=self.round_index,
-                actor="anatomy:propose.shard_plan",
-                action_type="anatomy",
-                result=result,
-                tool_name="propose.shard_plan",
-                tool_args={},
-            )
-            if result.status not in {"ok", "invalid"}:
-                raise RuntimeError(result.error or "propose.shard_plan failed")
-            self.round_index += 1
+            self._dispatch_anatomy_tool(tool_name="propose.shard_plan")
         anatomy = build_anatomy_map(self.ctx)
         self._persist_ready_anatomy(anatomy)
         return anatomy
 
     def _apply_single_shard_placeholder(self) -> None:
         self.blackboard.shard_plan = single_shard_plan(self.blackboard.page_count)
+
+    def _dispatch_anatomy_tool(
+        self,
+        *,
+        tool_name: str,
+        tool_args: dict[str, Any] | None = None,
+    ) -> ToolResult:
+        args = dict(tool_args or {})
+        result = REGISTRY.dispatch(tool_name, self.ctx, args)
+        self.trace.record_step(
+            round_index=self.round_index,
+            actor=f"anatomy:{tool_name}",
+            action_type="anatomy",
+            result=result,
+            tool_name=tool_name,
+            tool_args=args,
+        )
+        if result.status not in {"ok", "invalid"}:
+            raise RuntimeError(result.error or f"{tool_name} failed")
+        self.round_index += 1
+        return result
+
+    def _finalize_shard_plan(self) -> None:
+        """Deterministic propose → validate → verdict (former executor fallback).
+
+        Cut logic stays entirely inside ``propose.shard_plan``. On invalid
+        validation, fall back to ``single_shard_plan`` and re-validate — the
+        same sequence the removed ReAct executor used in deterministic mode.
+        """
+        if self.blackboard.shard_plan is None:
+            self._dispatch_anatomy_tool(tool_name="propose.shard_plan")
+        if not self.blackboard.validation_report:
+            self._dispatch_anatomy_tool(tool_name="validate.anatomy_map")
+        if (self.blackboard.validation_report or {}).get("valid") is True:
+            self._dispatch_anatomy_tool(
+                tool_name="verdict",
+                tool_args={
+                    "status": "success",
+                    "rationale": "Validation succeeded; finishing profile run.",
+                },
+            )
+            return
+
+        # Validation failed: fallback to single shard instead of aborting.
+        self.blackboard.shard_plan = single_shard_plan(self.blackboard.page_count)
+        self.blackboard.validation_report = None
+        self._dispatch_anatomy_tool(tool_name="validate.anatomy_map")
+        if (self.blackboard.validation_report or {}).get("valid") is True:
+            self._dispatch_anatomy_tool(
+                tool_name="verdict",
+                tool_args={
+                    "status": "success",
+                    "rationale": "Validation succeeded; finishing profile run.",
+                },
+            )
+            return
+
+        self.blackboard.verdict = AgentVerdict(
+            status="abort",
+            rationale="Maximum executor rounds reached.",
+        )
+        raise RuntimeError(
+            f"profile aborted: {self.blackboard.verdict.rationale}"
+        )
 
     def _persist_ready_anatomy(self, anatomy: PageAnatomyMap) -> None:
         persist_result = persist_anatomy_map(self.ctx, {})
@@ -434,9 +473,8 @@ class ProfileCoordinator:
                 tool_name=tool_name,
                 actor=f"toc:{tool_name}",
             )
-        self._attach_toc_page_links()
         if self.ctx.settings.get("skip_toc_anchoring"):
-            # Debug Stage-1: stop after TOC extract + link attach.
+            # Debug Stage-1: stop after TOC extract.
             self._clear_toc_anchor_state()
             logger.info(
                 "[document_agent] skip_toc_anchoring=True; "
@@ -444,29 +482,4 @@ class ProfileCoordinator:
             )
             return
         run_toc_anchoring(self.ctx)
-
-    def _attach_toc_page_links(self) -> None:
-        """Attach TOC-page hyperlinks onto VLM entries before calibration."""
-        hierarchies = list(self.blackboard.toc_hierarchies or [])
-        if not hierarchies:
-            return
-        try:
-            enriched, stats = enrich_toc_hierarchies_with_links(
-                pdf_path=self.ctx.pdf_path,
-                toc_hierarchies=hierarchies,
-            )
-        except Exception as exc:
-            logger.warning(
-                "[document_agent] TOC link attach failed, "
-                "continuing without links: {}",
-                exc,
-            )
-            return
-        self.blackboard.toc_hierarchies = enriched
-        logger.info(
-            "[document_agent] TOC link attach: matched={}/{} skipped_no_links={}",
-            stats.entries_matched,
-            stats.entries_total,
-            stats.skipped_no_links,
-        )
 

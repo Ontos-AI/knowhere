@@ -374,33 +374,29 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
         ),
     )
 
-    class FakeExecutor:
-        def __init__(self, *_args, **_kwargs) -> None:
-            pass
+    def fake_finalize() -> None:
+        coordinator.blackboard.shard_plan = ShardPlan(
+            enabled=True,
+            reason="too_large",
+            shards=[
+                Shard(
+                    shard_index=0,
+                    page_start=1,
+                    page_end=3,
+                    page_offset=0,
+                    anchor_type="forced_max_size",
+                    anchor_evidence="fixture",
+                    confidence=1.0,
+                )
+            ],
+        )
+        from app.services.document_agent.manifest import AgentVerdict
 
-        def run(self):
-            coordinator.blackboard.shard_plan = ShardPlan(
-                enabled=True,
-                reason="too_large",
-                shards=[
-                    Shard(
-                        shard_index=0,
-                        page_start=1,
-                        page_end=3,
-                        page_offset=0,
-                        anchor_type="forced_max_size",
-                        anchor_evidence="fixture",
-                        confidence=1.0,
-                    )
-                ],
-            )
-            return SimpleNamespace(
-                success=True,
-                verdict=SimpleNamespace(status="success", rationale="ok"),
-                trace_summary={},
-            )
+        coordinator.blackboard.verdict = AgentVerdict(
+            status="success", rationale="ok"
+        )
 
-    monkeypatch.setattr(coordinator_module, "ReActExecutor", FakeExecutor)
+    monkeypatch.setattr(coordinator, "_finalize_shard_plan", fake_finalize)
 
     anatomy = coordinator.run_structural()
 
@@ -408,7 +404,7 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
     assert anatomy.toc_result.toc_pages == [17]
 
 
-def test_run_structural_skip_shard_plan_uses_placeholder_without_executor(
+def test_run_structural_skip_shard_plan_uses_placeholder_without_finalize(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -455,14 +451,13 @@ def test_run_structural_skip_shard_plan_uses_placeholder_without_executor(
         ),
     )
 
-    class BoomExecutor:
-        def __init__(self, *_args, **_kwargs) -> None:
-            raise AssertionError("ReActExecutor must not run when skip_shard_plan")
+    class BoomFinalize:
+        def __call__(self) -> None:
+            raise AssertionError(
+                "_finalize_shard_plan must not run when skip_shard_plan"
+            )
 
-        def run(self):  # pragma: no cover
-            raise AssertionError("unreachable")
-
-    monkeypatch.setattr(coordinator_module, "ReActExecutor", BoomExecutor)
+    monkeypatch.setattr(coordinator, "_finalize_shard_plan", BoomFinalize())
 
     anatomy = coordinator.run_structural(skip_shard_plan=True)
 
@@ -523,33 +518,29 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
         ),
     )
 
-    class FakeExecutor:
-        def __init__(self, *_args, **_kwargs) -> None:
-            pass
+    def fake_finalize() -> None:
+        coordinator.blackboard.shard_plan = ShardPlan(
+            enabled=True,
+            reason="too_large",
+            shards=[
+                Shard(
+                    shard_index=0,
+                    page_start=1,
+                    page_end=3,
+                    page_offset=0,
+                    anchor_type="forced_max_size",
+                    anchor_evidence="fixture",
+                    confidence=1.0,
+                )
+            ],
+        )
+        from app.services.document_agent.manifest import AgentVerdict
 
-        def run(self):
-            coordinator.blackboard.shard_plan = ShardPlan(
-                enabled=True,
-                reason="too_large",
-                shards=[
-                    Shard(
-                        shard_index=0,
-                        page_start=1,
-                        page_end=3,
-                        page_offset=0,
-                        anchor_type="forced_max_size",
-                        anchor_evidence="fixture",
-                        confidence=1.0,
-                    )
-                ],
-            )
-            return SimpleNamespace(
-                success=True,
-                verdict=SimpleNamespace(status="success", rationale="ok"),
-                trace_summary={},
-            )
+        coordinator.blackboard.verdict = AgentVerdict(
+            status="success", rationale="ok"
+        )
 
-    monkeypatch.setattr(coordinator_module, "ReActExecutor", FakeExecutor)
+    monkeypatch.setattr(coordinator, "_finalize_shard_plan", fake_finalize)
 
     anatomy = coordinator.run_structural()
 
@@ -605,33 +596,29 @@ def test_run_coarse_runs_planner_then_text_scan_then_toc(
 
     monkeypatch.setattr(coordinator_module.ProfilePlanner, "propose", fake_propose)
 
-    class FakeExecutor:
-        def __init__(self, *_args, **_kwargs) -> None:
-            pass
+    def fake_finalize() -> None:
+        coordinator.blackboard.shard_plan = ShardPlan(
+            enabled=True,
+            reason="too_large",
+            shards=[
+                Shard(
+                    shard_index=0,
+                    page_start=1,
+                    page_end=3,
+                    page_offset=0,
+                    anchor_type="forced_max_size",
+                    anchor_evidence="fixture",
+                    confidence=1.0,
+                )
+            ],
+        )
+        from app.services.document_agent.manifest import AgentVerdict
 
-        def run(self):
-            coordinator.blackboard.shard_plan = ShardPlan(
-                enabled=True,
-                reason="too_large",
-                shards=[
-                    Shard(
-                        shard_index=0,
-                        page_start=1,
-                        page_end=3,
-                        page_offset=0,
-                        anchor_type="forced_max_size",
-                        anchor_evidence="fixture",
-                        confidence=1.0,
-                    )
-                ],
-            )
-            return SimpleNamespace(
-                success=True,
-                verdict=SimpleNamespace(status="success", rationale="ok"),
-                trace_summary={},
-            )
+        coordinator.blackboard.verdict = AgentVerdict(
+            status="success", rationale="ok"
+        )
 
-    monkeypatch.setattr(coordinator_module, "ReActExecutor", FakeExecutor)
+    monkeypatch.setattr(coordinator, "_finalize_shard_plan", fake_finalize)
 
     coordinator.run_coarse()
     anatomy = coordinator.run_structural()

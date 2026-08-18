@@ -414,8 +414,8 @@ def run_profile(
     Uses ``profile_document(..., skip_shard_plan=True, oversized_policy="page_memory")``
     so coarse → anatomy matches the live track (no ReAct shard planning).
 
-    ``skip_toc_anchoring=True`` stops after TOC extract + link attach (legacy
-    monolithic helper). Prefer staged debug: Stage-0 bootstrap then Stage-1 TOC.
+    ``skip_toc_anchoring=True`` stops after TOC extract (legacy monolithic
+    helper). Prefer staged debug: Stage-0 bootstrap then Stage-1 TOC.
     """
     from app.services.document_parser.profiling.doc_profiler import profile_document
     from shared.core.config import settings
@@ -424,7 +424,7 @@ def run_profile(
     logger.info(f"🧬 DOC_PROFILE (page_memory, monolithic) — {job_id}")
     logger.info("=" * 70)
     if skip_toc_anchoring:
-        logger.info("   skip_toc_anchoring=True (TOC + links only; no calibration)")
+        logger.info("   skip_toc_anchoring=True (TOC extract only; no calibration)")
 
     previous_image_model = settings.IMAGE_MODEL
     if model:
@@ -726,7 +726,7 @@ def run_stage1_toc(
     out_dir: Path,
     model: str | None,
 ):
-    """Production-aligned Stage-1: Find → extract → link attach (no calibration).
+    """Production-aligned Stage-1: Find → extract (no calibration).
 
     Resumes Stage-0 blackboard (including asset probe). Skips
     ``run_toc_anchoring`` (Stage-2). Does not re-run asset probe.
@@ -740,7 +740,7 @@ def run_stage1_toc(
     from shared.core.config import settings
 
     logger.info("=" * 70)
-    logger.info(f"🧬 Stage 1: TOC FIND → EXTRACT → LINK — {job_id}")
+    logger.info(f"🧬 Stage 1: TOC FIND → EXTRACT — {job_id}")
     logger.info("=" * 70)
 
     previous_image_model = settings.IMAGE_MODEL
