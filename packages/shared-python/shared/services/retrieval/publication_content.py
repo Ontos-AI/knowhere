@@ -33,9 +33,10 @@ def deduplicate_chunks_by_source_path(
     deduplicated_chunks: list[dict[str, Any]] = []
 
     for chunk in chunks:
+        safe_chunk = cast(dict[str, Any], remove_nul_characters(chunk))
         source_path = _get_source_path(
-            chunk=chunk,
-            chunk_metadata=_get_chunk_metadata(chunk),
+            chunk=safe_chunk,
+            chunk_metadata=_get_chunk_metadata(safe_chunk),
         )
         if source_path is not None:
             if source_path in seen_source_paths:
