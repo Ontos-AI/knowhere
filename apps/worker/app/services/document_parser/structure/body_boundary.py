@@ -50,8 +50,11 @@ def extract_level1_titles(toc_hierarchies: list[dict[str, Any]]) -> list[str]:
     titles: list[str] = []
     for hier in toc_hierarchies:
         for entry in _iter_toc_with_level_entries(hier.get("toc_with_level")):
+            level = entry.get("level")
+            if level is None:
+                continue
             try:
-                if int(entry.get("level")) != 1:
+                if int(level) != 1:
                     continue
             except (TypeError, ValueError):
                 continue
