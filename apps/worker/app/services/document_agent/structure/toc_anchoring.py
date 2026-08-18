@@ -37,14 +37,19 @@ _LOG_PREFIX = "[profile.toc_anchoring]"
 
 
 def run_toc_anchoring(ctx: ToolContext) -> None:
-    """Anchor extracted TOC hierarchies onto the profile blackboard."""
+    """Anchor TOC structure onto the profile blackboard.
+
+    Outline is one route inside this stage: when bookmarks survive self-check and
+    beat the confirmed printed TOC pages on coverage, anchor from outline with
+    physical overrides (no calibrate VLM). Otherwise keep the extracted TOC tree
+    and run the existing VLM calibration path.
+    """
     from app.services.document_agent.calibration.orchestrator import (
         anchor_hierarchy,
     )
 
     page_count = int(ctx.blackboard.page_count or 0)
-    hierarchies = list(ctx.blackboard.toc_hierarchies or [])
-    if page_count <= 0 or not hierarchies:
+    if page_count <= 0:
         return
 
     page_texts = dict(ctx.blackboard.page_full_text_cache)
@@ -52,6 +57,24 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
         raise ValueError(
             "page_full_text_cache missing; run text scan before TOC anchoring"
         )
+
+    toc_result = ctx.blackboard.toc_result
+    toc_pages = list(getattr(toc_result, "toc_pages", None) or [])
+    body_pages = body_pages_excluding_toc(toc_pages, page_count)
+
+    if _try_outline_anchoring_route(
+        ctx,
+        page_texts=page_texts,
+        toc_pages=toc_pages,
+        body_pages=body_pages,
+        page_count=page_count,
+    ):
+        return
+
+    hierarchies = list(ctx.blackboard.toc_hierarchies or [])
+    if not hierarchies:
+        return
+
     filename = Path(ctx.pdf_path).name
     primary, pending, _summary = select_global_toc_hierarchies(
         hierarchies=hierarchies,
@@ -62,11 +85,6 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
         return
 
     nodes = collapse_intermediate_single_child_chains(nodes)
-    toc_result = ctx.blackboard.toc_result
-    body_pages = body_pages_excluding_toc(
-        getattr(toc_result, "toc_pages", None),
-        page_count,
-    )
 
     resolve_nodes, skeleton_anchor = anchor_hierarchy(
         nodes=nodes,
@@ -108,32 +126,101 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
     ctx.blackboard.pending_skeleton_anchors = pending_records
 
 
-def run_outline_anchoring(ctx: ToolContext) -> None:
-    """Anchor adopted PDF outline with physical-page overrides (zero calibrate VLM)."""
-    page_count = int(ctx.blackboard.page_count or 0)
-    hierarchies = list(ctx.blackboard.toc_hierarchies or [])
-    if page_count <= 0 or not hierarchies:
-        return
+def _try_outline_anchoring_route(
+    ctx: ToolContext,
+    *,
+    page_texts: dict[int, str],
+    toc_pages: list[int],
+    body_pages: list[int],
+    page_count: int,
+) -> bool:
+    """Return True when outline wins and skeleton state has been written.
 
-    page_texts = dict(ctx.blackboard.page_full_text_cache)
-    if not page_texts:
-        raise ValueError(
-            "page_full_text_cache missing; run text scan before TOC anchoring"
-        )
-
-    primary = hierarchies
-    nodes = extract_toc_nodes(primary)
-    if not nodes:
-        return
-    nodes = collapse_intermediate_single_child_chains(nodes)
-
-    toc_result = ctx.blackboard.toc_result
-    body_pages = body_pages_excluding_toc(
-        getattr(toc_result, "toc_pages", None),
-        page_count,
+    Consumes ``blackboard.pdf_outline_roots`` written during the find-stage
+    ``probe.outline`` call; does not re-open the PDF here.
+    """
+    from app.services.document_agent.structure.outline_check import (
+        build_tree_digest_from_entries,
+        flatten_outline_entries,
+        verify_entries,
     )
-    overrides = outline_physical_overrides(primary)
+    from app.services.document_agent.tools.judge_toc_source import (
+        OUTLINE_CHOICE,
+        judge_toc_source,
+    )
 
+    roots = list(ctx.blackboard.pdf_outline_roots or [])
+    if not roots:
+        return False
+
+    kept, _dropped = verify_entries(
+        flatten_outline_entries(roots),
+        page_texts,
+    )
+    paged_kept = [entry for entry in kept if entry.get("page") is not None]
+    if not paged_kept:
+        return False
+
+    if toc_pages:
+        judge_result = judge_toc_source(
+            ctx,
+            {
+                "outline_digest": build_tree_digest_from_entries(kept),
+                "toc_pages": toc_pages,
+            },
+        )
+        if judge_result.status != "ok":
+            return False
+        if (judge_result.payload or {}).get("choice") != OUTLINE_CHOICE:
+            return False
+
+    toc_with_level: list[dict[str, Any]] = []
+    for entry in kept:
+        row: dict[str, Any] = {
+            "heading": entry["heading"],
+            "level": entry["level"],
+        }
+        if entry.get("page") is not None:
+            row["physical_page"] = int(entry["page"])
+        toc_with_level.append(row)
+
+    hierarchy = {
+        "source": "pdf_outline",
+        "toc_with_level": toc_with_level,
+    }
+    if not _write_outline_skeleton(
+        ctx,
+        hierarchies=[hierarchy],
+        page_texts=page_texts,
+        body_pages=body_pages,
+        page_count=page_count,
+    ):
+        return False
+
+    ctx.blackboard.toc_hierarchies = [hierarchy]
+    if ctx.blackboard.toc_result is not None:
+        ctx.blackboard.toc_result.method = "pdf_outline"
+        ctx.blackboard.toc_result.notes = (
+            "outline won coverage compare at toc anchoring; "
+            f"kept confirmed toc_pages={toc_pages}"
+        )
+    return True
+
+
+def _write_outline_skeleton(
+    ctx: ToolContext,
+    *,
+    hierarchies: list[dict[str, Any]],
+    page_texts: dict[int, str],
+    body_pages: list[int],
+    page_count: int,
+) -> bool:
+    """Anchor outline rows via physical overrides (no calibrate VLM)."""
+    nodes = extract_toc_nodes(hierarchies)
+    if not nodes:
+        return False
+    nodes = collapse_intermediate_single_child_chains(nodes)
+    overrides = outline_physical_overrides(hierarchies)
     resolve_nodes, skeleton_anchor = anchor_hierarchy_from_offset(
         nodes=nodes,
         offset_hint=0,
@@ -156,6 +243,7 @@ def run_outline_anchoring(ctx: ToolContext) -> None:
         skeleton_anchor.pruned_count,
         len(resolve_nodes),
     )
+    return True
 
 
 def outline_physical_overrides(

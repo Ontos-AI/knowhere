@@ -33,6 +33,7 @@ class ProfileBlackboard:
     doc_stats: dict[str, Any] = field(default_factory=dict)
     extrema_pages: list[int] = field(default_factory=list)
     toc_anchor_pages: list[TocAnchorPage] = field(default_factory=list)
+    pdf_outline_roots: list[dict[str, Any]] | None = None
     toc_result: TocResult | None = None
     toc_hierarchies: list[dict[str, Any]] | None = None
     skeleton_anchor: dict[str, Any] | None = None

@@ -1,4 +1,4 @@
-"""OUTLINE short-circuit: skip VLM extract/calibrate when bookmarks win the compare."""
+"""OUTLINE route inside run_toc_anchoring: skip calibrate VLM when outline wins."""
 
 from __future__ import annotations
 
@@ -13,102 +13,101 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from app.services.document_agent.coordinator import ProfileCoordinator
-from app.services.document_agent.manifest import (
-    TocAnchorPage,
-    TocResult,
-    ToolContext,
-    ToolResult,
-)
+from app.services.document_agent.budget import BudgetTracker
+from app.services.document_agent.manifest import TocResult, ToolContext, ToolResult
+from app.services.document_agent.state import ProfileBlackboard
+from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
 
 
-def _coordinator(*, page_count: int = 20) -> ProfileCoordinator:
-    coordinator = ProfileCoordinator(
-        pdf_path="/tmp/doc.pdf",
-        job_id="job-outline",
-    )
-    coordinator.blackboard.page_count = page_count
-    coordinator.blackboard.page_full_text_cache = {
-        1: "Contents\nChapter One ...... 3",
-        3: "Chapter One\nBody starts here",
-        8: "Chapter Two\nMore body",
-    }
-    coordinator.blackboard.toc_anchor_pages = [
-        TocAnchorPage(page=1, png_path="/tmp/toc-1.png"),
+def _outline_roots() -> list[dict[str, Any]]:
+    return [
+        {
+            "title": "第一章",
+            "level": 1,
+            "page": 10,
+            "children": [
+                {
+                    "title": "第二章",
+                    "level": 2,
+                    "page": 15,
+                    "children": [],
+                }
+            ],
+        }
     ]
-    return coordinator
 
 
-def _outline_payload() -> dict[str, Any]:
-    return {
-        "source": "pdf_outline",
-        "roots": [
-            {
-                "title": "Chapter One",
-                "level": 1,
-                "page": 3,
-                "children": [
-                    {
-                        "title": "Chapter Two",
-                        "level": 2,
-                        "page": 8,
-                        "children": [],
-                    }
-                ],
-            }
-        ],
+def _ctx(*, toc_pages: list[int] | None = None) -> ToolContext:
+    pages = [2, 3, 4, 5] if toc_pages is None else toc_pages
+    blackboard = ProfileBlackboard(page_count=20)
+    blackboard.page_full_text_cache = {
+        2: "目录\n第一章 ...... 3\n第二章 ...... 8",
+        3: "目录续\n更多条目",
+        4: "目录续\n再多条目",
+        5: "目录尾",
+        10: "第一章\n正文",
+        15: "第二章\n正文",
     }
-
-
-def _fake_outline(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-    del ctx, args
-    return ToolResult(status="ok", payload=_outline_payload())
+    # Written by find-stage probe.outline; anchoring only consumes it.
+    blackboard.pdf_outline_roots = _outline_roots()
+    blackboard.toc_result = TocResult(
+        method="vlm_batch",
+        toc_pages=pages,
+        notes="confirmed toc pages from extract",
+    )
+    blackboard.toc_hierarchies = [
+        {
+            "source": "vlm",
+            "toc_range": [2, 5],
+            "toc_range_unit": "page",
+            "toc_with_level": [
+                {"heading": "第一章", "level": 1, "page_number": 3},
+                {"heading": "第二章", "level": 1, "page_number": 8},
+            ],
+        }
+    ]
+    return ToolContext(
+        pdf_path="/tmp/doc.pdf",
+        job_id="job-outline-anchor",
+        blackboard=blackboard,
+        budget=BudgetTracker(plan_budget=50_000, visual_budget=80_000),
+        trace=None,
+        settings={},
+    )
 
 
 def _no_null_parent_locate(**kwargs: Any) -> tuple[dict[Any, Any], list[Any]]:
     return dict(kwargs["match_overrides"]), []
 
 
-def test_outline_adopt_skips_extract_and_calibrate_with_one_judge() -> None:
-    coordinator = _coordinator()
-    extract_calls = {"count": 0}
+def test_outline_wins_skips_calibrate_and_keeps_confirmed_toc_pages() -> None:
+    ctx = _ctx()
     calibrate_calls = {"count": 0}
     judge_calls: list[dict[str, Any]] = []
+    probe_calls = {"count": 0}
 
-    def fake_find(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-        del ctx, args
-        return ToolResult(status="ok", payload={"pages": [1]})
-
-    def fake_extract(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-        del ctx, args
-        extract_calls["count"] += 1
-        return ToolResult(status="ok", payload={})
-
-    def fake_judge(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-        del ctx
+    def fake_judge(tool_ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+        del tool_ctx
         judge_calls.append(args)
         return ToolResult(
             status="ok",
             payload={"choice": "outline", "reason": "broader coverage"},
         )
 
+    def fake_probe(tool_ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+        del tool_ctx, args
+        probe_calls["count"] += 1
+        return ToolResult(status="ok", payload={"roots": []})
+
     def fake_calibrate(*args: Any, **kwargs: Any) -> Any:
         del args, kwargs
         calibrate_calls["count"] += 1
-        raise AssertionError("calibrate_offset must not run on outline adopt")
+        raise AssertionError("calibrate_offset must not run when outline wins")
 
     with (
         patch(
-            "app.services.document_agent.coordinator.REGISTRY.dispatch",
-            side_effect=lambda name, ctx, args: (
-                fake_find(ctx, args)
-                if name == "find.toc_anchor_pages"
-                else fake_extract(ctx, args)
-            ),
-        ),
-        patch(
             "app.services.document_agent.tools.probe_outline.probe_outline",
-            side_effect=_fake_outline,
+            side_effect=fake_probe,
         ),
         patch(
             "app.services.document_agent.tools.judge_toc_source.judge_toc_source",
@@ -124,44 +123,32 @@ def test_outline_adopt_skips_extract_and_calibrate_with_one_judge() -> None:
             side_effect=_no_null_parent_locate,
         ),
     ):
-        coordinator._run_toc_extraction_pipeline()
+        run_toc_anchoring(ctx)
 
-    assert extract_calls["count"] == 0
+    assert probe_calls["count"] == 0
     assert calibrate_calls["count"] == 0
     assert len(judge_calls) == 1
-    # Every printed TOC page is compared; no page cap.
-    assert judge_calls[0]["toc_pages"] == [1]
-    assert "Chapter One" in judge_calls[0]["outline_digest"]
-    assert coordinator.blackboard.toc_result is not None
-    assert coordinator.blackboard.toc_result.method == "pdf_outline"
-    assert coordinator.blackboard.skeleton_anchor is not None
-    assert coordinator.blackboard.skeleton_anchor["source"] == "pdf_outline"
-    assert coordinator.blackboard.skeleton_anchor["offset_status"] == "ok"
+    assert judge_calls[0]["toc_pages"] == [2, 3, 4, 5]
+    assert ctx.blackboard.toc_result is not None
+    assert ctx.blackboard.toc_result.toc_pages == [2, 3, 4, 5]
+    assert ctx.blackboard.toc_result.method == "pdf_outline"
+    assert ctx.blackboard.skeleton_anchor is not None
+    assert ctx.blackboard.skeleton_anchor["source"] == "pdf_outline"
+    assert ctx.blackboard.skeleton_anchor["offset_status"] == "ok"
+    assert ctx.blackboard.toc_hierarchies is not None
+    assert ctx.blackboard.toc_hierarchies[0]["source"] == "pdf_outline"
 
 
 def test_outline_without_toc_pages_adopts_without_judge() -> None:
-    coordinator = _coordinator()
+    ctx = _ctx(toc_pages=[])
     judge_calls = {"count": 0}
 
-    def fake_find(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-        del args
-        ctx.blackboard.toc_anchor_pages = []
-        return ToolResult(status="ok", payload={"pages": []})
-
-    def fake_judge(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-        del ctx, args
+    def fake_judge(tool_ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+        del tool_ctx, args
         judge_calls["count"] += 1
         return ToolResult(status="ok", payload={"choice": "outline"})
 
     with (
-        patch(
-            "app.services.document_agent.coordinator.REGISTRY.dispatch",
-            side_effect=lambda name, ctx, args: fake_find(ctx, args),
-        ),
-        patch(
-            "app.services.document_agent.tools.probe_outline.probe_outline",
-            side_effect=_fake_outline,
-        ),
         patch(
             "app.services.document_agent.tools.judge_toc_source.judge_toc_source",
             side_effect=fake_judge,
@@ -172,70 +159,53 @@ def test_outline_without_toc_pages_adopts_without_judge() -> None:
             side_effect=_no_null_parent_locate,
         ),
     ):
-        coordinator._run_toc_extraction_pipeline()
+        run_toc_anchoring(ctx)
 
     assert judge_calls["count"] == 0
-    assert coordinator.blackboard.toc_result is not None
-    assert coordinator.blackboard.toc_result.method == "pdf_outline"
+    assert ctx.blackboard.skeleton_anchor is not None
+    assert ctx.blackboard.skeleton_anchor["source"] == "pdf_outline"
 
 
-def test_printed_toc_wins_falls_back_to_extract() -> None:
-    coordinator = _coordinator()
-    extract_calls = {"count": 0}
+def test_printed_toc_wins_uses_vlm_calibrate_path() -> None:
+    ctx = _ctx()
+    vlm_anchor_calls = {"count": 0}
 
-    def fake_find(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-        del ctx, args
-        return ToolResult(status="ok", payload={"pages": [1]})
-
-    def fake_extract(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-        del args
-        extract_calls["count"] += 1
-        ctx.blackboard.toc_hierarchies = [
-            {
-                "source": "vlm",
-                "toc_with_level": [
-                    {"heading": "Chapter One", "level": 1, "page_number": 1},
-                ],
-            }
-        ]
-        ctx.blackboard.toc_result = TocResult(
-            method="vlm_batch",
-            toc_pages=[1],
-            notes="vlm fallback",
-        )
-        return ToolResult(status="ok", payload={})
-
-    def fake_judge(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-        del ctx, args
+    def fake_judge(tool_ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+        del tool_ctx, args
         return ToolResult(
             status="ok",
-            payload={"choice": "printed_toc", "reason": "printed toc is finer"},
+            payload={"choice": "printed_toc", "reason": "printed finer"},
+        )
+
+    def fake_anchor_hierarchy(**kwargs: Any) -> Any:
+        del kwargs
+        vlm_anchor_calls["count"] += 1
+        from app.services.document_agent.structure.anchoring_primitives import (
+            SkeletonAnchor,
+        )
+
+        return [], SkeletonAnchor(
+            offset=0,
+            offset_status="ok",
+            match_overrides={},
+            null_page_report=[],
+            bulk_count=0,
         )
 
     with (
-        patch(
-            "app.services.document_agent.coordinator.REGISTRY.dispatch",
-            side_effect=lambda name, ctx, args: (
-                fake_find(ctx, args)
-                if name == "find.toc_anchor_pages"
-                else fake_extract(ctx, args)
-            ),
-        ),
-        patch(
-            "app.services.document_agent.tools.probe_outline.probe_outline",
-            side_effect=_fake_outline,
-        ),
         patch(
             "app.services.document_agent.tools.judge_toc_source.judge_toc_source",
             side_effect=fake_judge,
         ),
         patch(
-            "app.services.document_agent.structure.toc_anchoring.run_toc_anchoring",
-            side_effect=lambda ctx: None,
+            "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
+            side_effect=fake_anchor_hierarchy,
         ),
     ):
-        coordinator._run_toc_extraction_pipeline()
+        run_toc_anchoring(ctx)
 
-    assert extract_calls["count"] == 1
-    assert coordinator.blackboard.toc_result is not None
-    assert coordinator.blackboard.toc_result.method == "vlm_batch"
+    assert vlm_anchor_calls["count"] == 1
+    assert ctx.blackboard.toc_result is not None
+    assert ctx.blackboard.toc_result.method == "vlm_batch"
+    assert ctx.blackboard.toc_hierarchies is not None
+    assert ctx.blackboard.toc_hierarchies[0]["source"] == "vlm"

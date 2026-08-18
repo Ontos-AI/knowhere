@@ -27,10 +27,7 @@ from app.services.document_agent.persist import build_anatomy_map, persist_anato
 from app.services.document_agent.coarse_profile import CoarseProfiler
 from app.services.document_agent.registry import REGISTRY
 from app.services.document_agent.state import ProfileBlackboard, ProfileState
-from app.services.document_agent.structure.toc_anchoring import (
-    run_outline_anchoring,
-    run_toc_anchoring,
-)
+from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
 from app.services.document_agent import tools as _registered_tools  # noqa: F401
 from app.services.document_agent.trace import ParseRunRecorder
 from app.services.document_agent.validators import single_shard_plan
@@ -462,15 +459,14 @@ class ProfileCoordinator:
         self.blackboard.pending_skeleton_anchors = []
 
     def _run_toc_extraction_pipeline(self) -> None:
-        self._dispatch_profile_tool(
-            tool_name="find.toc_anchor_pages",
-            actor="toc:find.toc_anchor_pages",
-        )
-        adopted = self._try_adopt_pdf_outline()
-        if not adopted:
+        for tool_name in (
+            "find.toc_anchor_pages",
+            "probe.outline",
+            "extract.toc_with_boundaries",
+        ):
             self._dispatch_profile_tool(
-                tool_name="extract.toc_with_boundaries",
-                actor="toc:extract.toc_with_boundaries",
+                tool_name=tool_name,
+                actor=f"toc:{tool_name}",
             )
         if self.ctx.settings.get("skip_toc_anchoring"):
             # Debug Stage-1: stop after TOC extract.
@@ -480,93 +476,5 @@ class ProfileCoordinator:
                 "leaving calibration to a later stage"
             )
             return
-        if adopted:
-            run_outline_anchoring(self.ctx)
-            return
         run_toc_anchoring(self.ctx)
-
-    def _try_adopt_pdf_outline(self) -> bool:
-        """Adopt PDF bookmarks when self-check (+ printed-TOC comparison) passes."""
-        from app.services.document_agent.structure.outline_check import (
-            build_tree_digest_from_entries,
-            flatten_outline_entries,
-            verify_entries,
-        )
-        from app.services.document_agent.tools.judge_toc_source import (
-            OUTLINE_CHOICE,
-            judge_toc_source,
-        )
-        from app.services.document_agent.tools.probe_outline import probe_outline
-
-        outline_result = probe_outline(self.ctx, {})
-        self.trace.record_step(
-            round_index=self.round_index,
-            actor="toc:probe.outline",
-            action_type="toc",
-            result=outline_result,
-            tool_name="probe.outline",
-            tool_args={},
-        )
-        self.round_index += 1
-        if outline_result.status != "ok":
-            return False
-
-        roots = list((outline_result.payload or {}).get("roots") or [])
-        if not roots:
-            return False
-
-        entries = flatten_outline_entries(roots)
-        kept, _dropped = verify_entries(
-            entries,
-            dict(self.blackboard.page_full_text_cache),
-        )
-        paged_kept = [entry for entry in kept if entry.get("page") is not None]
-        if not paged_kept:
-            return False
-
-        toc_anchor_pages = list(self.blackboard.toc_anchor_pages or [])
-        toc_pages = [int(item.page) for item in toc_anchor_pages]
-        if toc_pages:
-            judge_args = {
-                "outline_digest": build_tree_digest_from_entries(kept),
-                "toc_pages": toc_pages,
-            }
-            judge_result = judge_toc_source(self.ctx, judge_args)
-            self.trace.record_step(
-                round_index=self.round_index,
-                actor="toc:judge.toc_source",
-                action_type="toc",
-                result=judge_result,
-                tool_name="judge.toc_source",
-                tool_args=judge_args,
-            )
-            self.round_index += 1
-            if judge_result.status != "ok":
-                return False
-            if (judge_result.payload or {}).get("choice") != OUTLINE_CHOICE:
-                return False
-
-        toc_with_level: list[dict[str, Any]] = []
-        for entry in kept:
-            row: dict[str, Any] = {
-                "heading": entry["heading"],
-                "level": entry["level"],
-            }
-            if entry.get("page") is not None:
-                row["physical_page"] = int(entry["page"])
-            toc_with_level.append(row)
-
-        self.blackboard.toc_result = TocResult(
-            method="pdf_outline",
-            toc_pages=toc_pages,
-            candidates=toc_anchor_pages,
-            notes="adopted PDF outline bookmarks",
-        )
-        self.blackboard.toc_hierarchies = [
-            {
-                "source": "pdf_outline",
-                "toc_with_level": toc_with_level,
-            }
-        ]
-        return True
 

@@ -94,15 +94,32 @@ def probe_outline(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     start = time.monotonic()
     import fitz
 
-    doc = fitz.open(ctx.pdf_path)
     try:
-        raw = doc.get_toc(simple=True) or []
-        page_count = int(doc.page_count)
-    finally:
-        doc.close()
+        doc = fitz.open(ctx.pdf_path)
+        try:
+            raw = doc.get_toc(simple=True) or []
+            page_count = int(doc.page_count)
+        finally:
+            doc.close()
+    except Exception as exc:
+        ctx.blackboard.pdf_outline_roots = []
+        return ToolResult(
+            status="ok",
+            payload={
+                "source": "pdf_outline",
+                "page_count": 0,
+                "raw_entry_count": 0,
+                "node_count": 0,
+                "roots": [],
+                "error": f"probe.outline failed: {exc}",
+            },
+            latency_ms=int((time.monotonic() - start) * 1000),
+            output_summary={"raw_entry_count": 0, "node_count": 0, "root_count": 0},
+        )
 
     entries = [list(row) for row in raw if isinstance(row, (list, tuple))]
     forest = build_outline_forest(entries)
+    ctx.blackboard.pdf_outline_roots = forest
     return ToolResult(
         status="ok",
         payload={
