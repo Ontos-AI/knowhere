@@ -438,6 +438,106 @@ def test_contained_pending_toc_does_not_cut() -> None:
     ]
 
 
+def _deep_tree_nodes() -> list[TitleNode]:
+    return [
+        TitleNode(
+            title="Ch1",
+            level=1,
+            printed_page=1,
+            children=[
+                TitleNode(title="1.1", level=2, printed_page=2),
+                TitleNode(title="1.6", level=2, printed_page=30),
+            ],
+        ),
+        TitleNode(
+            title="Ch2",
+            level=1,
+            printed_page=31,
+            children=[
+                TitleNode(
+                    title="S1",
+                    level=2,
+                    printed_page=31,
+                    children=[TitleNode(title="S1.1", level=3, printed_page=31)],
+                ),
+                TitleNode(
+                    title="S9",
+                    level=2,
+                    printed_page=210,
+                    children=[TitleNode(title="S9.1", level=3, printed_page=210)],
+                ),
+            ],
+        ),
+    ]
+
+
+_DEEP_TREE_HIERARCHIES: list[dict[str, object]] = [
+    {
+        "toc_range": [1, 1],
+        "toc_range_unit": "page",
+        "toc_with_level": [
+            {"heading": "Ch1", "level": 1, "page_number": 1},
+            {"heading": "1.1", "level": 2, "page_number": 2},
+            {"heading": "1.6", "level": 2, "page_number": 30},
+            {"heading": "Ch2", "level": 1, "page_number": 31},
+            {"heading": "S1", "level": 2, "page_number": 31},
+            {"heading": "S1.1", "level": 3, "page_number": 31},
+            {"heading": "S9", "level": 2, "page_number": 210},
+            {"heading": "S9.1", "level": 3, "page_number": 210},
+        ],
+    }
+]
+
+_DEEP_TREE_LEAF_OVERRIDES: dict[tuple[str, ...], int] = {
+    ("Ch1", "1.1"): 2,
+    ("Ch1", "1.6"): 30,
+    ("Ch2", "S1", "S1.1"): 31,
+    ("Ch2", "S9", "S9.1"): 210,
+}
+
+
+def test_shard_toc_omits_unrelated_node_when_parents_unanchored() -> None:
+    ctx = _ctx(page_count=250)
+    _seed_skeleton(
+        ctx,
+        nodes=_deep_tree_nodes(),
+        overrides=dict(_DEEP_TREE_LEAF_OVERRIDES),
+        hierarchies=_DEEP_TREE_HIERARCHIES,
+    )
+
+    propose_shard_plan(ctx, {})
+    plan = ctx.blackboard.shard_plan
+    assert plan is not None
+
+    tail = plan.shards[-1].toc_hierarchies
+    assert tail is not None
+    headings = [row["heading"] for row in tail[0]["toc_with_level"]]
+    assert headings == ["S9.1"]
+
+
+def test_shard_toc_reopens_anchored_ancestors() -> None:
+    ctx = _ctx(page_count=250)
+    _seed_skeleton(
+        ctx,
+        nodes=_deep_tree_nodes(),
+        overrides={
+            **_DEEP_TREE_LEAF_OVERRIDES,
+            ("Ch2",): 31,
+            ("Ch2", "S9"): 210,
+        },
+        hierarchies=_DEEP_TREE_HIERARCHIES,
+    )
+
+    propose_shard_plan(ctx, {})
+    plan = ctx.blackboard.shard_plan
+    assert plan is not None
+
+    tail = plan.shards[-1].toc_hierarchies
+    assert tail is not None
+    headings = [row["heading"] for row in tail[0]["toc_with_level"]]
+    assert headings == ["Ch2", "S9", "S9.1"]
+
+
 def test_fat_leaf_uses_blank_page_in_window() -> None:
     ctx = _ctx(page_count=450, blank_pages=[195])
     _seed_skeleton(

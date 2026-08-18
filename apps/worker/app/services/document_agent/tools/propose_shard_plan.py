@@ -38,6 +38,7 @@ class _AnchoredTocEntry:
     heading: str
     level: int
     physical_page: int
+    path_titles: tuple[str, ...]
 
 
 def _walk_anchored_entries(
@@ -57,6 +58,7 @@ def _walk_anchored_entries(
                     heading=node.title,
                     level=int(node.level),
                     physical_page=int(match.page),
+                    path_titles=path,
                 )
             )
         if node.children:
@@ -130,22 +132,18 @@ def _toc_hierarchies_for_shard(
     if not shard_entries or first_idx is None:
         return None
 
-    # Same ancestor-stack walk previously used by the parse-time splitter:
-    # open ancestors before the shard's first entry, drop trailing siblings.
-    first_entry_level = shard_entries[0].level
-    ancestors: list[dict[str, Any]] = []
-    if first_entry_level > 1:
-        stack: list[_AnchoredTocEntry] = []
-        for ancestor in entries[:first_idx]:
-            while stack and stack[-1].level >= ancestor.level:
-                stack.pop()
-            stack.append(ancestor)
-        while stack and stack[-1].level >= first_entry_level:
-            stack.pop()
-        ancestors = [
-            {"heading": node.heading, "level": node.level}
-            for node in stack
-        ]
+    # Reopen the first entry's real TOC ancestors so the shard slice keeps its
+    # place in the tree. Ancestors precede the shard in this pre-order walk.
+    preceding_by_path = {entry.path_titles: entry for entry in entries[:first_idx]}
+    first_path = shard_entries[0].path_titles
+    ancestors = [
+        {"heading": ancestor.heading, "level": ancestor.level}
+        for ancestor in (
+            preceding_by_path.get(first_path[:depth])
+            for depth in range(1, len(first_path))
+        )
+        if ancestor is not None
+    ]
 
     toc_with_level = ancestors + [
         {"heading": entry.heading, "level": entry.level}

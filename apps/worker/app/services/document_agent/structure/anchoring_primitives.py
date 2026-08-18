@@ -510,6 +510,76 @@ def bulk_offset_matches(
     return matches
 
 
+def _iter_printed_page_parents(
+    nodes: list[TitleNode],
+    *,
+    parent_titles: tuple[str, ...] = (),
+) -> list[tuple[tuple[str, ...], TitleNode]]:
+    """DFS non-leaf nodes that print their own page in the TOC."""
+    parents: list[tuple[tuple[str, ...], TitleNode]] = []
+    for node in nodes:
+        path_titles = (*parent_titles, node.title)
+        if not node.children:
+            continue
+        if node.printed_page is not None:
+            parents.append((path_titles, node))
+        parents.extend(
+            _iter_printed_page_parents(node.children, parent_titles=path_titles)
+        )
+    return parents
+
+
+def _descendant_regime_offset(
+    node: TitleNode,
+    path_titles: tuple[str, ...],
+    matches: dict[tuple[str, ...], TitleMatch],
+) -> int | None:
+    """Offset of the parent's first anchored descendant leaf, i.e. its regime."""
+    for leaf_path, _leaf in iter_leaf_title_nodes(
+        node.children, parent_titles=path_titles
+    ):
+        match = matches.get(leaf_path)
+        if match is None:
+            continue
+        offset = match.evidence.get("offset")
+        if offset is not None:
+            return int(offset)
+    return None
+
+
+def backfill_parent_offset_matches(
+    *,
+    nodes: list[TitleNode],
+    matches: dict[tuple[str, ...], TitleMatch],
+    page_count: int,
+) -> dict[tuple[str, ...], TitleMatch]:
+    """Anchor TOC parents that print a page, reusing their descendant's offset.
+
+    Bulk anchoring consumes leaves only, so a TOC whose section headings carry
+    printed pages leaves every parent without a physical page. The parent shares
+    the calibration regime of its first anchored descendant, so ``printed_page +
+    that regime's offset`` is the parent's physical page.
+    """
+    by_offset: dict[int, list[tuple[tuple[str, ...], TitleNode]]] = {}
+    for path_titles, node in _iter_printed_page_parents(nodes):
+        if path_titles in matches:
+            continue
+        offset = _descendant_regime_offset(node, path_titles, matches)
+        if offset is None:
+            continue
+        by_offset.setdefault(offset, []).append((path_titles, node))
+
+    out: dict[tuple[str, ...], TitleMatch] = {}
+    for offset, group in by_offset.items():
+        for path_titles, match in bulk_offset_matches(group, offset).items():
+            if 1 <= match.page <= page_count:
+                out[path_titles] = replace(
+                    match,
+                    evidence={**match.evidence, "parent_backfill": True},
+                )
+    return out
+
+
 def _recalibrate_after_breakpoint(
     *,
     entry_node: TitleNode,

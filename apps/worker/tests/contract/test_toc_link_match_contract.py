@@ -27,9 +27,10 @@ def _link(anchor: str, dest: int, *, toc_page: int = 2) -> TocPageLink:
     )
 
 
-def test_get_links_dest_page_is_already_one_based() -> None:
-    """``get_links()['page']`` must not be shifted with +1."""
-    assert _link_dest_physical_page(6) == 6
+def test_link_dest_physical_page_by_type() -> None:
+    """``int`` is 0-based; digit ``str`` is already 1-based."""
+    assert _link_dest_physical_page(6) == 7
+    assert _link_dest_physical_page(0) == 1
     assert _link_dest_physical_page("6") == 6
     assert _link_dest_physical_page("7") == 7
 

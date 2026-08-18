@@ -122,10 +122,9 @@ def _profile_pdf_with_db(
 ) -> ParserDocumentProfile:
     profile_job_id = job_id or filename
     agent_output_dir = os.path.join(output_dir, "_doc_agent") if output_dir else None
-    # Page-memory sections are anchored on the TOC (page-based VLM TOC pipeline),
-    # so TOC profiling is mandatory for that track regardless of the global
-    # PDF_PROFILE_TOC_ENABLED flag (which only gates the optional chunk-track
-    # TOC profiling that can otherwise fall back to MinerU markdown headings).
+    # PROFILE TOC is default-on for both tracks. page_memory always forces it
+    # on (sections are TOC-anchored) even if PDF_PROFILE_TOC_ENABLED is used as
+    # an emergency kill switch for the chunk track.
     page_toc_enabled = (
         oversized_policy == "page_memory" or settings.PDF_PROFILE_TOC_ENABLED
     )

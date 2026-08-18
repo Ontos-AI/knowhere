@@ -91,8 +91,10 @@ def _stage_profile(pdf_path: str, filename: str, out_dir: Path, model: str | Non
             "planner_model": vlm_model,
             "vlm_model": vlm_model,
             "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
-            "toc_profile_enabled": settings.PDF_PROFILE_TOC_ENABLED,
-            "toc_before_coarse": settings.PDF_PROFILE_TOC_ENABLED,
+            # Debug PROFILE must exercise the same TOC → run_toc_anchoring path
+            # as production (PDF_PROFILE_TOC_ENABLED defaults True; keep explicit
+            # so a local kill-switch .env cannot silently skip TOC).
+            "toc_profile_enabled": True,
         },
     )
     t0 = time.time()

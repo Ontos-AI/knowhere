@@ -1,4 +1,4 @@
-"""Contract tests for structure_anchoring (Phase-2) + calibrate wiring."""
+"""Contract tests for hierarchy anchoring (Phase-2) + calibrate wiring."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from app.services.document_agent.budget import BudgetTracker
 from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.state import AgentBlackboard
 from app.services.document_agent.structure.hierarchy_locator import TitleMatch, TitleNode
-from app.services.document_agent.structure import structure_anchoring as anchoring
+from app.services.document_agent.structure import anchoring_primitives as anchoring
 
 
 @contextmanager
@@ -173,6 +173,11 @@ def test_anchor_hierarchy_uses_calibration_phase1() -> None:
     ]
     ctx = _ctx()
 
+    # Contract conftest evicts cached ``app.*`` modules, so resolve the live
+    # orchestrator inside the test rather than at import time.
+    from app.services.document_agent.agents.calibration.orchestrator import (
+        anchor_hierarchy,
+    )
     from app.services.document_agent.agents.calibration.types import (
         CalibrationRegime,
         CalibrationResult,
@@ -207,7 +212,7 @@ def test_anchor_hierarchy_uses_calibration_phase1() -> None:
         ),
         _patch_verify(fake_verify),
     ):
-        nodes, anchor = anchoring.anchor_hierarchy(
+        nodes, anchor = anchor_hierarchy(
             nodes=leaves,
             toc_hierarchies=toc_hierarchies,
             page_texts={4: "Only\ntext"},
@@ -314,6 +319,51 @@ def test_phase2_recalibrate_miss_drops_suffix_from_tree() -> None:
     assert ("Ch3",) not in anchor.match_overrides
     assert ("Ch4",) not in anchor.match_overrides
     assert anchor.pruned_count >= 2
+
+
+def _printed_page_parent(title: str, printed: int, child: TitleNode) -> TitleNode:
+    return TitleNode(title=title, level=1, printed_page=printed, children=[child])
+
+
+def test_parent_backfill_uses_descendant_regime_offset() -> None:
+    from app.services.document_agent.structure import anchoring_primitives as primitives
+
+    early_child = TitleNode(title="A.1", level=2, printed_page=12, children=[])
+    late_child = TitleNode(title="B.1", level=2, printed_page=42, children=[])
+    section_a = _printed_page_parent("Section A", 10, early_child)
+    section_b = _printed_page_parent("Section B", 40, late_child)
+    matches = {
+        **primitives.bulk_offset_matches([(("Section A", "A.1"), early_child)], 5),
+        **primitives.bulk_offset_matches([(("Section B", "B.1"), late_child)], 9),
+    }
+
+    parents = primitives.backfill_parent_offset_matches(
+        nodes=[section_a, section_b],
+        matches=matches,
+        page_count=60,
+    )
+
+    assert parents[("Section A",)].page == 15
+    assert parents[("Section B",)].page == 49
+    assert parents[("Section A",)].evidence["parent_backfill"] is True
+
+
+def test_parent_backfill_skips_unanchored_and_out_of_range() -> None:
+    from app.services.document_agent.structure import anchoring_primitives as primitives
+
+    tail_child = TitleNode(title="Tail.1", level=2, printed_page=96, children=[])
+    ghost_child = TitleNode(title="Ghost.1", level=2, printed_page=11, children=[])
+    tail = _printed_page_parent("Tail", 95, tail_child)
+    ghost = _printed_page_parent("Ghost", 10, ghost_child)
+    matches = primitives.bulk_offset_matches([(("Tail", "Tail.1"), tail_child)], 8)
+
+    parents = primitives.backfill_parent_offset_matches(
+        nodes=[tail, ghost],
+        matches=matches,
+        page_count=100,
+    )
+
+    assert parents == {}
 
 
 def test_multi_regime_phase2_merges_physical_overrides() -> None:

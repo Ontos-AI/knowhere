@@ -884,7 +884,7 @@ def test_page_memory_forces_toc_profiling_despite_kill_switch(
 
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
     monkeypatch.setattr(doc_profiler.settings, "MAX_PDF_PAGE_LIMIT", 200)
-    # Global kill switch OFF; page_memory track must still enable TOC.
+    # Kill switch OFF for chunk; page_memory must still force TOC on.
     monkeypatch.setattr(doc_profiler.settings, "PDF_PROFILE_TOC_ENABLED", False)
 
     profile = profile_document(
@@ -1399,11 +1399,17 @@ def test_pdf_shard_pipeline_does_not_use_markdown_toc_detector(
 
 
 def test_page_based_toc_demotes_front_matter_only_on_first_shard() -> None:
+    # Production TEXT-TRACK shape from propose.shard_plan: calibrated slice
+    # carries toc_with_level only (no toc_tree).
     toc_hierarchies = [
         {
-            "toc_range": [2, 2],
+            "toc_range": [1, 10],
             "toc_range_unit": "page",
-            "toc_tree": {"Risk Factors": {}},
+            "source": "calibrated_shard_split",
+            "toc_with_level": [
+                {"heading": "Risk Factors", "level": 1},
+                {"heading": "Business Overview", "level": 2},
+            ],
         }
     ]
     lines = [

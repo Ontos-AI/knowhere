@@ -5,7 +5,8 @@ PROFILE calls this after ``extract.toc_with_boundaries`` and before
 page hyperlinks (``page.get_links()``).
 
 Page-number convention (all 1-based after normalize):
-  - ``get_links()`` dest ``page``: already 1-based — do not add 1.
+  - ``get_links()`` dest ``page``: ``int`` is 0-based (+1); digit ``str`` is
+    already 1-based (unresolved URI parse).
   - VLM / probe pages: already 1-based.
   - TODO(bookmarks): ``get_toc()`` ``meta.page`` is 0-based — add 1 when wired.
 
@@ -76,14 +77,16 @@ def _anchor_text_for_rect(page: Any, rect: Any) -> str:
 def _link_dest_physical_page(raw_page: Any) -> int:
     """Normalize ``page.get_links()`` destination to 1-based physical page.
 
-    PyMuPDF page hyperlinks expose ``link["page"]`` already as 1-based (int or
-    digit string). Do **not** add 1 here — that off-by-one sent every TOC link
-    one page past the real click target.
+    PyMuPDF exposes two shapes for the same field:
+      - ``int``: resolved name-tree / GOTO path → 0-based → add 1
+      - digit ``str``: unresolved URI parse (``uri_to_dict``) → already 1-based
 
     TODO(bookmarks): ``doc.get_toc()`` outline ``meta.page`` is 0-based. When
     bookmark signal is wired into calibration, convert that field with ``+1``
     (or use get_toc's 1-based display page) before merging with links / VLM.
     """
+    if isinstance(raw_page, int):
+        return raw_page + 1
     return int(raw_page)
 
 

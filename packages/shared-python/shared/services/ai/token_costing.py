@@ -13,14 +13,23 @@ from loguru import logger
 from shared.core.config import settings
 
 DEFAULT_TOKEN_PRICING_TABLE: dict[str, dict[str, Any]] = {
+    # DeepSeek official (peak/off-peak since 2026-08-16 16:00 UTC).
+    # Defaults use OFF-PEAK; peak rates are 2x (01:00-04:00 & 06:00-10:00 UTC).
     "deepseek-v4-flash": {
         "currency": "USD",
         "unit": "per_1m_tokens",
-        "input_per_1m": 0.14,
-        "cached_input_per_1m": 0.0028,
-        "output_per_1m": 0.28,
-        "source": "DeepSeek official pricing",
-        "effective_date": "2026-06-11",
+        "input_per_1m": 0.22,
+        "cached_input_per_1m": 0.007,
+        "output_per_1m": 0.66,
+        "peak_input_per_1m": 0.44,
+        "peak_cached_input_per_1m": 0.014,
+        "peak_output_per_1m": 1.32,
+        "source": (
+            "DeepSeek official pricing "
+            "(https://api-docs.deepseek.com/quick_start/pricing); "
+            "defaults are off-peak cache-miss rates"
+        ),
+        "effective_date": "2026-08-17",
     },
     "deepseek-chat": {
         "alias_of": "deepseek-v4-flash",
@@ -28,13 +37,19 @@ DEFAULT_TOKEN_PRICING_TABLE: dict[str, dict[str, Any]] = {
     "deepseek-reasoner": {
         "alias_of": "deepseek-v4-flash",
     },
+    # China mainland DashScope (ALI_URL=dashscope.aliyuncs.com), <=256K tier.
+    # Official CNY is ¥1.2 / ¥7.2 per 1M; Bailian USD display is $0.165 / $0.99.
     "qwen3.6-flash": {
         "currency": "USD",
         "unit": "per_1m_tokens",
-        "input_per_1m": 0.25,
-        "output_per_1m": 1.50,
-        "source": "Qwen Cloud official pricing, <=256K input tier",
-        "effective_date": "2026-06-11",
+        "input_per_1m": 0.165,
+        "output_per_1m": 0.99,
+        "source": (
+            "Alibaba Bailian China mainland qwen3.6-flash <=256K "
+            "(¥1.2/¥7.2 per 1M; USD list $0.165/$0.99). "
+            "International endpoint is $0.25/$1.50"
+        ),
+        "effective_date": "2026-08-17",
     },
 }
 

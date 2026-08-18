@@ -33,6 +33,7 @@ from app.services.document_agent.structure.hierarchy_locator import (
 )
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
+    backfill_parent_offset_matches,
     locate_null_page_parent_overrides,
     prune_unanchored_toc_leaves,
     serialize_skeleton_anchor,
@@ -375,6 +376,19 @@ def anchor_hierarchy_from_regimes(
             for path, match in merged.items()
             if path in surviving_paths
         }
+
+    parent_matches = backfill_parent_offset_matches(
+        nodes=working,
+        matches=merged,
+        page_count=page_count,
+    )
+    if parent_matches:
+        merged.update(parent_matches)
+        logger.info(
+            "[calibration.phase2] parent backfill: {} printed-page TOC parents "
+            "anchored from descendant offset",
+            len(parent_matches),
+        )
 
     match_overrides, null_page_report = locate_null_page_parent_overrides(
         nodes=working,
