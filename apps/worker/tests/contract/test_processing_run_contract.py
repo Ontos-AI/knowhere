@@ -14,8 +14,8 @@ def test_should_skip_duplicate_delivery_when_processing_lock_is_held(
     import app.services.document_ingestion.processing_run as processing_run
 
     class FakeLock:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            del args, kwargs
+        def __init__(self, _redis_service: object, _job_id: str) -> None:
+            pass
 
         def __enter__(self) -> "FakeLock":
             raise UnavailableException(
@@ -23,8 +23,7 @@ def test_should_skip_duplicate_delivery_when_processing_lock_is_held(
                 retry_after=120,
             )
 
-        def __exit__(self, *args: object) -> bool:
-            del args
+        def __exit__(self, *_args: object) -> bool:
             return False
 
     monkeypatch.setattr(
@@ -36,7 +35,7 @@ def test_should_skip_duplicate_delivery_when_processing_lock_is_held(
     monkeypatch.setattr(
         processing_run,
         "get_sync_job_lifecycle_service",
-        lambda: object(),
+        object,
     )
     monkeypatch.setattr(processing_run, "RedisJobLock", FakeLock)
 
