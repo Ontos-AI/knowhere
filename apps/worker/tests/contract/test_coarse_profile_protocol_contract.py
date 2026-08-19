@@ -109,6 +109,38 @@ def test_finalize_shard_plan_reaches_success(tmp_path) -> None:
     assert len(coordinator.blackboard.shard_plan.shards) >= 1
 
 
+def test_finalize_shard_plan_aborts_when_validation_fails(tmp_path) -> None:
+    from app.services.document_agent.manifest import ShardPlan
+
+    coordinator = ProfileCoordinator(
+        pdf_path=str(tmp_path / "doc.pdf"),
+        job_id="job-finalize-abort",
+        output_dir=str(tmp_path / "out"),
+    )
+    (tmp_path / "out").mkdir()
+    _seed_pages(coordinator, 4)
+    coordinator.blackboard.shard_plan = ShardPlan(
+        enabled=True,
+        reason="too_large",
+        shards=[],
+    )
+    coordinator.blackboard.validation_report = {
+        "valid": False,
+        "errors": ["shard_plan has no shards"],
+        "warnings": [],
+    }
+
+    try:
+        coordinator._finalize_shard_plan()
+        raise AssertionError("expected shard validation failure to abort")
+    except RuntimeError as exc:
+        assert "Shard plan validation failed" in str(exc)
+
+    assert coordinator.blackboard.verdict is not None
+    assert coordinator.blackboard.verdict.status == "abort"
+    assert "fallback" not in (coordinator.blackboard.verdict.rationale or "").lower()
+
+
 def test_finalize_shard_plan_creates_plan_when_missing(tmp_path) -> None:
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "doc.pdf"),

@@ -106,10 +106,10 @@ def test_toc_anchor_text_scan_whole_line_keyword_and_split_repair() -> None:
     assert false_matches == []
 
 
-def test_toc_extraction_degrades_to_empty_result_on_failure(tmp_path: Path) -> None:
+def test_toc_extraction_raises_on_pipeline_failure(tmp_path: Path) -> None:
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "standard.pdf"),
-        job_id="job-toc-fail-soft",
+        job_id="job-toc-fail-hard",
         output_dir=str(tmp_path / "profile"),
     )
     coordinator.blackboard.page_count = 1
@@ -120,14 +120,13 @@ def test_toc_extraction_degrades_to_empty_result_on_failure(tmp_path: Path) -> N
 
     coordinator._run_toc_extraction_pipeline = _fail_toc_extraction  # type: ignore[method-assign]
 
-    coordinator._ensure_toc_profile(strict=False)
-    toc_result = coordinator.blackboard.toc_result
+    try:
+        coordinator._ensure_toc_profile(strict=False)
+        raise AssertionError("expected TOC pipeline failure to raise")
+    except RuntimeError as exc:
+        assert "VLM JSON parse failed" in str(exc)
 
-    assert toc_result is not None
-    assert toc_result.method == "none"
-    assert toc_result.toc_pages == []
-    assert toc_result.failure_kind == "degraded"
-    assert "degraded" in toc_result.notes
+    assert coordinator.blackboard.toc_result is None
     assert coordinator.blackboard.toc_hierarchies is None
 
 

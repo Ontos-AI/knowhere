@@ -41,6 +41,6 @@ def test_nearby_second_toc_is_pending_not_merged_into_primary() -> None:
     )
     assert primary == [hierarchies[0]]
     assert pending == [hierarchies[1], hierarchies[2]]
-    assert summary["strategy"] == "first_primary_rest_pending"
+    assert summary["strategy"] == "earliest_forest_rest_pending"
     assert summary["primary_count"] == 1
     assert summary["pending_count"] == 2

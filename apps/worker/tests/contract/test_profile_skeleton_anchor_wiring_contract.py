@@ -28,7 +28,6 @@ from app.services.document_agent.structure.anchoring_primitives import (
     serialize_title_node,
 )
 from app.services.document_agent.structure.hierarchy_locator import (
-    ResolvedHierarchyRange,
     TitleMatch,
     TitleNode,
 )
@@ -269,7 +268,7 @@ def _pending_tocs() -> list[dict[str, object]]:
     ]
 
 
-def test_profile_classifies_pending_toc_before_finalize() -> None:
+def test_profile_classifies_pending_toc_after_finalize() -> None:
     ctx = _ctx(page_count=30)
     ctx.blackboard.toc_hierarchies = _pending_tocs()
     ctx.blackboard.toc_result = TocResult(method="vlm_batch", toc_pages=[1, 20, 21])
@@ -285,21 +284,6 @@ def test_profile_classifies_pending_toc_before_finalize() -> None:
         patch(
             "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
             return_value=([_node()], _anchor()),
-        ),
-        patch.dict(
-            run_toc_anchoring.__globals__,
-            {
-                "resolve_hierarchy_page_ranges": lambda *_args, **_kwargs: [
-                    ResolvedHierarchyRange(
-                        title="Ch1",
-                        level=1,
-                        start_page=2,
-                        end_page=19,
-                        path_titles=("Ch1",),
-                        match=None,
-                    )
-                ]
-            },
         ),
         patch(
             "app.services.document_agent.calibration.service.calibrate_offset",
@@ -338,21 +322,6 @@ def test_profile_skips_finalize_for_unresolvable_pending_toc() -> None:
         patch(
             "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
             return_value=([_node()], _anchor()),
-        ),
-        patch.dict(
-            run_toc_anchoring.__globals__,
-            {
-                "resolve_hierarchy_page_ranges": lambda *_args, **_kwargs: [
-                    ResolvedHierarchyRange(
-                        title="Ch1",
-                        level=1,
-                        start_page=2,
-                        end_page=19,
-                        path_titles=("Ch1",),
-                        match=None,
-                    )
-                ]
-            },
         ),
         patch(
             "app.services.document_agent.calibration.service.calibrate_offset",

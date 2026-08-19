@@ -31,9 +31,6 @@ from app.services.document_agent.structure.hierarchy_locator import (
     TitleMatch,
     TitleNode,
 )
-from app.services.document_agent.structure.hierarchy_locator import (
-    resolve_hierarchy_page_ranges,
-)
 from app.services.document_agent.structure.toc_anchoring import (
     classify_toc_relationship,
     run_toc_anchoring,
@@ -242,105 +239,78 @@ def test_two_contained_tocs_graft_in_order() -> None:
     assert titles == ["1.2", "1.3"]
 
 
-def _chaptered_primary_ranges(page_count: int) -> list[object]:
-    """Two-level primary tree: chapters own sub-sections, resolve emits leaves."""
-    nodes = [
-        TitleNode(
-            title="Ch1",
-            level=1,
-            printed_page=10,
-            children=[
-                TitleNode(title="1.1", level=2, printed_page=10),
-                TitleNode(title="1.2", level=2, printed_page=20),
-            ],
-        ),
-        TitleNode(
-            title="Ch2",
-            level=1,
-            printed_page=30,
-            children=[
-                TitleNode(title="2.1", level=2, printed_page=30),
-                TitleNode(title="2.2", level=2, printed_page=45),
-            ],
-        ),
-        TitleNode(
-            title="Ch3",
-            level=1,
-            printed_page=70,
-            children=[TitleNode(title="3.1", level=2, printed_page=70)],
-        ),
-    ]
-    body_pages = list(range(1, page_count + 1))
-    return resolve_hierarchy_page_ranges(
-        nodes,
-        page_count=page_count,
-        body_pages=body_pages,
-        match_overrides=_overrides(
-            {
-                ("Ch1",): 10,
-                ("Ch1", "1.1"): 10,
-                ("Ch1", "1.2"): 20,
-                ("Ch2",): 30,
-                ("Ch2", "2.1"): 30,
-                ("Ch2", "2.2"): 45,
-                ("Ch3",): 70,
-                ("Ch3", "3.1"): 70,
-            }
-        ),
-    )
-
-
-def _classify_span(start: int, end: int, *, page_count: int = 100) -> str:
-    return classify_toc_relationship(
-        offset=0,
-        nodes=[
-            TitleNode(title="first", level=1, printed_page=start),
-            TitleNode(title="last", level=1, printed_page=end),
-        ],
-        primary_ranges=_chaptered_primary_ranges(page_count),
-        page_count=page_count,
-    )
-
-
-def test_classify_contained_when_subtoc_spans_sibling_leaves_of_a_chapter() -> None:
-    # Middle chapter Ch2 spans [30, 70]; the sub-TOC crosses 2.1 and 2.2, so no
-    # single leaf range covers it.
-    assert _classify_span(32, 50) == "contained"
-
-
-def test_classify_contained_inside_a_single_leaf() -> None:
-    assert _classify_span(32, 40) == "contained"
-
-
-def test_classify_contained_for_first_chapter_subtoc() -> None:
-    assert _classify_span(12, 25) == "contained"
-
-
-def test_classify_parallel_when_span_leaves_primary_coverage() -> None:
-    assert _classify_span(95, 140) == "parallel"
-
-
-def test_classify_parallel_without_primary_ranges() -> None:
+def test_classify_contained_when_peer_span_covers_candidate() -> None:
     assert (
         classify_toc_relationship(
-            offset=0,
-            nodes=[TitleNode(title="App", level=1, printed_page=20)],
-            primary_ranges=[],
-            page_count=100,
+            candidate_span=(32, 50),
+            host_spans=[(10, 70)],
+        )
+        == "contained"
+    )
+
+
+def test_classify_contained_inside_tight_peer_span() -> None:
+    assert (
+        classify_toc_relationship(
+            candidate_span=(32, 40),
+            host_spans=[(30, 45), (10, 70)],
+        )
+        == "contained"
+    )
+
+
+def test_classify_parallel_when_no_peer_covers_span() -> None:
+    assert (
+        classify_toc_relationship(
+            candidate_span=(95, 140),
+            host_spans=[(10, 70)],
         )
         == "parallel"
     )
 
 
-def test_classify_unresolvable_when_offset_leaves_document() -> None:
+def test_classify_parallel_without_host_spans() -> None:
     assert (
         classify_toc_relationship(
-            offset=500,
-            nodes=[TitleNode(title="App", level=1, printed_page=20)],
-            primary_ranges=_chaptered_primary_ranges(100),
-            page_count=100,
+            candidate_span=(20, 22),
+            host_spans=[],
+        )
+        == "parallel"
+    )
+
+
+def test_classify_unresolvable_when_candidate_span_missing() -> None:
+    assert (
+        classify_toc_relationship(
+            candidate_span=None,
+            host_spans=[(10, 70)],
         )
         == "unresolvable"
+    )
+
+
+def test_classify_parallel_for_chapter_mini_tocs_without_extrapolation() -> None:
+    """Earliest chapter TOC evidenced [6,8] must not swallow later chapters."""
+    assert (
+        classify_toc_relationship(
+            candidate_span=(12, 24),
+            host_spans=[(6, 8)],
+        )
+        == "parallel"
+    )
+
+
+def test_find_tightest_host_prefers_smaller_span() -> None:
+    from app.services.document_agent.structure.toc_anchoring import (
+        find_tightest_containing_host,
+    )
+
+    assert (
+        find_tightest_containing_host(
+            (32, 40),
+            [("wide", (10, 70)), ("tight", (30, 45))],
+        )
+        == "tight"
     )
 
 
@@ -390,7 +360,6 @@ def test_parallel_pending_is_not_grafted() -> None:
         captured["body_pages"] = kwargs["body_pages"]
         return [primary], _anchor({("Ch1",): 2})
 
-    anchoring_globals = run_toc_anchoring.__globals__
     with (
         patch(
             "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
@@ -403,10 +372,6 @@ def test_parallel_pending_is_not_grafted() -> None:
         patch(
             "app.services.document_agent.calibration.procedure.pick_primary_offset",
             return_value=0,
-        ),
-        patch.dict(
-            anchoring_globals,
-            {"classify_toc_relationship": lambda **_kwargs: "parallel"},
         ),
         patch(
             "app.services.document_agent.calibration.procedure.finalize_calibration_result",
@@ -428,7 +393,10 @@ def test_profile_grafts_contained_and_keeps_original_pending() -> None:
         {
             "toc_range": [1, 1],
             "toc_range_unit": "page",
-            "toc_with_level": [{"heading": "第一章", "level": 1, "page_number": 10}],
+            "toc_with_level": [
+                {"heading": "第一章", "level": 1, "page_number": 10},
+                {"heading": "第二章", "level": 1, "page_number": 30},
+            ],
         },
         {
             "toc_range": [20, 21],
@@ -441,7 +409,10 @@ def test_profile_grafts_contained_and_keeps_original_pending() -> None:
     ]
     ctx.blackboard.toc_result = TocResult(method="vlm_batch", toc_pages=[1, 20, 21])
     ctx.blackboard.page_full_text_cache = {page: "body" for page in range(1, 51)}
-    primary = TitleNode(title="第一章", level=1, printed_page=10)
+    primary = [
+        TitleNode(title="第一章", level=1, printed_page=10),
+        TitleNode(title="第二章", level=1, printed_page=30),
+    ]
     contained = TitleNode(
         title="第一章",
         level=1,
@@ -449,11 +420,13 @@ def test_profile_grafts_contained_and_keeps_original_pending() -> None:
         children=[TitleNode(title="1.2", level=2, printed_page=12)],
     )
 
-    anchoring_globals = run_toc_anchoring.__globals__
     with (
         patch(
             "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
-            return_value=([primary], _anchor({("第一章",): 10})),
+            return_value=(
+                primary,
+                _anchor({("第一章",): 10, ("第二章",): 30}),
+            ),
         ),
         patch(
             "app.services.document_agent.calibration.service.calibrate_offset",
@@ -462,10 +435,6 @@ def test_profile_grafts_contained_and_keeps_original_pending() -> None:
         patch(
             "app.services.document_agent.calibration.procedure.pick_primary_offset",
             return_value=0,
-        ),
-        patch.dict(
-            anchoring_globals,
-            {"classify_toc_relationship": lambda **_kwargs: "contained"},
         ),
         patch(
             "app.services.document_agent.calibration.procedure.finalize_calibration_result",
@@ -481,6 +450,8 @@ def test_profile_grafts_contained_and_keeps_original_pending() -> None:
     assert ctx.blackboard.skeleton_nodes[0]["title"] == "第一章"
     assert ctx.blackboard.skeleton_nodes[0]["children"][0]["title"] == "1.2"
     record = ctx.blackboard.pending_skeleton_anchors[0]
+    assert record["relationship"] == "contained"
+    assert record["host"] == "root"
     assert record["grafted"] is True
     assert record["nodes"][0]["title"] == "第一章"
     assert "第一章 / 1.2" in ctx.blackboard.skeleton_anchor["match_overrides"]

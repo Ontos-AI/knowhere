@@ -181,8 +181,8 @@ class ProfileCoordinator:
     def _finalize_shard_plan(self) -> None:
         """Deterministic propose → validate → verdict.
 
-        Cut logic stays inside ``propose.shard_plan``. On invalid validation,
-        fall back to ``single_shard_plan`` and re-validate.
+        Cut logic stays inside ``propose.shard_plan``. Invalid validation aborts;
+        do not disguise a single-shard rewrite as a successful propose.
         """
         if self.blackboard.shard_plan is None:
             self._dispatch_anatomy_tool(tool_name="propose.shard_plan")
@@ -198,23 +198,9 @@ class ProfileCoordinator:
             )
             return
 
-        # Validation failed: fallback to single shard instead of aborting.
-        self.blackboard.shard_plan = single_shard_plan(self.blackboard.page_count)
-        self.blackboard.validation_report = None
-        self._dispatch_anatomy_tool(tool_name="validate.anatomy_map")
-        if (self.blackboard.validation_report or {}).get("valid") is True:
-            self._dispatch_anatomy_tool(
-                tool_name="verdict",
-                tool_args={
-                    "status": "success",
-                    "rationale": "Validation succeeded; finishing profile run.",
-                },
-            )
-            return
-
         self.blackboard.verdict = ProfileVerdict(
             status="abort",
-            rationale="Shard validation failed after single-shard fallback.",
+            rationale="Shard plan validation failed.",
         )
         raise RuntimeError(
             f"profile aborted: {self.blackboard.verdict.rationale}"
@@ -367,18 +353,13 @@ class ProfileCoordinator:
             self._run_toc_extraction_pipeline()
         except Exception as exc:
             logger.warning(
-                "[document_agent] TOC profiling failed, "
-                "degrading to empty TOC: {}",
+                "[document_agent] TOC profiling failed: {}",
                 exc,
             )
-            self.blackboard.toc_result = TocResult(
-                method="none",
-                notes=f"degraded: {type(exc).__name__}: {exc}",
-                failure_kind="degraded",
-            )
+            self.blackboard.toc_result = None
             self.blackboard.toc_hierarchies = None
             self._clear_toc_anchor_state()
-            return
+            raise
 
         if self.blackboard.toc_result is None:
             self.blackboard.toc_result = TocResult(
