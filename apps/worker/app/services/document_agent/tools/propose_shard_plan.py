@@ -253,7 +253,6 @@ def _resolve_hierarchy_forests(
         return []
 
     page_count = ctx.blackboard.page_count
-    page_texts = dict(ctx.blackboard.page_full_text_cache or {})
     toc_result = ctx.blackboard.toc_result
     body_pages = body_pages_excluding_toc(
         getattr(toc_result, "toc_pages", None) if toc_result else None,
@@ -298,7 +297,6 @@ def _resolve_hierarchy_forests(
     primary_ranges = resolve_hierarchy_page_ranges(
         nodes,
         page_count=primary_page_count,
-        page_texts=page_texts,
         body_pages=primary_body_pages,
         match_overrides=anchor.match_overrides,
     )
@@ -326,7 +324,6 @@ def _resolve_hierarchy_forests(
         pending_ranges = resolve_hierarchy_page_ranges(
             resolve_nodes,
             page_count=toc_scope_end,
-            page_texts=page_texts,
             body_pages=toc_body_pages,
             match_overrides=pending_anchor.match_overrides,
         )

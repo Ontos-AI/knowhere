@@ -411,10 +411,10 @@ def _resolve_first_toc_boundary(toc_hierarchies=None, first_toc_ele_num=None):
     """Resolve the earliest available first-TOC boundary across coordinate sources.
 
     Page-based TOC boundaries (``toc_range_unit == "page"``, produced by
-    DOC_AGENT/VLM for PDF/PPT) are in *page numbers*, NOT line/element IDs.
+    PROFILE/VLM for PDF/PPT) are in *page numbers*, NOT line/element IDs.
     They must NOT be used for pre-TOC row removal because ``raw_preds["id"]``
     are line indices that restart from 0 in each shard.  For these documents
-    the DOC_AGENT has already handled shard splitting around TOC pages.
+    PROFILE has already handled shard splitting around TOC pages.
     """
     toc_range_start = None
     toc_unit = None
@@ -428,7 +428,7 @@ def _resolve_first_toc_boundary(toc_hierarchies=None, first_toc_ele_num=None):
     if toc_unit == "page":
         logger.debug(
             "📌 Skipping pre-TOC removal: TOC uses page-based coordinates "
-            "(DOC_AGENT already handled shard boundaries)"
+            "(PROFILE already handled shard boundaries)"
         )
         return None
 

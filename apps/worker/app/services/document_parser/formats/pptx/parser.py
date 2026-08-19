@@ -312,7 +312,7 @@ def parse_pptx(
     job_id=None,
 ):
     """
-    Deprecated: prefer page_memory track for PPTX processing.
+    Chunk-track PPTX parser (API v1). Prefer page_memory for v2 .pptx.
 
     PPTX parsing entrance, aligned with parse_pdfs / parse_docx pattern.
 

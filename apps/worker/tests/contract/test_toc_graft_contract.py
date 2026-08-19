@@ -67,14 +67,12 @@ def _graft(
     page_count: int = 50,
 ) -> object:
     body_pages = list(range(1, page_count + 1))
-    page_texts = {page: "" for page in body_pages}
     return graft_contained_toc(
         primary_nodes=primary,
         primary_overrides=_overrides(primary_pages),
         contained_nodes=contained,
         contained_overrides=_overrides(contained_pages),
         page_count=page_count,
-        page_texts=page_texts,
         body_pages=body_pages,
     )
 
@@ -162,7 +160,6 @@ def test_dedup_ignores_title_and_keeps_primary_override() -> None:
         ],
         contained_overrides=_overrides({("Chapter 1",): 10, ("Chapter 1", "1.2"): 12}),
         page_count=50,
-        page_texts={page: "" for page in body_pages},
         body_pages=body_pages,
     )
 
@@ -240,7 +237,6 @@ def test_two_contained_tocs_graft_in_order() -> None:
         ],
         contained_overrides=_overrides({("第一章",): 10, ("第一章", "1.3"): 20}),
         page_count=50,
-        page_texts={page: "" for page in range(1, 51)},
         body_pages=list(range(1, 51)),
     )
 
@@ -280,7 +276,6 @@ def _chaptered_primary_ranges(page_count: int) -> list[object]:
     return resolve_hierarchy_page_ranges(
         nodes,
         page_count=page_count,
-        page_texts={page: "" for page in body_pages},
         body_pages=body_pages,
         match_overrides=_overrides(
             {

@@ -99,7 +99,6 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
         primary_ranges = resolve_hierarchy_page_ranges(
             resolve_nodes,
             page_count=page_count,
-            page_texts=page_texts,
             body_pages=body_pages,
             match_overrides=skeleton_anchor.match_overrides,
         )
@@ -116,7 +115,6 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
             skeleton_anchor=skeleton_anchor,
             pending_records=pending_records,
             page_count=page_count,
-            page_texts=page_texts,
             body_pages=body_pages,
         )
     ctx.blackboard.skeleton_anchor = serialize_skeleton_anchor(skeleton_anchor)
@@ -545,7 +543,6 @@ def _graft_contained_pending(
     skeleton_anchor: SkeletonAnchor,
     pending_records: list[dict[str, Any]],
     page_count: int,
-    page_texts: dict[int, str],
     body_pages: list[int],
 ) -> tuple[list[TitleNode], SkeletonAnchor]:
     from app.services.document_agent.structure.toc_graft import graft_contained_toc
@@ -571,7 +568,6 @@ def _graft_contained_pending(
             contained_nodes=contained_nodes,
             contained_overrides=contained_anchor.match_overrides,
             page_count=page_count,
-            page_texts=page_texts,
             body_pages=body_pages,
         )
         nodes = grafted.nodes

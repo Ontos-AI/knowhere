@@ -158,7 +158,6 @@ def extract_section_skeletons(
     ranges = resolve_hierarchy_page_ranges(
         resolve_nodes,
         page_count=primary_page_count,
-        page_texts=page_texts,
         body_pages=primary_body_pages,
         match_overrides=match_overrides,
     )
@@ -350,7 +349,6 @@ def _resolve_pending_tocs(
         ranges = resolve_hierarchy_page_ranges(
             resolve_nodes,
             page_count=toc_scope_end,
-            page_texts=page_texts,
             body_pages=toc_body_pages,
             match_overrides=match_overrides,
         )

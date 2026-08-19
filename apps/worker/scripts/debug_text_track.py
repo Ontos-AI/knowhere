@@ -3,7 +3,7 @@
 """Staged text-track document parsing debug script.
 
 Supports PDF (shard-aware), DOCX, and MD formats with four breakpoints:
-  1. profile        — production-aligned DOC_AGENT profile:
+  1. profile        — production-aligned PROFILE:
                       run_coarse → lightweight (≤MAX) / structural (>MAX)
   2. mineru         — shard splitting + MinerU extraction
   3. hierarchy      — heading prediction → merged hierarchy tree
@@ -75,7 +75,7 @@ def _stage_profile(pdf_path: str, filename: str, out_dir: Path, model: str | Non
     from shared.core.config import settings
 
     logger.info("=" * 70)
-    logger.info("🧬 Stage 1: DOC_AGENT profile (production-aligned)")
+    logger.info("🧬 Stage 1: PROFILE (production-aligned)")
     logger.info("=" * 70)
 
     doc_agent_dir = out_dir / "_doc_agent"
@@ -292,11 +292,10 @@ def _stage_mineru_pdf(
 ) -> tuple[list[str], float]:
     """Split PDF into shards and run MinerU extraction only (no heading prediction)."""
     from app.services.document_parser.formats.pdf.shard_splitter import (
-        bin_pack_shards,
+        map_agent_shards,
         split_pdf,
     )
     from app.services.document_parser.providers.mineru.pdf_service import parse_via_full
-    from shared.core.config import settings
 
     logger.info("=" * 70)
     logger.info("🔄 Stage 2: Shard splitting + MinerU extraction")
@@ -309,8 +308,7 @@ def _stage_mineru_pdf(
     if anatomy.toc_result and anatomy.toc_result.toc_pages:
         toc_pages = set(anatomy.toc_result.toc_pages)
 
-    max_pages = int(os.environ.get("MAX_PDF_PAGE_LIMIT", getattr(settings, "MAX_PDF_PAGE_LIMIT", 200)))
-    merged_shards = bin_pack_shards(agent_shards, max_pages=max_pages)
+    merged_shards = map_agent_shards(agent_shards)
     logger.info("   {} agent shards → {} MinerU shards", len(agent_shards), len(merged_shards))
 
     work_dir = str(out_dir / "_shards")
@@ -362,8 +360,7 @@ def _stage_hierarchy_pdf(
         merge_images,
         merge_shard_lines,
     )
-    from app.services.document_parser.formats.pdf.shard_splitter import bin_pack_shards
-    from shared.core.config import settings
+    from app.services.document_parser.formats.pdf.shard_splitter import map_agent_shards
 
     logger.info("=" * 70)
     logger.info("🔬 Stage 3: Per-shard heading prediction → merged hierarchy")
@@ -372,8 +369,7 @@ def _stage_hierarchy_pdf(
     t0 = time.time()
     agent_shards = anatomy.shard_plan.shards
 
-    max_pages = int(os.environ.get("MAX_PDF_PAGE_LIMIT", getattr(settings, "MAX_PDF_PAGE_LIMIT", 200)))
-    merged_shards = bin_pack_shards(agent_shards, max_pages=max_pages)
+    merged_shards = map_agent_shards(agent_shards)
 
     work_dir = out_dir / "_shards"
 

@@ -1,4 +1,4 @@
-"""Agent tool registry with blackboard-based preconditions."""
+"""Profile tool registry with blackboard-based preconditions."""
 
 from __future__ import annotations
 

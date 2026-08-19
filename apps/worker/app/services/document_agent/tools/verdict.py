@@ -1,4 +1,4 @@
-"""Agent verdict tool."""
+"""Profile verdict tool."""
 
 from __future__ import annotations
 

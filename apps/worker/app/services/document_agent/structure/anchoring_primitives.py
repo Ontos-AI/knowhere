@@ -953,7 +953,6 @@ def serialize_title_node(node: TitleNode) -> dict[str, Any]:
         "printed_page": node.printed_page,
         "printed_label": node.printed_label,
         "page_kind": node.page_kind,
-        "physical_page_hint": node.physical_page_hint,
         "children": [serialize_title_node(child) for child in node.children],
     }
 
@@ -966,7 +965,6 @@ def deserialize_title_node(data: dict[str, Any]) -> TitleNode:
         if isinstance(child, dict)
     ]
     printed_page = data.get("printed_page")
-    physical_page_hint = data.get("physical_page_hint")
     return TitleNode(
         title=str(data.get("title") or ""),
         level=int(data.get("level") or 1),
@@ -977,9 +975,6 @@ def deserialize_title_node(data: dict[str, Any]) -> TitleNode:
         page_kind=data.get("page_kind")
         if isinstance(data.get("page_kind"), str)
         else None,
-        physical_page_hint=(
-            None if physical_page_hint is None else int(physical_page_hint)
-        ),
         children=children,
     )
 

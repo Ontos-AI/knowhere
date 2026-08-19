@@ -32,7 +32,6 @@ def graft_contained_toc(
     contained_nodes: list[TitleNode],
     contained_overrides: dict[tuple[str, ...], TitleMatch],
     page_count: int,
-    page_texts: dict[int, str],
     body_pages: list[int],
 ) -> ContainedGraftResult:
     """Merge one contained TOC forest into the current primary tree."""
@@ -41,7 +40,6 @@ def graft_contained_toc(
     ranges = resolve_hierarchy_page_ranges(
         primary_nodes,
         page_count=page_count,
-        page_texts=page_texts,
         body_pages=body_pages,
         match_overrides=overrides,
     )

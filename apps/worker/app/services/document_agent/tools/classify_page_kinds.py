@@ -15,10 +15,20 @@ def _label_feature(feature: PageFeature) -> PageLabel:
         return PageLabel(
             page=page,
             kind="landscape",
-            confidence=0.78,
-            evidence={"width": feature.width, "height": feature.height},
+            confidence=1.0,
+            evidence={
+                "source": "geometry",
+                "rule": "width_gt_height",
+                "width": feature.width,
+                "height": feature.height,
+            },
         )
-    return PageLabel(page=page, kind="normal", confidence=0.65, evidence={})
+    return PageLabel(
+        page=page,
+        kind="normal",
+        confidence=1.0,
+        evidence={"source": "geometry", "rule": "width_le_height"},
+    )
 
 
 def classify_page_kinds(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
