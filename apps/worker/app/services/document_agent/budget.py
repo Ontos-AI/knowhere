@@ -9,6 +9,7 @@ from typing import Literal
 
 BudgetStage = Literal[
     "toc_confirm",
+    "toc_extract",
     "coarse_profile",
     "calibration",
     "page_tagging",
@@ -43,7 +44,11 @@ class StageUsage:
 
 
 class BudgetTracker:
-    """A minimal synchronous ledger with plan and visual pools."""
+    """A minimal synchronous ledger with plan and visual pools.
+
+    When ``enforce_limits`` is False, reserves always succeed and usage is
+    recorded without capacity/stage caps (PROFILE token accounting mode).
+    """
 
     def __init__(
         self,
@@ -51,8 +56,10 @@ class BudgetTracker:
         plan_budget: int = 5000,
         visual_budget: int = 8000,
         visual_stage_envelopes: dict[str, StageEnvelope] | None = None,
+        enforce_limits: bool = True,
     ) -> None:
         self._lock = threading.Lock()
+        self._enforce_limits = bool(enforce_limits)
         self._plan = BudgetPool(capacity=max(int(plan_budget), 0))
         self._visual = BudgetPool(capacity=max(int(visual_budget), 0))
         self._visual_stage_envelopes = visual_stage_envelopes or {}
@@ -66,10 +73,13 @@ class BudgetTracker:
         est = max(int(est), 0)
         with self._lock:
             budget_pool = self._pool(pool)
-            if budget_pool.remaining < est:
-                return False
-            if pool == "visual" and stage and not self._can_reserve_visual_stage(stage, est):
-                return False
+            if self._enforce_limits:
+                if budget_pool.remaining < est:
+                    return False
+                if pool == "visual" and stage and not self._can_reserve_visual_stage(
+                    stage, est
+                ):
+                    return False
             budget_pool.reserved += est
             if pool == "visual" and stage:
                 self._stage_usage(stage).reserved += est
@@ -90,7 +100,10 @@ class BudgetTracker:
         with self._lock:
             budget_pool = self._pool(pool)
             budget_pool.reserved = max(budget_pool.reserved - est, 0)
-            budget_pool.used = min(budget_pool.capacity, budget_pool.used + actual)
+            if self._enforce_limits:
+                budget_pool.used = min(budget_pool.capacity, budget_pool.used + actual)
+            else:
+                budget_pool.used += actual
             if pool == "visual" and stage:
                 stage_usage = self._stage_usage(stage)
                 stage_usage.reserved = max(stage_usage.reserved - est, 0)
@@ -136,7 +149,14 @@ class BudgetTracker:
 
         return self._visual.remaining - est >= reserved_by_other_stages
 
-    def _pool_snapshot(self, pool: BudgetPool) -> dict[str, int]:
+    def _pool_snapshot(self, pool: BudgetPool) -> dict[str, object]:
+        if not self._enforce_limits:
+            return {
+                "capacity": None,
+                "used": pool.used,
+                "reserved": pool.reserved,
+                "remaining": None,
+            }
         return {
             "capacity": pool.capacity,
             "used": pool.used,
@@ -147,6 +167,7 @@ class BudgetTracker:
     def snapshot(self) -> dict[str, object]:
         with self._lock:
             return {
+                "enforce_limits": self._enforce_limits,
                 "plan": self._pool_snapshot(self._plan),
                 "visual": self._pool_snapshot(self._visual),
                 "visual_stages": {
@@ -181,4 +202,5 @@ class BudgetTracker:
                 plan_budget=int(self._plan.remaining * ratio),
                 visual_budget=int(self._visual.remaining * ratio),
                 visual_stage_envelopes=child_envelopes,
+                enforce_limits=self._enforce_limits,
             )

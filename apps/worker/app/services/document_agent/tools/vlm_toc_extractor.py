@@ -153,6 +153,8 @@ def vlm_extract_toc_batch(
     page_pngs: list[tuple[int, str]],
     model: str,
     previous_entries: list[dict[str, Any]] | None = None,
+    budget: Any | None = None,
+    visual_stage: str = "toc_extract",
 ) -> BatchTocResult:
     """Extract TOC entries from a batch of page images in a single VLM call.
 
@@ -160,12 +162,15 @@ def vlm_extract_toc_batch(
         page_pngs: list of (page_number, png_path) pairs, in page order.
         model: VLM model name.
         previous_entries: entries from prior batches, for continuation context.
+        budget: optional PROFILE budget tracker for token accounting.
+        visual_stage: visual budget stage name for this call.
 
     Returns:
         BatchTocResult with per-page classification and extracted entries.
     """
     from loguru import logger
     from shared.services.ai.llm_overrides import get_vision_client
+    from shared.utils.token_estimate import estimate_tokens
 
     if not page_pngs:
         return BatchTocResult(
@@ -192,17 +197,48 @@ def vlm_extract_toc_batch(
             }
         )
 
+    est = estimate_tokens(prompt_text) + len(page_pngs) * 800
+    if budget is not None and not budget.try_reserve(
+        "visual", est, stage=visual_stage
+    ):
+        logger.warning(
+            "[vlm_toc_batch] visual budget exhausted pages={}",
+            [page for page, _ in page_pngs],
+        )
+        return BatchTocResult(
+            page_results=[
+                BatchPageResult(page=page, is_toc=False, entries=[])
+                for page, _ in page_pngs
+            ],
+            toc_pages=[],
+            non_toc_pages=[page for page, _ in page_pngs],
+            all_entries=[],
+            meta={"error": f"{visual_stage} visual budget exhausted"},
+        )
+
     start = time.monotonic()
-    client, resolved_model = get_vision_client(requested_model=model)
-    model = resolved_model or model
-    raw, usage = client.chat_completion_with_usage(
-        messages=cast(Any, [{"role": "user", "content": content_parts}]),
-        model=model,
-        temperature=0.1,
-        max_tokens=TOC_VLM_MAX_TOKENS,
-        response_format={"type": "json_object"},
-        usage_task="document_agent.vlm_toc_batch",
-    )
+    try:
+        client, resolved_model = get_vision_client(requested_model=model)
+        model = resolved_model or model
+        raw, usage = client.chat_completion_with_usage(
+            messages=cast(Any, [{"role": "user", "content": content_parts}]),
+            model=model,
+            temperature=0.1,
+            max_tokens=TOC_VLM_MAX_TOKENS,
+            response_format={"type": "json_object"},
+            usage_task="document_agent.vlm_toc_batch",
+        )
+        if budget is not None:
+            budget.commit(
+                "visual",
+                actual=int((usage or {}).get("total_tokens") or est),
+                est=est,
+                stage=visual_stage,
+            )
+    except Exception:
+        if budget is not None:
+            budget.refund("visual", est=est, stage=visual_stage)
+        raise
     elapsed_ms = int((time.monotonic() - start) * 1000)
 
     data = json.loads(raw)

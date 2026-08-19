@@ -84,22 +84,26 @@ def _seed_preprobed_pages(
     coordinator.blackboard.global_signals["assets_probed"] = True
 
 
-def test_toc_anchor_text_scan_matches_full_page_and_cross_line_keywords() -> None:
+def test_toc_anchor_text_scan_whole_line_keyword_and_split_repair() -> None:
     late_lines = [f"body line {idx}" for idx in range(60)] + ["目录"]
     split_lines = ["Table of", "Con", "tents"]
+    false_positive_lines = [
+        "Commentary provides guidance on minimum cement contents in different situations.",
+        "The basic contents of a typical contract document are shown below:",
+    ]
 
-    late_matches = toc_anchor_tool._find_toc_text_matches(  # noqa: SLF001
-        late_lines,
-        cross_line_window=6,
-    )
-    split_matches = toc_anchor_tool._find_toc_text_matches(  # noqa: SLF001
-        split_lines,
-        cross_line_window=6,
+    late_matches = toc_anchor_tool._find_toc_text_matches(late_lines)  # noqa: SLF001
+    split_matches = toc_anchor_tool._find_toc_text_matches(split_lines)  # noqa: SLF001
+    false_matches = toc_anchor_tool._find_toc_text_matches(  # noqa: SLF001
+        false_positive_lines
     )
 
     assert late_matches[0]["line_index"] == 60
     assert late_matches[0]["match_kind"] == "keyword:目录"
-    assert split_matches[0]["match_kind"] == "cross_line:tableofcontents"
+    assert split_matches[0]["match_kind"] == "keyword:tableofcontents"
+    assert split_matches[0]["line_index"] == 0
+    assert split_matches[0]["line_end_index"] == 2
+    assert false_matches == []
 
 
 def test_toc_extraction_degrades_to_empty_result_on_failure(tmp_path: Path) -> None:

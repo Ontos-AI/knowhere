@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from loguru import logger
@@ -46,35 +45,18 @@ class ProfileCoordinator:
     ) -> None:
         self.state = ProfileState.INIT
         self.blackboard = ProfileBlackboard()
+        # PROFILE records token usage by stage but does not enforce caps.
         self.budget = BudgetTracker(
-            plan_budget=int(os.environ.get("PARSE_PROFILE_PLAN_BUDGET", "50000")),
-            visual_budget=int(os.environ.get("PARSE_PROFILE_VISUAL_BUDGET", "120000")),
+            plan_budget=0,
+            visual_budget=0,
             visual_stage_envelopes={
-                "toc_confirm": StageEnvelope(
-                    min_guarantee=int(
-                        os.environ.get("PARSE_PROFILE_TOC_CONFIRM_MIN_BUDGET", "8000")
-                    ),
-                    cap=int(os.environ.get("PARSE_PROFILE_TOC_CONFIRM_CAP", "24000")),
-                ),
-                "coarse_profile": StageEnvelope(
-                    min_guarantee=int(
-                        os.environ.get("PARSE_PROFILE_COARSE_PROFILE_MIN_BUDGET", "12000")
-                    ),
-                    cap=int(os.environ.get("PARSE_PROFILE_COARSE_PROFILE_CAP", "36000")),
-                ),
-                "calibration": StageEnvelope(
-                    min_guarantee=int(
-                        os.environ.get("PARSE_PROFILE_CALIBRATION_MIN_BUDGET", "12000")
-                    ),
-                    cap=int(os.environ.get("PARSE_PROFILE_CALIBRATION_CAP", "40000")),
-                ),
-                "page_tagging": StageEnvelope(
-                    min_guarantee=int(
-                        os.environ.get("PARSE_PROFILE_PAGE_TAGGING_MIN_BUDGET", "0")
-                    ),
-                    cap=int(os.environ.get("PARSE_PROFILE_PAGE_TAGGING_CAP", "0")) or None,
-                ),
+                "toc_confirm": StageEnvelope(),
+                "toc_extract": StageEnvelope(),
+                "coarse_profile": StageEnvelope(),
+                "calibration": StageEnvelope(),
+                "page_tagging": StageEnvelope(),
             },
+            enforce_limits=False,
         )
         effective_settings = settings or {}
         if model:

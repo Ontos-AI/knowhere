@@ -59,6 +59,31 @@ def test_visual_stage_cap_rejects_overage_while_legacy_calls_remain_supported() 
     assert snapshot["visual_stages"]["toc_confirm"]["used"] == 0
 
 
+def test_record_only_budget_never_rejects_and_accumulates_usage() -> None:
+    budget = BudgetTracker(
+        plan_budget=0,
+        visual_budget=0,
+        visual_stage_envelopes={
+            "toc_confirm": StageEnvelope(),
+            "calibration": StageEnvelope(),
+        },
+        enforce_limits=False,
+    )
+
+    assert budget.try_reserve("visual", 50_000, stage="toc_confirm") is True
+    budget.commit("visual", actual=12_345, est=50_000, stage="toc_confirm")
+    assert budget.try_reserve("visual", 90_000, stage="calibration") is True
+    budget.commit("visual", actual=67_890, est=90_000, stage="calibration")
+
+    snapshot = budget.snapshot()
+    assert snapshot["enforce_limits"] is False
+    assert snapshot["visual"]["capacity"] is None
+    assert snapshot["visual"]["remaining"] is None
+    assert snapshot["visual"]["used"] == 12_345 + 67_890
+    assert snapshot["visual_stages"]["toc_confirm"]["used"] == 12_345
+    assert snapshot["visual_stages"]["calibration"]["used"] == 67_890
+
+
 def test_dataframe_converter_accepts_page_chunks_with_extra_metadata() -> None:
     df = pd.DataFrame(
         [

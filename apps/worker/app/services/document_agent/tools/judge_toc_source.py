@@ -133,6 +133,16 @@ def judge_toc_source(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         f"Source printed_toc:\n{printed_toc}\n"
     )
 
+    from shared.utils.token_estimate import estimate_tokens
+
+    est = estimate_tokens(prompt)
+    if ctx.budget is not None and not ctx.budget.try_reserve("plan", est):
+        return ToolResult(
+            status="error",
+            error="judge.toc_source plan budget exhausted",
+            latency_ms=int((time.monotonic() - start) * 1000),
+        )
+
     try:
         from shared.services.ai.llm_overrides import get_text_client
 
@@ -146,7 +156,15 @@ def judge_toc_source(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             usage_task="document_agent.judge_toc_source",
         )
         payload = json.loads(raw) if raw else {}
+        if ctx.budget is not None:
+            ctx.budget.commit(
+                "plan",
+                actual=int((usage or {}).get("total_tokens") or est),
+                est=est,
+            )
     except Exception as exc:
+        if ctx.budget is not None:
+            ctx.budget.refund("plan", est=est)
         logger.warning("[judge.toc_source] LLM failed: {}", exc)
         return ToolResult(
             status="error",

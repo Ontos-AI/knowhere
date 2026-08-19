@@ -384,6 +384,7 @@ def _extract_region_for_anchor(
     dpi: int,
     model: str,
     render_lock: Any,
+    budget: Any | None = None,
 ) -> _TocRegionResult:
     """Expand + extract for one confirmed TOC start.
 
@@ -440,6 +441,7 @@ def _extract_region_for_anchor(
                 page_pngs=page_pngs,
                 model=model,
                 previous_entries=region_entries if region_entries else None,
+                budget=budget,
             )
             batch_meta.append(batch_result.meta)
             region_entries.extend(batch_result.all_entries)
@@ -513,6 +515,7 @@ def _extract_regions_for_confirmed_anchors(
     output_dir: str,
     dpi: int,
     model: str,
+    budget: Any | None = None,
 ) -> list[_TocRegionResult]:
     """Phase 2: concurrent VLM per start; serial PyMuPDF renders across starts."""
     if not confirmed:
@@ -540,6 +543,7 @@ def _extract_regions_for_confirmed_anchors(
             dpi=dpi,
             model=model,
             render_lock=render_lock,
+            budget=budget,
         )
         for anchor in confirmed
     ]
@@ -675,6 +679,7 @@ def extract_toc_with_boundaries(
         output_dir=output_dir,
         dpi=dpi,
         model=model,
+        budget=ctx.budget,
     )
 
     all_entries: list[dict[str, Any]] = []

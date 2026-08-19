@@ -96,6 +96,7 @@ def test_extract_regions_runs_per_anchor_and_merges_in_page_order(
         page_pngs: list[tuple[int, str]],
         model: str,
         previous_entries: list[dict[str, Any]] | None = None,
+        **_kwargs: Any,
     ) -> BatchTocResult:
         first_page = page_pngs[0][0]
         anchor = _anchor_from_png(page_pngs[0][1])
@@ -160,6 +161,7 @@ def test_extract_regions_keeps_success_when_one_anchor_fails(
         page_pngs: list[tuple[int, str]],
         model: str,
         previous_entries: list[dict[str, Any]] | None = None,
+        **_kwargs: Any,
     ) -> BatchTocResult:
         anchor = _anchor_from_png(page_pngs[0][1])
         if anchor == 40:
@@ -231,6 +233,7 @@ def test_phase2_serial_batch_render_with_concurrent_vlm(
         page_pngs: list[tuple[int, str]],
         model: str,
         previous_entries: list[dict[str, Any]] | None = None,
+        **_kwargs: Any,
     ) -> BatchTocResult:
         nonlocal vlm_active, vlm_max
         vlm_active += 1
