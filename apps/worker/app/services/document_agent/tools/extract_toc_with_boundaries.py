@@ -31,6 +31,7 @@ from loguru import logger
 # -- Constants -----------------------------------------------------------------
 
 BOUNDARY_STEP_PAGES = 5
+TOC_VLM_CONCURRENCY = 10
 MAX_BOUNDARY_ROUNDS = 6
 MAX_TOC_PAGES = BOUNDARY_STEP_PAGES * MAX_BOUNDARY_ROUNDS  # 30
 
@@ -224,10 +225,10 @@ def _vlm_confirm_anchors(
         len(anchor_pages),
         len(chunks),
         BOUNDARY_STEP_PAGES,
-        min(BOUNDARY_STEP_PAGES, len(chunks)),
+        min(TOC_VLM_CONCURRENCY, len(chunks)),
     )
 
-    pool = GeventPool(size=min(BOUNDARY_STEP_PAGES, len(chunks)))
+    pool = GeventPool(size=min(TOC_VLM_CONCURRENCY, len(chunks)))
     jobs = [
         pool.spawn(_confirm_anchor_chunk, chunk, model=model)
         for chunk in chunks
@@ -498,7 +499,7 @@ def _extract_regions_for_confirmed_anchors(
     from gevent.lock import Semaphore
     from gevent.pool import Pool as GeventPool
 
-    pool_size = min(BOUNDARY_STEP_PAGES, len(confirmed))
+    pool_size = min(TOC_VLM_CONCURRENCY, len(confirmed))
     render_lock = Semaphore(1)
     logger.info(
         "[extract.toc] Phase 2 extract: {} confirmed starts, "

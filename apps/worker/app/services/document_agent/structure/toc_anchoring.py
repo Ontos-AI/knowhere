@@ -34,6 +34,7 @@ from app.services.document_agent.structure.hierarchy_locator import (
 
 _FRONT_TOC_REGION_GAP_PAGES = 5
 _LOG_PREFIX = "[profile.toc_anchoring]"
+PENDING_TOC_CALIBRATION_CONCURRENCY = 10
 
 
 def run_toc_anchoring(ctx: ToolContext) -> None:
@@ -433,6 +434,84 @@ def classify_toc_relationship(
     return "contained" if host is not None else "parallel"
 
 
+def _anchor_one_pending_toc(
+    *,
+    index: int,
+    pending_toc: dict[str, Any],
+    pending_tocs: list[dict[str, Any]],
+    ctx: ToolContext,
+    page_texts: dict[int, str],
+    page_count: int,
+    body_pages: list[int],
+    primary_ranges: list[ResolvedHierarchyRange],
+) -> dict[str, Any] | None:
+    from app.services.document_agent.calibration.procedure import (
+        finalize_calibration_result,
+        pick_primary_offset,
+    )
+    from app.services.document_agent.calibration.service import (
+        calibrate_offset,
+    )
+
+    nodes = extract_toc_nodes([pending_toc])
+    if not nodes:
+        return None
+    nodes = collapse_intermediate_single_child_chains(nodes)
+    toc_scope_end, toc_body_pages = pending_toc_body_scope(
+        pending_tocs=pending_tocs,
+        index=index,
+        page_count=page_count,
+        body_pages=body_pages,
+    )
+    phase1 = calibrate_offset(
+        nodes=nodes,
+        toc_hierarchies=[pending_toc],
+        ctx=ctx,
+        page_texts=page_texts,
+        page_count=toc_scope_end,
+    )
+    offset = pick_primary_offset(phase1)
+    if offset is None:
+        logger.info(
+            "{} pending TOC toc_range={}: calibration failed, skipping",
+            _LOG_PREFIX,
+            pending_toc.get("toc_range"),
+        )
+        return None
+    relationship = classify_toc_relationship(
+        offset=offset,
+        nodes=nodes,
+        primary_ranges=primary_ranges,
+        page_count=page_count,
+    )
+    if relationship == "unresolvable":
+        logger.info(
+            "{} pending TOC toc_range={}: unresolvable, skipping",
+            _LOG_PREFIX,
+            pending_toc.get("toc_range"),
+        )
+        return {
+            "toc": pending_toc,
+            "relationship": relationship,
+        }
+    resolve_nodes, skeleton_anchor, _finalized = finalize_calibration_result(
+        result=phase1,
+        entries=list(pending_toc.get("toc_with_level") or []),
+        toc_hierarchies=[pending_toc],
+        ctx=ctx,
+        page_count=toc_scope_end,
+        page_texts=page_texts,
+        body_pages=toc_body_pages,
+        nodes=nodes,
+    )
+    return {
+        "toc": pending_toc,
+        "relationship": relationship,
+        "nodes": [serialize_title_node(node) for node in resolve_nodes],
+        "skeleton_anchor": serialize_skeleton_anchor(skeleton_anchor),
+    }
+
+
 def _anchor_pending_tocs(
     *,
     pending_tocs: list[dict[str, Any]],
@@ -442,78 +521,44 @@ def _anchor_pending_tocs(
     body_pages: list[int],
     primary_ranges: list[ResolvedHierarchyRange],
 ) -> list[dict[str, Any]]:
-    from app.services.document_agent.calibration.procedure import (
-        finalize_calibration_result,
-        pick_primary_offset,
-    )
-    from app.services.document_agent.calibration.service import (
-        calibrate_offset,
-    )
+    if not pending_tocs:
+        return []
 
-    records: list[dict[str, Any]] = []
-    for i, pending_toc in enumerate(pending_tocs):
-        nodes = extract_toc_nodes([pending_toc])
-        if not nodes:
-            continue
-        nodes = collapse_intermediate_single_child_chains(nodes)
-        toc_scope_end, toc_body_pages = pending_toc_body_scope(
-            pending_tocs=pending_tocs,
+    from gevent.pool import Pool as GeventPool
+
+    pool_size = min(PENDING_TOC_CALIBRATION_CONCURRENCY, len(pending_tocs))
+    logger.info(
+        "{} pending TOC calibration: count={} concurrency={}",
+        _LOG_PREFIX,
+        len(pending_tocs),
+        pool_size,
+    )
+    pool = GeventPool(size=pool_size)
+    jobs = [
+        pool.spawn(
+            _anchor_one_pending_toc,
             index=i,
+            pending_toc=pending_toc,
+            pending_tocs=pending_tocs,
+            ctx=ctx,
+            page_texts=page_texts,
             page_count=page_count,
             body_pages=body_pages,
-        )
-        phase1 = calibrate_offset(
-            nodes=nodes,
-            toc_hierarchies=[pending_toc],
-            ctx=ctx,
-            page_texts=page_texts,
-            page_count=toc_scope_end,
-        )
-        offset = pick_primary_offset(phase1)
-        if offset is None:
-            logger.info(
-                "{} pending TOC toc_range={}: calibration failed, skipping",
-                _LOG_PREFIX,
-                pending_toc.get("toc_range"),
-            )
-            continue
-        relationship = classify_toc_relationship(
-            offset=offset,
-            nodes=nodes,
             primary_ranges=primary_ranges,
-            page_count=page_count,
         )
-        if relationship == "unresolvable":
-            logger.info(
-                "{} pending TOC toc_range={}: unresolvable, skipping",
-                _LOG_PREFIX,
-                pending_toc.get("toc_range"),
-            )
-            records.append(
-                {
-                    "toc": pending_toc,
-                    "relationship": relationship,
-                }
-            )
+        for i, pending_toc in enumerate(pending_tocs)
+    ]
+    pool.join()
+
+    records: list[dict[str, Any]] = []
+    for job in jobs:
+        try:
+            record = job.get()
+        except Exception as exc:
+            logger.warning("{} pending TOC calibration job failed: {}", _LOG_PREFIX, exc)
             continue
-        resolve_nodes, skeleton_anchor, _finalized = finalize_calibration_result(
-            result=phase1,
-            entries=list(pending_toc.get("toc_with_level") or []),
-            toc_hierarchies=[pending_toc],
-            ctx=ctx,
-            page_count=toc_scope_end,
-            page_texts=page_texts,
-            body_pages=toc_body_pages,
-            nodes=nodes,
-        )
-        records.append(
-            {
-                "toc": pending_toc,
-                "relationship": relationship,
-                "nodes": [serialize_title_node(node) for node in resolve_nodes],
-                "skeleton_anchor": serialize_skeleton_anchor(skeleton_anchor),
-            }
-        )
+        if record is not None:
+            records.append(record)
     return records
 
 
