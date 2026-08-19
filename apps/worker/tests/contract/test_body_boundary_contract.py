@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
+os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
+os.environ.setdefault("S3_BUCKET_NAME", "test-uploads")
+os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
+os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
+os.environ.setdefault("S3_TEMP_PATH", "/tmp")
+
 from app.services.document_parser.structure.body_boundary import (
     extract_level1_titles,
     find_first_body_boundary,
