@@ -246,21 +246,18 @@ def main() -> int:
     from shared.models.schemas.page_memory_config import PageMemoryConfig
 
     pdf_path, filename, out_dir = resolve_paths(args)
-    doc_agent_dir = out_dir / "_doc_agent"
     anatomy_cache = resolve_anatomy_cache_path(out_dir)
     state_path = pipeline_state_path(out_dir)
-    legacy_locate_cache = doc_agent_dir / "locate_cache.json"
     scopes_dir = out_dir / "scopes"
 
     require_file(
         anatomy_cache,
         hint="Run Stage 1 first: uv run python scripts/page_memory/debug_pm_stage1_hierarchy.py --file ...",
     )
-    if not state_path.exists() and not legacy_locate_cache.exists():
-        require_file(
-            state_path,
-            hint="Run Stage 2 first: uv run python scripts/page_memory/debug_pm_stage2_calibration.py --file ...",
-        )
+    require_file(
+        state_path,
+        hint="Run Stage 2 first: uv run python scripts/page_memory/debug_pm_stage2_calibration.py --file ...",
+    )
 
     anatomy = load_anatomy_cache(anatomy_cache, pdf_path, filename)
     page_count = anatomy.page_count
@@ -269,10 +266,7 @@ def main() -> int:
     toc_policy = TocPagePolicy.from_anatomy(anatomy)
     page_memory_config = PageMemoryConfig.default()
 
-    all_skeletons = load_pipeline_skeletons(
-        state_path,
-        legacy_locate_cache=legacy_locate_cache,
-    )
+    all_skeletons = load_pipeline_skeletons(state_path)
     next_title_by_path = build_next_title_by_path(all_skeletons)
     logger.info(
         "   next_title_by_path: {} paths ({} with tail anchor)",

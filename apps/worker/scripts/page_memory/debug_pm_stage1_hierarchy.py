@@ -33,7 +33,6 @@ from _debug_pm_shared import (
     load_anatomy_cache,
     resolve_anatomy_cache_path,
     record_stage,
-    remove_legacy_doc_agent_artifacts,
     require_file,
     resolve_paths,
     run_stage1_toc,
@@ -87,7 +86,6 @@ def main() -> int:
     trace_stages: list[dict] = []
     token_cost_tracker = TokenCostTracker()
 
-    doc_agent_dir = out_dir / "_doc_agent"
     anatomy_cache = resolve_anatomy_cache_path(out_dir)
 
     if args.reuse_anatomy and anatomy_cache.exists():
@@ -119,7 +117,6 @@ def main() -> int:
         },
     )
     token_cost_tracker.snapshot_stage("toc")
-    remove_legacy_doc_agent_artifacts(doc_agent_dir)
 
     logger.info("=" * 70)
     logger.info("🧠 TOC hierarchy (Stage-1 debug dump)")

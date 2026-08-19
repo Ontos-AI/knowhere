@@ -40,7 +40,6 @@ from _debug_pm_shared import (
     stop_with_trace,
     update_pipeline_state,
     write_debug_json,
-    _serialize_skeletons,
     _serialize_scope_skeletons,
 )
 
@@ -64,16 +63,13 @@ def main() -> int:
     from app.services.page_memory.skeleton_extractor import SectionSkeleton
 
     pdf_path, filename, out_dir = resolve_paths(args)
-    doc_agent_dir = out_dir / "_doc_agent"
     anatomy_cache = resolve_anatomy_cache_path(out_dir)
     state_path = pipeline_state_path(out_dir)
-    legacy_locate_cache = doc_agent_dir / "locate_cache.json"
 
-    if not state_path.exists() and not legacy_locate_cache.exists():
-        require_file(
-            state_path,
-            hint="Run Stage 2 first: uv run python scripts/page_memory/debug_pm_stage2_calibration.py --file ...",
-        )
+    require_file(
+        state_path,
+        hint="Run Stage 2 first: uv run python scripts/page_memory/debug_pm_stage2_calibration.py --file ...",
+    )
     require_file(
         anatomy_cache,
         hint="Run Stage 1 first: uv run python scripts/page_memory/debug_pm_stage1_hierarchy.py --file ...",
@@ -81,26 +77,7 @@ def main() -> int:
 
     anatomy = load_anatomy_cache(anatomy_cache, pdf_path, filename)
     page_count = anatomy.page_count
-    skeletons = load_pipeline_skeletons(
-        state_path,
-        legacy_locate_cache=legacy_locate_cache,
-    )
-    if not state_path.exists():
-        update_pipeline_state(
-            state_path,
-            stage=2,
-            document={
-                "source_file_name": filename,
-                "page_count": page_count,
-                "anatomy_path": str(anatomy_cache),
-            },
-            payload={
-                "calibration": {},
-                "null_page_parent_locate": {},
-                "skeletons": _serialize_skeletons(skeletons),
-                "migrated_from": str(legacy_locate_cache),
-            },
-        )
+    skeletons = load_pipeline_skeletons(state_path)
 
     logger.info("█" * 70)
     logger.info(f"  STAGE 3: COARSE SCOPE GENERATION — {filename}")
