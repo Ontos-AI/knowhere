@@ -357,58 +357,6 @@ def build_prompt(task, texts, query, **kwargs):
         - Do not add any explanations, comments, control characters, or descriptive texts.
         """
 
-    # ==================== Merge-Group Pre-pass Prompt ====================
-
-    elif task == "eval-merge-groups":
-        # Focused single-question prompt: ONLY decides merge vs. keep for
-        # groups of consecutive heading candidates (no body text between them).
-        # Does NOT assign hierarchy levels — that is left to the main LLM call.
-        temperature = 0
-        top_p = 0.01
-        max_tokens = kwargs["paras"].get("max_tokens", 800)
-        prompt = f"""
-        You are a PDF heading reconstruction expert.
-
-        A PDF renderer sometimes splits a single long heading title across multiple
-        consecutive lines. You will receive a numbered list of groups. Each group
-        contains 2–6 consecutive heading candidate lines from a PDF with NO body
-        text between them.
-
-        Your ONLY task: for each group, decide whether the lines should be MERGED
-        into one single heading, or kept as SEPARATE headings in a parent-child
-        relationship.
-
-        **MERGE when ALL hold:**
-        1. Reading the lines in sequence produces ONE grammatically complete,
-           natural-sounding title — no missing words, no awkward break.
-        2. The first line alone is grammatically INCOMPLETE as a standalone title
-           (e.g. ends with a possessive "'s", a preposition "of / for / and",
-           a conjunction, or is otherwise a dangling fragment).
-        3. No semantic gap: every subsequent line is a direct lexical extension
-           of the first, not a new sub-topic.
-
-        **KEEP SEPARATE when ANY hold:**
-        - The first line is already a complete, self-contained title on its own.
-        - Subsequent lines introduce a different topic or finer sub-topic.
-        - Lines form a clear parent-heading → child-heading sequence.
-        - **Any subsequent line begins with a numeric or ordinal prefix** such as
-          `01`, `1.`, `(1)`, `①`, `一、`, `第一` — these are numbered sub-items,
-          never continuation fragments of the preceding heading.
-
-        **Generic linguistic signals that indicate MERGE:**
-        - Line ends with a possessive ("Company's", "Board's") — demands a noun phrase.
-        - Line ends with a preposition ("of", "for", "under", "and") — phrase is incomplete.
-        - Line ends mid-adjective or mid-noun phrase that continues on the next line.
-
-        Groups to evaluate:
-        {texts}
-
-        Output a JSON array — one object per group, in the SAME ORDER as the input:
-        [{{"group": 1, "merge": true}}, {{"group": 2, "merge": false}}, ...]
-
-        Output ONLY valid JSON. No markdown fences, no explanations.
-        """
-
     # ==================== TOC Heading Evaluation Prompts ====================
 
     elif task == "eval-toc-headings":

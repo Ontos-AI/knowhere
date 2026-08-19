@@ -18,7 +18,6 @@ from app.services.document_agent.coordinator import ProfileCoordinator
 from app.services.document_agent.trace import ParseRunRecorder
 from app.services.document_agent.manifest import (
     DocumentProfile,
-    H1BoundaryResult,
     PageAnatomyMap,
     PageFeature,
     PageLabel,
@@ -76,7 +75,7 @@ def _seed_preprobed_pages(
     coordinator.blackboard.page_count = page_count
     coordinator.blackboard.page_features = [_page_feature(page) for page in probed_pages]
     coordinator.blackboard.page_labels = [
-        PageLabel(page=page, kind="normal", confidence=1.0) for page in probed_pages
+        PageLabel(page=page, kind="normal") for page in probed_pages
     ]
     coordinator.blackboard.doc_stats = {"page_count": page_count}
     coordinator.blackboard.global_signals["page_kind_counts"] = {
@@ -85,28 +84,32 @@ def _seed_preprobed_pages(
     coordinator.blackboard.global_signals["assets_probed"] = True
 
 
-def test_toc_anchor_text_scan_matches_full_page_and_cross_line_keywords() -> None:
+def test_toc_anchor_text_scan_whole_line_keyword_and_split_repair() -> None:
     late_lines = [f"body line {idx}" for idx in range(60)] + ["目录"]
     split_lines = ["Table of", "Con", "tents"]
+    false_positive_lines = [
+        "Commentary provides guidance on minimum cement contents in different situations.",
+        "The basic contents of a typical contract document are shown below:",
+    ]
 
-    late_matches = toc_anchor_tool._find_toc_text_matches(  # noqa: SLF001
-        late_lines,
-        cross_line_window=6,
-    )
-    split_matches = toc_anchor_tool._find_toc_text_matches(  # noqa: SLF001
-        split_lines,
-        cross_line_window=6,
+    late_matches = toc_anchor_tool._find_toc_text_matches(late_lines)  # noqa: SLF001
+    split_matches = toc_anchor_tool._find_toc_text_matches(split_lines)  # noqa: SLF001
+    false_matches = toc_anchor_tool._find_toc_text_matches(  # noqa: SLF001
+        false_positive_lines
     )
 
     assert late_matches[0]["line_index"] == 60
     assert late_matches[0]["match_kind"] == "keyword:目录"
-    assert split_matches[0]["match_kind"] == "cross_line:tableofcontents"
+    assert split_matches[0]["match_kind"] == "keyword:tableofcontents"
+    assert split_matches[0]["line_index"] == 0
+    assert split_matches[0]["line_end_index"] == 2
+    assert false_matches == []
 
 
-def test_toc_extraction_degrades_to_empty_result_on_failure(tmp_path: Path) -> None:
+def test_toc_extraction_raises_on_pipeline_failure(tmp_path: Path) -> None:
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "standard.pdf"),
-        job_id="job-toc-fail-soft",
+        job_id="job-toc-fail-hard",
         output_dir=str(tmp_path / "profile"),
     )
     coordinator.blackboard.page_count = 1
@@ -117,18 +120,17 @@ def test_toc_extraction_degrades_to_empty_result_on_failure(tmp_path: Path) -> N
 
     coordinator._run_toc_extraction_pipeline = _fail_toc_extraction  # type: ignore[method-assign]
 
-    coordinator._ensure_toc_profile(strict=False)
-    toc_result = coordinator.blackboard.toc_result
+    try:
+        coordinator._ensure_toc_profile(strict=False)
+        raise AssertionError("expected TOC pipeline failure to raise")
+    except RuntimeError as exc:
+        assert "VLM JSON parse failed" in str(exc)
 
-    assert toc_result is not None
-    assert toc_result.method == "none"
-    assert toc_result.toc_pages == []
-    assert toc_result.failure_kind == "degraded"
-    assert "degraded" in toc_result.notes
+    assert coordinator.blackboard.toc_result is None
     assert coordinator.blackboard.toc_hierarchies is None
 
 
-def test_run_lightweight_anatomy_builds_single_shard_without_planner_llm(
+def test_run_lightweight_anatomy_builds_single_shard_without_coarse_vlm(
     tmp_path: Path,
 ) -> None:
     output_dir = tmp_path / "profile"
@@ -162,10 +164,10 @@ def test_run_lightweight_anatomy_builds_single_shard_without_planner_llm(
     assert "text_lines_preview" not in anatomy_data["page_features"][0]
     assert "asset_bboxes" not in anatomy_data["page_features"][0]
     trace_data = json.loads((output_dir / "trace.json").read_text(encoding="utf-8"))
-    assert "visual_stages" in trace_data["summary"]["budget"]
+    assert "budget" not in trace_data["summary"]
 
 
-def test_run_coarse_runs_asset_probe_after_planner(monkeypatch, tmp_path: Path) -> None:
+def test_run_coarse_runs_asset_probe_after_coarse_profile(monkeypatch, tmp_path: Path) -> None:
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "doc.pdf"),
         job_id="job-asset-probe-after-coarse",
@@ -175,23 +177,22 @@ def test_run_coarse_runs_asset_probe_after_planner(monkeypatch, tmp_path: Path) 
     coordinator.blackboard.page_count = 2
     coordinator.blackboard.page_features = [_page_feature(1), _page_feature(2)]
     coordinator.blackboard.page_labels = [
-        PageLabel(page=1, kind="normal", confidence=1.0),
-        PageLabel(page=2, kind="normal", confidence=1.0),
+        PageLabel(page=1, kind="normal"),
+        PageLabel(page=2, kind="normal"),
     ]
     coordinator.blackboard.doc_stats = {"page_count": 2}
     coordinator.blackboard.global_signals["page_kind_counts"] = {"normal": 2}
 
     calls: list[str] = []
 
-    def fake_propose(_self):
-        calls.append("planner")
+    def fake_classify(_self):
+        calls.append("coarse_profile")
         return (
             DocumentProfile(
                 is_scanned=False,
                 category="Research Report",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             ),
-            None,
             ToolResult(status="ok", payload={}),
         )
 
@@ -212,7 +213,7 @@ def test_run_coarse_runs_asset_probe_after_planner(monkeypatch, tmp_path: Path) 
         calls.append("toc")
         coordinator.blackboard.toc_result = TocResult(method="none")
 
-    monkeypatch.setattr(coordinator_module.ProfilePlanner, "propose", fake_propose)
+    monkeypatch.setattr(coordinator_module.CoarseProfiler, "classify", fake_classify)
     monkeypatch.setattr(coordinator_module, "probe_page_assets", fake_probe_page_assets)
     monkeypatch.setattr(coordinator_module, "aggregate_doc_stats", fake_aggregate)
     monkeypatch.setattr(coordinator, "_run_text_scan", fake_text_scan)
@@ -222,7 +223,7 @@ def test_run_coarse_runs_asset_probe_after_planner(monkeypatch, tmp_path: Path) 
 
     assert profile.category == "Research Report"
     assert calls == [
-        "planner",
+        "coarse_profile",
         "text_scan",
         "probe.page_assets",
         "aggregate.doc_stats",
@@ -247,11 +248,10 @@ def test_parse_run_recorder_doc_profile_uses_final_anatomy_toc() -> None:
         page_count=2,
         page_features=[_page_feature(1), _page_feature(2)],
         page_labels=[
-            PageLabel(page=1, kind="normal", confidence=1.0),
-            PageLabel(page=2, kind="normal", confidence=1.0),
+            PageLabel(page=1, kind="normal"),
+            PageLabel(page=2, kind="normal"),
         ],
         toc_result=TocResult(toc_pages=[2], method="vlm_batch", notes="ok"),
-        h1_result=H1BoundaryResult(method="toc_grep"),
         shard_plan=ShardPlan(enabled=False, reason="not_needed"),
         toc_hierarchies=[{"toc_range": [2, 2], "toc_tree": {}}],
         global_signals={"toc_profile_attempted": True},
@@ -302,9 +302,8 @@ def test_parse_run_recorder_profile_only_row_is_updated_by_anatomy_flush() -> No
         file_path="/tmp/doc.pdf",
         page_count=12,
         page_features=[_page_feature(1)],
-        page_labels=[PageLabel(page=1, kind="normal", confidence=1.0)],
+        page_labels=[PageLabel(page=1, kind="normal")],
         toc_result=TocResult(toc_pages=[2], method="vlm_batch", notes="ok"),
-        h1_result=H1BoundaryResult(method="toc_grep"),
         shard_plan=ShardPlan(enabled=False, reason="not_needed"),
         toc_hierarchies=[{"toc_range": [2, 2], "toc_tree": {}}],
         global_signals={"toc_profile_attempted": True},
@@ -340,7 +339,6 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
             AgentTocEvidence(
                 page_index=17,
                 source="vlm",
-                confidence=0.05,
                 reason="rejected",
             )
         ],
@@ -365,42 +363,36 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
     monkeypatch.setattr(coordinator, "_persist_ready_anatomy", fake_persist)
 
     monkeypatch.setattr(
-        coordinator_module.ProfilePlanner,
-        "propose",
+        coordinator_module.CoarseProfiler,
+        "classify",
         lambda self: (
             coordinator.blackboard.document_profile,
-            None,
             ToolResult(status="ok", payload={}),
         ),
     )
 
-    class FakeExecutor:
-        def __init__(self, *_args, **_kwargs) -> None:
-            pass
+    def fake_finalize() -> None:
+        coordinator.blackboard.shard_plan = ShardPlan(
+            enabled=True,
+            reason="too_large",
+            shards=[
+                Shard(
+                    shard_index=0,
+                    page_start=1,
+                    page_end=3,
+                    page_offset=0,
+                    anchor_type="forced_max_size",
+                    anchor_evidence="fixture",
+                )
+            ],
+        )
+        from app.services.document_agent.manifest import ProfileVerdict
 
-        def run(self):
-            coordinator.blackboard.shard_plan = ShardPlan(
-                enabled=True,
-                reason="too_large",
-                shards=[
-                    Shard(
-                        shard_index=0,
-                        page_start=1,
-                        page_end=3,
-                        page_offset=0,
-                        anchor_type="forced_max_size",
-                        anchor_evidence="fixture",
-                        confidence=1.0,
-                    )
-                ],
-            )
-            return SimpleNamespace(
-                success=True,
-                verdict=SimpleNamespace(status="success", rationale="ok"),
-                trace_summary={},
-            )
+        coordinator.blackboard.verdict = ProfileVerdict(
+            status="success", rationale="ok"
+        )
 
-    monkeypatch.setattr(coordinator_module, "ReActExecutor", FakeExecutor)
+    monkeypatch.setattr(coordinator, "_finalize_shard_plan", fake_finalize)
 
     anatomy = coordinator.run_structural()
 
@@ -408,7 +400,7 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
     assert anatomy.toc_result.toc_pages == [17]
 
 
-def test_run_structural_skip_shard_plan_uses_placeholder_without_executor(
+def test_run_structural_skip_shard_plan_uses_placeholder_without_finalize(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -446,23 +438,21 @@ def test_run_structural_skip_shard_plan_uses_placeholder_without_executor(
         lambda _anatomy: None,
     )
     monkeypatch.setattr(
-        coordinator_module.ProfilePlanner,
-        "propose",
+        coordinator_module.CoarseProfiler,
+        "classify",
         lambda self: (
             coordinator.blackboard.document_profile,
-            None,
             ToolResult(status="ok", payload={}),
         ),
     )
 
-    class BoomExecutor:
-        def __init__(self, *_args, **_kwargs) -> None:
-            raise AssertionError("ReActExecutor must not run when skip_shard_plan")
+    class BoomFinalize:
+        def __call__(self) -> None:
+            raise AssertionError(
+                "_finalize_shard_plan must not run when skip_shard_plan"
+            )
 
-        def run(self):  # pragma: no cover
-            raise AssertionError("unreachable")
-
-    monkeypatch.setattr(coordinator_module, "ReActExecutor", BoomExecutor)
+    monkeypatch.setattr(coordinator, "_finalize_shard_plan", BoomFinalize())
 
     anatomy = coordinator.run_structural(skip_shard_plan=True)
 
@@ -514,42 +504,36 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
     monkeypatch.setattr(coordinator, "_persist_ready_anatomy", fake_persist)
 
     monkeypatch.setattr(
-        coordinator_module.ProfilePlanner,
-        "propose",
+        coordinator_module.CoarseProfiler,
+        "classify",
         lambda self: (
             coordinator.blackboard.document_profile,
-            None,
             ToolResult(status="ok", payload={}),
         ),
     )
 
-    class FakeExecutor:
-        def __init__(self, *_args, **_kwargs) -> None:
-            pass
+    def fake_finalize() -> None:
+        coordinator.blackboard.shard_plan = ShardPlan(
+            enabled=True,
+            reason="too_large",
+            shards=[
+                Shard(
+                    shard_index=0,
+                    page_start=1,
+                    page_end=3,
+                    page_offset=0,
+                    anchor_type="forced_max_size",
+                    anchor_evidence="fixture",
+                )
+            ],
+        )
+        from app.services.document_agent.manifest import ProfileVerdict
 
-        def run(self):
-            coordinator.blackboard.shard_plan = ShardPlan(
-                enabled=True,
-                reason="too_large",
-                shards=[
-                    Shard(
-                        shard_index=0,
-                        page_start=1,
-                        page_end=3,
-                        page_offset=0,
-                        anchor_type="forced_max_size",
-                        anchor_evidence="fixture",
-                        confidence=1.0,
-                    )
-                ],
-            )
-            return SimpleNamespace(
-                success=True,
-                verdict=SimpleNamespace(status="success", rationale="ok"),
-                trace_summary={},
-            )
+        coordinator.blackboard.verdict = ProfileVerdict(
+            status="success", rationale="ok"
+        )
 
-    monkeypatch.setattr(coordinator_module, "ReActExecutor", FakeExecutor)
+    monkeypatch.setattr(coordinator, "_finalize_shard_plan", fake_finalize)
 
     anatomy = coordinator.run_structural()
 
@@ -558,13 +542,13 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
     assert anatomy.toc_result.toc_pages == []
 
 
-def test_run_coarse_runs_planner_then_text_scan_then_toc(
+def test_run_coarse_runs_coarse_profile_then_text_scan_then_toc(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "oversized.pdf"),
-        job_id="job-planner-then-toc",
+        job_id="job-coarse-then-toc",
         output_dir=str(tmp_path / "profile"),
         settings={"toc_profile_enabled": True},
     )
@@ -591,52 +575,46 @@ def test_run_coarse_runs_planner_then_text_scan_then_toc(
     monkeypatch.setattr(coordinator, "_run_text_scan", fake_text_scan)
     monkeypatch.setattr(coordinator, "_persist_ready_anatomy", fake_persist)
 
-    def fake_propose(_self):
-        calls.append("planner")
+    def fake_classify(_self):
+        calls.append("coarse_profile")
         return (
             DocumentProfile(
                 is_scanned=False,
                 category="Prospectus",
                 routing_category=PdfRoutingCategory.GENERIC.value,
             ),
-            None,
             ToolResult(status="ok", payload={}),
         )
 
-    monkeypatch.setattr(coordinator_module.ProfilePlanner, "propose", fake_propose)
+    monkeypatch.setattr(coordinator_module.CoarseProfiler, "classify", fake_classify)
 
-    class FakeExecutor:
-        def __init__(self, *_args, **_kwargs) -> None:
-            pass
+    def fake_finalize() -> None:
+        coordinator.blackboard.shard_plan = ShardPlan(
+            enabled=True,
+            reason="too_large",
+            shards=[
+                Shard(
+                    shard_index=0,
+                    page_start=1,
+                    page_end=3,
+                    page_offset=0,
+                    anchor_type="forced_max_size",
+                    anchor_evidence="fixture",
+                )
+            ],
+        )
+        from app.services.document_agent.manifest import ProfileVerdict
 
-        def run(self):
-            coordinator.blackboard.shard_plan = ShardPlan(
-                enabled=True,
-                reason="too_large",
-                shards=[
-                    Shard(
-                        shard_index=0,
-                        page_start=1,
-                        page_end=3,
-                        page_offset=0,
-                        anchor_type="forced_max_size",
-                        anchor_evidence="fixture",
-                        confidence=1.0,
-                    )
-                ],
-            )
-            return SimpleNamespace(
-                success=True,
-                verdict=SimpleNamespace(status="success", rationale="ok"),
-                trace_summary={},
-            )
+        coordinator.blackboard.verdict = ProfileVerdict(
+            status="success", rationale="ok"
+        )
 
-    monkeypatch.setattr(coordinator_module, "ReActExecutor", FakeExecutor)
+    monkeypatch.setattr(coordinator, "_finalize_shard_plan", fake_finalize)
 
     coordinator.run_coarse()
     anatomy = coordinator.run_structural()
 
-    assert calls == ["planner", "text_scan", "toc", "persist"]
+    assert calls == ["coarse_profile", "text_scan", "toc", "persist"]
     assert anatomy.toc_result.toc_pages == [17]
 
 
@@ -727,7 +705,6 @@ def test_oversized_single_shard_plan_is_invalid() -> None:
                     page_offset=0,
                     anchor_type="forced_max_size",
                     anchor_evidence="final shard",
-                    confidence=1.0,
                 )
             ],
         ),
@@ -884,7 +861,7 @@ def test_page_memory_forces_toc_profiling_despite_kill_switch(
 
     monkeypatch.setattr(doc_profiler, "ProfileCoordinator", FakeCoordinator)
     monkeypatch.setattr(doc_profiler.settings, "MAX_PDF_PAGE_LIMIT", 200)
-    # Global kill switch OFF; page_memory track must still enable TOC.
+    # Kill switch OFF for chunk; page_memory must still force TOC on.
     monkeypatch.setattr(doc_profiler.settings, "PDF_PROFILE_TOC_ENABLED", False)
 
     profile = profile_document(
@@ -978,7 +955,6 @@ def test_standard_pdf_profile_maps_page_toc_evidence(
                     AgentTocEvidence(
                         page_index=2,
                         source="vlm",
-                        confidence=0.95,
                         reason="table of contents",
                     )
                 ],
@@ -1021,7 +997,7 @@ def test_standard_pdf_profile_maps_page_toc_evidence(
     assert profile.toc.has_toc is True
     assert profile.toc.attempted is True
     assert profile.toc.method == "vlm_batch"
-    assert profile.toc.evidence[0].confidence == 0.95
+    assert profile.toc.evidence[0].source == "vlm"
     assert profile.anatomy is fake_anatomy
 
 
@@ -1050,7 +1026,6 @@ def test_oversized_atlas_surfaces_profile_toc_without_structural_anatomy(
                     AgentTocEvidence(
                         page_index=4,
                         source="vlm",
-                        confidence=0.9,
                         reason="table of contents",
                     )
                 ],
@@ -1270,11 +1245,10 @@ def test_pdf_shard_pipeline_accepts_single_shard_fast_path(
             page_count=2,
             page_features=[_page_feature(1), _page_feature(2)],
             page_labels=[
-                PageLabel(page=1, kind="normal", confidence=1.0),
-                PageLabel(page=2, kind="normal", confidence=1.0),
+                PageLabel(page=1, kind="normal"),
+                PageLabel(page=2, kind="normal"),
             ],
             toc_result=TocResult(method="none"),
-            h1_result=H1BoundaryResult(method="none"),
             shard_plan=ShardPlan(
                 enabled=False,
                 reason="not_needed",
@@ -1286,7 +1260,6 @@ def test_pdf_shard_pipeline_accepts_single_shard_fast_path(
                         page_offset=0,
                         anchor_type="forced_max_size",
                         anchor_evidence="document within shard threshold",
-                        confidence=1.0,
                     )
                 ],
             ),
@@ -1357,12 +1330,11 @@ def test_pdf_shard_pipeline_does_not_use_markdown_toc_detector(
             page_count=3,
             page_features=[_page_feature(1), _page_feature(2), _page_feature(3)],
             page_labels=[
-                PageLabel(page=1, kind="normal", confidence=1.0),
-                PageLabel(page=2, kind="normal", confidence=1.0),
-                PageLabel(page=3, kind="normal", confidence=1.0),
+                PageLabel(page=1, kind="normal"),
+                PageLabel(page=2, kind="normal"),
+                PageLabel(page=3, kind="normal"),
             ],
             toc_result=TocResult(method="none"),
-            h1_result=H1BoundaryResult(method="none"),
             shard_plan=ShardPlan(
                 enabled=False,
                 reason="not_needed",
@@ -1374,7 +1346,6 @@ def test_pdf_shard_pipeline_does_not_use_markdown_toc_detector(
                         page_offset=0,
                         anchor_type="forced_max_size",
                         anchor_evidence="document within shard threshold",
-                        confidence=1.0,
                     )
                 ],
             ),
@@ -1399,11 +1370,17 @@ def test_pdf_shard_pipeline_does_not_use_markdown_toc_detector(
 
 
 def test_page_based_toc_demotes_front_matter_only_on_first_shard() -> None:
+    # Production TEXT-TRACK shape from propose.shard_plan: calibrated slice
+    # carries toc_with_level only (no toc_tree).
     toc_hierarchies = [
         {
-            "toc_range": [2, 2],
+            "toc_range": [1, 10],
             "toc_range_unit": "page",
-            "toc_tree": {"Risk Factors": {}},
+            "source": "calibrated_shard_split",
+            "toc_with_level": [
+                {"heading": "Risk Factors", "level": 1},
+                {"heading": "Business Overview", "level": 2},
+            ],
         }
     ]
     lines = [

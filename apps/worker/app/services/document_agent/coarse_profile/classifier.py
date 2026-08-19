@@ -1,4 +1,9 @@
-"""Initial VLM profile planner for the document profile agent."""
+"""One-shot VLM coarse document classifier (PROFILE stage 0).
+
+Input: ``ToolContext`` with bootstrap page features / stats on the blackboard.
+Output: ``DocumentProfile`` plus a ``ToolResult`` for tracing.
+Does not choose tools or drive shard planning.
+"""
 
 from __future__ import annotations
 
@@ -11,16 +16,10 @@ from typing import Any, cast
 
 from loguru import logger
 
-from app.services.document_agent.manifest import (
-    DocumentProfile,
-    ReflexionDecision,
-    ToolContext,
-    ToolResult,
-)
-from app.services.document_agent.planner.prompts import PLANNER_INSTRUCTIONS
+from app.services.document_agent.coarse_profile.prompts import COARSE_PROFILE_INSTRUCTIONS
+from app.services.document_agent.manifest import DocumentProfile, ToolContext, ToolResult
 from app.services.document_agent.visual import render_pages
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
-from shared.utils.token_estimate import estimate_tokens
 
 PAGE_KIND_DEFINITIONS = {
     "normal": (
@@ -29,6 +28,9 @@ PAGE_KIND_DEFINITIONS = {
     ),
     "landscape": "Landscape-oriented page, often wide tables, drawings, slides, or diagrams.",
 }
+
+_COARSE_SAMPLE_CAP = 10
+_COARSE_SEGMENT_QUOTAS = (2, 2, 2)  # front, middle, back
 
 
 def _feature_rows(ctx: ToolContext, pages: list[int]) -> list[dict[str, Any]]:
@@ -42,7 +44,6 @@ def _feature_rows(ctx: ToolContext, pages: list[int]) -> list[dict[str, Any]]:
             {
                 "page": feature.page,
                 "kind": label.kind if label else None,
-                "confidence": label.confidence if label else None,
                 "raw_text_length": feature.raw_text_length,
                 "text_density": feature.text_density,
                 "orientation": feature.orientation,
@@ -65,11 +66,6 @@ def _segment_sample(candidates: list[int], count: int) -> list[int]:
     return [candidates[round(index * step)] for index in range(count)]
 
 
-# Coarse VLM budget: extrema first, then front/mid/back fill, hard cap 10.
-_COARSE_SAMPLE_CAP = 10
-_COARSE_SEGMENT_QUOTAS = (2, 2, 2)  # front, middle, back
-
-
 def _sample_pages(
     page_count: int,
     extrema_pages: list[int],
@@ -87,14 +83,6 @@ def _sample_pages(
       3. Optionally append ``random_extra`` uniform pages from the leftover
          pool (used when extrema were skipped because max text length is 0).
       4. Hard truncate to ``_COARSE_SAMPLE_CAP``.
-
-    Args:
-        page_count: Total number of pages.
-        extrema_pages: Pages with text extrema (min/max raw_text_length /
-            text_density). Low-text extrema already surface chart/asset pages.
-        random_extra: Extra pages to draw uniformly from pages not already
-            selected.
-        rng: Optional RNG for deterministic tests.
     """
     if page_count <= 0:
         return []
@@ -144,10 +132,11 @@ def _parse_margin_ratio(value: Any) -> float | None:
     return None
 
 
-def _parse_profile_and_decision(raw: str) -> tuple[DocumentProfile, ReflexionDecision]:
+def _parse_profile(raw: str) -> DocumentProfile:
+    """Parse coarse-profile VLM JSON into ``DocumentProfile``."""
     data = json.loads(raw)
     if not isinstance(data, dict):
-        raise ValueError("planner output must be a JSON object")
+        raise ValueError("coarse profile output must be a JSON object")
     category = " ".join(str(data.get("category") or "unknown document").split()[:5])
     routing_category = PdfRoutingCategory.normalize(
         data.get("routing_category") or data.get("category")
@@ -164,7 +153,7 @@ def _parse_profile_and_decision(raw: str) -> tuple[DocumentProfile, ReflexionDec
     if header_y is not None and footer_y is not None and header_y >= footer_y:
         header_y = None
         footer_y = None
-    profile = DocumentProfile(
+    return DocumentProfile(
         is_scanned=is_scanned,
         category=category or "unknown document",
         routing_category=routing_category,
@@ -173,47 +162,17 @@ def _parse_profile_and_decision(raw: str) -> tuple[DocumentProfile, ReflexionDec
         header_y=header_y,
         footer_y=footer_y,
     )
-    next_action = str(data.get("next_action") or "ready_to_shard").strip().lower()
-    # Legacy models may still emit verdict_now; that is not a planner finish
-    # signal — fall through to ready_to_shard so the executor owns success/abort.
-    # Legacy inspect_more is ignored the same way (tool removed).
-    if next_action in {"verdict_now", "inspect_more"}:
-        next_action = "ready_to_shard"
-    tool_name: str | None = None
-    tool_args: dict[str, Any] = {}
-    if next_action == "grep_text" and not profile.is_scanned:
-        query = str(data.get("grep_query") or "").strip()
-        if query:
-            tool_name = "grep.text"
-            tool_args = {"query": query, "max_results": 20}
-    if tool_name:
-        return profile, ReflexionDecision(
-            action="tool_call",
-            rationale=profile.rationale,
-            tool_name=tool_name,
-            tool_args=tool_args,
-        )
-    return profile, ReflexionDecision(
-        action="tool_call",
-        rationale=profile.rationale,
-        tool_name="propose.shard_plan",
-        tool_args={},
-    )
 
 
-class ProfilePlanner:
-    """One-shot VLM planner that profiles the document and proposes the first action."""
+class CoarseProfiler:
+    """One-shot VLM classifier: pages + features → ``DocumentProfile``."""
 
     def __init__(self, ctx: ToolContext) -> None:
         self.ctx = ctx
 
-    def propose(self) -> tuple[DocumentProfile, ReflexionDecision, ToolResult]:
+    def classify(self) -> tuple[DocumentProfile, ToolResult]:
         start = time.monotonic()
-        model = (
-            self.ctx.settings.get("planner_model")
-            or self.ctx.settings.get("vlm_model")
-            or os.environ.get("IMAGE_MODEL")
-        )
+        model = self.ctx.settings.get("vlm_model") or os.environ.get("IMAGE_MODEL")
         text_max = float(
             (
                 ((self.ctx.blackboard.doc_stats or {}).get("raw_text_length") or {}).get(
@@ -241,27 +200,22 @@ class ProfilePlanner:
                 is_scanned=False,
                 category="unknown document",
                 routing_category=PdfRoutingCategory.GENERIC.value,
-                rationale="No planner model configured.",
+                rationale="No VLM model configured.",
             )
-            decision = ReflexionDecision(
-                action="tool_call",
-                rationale=profile.rationale,
-                tool_name="propose.shard_plan",
-                tool_args={},
-            )
-            return profile, decision, ToolResult(
+            return profile, ToolResult(
                 status="ok",
                 payload={"source": "deterministic", "sampled_pages": pages},
                 latency_ms=int((time.monotonic() - start) * 1000),
-                warnings=["No planner model configured; using conservative profile."],
+                warnings=["No VLM model configured; using conservative profile."],
                 input_summary={"page_count": self.ctx.blackboard.page_count},
-                output_summary={"profile": profile.to_dict(), "decision": decision.to_dict()},
+                output_summary={"profile": profile.to_dict()},
             )
+
         pngs = render_pages(
             self.ctx,
             pages,
-            folder_name="planner_pages",
-            prefix="planner",
+            folder_name="coarse_profile_pages",
+            prefix="coarse",
             timeout=180,
         )
         feature_summary = _feature_rows(self.ctx, pages)
@@ -279,21 +233,11 @@ class ProfilePlanner:
                 [],
             ),
             "sampled_page_features": feature_summary,
-            "available_actions": [
-                "grep.text",
-                "propose.shard_plan",
-                "validate.anatomy_map",
-                "verdict",
-            ],
         }
-        prompt_text = PLANNER_INSTRUCTIONS + "\nPayload:\n" + json.dumps(
+        prompt_text = COARSE_PROFILE_INSTRUCTIONS + "\nPayload:\n" + json.dumps(
             payload,
             ensure_ascii=False,
         )
-        prompt_tokens_est = estimate_tokens(prompt_text) + len(pngs) * 800
-        stage = "coarse_planner"
-        if not self.ctx.budget.try_reserve("visual", prompt_tokens_est, stage=stage):
-            raise RuntimeError("Insufficient visual budget for profile planning.")
 
         content_parts: list[dict[str, Any]] = [{"type": "text", "text": prompt_text}]
         for item in pngs:
@@ -310,45 +254,33 @@ class ProfilePlanner:
                     }
                 )
             except Exception as exc:
-                logger.warning("[document_agent] planner png attach failed: {}", exc)
+                logger.warning(
+                    "[document_agent] coarse profile png attach failed: {}", exc
+                )
 
-        try:
-            from shared.services.ai.llm_overrides import get_vision_client
+        from shared.services.ai.llm_overrides import get_vision_client
 
-            client, model = get_vision_client(requested_model=model)
-            raw, usage = client.chat_completion_with_usage(
-                messages=cast(Any, [{"role": "user", "content": content_parts}]),
-                model=model,
-                temperature=0.0,
-                max_tokens=1800,
-                response_format={"type": "json_object"},
-                usage_task="document_agent.coarse_profile",
-            )
-            self.ctx.budget.commit(
-                "visual",
-                actual=usage.get("total_tokens", prompt_tokens_est),
-                est=prompt_tokens_est,
-                stage=stage,
-            )
-            profile, decision = _parse_profile_and_decision(raw)
-            return profile, decision, ToolResult(
-                status="ok",
-                payload={
-                    "source": "llm",
-                    "sampled_pages": pages,
-                    "first_action": decision.tool_name,
-                },
-                latency_ms=int((time.monotonic() - start) * 1000),
-                tokens_used=usage.get("total_tokens", 0),
-                input_summary=payload,
-                output_summary={"profile": profile.to_dict(), "decision": decision.to_dict()},
-                debug={
-                    "prompt_text": prompt_text,
-                    "sampled_pages": pages,
-                    "sampled_pngs": pngs,
-                    "raw_response": raw,
-                },
-            )
-        except Exception:
-            self.ctx.budget.refund("visual", est=prompt_tokens_est, stage=stage)
-            raise
+        client, model = get_vision_client(requested_model=model)
+        raw, usage = client.chat_completion_with_usage(
+            messages=cast(Any, [{"role": "user", "content": content_parts}]),
+            model=model,
+            temperature=0.0,
+            max_tokens=1800,
+            response_format={"type": "json_object"},
+            usage_task="document_agent.coarse_profile",
+        )
+        profile = _parse_profile(raw)
+        return profile, ToolResult(
+            status="ok",
+            payload={"source": "llm", "sampled_pages": pages},
+            latency_ms=int((time.monotonic() - start) * 1000),
+            tokens_used=usage.get("total_tokens", 0),
+            input_summary=payload,
+            output_summary={"profile": profile.to_dict()},
+            debug={
+                "prompt_text": prompt_text,
+                "sampled_pages": pages,
+                "sampled_pngs": pngs,
+                "raw_response": raw,
+            },
+        )

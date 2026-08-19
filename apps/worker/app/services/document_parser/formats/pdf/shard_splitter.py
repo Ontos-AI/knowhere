@@ -31,15 +31,14 @@ class MergedShard:
         return self.page_start - 1
 
 
-def bin_pack_shards(
+def map_agent_shards(
     agent_shards: list["Shard"],
-    max_pages: int,
 ) -> list[MergedShard]:
     """1:1 mapping: each agent shard becomes its own MinerU shard.
 
-    Agent shards are cut at TOC hierarchy pack boundaries by the document
-    agent. Merging them would cross those boundaries and degrade heading
-    prediction quality, so we preserve them as-is.
+    Agent shards are cut at TOC hierarchy pack boundaries during PROFILE.
+    Merging them would cross those boundaries and degrade heading prediction
+    quality, so we preserve them as-is.
     """
     return [
         MergedShard(idx, page_start=s.page_start, page_end=s.page_end)
@@ -60,7 +59,7 @@ def split_pdf(
         shards: Merged shard ranges to extract.
         work_dir: Directory for temporary shard PDFs.
         exclude_pages: Optional set of 1-based page numbers to strip
-            (e.g. TOC pages detected by DOC_AGENT).
+            (e.g. TOC pages detected during PROFILE).
 
     Returns:
         (shard_paths, page_remap)

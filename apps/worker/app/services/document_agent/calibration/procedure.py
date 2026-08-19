@@ -1,6 +1,6 @@
 """Phase-2 completion aligned with production anchoring.
 
-After the agent submits candidate regime offsets, this module:
+After Phase-1 returns candidate regime offsets, this module:
 1. Builds TitleNodes the same way production does
 2. Runs Phase-2 **per regime** (prune → bulk/bisect → recalibrate)
 3. Merges physical-page ``match_overrides`` across regimes
@@ -16,7 +16,7 @@ from typing import Any
 
 from loguru import logger
 
-from app.services.document_agent.agents.calibration.types import (
+from app.services.document_agent.calibration.types import (
     CalibrationRegime,
     CalibrationResult,
     CalibrationSegment,
@@ -33,14 +33,12 @@ from app.services.document_agent.structure.hierarchy_locator import (
 )
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
+    backfill_parent_offset_matches,
     locate_null_page_parent_overrides,
     prune_unanchored_toc_leaves,
     serialize_skeleton_anchor,
 )
 from app.services.document_agent.structure import anchoring_primitives as _anchoring
-from app.services.document_agent.structure.page_locate_agent import (
-    verify_section_page_choice,
-)
 
 # Re-export under prior names so existing imports keep working.
 normalize_kind = normalize_page_kind
@@ -54,20 +52,14 @@ def offset_guided_anchoring(
     page_count: int,
     calibration_overrides: dict[tuple[str, ...], TitleMatch],
 ) -> dict[tuple[str, ...], TitleMatch] | None:
-    """Forward phase-2 anchoring while preserving the historical patch seam."""
-    original = _anchoring.verify_section_page_choice
-    _anchoring.verify_section_page_choice = verify_section_page_choice
-    try:
-        return _anchoring.offset_guided_anchoring(
-            nodes=nodes,
-            offset=offset,
-            ctx=ctx,
-            page_count=page_count,
-            calibration_overrides=calibration_overrides,
-        )
-    finally:
-        _anchoring.verify_section_page_choice = original
-
+    """Forward to production Phase-2 anchoring."""
+    return _anchoring.offset_guided_anchoring(
+        nodes=nodes,
+        offset=offset,
+        ctx=ctx,
+        page_count=page_count,
+        calibration_overrides=calibration_overrides,
+    )
 
 def pick_primary_offset(result: CalibrationResult) -> int | None:
     """Prefer decimal-regime candidate offset; else first regime with an offset."""
@@ -106,14 +98,12 @@ def seed_overrides_from_samples(
                 continue
             overrides[path] = TitleMatch(
                 page=int(sample.physical),
-                confidence=0.85,
-                source="agent_vlm",
+                source="inspect_vlm",
                 matched_line="",
-                score=0.85,
                 candidates=[int(sample.physical)],
                 evidence={
                     "calibration": True,
-                    "method": "agent_phase1",
+                    "method": "phase1_forward_scan",
                     "regime_kind": regime.kind,
                 },
             )
@@ -376,6 +366,19 @@ def anchor_hierarchy_from_regimes(
             if path in surviving_paths
         }
 
+    parent_matches = backfill_parent_offset_matches(
+        nodes=working,
+        matches=merged,
+        page_count=page_count,
+    )
+    if parent_matches:
+        merged.update(parent_matches)
+        logger.info(
+            "[calibration.phase2] parent backfill: {} printed-page TOC parents "
+            "anchored from descendant offset",
+            len(parent_matches),
+        )
+
     match_overrides, null_page_report = locate_null_page_parent_overrides(
         nodes=working,
         match_overrides=merged,
@@ -393,7 +396,7 @@ def anchor_hierarchy_from_regimes(
     else:
         offset_status = "ok"
 
-    locate_agent = (
+    locate_method = (
         "offset_guided_bulk"
         if match_overrides and (regime_bulk > 0 or seed)
         else "offset_only"
@@ -407,7 +410,7 @@ def anchor_hierarchy_from_regimes(
         null_page_report=null_page_report,
         bulk_count=bulk_count,
         pruned_count=total_pruned,
-        locate_agent=locate_agent,
+        locate_method=locate_method,
     )
 
 
@@ -486,7 +489,7 @@ def _annotate_regimes_from_anchor(
                 no_toc_entry_indices=no_toc,
                 notes=(
                     f"production_bulk={anchor.bulk_count}; "
-                    f"locate_agent={anchor.locate_agent}; "
+                    f"locate_method={anchor.locate_method}; "
                     f"regime_anchored={len(ok_indices)}"
                 ),
             )
@@ -542,7 +545,7 @@ def finalize_calibration_result(
     complete = sum(len(r.segments) for r in regimes)
     notes_parts = [result.notes] if result.notes else []
     notes_parts.append(
-        f"phase2 production locate_agent={anchor.locate_agent} "
+        f"phase2 production locate_method={anchor.locate_method} "
         f"bulk={anchor.bulk_count} complete_regime_segments={complete}"
     )
     finalized = CalibrationResult(
@@ -554,7 +557,7 @@ def finalize_calibration_result(
         notes="; ".join(p for p in notes_parts if p),
         failure_kind=result.failure_kind,
         region_index=result.region_index,
-        history_tail=list(result.history_tail),
+        scans=list(result.scans),
     )
     return working, anchor, finalized
 
@@ -563,7 +566,6 @@ def build_calibration_payload(
     *,
     anchor: SkeletonAnchor,
     result: CalibrationResult,
-    no_links: bool,
     region_payloads: list[dict[str, Any]] | None = None,
     tool_calls: int | None = None,
 ) -> dict[str, Any]:
@@ -580,7 +582,6 @@ def build_calibration_payload(
             "tool_calls": int(tool_calls if tool_calls is not None else result.tool_calls),
             "notes": result.notes,
             "failure_kind": result.failure_kind,
-            "no_links": no_links,
         }
     )
     return payload

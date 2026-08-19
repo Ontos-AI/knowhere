@@ -41,15 +41,35 @@ def clean_toc_title(title: str) -> str:
 
 
 def extract_level1_titles(toc_hierarchies: list[dict[str, Any]]) -> list[str]:
-    """Extract cleaned level-1 titles from TOC hierarchy payloads."""
+    """Extract cleaned level-1 titles from ``toc_with_level`` payloads.
+
+    TEXT-TRACK PDF shards attach calibrated TOC slices that only carry
+    ``toc_with_level`` (no ``toc_tree``). Prefer that flat list so front-matter
+    demotion keeps working after PROFILE skeleton reuse.
+    """
     titles: list[str] = []
     for hier in toc_hierarchies:
-        toc_tree = hier.get("toc_tree") or {}
-        for raw_title in toc_tree.keys():
-            cleaned = clean_toc_title(str(raw_title))
+        for entry in _iter_toc_with_level_entries(hier.get("toc_with_level")):
+            level = entry.get("level")
+            if level is None:
+                continue
+            try:
+                if int(level) != 1:
+                    continue
+            except (TypeError, ValueError):
+                continue
+            heading = entry.get("heading") or entry.get("title") or ""
+            cleaned = clean_toc_title(str(heading))
             if cleaned and len(cleaned) >= 2:
                 titles.append(cleaned)
     return titles
+
+
+def _iter_toc_with_level_entries(payload: Any) -> list[dict[str, Any]]:
+    """Normalize ``toc_with_level`` to a list of entry dicts."""
+    if isinstance(payload, list):
+        return [entry for entry in payload if isinstance(entry, dict)]
+    return []
 
 
 def find_first_body_boundary(

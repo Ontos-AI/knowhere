@@ -51,9 +51,6 @@ class PageMemoryInput:
     )
 
 
-_HierarchyScope = CoarseScope
-
-
 @dataclass(frozen=True)
 class _ScopeRunResult:
     scope_id: str
@@ -69,7 +66,7 @@ def run(request: PageMemoryInput) -> tuple[str, pd.DataFrame]:
 
     Supports two granularity verdicts:
     - ``whole_doc`` (≤6 pages, no TOC) → single whole-document chunk
-    - ``page`` → per-page chunks via the full C1-C7 pipeline
+    - ``page`` → leaf section nodes via the full C1-C7 pipeline
     """
     full_output_dir = _resolve_output_dir(request)
     page_memory_config = request.page_memory_config
@@ -433,7 +430,6 @@ def _build_page_dataframe(
             tag_by_page=tag_map,
             filename=filename,
             verdict=verdict,
-            budget=None,
             vlm_model=vlm_model,
             page_assets_by_page=page_assets_by_page,
             node_summary_max_pages=page_memory_config.node_summary_max_pages,
@@ -461,7 +457,7 @@ def _build_hierarchy_scopes(
     skeletons: list[Any],
     filename: str,
     page_count: int,
-) -> list[_HierarchyScope]:
+) -> list[CoarseScope]:
     return build_hierarchy_scopes(
         skeletons=skeletons,
         filename=filename,
@@ -470,7 +466,7 @@ def _build_hierarchy_scopes(
 
 
 def _allocate_asset_pages(
-    scopes: list[_HierarchyScope], total_budget: int,
+    scopes: list[CoarseScope], total_budget: int,
 ) -> list[int]:
     """Pre-allocate asset page budget proportionally to avoid concurrency races."""
     if total_budget <= 0 or not scopes:
@@ -500,7 +496,7 @@ def _run_scope_with_retry(
 
     from shared.core.exceptions.domain_exceptions import LLMServiceException
 
-    scope: _HierarchyScope = kwargs["scope"]
+    scope: CoarseScope = kwargs["scope"]
     scope_index: int = kwargs["scope_index"]
     scope_count: int = kwargs["scope_count"]
 
@@ -526,7 +522,7 @@ def _run_scope_with_retry(
 
 def _run_hierarchy_scope(
     *,
-    scope: _HierarchyScope,
+    scope: CoarseScope,
     scope_index: int,
     scope_count: int,
     pdf_path: str,
@@ -612,7 +608,6 @@ def _run_hierarchy_scope(
                 pages=title_rendered,
                 tag_results=title_tags,
                 fat_leaf_pages=fat_leaf_pages,
-                budget=None,
                 vlm_model=vlm_model,
                 scan_direction=page_memory_config.scan_direction,
                 max_concurrent=page_memory_config.title_detection_concurrency,
@@ -708,7 +703,6 @@ def _run_hierarchy_scope(
         tags = tag_pages(
             pages=rendered,
             plans=plans,
-            budget=None,
             vlm_model=vlm_model,
             max_concurrent=page_memory_config.tag_concurrency,
         )
@@ -737,7 +731,6 @@ def _run_hierarchy_scope(
                 rendered_pages=asset_rendered,
                 output_dir=output_dir,
                 model_name=page_memory_config.asset_model,
-                budget=None,
                 max_pages=asset_max_pages,
                 confidence_threshold=page_memory_config.asset_confidence_threshold,
                 summary_enabled=page_memory_config.asset_summary_enabled,

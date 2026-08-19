@@ -9,9 +9,8 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from app.services.document_agent.budget import BudgetTracker
 from app.services.document_agent.manifest import PageFeature, TocResult, ToolContext
-from app.services.document_agent.state import AgentBlackboard
+from app.services.document_agent.state import ProfileBlackboard
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
     serialize_skeleton_anchor,
@@ -43,8 +42,7 @@ def _ctx(*, page_count: int, blank_pages: list[int] | None = None) -> ToolContex
     ctx = ToolContext(
         pdf_path="/tmp/doc.pdf",
         job_id="job-shard",
-        blackboard=AgentBlackboard(page_count=page_count),
-        budget=BudgetTracker(plan_budget=50_000, visual_budget=80_000),
+        blackboard=ProfileBlackboard(page_count=page_count),
         trace=None,
         settings={
             "shard_threshold": 200,
@@ -62,10 +60,8 @@ def _ctx(*, page_count: int, blank_pages: list[int] | None = None) -> ToolContex
 def _match(title: str, page: int) -> TitleMatch:
     return TitleMatch(
         page=page,
-        confidence=1.0,
         source="anchored",
         matched_line=title,
-        score=1.0,
         candidates=[page],
         evidence={},
     )
@@ -91,7 +87,7 @@ def _seed_skeleton(
             null_page_report=[],
             bulk_count=len(overrides),
             pruned_count=0,
-            locate_agent="offset_guided_bulk",
+            locate_method="offset_guided_bulk",
         )
     )
     if pending_records is not None:
@@ -145,6 +141,63 @@ def test_hierarchy_pack_cuts_before_next_chapter() -> None:
         (120, 250, "forced_max_size"),
     ]
     assert plan.validation.valid is True
+
+
+def test_shard_plan_attaches_calibrated_toc_hierarchies_per_shard() -> None:
+    ctx = _ctx(page_count=250)
+    _seed_skeleton(
+        ctx,
+        nodes=[
+            TitleNode(
+                title="Ch1",
+                level=1,
+                printed_page=3,
+                children=[
+                    TitleNode(title="1.1", level=2, printed_page=3),
+                    TitleNode(title="1.2", level=2, printed_page=80),
+                ],
+            ),
+            TitleNode(title="Ch2", level=1, printed_page=120),
+        ],
+        overrides={
+            ("Ch1",): 3,
+            ("Ch1", "1.1"): 3,
+            ("Ch1", "1.2"): 80,
+            ("Ch2",): 120,
+        },
+        hierarchies=[
+            {
+                "toc_range": [1, 2],
+                "toc_range_unit": "page",
+                "toc_with_level": [
+                    {"heading": "Ch1", "level": 1, "page_number": 3},
+                    {"heading": "1.1", "level": 2, "page_number": 3},
+                    {"heading": "1.2", "level": 2, "page_number": 80},
+                    {"heading": "Ch2", "level": 1, "page_number": 120},
+                ],
+            }
+        ],
+    )
+
+    propose_shard_plan(ctx, {})
+    plan = ctx.blackboard.shard_plan
+    assert plan is not None
+    assert len(plan.shards) == 2
+
+    first = plan.shards[0].toc_hierarchies
+    second = plan.shards[1].toc_hierarchies
+    assert first is not None
+    assert second is not None
+    assert first[0]["toc_range"] == [1, 119]
+    assert second[0]["toc_range"] == [120, 250]
+    assert [row["heading"] for row in first[0]["toc_with_level"]] == [
+        "Ch1",
+        "1.1",
+        "1.2",
+    ]
+    assert [row["heading"] for row in second[0]["toc_with_level"]] == ["Ch2"]
+    assert all("page_number" not in row for row in first[0]["toc_with_level"])
+    assert all("page_number" not in row for row in second[0]["toc_with_level"])
 
 
 def test_hierarchy_pack_keeps_same_parent_siblings_together() -> None:
@@ -302,7 +355,7 @@ def test_pending_toc_forest_is_packed_separately() -> None:
                         null_page_report=[],
                         bulk_count=1,
                         pruned_count=0,
-                        locate_agent="offset_guided_bulk",
+                        locate_method="offset_guided_bulk",
                     )
                 ),
             }
@@ -365,7 +418,7 @@ def test_contained_pending_toc_does_not_cut() -> None:
                         null_page_report=[],
                         bulk_count=1,
                         pruned_count=0,
-                        locate_agent="offset_guided_bulk",
+                        locate_method="offset_guided_bulk",
                     )
                 ),
             }
@@ -379,6 +432,106 @@ def test_contained_pending_toc_does_not_cut() -> None:
         (1, 119),
         (120, 250),
     ]
+
+
+def _deep_tree_nodes() -> list[TitleNode]:
+    return [
+        TitleNode(
+            title="Ch1",
+            level=1,
+            printed_page=1,
+            children=[
+                TitleNode(title="1.1", level=2, printed_page=2),
+                TitleNode(title="1.6", level=2, printed_page=30),
+            ],
+        ),
+        TitleNode(
+            title="Ch2",
+            level=1,
+            printed_page=31,
+            children=[
+                TitleNode(
+                    title="S1",
+                    level=2,
+                    printed_page=31,
+                    children=[TitleNode(title="S1.1", level=3, printed_page=31)],
+                ),
+                TitleNode(
+                    title="S9",
+                    level=2,
+                    printed_page=210,
+                    children=[TitleNode(title="S9.1", level=3, printed_page=210)],
+                ),
+            ],
+        ),
+    ]
+
+
+_DEEP_TREE_HIERARCHIES: list[dict[str, object]] = [
+    {
+        "toc_range": [1, 1],
+        "toc_range_unit": "page",
+        "toc_with_level": [
+            {"heading": "Ch1", "level": 1, "page_number": 1},
+            {"heading": "1.1", "level": 2, "page_number": 2},
+            {"heading": "1.6", "level": 2, "page_number": 30},
+            {"heading": "Ch2", "level": 1, "page_number": 31},
+            {"heading": "S1", "level": 2, "page_number": 31},
+            {"heading": "S1.1", "level": 3, "page_number": 31},
+            {"heading": "S9", "level": 2, "page_number": 210},
+            {"heading": "S9.1", "level": 3, "page_number": 210},
+        ],
+    }
+]
+
+_DEEP_TREE_LEAF_OVERRIDES: dict[tuple[str, ...], int] = {
+    ("Ch1", "1.1"): 2,
+    ("Ch1", "1.6"): 30,
+    ("Ch2", "S1", "S1.1"): 31,
+    ("Ch2", "S9", "S9.1"): 210,
+}
+
+
+def test_shard_toc_omits_unrelated_node_when_parents_unanchored() -> None:
+    ctx = _ctx(page_count=250)
+    _seed_skeleton(
+        ctx,
+        nodes=_deep_tree_nodes(),
+        overrides=dict(_DEEP_TREE_LEAF_OVERRIDES),
+        hierarchies=_DEEP_TREE_HIERARCHIES,
+    )
+
+    propose_shard_plan(ctx, {})
+    plan = ctx.blackboard.shard_plan
+    assert plan is not None
+
+    tail = plan.shards[-1].toc_hierarchies
+    assert tail is not None
+    headings = [row["heading"] for row in tail[0]["toc_with_level"]]
+    assert headings == ["S9.1"]
+
+
+def test_shard_toc_reopens_anchored_ancestors() -> None:
+    ctx = _ctx(page_count=250)
+    _seed_skeleton(
+        ctx,
+        nodes=_deep_tree_nodes(),
+        overrides={
+            **_DEEP_TREE_LEAF_OVERRIDES,
+            ("Ch2",): 31,
+            ("Ch2", "S9"): 210,
+        },
+        hierarchies=_DEEP_TREE_HIERARCHIES,
+    )
+
+    propose_shard_plan(ctx, {})
+    plan = ctx.blackboard.shard_plan
+    assert plan is not None
+
+    tail = plan.shards[-1].toc_hierarchies
+    assert tail is not None
+    headings = [row["heading"] for row in tail[0]["toc_with_level"]]
+    assert headings == ["Ch2", "S9", "S9.1"]
 
 
 def test_fat_leaf_uses_blank_page_in_window() -> None:

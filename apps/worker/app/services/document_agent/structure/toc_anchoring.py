@@ -11,6 +11,7 @@ from loguru import logger
 from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
+    anchor_hierarchy_from_offset,
     deserialize_skeleton_anchor,
     deserialize_title_node,
     serialize_skeleton_anchor,
@@ -19,27 +20,32 @@ from app.services.document_agent.structure.anchoring_primitives import (
     toc_range_start,
 )
 from app.services.document_agent.structure.hierarchy_locator import (
-    ResolvedHierarchyRange,
+    TitleMatch,
     TitleNode,
     collapse_intermediate_single_child_chains,
     extract_toc_nodes,
     iter_leaf_title_nodes,
-    resolve_hierarchy_page_ranges,
+    normalize_heading_text,
 )
 
-_FRONT_TOC_REGION_GAP_PAGES = 5
 _LOG_PREFIX = "[profile.toc_anchoring]"
+PENDING_TOC_CALIBRATION_CONCURRENCY = 10
 
 
 def run_toc_anchoring(ctx: ToolContext) -> None:
-    """Anchor extracted TOC hierarchies onto the profile blackboard."""
-    from app.services.document_agent.agents.calibration.orchestrator import (
+    """Anchor TOC structure onto the profile blackboard.
+
+    Outline is one route inside this stage: when bookmarks survive self-check and
+    beat the confirmed printed TOC pages on coverage, anchor from outline with
+    physical overrides (no calibrate VLM). Otherwise keep the extracted TOC tree
+    and run the existing VLM calibration path.
+    """
+    from app.services.document_agent.calibration.orchestrator import (
         anchor_hierarchy,
     )
 
     page_count = int(ctx.blackboard.page_count or 0)
-    hierarchies = list(ctx.blackboard.toc_hierarchies or [])
-    if page_count <= 0 or not hierarchies:
+    if page_count <= 0:
         return
 
     page_texts = dict(ctx.blackboard.page_full_text_cache)
@@ -47,6 +53,24 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
         raise ValueError(
             "page_full_text_cache missing; run text scan before TOC anchoring"
         )
+
+    toc_result = ctx.blackboard.toc_result
+    toc_pages = list(getattr(toc_result, "toc_pages", None) or [])
+    body_pages = body_pages_excluding_toc(toc_pages, page_count)
+
+    if _try_outline_anchoring_route(
+        ctx,
+        page_texts=page_texts,
+        toc_pages=toc_pages,
+        body_pages=body_pages,
+        page_count=page_count,
+    ):
+        return
+
+    hierarchies = list(ctx.blackboard.toc_hierarchies or [])
+    if not hierarchies:
+        return
+
     filename = Path(ctx.pdf_path).name
     primary, pending, _summary = select_global_toc_hierarchies(
         hierarchies=hierarchies,
@@ -57,11 +81,6 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
         return
 
     nodes = collapse_intermediate_single_child_chains(nodes)
-    toc_result = ctx.blackboard.toc_result
-    body_pages = body_pages_excluding_toc(
-        getattr(toc_result, "toc_pages", None),
-        page_count,
-    )
 
     resolve_nodes, skeleton_anchor = anchor_hierarchy(
         nodes=nodes,
@@ -73,35 +92,194 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
     )
     pending_records: list[dict[str, Any]] = []
     if pending:
-        primary_ranges = resolve_hierarchy_page_ranges(
-            resolve_nodes,
-            page_count=page_count,
-            page_texts=page_texts,
-            body_pages=body_pages,
-            match_overrides=skeleton_anchor.match_overrides,
-        )
-        pending_records = _anchor_pending_tocs(
+        pending_records = _calibrate_pending_tocs(
             pending_tocs=pending,
             ctx=ctx,
             page_texts=page_texts,
             page_count=page_count,
             body_pages=body_pages,
-            primary_ranges=primary_ranges,
+        )
+        _assign_toc_relationships(
+            root_anchor=skeleton_anchor,
+            pending_records=pending_records,
         )
         resolve_nodes, skeleton_anchor = _graft_contained_pending(
             resolve_nodes=resolve_nodes,
             skeleton_anchor=skeleton_anchor,
             pending_records=pending_records,
             page_count=page_count,
-            page_texts=page_texts,
             body_pages=body_pages,
         )
     ctx.blackboard.skeleton_anchor = serialize_skeleton_anchor(skeleton_anchor)
     ctx.blackboard.skeleton_nodes = [
         serialize_title_node(node) for node in resolve_nodes
     ]
-    ctx.blackboard.toc_page_offset = skeleton_anchor.offset
     ctx.blackboard.pending_skeleton_anchors = pending_records
+
+
+def _try_outline_anchoring_route(
+    ctx: ToolContext,
+    *,
+    page_texts: dict[int, str],
+    toc_pages: list[int],
+    body_pages: list[int],
+    page_count: int,
+) -> bool:
+    """Return True when outline wins and skeleton state has been written.
+
+    Consumes ``blackboard.pdf_outline_roots`` written during the find-stage
+    ``probe.outline`` call; does not re-open the PDF here.
+    """
+    from app.services.document_agent.structure.outline_check import (
+        build_tree_digest_from_entries,
+        flatten_outline_entries,
+        verify_entries,
+    )
+    from app.services.document_agent.tools.judge_toc_source import (
+        OUTLINE_CHOICE,
+        judge_toc_source,
+    )
+
+    roots = list(ctx.blackboard.pdf_outline_roots or [])
+    if not roots:
+        return False
+
+    kept, _dropped = verify_entries(
+        flatten_outline_entries(roots),
+        page_texts,
+    )
+    paged_kept = [entry for entry in kept if entry.get("page") is not None]
+    if not paged_kept:
+        return False
+
+    if toc_pages:
+        judge_result = judge_toc_source(
+            ctx,
+            {
+                "outline_digest": build_tree_digest_from_entries(kept),
+                "toc_pages": toc_pages,
+            },
+        )
+        if judge_result.status != "ok":
+            return False
+        if (judge_result.payload or {}).get("choice") != OUTLINE_CHOICE:
+            return False
+
+    toc_with_level: list[dict[str, Any]] = []
+    for entry in kept:
+        row: dict[str, Any] = {
+            "heading": entry["heading"],
+            "level": entry["level"],
+        }
+        if entry.get("page") is not None:
+            row["physical_page"] = int(entry["page"])
+        toc_with_level.append(row)
+
+    hierarchy = {
+        "source": "pdf_outline",
+        "toc_with_level": toc_with_level,
+    }
+    if not _write_outline_skeleton(
+        ctx,
+        hierarchies=[hierarchy],
+        page_texts=page_texts,
+        body_pages=body_pages,
+        page_count=page_count,
+    ):
+        return False
+
+    ctx.blackboard.toc_hierarchies = [hierarchy]
+    if ctx.blackboard.toc_result is not None:
+        ctx.blackboard.toc_result.method = "pdf_outline"
+        ctx.blackboard.toc_result.notes = (
+            "outline won coverage compare at toc anchoring; "
+            f"kept confirmed toc_pages={toc_pages}"
+        )
+    return True
+
+
+def _write_outline_skeleton(
+    ctx: ToolContext,
+    *,
+    hierarchies: list[dict[str, Any]],
+    page_texts: dict[int, str],
+    body_pages: list[int],
+    page_count: int,
+) -> bool:
+    """Anchor outline rows via physical overrides (no calibrate VLM).
+
+    Trust outline tree shape: do not collapse single-child chains (VLM path still
+    collapses). Path keys must stay aligned with ``outline_physical_overrides``.
+    """
+    nodes = extract_toc_nodes(hierarchies)
+    if not nodes:
+        return False
+    overrides = outline_physical_overrides(hierarchies)
+    resolve_nodes, skeleton_anchor = anchor_hierarchy_from_offset(
+        nodes=nodes,
+        offset_hint=0,
+        calibration_overrides=overrides,
+        page_texts=page_texts,
+        body_pages=body_pages,
+        page_count=page_count,
+        ctx=ctx,
+    )
+    skeleton_anchor = replace(skeleton_anchor, source="pdf_outline")
+    ctx.blackboard.skeleton_anchor = serialize_skeleton_anchor(skeleton_anchor)
+    ctx.blackboard.skeleton_nodes = [
+        serialize_title_node(node) for node in resolve_nodes
+    ]
+    ctx.blackboard.pending_skeleton_anchors = []
+    logger.info(
+        "{} outline anchoring: overrides={} pruned={} nodes={}",
+        _LOG_PREFIX,
+        len(skeleton_anchor.match_overrides),
+        skeleton_anchor.pruned_count,
+        len(resolve_nodes),
+    )
+    return True
+
+
+def outline_physical_overrides(
+    hierarchies: list[dict[str, Any]],
+) -> dict[tuple[str, ...], TitleMatch]:
+    """Build path→physical TitleMatch from outline rows carrying ``physical_page``."""
+    overrides: dict[tuple[str, ...], TitleMatch] = {}
+    for hierarchy in hierarchies:
+        entries = hierarchy.get("toc_with_level") or []
+        if not isinstance(entries, list):
+            continue
+        stack: list[tuple[int, str]] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            title = normalize_heading_text(str(entry.get("heading") or ""))
+            if not title or len(title) < 2:
+                continue
+            try:
+                level = int(entry.get("level") or 1)
+            except (TypeError, ValueError):
+                level = 1
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+            stack.append((level, title))
+            path = tuple(item[1] for item in stack)
+            raw_page = entry.get("physical_page")
+            if raw_page is None:
+                continue
+            try:
+                page = int(raw_page)
+            except (TypeError, ValueError):
+                continue
+            if page < 1:
+                continue
+            overrides[path] = TitleMatch(
+                page=page,
+                source="pdf_outline",
+                matched_line="",
+                candidates=[page],
+            )
+    return overrides
 
 
 def select_global_toc_hierarchies(
@@ -109,7 +287,12 @@ def select_global_toc_hierarchies(
     hierarchies: list[dict[str, Any]],
     filename: str,
 ) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]], dict[str, Any]]:
-    """Split TOC hierarchies into primary (front cluster) and pending."""
+    """Split TOC hierarchies into earliest forest root and the rest.
+
+    The earliest TOC is only the serialization root for ``skeleton_nodes``.
+    Relationship classify treats every calibrated TOC as equal peers on
+    evidenced physical spans.
+    """
     if len(hierarchies) <= 1:
         return (hierarchies or None), [], {}
 
@@ -126,48 +309,27 @@ def select_global_toc_hierarchies(
         enumerate(hierarchies),
         key=lambda item: toc_range_start(item[1]) or 0,
     )
-    selected_indices: set[int] = set()
-    pending_indices: list[int] = []
-    cluster_end: int | None = None
+    primary_index = sorted_items[0][0]
+    pending_indices = [index for index, _hierarchy in sorted_items[1:]]
 
-    for original_index, hierarchy in sorted_items:
-        start = toc_range_start(hierarchy)
-        end = toc_range_end(hierarchy)
-        if start is None or end is None:
-            selected_indices.add(original_index)
-            continue
-        if cluster_end is None:
-            selected_indices.add(original_index)
-            cluster_end = end
-            continue
-        if start <= cluster_end + _FRONT_TOC_REGION_GAP_PAGES:
-            selected_indices.add(original_index)
-            cluster_end = max(cluster_end, end)
-            continue
-        pending_indices.append(original_index)
-
-    selected = [
-        hierarchy
-        for index, hierarchy in enumerate(hierarchies)
-        if index in selected_indices
-    ]
+    selected = [hierarchies[primary_index]]
     pending = [hierarchies[i] for i in pending_indices]
 
     if pending:
         logger.info(
-            "{} toc split: primary={} pending={} filename={}",
+            "{} toc split: root_forest={} peers={} filename={}",
             _LOG_PREFIX,
             len(selected),
             len(pending),
             filename,
         )
     summary = {
-        "strategy": "front_cluster_with_pending",
+        "strategy": "earliest_forest_rest_pending",
         "input_count": len(hierarchies),
         "primary_count": len(selected),
         "pending_count": len(pending),
     }
-    return (selected or None), pending, summary
+    return selected, pending, summary
 
 
 def body_pages_excluding_toc(toc_pages: Any, page_count: int) -> list[int]:
@@ -200,142 +362,238 @@ def pending_toc_body_scope(
     return toc_scope_end, toc_body_pages
 
 
+def evidenced_physical_span(
+    match_overrides: dict[tuple[str, ...], TitleMatch],
+) -> tuple[int, int] | None:
+    """Min/max physical pages from overrides; no end-of-document extrapolation."""
+    pages = [match.page for match in match_overrides.values() if match.page is not None]
+    if not pages:
+        return None
+    return min(pages), max(pages)
+
+
+def find_tightest_containing_host(
+    candidate_span: tuple[int, int],
+    hosts: list[tuple[Any, tuple[int, int]]],
+) -> Any | None:
+    """Return host key whose evidenced span tightly covers ``candidate_span``."""
+    best_key: Any | None = None
+    best_size: int | None = None
+    c0, c1 = candidate_span
+    if c0 > c1:
+        return None
+    for key, (h0, h1) in hosts:
+        if h0 <= c0 and c1 <= h1 and (h0, h1) != (c0, c1):
+            size = h1 - h0
+            if best_size is None or size < best_size:
+                best_size = size
+                best_key = key
+    return best_key
+
+
 def classify_toc_relationship(
     *,
-    offset: int,
-    nodes: list[TitleNode],
-    primary_ranges: list[ResolvedHierarchyRange],
-    page_count: int,
+    candidate_span: tuple[int, int] | None,
+    host_spans: list[tuple[int, int]],
 ) -> str:
-    """Classify a pending TOC as parallel or contained vs primary ranges.
+    """Classify a TOC unit vs peer evidenced physical spans.
 
-    parallel: the pending TOC covers pages beyond the primary tree's *anchored*
-              content (i.e. the last explicitly-located section start page).
-    contained: the pending TOC's content falls strictly within a primary
-              section's explicitly-anchored range.
+    contained: some peer span fully covers the candidate span
+    parallel:  no peer covers it
+    unresolvable: candidate has no evidenced pages
+
+    Spans are min/max override pages only — never extrapolated to document end.
     """
-    leaves = [
-        node
-        for _, node in iter_leaf_title_nodes(nodes)
-        if node.printed_page is not None
-    ]
-    if not leaves:
+    if candidate_span is None:
         return "unresolvable"
-
-    first_printed = leaves[0].printed_page
-    last_printed = leaves[-1].printed_page
-    if first_printed is None or last_printed is None:
-        return "unresolvable"
-    first_physical = first_printed + offset
-    last_physical = last_printed + offset
-
-    if first_physical < 1 or first_physical > page_count:
-        return "unresolvable"
-
-    if not primary_ranges:
+    hosts = [(index, span) for index, span in enumerate(host_spans)]
+    if find_tightest_containing_host(candidate_span, hosts) is None:
         return "parallel"
+    return "contained"
 
-    # Use the last *start_page* among primary ranges as the boundary of
-    # explicitly-anchored content. The end_page of the last section is often
-    # extended to page_count by default and doesn't reflect real content coverage.
-    last_anchored_start = max(
-        (r.start_page for r in primary_ranges if r.start_page is not None), default=0
+
+def _assign_toc_relationships(
+    *,
+    root_anchor: SkeletonAnchor,
+    pending_records: list[dict[str, Any]],
+) -> None:
+    """Equal-footing classify: every pending vs root + other pendings' spans."""
+    root_span = evidenced_physical_span(root_anchor.match_overrides)
+    keyed_spans: list[tuple[Any, tuple[int, int] | None]] = [("root", root_span)]
+    for index, record in enumerate(pending_records):
+        if record.get("relationship") == "unresolvable":
+            keyed_spans.append((index, None))
+            continue
+        anchor_raw = record.get("skeleton_anchor")
+        if not isinstance(anchor_raw, dict):
+            record["relationship"] = "unresolvable"
+            keyed_spans.append((index, None))
+            continue
+        span = evidenced_physical_span(
+            deserialize_skeleton_anchor(anchor_raw).match_overrides
+        )
+        keyed_spans.append((index, span))
+        if span is None:
+            record["relationship"] = "unresolvable"
+
+    for index, record in enumerate(pending_records):
+        if record.get("relationship") == "unresolvable":
+            record.pop("host", None)
+            continue
+        candidate = keyed_spans[index + 1][1]
+        if candidate is None:
+            record["relationship"] = "unresolvable"
+            record.pop("host", None)
+            continue
+        hosts = [
+            (key, span)
+            for key, span in keyed_spans
+            if key != index and span is not None
+        ]
+        host_key = find_tightest_containing_host(candidate, hosts)
+        if host_key is None:
+            record["relationship"] = "parallel"
+            record.pop("host", None)
+        else:
+            record["relationship"] = "contained"
+            record["host"] = host_key
+        logger.info(
+            "{} peer classify toc_range={} relationship={} host={} span={}",
+            _LOG_PREFIX,
+            (record.get("toc") or {}).get("toc_range"),
+            record["relationship"],
+            record.get("host"),
+            candidate,
+        )
+
+
+def _calibrate_one_pending_toc(
+    *,
+    index: int,
+    pending_toc: dict[str, Any],
+    pending_tocs: list[dict[str, Any]],
+    ctx: ToolContext,
+    page_texts: dict[int, str],
+    page_count: int,
+    body_pages: list[int],
+) -> dict[str, Any] | None:
+    from app.services.document_agent.calibration.procedure import (
+        finalize_calibration_result,
+        pick_primary_offset,
+    )
+    from app.services.document_agent.calibration.service import (
+        calibrate_offset,
     )
 
-    if first_physical > last_anchored_start:
-        return "parallel"
+    nodes = extract_toc_nodes([pending_toc])
+    if not nodes:
+        return None
+    nodes = collapse_intermediate_single_child_chains(nodes)
+    toc_scope_end, toc_body_pages = pending_toc_body_scope(
+        pending_tocs=pending_tocs,
+        index=index,
+        page_count=page_count,
+        body_pages=body_pages,
+    )
+    phase1 = calibrate_offset(
+        toc_hierarchies=[pending_toc],
+        ctx=ctx,
+        page_texts=page_texts,
+        page_count=toc_scope_end,
+    )
+    offset = pick_primary_offset(phase1)
+    if offset is None:
+        logger.info(
+            "{} pending TOC toc_range={}: calibration failed, skipping",
+            _LOG_PREFIX,
+            pending_toc.get("toc_range"),
+        )
+        return None
+    if not any(
+        node.printed_page is not None
+        for _path, node in iter_leaf_title_nodes(nodes)
+    ):
+        logger.info(
+            "{} pending TOC toc_range={}: no printed pages, unresolvable",
+            _LOG_PREFIX,
+            pending_toc.get("toc_range"),
+        )
+        return {
+            "toc": pending_toc,
+            "relationship": "unresolvable",
+        }
+    resolve_nodes, skeleton_anchor, _finalized = finalize_calibration_result(
+        result=phase1,
+        entries=list(pending_toc.get("toc_with_level") or []),
+        toc_hierarchies=[pending_toc],
+        ctx=ctx,
+        page_count=toc_scope_end,
+        page_texts=page_texts,
+        body_pages=toc_body_pages,
+        nodes=nodes,
+    )
+    if evidenced_physical_span(skeleton_anchor.match_overrides) is None:
+        logger.info(
+            "{} pending TOC toc_range={}: no evidenced pages, unresolvable",
+            _LOG_PREFIX,
+            pending_toc.get("toc_range"),
+        )
+        return {
+            "toc": pending_toc,
+            "relationship": "unresolvable",
+        }
+    return {
+        "toc": pending_toc,
+        "nodes": [serialize_title_node(node) for node in resolve_nodes],
+        "skeleton_anchor": serialize_skeleton_anchor(skeleton_anchor),
+    }
 
-    min_level = min(r.level for r in primary_ranges)
-    top_level_ranges = [r for r in primary_ranges if r.level == min_level]
-    for r in top_level_ranges:
-        if r.start_page and r.end_page:
-            if r.start_page <= first_physical and last_physical <= r.end_page:
-                return "contained"
 
-    return "parallel"
-
-
-def _anchor_pending_tocs(
+def _calibrate_pending_tocs(
     *,
     pending_tocs: list[dict[str, Any]],
     ctx: ToolContext,
     page_texts: dict[int, str],
     page_count: int,
     body_pages: list[int],
-    primary_ranges: list[ResolvedHierarchyRange],
 ) -> list[dict[str, Any]]:
-    from app.services.document_agent.agents.calibration.procedure import (
-        finalize_calibration_result,
-        pick_primary_offset,
-    )
-    from app.services.document_agent.agents.calibration.service import (
-        calibrate_offset,
-    )
+    if not pending_tocs:
+        return []
 
-    records: list[dict[str, Any]] = []
-    for i, pending_toc in enumerate(pending_tocs):
-        nodes = extract_toc_nodes([pending_toc])
-        if not nodes:
-            continue
-        nodes = collapse_intermediate_single_child_chains(nodes)
-        toc_scope_end, toc_body_pages = pending_toc_body_scope(
-            pending_tocs=pending_tocs,
+    from gevent.pool import Pool as GeventPool
+
+    pool_size = min(PENDING_TOC_CALIBRATION_CONCURRENCY, len(pending_tocs))
+    logger.info(
+        "{} pending TOC calibration: count={} concurrency={}",
+        _LOG_PREFIX,
+        len(pending_tocs),
+        pool_size,
+    )
+    pool = GeventPool(size=pool_size)
+    jobs = [
+        pool.spawn(
+            _calibrate_one_pending_toc,
             index=i,
+            pending_toc=pending_toc,
+            pending_tocs=pending_tocs,
+            ctx=ctx,
+            page_texts=page_texts,
             page_count=page_count,
             body_pages=body_pages,
         )
-        phase1 = calibrate_offset(
-            nodes=nodes,
-            toc_hierarchies=[pending_toc],
-            ctx=ctx,
-            page_texts=page_texts,
-            page_count=toc_scope_end,
-        )
-        offset = pick_primary_offset(phase1)
-        if offset is None:
-            logger.info(
-                "{} pending TOC toc_range={}: calibration failed, skipping",
-                _LOG_PREFIX,
-                pending_toc.get("toc_range"),
-            )
+        for i, pending_toc in enumerate(pending_tocs)
+    ]
+    pool.join()
+
+    records: list[dict[str, Any]] = []
+    for job in jobs:
+        try:
+            record = job.get()
+        except Exception as exc:
+            logger.warning("{} pending TOC calibration job failed: {}", _LOG_PREFIX, exc)
             continue
-        relationship = classify_toc_relationship(
-            offset=offset,
-            nodes=nodes,
-            primary_ranges=primary_ranges,
-            page_count=page_count,
-        )
-        if relationship == "unresolvable":
-            logger.info(
-                "{} pending TOC toc_range={}: unresolvable, skipping",
-                _LOG_PREFIX,
-                pending_toc.get("toc_range"),
-            )
-            records.append(
-                {
-                    "toc": pending_toc,
-                    "relationship": relationship,
-                }
-            )
-            continue
-        resolve_nodes, skeleton_anchor, _finalized = finalize_calibration_result(
-            result=phase1,
-            entries=list(pending_toc.get("toc_with_level") or []),
-            toc_hierarchies=[pending_toc],
-            ctx=ctx,
-            page_count=toc_scope_end,
-            page_texts=page_texts,
-            body_pages=toc_body_pages,
-            nodes=nodes,
-        )
-        records.append(
-            {
-                "toc": pending_toc,
-                "relationship": relationship,
-                "nodes": [serialize_title_node(node) for node in resolve_nodes],
-                "skeleton_anchor": serialize_skeleton_anchor(skeleton_anchor),
-            }
-        )
+        if record is not None:
+            records.append(record)
     return records
 
 
@@ -345,14 +603,13 @@ def _graft_contained_pending(
     skeleton_anchor: SkeletonAnchor,
     pending_records: list[dict[str, Any]],
     page_count: int,
-    page_texts: dict[int, str],
     body_pages: list[int],
 ) -> tuple[list[TitleNode], SkeletonAnchor]:
     from app.services.document_agent.structure.toc_graft import graft_contained_toc
 
-    nodes = resolve_nodes
-    overrides = dict(skeleton_anchor.match_overrides)
-    for record in pending_records:
+    pending_forests: dict[int, tuple[list[TitleNode], dict[tuple[str, ...], TitleMatch]]] = {}
+    contained_order: list[tuple[int, int]] = []
+    for index, record in enumerate(pending_records):
         if record.get("relationship") != "contained":
             continue
         nodes_raw = record.get("nodes") or []
@@ -365,17 +622,86 @@ def _graft_contained_pending(
         if not contained_nodes:
             continue
         contained_anchor = deserialize_skeleton_anchor(anchor_raw)
+        span = evidenced_physical_span(contained_anchor.match_overrides)
+        if span is None:
+            continue
+        pending_forests[index] = (
+            contained_nodes,
+            dict(contained_anchor.match_overrides),
+        )
+        contained_order.append((span[1] - span[0], index))
+
+    for index, record in enumerate(pending_records):
+        if index in pending_forests:
+            continue
+        if record.get("relationship") not in {"parallel", "contained"}:
+            continue
+        nodes_raw = record.get("nodes") or []
+        anchor_raw = record.get("skeleton_anchor")
+        if not isinstance(anchor_raw, dict) or not nodes_raw:
+            continue
+        host_nodes = [
+            deserialize_title_node(node) for node in nodes_raw if isinstance(node, dict)
+        ]
+        if not host_nodes:
+            continue
+        pending_forests[index] = (
+            host_nodes,
+            dict(deserialize_skeleton_anchor(anchor_raw).match_overrides),
+        )
+
+    contained_order.sort()
+    nodes = resolve_nodes
+    overrides = dict(skeleton_anchor.match_overrides)
+
+    for _size, index in contained_order:
+        record = pending_records[index]
+        forest = pending_forests.get(index)
+        if forest is None:
+            continue
+        contained_nodes, contained_overrides = forest
+        host = record.get("host")
+        if host == "root":
+            grafted = graft_contained_toc(
+                primary_nodes=nodes,
+                primary_overrides=overrides,
+                contained_nodes=contained_nodes,
+                contained_overrides=contained_overrides,
+                page_count=page_count,
+                body_pages=body_pages,
+            )
+            nodes = grafted.nodes
+            overrides = grafted.match_overrides
+            record["grafted"] = True
+            record["graft"] = grafted.events
+            continue
+        if not isinstance(host, int) or host not in pending_forests:
+            record["relationship"] = "parallel"
+            record.pop("host", None)
+            record.pop("grafted", None)
+            record.pop("graft", None)
+            continue
+        host_nodes, host_overrides = pending_forests[host]
         grafted = graft_contained_toc(
-            primary_nodes=nodes,
-            primary_overrides=overrides,
+            primary_nodes=host_nodes,
+            primary_overrides=host_overrides,
             contained_nodes=contained_nodes,
-            contained_overrides=contained_anchor.match_overrides,
+            contained_overrides=contained_overrides,
             page_count=page_count,
-            page_texts=page_texts,
             body_pages=body_pages,
         )
-        nodes = grafted.nodes
-        overrides = grafted.match_overrides
+        pending_forests[host] = (grafted.nodes, grafted.match_overrides)
+        host_record = pending_records[host]
+        host_record["nodes"] = [
+            serialize_title_node(node) for node in grafted.nodes
+        ]
+        host_anchor = deserialize_skeleton_anchor(
+            host_record.get("skeleton_anchor") or {}
+        )
+        host_record["skeleton_anchor"] = serialize_skeleton_anchor(
+            replace(host_anchor, match_overrides=grafted.match_overrides)
+        )
         record["grafted"] = True
         record["graft"] = grafted.events
+
     return nodes, replace(skeleton_anchor, match_overrides=overrides)

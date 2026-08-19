@@ -250,7 +250,6 @@ def compute_node_summary(
     tag_by_page: dict[int, PageTagResult],
     image_path_by_page: dict[int, str],
     vlm_model: str | None,
-    budget: Any | None = None,
     node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,
 ) -> tuple[str, list[str], list[dict[str, str]]]:
     """Settle a node's summary, keywords, and typed entities (§4.4).
@@ -387,7 +386,6 @@ def build_node_rows(
     tag_by_page: dict[int, PageTagResult],
     filename: str,
     verdict: str,
-    budget: Any | None = None,
     vlm_model: str | None = None,
     page_assets_by_page: dict[int, list[PageAsset]] | None = None,
     node_summary_max_pages: int = _NODE_SUMMARY_MAX_PAGES_DEFAULT,

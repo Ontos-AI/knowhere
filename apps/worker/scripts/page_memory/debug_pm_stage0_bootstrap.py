@@ -6,7 +6,7 @@ Matches ``ProfileCoordinator._run_coarse`` through ``stop_after_asset_probe``:
   bootstrap → coarse VLM → text scan → asset probe
   → persist stage0_state + page_full_text_cache
 
-TOC Find / extract / links belong to Stage 1
+TOC Find / extract belong to Stage 1
 (``debug_pm_stage1_hierarchy.py``). Calibration belongs to Stage 2.
 
 Usage:

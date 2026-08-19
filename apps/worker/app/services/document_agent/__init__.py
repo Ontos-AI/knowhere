@@ -1,4 +1,4 @@
-"""Page anatomy agent for hierarchy-first PDF profiling."""
+"""Document profile workflow for hierarchy-first PDF profiling."""
 
 from app.services.document_agent.manifest import (
     PageAnatomyMap,

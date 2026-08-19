@@ -236,7 +236,6 @@ def main() -> int:
         rendered_pages=asset_rendered,
         output_dir=str(out_dir),
         model_name=asset_model,
-        budget=None,
         max_pages=asset_max_pages,
         confidence_threshold=get_asset_confidence_threshold(),
         summary_enabled=summary_enabled,

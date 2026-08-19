@@ -14,6 +14,8 @@ distinct root greenlet ids, so their accumulators never collide.
 from __future__ import annotations
 
 import threading
+from contextlib import contextmanager
+from collections.abc import Iterator
 from typing import Any
 
 _trackers: dict[int, dict[str, Any]] = {}
@@ -23,6 +25,11 @@ _lock = threading.Lock()
 # greenlets (which cannot inherit ContextVar) can be associated back to
 # their root.  We walk the greenlet parent chain to find the id.
 _root_ids: dict[int, int] = {}
+
+# TODO(parse-total-token-limit): Add one optional parse-wide token limit here,
+# defaulting to unlimited. Enforcement must reserve before provider calls and
+# commit/refund atomically so concurrent greenlets and native threads share the
+# same limit without reintroducing stage-specific ledgers.
 
 
 def _current_greenlet_id() -> int:
@@ -86,6 +93,32 @@ def get_current_token_tracker() -> dict[str, Any] | None:
     if root is None:
         return None
     return _trackers.get(root)
+
+
+def get_current_token_tracker_root_id() -> int | None:
+    """Return the active parse tracker root id for child-context propagation."""
+    return _find_root_id()
+
+
+@contextmanager
+def bind_token_tracker(root_id: int | None) -> Iterator[None]:
+    """Temporarily bind the current native thread/greenlet to a parse tracker."""
+    if root_id is None:
+        yield
+        return
+
+    gid = _current_greenlet_id()
+    with _lock:
+        previous = _root_ids.get(gid)
+        _root_ids[gid] = root_id
+    try:
+        yield
+    finally:
+        with _lock:
+            if previous is None:
+                _root_ids.pop(gid, None)
+            else:
+                _root_ids[gid] = previous
 
 
 def cleanup_token_tracker() -> None:

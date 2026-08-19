@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
+import pandas as pd
+
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
 os.environ.setdefault("S3_BUCKET_NAME", "test-uploads")
@@ -10,53 +12,9 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from app.services.document_agent.budget import BudgetTracker, StageEnvelope
 from app.services.page_memory import memory_service
 from shared.services.chunks.dataframe_chunk_converter import dataframe_to_chunks
 from shared.services.storage.zip_chunk_schema import ZipChunkSchemaBuilder
-
-import pandas as pd
-
-
-def test_visual_stage_envelope_preserves_other_stage_guarantee() -> None:
-    budget = BudgetTracker(
-        plan_budget=100,
-        visual_budget=100,
-        visual_stage_envelopes={
-            "toc_confirm": StageEnvelope(min_guarantee=30, cap=60),
-            "coarse_planner": StageEnvelope(min_guarantee=40, cap=70),
-        },
-    )
-
-    assert budget.try_reserve("visual", 30, stage="toc_confirm") is True
-    budget.commit("visual", actual=25, est=30, stage="toc_confirm")
-    assert budget.try_reserve("visual", 36, stage="toc_confirm") is False
-
-    snapshot = budget.snapshot()
-    assert snapshot["visual"]["used"] == 25
-    assert snapshot["visual_stages"]["toc_confirm"]["used"] == 25
-
-    assert budget.try_reserve("visual", 40, stage="coarse_planner") is True
-    budget.refund("visual", est=40, stage="coarse_planner")
-    assert budget.snapshot()["visual_stages"]["coarse_planner"]["reserved"] == 0
-
-
-def test_visual_stage_cap_rejects_overage_while_legacy_calls_remain_supported() -> None:
-    budget = BudgetTracker(
-        plan_budget=100,
-        visual_budget=100,
-        visual_stage_envelopes={
-            "toc_confirm": StageEnvelope(min_guarantee=0, cap=20),
-        },
-    )
-
-    assert budget.try_reserve("visual", 21, stage="toc_confirm") is False
-    assert budget.try_reserve("visual", 90) is True
-    budget.commit("visual", actual=80, est=90)
-
-    snapshot = budget.snapshot()
-    assert snapshot["visual"]["used"] == 80
-    assert snapshot["visual_stages"]["toc_confirm"]["used"] == 0
 
 
 def test_dataframe_converter_accepts_page_chunks_with_extra_metadata() -> None:

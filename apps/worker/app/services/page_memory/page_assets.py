@@ -81,7 +81,6 @@ def detect_page_assets(
     page: PageRenderResult,
     source_name: str,
     model_name: str | None,
-    budget: Any | None = None,
     confidence_threshold: float,
 ) -> list[PageAsset]:
     """Detect asset regions on one rendered page via VLM."""
@@ -312,7 +311,6 @@ def summarize_page_asset(
     *,
     asset: PageAsset,
     model_name: str | None,
-    budget: Any | None = None,
 ) -> PageAsset:
     """Summarize a cropped asset via the unified engine (§4.3).
 
@@ -369,7 +367,6 @@ def extract_page_assets_from_renders(
     rendered_pages: list[PageRenderResult],
     output_dir: str,
     model_name: str | None,
-    budget: Any | None = None,
     max_pages: int,
     confidence_threshold: float,
     summary_enabled: bool = False,

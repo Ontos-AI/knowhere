@@ -65,7 +65,6 @@ def test_page_asset_detection_uses_lowest_temperature(monkeypatch, tmp_path) -> 
         page=page,
         source_name="demo.pdf",
         model_name=page_assets.get_asset_model(),
-        budget=None,
         confidence_threshold=0.3,
     )
 
@@ -143,7 +142,6 @@ def test_page_asset_extraction_keeps_debug_output_minimal(
         rendered_pages=page_images,
         output_dir=str(tmp_path),
         model_name=page_assets.get_asset_model(),
-        budget=None,
         max_pages=2,
         confidence_threshold=0.3,
         summary_enabled=False,

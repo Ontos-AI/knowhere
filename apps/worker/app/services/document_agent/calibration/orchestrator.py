@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.document_agent.agents.calibration.procedure import (
+from app.services.document_agent.calibration.procedure import (
     finalize_calibration_result,
     flat_toc_entries,
 )
-from app.services.document_agent.agents.calibration import service
+from app.services.document_agent.calibration import service
 from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.structure.hierarchy_locator import TitleNode
 from app.services.document_agent.structure.anchoring_primitives import (
@@ -28,7 +28,6 @@ def anchor_hierarchy(
 ) -> tuple[list[TitleNode], SkeletonAnchor]:
     """Run calibration Phase-1 and the production Phase-2 completion."""
     phase1 = service.calibrate_offset(
-        nodes=nodes,
         toc_hierarchies=toc_hierarchies,
         ctx=ctx,
         page_texts=page_texts,

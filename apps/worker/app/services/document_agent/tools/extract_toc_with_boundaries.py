@@ -10,8 +10,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
-from shared.utils.token_estimate import estimate_tokens
-
 from app.services.document_agent.manifest import (
     TocAnchorPage,
     TocEvidence,
@@ -22,6 +20,7 @@ from app.services.document_agent.manifest import (
 from app.services.document_agent.registry import register_tool
 from app.services.document_agent.tools.vlm_toc_extractor import (
     TOC_VLM_MAX_TOKENS,
+    BatchPageResult,
     vlm_entries_to_toc_hierarchies,
 )
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
@@ -33,11 +32,9 @@ from loguru import logger
 # -- Constants -----------------------------------------------------------------
 
 BOUNDARY_STEP_PAGES = 5
+TOC_VLM_CONCURRENCY = 10
 MAX_BOUNDARY_ROUNDS = 6
 MAX_TOC_PAGES = BOUNDARY_STEP_PAGES * MAX_BOUNDARY_ROUNDS  # 30
-
-_CONFIRM_STAGE = "toc_confirm"
-_CONFIRM_TOKENS_PER_PAGE = 800
 
 _CONFIRM_PROMPT = (
     "You are a document structure analysis expert. "
@@ -137,19 +134,9 @@ def _evidence_from_confirm_items(
         is_toc_start = bool(item.get("is_toc_start"))
         if is_toc_start:
             confirmed_pages.add(page)
-        raw_confidence = item.get("confidence")
-        try:
-            confidence = (
-                float(raw_confidence)
-                if raw_confidence is not None
-                else (0.95 if is_toc_start else 0.05)
-            )
-        except (TypeError, ValueError):
-            confidence = 0.95 if is_toc_start else 0.05
         evidence_by_page[page] = TocEvidence(
             page_index=page,
             source="vlm",
-            confidence=max(0.0, min(1.0, confidence)),
             reason=str(item.get("reason") or ""),
         )
     return confirmed_pages, evidence_by_page
@@ -159,7 +146,6 @@ def _confirm_anchor_chunk(
     chunk: list[TocAnchorPage],
     *,
     model: str,
-    budget: Any | None,
 ) -> tuple[set[int], dict[int, TocEvidence], bool]:
     """Confirm one BOUNDARY_STEP_PAGES-sized anchor chunk.
 
@@ -189,18 +175,11 @@ def _confirm_anchor_chunk(
         )
 
     messages = cast(Any, [{"role": "user", "content": content_parts}])
-    est = estimate_tokens(_CONFIRM_PROMPT) + len(chunk) * _CONFIRM_TOKENS_PER_PAGE
-    if budget and not budget.try_reserve("visual", est, stage=_CONFIRM_STAGE):
-        logger.warning(
-            "[extract.toc] insufficient visual budget for confirm chunk pages={}",
-            [a.page for a in chunk],
-        )
-        return set(), {}, True
 
     try:
         client, resolved_model = get_vision_client(requested_model=model)
         resolved = resolved_model or model
-        raw, usage = client.chat_completion_with_usage(
+        raw, _usage = client.chat_completion_with_usage(
             messages=messages,
             model=resolved,
             temperature=0.1,
@@ -208,20 +187,11 @@ def _confirm_anchor_chunk(
             response_format={"type": "json_object"},
             usage_task="document_agent.toc_anchor_confirm",
         )
-        if budget:
-            budget.commit(
-                "visual",
-                actual=usage.get("total_tokens", est),
-                est=est,
-                stage=_CONFIRM_STAGE,
-            )
         confirmed_pages, evidence_by_page = _evidence_from_confirm_items(
             _parse_confirm_items(raw)
         )
         return confirmed_pages, evidence_by_page, False
     except Exception as exc:
-        if budget:
-            budget.refund("visual", est=est, stage=_CONFIRM_STAGE)
         logger.warning(
             "[extract.toc] VLM confirm chunk failed pages={}: {}",
             [a.page for a in chunk],
@@ -233,7 +203,6 @@ def _confirm_anchor_chunk(
 def _vlm_confirm_anchors(
     anchor_pages: list[TocAnchorPage],
     model: str,
-    budget: Any | None = None,
 ) -> tuple[list[TocAnchorPage], bool, list[TocEvidence]]:
     """Phase 1: confirm TOC starts in BOUNDARY_STEP_PAGES batches (concurrent)."""
     if not anchor_pages:
@@ -247,12 +216,12 @@ def _vlm_confirm_anchors(
         len(anchor_pages),
         len(chunks),
         BOUNDARY_STEP_PAGES,
-        min(BOUNDARY_STEP_PAGES, len(chunks)),
+        min(TOC_VLM_CONCURRENCY, len(chunks)),
     )
 
-    pool = GeventPool(size=min(BOUNDARY_STEP_PAGES, len(chunks)))
+    pool = GeventPool(size=min(TOC_VLM_CONCURRENCY, len(chunks)))
     jobs = [
-        pool.spawn(_confirm_anchor_chunk, chunk, model=model, budget=budget)
+        pool.spawn(_confirm_anchor_chunk, chunk, model=model)
         for chunk in chunks
     ]
     pool.join()
@@ -284,7 +253,6 @@ def _vlm_confirm_anchors(
             TocEvidence(
                 page_index=a.page,
                 source="vlm",
-                confidence=0.05,
                 reason=(
                     "confirm batch failed for this candidate"
                     if confirm_failed
@@ -375,6 +343,39 @@ def _render_toc_page_batch(
     return page_pngs
 
 
+def _contiguous_toc_prefix(
+    page_results: list[BatchPageResult],
+) -> tuple[list[int], list[dict[str, Any]]]:
+    """Keep TOC pages/entries from the batch start until the first non-TOC."""
+    kept_pages: list[int] = []
+    kept_entries: list[dict[str, Any]] = []
+    for page_result in page_results:
+        if not page_result.is_toc:
+            break
+        kept_pages.append(int(page_result.page))
+        kept_entries.extend(list(page_result.entries or []))
+    return kept_pages, kept_entries
+
+
+def _should_expand_toc_window(
+    *,
+    batch_start: int,
+    non_toc_pages: list[int],
+    kept_toc_pages: list[int],
+) -> bool:
+    """Expand only when this batch is a full unbroken TOC window.
+
+    Requires:
+    1. ``non_toc_pages`` empty (no mid-window body / other break)
+    2. last kept TOC page equals ``batch_start + BOUNDARY_STEP_PAGES - 1``
+       (full step window closed on TOC; not a short end-of-doc batch)
+    """
+    if non_toc_pages or not kept_toc_pages:
+        return False
+    full_window_end = batch_start + BOUNDARY_STEP_PAGES - 1
+    return kept_toc_pages[-1] == full_window_end
+
+
 def _extract_region_for_anchor(
     anchor: TocAnchorPage,
     *,
@@ -389,6 +390,10 @@ def _extract_region_for_anchor(
 
     Rounds within a start stay serial (continuation context). Different
     starts run concurrently for VLM, but page renders share ``render_lock``.
+
+    Each VLM batch is truncated to the contiguous TOC prefix before the first
+    non-TOC page. Expand only when that prefix fills a full
+    ``BOUNDARY_STEP_PAGES`` window with ``non_toc_pages == []``.
     """
     from app.services.document_agent.tools.vlm_toc_extractor import (
         vlm_extract_toc_batch,
@@ -442,9 +447,20 @@ def _extract_region_for_anchor(
                 previous_entries=region_entries if region_entries else None,
             )
             batch_meta.append(batch_result.meta)
-            region_entries.extend(batch_result.all_entries)
-            region_toc_pages.extend(batch_result.toc_pages)
-            region_scan_end = batch_end
+
+            kept_toc_pages, kept_entries = _contiguous_toc_prefix(
+                batch_result.page_results
+            )
+            region_entries.extend(kept_entries)
+            region_toc_pages.extend(kept_toc_pages)
+            if kept_toc_pages:
+                region_scan_end = kept_toc_pages[-1]
+
+            should_expand = _should_expand_toc_window(
+                batch_start=batch_start,
+                non_toc_pages=list(batch_result.non_toc_pages),
+                kept_toc_pages=kept_toc_pages,
+            )
             batch_trace.append(
                 {
                     "anchor": anchor_page,
@@ -452,24 +468,27 @@ def _extract_region_for_anchor(
                     "batch_pages": batch_pages,
                     "toc_pages": batch_result.toc_pages,
                     "non_toc_pages": batch_result.non_toc_pages,
-                    "entries_found": len(batch_result.all_entries),
+                    "kept_toc_pages": kept_toc_pages,
+                    "entries_found": len(kept_entries),
+                    "expanded": should_expand,
                 }
             )
 
-            last_page_is_toc = (
-                batch_result.page_results
-                and batch_result.page_results[-1].is_toc
-            )
-            if not last_page_is_toc:
+            if not should_expand:
                 logger.info(
-                    "[extract.toc] boundary found: last page {} is not TOC",
+                    "[extract.toc] boundary found: kept={} non_toc={} "
+                    "batch={}-{}",
+                    kept_toc_pages,
+                    batch_result.non_toc_pages,
+                    batch_start,
                     batch_end,
                 )
                 break
             if batch_end >= page_count:
                 break
             logger.info(
-                "[extract.toc] last page {} still TOC, expanding window",
+                "[extract.toc] full TOC window {}-{}, expanding",
+                batch_start,
                 batch_end,
             )
 
@@ -521,7 +540,7 @@ def _extract_regions_for_confirmed_anchors(
     from gevent.lock import Semaphore
     from gevent.pool import Pool as GeventPool
 
-    pool_size = min(BOUNDARY_STEP_PAGES, len(confirmed))
+    pool_size = min(TOC_VLM_CONCURRENCY, len(confirmed))
     render_lock = Semaphore(1)
     logger.info(
         "[extract.toc] Phase 2 extract: {} confirmed starts, "
@@ -624,9 +643,7 @@ def extract_toc_with_boundaries(
     os.makedirs(output_dir, exist_ok=True)
 
     # -- Phase 1: VLM confirm anchors (batched + concurrent) -------------------
-    confirmed, confirm_failed, confirm_evidence = _vlm_confirm_anchors(
-        anchors, model, budget=ctx.budget
-    )
+    confirmed, confirm_failed, confirm_evidence = _vlm_confirm_anchors(anchors, model)
     if confirm_failed:
         warnings.append("vlm_anchor_confirmation_failed")
     debug_info["phase1_confirmed"] = [a.page for a in confirmed]
@@ -730,13 +747,6 @@ def extract_toc_with_boundaries(
         failure_kind="none",
     )
     ctx.blackboard.toc_hierarchies = toc_hierarchies if toc_hierarchies else None
-    ctx.blackboard.global_signals["vlm_toc_entries"] = {
-        "model": model,
-        "toc_pages": all_toc_pages_sorted,
-        "total_entries": len(all_entries),
-        "entries": all_entries,
-        "batch_meta": batch_meta,
-    }
 
     # Build toc_ranges from confirmed TOC pages for summary
     toc_ranges_out: list[list[int]] = []

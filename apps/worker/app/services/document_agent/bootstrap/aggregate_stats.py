@@ -119,7 +119,6 @@ def aggregate_doc_stats(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     ctx.blackboard.extrema_pages = deduped_extrema
     ctx.blackboard.global_signals["doc_stats"] = stats
     ctx.blackboard.global_signals["doc_shape"] = doc_shape
-    ctx.blackboard.global_signals["extrema_pages"] = deduped_extrema
     ctx.blackboard.global_signals["extrema_samples"] = extrema_samples
     return ToolResult(
         status="ok",

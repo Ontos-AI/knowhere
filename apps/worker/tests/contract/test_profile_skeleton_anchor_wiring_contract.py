@@ -12,7 +12,6 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from app.services.document_agent.budget import BudgetTracker
 from app.services.document_agent.manifest import (
     PageAnatomyMap,
     PageFeature,
@@ -22,14 +21,13 @@ from app.services.document_agent.manifest import (
     TocResult,
     ToolContext,
 )
-from app.services.document_agent.state import AgentBlackboard
+from app.services.document_agent.state import ProfileBlackboard
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
     serialize_skeleton_anchor,
     serialize_title_node,
 )
 from app.services.document_agent.structure.hierarchy_locator import (
-    ResolvedHierarchyRange,
     TitleMatch,
     TitleNode,
 )
@@ -45,8 +43,7 @@ def _ctx(*, page_count: int = 10) -> ToolContext:
     return ToolContext(
         pdf_path="/tmp/doc.pdf",
         job_id="job-wire",
-        blackboard=AgentBlackboard(page_count=page_count),
-        budget=BudgetTracker(plan_budget=50_000, visual_budget=80_000),
+        blackboard=ProfileBlackboard(page_count=page_count),
         trace=None,
         settings={},
     )
@@ -75,10 +72,8 @@ def _anchor(*, title: str = "Ch1", page: int = 2) -> SkeletonAnchor:
         match_overrides={
             (title,): TitleMatch(
                 page=page,
-                confidence=1.0,
                 source="anchored",
                 matched_line=title,
-                score=1.0,
                 candidates=[page],
                 evidence={},
             )
@@ -86,7 +81,7 @@ def _anchor(*, title: str = "Ch1", page: int = 2) -> SkeletonAnchor:
         null_page_report=[],
         bulk_count=1,
         pruned_count=0,
-        locate_agent="offset_guided_bulk",
+        locate_method="offset_guided_bulk",
     )
 
 
@@ -113,7 +108,7 @@ def _anatomy(*, with_anchor: bool) -> PageAnatomyMap:
             for page in range(1, 11)
         ],
         "page_labels": [
-            PageLabel(page=page, kind="normal", confidence=1.0)
+            PageLabel(page=page, kind="normal")
             for page in range(1, 11)
         ],
         "toc_result": TocResult(method="vlm_batch", toc_pages=[1]),
@@ -128,12 +123,10 @@ def _anatomy(*, with_anchor: bool) -> PageAnatomyMap:
                     page_offset=0,
                     anchor_type="forced_max_size",
                     anchor_evidence="test",
-                    confidence=1.0,
                 )
             ],
         ),
         "toc_hierarchies": _toc(),
-        "toc_page_offset": 0 if with_anchor else None,
     }
     if with_anchor:
         kwargs["skeleton_anchor"] = serialize_skeleton_anchor(_anchor())
@@ -151,12 +144,11 @@ def test_profile_toc_anchoring_writes_skeleton_anchor() -> None:
         return [_node()], _anchor()
 
     with patch(
-        "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
+        "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
         side_effect=fake_anchor_hierarchy,
     ):
         run_toc_anchoring(ctx)
 
-    assert ctx.blackboard.toc_page_offset == 0
     assert isinstance(ctx.blackboard.skeleton_anchor, dict)
     assert ctx.blackboard.skeleton_anchor["offset"] == 0
     assert ctx.blackboard.skeleton_nodes
@@ -172,15 +164,15 @@ def test_c4_resolve_does_not_call_calibration() -> None:
 
     with (
         patch(
-            "app.services.document_agent.agents.calibration.service.calibrate_offset",
+            "app.services.document_agent.calibration.service.calibrate_offset",
             side_effect=_boom,
         ),
         patch(
-            "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
+            "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
             side_effect=_boom,
         ),
         patch(
-            "app.services.document_agent.agents.calibration.procedure.finalize_calibration_result",
+            "app.services.document_agent.calibration.procedure.finalize_calibration_result",
             side_effect=_boom,
         ),
     ):
@@ -207,7 +199,6 @@ def test_shard_plan_reads_offset_and_does_not_calibrate() -> None:
             ],
         }
     ]
-    ctx.blackboard.toc_page_offset = 0
     ctx.blackboard.skeleton_nodes = [
         serialize_title_node(TitleNode(title="Ch1", level=1, printed_page=3)),
         serialize_title_node(TitleNode(title="Ch2", level=1, printed_page=120)),
@@ -219,19 +210,15 @@ def test_shard_plan_reads_offset_and_does_not_calibrate() -> None:
             match_overrides={
                 ("Ch1",): TitleMatch(
                     page=3,
-                    confidence=1.0,
                     source="anchored",
                     matched_line="Ch1",
-                    score=1.0,
                     candidates=[3],
                     evidence={},
                 ),
                 ("Ch2",): TitleMatch(
                     page=120,
-                    confidence=1.0,
                     source="anchored",
                     matched_line="Ch2",
-                    score=1.0,
                     candidates=[120],
                     evidence={},
                 ),
@@ -239,7 +226,7 @@ def test_shard_plan_reads_offset_and_does_not_calibrate() -> None:
             null_page_report=[],
             bulk_count=2,
             pruned_count=0,
-            locate_agent="offset_guided_bulk",
+            locate_method="offset_guided_bulk",
         )
     )
     ctx.blackboard.toc_result = TocResult(method="vlm_batch")
@@ -251,13 +238,14 @@ def test_shard_plan_reads_offset_and_does_not_calibrate() -> None:
         raise AssertionError("shard plan must not recalibrate")
 
     with patch(
-        "app.services.document_agent.agents.calibration.service.calibrate_offset",
+        "app.services.document_agent.calibration.service.calibrate_offset",
         side_effect=_boom,
     ):
         result = propose_shard_plan(ctx, {})
 
     assert result.status == "ok"
-    assert ctx.blackboard.toc_page_offset == 0
+    assert ctx.blackboard.skeleton_anchor is not None
+    assert ctx.blackboard.skeleton_anchor["offset"] == 0
     assert ctx.blackboard.shard_plan is not None
 
 
@@ -280,7 +268,7 @@ def _pending_tocs() -> list[dict[str, object]]:
     ]
 
 
-def test_profile_classifies_pending_toc_before_finalize() -> None:
+def test_profile_classifies_pending_toc_after_finalize() -> None:
     ctx = _ctx(page_count=30)
     ctx.blackboard.toc_hierarchies = _pending_tocs()
     ctx.blackboard.toc_result = TocResult(method="vlm_batch", toc_pages=[1, 20, 21])
@@ -294,34 +282,19 @@ def test_profile_classifies_pending_toc_before_finalize() -> None:
 
     with (
         patch(
-            "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
+            "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
             return_value=([_node()], _anchor()),
         ),
-        patch.dict(
-            run_toc_anchoring.__globals__,
-            {
-                "resolve_hierarchy_page_ranges": lambda *_args, **_kwargs: [
-                    ResolvedHierarchyRange(
-                        title="Ch1",
-                        level=1,
-                        start_page=2,
-                        end_page=19,
-                        path_titles=("Ch1",),
-                        match=None,
-                    )
-                ]
-            },
-        ),
         patch(
-            "app.services.document_agent.agents.calibration.service.calibrate_offset",
+            "app.services.document_agent.calibration.service.calibrate_offset",
             return_value=object(),
         ),
         patch(
-            "app.services.document_agent.agents.calibration.procedure.pick_primary_offset",
+            "app.services.document_agent.calibration.procedure.pick_primary_offset",
             return_value=0,
         ),
         patch(
-            "app.services.document_agent.agents.calibration.procedure.finalize_calibration_result",
+            "app.services.document_agent.calibration.procedure.finalize_calibration_result",
             side_effect=fake_finalize,
         ),
     ):
@@ -347,34 +320,19 @@ def test_profile_skips_finalize_for_unresolvable_pending_toc() -> None:
 
     with (
         patch(
-            "app.services.document_agent.agents.calibration.orchestrator.anchor_hierarchy",
+            "app.services.document_agent.calibration.orchestrator.anchor_hierarchy",
             return_value=([_node()], _anchor()),
         ),
-        patch.dict(
-            run_toc_anchoring.__globals__,
-            {
-                "resolve_hierarchy_page_ranges": lambda *_args, **_kwargs: [
-                    ResolvedHierarchyRange(
-                        title="Ch1",
-                        level=1,
-                        start_page=2,
-                        end_page=19,
-                        path_titles=("Ch1",),
-                        match=None,
-                    )
-                ]
-            },
-        ),
         patch(
-            "app.services.document_agent.agents.calibration.service.calibrate_offset",
+            "app.services.document_agent.calibration.service.calibrate_offset",
             return_value=object(),
         ),
         patch(
-            "app.services.document_agent.agents.calibration.procedure.pick_primary_offset",
+            "app.services.document_agent.calibration.procedure.pick_primary_offset",
             return_value=0,
         ),
         patch(
-            "app.services.document_agent.agents.calibration.procedure.finalize_calibration_result",
+            "app.services.document_agent.calibration.procedure.finalize_calibration_result",
             side_effect=_boom,
         ),
     ):
@@ -409,7 +367,7 @@ def test_c4_uses_persisted_pending_relationship_and_does_not_classify() -> None:
         for page in range(1, 31)
     ]
     anatomy.page_labels = [
-        PageLabel(page=page, kind="normal", confidence=1.0)
+        PageLabel(page=page, kind="normal")
         for page in range(1, 31)
     ]
     anatomy.toc_hierarchies = _pending_tocs()
