@@ -121,6 +121,105 @@ def test_parse_task_should_process_uploaded_file_through_real_contract_boundarie
     assert contract.find_task_workspaces(tmp_path, job["job_id"]) == []
 
 
+def test_parse_task_should_publish_each_non_null_source_path_once(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    contract = WorkerParseContract.create()
+    contract.use_workspace_root(monkeypatch, tmp_path)
+    contract.use_billing(monkeypatch, is_enabled=False)
+
+    source_file_name = "contract-duplicate-path.xlsx"
+    job = contract.create_file_job(
+        source_file_name=source_file_name,
+        job_id_prefix="job_duplicate_path",
+    )
+    contract.upload_source_file(
+        local_file_path=_SAMPLE_XLSX_PATH,
+        s3_key=job["s3_key"],
+    )
+
+    def fake_execute_document_parse(
+        *,
+        job_id: str,
+        job_context: object,
+        prepared_source: object,
+        output_dir: str,
+    ) -> ParseOutput:
+        del job_id, job_context, prepared_source
+        parsed_df = pd.DataFrame(
+            [
+                {
+                    "know_id": "first-shared-path",
+                    "type": "text",
+                    "content": "first shared-path chunk",
+                    "path": f"{source_file_name}/Root/Shared",
+                },
+                {
+                    "know_id": "duplicate-shared-path",
+                    "type": "text",
+                    "content": "duplicate shared-path chunk",
+                    "path": f"{source_file_name}/Root/Shared",
+                },
+                {
+                    "know_id": "nul-duplicate-shared-path",
+                    "type": "text",
+                    "content": "NUL duplicate shared-path chunk",
+                    "path": f"{source_file_name}/Root\x00/Shared",
+                },
+                {
+                    "know_id": "first-null-path",
+                    "type": "text",
+                    "content": "first null-path chunk",
+                    "path": "",
+                },
+                {
+                    "know_id": "second-null-path",
+                    "type": "text",
+                    "content": "second null-path chunk",
+                    "path": "",
+                },
+            ]
+        )
+        return ParseOutput(output_dir=output_dir, parsed_df=parsed_df)
+
+    monkeypatch.setattr(
+        "app.services.document_ingestion.processing_run.execute_document_parse",
+        fake_execute_document_parse,
+    )
+
+    celery_result = contract.enqueue_parse_task(
+        job_id=job["job_id"],
+        user_id=job["user_id"],
+    )
+
+    assert celery_result.successful()
+    assert celery_result.result["status"] == "success"
+
+    observed = contract.observe_successful_job(job["job_id"])
+    job_chunks = observed["job_chunks"]
+    document_chunks = observed["document_chunks"]
+
+    assert [row["chunk_id"] for row in job_chunks] == [
+        "first-shared-path",
+        "duplicate-shared-path",
+        "nul-duplicate-shared-path",
+        "first-null-path",
+        "second-null-path",
+    ]
+    assert [row["chunk_id"] for row in document_chunks] == [
+        "first-shared-path",
+        "first-null-path",
+        "second-null-path",
+    ]
+    assert [row["source_chunk_path"] for row in document_chunks] == [
+        f"{source_file_name}/Root/Shared",
+        None,
+        None,
+    ]
+
+
 def test_parse_task_result_zip_includes_page_citation_assets(
     worker_contract_environment: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -221,6 +320,87 @@ def test_parse_task_result_zip_includes_page_citation_assets(
             "height": 1800,
         }
     ]
+
+
+def test_parse_task_sanitizes_nul_characters_at_database_boundary(
+    worker_contract_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    contract = WorkerParseContract.create()
+    contract.use_workspace_root(monkeypatch, tmp_path)
+    contract.use_billing(monkeypatch, is_enabled=False)
+
+    source_file = tmp_path / "nul-source.txt"
+    source_file.write_text("source", encoding="utf-8")
+    job = contract.create_file_job(
+        source_file_name=source_file.name,
+        job_id_prefix="job_parse_nul",
+    )
+    contract.upload_source_file(
+        local_file_path=source_file,
+        s3_key=job["s3_key"],
+    )
+
+    def fake_execute_document_parse(
+        *,
+        job_id: str,
+        job_context: object,
+        prepared_source: object,
+        output_dir: str,
+    ) -> ParseOutput:
+        del job_id, job_context, prepared_source
+        parsed_df = pd.DataFrame(
+            [
+                {
+                    "know_id": "chunk-with-nul",
+                    "type": "text",
+                    "content": "Text\x00content",
+                    "path": f"{source_file.name}/Root\x00/Introduction",
+                    "length": 12,
+                    "keywords": "",
+                    "summary": "Summary\x00value",
+                    "tokens": "",
+                    "connectto": "",
+                    "page_nums": "1",
+                    "extra_metadata": json.dumps({"note": "Nested\x00value"}),
+                }
+            ]
+        )
+        return ParseOutput(output_dir=output_dir, parsed_df=parsed_df)
+
+    monkeypatch.setattr(
+        "app.services.document_ingestion.processing_run.execute_document_parse",
+        fake_execute_document_parse,
+    )
+
+    celery_result = contract.enqueue_parse_task(
+        job_id=job["job_id"],
+        user_id=job["user_id"],
+    )
+
+    assert celery_result.successful()
+    assert celery_result.result["status"] == "success"
+
+    observed = contract.observe_successful_job(job["job_id"])
+    job_chunk = observed["job_chunks"][0]
+    document_chunk = observed["document_chunks"][0]
+
+    assert job_chunk["text"] == "Textcontent"
+    assert job_chunk["path"] == f"{source_file.name}/Root/Introduction"
+    assert job_chunk["chunk_metadata"]["summary"] == "Summaryvalue"
+    assert job_chunk["chunk_metadata"]["note"] == "Nestedvalue"
+    assert document_chunk["content"] == "Textcontent"
+    assert document_chunk["source_chunk_path"] == (
+        f"{source_file.name}/Root/Introduction"
+    )
+
+    result_zip = contract.read_result_zip(
+        result_s3_key=observed["result"]["result_s3_key"],
+        tmp_path=tmp_path,
+    )
+    archived_chunk = result_zip["chunks"]["chunks"][0]
+    assert archived_chunk["content"] == "Text\x00content"
 
 
 def test_parse_task_should_charge_user_when_billing_is_enabled(

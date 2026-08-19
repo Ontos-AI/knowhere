@@ -23,6 +23,7 @@ from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
 from shared.services.retrieval.publication_content import (
+    deduplicate_chunks_by_source_path,
     replace_document_revision_content,
 )
 from shared.services.retrieval.publication_models import (
@@ -106,7 +107,7 @@ class RetrievalPublicationService:
         )
         document_metadata = JobMetadataHelper.get_document_metadata(job_metadata)
 
-        deduped_chunks = chunks
+        deduped_chunks = deduplicate_chunks_by_source_path(chunks)
 
         # If ALL chunks are duplicates → skip document creation entirely
         if not deduped_chunks:
