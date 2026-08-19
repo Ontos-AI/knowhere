@@ -215,11 +215,14 @@ def _write_outline_skeleton(
     body_pages: list[int],
     page_count: int,
 ) -> bool:
-    """Anchor outline rows via physical overrides (no calibrate VLM)."""
+    """Anchor outline rows via physical overrides (no calibrate VLM).
+
+    Trust outline tree shape: do not collapse single-child chains (VLM path still
+    collapses). Path keys must stay aligned with ``outline_physical_overrides``.
+    """
     nodes = extract_toc_nodes(hierarchies)
     if not nodes:
         return False
-    nodes = collapse_intermediate_single_child_chains(nodes)
     overrides = outline_physical_overrides(hierarchies)
     resolve_nodes, skeleton_anchor = anchor_hierarchy_from_offset(
         nodes=nodes,

@@ -121,6 +121,144 @@ def test_null_page_parent_located_via_compact_text() -> None:
     assert overrides[("1 Overview",)].page == 5
     assert report[0]["result"] != "unresolved"
     assert report[0]["page"] == 5
+    assert report[0]["window"] == [1, 5]
+
+
+def test_first_sibling_null_parent_uses_scan_forward_not_wide_rtl() -> None:
+    """No left sibling: miss text → ``scan_title_forward`` within 2+4+6+10 budget."""
+    child = TitleNode(title="22.1 Intro", level=2, printed_page=278, children=[])
+    parent = TitleNode(
+        title="Chapter 22",
+        level=1,
+        printed_page=None,
+        children=[child],
+    )
+    leaf_match = {
+        ("Chapter 22", "22.1 Intro"): TitleMatch(
+            page=278,
+            confidence=1.0,
+            source="test",
+            matched_line="",
+            score=1.0,
+            candidates=[278],
+            evidence={},
+        )
+    }
+    body_pages = list(range(1, 301))
+    page_texts = {page: "noise" for page in body_pages}
+    ctx = _ctx()
+
+    scanned_starts: list[int] = []
+
+    def fake_scan(**kwargs: Any) -> Any:
+        from app.services.document_agent.calibration.scan import TitleScanResult
+
+        scanned_starts.append(int(kwargs["start_page"]))
+        assert int(kwargs["page_count"]) == 278
+        assert int(kwargs["start_page"]) == anchoring._first_sibling_null_parent_scan_start(
+            278
+        )
+        return TitleScanResult(
+            title=str(kwargs["title"]),
+            found=True,
+            found_page=270,
+            scanned_pages=list(range(int(kwargs["start_page"]), 271)),
+            next_start=271,
+        )
+
+    with patch(
+        "app.services.document_agent.calibration.scan.scan_title_forward",
+        side_effect=fake_scan,
+    ):
+        with patch.object(anchoring, "_visual_rtl_locate_parent") as rtl:
+            overrides, report = anchoring.locate_null_page_parent_overrides(
+                nodes=[parent],
+                match_overrides=leaf_match,
+                page_texts=page_texts,
+                body_pages=body_pages,
+                ctx=ctx,
+            )
+            rtl.assert_not_called()
+
+    assert scanned_starts == [anchoring._first_sibling_null_parent_scan_start(278)]
+    assert overrides[("Chapter 22",)].page == 270
+    assert report[0]["accept"] == "scan_forward"
+    assert report[0]["window"] == [
+        anchoring._first_sibling_null_parent_scan_start(278),
+        278,
+    ]
+
+
+def test_null_page_parent_with_left_sibling_still_uses_rtl() -> None:
+    left_child = TitleNode(title="A.1", level=2, printed_page=10, children=[])
+    left = TitleNode(title="A", level=1, printed_page=10, children=[left_child])
+    right_child = TitleNode(title="B.1", level=2, printed_page=50, children=[])
+    right = TitleNode(title="B", level=1, printed_page=None, children=[right_child])
+    overrides_in = {
+        ("A",): TitleMatch(
+            page=10,
+            confidence=1.0,
+            source="test",
+            matched_line="",
+            score=1.0,
+            candidates=[10],
+            evidence={},
+        ),
+        ("A", "A.1"): TitleMatch(
+            page=10,
+            confidence=1.0,
+            source="test",
+            matched_line="",
+            score=1.0,
+            candidates=[10],
+            evidence={},
+        ),
+        ("B", "B.1"): TitleMatch(
+            page=50,
+            confidence=1.0,
+            source="test",
+            matched_line="",
+            score=1.0,
+            candidates=[50],
+            evidence={},
+        ),
+    }
+    page_texts = {p: "noise" for p in range(1, 61)}
+    ctx = _ctx()
+
+    def fake_rtl(**kwargs: Any) -> tuple[TitleMatch, int]:
+        assert kwargs["left"] == 10
+        assert kwargs["right"] == 50
+        return (
+            TitleMatch(
+                page=40,
+                confidence=0.9,
+                source="inspect_vlm",
+                matched_line="",
+                score=0.9,
+                candidates=[40],
+                evidence={"accept": "visual_rtl"},
+            ),
+            3,
+        )
+
+    with patch(
+        "app.services.document_agent.calibration.scan.scan_title_forward"
+    ) as scan:
+        with patch.object(
+            anchoring, "_visual_rtl_locate_parent", side_effect=fake_rtl
+        ):
+            overrides, report = anchoring.locate_null_page_parent_overrides(
+                nodes=[left, right],
+                match_overrides=overrides_in,
+                page_texts=page_texts,
+                body_pages=list(range(1, 61)),
+                ctx=ctx,
+            )
+        scan.assert_not_called()
+
+    assert overrides[("B",)].page == 40
+    assert report[0]["accept"] == "visual_rtl"
 
 
 def test_phase2_bulk_via_mocked_offset() -> None:

@@ -209,3 +209,27 @@ def test_printed_toc_wins_uses_vlm_calibrate_path() -> None:
     assert ctx.blackboard.toc_result.method == "vlm_batch"
     assert ctx.blackboard.toc_hierarchies is not None
     assert ctx.blackboard.toc_hierarchies[0]["source"] == "vlm"
+
+
+def test_merge_printed_toc_texts_drops_lines_shared_across_pages() -> None:
+    from app.services.document_agent.tools.judge_toc_source import (
+        merge_printed_toc_texts,
+    )
+
+    merged = merge_printed_toc_texts(
+        [
+            "Manual Title\nCONTENTS\nChapter 1 ...... 10",
+            "Manual Title\nCONTENTS\nChapter 2 ...... 20",
+            "Manual Title\nChapter 3 ...... 30",
+        ]
+    )
+    assert merged == "Chapter 1 ...... 10\nChapter 2 ...... 20\nChapter 3 ...... 30"
+
+
+def test_merge_printed_toc_texts_single_page_unchanged() -> None:
+    from app.services.document_agent.tools.judge_toc_source import (
+        merge_printed_toc_texts,
+    )
+
+    text = "CONTENTS\nChapter 1 ...... 10\nChapter 1 ...... 10"
+    assert merge_printed_toc_texts([text]) == text

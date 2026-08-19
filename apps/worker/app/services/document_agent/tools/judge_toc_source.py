@@ -1,13 +1,14 @@
-"""judge.toc_source: pick between the PDF outline tree and printed TOC pages.
+"""judge.toc_source: pick between the PDF outline tree and printed TOC page text.
 
-Text-only comparison over ``page_full_text_cache``: no render, no page cap.
-Coverage decides; granularity only breaks ties.
+Text-only comparison over ``page_full_text_cache``. Coverage decides;
+granularity only breaks ties.
 """
 
 from __future__ import annotations
 
 import json
 import time
+from collections import Counter
 from typing import Any, cast
 
 from loguru import logger
@@ -19,34 +20,54 @@ OUTLINE_CHOICE = "outline"
 PRINTED_TOC_CHOICE = "printed_toc"
 
 _INSTRUCTIONS = (
-    "Two candidate sources describe the section structure of the same PDF.\n"
-    "Source 'outline' is the PDF bookmark tree, already parsed into "
-    "level-prefixed lines.\n"
-    "Source 'printed_toc' is the raw text of the printed table-of-contents "
-    "pages, which may be spread over several separate places in the document.\n"
-    "Decide which source describes the document structure better.\n"
-    "Rank by coverage first: how much of the document a source lists, and "
-    "whether it omits major sections that the other source lists.\n"
-    "Only when coverage is comparable, prefer the finer-grained source, "
-    "meaning more depth levels and more entries.\n"
+    "Two candidate sources describe the section structure of the same file.\n"
+    "Source 'outline' is the bookmark tree as level-prefixed lines.\n"
+    "Source 'printed_toc' is table-of-contents text extracted from places "
+    "across this document; it is TOC content only, not body text.\n"
+    "Choose which source covers more of the document.\n"
+    "Rank by coverage first: how many major sections/chapters a source lists "
+    "across the whole document.\n"
+    "Example: if outline lists only a few chapters in depth, while printed_toc "
+    "lists all chapters, choose printed_toc, since the printed_toc covers more content.\n"
+    
+    "Only when coverage is comparable, prefer the finer-grained source "
+    "(more depth levels and more entries).\n"
     'Return a strict json object with keys {"choice": "outline" or '
-    '"printed_toc", "reason": string}.'
+    '"printed_toc", "reason": string}. Include the word json.'
 )
 
 
-def _printed_toc_block(pages: list[int], page_texts: dict[int, str]) -> str:
-    parts: list[str] = []
-    for page in pages:
-        text = page_texts.get(page, "")
-        parts.append(f"--- Page {page} ---\n{text}")
-    return "\n".join(parts)
+def merge_printed_toc_texts(page_texts: list[str]) -> str:
+    """Drop lines shared by two or more TOC pages; join remaining lines in order."""
+    pages_lines: list[list[str]] = []
+    for text in page_texts:
+        lines = [line.strip() for line in str(text).splitlines() if line.strip()]
+        if lines:
+            pages_lines.append(lines)
+    if not pages_lines:
+        return ""
+    if len(pages_lines) == 1:
+        return "\n".join(pages_lines[0])
+
+    presence: Counter[str] = Counter()
+    for lines in pages_lines:
+        for line in set(lines):
+            presence[line] += 1
+    boilerplate = {line for line, count in presence.items() if count >= 2}
+
+    kept: list[str] = []
+    for lines in pages_lines:
+        for line in lines:
+            if line not in boilerplate:
+                kept.append(line)
+    return "\n".join(kept)
 
 
 @register_tool(
     name="judge.toc_source",
     description=(
-        "Compare a PDF outline tree against the printed table-of-contents page text "
-        "and choose the source with broader coverage (finer granularity breaks ties)."
+        "Compare a PDF outline tree against printed TOC page text and choose "
+        "the source with broader coverage (finer granularity breaks ties)."
     ),
     parameters={
         "type": "object",
@@ -90,12 +111,26 @@ def judge_toc_source(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             continue
         if page not in pages:
             pages.append(page)
+    if not pages:
+        return ToolResult(
+            status="error",
+            error="judge.toc_source has no valid toc_pages",
+            latency_ms=int((time.monotonic() - start) * 1000),
+        )
+
+    cache = dict(ctx.blackboard.page_full_text_cache)
+    printed_toc = merge_printed_toc_texts([cache.get(page, "") for page in pages])
+    if not printed_toc.strip():
+        return ToolResult(
+            status="error",
+            error="judge.toc_source printed_toc text empty",
+            latency_ms=int((time.monotonic() - start) * 1000),
+        )
 
     prompt = (
         f"{_INSTRUCTIONS}\n\n"
         f"Source outline:\n{outline_digest}\n\n"
-        f"Source printed_toc:\n"
-        f"{_printed_toc_block(pages, dict(ctx.blackboard.page_full_text_cache))}\n"
+        f"Source printed_toc:\n{printed_toc}\n"
     )
 
     try:
