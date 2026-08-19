@@ -55,6 +55,17 @@ from shared.services.ai.token_tracking import (
 )
 from shared.services.ai.token_costing import build_token_cost_estimate
 
+# Re-exported for staged debug scripts. Listing them here marks the imports as
+# intentional so CodeQL does not treat them as unused.
+__all__ = [
+    "page_scope_info",
+    "scope_id_for_pages",
+    "_build_hierarchy_from_skeletons",
+    "_derive_hierarchy_page_scope",
+    "_scope_manifest",
+    "_serialize_scope_skeletons",
+]
+
 DEFAULT_PDF = Path(
     "/Users/wuchengke/Desktop/temp/test_docs/"
     "SJSYJ-SC-2024 企业制度汇编（上册）.pdf"
@@ -871,11 +882,7 @@ def write_toc_hierarchy_artifact(
     path = out_dir / "toc_hierarchy.json"
     # Legacy list dump from an earlier debug format.
     for legacy_name in ("toc_hierarchies.json",):
-        legacy = out_dir / legacy_name
-        try:
-            legacy.unlink()
-        except FileNotFoundError:
-            pass
+        (out_dir / legacy_name).unlink(missing_ok=True)
     write_debug_json(
         path,
         {
@@ -1071,18 +1078,12 @@ def remove_legacy_doc_agent_artifacts(
             }
         )
     for name in names:
-        try:
-            (doc_agent_dir / name).unlink()
-        except FileNotFoundError:
-            pass
+        (doc_agent_dir / name).unlink(missing_ok=True)
     for dirname in ("coarse_assets", "calibration_inspect"):
         legacy_dir = doc_agent_dir / dirname
         if legacy_dir.is_dir():
             shutil.rmtree(legacy_dir)
-    try:
-        (doc_agent_dir / "coarse_assets.html").unlink()
-    except FileNotFoundError:
-        pass
+    (doc_agent_dir / "coarse_assets.html").unlink(missing_ok=True)
 
 
 def record_stage(
@@ -1424,9 +1425,7 @@ def stop_with_trace(
 
 def remove_nested_doc_agent_trace(out_dir: Path) -> None:
     try:
-        (out_dir / "_doc_agent" / "trace.json").unlink()
-    except FileNotFoundError:
-        pass
+        (out_dir / "_doc_agent" / "trace.json").unlink(missing_ok=True)
     except Exception as exc:
         logger.debug(f"failed to remove nested doc-agent trace: {exc}")
 
@@ -1477,10 +1476,7 @@ def write_top_level_artifacts(
     if assets_by_page is not None:
         write_debug_json(out_dir / "assets.json", _serialize_assets(assets_by_page))
     else:
-        try:
-            (out_dir / "assets.json").unlink()
-        except FileNotFoundError:
-            pass
+        (out_dir / "assets.json").unlink(missing_ok=True)
 
 
 def cleanup_page_memory_artifacts(out_dir: Path) -> None:

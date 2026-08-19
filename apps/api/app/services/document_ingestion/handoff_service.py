@@ -29,6 +29,7 @@ _SUPPORTED_DOCUMENT_PARSE_JOB_TYPES = frozenset(
 class _UploadedFileJob(Protocol):
     job_id: str
     job_type: str
+    status: str
 
 
 class DocumentIngestionHandoffService:
@@ -66,6 +67,17 @@ class DocumentIngestionHandoffService:
                 ],
             )
 
+        # Upload completion can arrive through both the S3 notification and the
+        # confirm-upload endpoint.  Once either path has moved the job out of
+        # waiting-file, the other path must be a no-op instead of dispatching a
+        # second worker task for the same logical job.
+        if job.status != JobStatus.WAITING_FILE.value:
+            logger.info(
+                "Upload handoff already completed: "
+                f"job_id={job.job_id}, status={job.status}"
+            )
+            return
+
         outcome = await self._state_machine.transition_outcome(
             db,
             job.job_id,
@@ -75,6 +87,18 @@ class DocumentIngestionHandoffService:
             "system",
         )
         if not outcome.succeeded:
+            # A concurrent handoff may have won the CAS transition after this
+            # caller loaded the waiting-file snapshot.  The state machine
+            # reports the winner's state as ``from_state``; treat that result
+            # as an idempotent no-op and do not enqueue another task.
+            if outcome.reason == "invalid_transition" and outcome.from_state != (
+                JobStatus.WAITING_FILE.value
+            ):
+                logger.info(
+                    "Upload handoff won by another trigger: "
+                    f"job_id={job.job_id}, status={outcome.from_state}"
+                )
+                return
             logger.warning(
                 "Upload handoff transition rejected: "
                 f"job_id={job.job_id}, reason={outcome.reason}"

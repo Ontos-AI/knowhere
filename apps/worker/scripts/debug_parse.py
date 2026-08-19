@@ -298,7 +298,7 @@ def _finalize_output(
         logger.info("  📊 POST-PARSE TIMELINE")
         logger.info("═" * 58)
         for phase, elapsed in timings.items():
-            pct = (elapsed / t_total * 100) if t_total > 0 else 0
+            pct = elapsed / t_total * 100
             logger.info(f"  {phase:<35s} │ {elapsed:>7.2f}s  ({pct:>5.1f}%)")
         logger.info("  " + "─" * 55)
         logger.info(f"  {'TOTAL':<35s} │ {t_total:>7.2f}s  (100.0%)")
@@ -495,15 +495,13 @@ def run_pipeline(
         init_token_tracker,
     )
 
-    token_usage_dict = get_current_token_tracker()
-    owns_token_tracker = token_usage_dict is None
-    if token_usage_dict is None:
-        token_usage_dict = init_token_tracker()
+    owns_token_tracker = get_current_token_tracker() is None
+    if owns_token_tracker:
+        init_token_tracker()
 
-    stage_timing_dict = get_current_stage_tracker()
-    owns_stage_tracker = stage_timing_dict is None
-    if stage_timing_dict is None:
-        stage_timing_dict = init_stage_tracker()
+    owns_stage_tracker = get_current_stage_tracker() is None
+    if owns_stage_tracker:
+        init_stage_tracker()
 
     try:
         if output_root_override:

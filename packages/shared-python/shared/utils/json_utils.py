@@ -7,6 +7,29 @@ from pathlib import Path
 from typing import Any, Mapping, MutableSet
 
 
+def remove_nul_characters(value: object) -> object:
+    """Remove PostgreSQL-incompatible NUL characters from JSON-like values.
+
+    Parser output is persisted both as JSON metadata and as text columns.  The
+    PostgreSQL text encoders reject U+0000, so clean it at the persistence
+    boundary while preserving the shape and non-string scalar values of the
+    payload.
+    """
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, Mapping):
+        return {
+            remove_nul_characters(key) if isinstance(key, str) else key:
+            remove_nul_characters(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [remove_nul_characters(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(remove_nul_characters(item) for item in value)
+    return value
+
+
 def make_json_safe(
     value: Any, *, max_preview_rows: int = 5, _visited: MutableSet[int] | None = None
 ) -> Any:

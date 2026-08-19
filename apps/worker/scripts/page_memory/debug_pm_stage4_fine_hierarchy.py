@@ -20,7 +20,6 @@ from pathlib import Path as _Path
 
 sys.path.insert(0, str(_Path(__file__).resolve().parent))
 
-from _debug_pm_shared import *  # noqa: F401,F403
 import os
 import time
 from pathlib import Path

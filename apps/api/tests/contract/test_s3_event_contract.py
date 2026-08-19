@@ -120,6 +120,93 @@ async def test_should_accept_a_direct_upload_complete_event_advance_the_waiting_
 
 
 @pytest.mark.asyncio
+async def test_should_not_dispatch_a_second_task_for_a_replayed_upload_event(
+    api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    workflow_calls: list[dict[str, str]] = []
+
+    class FakeDocumentIngestionWorkerDispatcher:
+        async def start_uploaded_file_parse(
+            self,
+            *,
+            job_id: str,
+            user_id: str,
+        ) -> str:
+            workflow_calls.append({"job_id": job_id, "user_id": user_id})
+            return "contract-task-id"
+
+    async with api_client_factory() as api_client:
+        user_id, job_id = await _insert_waiting_file_job()
+        handoff_service = importlib.import_module(
+            "app.services.document_ingestion.handoff_service"
+        )
+        monkeypatch.setattr(
+            handoff_service,
+            "DocumentIngestionWorkerDispatcher",
+            FakeDocumentIngestionWorkerDispatcher,
+        )
+
+        first_response = await api_client.post(
+            "/api/v1/internal/s3-events",
+            json=_build_s3_event_payload(job_id),
+        )
+        replay_response = await api_client.post(
+            "/api/v1/internal/s3-events",
+            json=_build_s3_event_payload(job_id),
+        )
+
+    assert first_response.status_code == 200
+    assert replay_response.status_code == 200
+    assert workflow_calls == [{"job_id": job_id, "user_id": user_id}]
+
+
+@pytest.mark.asyncio
+async def test_should_treat_a_concurrent_upload_handoff_cas_winner_as_a_no_op() -> None:
+    from app.services.document_ingestion.handoff_service import (
+        DocumentIngestionHandoffService,
+    )
+    from shared.core.state_machine.transition_outcome import JobTransitionOutcome
+
+    class FakeStateMachine:
+        async def transition_outcome(self, *args: object, **kwargs: object) -> object:
+            del args, kwargs
+            return JobTransitionOutcome.rejected(
+                job_id="job-race",
+                to_state="pending",
+                reason="invalid_transition",
+                attempts=1,
+                from_state="pending",
+            )
+
+    class FakeDispatcher:
+        async def start_uploaded_file_parse(
+            self,
+            *,
+            job_id: str,
+            user_id: str,
+        ) -> str:
+            del job_id, user_id
+            raise AssertionError("CAS loser must not dispatch a duplicate task")
+
+    service = DocumentIngestionHandoffService(
+        state_machine=FakeStateMachine(),
+        worker_dispatcher=FakeDispatcher(),
+    )
+
+    await service.start_uploaded_file_workflow(
+        db=cast(object, None),
+        job=SimpleNamespace(
+            job_id="job-race",
+            job_type="document_ingestion",
+            status="waiting-file",
+        ),
+        user_id="contract-user",
+        trigger="s3_upload_completed",
+    )
+
+
+@pytest.mark.asyncio
 async def test_should_accept_a_pre_rename_waiting_file_job_type_during_upload_handoff(
     api_client_factory: Callable[[], AbstractAsyncContextManager[AsyncClient]],
     monkeypatch: MonkeyPatch,
