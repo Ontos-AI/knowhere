@@ -68,6 +68,9 @@ class StripePurchaseService:
                 ),
                 "quantity": str(quantity),
             }
+            payment_intent_data: dict[str, Any] = {"metadata": metadata}
+            if email:
+                payment_intent_data["receipt_email"] = email
             session_params: dict[str, Any] = {
                 "customer": customer_id,
                 "customer_update": {"address": "auto"},
@@ -82,7 +85,8 @@ class StripePurchaseService:
                 "success_url": success_url,
                 "cancel_url": cancel_url,
                 "metadata": metadata,
-                "payment_intent_data": {"metadata": metadata},
+                "payment_intent_data": payment_intent_data,
+                "invoice_creation": {"enabled": True},
                 "allow_promotion_codes": True,
                 "adaptive_pricing": {"enabled": False},
                 "billing_address_collection": "required",
