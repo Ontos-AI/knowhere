@@ -1100,7 +1100,6 @@ def _render_md_report(all_reports: list[dict[str, Any]]) -> str:
 
 
 async def main() -> None:
-    import re
     from datetime import datetime
 
     # Enable verbose logging to see full LLM prompts and responses

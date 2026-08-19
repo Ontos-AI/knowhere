@@ -21,7 +21,6 @@ from pathlib import Path as _Path
 
 sys.path.insert(0, str(_Path(__file__).resolve().parent))
 
-from _debug_pm_shared import *  # noqa: F401,F403
 import json
 import os
 import time
@@ -103,8 +102,12 @@ def _run_tagging_for_scope(
     if assets_path.exists():
         try:
             assets_by_page = load_assets_artifact(assets_path)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "   failed to load {}; continuing without assets: {}",
+                assets_path,
+                exc,
+            )
 
     # Reuse Stage-4's exact scope contract. Fall back only for old artifacts.
     recorded_pages = prior_scope.get("processing_pages")
