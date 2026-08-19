@@ -157,8 +157,6 @@ def toc_range_end(hierarchy: dict[str, Any]) -> int | None:
 
 # ── Null-page parent locate (sibling window / first-sibling scan) ───────────
 
-_NULL_PARENT_VISUAL_CONFIDENCE = 0.6
-
 
 def locate_null_page_parent_overrides(
     *,
@@ -403,10 +401,8 @@ def _resolve_null_parent_first_sibling(
         if scan.found and scan.found_page is not None:
             match = TitleMatch(
                 page=int(scan.found_page),
-                confidence=0.9,
                 source="inspect_vlm",
                 matched_line="",
-                score=0.9,
                 candidates=[int(scan.found_page)],
                 evidence={
                     "accept": "scan_forward",
@@ -443,10 +439,8 @@ def _visual_rtl_locate_parent(
             continue
         candidate = TitleMatch(
             page=page,
-            confidence=0.0,
             source="inspect_vlm",
             matched_line="",
-            score=0.0,
             candidates=[page],
             evidence={"null_page_parent_probe": True},
         )
@@ -458,16 +452,13 @@ def _visual_rtl_locate_parent(
             candidate_page_cap=1,
         )
         selected = result.get("selected_page")
-        confidence = float(result.get("confidence") or 0.0)
-        if selected != page or confidence < _NULL_PARENT_VISUAL_CONFIDENCE:
+        if selected != page:
             continue
         return (
             TitleMatch(
                 page=page,
-                confidence=confidence,
                 source="inspect_vlm",
                 matched_line="",
-                score=confidence,
                 candidates=[page],
                 evidence={
                     "accept": "visual_rtl",
@@ -482,7 +473,6 @@ def _visual_rtl_locate_parent(
 
 # ── Offset-guided bulk anchoring with recursive recalibrate (Phase-2) ───────
 
-_TAIL_VERIFY_CONFIDENCE_THRESHOLD = 0.6
 _MAX_RECALIBRATE_DEPTH = 5
 
 
@@ -531,10 +521,8 @@ def _verify_offset_tail(
 
     candidate = TitleMatch(
         page=expected_page,
-        confidence=0.0,
         source="inspect_vlm",
         matched_line="",
-        score=0.0,
         candidates=[expected_page],
         evidence={"tail_verify_probe": True},
     )
@@ -544,16 +532,12 @@ def _verify_offset_tail(
         candidate_matches=[candidate],
         candidate_page_cap=1,
     )
-    confirmed = (
-        result.get("selected_page") == expected_page
-        and result.get("confidence", 0) >= _TAIL_VERIFY_CONFIDENCE_THRESHOLD
-    )
+    confirmed = result.get("selected_page") == expected_page
     logger.info(
-        "[structure_anchoring] tail verify: title={!r} expected_page={} confirmed={} confidence={}",
+        "[structure_anchoring] tail verify: title={!r} expected_page={} confirmed={}",
         node.title,
         expected_page,
         confirmed,
-        result.get("confidence", 0),
     )
     return confirmed
 
@@ -570,10 +554,8 @@ def _vlm_confirm_single_page(
         return False
     candidate = TitleMatch(
         page=expected_page,
-        confidence=0.0,
         source="inspect_vlm",
         matched_line="",
-        score=0.0,
         candidates=[expected_page],
         evidence={"bisect_probe": True},
     )
@@ -583,10 +565,8 @@ def _vlm_confirm_single_page(
         candidate_matches=[candidate],
         candidate_page_cap=1,
     )
-    return (
-        result.get("selected_page") == expected_page
-        and result.get("confidence", 0) >= _TAIL_VERIFY_CONFIDENCE_THRESHOLD
-    )
+    return result.get("selected_page") == expected_page
+
 
 
 def _bisect_offset_breakpoint(
@@ -639,10 +619,8 @@ def bulk_offset_matches(
         page = node.printed_page + offset
         matches[path_titles] = TitleMatch(
             page=page,
-            confidence=0.90,
             source="bulk_offset",
             matched_line="",
-            score=0.90,
             candidates=[page],
             evidence={
                 "offset": offset,
@@ -907,10 +885,8 @@ class SkeletonAnchor:
 def serialize_title_match(match: TitleMatch) -> dict[str, Any]:
     return {
         "page": match.page,
-        "confidence": match.confidence,
         "source": match.source,
         "matched_line": match.matched_line,
-        "score": match.score,
         "candidates": list(match.candidates),
         "evidence": dict(match.evidence or {}),
     }
@@ -937,10 +913,8 @@ def serialize_skeleton_anchor(anchor: SkeletonAnchor) -> dict[str, Any]:
 def deserialize_title_match(data: dict[str, Any]) -> TitleMatch:
     return TitleMatch(
         page=int(data["page"]),
-        confidence=float(data.get("confidence") or 0.0),
         source=str(data.get("source") or "bulk_offset"),  # type: ignore[arg-type]
         matched_line=str(data.get("matched_line") or ""),
-        score=float(data.get("score") or 0.0),
         candidates=[int(p) for p in (data.get("candidates") or [])],
         evidence=dict(data.get("evidence") or {}),
     )

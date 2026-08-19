@@ -80,7 +80,7 @@ def _seed_pages(coordinator: ProfileCoordinator, page_count: int) -> None:
         for page in range(1, page_count + 1)
     ]
     blackboard.page_labels = [
-        PageLabel(page=page, kind="normal", confidence=0.9)
+        PageLabel(page=page, kind="normal")
         for page in range(1, page_count + 1)
     ]
     blackboard.toc_result = TocResult(method="none", notes="no toc")

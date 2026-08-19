@@ -60,10 +60,8 @@ def _ctx(*, page_count: int, blank_pages: list[int] | None = None) -> ToolContex
 def _match(title: str, page: int) -> TitleMatch:
     return TitleMatch(
         page=page,
-        confidence=1.0,
         source="anchored",
         matched_line=title,
-        score=1.0,
         candidates=[page],
         evidence={},
     )

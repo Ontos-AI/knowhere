@@ -20,8 +20,6 @@ from app.services.document_agent.calibration.prompts import (
 from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.structure.hierarchy_locator import TitleMatch
 
-VLM_CONFIRMED_DEFAULT_CONFIDENCE = 0.75
-
 
 def verify_section_page_choice(
     *,
@@ -36,7 +34,6 @@ def verify_section_page_choice(
         return {
             "selected_page": None,
             "candidate_pages": [],
-            "confidence": 0.0,
             "source": "inspect_vlm",
             "reason": "no candidates",
         }
@@ -44,7 +41,6 @@ def verify_section_page_choice(
         return {
             "selected_page": None,
             "candidate_pages": pages,
-            "confidence": 0.0,
             "source": "inspect_vlm",
             "reason": "ctx missing",
         }
@@ -67,7 +63,6 @@ def verify_section_page_choice(
         return {
             "selected_page": None,
             "candidate_pages": pages,
-            "confidence": 0.0,
             "source": "inspect_vlm",
             "reason": result.error or "inspect.pages failed",
             "latency_ms": result.latency_ms,
@@ -81,7 +76,6 @@ def verify_section_page_choice(
         return {
             "selected_page": None,
             "candidate_pages": pages,
-            "confidence": 0.0,
             "source": "inspect_vlm",
             "reason": str((result.payload or {}).get("answer") or "not found"),
             "latency_ms": result.latency_ms,
@@ -90,7 +84,6 @@ def verify_section_page_choice(
     return {
         "selected_page": found_page,
         "candidate_pages": pages,
-        "confidence": VLM_CONFIRMED_DEFAULT_CONFIDENCE,
         "source": "inspect_vlm",
         "reason": str((result.payload or {}).get("answer") or ""),
         "latency_ms": result.latency_ms,

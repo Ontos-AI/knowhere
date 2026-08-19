@@ -134,19 +134,9 @@ def _evidence_from_confirm_items(
         is_toc_start = bool(item.get("is_toc_start"))
         if is_toc_start:
             confirmed_pages.add(page)
-        raw_confidence = item.get("confidence")
-        try:
-            confidence = (
-                float(raw_confidence)
-                if raw_confidence is not None
-                else (0.95 if is_toc_start else 0.05)
-            )
-        except (TypeError, ValueError):
-            confidence = 0.95 if is_toc_start else 0.05
         evidence_by_page[page] = TocEvidence(
             page_index=page,
             source="vlm",
-            confidence=max(0.0, min(1.0, confidence)),
             reason=str(item.get("reason") or ""),
         )
     return confirmed_pages, evidence_by_page
@@ -263,7 +253,6 @@ def _vlm_confirm_anchors(
             TocEvidence(
                 page_index=a.page,
                 source="vlm",
-                confidence=0.05,
                 reason=(
                     "confirm batch failed for this candidate"
                     if confirm_failed

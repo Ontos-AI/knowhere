@@ -44,7 +44,6 @@ def _feature_rows(ctx: ToolContext, pages: list[int]) -> list[dict[str, Any]]:
             {
                 "page": feature.page,
                 "kind": label.kind if label else None,
-                "confidence": label.confidence if label else None,
                 "raw_text_length": feature.raw_text_length,
                 "text_density": feature.text_density,
                 "orientation": feature.orientation,

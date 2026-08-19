@@ -53,7 +53,6 @@ def single_shard_plan(page_count: int) -> ShardPlan:
                 page_offset=0,
                 anchor_type="forced_max_size",
                 anchor_evidence="document within shard threshold",
-                confidence=1.0,
             )
         ],
     )

@@ -130,7 +130,7 @@ def main() -> int:
             end_page=page_count,
             title="Root",
             parent_path=filename,
-            evidence={"source": "fallback_root", "confidence": 0.0},
+            evidence={"source": "fallback_root"},
         )
         coarse_scopes = [
             {

@@ -212,7 +212,6 @@ def _map_toc_profile(coordinator: ProfileCoordinator) -> ParserTocProfile:
         TocEvidence(
             page_index=item.page_index,
             source=item.source,
-            confidence=item.confidence,
             reason=item.reason,
         )
         for item in toc_result.evidence

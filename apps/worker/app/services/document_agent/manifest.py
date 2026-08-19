@@ -40,7 +40,6 @@ class PageFeature:
 class PageLabel:
     page: int
     kind: PageKind
-    confidence: float
     evidence: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -88,7 +87,6 @@ class TocAnchorPage:
 class TocEvidence:
     page_index: int
     source: str
-    confidence: float
     reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -142,7 +140,6 @@ class Shard:
         "toc_leaf_boundary",
     ]
     anchor_evidence: str
-    confidence: float
     # Calibrated TOC slice for this shard (heading+level), attached at
     # propose.shard_plan. TEXT-TRACK consumes this directly; no printed→physical
     # re-filter at parse time.

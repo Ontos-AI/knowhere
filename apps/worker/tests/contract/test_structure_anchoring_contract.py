@@ -134,10 +134,8 @@ def test_first_sibling_null_parent_uses_scan_forward_not_wide_rtl() -> None:
     leaf_match = {
         ("Chapter 22", "22.1 Intro"): TitleMatch(
             page=278,
-            confidence=1.0,
             source="test",
             matched_line="",
-            score=1.0,
             candidates=[278],
             evidence={},
         )
@@ -195,28 +193,22 @@ def test_null_page_parent_with_left_sibling_still_uses_rtl() -> None:
     overrides_in = {
         ("A",): TitleMatch(
             page=10,
-            confidence=1.0,
             source="test",
             matched_line="",
-            score=1.0,
             candidates=[10],
             evidence={},
         ),
         ("A", "A.1"): TitleMatch(
             page=10,
-            confidence=1.0,
             source="test",
             matched_line="",
-            score=1.0,
             candidates=[10],
             evidence={},
         ),
         ("B", "B.1"): TitleMatch(
             page=50,
-            confidence=1.0,
             source="test",
             matched_line="",
-            score=1.0,
             candidates=[50],
             evidence={},
         ),
@@ -230,10 +222,8 @@ def test_null_page_parent_with_left_sibling_still_uses_rtl() -> None:
         return (
             TitleMatch(
                 page=40,
-                confidence=0.9,
                 source="inspect_vlm",
                 matched_line="",
-                score=0.9,
                 candidates=[40],
                 evidence={"accept": "visual_rtl"},
             ),
@@ -269,10 +259,8 @@ def test_phase2_bulk_via_mocked_offset() -> None:
     seed = {
         ("Intro",): TitleMatch(
             page=5,
-            confidence=0.9,
             source="inspect_vlm",
             matched_line="",
-            score=0.9,
             candidates=[5],
             evidence={"calibration": True, "printed_page": 3},
         )
@@ -280,7 +268,7 @@ def test_phase2_bulk_via_mocked_offset() -> None:
 
     def fake_verify(**kwargs: Any) -> dict[str, Any]:
         expected = kwargs["candidate_matches"][0].page
-        return {"selected_page": expected, "confidence": 0.9, "reason": "ok"}
+        return {"selected_page": expected, "reason": "ok"}
 
     with _patch_verify(fake_verify):
         matches = anchoring.offset_guided_anchoring(
@@ -339,7 +327,7 @@ def test_anchor_hierarchy_uses_calibration_phase1() -> None:
 
     def fake_verify(**kwargs: Any) -> dict[str, Any]:
         expected = kwargs["candidate_matches"][0].page
-        return {"selected_page": expected, "confidence": 0.95, "reason": "ok"}
+        return {"selected_page": expected, "reason": "ok"}
 
     with (
         patch(
@@ -397,7 +385,7 @@ def test_bisect_all_fail_returns_minus_one() -> None:
     ]
 
     def fake_verify(**kwargs: Any) -> dict[str, Any]:
-        return {"selected_page": None, "confidence": 0.0, "reason": "miss"}
+        return {"selected_page": None, "reason": "miss"}
 
     with _patch_verify(fake_verify):
         bp = anchoring._bisect_offset_breakpoint(
@@ -443,7 +431,7 @@ def test_phase2_all_bisect_fail_does_not_invent_first_leaf() -> None:
     ctx = _ctx()
 
     def fake_verify(**kwargs: Any) -> dict[str, Any]:
-        return {"selected_page": None, "confidence": 0.0, "reason": "miss"}
+        return {"selected_page": None, "reason": "miss"}
 
     def fake_scan(**kwargs: Any) -> TitleScanResult:
         return TitleScanResult(
@@ -526,8 +514,8 @@ def test_phase2_recalibrate_uses_forward_scan_beyond_plus_five() -> None:
             ("Ch4", 46),  # 30+16
         }
         if (title, expected) in ok:
-            return {"selected_page": expected, "confidence": 0.95, "reason": "ok"}
-        return {"selected_page": None, "confidence": 0.0, "reason": "miss"}
+            return {"selected_page": expected, "reason": "ok"}
+        return {"selected_page": None, "reason": "miss"}
 
     def fake_scan(**kwargs: Any) -> TitleScanResult:
         title = str(kwargs.get("title") or "")
@@ -614,8 +602,8 @@ def test_phase2_recalibrate_miss_drops_suffix_from_tree() -> None:
         # Prefix Ch1/Ch2 at offset=10 confirm; Ch3/Ch4 miss under old offset.
         ok_pages = {11, 15}  # 1+10, 5+10
         if expected in ok_pages and title in {"Ch1", "Ch2"}:
-            return {"selected_page": expected, "confidence": 0.95, "reason": "ok"}
-        return {"selected_page": None, "confidence": 0.1, "reason": "miss"}
+            return {"selected_page": expected, "reason": "ok"}
+        return {"selected_page": None, "reason": "miss"}
 
     def fake_scan(**kwargs: Any) -> TitleScanResult:
         return TitleScanResult(
@@ -769,7 +757,7 @@ def test_multi_regime_phase2_merges_physical_overrides() -> None:
 
     def fake_verify(**kwargs: Any) -> dict[str, Any]:
         expected = kwargs["candidate_matches"][0].page
-        return {"selected_page": expected, "confidence": 0.95, "reason": "ok"}
+        return {"selected_page": expected, "reason": "ok"}
 
     with _patch_verify(fake_verify):
         _working, anchor = anchor_hierarchy_from_regimes(

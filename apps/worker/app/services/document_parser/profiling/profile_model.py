@@ -10,7 +10,6 @@ from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
 class TocEvidence:
     page_index: int
     source: str
-    confidence: float
     reason: str = ""
 
 

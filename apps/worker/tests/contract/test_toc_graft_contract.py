@@ -45,10 +45,8 @@ from app.services.page_memory.skeleton_extractor import extract_section_skeleton
 def _match(title: str, page: int) -> TitleMatch:
     return TitleMatch(
         page=page,
-        confidence=1.0,
         source="anchored",
         matched_line=title,
-        score=1.0,
         candidates=[page],
         evidence={},
     )
@@ -520,7 +518,7 @@ def _anatomy(
         page_count=page_count,
         page_features=[_feature(page) for page in range(1, page_count + 1)],
         page_labels=[
-            PageLabel(page=page, kind="normal", confidence=1.0)
+            PageLabel(page=page, kind="normal")
             for page in range(1, page_count + 1)
         ],
         toc_result=TocResult(method="vlm_batch", toc_pages=toc_pages),
@@ -535,7 +533,6 @@ def _anatomy(
                     page_offset=0,
                     anchor_type="forced_max_size",
                     anchor_evidence="test",
-                    confidence=1.0,
                 )
             ],
         ),

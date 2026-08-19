@@ -182,10 +182,10 @@ def _thresholds(ctx: ToolContext) -> tuple[int, int]:
     return threshold, max_pages
 
 
-def _cuts_to_shards(cuts: list[tuple[int, str, str, float]], page_count: int) -> list[Shard]:
+def _cuts_to_shards(cuts: list[tuple[int, str, str]], page_count: int) -> list[Shard]:
     shards: list[Shard] = []
     previous = 0
-    for cut_page, anchor_type, evidence, confidence in cuts:
+    for cut_page, anchor_type, evidence in cuts:
         if cut_page <= previous:
             continue
         shards.append(
@@ -196,7 +196,6 @@ def _cuts_to_shards(cuts: list[tuple[int, str, str, float]], page_count: int) ->
                 page_offset=previous,
                 anchor_type=anchor_type,  # type: ignore[arg-type]
                 anchor_evidence=evidence,
-                confidence=confidence,
             )
         )
         previous = cut_page
@@ -209,7 +208,6 @@ def _cuts_to_shards(cuts: list[tuple[int, str, str, float]], page_count: int) ->
                 page_offset=previous,
                 anchor_type="forced_max_size",
                 anchor_evidence="final shard",
-                confidence=1.0,
             )
         )
     return shards
@@ -423,8 +421,8 @@ def _pack_range_by_blanks(
     end: int,
     max_pages: int,
     blank_pages: list[int],
-) -> list[tuple[int, str, str, float]]:
-    cuts: list[tuple[int, str, str, float]] = []
+) -> list[tuple[int, str, str]]:
+    cuts: list[tuple[int, str, str]] = []
     while end - previous > max_pages:
         target = previous + max_pages
         eligible = [
@@ -433,11 +431,11 @@ def _pack_range_by_blanks(
         ]
         if eligible:
             chosen = max(eligible)
-            cuts.append((chosen, "blank_separator", f"blank-like page at {chosen}", 0.5))
+            cuts.append((chosen, "blank_separator", f"blank-like page at {chosen}"))
             previous = chosen
         else:
             cut_page = previous + max_pages
-            cuts.append((cut_page, "forced_max_size", "no separator in range", 0.2))
+            cuts.append((cut_page, "forced_max_size", "no separator in range"))
             previous = cut_page
     return cuts
 
@@ -448,8 +446,8 @@ def _hierarchy_plan(
     page_count: int,
     max_pages: int,
     blank_pages: list[int],
-) -> list[tuple[int, str, str, float]]:
-    cuts: list[tuple[int, str, str, float]] = []
+) -> list[tuple[int, str, str]]:
+    cuts: list[tuple[int, str, str]] = []
     previous = 0
     for start, end in _exclusive_pieces(units):
         if end <= previous:
@@ -465,11 +463,11 @@ def _hierarchy_plan(
             if range_cuts:
                 previous = range_cuts[-1][0]
             if previous < end and end < page_count:
-                cuts.append((end, "toc_leaf_boundary", f"toc leaf at page {end + 1}", 0.85))
+                cuts.append((end, "toc_leaf_boundary", f"toc leaf at page {end + 1}"))
                 previous = end
             continue
         if end < page_count:
-            cuts.append((end, "toc_leaf_boundary", f"toc leaf at page {end + 1}", 0.85))
+            cuts.append((end, "toc_leaf_boundary", f"toc leaf at page {end + 1}"))
             previous = end
     return cuts
 

@@ -228,7 +228,6 @@ def _load_anatomy_cache(out_dir: Path, pdf_path: str, filename: str):
         PageLabel(
             page=int(pl.get("page", 0)),
             kind=pl.get("kind", "normal"),
-            confidence=float(pl.get("confidence", 0)),
             evidence=pl.get("evidence", {}),
         )
         for pl in data.get("page_labels", [])
@@ -255,7 +254,6 @@ def _load_anatomy_cache(out_dir: Path, pdf_path: str, filename: str):
                     page_offset=int(s.get("page_offset", 0)),
                     anchor_type=s.get("anchor_type", "forced_max_size"),
                     anchor_evidence=s.get("anchor_evidence", ""),
-                    confidence=float(s.get("confidence", 0) or 0),
                     toc_hierarchies=(
                         list(s["toc_hierarchies"])
                         if isinstance(s.get("toc_hierarchies"), list)

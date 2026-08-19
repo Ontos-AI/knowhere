@@ -98,10 +98,8 @@ def seed_overrides_from_samples(
                 continue
             overrides[path] = TitleMatch(
                 page=int(sample.physical),
-                confidence=0.85,
                 source="inspect_vlm",
                 matched_line="",
-                score=0.85,
                 candidates=[int(sample.physical)],
                 evidence={
                     "calibration": True,

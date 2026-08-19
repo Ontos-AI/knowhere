@@ -116,10 +116,8 @@ class TitleNode:
 @dataclass(frozen=True)
 class TitleMatch:
     page: int
-    confidence: float
     source: TitleMatchSource
     matched_line: str
-    score: float
     candidates: list[int]
     evidence: dict[str, Any] = field(default_factory=dict)
 
@@ -168,10 +166,8 @@ def locate_title_compact_strict(
     page = unique_pages[0]
     return TitleMatch(
         page=page,
-        confidence=0.92,
         source="anchored",
         matched_line=matched_preview,
-        score=0.96,
         candidates=[page],
         evidence={"accept": "compact_strict_unique"},
     )
@@ -464,15 +460,12 @@ def _infer_start_from_descendant_overrides(
         return None
     return TitleMatch(
         page=min_match.page,
-        confidence=min(min_match.confidence, 0.80),
         source="inferred_descendant",
         matched_line="",
-        score=min(min_match.score, 0.80),
         candidates=[min_match.page],
         evidence={
             "inferred_from": "descendant_leaf_override",
             "leaf_source": min_match.source,
-            "original_confidence": min_match.confidence,
             "status": "degraded",
         },
     )
@@ -516,13 +509,11 @@ def _next_located_start(
 
 def _range_evidence(match: TitleMatch | None) -> dict[str, Any]:
     if match is None:
-        return {"source": "unlocated", "confidence": 0.0, "candidates": []}
+        return {"source": "unlocated", "candidates": []}
     return {
         "source": match.source,
-        "confidence": match.confidence,
         "matched_line": match.matched_line,
         "candidates": match.candidates,
-        "score": match.score,
         **match.evidence,
     }
 

@@ -73,10 +73,8 @@ def _anchor(*, title: str = "Ch1", page: int = 2) -> SkeletonAnchor:
         match_overrides={
             (title,): TitleMatch(
                 page=page,
-                confidence=1.0,
                 source="anchored",
                 matched_line=title,
-                score=1.0,
                 candidates=[page],
                 evidence={},
             )
@@ -111,7 +109,7 @@ def _anatomy(*, with_anchor: bool) -> PageAnatomyMap:
             for page in range(1, 11)
         ],
         "page_labels": [
-            PageLabel(page=page, kind="normal", confidence=1.0)
+            PageLabel(page=page, kind="normal")
             for page in range(1, 11)
         ],
         "toc_result": TocResult(method="vlm_batch", toc_pages=[1]),
@@ -126,7 +124,6 @@ def _anatomy(*, with_anchor: bool) -> PageAnatomyMap:
                     page_offset=0,
                     anchor_type="forced_max_size",
                     anchor_evidence="test",
-                    confidence=1.0,
                 )
             ],
         ),
@@ -214,19 +211,15 @@ def test_shard_plan_reads_offset_and_does_not_calibrate() -> None:
             match_overrides={
                 ("Ch1",): TitleMatch(
                     page=3,
-                    confidence=1.0,
                     source="anchored",
                     matched_line="Ch1",
-                    score=1.0,
                     candidates=[3],
                     evidence={},
                 ),
                 ("Ch2",): TitleMatch(
                     page=120,
-                    confidence=1.0,
                     source="anchored",
                     matched_line="Ch2",
-                    score=1.0,
                     candidates=[120],
                     evidence={},
                 ),
@@ -405,7 +398,7 @@ def test_c4_uses_persisted_pending_relationship_and_does_not_classify() -> None:
         for page in range(1, 31)
     ]
     anatomy.page_labels = [
-        PageLabel(page=page, kind="normal", confidence=1.0)
+        PageLabel(page=page, kind="normal")
         for page in range(1, 31)
     ]
     anatomy.toc_hierarchies = _pending_tocs()

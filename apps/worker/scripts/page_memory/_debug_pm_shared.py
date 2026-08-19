@@ -310,7 +310,6 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
         page_labels.append(PageLabel(
             page=int(pl.get("page", 0)),
             kind=pl.get("kind", "normal"),
-            confidence=float(pl.get("confidence", 0)),
             evidence=pl.get("evidence", {}),
         ))
 
@@ -333,7 +332,6 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
             TocEvidence(
                 page_index=int(item.get("page_index", 0)),
                 source=str(item.get("source") or ""),
-                confidence=float(item.get("confidence", 0) or 0),
                 reason=str(item.get("reason") or ""),
             )
         )
@@ -367,7 +365,6 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
                     page_offset=int(s.get("page_offset", 0)),
                     anchor_type=s.get("anchor_type", "forced_max_size"),
                     anchor_evidence=s.get("anchor_evidence", ""),
-                    confidence=float(s.get("confidence", 0) or 0),
                     toc_hierarchies=(
                         list(s["toc_hierarchies"])
                         if isinstance(s.get("toc_hierarchies"), list)
@@ -565,7 +562,6 @@ def _page_labels_from_dicts(rows: list[Any]) -> list[Any]:
             PageLabel(
                 page=int(pl.get("page", 0)),
                 kind=pl.get("kind", "normal"),
-                confidence=float(pl.get("confidence", 0)),
                 evidence=dict(pl.get("evidence") or {}),
             )
         )

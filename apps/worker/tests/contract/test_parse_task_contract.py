@@ -941,7 +941,6 @@ def test_oversized_pdf_shard_failure_preserves_processing_error(
                                 page_offset=0,
                                 anchor_type="forced_max_size",
                                 anchor_evidence="fixture",
-                                confidence=1.0,
                             )
                         ],
                     ),
@@ -1007,7 +1006,6 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
                     page_offset=0,
                     anchor_type="toc_leaf_boundary",
                     anchor_evidence="Chapter 1",
-                    confidence=0.9,
                 ),
                 Shard(
                     shard_index=1,
@@ -1016,7 +1014,6 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
                     page_offset=2,
                     anchor_type="toc_leaf_boundary",
                     anchor_evidence="Chapter 2",
-                    confidence=0.9,
                 ),
             ],
         ),

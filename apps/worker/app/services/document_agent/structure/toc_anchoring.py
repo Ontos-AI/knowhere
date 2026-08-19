@@ -282,10 +282,8 @@ def outline_physical_overrides(
                 continue
             overrides[path] = TitleMatch(
                 page=page,
-                confidence=1.0,
                 source="pdf_outline",
                 matched_line="",
-                score=1.0,
                 candidates=[page],
             )
     return overrides

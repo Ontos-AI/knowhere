@@ -75,7 +75,7 @@ def _seed_preprobed_pages(
     coordinator.blackboard.page_count = page_count
     coordinator.blackboard.page_features = [_page_feature(page) for page in probed_pages]
     coordinator.blackboard.page_labels = [
-        PageLabel(page=page, kind="normal", confidence=1.0) for page in probed_pages
+        PageLabel(page=page, kind="normal") for page in probed_pages
     ]
     coordinator.blackboard.doc_stats = {"page_count": page_count}
     coordinator.blackboard.global_signals["page_kind_counts"] = {
@@ -178,8 +178,8 @@ def test_run_coarse_runs_asset_probe_after_coarse_profile(monkeypatch, tmp_path:
     coordinator.blackboard.page_count = 2
     coordinator.blackboard.page_features = [_page_feature(1), _page_feature(2)]
     coordinator.blackboard.page_labels = [
-        PageLabel(page=1, kind="normal", confidence=1.0),
-        PageLabel(page=2, kind="normal", confidence=1.0),
+        PageLabel(page=1, kind="normal"),
+        PageLabel(page=2, kind="normal"),
     ]
     coordinator.blackboard.doc_stats = {"page_count": 2}
     coordinator.blackboard.global_signals["page_kind_counts"] = {"normal": 2}
@@ -249,8 +249,8 @@ def test_parse_run_recorder_doc_profile_uses_final_anatomy_toc() -> None:
         page_count=2,
         page_features=[_page_feature(1), _page_feature(2)],
         page_labels=[
-            PageLabel(page=1, kind="normal", confidence=1.0),
-            PageLabel(page=2, kind="normal", confidence=1.0),
+            PageLabel(page=1, kind="normal"),
+            PageLabel(page=2, kind="normal"),
         ],
         toc_result=TocResult(toc_pages=[2], method="vlm_batch", notes="ok"),
         shard_plan=ShardPlan(enabled=False, reason="not_needed"),
@@ -303,7 +303,7 @@ def test_parse_run_recorder_profile_only_row_is_updated_by_anatomy_flush() -> No
         file_path="/tmp/doc.pdf",
         page_count=12,
         page_features=[_page_feature(1)],
-        page_labels=[PageLabel(page=1, kind="normal", confidence=1.0)],
+        page_labels=[PageLabel(page=1, kind="normal")],
         toc_result=TocResult(toc_pages=[2], method="vlm_batch", notes="ok"),
         shard_plan=ShardPlan(enabled=False, reason="not_needed"),
         toc_hierarchies=[{"toc_range": [2, 2], "toc_tree": {}}],
@@ -340,7 +340,6 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
             AgentTocEvidence(
                 page_index=17,
                 source="vlm",
-                confidence=0.05,
                 reason="rejected",
             )
         ],
@@ -385,7 +384,6 @@ def test_run_structural_retries_transient_confirm_failed_toc_result(
                     page_offset=0,
                     anchor_type="forced_max_size",
                     anchor_evidence="fixture",
-                    confidence=1.0,
                 )
             ],
         )
@@ -527,7 +525,6 @@ def test_run_structural_trusts_rejected_all_toc_and_fails_open(
                     page_offset=0,
                     anchor_type="forced_max_size",
                     anchor_evidence="fixture",
-                    confidence=1.0,
                 )
             ],
         )
@@ -604,7 +601,6 @@ def test_run_coarse_runs_coarse_profile_then_text_scan_then_toc(
                     page_offset=0,
                     anchor_type="forced_max_size",
                     anchor_evidence="fixture",
-                    confidence=1.0,
                 )
             ],
         )
@@ -710,7 +706,6 @@ def test_oversized_single_shard_plan_is_invalid() -> None:
                     page_offset=0,
                     anchor_type="forced_max_size",
                     anchor_evidence="final shard",
-                    confidence=1.0,
                 )
             ],
         ),
@@ -961,7 +956,6 @@ def test_standard_pdf_profile_maps_page_toc_evidence(
                     AgentTocEvidence(
                         page_index=2,
                         source="vlm",
-                        confidence=0.95,
                         reason="table of contents",
                     )
                 ],
@@ -1004,7 +998,7 @@ def test_standard_pdf_profile_maps_page_toc_evidence(
     assert profile.toc.has_toc is True
     assert profile.toc.attempted is True
     assert profile.toc.method == "vlm_batch"
-    assert profile.toc.evidence[0].confidence == 0.95
+    assert profile.toc.evidence[0].source == "vlm"
     assert profile.anatomy is fake_anatomy
 
 
@@ -1033,7 +1027,6 @@ def test_oversized_atlas_surfaces_profile_toc_without_structural_anatomy(
                     AgentTocEvidence(
                         page_index=4,
                         source="vlm",
-                        confidence=0.9,
                         reason="table of contents",
                     )
                 ],
@@ -1253,8 +1246,8 @@ def test_pdf_shard_pipeline_accepts_single_shard_fast_path(
             page_count=2,
             page_features=[_page_feature(1), _page_feature(2)],
             page_labels=[
-                PageLabel(page=1, kind="normal", confidence=1.0),
-                PageLabel(page=2, kind="normal", confidence=1.0),
+                PageLabel(page=1, kind="normal"),
+                PageLabel(page=2, kind="normal"),
             ],
             toc_result=TocResult(method="none"),
             shard_plan=ShardPlan(
@@ -1268,7 +1261,6 @@ def test_pdf_shard_pipeline_accepts_single_shard_fast_path(
                         page_offset=0,
                         anchor_type="forced_max_size",
                         anchor_evidence="document within shard threshold",
-                        confidence=1.0,
                     )
                 ],
             ),
@@ -1339,9 +1331,9 @@ def test_pdf_shard_pipeline_does_not_use_markdown_toc_detector(
             page_count=3,
             page_features=[_page_feature(1), _page_feature(2), _page_feature(3)],
             page_labels=[
-                PageLabel(page=1, kind="normal", confidence=1.0),
-                PageLabel(page=2, kind="normal", confidence=1.0),
-                PageLabel(page=3, kind="normal", confidence=1.0),
+                PageLabel(page=1, kind="normal"),
+                PageLabel(page=2, kind="normal"),
+                PageLabel(page=3, kind="normal"),
             ],
             toc_result=TocResult(method="none"),
             shard_plan=ShardPlan(
@@ -1355,7 +1347,6 @@ def test_pdf_shard_pipeline_does_not_use_markdown_toc_detector(
                         page_offset=0,
                         anchor_type="forced_max_size",
                         anchor_evidence="document within shard threshold",
-                        confidence=1.0,
                     )
                 ],
             ),
