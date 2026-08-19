@@ -8,6 +8,8 @@ from contextlib import contextmanager
 from unittest.mock import patch
 from typing import Any
 
+import pytest
+
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
 os.environ.setdefault("S3_BUCKET_NAME", "test-uploads")
@@ -21,29 +23,29 @@ from app.services.document_agent.structure.hierarchy_locator import TitleMatch, 
 from app.services.document_agent.structure import anchoring_primitives as anchoring
 
 
+@pytest.fixture(autouse=True)
+def _rebind_live_anchoring_primitives() -> Iterator[None]:
+    """Rebind after contract fixtures that clear ``app.*`` from ``sys.modules``."""
+    global anchoring
+    from app.services.document_agent.structure import anchoring_primitives as live
+
+    anchoring = live
+    yield
+
+
 @contextmanager
 def _patch_verify(fake_verify: Callable[..., dict[str, Any]]) -> Iterator[None]:
-    """Patch verify on the module dict closed over by live anchoring code."""
-    from app.services.document_agent.calibration import procedure
+    """Patch verify on the live anchoring module (not a collection-time zombie).
 
-    dicts = [procedure.offset_guided_anchoring.__globals__, anchoring.__dict__]
-    seen: set[int] = set()
-    originals: list[tuple[dict[str, Any], Any]] = []
-    for module_dict in dicts:
-        dict_id = id(module_dict)
-        if dict_id in seen:
-            continue
-        seen.add(dict_id)
-        originals.append((module_dict, module_dict.get("verify_section_page_choice")))
-        module_dict["verify_section_page_choice"] = fake_verify
-    try:
+    Contract fixtures that call ``clear_application_modules()`` drop ``app.*`` from
+    ``sys.modules``. Resolve the patch target by dotted path at enter time so it
+    always hits the live globals closed over by ``_vlm_confirm_single_page``.
+    """
+    with patch(
+        "app.services.document_agent.structure.anchoring_primitives.verify_section_page_choice",
+        fake_verify,
+    ):
         yield
-    finally:
-        for module_dict, original in originals:
-            if original is None:
-                module_dict.pop("verify_section_page_choice", None)
-            else:
-                module_dict["verify_section_page_choice"] = original
 
 
 def _ctx() -> ToolContext:
