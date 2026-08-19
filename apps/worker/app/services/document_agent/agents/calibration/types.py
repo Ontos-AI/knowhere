@@ -1,25 +1,37 @@
-"""Calibration SubAgent result types."""
+"""Calibration SubAgent result types.
+
+The ``calibration.submit`` payload carries only what Phase-2 cannot recompute:
+``status``, per-regime numbering ``kind`` + candidate ``offset`` (plus the
+anchor ``samples`` already confirmed by vision), and one short ``notes`` reason.
+``segments`` / ``no_toc_entry_indices`` / ``offset_status`` / per-regime
+``notes`` / ``tool_calls`` / ``region_index`` are Phase-2 or harness outputs and
+are never read back from a submit payload.
+"""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+# Failure classes recorded on ``CalibrationResult.failure_kind``, one per
+# failure exit of the ReAct loop. ``INVALID_JSON`` means the decision payload
+# did not parse (history carries completion_tokens vs max_tokens so truncation
+# can be diagnosed offline); the rest mean the episode ran without an offset.
+FAILURE_INVALID_JSON = "invalid_json"
+FAILURE_LLM_ERROR = "llm_error"
+FAILURE_MODEL_MISSING = "model_missing"
+FAILURE_BUDGET_EXHAUSTED = "budget_exhausted"
+FAILURE_MAX_ROUNDS = "max_rounds"
+FAILURE_NO_OFFSET = "no_offset"
+FAILURE_TOC_EMPTY = "toc_empty"
+
 
 @dataclass
 class CalibrationSample:
+    """A printed→physical anchor the agent confirmed with ``inspect.pages``."""
+
     title: str
-    printed_label: str | int | None = None
     physical: int | None = None
-    method: str | None = None
-
-
-@dataclass
-class CalibrationPosterior:
-    title: str
-    expected_physical: int | None = None
-    confirmed: bool | None = None
-    method: str | None = None
 
 
 @dataclass
@@ -37,10 +49,10 @@ class CalibrationSegment:
 class CalibrationRegime:
     kind: str
     offset: int | None = None
-    offset_status: str = "failed"
     entry_indices: list[int] = field(default_factory=list)
     samples: list[CalibrationSample] = field(default_factory=list)
-    posterior: list[CalibrationPosterior] = field(default_factory=list)
+    # Phase-2 outputs below; never parsed from the agent submit payload.
+    offset_status: str = "failed"
     segments: list[CalibrationSegment] = field(default_factory=list)
     no_toc_entry_indices: list[int] = field(default_factory=list)
     notes: str = ""
@@ -54,6 +66,9 @@ class CalibrationResult:
     offset_status: str = "failed"
     tool_calls: int = 0
     notes: str = ""
+    # Empty on success; otherwise one of the FAILURE_* constants, so a submit
+    # that never parsed is never read as "this document has no offset".
+    failure_kind: str = ""
     region_index: int | None = None
     # Debug-only trail from the ReAct loop (not part of submit schema).
     history_tail: list[dict[str, Any]] = field(default_factory=list)
@@ -92,6 +107,7 @@ def _as_int_list(value: Any) -> list[int]:
 
 
 def calibration_result_from_dict(data: dict[str, Any]) -> CalibrationResult:
+    """Parse the minimal submit payload; ignore anything Phase-2 recomputes."""
     regimes: list[CalibrationRegime] = []
     for raw in data.get("regimes") or []:
         if not isinstance(raw, dict):
@@ -99,53 +115,22 @@ def calibration_result_from_dict(data: dict[str, Any]) -> CalibrationResult:
         samples = [
             CalibrationSample(
                 title=str(s.get("title") or ""),
-                printed_label=s.get("printed_label"),
                 physical=_as_optional_int(s.get("physical")),
-                method=s.get("method") if isinstance(s.get("method"), str) else None,
             )
             for s in (raw.get("samples") or [])
             if isinstance(s, dict)
-        ]
-        posterior = [
-            CalibrationPosterior(
-                title=str(p.get("title") or ""),
-                expected_physical=_as_optional_int(p.get("expected_physical")),
-                confirmed=p.get("confirmed") if isinstance(p.get("confirmed"), bool) else None,
-                method=p.get("method") if isinstance(p.get("method"), str) else None,
-            )
-            for p in (raw.get("posterior") or [])
-            if isinstance(p, dict)
-        ]
-        segments = [
-            CalibrationSegment(
-                offset=_as_optional_int(seg.get("offset")) or 0,
-                leaf_start=_as_optional_int(seg.get("leaf_start")) or 0,
-                leaf_end=_as_optional_int(seg.get("leaf_end")) or 0,
-                entry_indices=_as_int_list(seg.get("entry_indices")),
-                status=str(seg.get("status") or "ok"),
-            )
-            for seg in (raw.get("segments") or [])
-            if isinstance(seg, dict) and _as_optional_int(seg.get("offset")) is not None
         ]
         regimes.append(
             CalibrationRegime(
                 kind=str(raw.get("kind") or "other"),
                 offset=_as_optional_int(raw.get("offset")),
-                offset_status=str(raw.get("offset_status") or "failed"),
                 entry_indices=_as_int_list(raw.get("entry_indices")),
                 samples=samples,
-                posterior=posterior,
-                segments=segments,
-                no_toc_entry_indices=_as_int_list(raw.get("no_toc_entry_indices")),
-                notes=str(raw.get("notes") or ""),
             )
         )
     return CalibrationResult(
         status=str(data.get("status") or "failed"),
         regimes=regimes,
-        offset=_as_optional_int(data.get("offset")),
-        offset_status=str(data.get("offset_status") or "failed"),
-        tool_calls=_as_optional_int(data.get("tool_calls")) or 0,
         notes=str(data.get("notes") or ""),
-        region_index=_as_optional_int(data.get("region_index")),
+        failure_kind=str(data.get("failure_kind") or ""),
     )

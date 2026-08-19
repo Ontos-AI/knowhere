@@ -54,9 +54,9 @@ def calibrate_offset(
         return CalibrationResult(status="failed", notes=str(exc))
 
     logger.info(
-        "[calibration] Phase-1 status={} regimes={} primary_offset={}",
+        "[calibration] Phase-1 status={} failure_kind={} regime_offsets={}",
         phase1.status,
-        len(phase1.regimes),
-        phase1.offset,
+        phase1.failure_kind,
+        [regime.offset for regime in phase1.regimes],
     )
     return phase1

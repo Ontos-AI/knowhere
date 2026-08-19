@@ -18,7 +18,23 @@ RENDER_VARIABLES: dict[str, str] = {
     "EXECUTION_ROLE_ARN": "execution-role",
     "API_TASK_ROLE_ARN": "api-role",
     "WORKER_TASK_ROLE_ARN": "worker-role",
-    "STAGING_SECRETS_ARN": "secrets-arn",
+    "SECRETS_ARN": "secrets-arn",
+    "DEPLOYMENT_ENVIRONMENT": "staging",
+    "RUNTIME_ENVIRONMENT": "staging",
+    "APP_ENV": "staging",
+    "DB_SSL_MODE": "require",
+    "API_DB_POOL_SIZE": "5",
+    "API_DB_MAX_OVERFLOW": "5",
+    "WORKER_DB_SYNC_POOL_SIZE": "2",
+    "WORKER_DB_SYNC_MAX_OVERFLOW": "2",
+    "S3_BUCKET_NAME": "knowhere-storage-staging",
+    "INTERNAL_DASHBOARD_ENDPOINT": "https://staging.knowhereto.ai",
+    "FRONTEND_URL": "https://staging.knowhereto.ai",
+    "API_WEBHOOK_ENDPOINT": "https://api-staging.knowhereto.ai/v1/internal/s3-events",
+    "SNS_TOPIC_ARN": "arn:aws:sns:us-east-1:107424103509:knowhere-staging-s3-events",
+    "QSTASH_CALLBACK_BASE_URL": "https://api-staging.knowhereto.ai/api/v1",
+    "WORKER_CPU": "2048",
+    "WORKER_MEMORY": "4096",
 }
 
 SHARED_STAGING_ENVIRONMENT: dict[str, str] = {
@@ -95,15 +111,19 @@ def test_staging_templates_render_without_long_lived_s3_keys(
     ],
 )
 def test_staging_templates_preserve_expected_staging_configuration(
+    tmp_path: Path,
     template_name: str,
     container_name: str,
     expected_environment: dict[str, str],
 ) -> None:
     """Fargate preserves the verified staging settings captured on 2026-08-13."""
-    definition_path: Path = TEMPLATE_DIRECTORY / template_name
-    definition: dict[str, object] = json.loads(
-        definition_path.read_text(encoding="utf-8")
+    output_path: Path = tmp_path / template_name
+    render_template(
+        TEMPLATE_DIRECTORY / template_name,
+        output_path,
+        RENDER_VARIABLES,
     )
+    definition: dict[str, object] = json.loads(output_path.read_text(encoding="utf-8"))
     container_definitions: list[dict[str, object]] = definition[
         "containerDefinitions"
     ]
@@ -119,12 +139,15 @@ def test_staging_templates_preserve_expected_staging_configuration(
         assert environment_values[name] == value
 
 
-def test_staging_worker_preserves_evidence_selected_capacity() -> None:
+def test_staging_worker_preserves_evidence_selected_capacity(tmp_path: Path) -> None:
     """Worker capacity matches the staging load evidence recorded in issue 22."""
-    definition_path: Path = TEMPLATE_DIRECTORY / "task-definition-worker.staging.json"
-    definition: dict[str, object] = json.loads(
-        definition_path.read_text(encoding="utf-8")
+    output_path: Path = tmp_path / "task-definition-worker.staging.json"
+    render_template(
+        TEMPLATE_DIRECTORY / "task-definition-worker.staging.json",
+        output_path,
+        RENDER_VARIABLES,
     )
+    definition: dict[str, object] = json.loads(output_path.read_text(encoding="utf-8"))
 
     # The measured production-envelope replay rejected 1-vCPU tasks and passed
     # on two fixed 2-vCPU tasks, so CD must not restore the rejected task size.

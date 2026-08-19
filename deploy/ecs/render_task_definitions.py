@@ -1,4 +1,4 @@
-"""Render staging ECS task-definition templates without storing secrets."""
+"""Render ECS task-definition templates without storing secrets."""
 
 from __future__ import annotations
 
@@ -17,7 +17,23 @@ REQUIRED_VARIABLES: Final[tuple[str, ...]] = (
     "EXECUTION_ROLE_ARN",
     "API_TASK_ROLE_ARN",
     "WORKER_TASK_ROLE_ARN",
-    "STAGING_SECRETS_ARN",
+    "SECRETS_ARN",
+    "DEPLOYMENT_ENVIRONMENT",
+    "RUNTIME_ENVIRONMENT",
+    "APP_ENV",
+    "DB_SSL_MODE",
+    "API_DB_POOL_SIZE",
+    "API_DB_MAX_OVERFLOW",
+    "WORKER_DB_SYNC_POOL_SIZE",
+    "WORKER_DB_SYNC_MAX_OVERFLOW",
+    "S3_BUCKET_NAME",
+    "INTERNAL_DASHBOARD_ENDPOINT",
+    "FRONTEND_URL",
+    "API_WEBHOOK_ENDPOINT",
+    "SNS_TOPIC_ARN",
+    "QSTASH_CALLBACK_BASE_URL",
+    "WORKER_CPU",
+    "WORKER_MEMORY",
 )
 FORBIDDEN_ENVIRONMENT_NAMES: Final[frozenset[str]] = frozenset(
     {"S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"}
@@ -86,6 +102,12 @@ def parse_arguments() -> argparse.Namespace:
     """Parse renderer CLI arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--environment",
+        choices=("staging", "production"),
+        required=True,
+        help="Deployment environment represented by the rendered definitions.",
+    )
     return parser.parse_args()
 
 
@@ -99,18 +121,25 @@ def load_variables() -> dict[str, str]:
 
 
 def main() -> None:
-    """Render both staging task definitions."""
+    """Render both API and worker task definitions."""
     arguments = parse_arguments()
     variables = load_variables()
+    expected_environment = "staging" if arguments.environment == "staging" else "prod"
+    if variables["DEPLOYMENT_ENVIRONMENT"] != expected_environment:
+        raise ValueError(
+            "DEPLOYMENT_ENVIRONMENT must match the selected environment: "
+            f"expected {expected_environment}, got {variables['DEPLOYMENT_ENVIRONMENT']}"
+        )
     template_directory = Path(__file__).parent
+    output_suffix = variables["DEPLOYMENT_ENVIRONMENT"]
     render_template(
         template_directory / "task-definition-api.staging.json",
-        arguments.output_dir / "knowhere-api-staging.json",
+        arguments.output_dir / f"knowhere-api-{output_suffix}.json",
         variables,
     )
     render_template(
         template_directory / "task-definition-worker.staging.json",
-        arguments.output_dir / "knowhere-worker-staging.json",
+        arguments.output_dir / f"knowhere-worker-{output_suffix}.json",
         variables,
     )
 

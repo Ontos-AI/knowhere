@@ -1,5 +1,5 @@
 {
-  "family": "knowhere-api-staging",
+  "family": "knowhere-api-${DEPLOYMENT_ENVIRONMENT}",
   "taskRoleArn": "${API_TASK_ROLE_ARN}",
   "executionRoleArn": "${EXECUTION_ROLE_ARN}",
   "networkMode": "awsvpc",
@@ -24,15 +24,15 @@
         }
       ],
       "environment": [
-        {"name": "ENVIRONMENT", "value": "staging"},
-        {"name": "APP_ENV", "value": "staging"},
-        {"name": "DB_SSL_MODE", "value": "require"},
-        {"name": "DB_POOL_SIZE", "value": "5"},
-        {"name": "DB_MAX_OVERFLOW", "value": "5"},
+        {"name": "ENVIRONMENT", "value": "${RUNTIME_ENVIRONMENT}"},
+        {"name": "APP_ENV", "value": "${APP_ENV}"},
+        {"name": "DB_SSL_MODE", "value": "${DB_SSL_MODE}"},
+        {"name": "DB_POOL_SIZE", "value": "${API_DB_POOL_SIZE}"},
+        {"name": "DB_MAX_OVERFLOW", "value": "${API_DB_MAX_OVERFLOW}"},
         {"name": "TMP_PATH", "value": "/tmp/aismart_bid"},
         {"name": "S3_TYPE", "value": "s3"},
-        {"name": "S3_BUCKET_NAME", "value": "knowhere-storage-staging"},
-        {"name": "S3_RESULTS_BUCKET", "value": "knowhere-storage-staging"},
+        {"name": "S3_BUCKET_NAME", "value": "${S3_BUCKET_NAME}"},
+        {"name": "S3_RESULTS_BUCKET", "value": "${S3_BUCKET_NAME}"},
         {"name": "S3_TEMP_PATH", "value": "/tmp"},
         {"name": "S3_REGION", "value": "us-east-1"},
         {"name": "S3_USE_SSL", "value": "true"},
@@ -48,32 +48,34 @@
         {"name": "RATE_LIMIT_ENABLED", "value": "true"},
         {"name": "TELEMETRY_ENABLED", "value": "false"},
         {"name": "API_STANDALONE_MODE_ENABLED", "value": "true"},
-        {"name": "INTERNAL_DASHBOARD_ENDPOINT", "value": "https://staging.knowhereto.ai"},
-        {"name": "FRONTEND_URL", "value": "https://staging.knowhereto.ai"},
+        {"name": "INTERNAL_DASHBOARD_ENDPOINT", "value": "${INTERNAL_DASHBOARD_ENDPOINT}"},
+        {"name": "FRONTEND_URL", "value": "${FRONTEND_URL}"},
         {"name": "BILLING_ENABLED", "value": "true"},
-        {"name": "QSTASH_CALLBACK_BASE_URL", "value": "https://api-staging.knowhereto.ai/api/v1"},
+        {"name": "QSTASH_CALLBACK_BASE_URL", "value": "${QSTASH_CALLBACK_BASE_URL}"},
         {"name": "AWS_REGION", "value": "us-east-1"},
-        {"name": "AWS_ACCOUNT_ID", "value": "107424103509"}
+        {"name": "AWS_ACCOUNT_ID", "value": "107424103509"},
+        {"name": "API_WEBHOOK_ENDPOINT", "value": "${API_WEBHOOK_ENDPOINT}"},
+        {"name": "SNS_TOPIC_ARN", "value": "${SNS_TOPIC_ARN}"}
       ],
       "secrets": [
-        {"name": "DATABASE_URL", "valueFrom": "${STAGING_SECRETS_ARN}:DATABASE_URL::"},
-        {"name": "REDIS_HOST", "valueFrom": "${STAGING_SECRETS_ARN}:REDIS_HOST::"},
-        {"name": "REDIS_PORT", "valueFrom": "${STAGING_SECRETS_ARN}:REDIS_PORT::"},
-        {"name": "REDIS_PASSWORD", "valueFrom": "${STAGING_SECRETS_ARN}:REDIS_PASSWORD::"},
-        {"name": "CELERY_REDIS_URL", "valueFrom": "${STAGING_SECRETS_ARN}:CELERY_REDIS_URL::"},
-        {"name": "SECRET_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:SECRET_KEY::"},
-        {"name": "DS_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:DS_KEY::"},
-        {"name": "ALI_API_KEYS", "valueFrom": "${STAGING_SECRETS_ARN}:ALI_API_KEYS::"},
-        {"name": "ARK_API_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:ARK_API_KEY::"},
-        {"name": "GPT_API_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:GPT_API_KEY::"},
-        {"name": "MINERU_API_KEYS", "valueFrom": "${STAGING_SECRETS_ARN}:MINERU_API_KEYS::"},
-        {"name": "STRIPE_SECRET_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:STRIPE_SECRET_KEY::"},
-        {"name": "STRIPE_WEBHOOK_SECRET", "valueFrom": "${STAGING_SECRETS_ARN}:STRIPE_WEBHOOK_SECRET::"},
-        {"name": "WEBHOOK_MASTER_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:WEBHOOK_MASTER_KEY::"},
-        {"name": "LOGFIRE_TOKEN", "valueFrom": "${STAGING_SECRETS_ARN}:LOGFIRE_TOKEN::"},
-        {"name": "QSTASH_TOKEN", "valueFrom": "${STAGING_SECRETS_ARN}:QSTASH_TOKEN::"},
-        {"name": "QSTASH_CURRENT_SIGNING_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:QSTASH_CURRENT_SIGNING_KEY::"},
-        {"name": "QSTASH_NEXT_SIGNING_KEY", "valueFrom": "${STAGING_SECRETS_ARN}:QSTASH_NEXT_SIGNING_KEY::"}
+        {"name": "DATABASE_URL", "valueFrom": "${SECRETS_ARN}:DATABASE_URL::"},
+        {"name": "REDIS_HOST", "valueFrom": "${SECRETS_ARN}:REDIS_HOST::"},
+        {"name": "REDIS_PORT", "valueFrom": "${SECRETS_ARN}:REDIS_PORT::"},
+        {"name": "REDIS_PASSWORD", "valueFrom": "${SECRETS_ARN}:REDIS_PASSWORD::"},
+        {"name": "CELERY_REDIS_URL", "valueFrom": "${SECRETS_ARN}:CELERY_REDIS_URL::"},
+        {"name": "SECRET_KEY", "valueFrom": "${SECRETS_ARN}:SECRET_KEY::"},
+        {"name": "DS_KEY", "valueFrom": "${SECRETS_ARN}:DS_KEY::"},
+        {"name": "ALI_API_KEYS", "valueFrom": "${SECRETS_ARN}:ALI_API_KEYS::"},
+        {"name": "ARK_API_KEY", "valueFrom": "${SECRETS_ARN}:ARK_API_KEY::"},
+        {"name": "GPT_API_KEY", "valueFrom": "${SECRETS_ARN}:GPT_API_KEY::"},
+        {"name": "MINERU_API_KEYS", "valueFrom": "${SECRETS_ARN}:MINERU_API_KEYS::"},
+        {"name": "STRIPE_SECRET_KEY", "valueFrom": "${SECRETS_ARN}:STRIPE_SECRET_KEY::"},
+        {"name": "STRIPE_WEBHOOK_SECRET", "valueFrom": "${SECRETS_ARN}:STRIPE_WEBHOOK_SECRET::"},
+        {"name": "WEBHOOK_MASTER_KEY", "valueFrom": "${SECRETS_ARN}:WEBHOOK_MASTER_KEY::"},
+        {"name": "LOGFIRE_TOKEN", "valueFrom": "${SECRETS_ARN}:LOGFIRE_TOKEN::"},
+        {"name": "QSTASH_TOKEN", "valueFrom": "${SECRETS_ARN}:QSTASH_TOKEN::"},
+        {"name": "QSTASH_CURRENT_SIGNING_KEY", "valueFrom": "${SECRETS_ARN}:QSTASH_CURRENT_SIGNING_KEY::"},
+        {"name": "QSTASH_NEXT_SIGNING_KEY", "valueFrom": "${SECRETS_ARN}:QSTASH_NEXT_SIGNING_KEY::"}
       ],
       "healthCheck": {
         "command": ["CMD-SHELL", "curl -f http://localhost:5005/health || exit 1"],
@@ -85,7 +87,7 @@
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/knowhere-api-staging",
+          "awslogs-group": "/ecs/knowhere-api-${DEPLOYMENT_ENVIRONMENT}",
           "awslogs-region": "us-east-1",
           "awslogs-stream-prefix": "api"
         }
@@ -94,7 +96,7 @@
   ],
   "tags": [
     {"key": "Project", "value": "knowhere"},
-    {"key": "Environment", "value": "staging"},
+    {"key": "Environment", "value": "${DEPLOYMENT_ENVIRONMENT}"},
     {"key": "Service", "value": "api"},
     {"key": "ManagedBy", "value": "knowhere-api-infra"}
   ]

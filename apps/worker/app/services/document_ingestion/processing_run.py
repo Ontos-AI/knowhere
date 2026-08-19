@@ -32,7 +32,10 @@ from app.services.document_parser.support.stage_profiler import (
     cleanup_stage_tracker,
     init_stage_tracker,
 )
-from shared.core.exceptions.domain_exceptions import ValidationException
+from shared.core.exceptions.domain_exceptions import (
+    UnavailableException,
+    ValidationException,
+)
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.services.ai.llm_overrides import cleanup_llm_overrides, init_llm_overrides
 from shared.services.ai.token_tracking import cleanup_token_tracker, init_token_tracker
@@ -63,19 +66,37 @@ class DocumentProcessingRun:
                 "reason": "job_already_terminal",
             }
 
-        with RedisJobLock(job_context.redis_service, job_id):
-            task_workspace = TemporaryParseWorkspace.create(job_id)
-            try:
-                result = _run_parse_job(
-                    job_id=job_id,
-                    job_context=job_context,
-                    lifecycle_service=lifecycle_service,
-                    task_workspace=task_workspace,
-                )
-            finally:
-                task_workspace.cleanup()
+        try:
+            with RedisJobLock(job_context.redis_service, job_id):
+                task_workspace = TemporaryParseWorkspace.create(job_id)
+                try:
+                    result = _run_parse_job(
+                        job_id=job_id,
+                        job_context=job_context,
+                        lifecycle_service=lifecycle_service,
+                        task_workspace=task_workspace,
+                    )
+                finally:
+                    task_workspace.cleanup()
+        except UnavailableException as exc:
+            if not _is_processing_lock_contention(exc):
+                raise
+            logger.info(
+                "Skipping duplicate parse delivery while another worker owns "
+                f"the processing lock: job_id={job_id}"
+            )
+            return {
+                "status": "skipped",
+                "job_id": job_id,
+                "reason": "job_already_processing",
+            }
 
         return result
+
+
+def _is_processing_lock_contention(error: UnavailableException) -> bool:
+    """Identify lock contention without swallowing unrelated 503 failures."""
+    return error.internal_message.startswith("Could not acquire processing lock")
 
 
 def _run_parse_job(

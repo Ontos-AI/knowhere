@@ -17,22 +17,12 @@ on:
           - all
           - api
           - worker
-      deployment_target:
-        description: Staging deployment target
-        required: false
-        type: choice
-        default: ecs-staging
-        options:
-          - ecs-staging
-          - eks-staging-rollback
 
 env:
   ACR_REGISTRY: ${{ secrets.ALIYUN_ACR_REGISTRY }}
   ACR_NAMESPACE: ${{ secrets.ALIYUN_ACR_NAMESPACE }}
   ECR_REGISTRY: 107424103509.dkr.ecr.us-east-1.amazonaws.com
   ECR_REPOSITORY: knowhere
-  AWS_EKS_PROD_CLUSTER_NAME: ${{ secrets.AWS_EKS_PROD_CLUSTER_NAME }}
-  AWS_EKS_PROD_REGION: ${{ secrets.AWS_EKS_PROD_REGION }}
   AWS_ECS_STAGING_CLUSTER_NAME: knowhere-fargate
   AWS_ECS_STAGING_REGION: us-east-1
   AWS_ECS_STAGING_EXECUTION_ROLE_ARN: arn:aws:iam::107424103509:role/knowhere-fargate-staging-execution-role
@@ -41,6 +31,14 @@ env:
   AWS_ECS_STAGING_SECRETS_ARN: ${{ secrets.AWS_ECS_STAGING_SECRETS_ARN }}
   AWS_ECS_STAGING_API_SERVICE_NAME: knowhere-api-staging
   AWS_ECS_STAGING_WORKER_SERVICE_NAME: knowhere-worker-staging
+  AWS_ECS_PROD_CLUSTER_NAME: knowhere-fargate
+  AWS_ECS_PROD_REGION: us-east-1
+  AWS_ECS_PROD_EXECUTION_ROLE_ARN: ${{ secrets.AWS_ECS_PROD_EXECUTION_ROLE_ARN }}
+  AWS_ECS_PROD_API_TASK_ROLE_ARN: ${{ secrets.AWS_ECS_PROD_API_TASK_ROLE_ARN }}
+  AWS_ECS_PROD_WORKER_TASK_ROLE_ARN: ${{ secrets.AWS_ECS_PROD_WORKER_TASK_ROLE_ARN }}
+  AWS_ECS_PROD_SECRETS_ARN: ${{ secrets.AWS_ECS_PROD_SECRETS_ARN }}
+  AWS_ECS_PROD_API_SERVICE_NAME: knowhere-api-prod
+  AWS_ECS_PROD_WORKER_SERVICE_NAME: knowhere-worker-prod
 
 jobs:
   build-and-publish:
@@ -79,6 +77,22 @@ jobs:
         with:
           persist-credentials: false
 
+      # Production releases are cut from main so the ECS path uses a reviewed
+      # source line.
+      - name: Verify production release source
+        if: ${{ github.event_name == 'release' }}
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --no-tags
+          release_commit="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          if ! git merge-base --is-ancestor "${release_commit}" origin/main; then
+            echo "::error::Release ${RELEASE_TAG} does not point to a commit on main"
+            exit 1
+          fi
+
       - name: Decide build context
         id: context
         shell: bash
@@ -95,7 +109,7 @@ jobs:
 
           should_push="true"
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.deployment_target }}" != "ecs-staging" ] && [ -n "${{ github.event.inputs.service }}" ] && [ "${{ github.event.inputs.service }}" != "all" ] && [ "${{ github.event.inputs.service }}" != "${{ matrix.service }}" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.service }}" ] && [ "${{ github.event.inputs.service }}" != "all" ] && [ "${{ github.event.inputs.service }}" != "${{ matrix.service }}" ]; then
             should_build="false"
           else
             should_build="true"
@@ -242,8 +256,6 @@ jobs:
       ${{ (github.ref == 'refs/heads/staging' ||
       github.event_name == 'workflow_dispatch') &&
       (github.event_name != 'workflow_dispatch' ||
-      github.event.inputs.deployment_target == 'ecs-staging') &&
-      (github.event_name != 'workflow_dispatch' ||
       github.event.inputs.service == '' ||
       github.event.inputs.service == 'all' ||
       github.event.inputs.service == 'api') }}
@@ -299,38 +311,25 @@ jobs:
             "$image_uri" \
             -m alembic upgrade heads
 
-  migrate-eks-staging:
-    name: Run EKS rollback database migration
+  migrate-ecs-production:
+    name: Run production Aurora database migration
     runs-on: ubuntu-latest
     needs: build-and-publish
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.deployment_target == 'eks-staging-rollback' &&
-      (github.event.inputs.service == '' ||
-      github.event.inputs.service == 'all' ||
-      github.event.inputs.service == 'api') }}
+    if: ${{ github.event_name == 'release' && github.event.action == 'published' }}
     permissions:
       contents: read
 
     steps:
-      - name: Decide migration context
-        id: context
+      - name: Validate production migration configuration
         shell: bash
         run: |
           set -euo pipefail
-          short_sha="${GITHUB_SHA::8}"
-          echo "namespace=knowhere-staging" >> "$GITHUB_OUTPUT"
-          echo "image_uri=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}/knowhere-backend:staging-${short_sha}" >> "$GITHUB_OUTPUT"
-
-      - name: Validate deployment configuration
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] || \
-             [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ] || \
-             [ -z "${{ env.AWS_EKS_PROD_CLUSTER_NAME }}" ] || \
-             [ -z "${{ env.AWS_EKS_PROD_REGION }}" ]; then
-            echo "::error::EKS rollback migration requires AWS deployment credentials and cluster configuration."
+          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] || [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
+            echo "::error::Production migration requires AWS ECR credentials."
+            exit 1
+          fi
+          if [ -z "${{ secrets.PRODUCTION_MIGRATION_DATABASE_URL }}" ]; then
+            echo "::error::PRODUCTION_MIGRATION_DATABASE_URL is not configured."
             exit 1
           fi
 
@@ -339,61 +338,38 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_EKS_PROD_REGION }}
+          aws-region: ${{ env.AWS_ECS_PROD_REGION }}
 
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v3
-
-      - name: Update kubeconfig
+      - name: Login to ECR
         shell: bash
-        run: |
-          aws eks update-kubeconfig \
-            --name "${AWS_EKS_PROD_CLUSTER_NAME}" \
-            --region "${AWS_EKS_PROD_REGION}"
-
-      - name: Run migration job
-        shell: bash
-        env:
-          IMAGE_URI: ${{ steps.context.outputs.image_uri }}
-          NAMESPACE: ${{ steps.context.outputs.namespace }}
         run: |
           set -euo pipefail
+          aws ecr get-login-password --region "${AWS_ECS_PROD_REGION}" \
+            | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
 
-          job_name="knowhere-api-migrate-${GITHUB_RUN_ID}"
-          migration_manifest="$(kubectl get deployment/knowhere-api --namespace "$NAMESPACE" -o json \
-            | jq --arg job_name "$job_name" --arg image_uri "$IMAGE_URI" '
-                if ((.spec.template.spec.containers // []) | length) == 0 then
-                  error("knowhere-api deployment has no containers")
-                else
-                {
-                  apiVersion: "batch/v1",
-                  kind: "Job",
-                  metadata: {name: $job_name, namespace: .metadata.namespace},
-                  spec: {
-                    backoffLimit: 0,
-                    ttlSecondsAfterFinished: 300,
-                    template: {
-                      metadata: {labels: {"app": "knowhere-api-migrate"}},
-                      spec: (
-                        .spec.template.spec
-                        | .restartPolicy = "Never"
-                        | .containers[0].image = $image_uri
-                        | .containers[0].command = ["python", "-m", "alembic", "upgrade", "heads"]
-                        | del(.containers[0].args)
-                      )
-                    }
-                  }
-                }
-                end
-              ')"
-
-          printf '%s\n' "$migration_manifest" | kubectl apply -f -
-          if ! kubectl wait --for=condition=complete "job/$job_name" --namespace "$NAMESPACE" --timeout=900s; then
-            kubectl describe job "$job_name" --namespace "$NAMESPACE" || true
-            kubectl logs "job/$job_name" --namespace "$NAMESPACE" --all-containers=true || true
-            exit 1
-          fi
-          kubectl delete job "$job_name" --namespace "$NAMESPACE" --ignore-not-found
+      - name: Run migration against production Aurora
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_MIGRATION_DATABASE_URL }}
+          # The image build metadata uses the short release label `prod`, but
+          # AppConfig validates the runtime environment as `production`.
+          ENVIRONMENT: production
+          S3_BUCKET_NAME: knowhere-storage-prod
+          S3_TEMP_PATH: /tmp
+          TMP_PATH: /tmp/aismart_bid
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_uri="${ECR_REGISTRY}/${ECR_REPOSITORY}/knowhere-backend:${{ github.event.release.tag_name }}-prod"
+          docker run --rm \
+            --env DATABASE_URL \
+            --env S3_BUCKET_NAME \
+            --env TMP_PATH \
+            --env S3_TEMP_PATH \
+            --env DB_SSL_MODE=disable \
+            --env ENVIRONMENT \
+            --entrypoint python \
+            "${image_uri}" \
+            -m alembic upgrade heads
 
   deploy-ecs-staging:
     name: Deploy staging services to ECS
@@ -403,8 +379,7 @@ jobs:
       ${{ always() && needs.build-and-publish.result == 'success' &&
       (needs['migrate-ecs-staging'].result == 'success' || needs['migrate-ecs-staging'].result == 'skipped') &&
       ((github.ref == 'refs/heads/staging' && github.event_name == 'push') ||
-      (github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.deployment_target == 'ecs-staging')) }}
+      github.event_name == 'workflow_dispatch') }}
     permissions:
       contents: read
 
@@ -556,11 +531,29 @@ jobs:
           EXECUTION_ROLE_ARN: ${{ env.AWS_ECS_STAGING_EXECUTION_ROLE_ARN }}
           API_TASK_ROLE_ARN: ${{ env.AWS_ECS_STAGING_API_TASK_ROLE_ARN }}
           WORKER_TASK_ROLE_ARN: ${{ env.AWS_ECS_STAGING_WORKER_TASK_ROLE_ARN }}
-          STAGING_SECRETS_ARN: ${{ env.AWS_ECS_STAGING_SECRETS_ARN }}
+          SECRETS_ARN: ${{ env.AWS_ECS_STAGING_SECRETS_ARN }}
+          DEPLOYMENT_ENVIRONMENT: staging
+          RUNTIME_ENVIRONMENT: staging
+          APP_ENV: staging
+          DB_SSL_MODE: require
+          API_DB_POOL_SIZE: "5"
+          API_DB_MAX_OVERFLOW: "5"
+          WORKER_DB_SYNC_POOL_SIZE: "2"
+          WORKER_DB_SYNC_MAX_OVERFLOW: "2"
+          S3_BUCKET_NAME: knowhere-storage-staging
+          INTERNAL_DASHBOARD_ENDPOINT: https://staging.knowhereto.ai
+          FRONTEND_URL: https://staging.knowhereto.ai
+          API_WEBHOOK_ENDPOINT: https://api-staging.knowhereto.ai/v1/internal/s3-events
+          SNS_TOPIC_ARN: arn:aws:sns:us-east-1:107424103509:knowhere-staging-s3-events
+          QSTASH_CALLBACK_BASE_URL: https://api-staging.knowhereto.ai/api/v1
+          WORKER_CPU: "2048"
+          WORKER_MEMORY: "4096"
         shell: bash
         run: |
           set -euo pipefail
-          python3 deploy/ecs/render_task_definitions.py --output-dir "$RUNNER_TEMP/ecs-task-definitions"
+          python3 deploy/ecs/render_task_definitions.py \
+            --environment staging \
+            --output-dir "$RUNNER_TEMP/ecs-task-definitions"
 
       - name: Register ECS task definitions
         id: task-definitions
@@ -628,143 +621,230 @@ jobs:
           echo "API image: ${{ steps.images.outputs.api_image }}"
           echo "Worker image: ${{ steps.images.outputs.worker_image }}"
 
-  deploy-eks:
+  deploy-ecs-production:
+    name: Deploy production services to ECS
     runs-on: ubuntu-latest
-    needs: [build-and-publish, migrate-eks-staging]
+    needs: [build-and-publish, migrate-ecs-production]
     if: >-
-      ${{ always() && github.event_name != 'pull_request' &&
+      ${{ always() && github.event_name == 'release' &&
       needs.build-and-publish.result == 'success' &&
-      (needs['migrate-eks-staging'].result == 'success' || needs['migrate-eks-staging'].result == 'skipped') &&
-      (github.event_name == 'release' ||
-      (github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.deployment_target == 'eks-staging-rollback')) }}
+      needs['migrate-ecs-production'].result == 'success' }}
     permissions:
       contents: read
 
-    strategy:
-      matrix:
-        service: [api, worker]
-        include:
-          - service: api
-            ecr_repo_name: knowhere-backend
-          - service: worker
-            ecr_repo_name: knowhere-worker
-
     steps:
-      - name: Decide deployment context
-        id: context
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            environment="staging"
-          elif [ "${{ github.event_name }}" = "release" ]; then
-            environment="prod"
-          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            environment="prod"
-          elif [ "${{ github.ref }}" = "refs/heads/staging" ]; then
-            environment="staging"
-          else
-            environment="staging"
-            should_deploy="false"
-          fi
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.service }}" ] && [ "${{ github.event.inputs.service }}" != "all" ] && [ "${{ github.event.inputs.service }}" != "${{ matrix.service }}" ]; then
-            should_deploy="false"
-          elif [ -z "${should_deploy:-}" ]; then
-            should_deploy="true"
-          fi
-
-          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] || \
-             [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ] || \
-             [ -z "${{ env.AWS_EKS_PROD_CLUSTER_NAME }}" ] || \
-             [ -z "${{ env.AWS_EKS_PROD_REGION }}" ]; then
-            if [ "$environment" = "prod" ] && [ "$should_deploy" = "true" ]; then
-              echo "::error::Production deployment credentials are not configured."
-              exit 1
-            fi
-            should_deploy="false"
-          fi
-
-          if [ "$environment" = "prod" ]; then
-            namespace="knowhere-prod"
-          else
-            namespace="knowhere-staging"
-          fi
-
-          short_sha="${GITHUB_SHA::8}"
-          if [ "${{ github.event_name }}" = "release" ]; then
-            git_tag="${{ github.event.release.tag_name }}"
-            image_tag="${git_tag}-${environment}"
-          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            git_tag="${GITHUB_REF#refs/tags/}"
-            image_tag="${git_tag}-${environment}"
-          else
-            image_tag="${environment}-${short_sha}"
-          fi
-
-          echo "environment=$environment" >> "$GITHUB_OUTPUT"
-          echo "namespace=$namespace" >> "$GITHUB_OUTPUT"
-          echo "should_deploy=$should_deploy" >> "$GITHUB_OUTPUT"
-          echo "image_uri=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}/${{ matrix.ecr_repo_name }}:${image_tag}" >> "$GITHUB_OUTPUT"
+      - name: Checkout released source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.release.tag_name }}
 
       - name: Configure AWS credentials
-        if: steps.context.outputs.should_deploy == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_EKS_PROD_REGION }}
+          aws-region: ${{ env.AWS_ECS_PROD_REGION }}
 
-      - name: Update kubeconfig
-        if: steps.context.outputs.should_deploy == 'true'
+      - name: Validate ECS production prerequisites
         shell: bash
         run: |
-          aws eks update-kubeconfig \
-            --name "${{ env.AWS_EKS_PROD_CLUSTER_NAME }}" \
-            --region "${{ env.AWS_EKS_PROD_REGION }}"
+          set -euo pipefail
 
-      - name: Roll out service on AWS EKS
-        if: steps.context.outputs.should_deploy == 'true'
-        shell: bash
-        run: |
-          deployment_name="knowhere-${{ matrix.service }}"
-          container_name="${{ matrix.service }}"
-          namespace="${{ steps.context.outputs.namespace }}"
-          image_uri="${{ steps.context.outputs.image_uri }}"
-
-          echo "Deploying ${deployment_name} to ${namespace} with ${image_uri}"
-
-          kubectl set image "deployment/${deployment_name}" \
-            "${container_name}=${image_uri}" \
-            --namespace "${namespace}"
-
-          if [ "${{ matrix.service }}" = "worker" ]; then
-            kubectl patch "deployment/${deployment_name}" \
-              --namespace "${namespace}" \
-              --type='strategic' \
-              -p='{"spec":{"template":{"spec":{"containers":[{"name":"worker","readinessProbe":{"exec":{"command":["python","-c","from shared.services.worker_health import assert_worker_healthy; assert_worker_healthy()"]}},"livenessProbe":{"exec":{"command":["python","-c","from shared.services.worker_health import assert_worker_healthy; assert_worker_healthy()"]}}}]}}}}'
+          required_values=(
+            AWS_ECS_PROD_EXECUTION_ROLE_ARN
+            AWS_ECS_PROD_API_TASK_ROLE_ARN
+            AWS_ECS_PROD_WORKER_TASK_ROLE_ARN
+            AWS_ECS_PROD_SECRETS_ARN
+          )
+          missing=()
+          for variable_name in "${required_values[@]}"; do
+            if [ -z "${!variable_name}" ]; then
+              missing+=("${variable_name}")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing ECS production configuration: %s\n' "${missing[*]}" >&2
+            exit 1
           fi
 
-          kubectl rollout status "deployment/${deployment_name}" \
-            --namespace "${namespace}" \
-            --timeout=300s
+          cluster_status="$(aws ecs describe-clusters \
+            --cluster "${AWS_ECS_PROD_CLUSTER_NAME}" \
+            --query 'clusters[0].status' --output text)"
+          if [ "${cluster_status}" != "ACTIVE" ]; then
+            echo "::error::ECS cluster ${AWS_ECS_PROD_CLUSTER_NAME} is not ACTIVE (status: ${cluster_status})."
+            exit 1
+          fi
 
-      - name: Summarize deployment
-        if: steps.context.outputs.should_deploy == 'true'
+          for role_arn in \
+            "${AWS_ECS_PROD_EXECUTION_ROLE_ARN}" \
+            "${AWS_ECS_PROD_API_TASK_ROLE_ARN}" \
+            "${AWS_ECS_PROD_WORKER_TASK_ROLE_ARN}"; do
+            aws iam get-role --role-name "${role_arn##*/}" --query 'Role.Arn' --output text >/dev/null
+          done
+
+          aws secretsmanager describe-secret \
+            --secret-id "${AWS_ECS_PROD_SECRETS_ARN}" \
+            --query 'ARN' --output text >/dev/null
+
+          for log_group in /ecs/knowhere-api-prod /ecs/knowhere-worker-prod; do
+            found="$(aws logs describe-log-groups \
+              --log-group-name-prefix "${log_group}" \
+              --query 'logGroups[0].logGroupName' --output text)"
+            if [ "${found}" != "${log_group}" ]; then
+              echo "::error::Required CloudWatch log group ${log_group} does not exist."
+              exit 1
+            fi
+          done
+
+          for service in \
+            "${AWS_ECS_PROD_API_SERVICE_NAME}" \
+            "${AWS_ECS_PROD_WORKER_SERVICE_NAME}"; do
+            service_json="$(aws ecs describe-services \
+              --cluster "${AWS_ECS_PROD_CLUSTER_NAME}" \
+              --services "${service}" --output json)"
+            status="$(jq -r '.services[0].status // "MISSING"' <<<"${service_json}")"
+            if [ "${status}" != "ACTIVE" ]; then
+              echo "::error::Required ECS service ${service} is not ACTIVE (status: ${status})."
+              exit 1
+            fi
+            network_count="$(jq '[.services[0].networkConfiguration.awsvpcConfiguration.subnets // [] | length] | add' <<<"${service_json}")"
+            security_group_count="$(jq '[.services[0].networkConfiguration.awsvpcConfiguration.securityGroups // [] | length] | add' <<<"${service_json}")"
+            if [ "${network_count}" -lt 1 ] || [ "${security_group_count}" -lt 1 ]; then
+              echo "::error::ECS service ${service} has no usable awsvpc subnet/security-group configuration."
+              exit 1
+            fi
+          done
+
+          api_load_balancer_count="$(aws ecs describe-services \
+            --cluster "${AWS_ECS_PROD_CLUSTER_NAME}" \
+            --services "${AWS_ECS_PROD_API_SERVICE_NAME}" \
+            --query 'length(services[0].loadBalancers)' --output text)"
+          if [ "${api_load_balancer_count}" -lt 1 ]; then
+            echo "::error::Production API ECS service has no load balancer target configured."
+            exit 1
+          fi
+
+      - name: Resolve immutable ECR image digests
+        id: images
         shell: bash
         run: |
-          echo "Service: ${{ matrix.service }}"
-          echo "Environment: ${{ steps.context.outputs.environment }}"
-          echo "Namespace: ${{ steps.context.outputs.namespace }}"
-          echo "Image: ${{ steps.context.outputs.image_uri }}"
+          set -euo pipefail
+          image_tag="${{ github.event.release.tag_name }}-prod"
+
+          resolve_image() {
+            local repository="$1"
+            local output_name="$2"
+            local digest
+            digest="$(aws ecr describe-images \
+              --repository-name "${ECR_REPOSITORY}/${repository}" \
+              --image-ids "imageTag=${image_tag}" \
+              --query 'imageDetails[0].imageDigest' --output text)"
+            if [ -z "${digest}" ] || [ "${digest}" = "None" ]; then
+              echo "::error::No ECR image found for ${repository}:${image_tag}."
+              exit 1
+            fi
+            echo "${output_name}=${ECR_REGISTRY}/${ECR_REPOSITORY}/${repository}@${digest}" >> "${GITHUB_OUTPUT}"
+          }
+
+          resolve_image knowhere-backend api_image
+          resolve_image knowhere-worker worker_image
+
+      - name: Render ECS task definitions
+        env:
+          API_IMAGE: ${{ steps.images.outputs.api_image }}
+          WORKER_IMAGE: ${{ steps.images.outputs.worker_image }}
+          EXECUTION_ROLE_ARN: ${{ env.AWS_ECS_PROD_EXECUTION_ROLE_ARN }}
+          API_TASK_ROLE_ARN: ${{ env.AWS_ECS_PROD_API_TASK_ROLE_ARN }}
+          WORKER_TASK_ROLE_ARN: ${{ env.AWS_ECS_PROD_WORKER_TASK_ROLE_ARN }}
+          SECRETS_ARN: ${{ env.AWS_ECS_PROD_SECRETS_ARN }}
+          DEPLOYMENT_ENVIRONMENT: prod
+          RUNTIME_ENVIRONMENT: production
+          APP_ENV: production
+          DB_SSL_MODE: disable
+          API_DB_POOL_SIZE: "50"
+          API_DB_MAX_OVERFLOW: "50"
+          WORKER_DB_SYNC_POOL_SIZE: "5"
+          WORKER_DB_SYNC_MAX_OVERFLOW: "5"
+          S3_BUCKET_NAME: knowhere-storage-prod
+          INTERNAL_DASHBOARD_ENDPOINT: https://knowhereto.ai
+          FRONTEND_URL: https://knowhereto.ai
+          API_WEBHOOK_ENDPOINT: https://api.knowhereto.ai/v1/internal/s3-events
+          SNS_TOPIC_ARN: arn:aws:sns:us-east-1:107424103509:knowhere-prod-s3-events
+          QSTASH_CALLBACK_BASE_URL: https://api.knowhereto.ai/api/v1
+          WORKER_CPU: "2048"
+          WORKER_MEMORY: "4096"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 deploy/ecs/render_task_definitions.py \
+            --environment production \
+            --output-dir "${RUNNER_TEMP}/ecs-task-definitions"
+
+      - name: Register ECS task definitions
+        id: task-definitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          api_task_definition_arn="$(aws ecs register-task-definition \
+            --cli-input-json "file://${RUNNER_TEMP}/ecs-task-definitions/knowhere-api-prod.json" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)"
+          worker_task_definition_arn="$(aws ecs register-task-definition \
+            --cli-input-json "file://${RUNNER_TEMP}/ecs-task-definitions/knowhere-worker-prod.json" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)"
+          echo "api_task_definition_arn=${api_task_definition_arn}" >> "${GITHUB_OUTPUT}"
+          echo "worker_task_definition_arn=${worker_task_definition_arn}" >> "${GITHUB_OUTPUT}"
+
+      - name: Update API ECS service on on-demand Fargate
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --cluster "${AWS_ECS_PROD_CLUSTER_NAME}" \
+            --service "${AWS_ECS_PROD_API_SERVICE_NAME}" \
+            --task-definition "${{ steps.task-definitions.outputs.api_task_definition_arn }}" \
+            --capacity-provider-strategy capacityProvider=FARGATE,weight=1
+
+      - name: Update worker ECS service on Fargate Spot
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --cluster "${AWS_ECS_PROD_CLUSTER_NAME}" \
+            --service "${AWS_ECS_PROD_WORKER_SERVICE_NAME}" \
+            --task-definition "${{ steps.task-definitions.outputs.worker_task_definition_arn }}" \
+            --capacity-provider-strategy capacityProvider=FARGATE_SPOT,weight=1
+
+      - name: Wait for API ECS service to stabilize
+        shell: bash
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${AWS_ECS_PROD_CLUSTER_NAME}" \
+            --services "${AWS_ECS_PROD_API_SERVICE_NAME}"
+
+      - name: Wait for worker ECS service to stabilize
+        shell: bash
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${AWS_ECS_PROD_CLUSTER_NAME}" \
+            --services "${AWS_ECS_PROD_WORKER_SERVICE_NAME}"
+
+      - name: Summarize ECS production deployment
+        shell: bash
+        run: |
+          echo "Environment: production"
+          echo "Cluster: ${AWS_ECS_PROD_CLUSTER_NAME}"
+          echo "API image: ${{ steps.images.outputs.api_image }}"
+          echo "Worker image: ${{ steps.images.outputs.worker_image }}"
 
   release:
     name: Attach deployment release assets
     runs-on: ubuntu-latest
-    needs: deploy-eks
+    needs: deploy-ecs-production
     if: >-
       ${{ github.event_name == 'release' &&
-      github.event.action == 'published' }}
+      github.event.action == 'published' &&
+      needs.deploy-ecs-production.result == 'success' }}
     permissions:
       contents: write
     steps:

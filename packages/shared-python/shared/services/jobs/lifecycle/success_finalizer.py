@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from loguru import logger
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from shared.services.jobs.lifecycle.post_commit_effects import PostCommitEffectP
 from shared.services.jobs.lifecycle.publication import SyncJobPublicationFinalizer
 from shared.services.jobs.lifecycle.result_writer import SyncJobResultWriter
 from shared.services.jobs.lifecycle.webhook_outbox import SyncJobWebhookOutbox
+from shared.utils.json_utils import remove_nul_characters
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,17 @@ class SyncJobSuccessFinalizer:
         section_summaries: dict[str, str] | None,
         document_top_summary: str | None = None,
     ) -> JobSuccessFinalization:
+        safe_chunks = cast(
+            list[dict[str, Any]], remove_nul_characters(chunks)
+        )
+        safe_section_summaries = cast(
+            dict[str, str] | None,
+            remove_nul_characters(section_summaries),
+        )
+        safe_document_top_summary = cast(
+            str | None,
+            remove_nul_characters(document_top_summary),
+        )
         job_result = self._result_writer.upsert_job_result(
             db,
             job_id,
@@ -89,14 +101,14 @@ class SyncJobSuccessFinalizer:
             result_s3_key=result_s3_key,
             result_size=zip_size,
         )
-        self._result_writer.replace_chunks(db, job_result.id, chunks)
+        self._result_writer.replace_chunks(db, job_result.id, safe_chunks)
         publication_outcome = self._publication_finalizer.publish_result(
             db,
             job_id=job_id,
             job_result_id=job_result.id,
-            chunks=chunks,
-            section_summaries=section_summaries,
-            document_top_summary=document_top_summary,
+            chunks=safe_chunks,
+            section_summaries=safe_section_summaries,
+            document_top_summary=safe_document_top_summary,
         )
 
         transition_outcome = self._state_machine.mark_completed_outcome(

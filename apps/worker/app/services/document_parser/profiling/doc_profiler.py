@@ -153,7 +153,6 @@ def _profile_pdf_with_db(
         page_count=coordinator.blackboard.page_count,
         language=agent_profile.language,
         reasoning=agent_profile.rationale,
-        category_rationale=agent_profile.category_rationale,
         metrics={
             "doc_stats": coordinator.blackboard.doc_stats,
             "doc_shape": coordinator.blackboard.global_signals.get("doc_shape", {}),
