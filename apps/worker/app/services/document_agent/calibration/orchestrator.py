@@ -28,7 +28,6 @@ def anchor_hierarchy(
 ) -> tuple[list[TitleNode], SkeletonAnchor]:
     """Run calibration Phase-1 and the production Phase-2 completion."""
     phase1 = service.calibrate_offset(
-        nodes=nodes,
         toc_hierarchies=toc_hierarchies,
         ctx=ctx,
         page_texts=page_texts,

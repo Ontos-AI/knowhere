@@ -442,7 +442,6 @@ def _anchor_one_pending_toc(
         body_pages=body_pages,
     )
     phase1 = calibrate_offset(
-        nodes=nodes,
         toc_hierarchies=[pending_toc],
         ctx=ctx,
         page_texts=page_texts,

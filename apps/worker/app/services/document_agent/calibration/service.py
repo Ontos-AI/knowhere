@@ -16,12 +16,10 @@ from app.services.document_agent.calibration.types import (
     CalibrationResult,
 )
 from app.services.document_agent.manifest import ToolContext
-from app.services.document_agent.structure.hierarchy_locator import TitleNode
 
 
 def calibrate_offset(
     *,
-    nodes: list[TitleNode],
     toc_hierarchies: list[dict[str, Any]] | None,
     ctx: ToolContext | None,
     page_texts: dict[int, str],
@@ -33,9 +31,6 @@ def calibrate_offset(
     was confirmed. Phase-2 (per-regime bulk / bisect / null-page merge) is owned
     by ``finalize_calibration_result`` / ``anchor_hierarchy``.
     """
-    # Call-site compatibility with orchestrators that also feed Phase-2 ``nodes``.
-    # Phase-1 itself only reads ``toc_hierarchies``.
-    _ = nodes
     if ctx is None:
         return CalibrationResult(status="failed", notes="ctx missing")
     hierarchies = list(toc_hierarchies or [])

@@ -39,9 +39,6 @@ from app.services.document_agent.structure.anchoring_primitives import (
     serialize_skeleton_anchor,
 )
 from app.services.document_agent.structure import anchoring_primitives as _anchoring
-from app.services.document_agent.structure.section_page_verify import (
-    verify_section_page_choice,
-)
 
 # Re-export under prior names so existing imports keep working.
 normalize_kind = normalize_page_kind
@@ -55,20 +52,14 @@ def offset_guided_anchoring(
     page_count: int,
     calibration_overrides: dict[tuple[str, ...], TitleMatch],
 ) -> dict[tuple[str, ...], TitleMatch] | None:
-    """Forward phase-2 anchoring while preserving the historical patch seam."""
-    original = _anchoring.verify_section_page_choice
-    _anchoring.verify_section_page_choice = verify_section_page_choice
-    try:
-        return _anchoring.offset_guided_anchoring(
-            nodes=nodes,
-            offset=offset,
-            ctx=ctx,
-            page_count=page_count,
-            calibration_overrides=calibration_overrides,
-        )
-    finally:
-        _anchoring.verify_section_page_choice = original
-
+    """Forward to production Phase-2 anchoring."""
+    return _anchoring.offset_guided_anchoring(
+        nodes=nodes,
+        offset=offset,
+        ctx=ctx,
+        page_count=page_count,
+        calibration_overrides=calibration_overrides,
+    )
 
 def pick_primary_offset(result: CalibrationResult) -> int | None:
     """Prefer decimal-regime candidate offset; else first regime with an offset."""

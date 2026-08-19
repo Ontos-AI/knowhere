@@ -432,7 +432,6 @@ def probe_page_features(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
         ]
         ctx.blackboard.page_features = sorted(features, key=lambda f: f.page)
         ctx.blackboard.page_count = int(result.get("page_count") or len(features))
-        ctx.blackboard.global_signals["total_pages"] = ctx.blackboard.page_count
         ctx.blackboard.global_signals["assets_probed"] = False
         logger.info("[document_agent] probed text on {} pages", ctx.blackboard.page_count)
         return ToolResult(

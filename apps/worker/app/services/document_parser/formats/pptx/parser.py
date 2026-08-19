@@ -1,16 +1,13 @@
 # pyright: reportArgumentType=false, reportCallIssue=false
 import io
 import os
-import re
 import time
 
 import jwt
 import requests
-from app.services.document_parser.support.path_helpers import find_images
 from app.services.document_parser.conversion.legacy_converter import (
     _convert_with_libreoffice,
 )
-from app.services.document_parser.formats.markdown.parser import parse_md
 from app.services.document_parser.support.parser_log_utils import truncate_log_value
 from app.services.document_parser.formats.pdf.rendered_transform import (
     build_rendered_pdf_s3_key,
@@ -18,8 +15,6 @@ from app.services.document_parser.formats.pdf.rendered_transform import (
     parse_rendered_pdf_bytes,
 )
 from loguru import logger
-from markitdown import MarkItDown
-from pptx2md import ConversionConfig, convert
 
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import (
@@ -322,7 +317,6 @@ def parse_pptx(
     PPTX parsing entrance, aligned with parse_pdfs / parse_docx pattern.
 
     strategy options:
-        - "to_md":      directly extract from PPTX XML (pptx2md + MarkItDown)
         - "to_pdf":     use LibreOffice to convert to PDF, then parse via MinerU
         - "to_pdf_api": use iLoveAPI to convert to PDF, then parse via MinerU (recommended)
     """
@@ -418,13 +412,7 @@ def parse_pptx(
             rendered_pdf_s3_key=rendered_pdf_s3_key,
         )
 
-    elif strategy == "to_md":
-        return _parse_pptx_to_md(
-            pptx_data, filename, output_dir, base_llm_paras, relative_root
-        )
-
-    else:
-        raise ValueError(f"Unknown pptx strategy: {strategy}")
+    raise ValueError(f"Unknown pptx strategy: {strategy}")
 
 
 def _parse_pptx_via_api(
@@ -502,54 +490,3 @@ def _parse_pptx_via_libreoffice(
         relative_root=relative_root,
         rendered_pdf_s3_key=rendered_pdf_s3_key,
     )
-
-
-def _parse_pptx_to_md(pptx_data, filename, output_dir, base_llm_paras, relative_root):
-    """Extract content from PPTX XML via pptx2md + MarkItDown → parse_md."""
-    # pptx2md and MarkItDown require file paths
-    local_pptx = os.path.join(output_dir, "_pptx_tmp.pptx")
-    with open(local_pptx, "wb") as f:
-        f.write(pptx_data)
-
-    try:
-        img_dir = os.path.join(output_dir, "images")
-        os.makedirs(img_dir, exist_ok=True)
-        temp_md_path = os.path.join(output_dir, "output.md")
-
-        convert(
-            ConversionConfig(
-                pptx_path=local_pptx, output_path=temp_md_path, image_dir=img_dir
-            )
-        )
-
-        md = MarkItDown(enable_plugins=False)
-        result = md.convert(local_pptx)
-
-        pattern = r"^!\[.*?\]\(.*?\.(?:png|jpe?g)\)$"
-        md_imgs = find_images(output_dir)
-        lines = result.text_content.splitlines()
-
-        ppt_md_lines = []
-        image_index = 0
-        for line in lines:
-            if image_index < len(md_imgs):
-                if re.match(pattern, line.strip(), re.IGNORECASE):
-                    line = f"![image{image_index + 1}]({md_imgs[image_index]})"
-                    image_index += 1
-            ppt_md_lines.append(line)
-
-        while image_index < len(md_imgs):
-            ppt_md_lines.append(f"![image{image_index + 1}]({md_imgs[image_index]})")
-            image_index += 1
-
-        parsed_df = parse_md(
-            output_dir,
-            source_type="pptx",
-            md_lines=ppt_md_lines,
-            base_llm_paras=base_llm_paras,
-            relative_root=relative_root,
-        )
-        return parsed_df
-    finally:
-        if os.path.exists(local_pptx):
-            os.remove(local_pptx)
