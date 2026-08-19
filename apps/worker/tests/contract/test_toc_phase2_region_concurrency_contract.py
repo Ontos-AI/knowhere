@@ -43,24 +43,30 @@ def _batch_result(
     toc_pages: list[int],
     non_toc_pages: list[int],
     entries: list[dict[str, Any]] | None = None,
+    page_results: list[BatchPageResult] | None = None,
 ) -> BatchTocResult:
-    page_results: list[BatchPageResult] = [
-        BatchPageResult(page=page, is_toc=True, entries=[]) for page in toc_pages
-    ]
-    page_results.extend(
-        BatchPageResult(page=page, is_toc=False, entries=[]) for page in non_toc_pages
-    )
-    if page_results and page_results[-1].is_toc:
-        page_results[-1] = BatchPageResult(
-            page=page_results[-1].page,
-            is_toc=False,
-            entries=[],
+    entry_list = list(entries or [])
+    if page_results is None:
+        # Callers pass ordered partitions (TOC prefix then non-TOC suffix).
+        page_results = []
+        for index, page in enumerate(toc_pages):
+            page_entries = entry_list if index == 0 else []
+            page_results.append(
+                BatchPageResult(page=page, is_toc=True, entries=page_entries)
+            )
+        page_results.extend(
+            BatchPageResult(page=page, is_toc=False, entries=[])
+            for page in non_toc_pages
         )
+    all_entries = list(entry_list)
+    if not all_entries:
+        for page_result in page_results:
+            all_entries.extend(list(page_result.entries or []))
     return BatchTocResult(
         page_results=page_results,
         toc_pages=list(toc_pages),
         non_toc_pages=list(non_toc_pages),
-        all_entries=list(entries or []),
+        all_entries=all_entries,
         meta={"ok": True},
     )
 
@@ -274,3 +280,193 @@ def test_phase2_serial_batch_render_with_concurrent_vlm(
     assert render_max == 1
     assert spawn_count == 3  # one batch spawn per anchor window
     assert vlm_max >= 2
+
+
+def test_contiguous_toc_prefix_stops_at_first_non_toc() -> None:
+    page_results = [
+        BatchPageResult(
+            page=40,
+            is_toc=True,
+            entries=[{"title": "3.1", "page_number": 1, "level": 1}],
+        ),
+        BatchPageResult(page=41, is_toc=False, entries=[]),
+        BatchPageResult(page=42, is_toc=False, entries=[]),
+        BatchPageResult(page=43, is_toc=False, entries=[]),
+        BatchPageResult(
+            page=44,
+            is_toc=True,
+            entries=[{"title": "4.1", "page_number": 1, "level": 1}],
+        ),
+    ]
+    kept_pages, kept_entries = toc_tool._contiguous_toc_prefix(page_results)  # noqa: SLF001
+    assert kept_pages == [40]
+    assert kept_entries == [{"title": "3.1", "page_number": 1, "level": 1}]
+
+
+def test_should_expand_requires_empty_non_toc_and_full_window_end() -> None:
+    expand = toc_tool._should_expand_toc_window  # noqa: SLF001
+    assert expand(
+        batch_start=40,
+        non_toc_pages=[],
+        kept_toc_pages=[40, 41, 42, 43, 44],
+    )
+    # Mid-window break: last TOC may still equal full-window end.
+    assert not expand(
+        batch_start=40,
+        non_toc_pages=[41, 42, 43],
+        kept_toc_pages=[40],
+    )
+    # Short end-of-doc window: all TOC but not a full step.
+    assert not expand(
+        batch_start=98,
+        non_toc_pages=[],
+        kept_toc_pages=[98, 99, 100],
+    )
+
+
+def test_extract_region_drops_post_break_toc_and_does_not_expand(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ch3-style: TOC then body then next-chapter TOC in one 5-page window."""
+    confirmed = _anchors(tmp_path, [40])
+    vlm_rounds: list[list[int]] = []
+
+    def _fake_batch(
+        *,
+        page_pngs: list[tuple[int, str]],
+        model: str,
+        previous_entries: list[dict[str, Any]] | None = None,
+    ) -> BatchTocResult:
+        pages = [page for page, _ in page_pngs]
+        vlm_rounds.append(pages)
+        assert pages == [40, 41, 42, 43, 44]
+        return _batch_result(
+            toc_pages=[40, 44],
+            non_toc_pages=[41, 42, 43],
+            page_results=[
+                BatchPageResult(
+                    page=40,
+                    is_toc=True,
+                    entries=[
+                        {"title": "3.1 INTRODUCTION", "page_number": 1, "level": 1}
+                    ],
+                ),
+                BatchPageResult(page=41, is_toc=False, entries=[]),
+                BatchPageResult(page=42, is_toc=False, entries=[]),
+                BatchPageResult(page=43, is_toc=False, entries=[]),
+                BatchPageResult(
+                    page=44,
+                    is_toc=True,
+                    entries=[
+                        {"title": "4.1 INTRODUCTION", "page_number": 1, "level": 1}
+                    ],
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(toc_tool, "run_in_child_process", _fake_batch_render)
+    monkeypatch.setattr(
+        "app.services.document_agent.tools.vlm_toc_extractor.vlm_extract_toc_batch",
+        _fake_batch,
+    )
+
+    regions = toc_tool._extract_regions_for_confirmed_anchors(  # noqa: SLF001
+        confirmed,
+        pdf_path="/tmp/doc.pdf",
+        page_count=100,
+        output_dir=str(tmp_path / "toc_pages"),
+        dpi=72,
+        model="fake-vlm",
+    )
+
+    assert len(vlm_rounds) == 1
+    assert regions[0].toc_pages == [40]
+    assert regions[0].entries == [
+        {"title": "3.1 INTRODUCTION", "page_number": 1, "level": 1}
+    ]
+    assert regions[0].hierarchies
+    assert regions[0].hierarchies[0]["toc_range"] == [40, 40]
+    assert regions[0].batch_trace[0]["kept_toc_pages"] == [40]
+    assert regions[0].batch_trace[0]["expanded"] is False
+
+
+def test_extract_region_expands_only_on_full_unbroken_toc_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    confirmed = _anchors(tmp_path, [10])
+    vlm_rounds: list[list[int]] = []
+
+    def _fake_batch(
+        *,
+        page_pngs: list[tuple[int, str]],
+        model: str,
+        previous_entries: list[dict[str, Any]] | None = None,
+    ) -> BatchTocResult:
+        pages = [page for page, _ in page_pngs]
+        vlm_rounds.append(pages)
+        if pages[0] == 10:
+            assert previous_entries in (None, [])
+            return _batch_result(
+                toc_pages=pages,
+                non_toc_pages=[],
+                page_results=[
+                    BatchPageResult(
+                        page=page,
+                        is_toc=True,
+                        entries=[
+                            {
+                                "title": f"Entry {page}",
+                                "page_number": page,
+                                "level": 1,
+                            }
+                        ],
+                    )
+                    for page in pages
+                ],
+            )
+        return _batch_result(
+            toc_pages=[pages[0]],
+            non_toc_pages=pages[1:],
+            page_results=[
+                BatchPageResult(
+                    page=pages[0],
+                    is_toc=True,
+                    entries=[
+                        {
+                            "title": f"Entry {pages[0]}",
+                            "page_number": pages[0],
+                            "level": 1,
+                        }
+                    ],
+                ),
+                *[
+                    BatchPageResult(page=page, is_toc=False, entries=[])
+                    for page in pages[1:]
+                ],
+            ],
+        )
+
+    monkeypatch.setattr(toc_tool, "run_in_child_process", _fake_batch_render)
+    monkeypatch.setattr(
+        "app.services.document_agent.tools.vlm_toc_extractor.vlm_extract_toc_batch",
+        _fake_batch,
+    )
+
+    regions = toc_tool._extract_regions_for_confirmed_anchors(  # noqa: SLF001
+        confirmed,
+        pdf_path="/tmp/doc.pdf",
+        page_count=100,
+        output_dir=str(tmp_path / "toc_pages"),
+        dpi=72,
+        model="fake-vlm",
+    )
+
+    assert vlm_rounds == [
+        [10, 11, 12, 13, 14],
+        [15, 16, 17, 18, 19],
+    ]
+    assert regions[0].toc_pages == [10, 11, 12, 13, 14, 15]
+    assert regions[0].batch_trace[0]["expanded"] is True
+    assert regions[0].batch_trace[1]["expanded"] is False

@@ -32,7 +32,6 @@ from app.services.document_agent.structure.hierarchy_locator import (
     resolve_hierarchy_page_ranges,
 )
 
-_FRONT_TOC_REGION_GAP_PAGES = 5
 _LOG_PREFIX = "[profile.toc_anchoring]"
 PENDING_TOC_CALIBRATION_CONCURRENCY = 10
 
@@ -299,7 +298,7 @@ def select_global_toc_hierarchies(
     hierarchies: list[dict[str, Any]],
     filename: str,
 ) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]], dict[str, Any]]:
-    """Split TOC hierarchies into primary (front cluster) and pending."""
+    """Split TOC hierarchies into primary (earliest) and pending (the rest)."""
     if len(hierarchies) <= 1:
         return (hierarchies or None), [], {}
 
@@ -316,31 +315,10 @@ def select_global_toc_hierarchies(
         enumerate(hierarchies),
         key=lambda item: toc_range_start(item[1]) or 0,
     )
-    selected_indices: set[int] = set()
-    pending_indices: list[int] = []
-    cluster_end: int | None = None
+    primary_index = sorted_items[0][0]
+    pending_indices = [index for index, _hierarchy in sorted_items[1:]]
 
-    for original_index, hierarchy in sorted_items:
-        start = toc_range_start(hierarchy)
-        end = toc_range_end(hierarchy)
-        if start is None or end is None:
-            selected_indices.add(original_index)
-            continue
-        if cluster_end is None:
-            selected_indices.add(original_index)
-            cluster_end = end
-            continue
-        if start <= cluster_end + _FRONT_TOC_REGION_GAP_PAGES:
-            selected_indices.add(original_index)
-            cluster_end = max(cluster_end, end)
-            continue
-        pending_indices.append(original_index)
-
-    selected = [
-        hierarchy
-        for index, hierarchy in enumerate(hierarchies)
-        if index in selected_indices
-    ]
+    selected = [hierarchies[primary_index]]
     pending = [hierarchies[i] for i in pending_indices]
 
     if pending:
@@ -352,12 +330,12 @@ def select_global_toc_hierarchies(
             filename,
         )
     summary = {
-        "strategy": "front_cluster_with_pending",
+        "strategy": "first_primary_rest_pending",
         "input_count": len(hierarchies),
         "primary_count": len(selected),
         "pending_count": len(pending),
     }
-    return (selected or None), pending, summary
+    return selected, pending, summary
 
 
 def body_pages_excluding_toc(toc_pages: Any, page_count: int) -> list[int]:

@@ -20,6 +20,7 @@ from app.services.document_agent.manifest import (
 from app.services.document_agent.registry import register_tool
 from app.services.document_agent.tools.vlm_toc_extractor import (
     TOC_VLM_MAX_TOKENS,
+    BatchPageResult,
     vlm_entries_to_toc_hierarchies,
 )
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
@@ -353,6 +354,39 @@ def _render_toc_page_batch(
     return page_pngs
 
 
+def _contiguous_toc_prefix(
+    page_results: list[BatchPageResult],
+) -> tuple[list[int], list[dict[str, Any]]]:
+    """Keep TOC pages/entries from the batch start until the first non-TOC."""
+    kept_pages: list[int] = []
+    kept_entries: list[dict[str, Any]] = []
+    for page_result in page_results:
+        if not page_result.is_toc:
+            break
+        kept_pages.append(int(page_result.page))
+        kept_entries.extend(list(page_result.entries or []))
+    return kept_pages, kept_entries
+
+
+def _should_expand_toc_window(
+    *,
+    batch_start: int,
+    non_toc_pages: list[int],
+    kept_toc_pages: list[int],
+) -> bool:
+    """Expand only when this batch is a full unbroken TOC window.
+
+    Requires:
+    1. ``non_toc_pages`` empty (no mid-window body / other break)
+    2. last kept TOC page equals ``batch_start + BOUNDARY_STEP_PAGES - 1``
+       (full step window closed on TOC; not a short end-of-doc batch)
+    """
+    if non_toc_pages or not kept_toc_pages:
+        return False
+    full_window_end = batch_start + BOUNDARY_STEP_PAGES - 1
+    return kept_toc_pages[-1] == full_window_end
+
+
 def _extract_region_for_anchor(
     anchor: TocAnchorPage,
     *,
@@ -367,6 +401,10 @@ def _extract_region_for_anchor(
 
     Rounds within a start stay serial (continuation context). Different
     starts run concurrently for VLM, but page renders share ``render_lock``.
+
+    Each VLM batch is truncated to the contiguous TOC prefix before the first
+    non-TOC page. Expand only when that prefix fills a full
+    ``BOUNDARY_STEP_PAGES`` window with ``non_toc_pages == []``.
     """
     from app.services.document_agent.tools.vlm_toc_extractor import (
         vlm_extract_toc_batch,
@@ -420,9 +458,20 @@ def _extract_region_for_anchor(
                 previous_entries=region_entries if region_entries else None,
             )
             batch_meta.append(batch_result.meta)
-            region_entries.extend(batch_result.all_entries)
-            region_toc_pages.extend(batch_result.toc_pages)
-            region_scan_end = batch_end
+
+            kept_toc_pages, kept_entries = _contiguous_toc_prefix(
+                batch_result.page_results
+            )
+            region_entries.extend(kept_entries)
+            region_toc_pages.extend(kept_toc_pages)
+            if kept_toc_pages:
+                region_scan_end = kept_toc_pages[-1]
+
+            should_expand = _should_expand_toc_window(
+                batch_start=batch_start,
+                non_toc_pages=list(batch_result.non_toc_pages),
+                kept_toc_pages=kept_toc_pages,
+            )
             batch_trace.append(
                 {
                     "anchor": anchor_page,
@@ -430,24 +479,27 @@ def _extract_region_for_anchor(
                     "batch_pages": batch_pages,
                     "toc_pages": batch_result.toc_pages,
                     "non_toc_pages": batch_result.non_toc_pages,
-                    "entries_found": len(batch_result.all_entries),
+                    "kept_toc_pages": kept_toc_pages,
+                    "entries_found": len(kept_entries),
+                    "expanded": should_expand,
                 }
             )
 
-            last_page_is_toc = (
-                batch_result.page_results
-                and batch_result.page_results[-1].is_toc
-            )
-            if not last_page_is_toc:
+            if not should_expand:
                 logger.info(
-                    "[extract.toc] boundary found: last page {} is not TOC",
+                    "[extract.toc] boundary found: kept={} non_toc={} "
+                    "batch={}-{}",
+                    kept_toc_pages,
+                    batch_result.non_toc_pages,
+                    batch_start,
                     batch_end,
                 )
                 break
             if batch_end >= page_count:
                 break
             logger.info(
-                "[extract.toc] last page {} still TOC, expanding window",
+                "[extract.toc] full TOC window {}-{}, expanding",
+                batch_start,
                 batch_end,
             )
 
