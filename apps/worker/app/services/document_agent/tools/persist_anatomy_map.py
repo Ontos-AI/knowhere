@@ -42,10 +42,7 @@ def build_anatomy_map(ctx: ToolContext) -> PageAnatomyMap:
         skeleton_nodes=ctx.blackboard.skeleton_nodes,
         pending_skeleton_anchors=list(ctx.blackboard.pending_skeleton_anchors),
         global_signals=ctx.blackboard.global_signals,
-        trace_summary={
-            "budget": ctx.budget.snapshot(),
-            "validation": ctx.blackboard.validation_report,
-        },
+        trace_summary={"validation": ctx.blackboard.validation_report},
     )
 
 

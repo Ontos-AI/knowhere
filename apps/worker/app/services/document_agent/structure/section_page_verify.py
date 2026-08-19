@@ -61,7 +61,6 @@ def verify_section_page_choice(
             "folder_name": "calibration_verify",
             "prefix": "verify",
             "usage_task": "calibration.verify_section_page",
-            "visual_stage": "calibration",
         },
     )
     if result.status != "ok":

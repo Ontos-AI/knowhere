@@ -232,7 +232,6 @@ class ToolContext:
     pdf_path: str
     job_id: str
     blackboard: Any
-    budget: Any
     trace: Any
     output_dir: str | None = None
     settings: dict[str, Any] = field(default_factory=dict)

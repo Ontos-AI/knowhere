@@ -10,8 +10,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
-from shared.utils.token_estimate import estimate_tokens
-
 from app.services.document_agent.manifest import (
     TocAnchorPage,
     TocEvidence,
@@ -35,9 +33,6 @@ from loguru import logger
 BOUNDARY_STEP_PAGES = 5
 MAX_BOUNDARY_ROUNDS = 6
 MAX_TOC_PAGES = BOUNDARY_STEP_PAGES * MAX_BOUNDARY_ROUNDS  # 30
-
-_CONFIRM_STAGE = "toc_confirm"
-_CONFIRM_TOKENS_PER_PAGE = 800
 
 _CONFIRM_PROMPT = (
     "You are a document structure analysis expert. "
@@ -159,7 +154,6 @@ def _confirm_anchor_chunk(
     chunk: list[TocAnchorPage],
     *,
     model: str,
-    budget: Any | None,
 ) -> tuple[set[int], dict[int, TocEvidence], bool]:
     """Confirm one BOUNDARY_STEP_PAGES-sized anchor chunk.
 
@@ -189,18 +183,11 @@ def _confirm_anchor_chunk(
         )
 
     messages = cast(Any, [{"role": "user", "content": content_parts}])
-    est = estimate_tokens(_CONFIRM_PROMPT) + len(chunk) * _CONFIRM_TOKENS_PER_PAGE
-    if budget and not budget.try_reserve("visual", est, stage=_CONFIRM_STAGE):
-        logger.warning(
-            "[extract.toc] insufficient visual budget for confirm chunk pages={}",
-            [a.page for a in chunk],
-        )
-        return set(), {}, True
 
     try:
         client, resolved_model = get_vision_client(requested_model=model)
         resolved = resolved_model or model
-        raw, usage = client.chat_completion_with_usage(
+        raw, _usage = client.chat_completion_with_usage(
             messages=messages,
             model=resolved,
             temperature=0.1,
@@ -208,20 +195,11 @@ def _confirm_anchor_chunk(
             response_format={"type": "json_object"},
             usage_task="document_agent.toc_anchor_confirm",
         )
-        if budget:
-            budget.commit(
-                "visual",
-                actual=usage.get("total_tokens", est),
-                est=est,
-                stage=_CONFIRM_STAGE,
-            )
         confirmed_pages, evidence_by_page = _evidence_from_confirm_items(
             _parse_confirm_items(raw)
         )
         return confirmed_pages, evidence_by_page, False
     except Exception as exc:
-        if budget:
-            budget.refund("visual", est=est, stage=_CONFIRM_STAGE)
         logger.warning(
             "[extract.toc] VLM confirm chunk failed pages={}: {}",
             [a.page for a in chunk],
@@ -233,7 +211,6 @@ def _confirm_anchor_chunk(
 def _vlm_confirm_anchors(
     anchor_pages: list[TocAnchorPage],
     model: str,
-    budget: Any | None = None,
 ) -> tuple[list[TocAnchorPage], bool, list[TocEvidence]]:
     """Phase 1: confirm TOC starts in BOUNDARY_STEP_PAGES batches (concurrent)."""
     if not anchor_pages:
@@ -252,7 +229,7 @@ def _vlm_confirm_anchors(
 
     pool = GeventPool(size=min(BOUNDARY_STEP_PAGES, len(chunks)))
     jobs = [
-        pool.spawn(_confirm_anchor_chunk, chunk, model=model, budget=budget)
+        pool.spawn(_confirm_anchor_chunk, chunk, model=model)
         for chunk in chunks
     ]
     pool.join()
@@ -384,7 +361,6 @@ def _extract_region_for_anchor(
     dpi: int,
     model: str,
     render_lock: Any,
-    budget: Any | None = None,
 ) -> _TocRegionResult:
     """Expand + extract for one confirmed TOC start.
 
@@ -441,7 +417,6 @@ def _extract_region_for_anchor(
                 page_pngs=page_pngs,
                 model=model,
                 previous_entries=region_entries if region_entries else None,
-                budget=budget,
             )
             batch_meta.append(batch_result.meta)
             region_entries.extend(batch_result.all_entries)
@@ -515,7 +490,6 @@ def _extract_regions_for_confirmed_anchors(
     output_dir: str,
     dpi: int,
     model: str,
-    budget: Any | None = None,
 ) -> list[_TocRegionResult]:
     """Phase 2: concurrent VLM per start; serial PyMuPDF renders across starts."""
     if not confirmed:
@@ -543,7 +517,6 @@ def _extract_regions_for_confirmed_anchors(
             dpi=dpi,
             model=model,
             render_lock=render_lock,
-            budget=budget,
         )
         for anchor in confirmed
     ]
@@ -628,9 +601,7 @@ def extract_toc_with_boundaries(
     os.makedirs(output_dir, exist_ok=True)
 
     # -- Phase 1: VLM confirm anchors (batched + concurrent) -------------------
-    confirmed, confirm_failed, confirm_evidence = _vlm_confirm_anchors(
-        anchors, model, budget=ctx.budget
-    )
+    confirmed, confirm_failed, confirm_evidence = _vlm_confirm_anchors(anchors, model)
     if confirm_failed:
         warnings.append("vlm_anchor_confirmation_failed")
     debug_info["phase1_confirmed"] = [a.page for a in confirmed]
@@ -679,7 +650,6 @@ def extract_toc_with_boundaries(
         output_dir=output_dir,
         dpi=dpi,
         model=model,
-        budget=ctx.budget,
     )
 
     all_entries: list[dict[str, Any]] = []

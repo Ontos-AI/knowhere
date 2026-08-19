@@ -52,8 +52,7 @@ _DEFAULT_PAGE_CAP = 5
 def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     """Open one or more physical PDF pages, render them, and answer ``question``.
 
-    Hard limits are token/loop budgets (via ``BudgetTracker``), not a total page
-    counter. ``inspect_page_cap`` only caps pages **per call** (batch size).
+    ``inspect_page_cap`` only caps pages per call (batch size).
     """
     start = time.monotonic()
     raw_pages = args.get("pages") or []
@@ -117,18 +116,6 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             latency_ms=int((time.monotonic() - start) * 1000),
         )
 
-    # Token budget (optional stage, e.g. calibration). No total page-count ledger.
-    stage = args.get("visual_stage") or ctx.settings.get("inspect_visual_stage")
-    stage_name = str(stage).strip() if stage else None
-    est = 800 * len(rendered) + 800
-    if stage_name and ctx.budget is not None:
-        if not ctx.budget.try_reserve("visual", est, stage=stage_name):
-            return ToolResult(
-                status="error",
-                error=f"{stage_name} visual budget exhausted",
-                latency_ms=int((time.monotonic() - start) * 1000),
-            )
-
     raw_answer_keys = args.get("answer_keys")
     answer_keys = (
         {str(key): str(desc) for key, desc in raw_answer_keys.items()}
@@ -171,16 +158,7 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         )
         payload = json.loads(raw) if raw else {}
         tokens_used = int((usage or {}).get("total_tokens") or 0)
-        if stage_name and ctx.budget is not None:
-            ctx.budget.commit(
-                "visual",
-                actual=tokens_used or est,
-                est=est,
-                stage=stage_name,
-            )
     except Exception as exc:
-        if stage_name and ctx.budget is not None:
-            ctx.budget.refund("visual", est=est, stage=stage_name)
         logger.warning("[inspect.pages] VLM failed: {}", exc)
         return ToolResult(
             status="error",

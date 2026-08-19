@@ -12,7 +12,6 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from app.services.document_agent.budget import BudgetTracker
 from app.services.document_agent.manifest import (
     PageAnatomyMap,
     PageFeature,
@@ -46,7 +45,6 @@ def _ctx(*, page_count: int = 10) -> ToolContext:
         pdf_path="/tmp/doc.pdf",
         job_id="job-wire",
         blackboard=ProfileBlackboard(page_count=page_count),
-        budget=BudgetTracker(plan_budget=50_000, visual_budget=80_000),
         trace=None,
         settings={},
     )

@@ -165,7 +165,7 @@ def test_run_lightweight_anatomy_builds_single_shard_without_coarse_vlm(
     assert "text_lines_preview" not in anatomy_data["page_features"][0]
     assert "asset_bboxes" not in anatomy_data["page_features"][0]
     trace_data = json.loads((output_dir / "trace.json").read_text(encoding="utf-8"))
-    assert "visual_stages" in trace_data["summary"]["budget"]
+    assert "budget" not in trace_data["summary"]
 
 
 def test_run_coarse_runs_asset_probe_after_coarse_profile(monkeypatch, tmp_path: Path) -> None:

@@ -433,7 +433,6 @@ def _build_page_dataframe(
             tag_by_page=tag_map,
             filename=filename,
             verdict=verdict,
-            budget=None,
             vlm_model=vlm_model,
             page_assets_by_page=page_assets_by_page,
             node_summary_max_pages=page_memory_config.node_summary_max_pages,
@@ -612,7 +611,6 @@ def _run_hierarchy_scope(
                 pages=title_rendered,
                 tag_results=title_tags,
                 fat_leaf_pages=fat_leaf_pages,
-                budget=None,
                 vlm_model=vlm_model,
                 scan_direction=page_memory_config.scan_direction,
                 max_concurrent=page_memory_config.title_detection_concurrency,
@@ -708,7 +706,6 @@ def _run_hierarchy_scope(
         tags = tag_pages(
             pages=rendered,
             plans=plans,
-            budget=None,
             vlm_model=vlm_model,
             max_concurrent=page_memory_config.tag_concurrency,
         )
@@ -737,7 +734,6 @@ def _run_hierarchy_scope(
                 rendered_pages=asset_rendered,
                 output_dir=output_dir,
                 model_name=page_memory_config.asset_model,
-                budget=None,
                 max_pages=asset_max_pages,
                 confidence_threshold=page_memory_config.asset_confidence_threshold,
                 summary_enabled=page_memory_config.asset_summary_enabled,

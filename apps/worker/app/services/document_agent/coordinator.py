@@ -12,7 +12,6 @@ from app.services.document_agent.bootstrap import (
     probe_page_assets,
     probe_page_features,
 )
-from app.services.document_agent.budget import BudgetTracker, StageEnvelope
 from app.services.document_agent.manifest import (
     ProfileVerdict,
     DocumentProfile,
@@ -45,19 +44,6 @@ class ProfileCoordinator:
     ) -> None:
         self.state = ProfileState.INIT
         self.blackboard = ProfileBlackboard()
-        # PROFILE records token usage by stage but does not enforce caps.
-        self.budget = BudgetTracker(
-            plan_budget=0,
-            visual_budget=0,
-            visual_stage_envelopes={
-                "toc_confirm": StageEnvelope(),
-                "toc_extract": StageEnvelope(),
-                "coarse_profile": StageEnvelope(),
-                "calibration": StageEnvelope(),
-                "page_tagging": StageEnvelope(),
-            },
-            enforce_limits=False,
-        )
         effective_settings = settings or {}
         if model:
             effective_settings["model"] = model
@@ -65,7 +51,6 @@ class ProfileCoordinator:
             pdf_path=pdf_path,
             job_id=job_id,
             blackboard=self.blackboard,
-            budget=self.budget,
             trace=None,
             output_dir=output_dir,
             settings=effective_settings,
@@ -262,7 +247,7 @@ class ProfileCoordinator:
         self.trace.write_trace_artifact(
             self.ctx.output_dir,
             final_status="failed",
-            summary={"error": str(exc), "budget": self.ctx.budget.snapshot()},
+            summary={"error": str(exc)},
         )
         self.trace.flush(final_status="failed", summary={"error": str(exc)})
 

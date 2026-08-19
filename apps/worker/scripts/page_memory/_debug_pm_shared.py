@@ -220,7 +220,6 @@ def build_ctx(
 ):
     from app.services.document_agent.manifest import ToolContext
     from app.services.document_agent.state import ProfileBlackboard
-    from app.services.document_agent.budget import BudgetTracker
 
     blackboard = ProfileBlackboard()
     blackboard.page_count = page_count
@@ -229,12 +228,10 @@ def build_ctx(
     vmodel = vlm_model or os.environ.get("IMAGE_MODEL")
     reason_model = os.environ.get("PAGE_LOCATE_REASON_MODEL") or os.environ.get("NORMOL_MODEL")
 
-    budget = BudgetTracker(plan_budget=50000, visual_budget=200000)
     return ToolContext(
         pdf_path=pdf_path,
         job_id=job_id,
         blackboard=blackboard,
-        budget=budget,
         trace=None,
         output_dir=str(out_dir / "_doc_agent"),
         settings={

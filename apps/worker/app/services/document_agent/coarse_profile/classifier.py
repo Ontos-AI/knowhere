@@ -20,7 +20,6 @@ from app.services.document_agent.coarse_profile.prompts import COARSE_PROFILE_IN
 from app.services.document_agent.manifest import DocumentProfile, ToolContext, ToolResult
 from app.services.document_agent.visual import render_pages
 from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
-from shared.utils.token_estimate import estimate_tokens
 
 PAGE_KIND_DEFINITIONS = {
     "normal": (
@@ -32,7 +31,6 @@ PAGE_KIND_DEFINITIONS = {
 
 _COARSE_SAMPLE_CAP = 10
 _COARSE_SEGMENT_QUOTAS = (2, 2, 2)  # front, middle, back
-_BUDGET_STAGE = "coarse_profile"
 
 
 def _feature_rows(ctx: ToolContext, pages: list[int]) -> list[dict[str, Any]]:
@@ -241,11 +239,6 @@ class CoarseProfiler:
             payload,
             ensure_ascii=False,
         )
-        prompt_tokens_est = estimate_tokens(prompt_text) + len(pngs) * 800
-        if not self.ctx.budget.try_reserve(
-            "visual", prompt_tokens_est, stage=_BUDGET_STAGE
-        ):
-            raise RuntimeError("Insufficient visual budget for coarse profiling.")
 
         content_parts: list[dict[str, Any]] = [{"type": "text", "text": prompt_text}]
         for item in pngs:
@@ -266,41 +259,29 @@ class CoarseProfiler:
                     "[document_agent] coarse profile png attach failed: {}", exc
                 )
 
-        try:
-            from shared.services.ai.llm_overrides import get_vision_client
+        from shared.services.ai.llm_overrides import get_vision_client
 
-            client, model = get_vision_client(requested_model=model)
-            raw, usage = client.chat_completion_with_usage(
-                messages=cast(Any, [{"role": "user", "content": content_parts}]),
-                model=model,
-                temperature=0.0,
-                max_tokens=1800,
-                response_format={"type": "json_object"},
-                usage_task="document_agent.coarse_profile",
-            )
-            self.ctx.budget.commit(
-                "visual",
-                actual=usage.get("total_tokens", prompt_tokens_est),
-                est=prompt_tokens_est,
-                stage=_BUDGET_STAGE,
-            )
-            profile = _parse_profile(raw)
-            return profile, ToolResult(
-                status="ok",
-                payload={"source": "llm", "sampled_pages": pages},
-                latency_ms=int((time.monotonic() - start) * 1000),
-                tokens_used=usage.get("total_tokens", 0),
-                input_summary=payload,
-                output_summary={"profile": profile.to_dict()},
-                debug={
-                    "prompt_text": prompt_text,
-                    "sampled_pages": pages,
-                    "sampled_pngs": pngs,
-                    "raw_response": raw,
-                },
-            )
-        except Exception:
-            self.ctx.budget.refund(
-                "visual", est=prompt_tokens_est, stage=_BUDGET_STAGE
-            )
-            raise
+        client, model = get_vision_client(requested_model=model)
+        raw, usage = client.chat_completion_with_usage(
+            messages=cast(Any, [{"role": "user", "content": content_parts}]),
+            model=model,
+            temperature=0.0,
+            max_tokens=1800,
+            response_format={"type": "json_object"},
+            usage_task="document_agent.coarse_profile",
+        )
+        profile = _parse_profile(raw)
+        return profile, ToolResult(
+            status="ok",
+            payload={"source": "llm", "sampled_pages": pages},
+            latency_ms=int((time.monotonic() - start) * 1000),
+            tokens_used=usage.get("total_tokens", 0),
+            input_summary=payload,
+            output_summary={"profile": profile.to_dict()},
+            debug={
+                "prompt_text": prompt_text,
+                "sampled_pages": pages,
+                "sampled_pngs": pngs,
+                "raw_response": raw,
+            },
+        )

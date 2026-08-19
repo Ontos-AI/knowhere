@@ -25,7 +25,6 @@ from app.services.document_agent.calibration.types import (
     FAILURE_PAGE_COUNT_MISSING,
     FAILURE_TOC_EMPTY,
 )
-from app.services.document_agent.budget import BudgetTracker
 from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.state import ProfileBlackboard
 
@@ -37,7 +36,6 @@ def _ctx(page_count: int = 60) -> ToolContext:
         pdf_path="/tmp/doc.pdf",
         job_id="job-phase1",
         blackboard=blackboard,
-        budget=BudgetTracker(plan_budget=50_000, visual_budget=80_000),
         trace=None,
         settings={"vlm_model": "test-vlm"},
     )

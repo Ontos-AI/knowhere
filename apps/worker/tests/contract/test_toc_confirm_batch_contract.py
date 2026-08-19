@@ -8,7 +8,6 @@ from typing import Any
 
 import pytest
 
-from app.services.document_agent.budget import BudgetTracker, StageEnvelope
 from app.services.document_agent.manifest import TocAnchorPage
 from app.services.document_agent.tools import extract_toc_with_boundaries as toc_tool
 
@@ -79,17 +78,9 @@ def test_vlm_confirm_anchors_batches_and_merges_partial_failures(
         lambda requested_model=None: (_FakeClient(), requested_model or "fake-vlm"),
     )
 
-    budget = BudgetTracker(
-        plan_budget=50_000,
-        visual_budget=200_000,
-        visual_stage_envelopes={
-            "toc_confirm": StageEnvelope(min_guarantee=0, cap=None),
-        },
-    )
     confirmed, confirm_failed, evidence = toc_tool._vlm_confirm_anchors(  # noqa: SLF001
         anchors,
         model="fake-vlm",
-        budget=budget,
     )
 
     assert sorted(call_pages[0] + call_pages[1]) == [5, 11, 40, 44, 55, 78, 97]
@@ -120,7 +111,6 @@ def test_vlm_confirm_anchors_all_chunks_fail_sets_confirm_failed(
     confirmed, confirm_failed, _evidence = toc_tool._vlm_confirm_anchors(  # noqa: SLF001
         anchors,
         model="fake-vlm",
-        budget=None,
     )
     assert confirmed == []
     assert confirm_failed is True

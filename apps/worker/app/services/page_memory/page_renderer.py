@@ -110,7 +110,6 @@ def render_document_pages(
             pdf_path=pdf_path,
             job_id="page_renderer",
             blackboard=blackboard,
-            budget=None,
             trace=None,
             output_dir=output_dir,
             settings={"profile_png_dpi": str(dpi)},

@@ -97,7 +97,6 @@ def scan_title_forward(
                 "folder_name": "calibration_scan",
                 "prefix": "scan",
                 "usage_task": "calibration.scan_title_forward",
-                "visual_stage": "calibration",
             },
         )
         cursor = pages[-1] + 1

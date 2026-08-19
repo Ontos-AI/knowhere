@@ -276,7 +276,8 @@ def summarize(
         Page or asset image(s). Required for ``page``/``asset`` modes that render
         from an image; ignored for plain ``text``.
     budget:
-        Optional ``BudgetTracker``. Visual calls reserve from ``budget_stage``.
+        Optional external reservation ledger. Visual calls reserve from
+        ``budget_stage``.
     prompt_task / prompt_paras:
         Override the prompt used for the image-based page path. Lets a bounded
         node summary (``page-memory-node-summary`` with ``node_title`` /

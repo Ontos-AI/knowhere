@@ -755,6 +755,7 @@ def main() -> int:
             trace["stages"].setdefault("profile", {})["shard_count"] = len(
                 anatomy.shard_plan.shards
             )
+            trace["token_usage"] = get_current_token_tracker()
             _write_json(out_dir / "trace.json", trace)
             logger.info("⏸️  Stopped at profile → {}", out_dir)
             return 0
@@ -772,6 +773,7 @@ def main() -> int:
             logger.info("⏩ Reusing cached MinerU shard dirs")
 
         if args.stop_at == "mineru":
+            trace["token_usage"] = get_current_token_tracker()
             _write_json(out_dir / "trace.json", trace)
             logger.info("⏸️  Stopped at mineru → {}", out_dir)
             return 0
@@ -794,6 +796,7 @@ def main() -> int:
             }
 
         if args.stop_at == "hierarchy":
+            trace["token_usage"] = get_current_token_tracker()
             _write_json(out_dir / "trace.json", trace)
             logger.info("⏸️  Stopped at hierarchy → {}", out_dir)
             return 0

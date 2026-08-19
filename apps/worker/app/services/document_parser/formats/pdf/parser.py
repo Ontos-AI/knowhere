@@ -117,9 +117,14 @@ def _parse_pdf_via_shards(
         bin_pack_shards,
         split_pdf,
     )
+    from shared.services.ai.token_tracking import (
+        bind_token_tracker,
+        get_current_token_tracker_root_id,
+    )
 
     work_dir: str | None = None
     temp_shard_s3_keys: list[str] = []
+    token_tracker_root_id = get_current_token_tracker_root_id()
 
     try:
         # 1. Reuse the entry DOC_PROFILE anatomy map (shard plan + TOC info).
@@ -288,6 +293,13 @@ def _parse_pdf_via_shards(
                 heading_count=heading_count,
             )
 
+        def _predict_shard_headings_with_tracking(
+            shard_idx: int,
+            shard_out_dir: str,
+        ) -> ShardHeadingResult:
+            with bind_token_tracker(token_tracker_root_id):
+                return _predict_shard_headings(shard_idx, shard_out_dir)
+
         shard_heading_results: list[ShardHeadingResult | None] = [None] * len(
             shard_output_dirs
         )
@@ -297,7 +309,9 @@ def _parse_pdf_via_shards(
         ):
             with ThreadPoolExecutor(max_workers=concurrency) as executor:
                 futures = {
-                    executor.submit(_predict_shard_headings, i, shard_dir): i
+                    executor.submit(
+                        _predict_shard_headings_with_tracking, i, shard_dir
+                    ): i
                     for i, shard_dir in enumerate(shard_output_dirs)
                     if shard_dir is not None
                 }

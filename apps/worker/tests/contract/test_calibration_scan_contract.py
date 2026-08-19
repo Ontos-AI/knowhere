@@ -19,7 +19,6 @@ from app.services.document_agent.calibration.scan import (
     DEFAULT_WINDOW_SCHEDULE,
     scan_title_forward,
 )
-from app.services.document_agent.budget import BudgetTracker
 from app.services.document_agent.manifest import ToolContext, ToolResult
 from app.services.document_agent.state import ProfileBlackboard
 
@@ -31,7 +30,6 @@ def _ctx(page_count: int = 60) -> ToolContext:
         pdf_path="/tmp/doc.pdf",
         job_id="job-scan",
         blackboard=blackboard,
-        budget=BudgetTracker(plan_budget=50_000, visual_budget=80_000),
         trace=None,
         settings={"vlm_model": "test-vlm"},
     )

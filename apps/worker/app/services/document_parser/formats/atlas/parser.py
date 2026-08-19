@@ -26,6 +26,10 @@ from app.services.document_parser.formats.pdf.pymupdf_subprocess import run_in_c
 from loguru import logger
 
 from shared.core.config import settings
+from shared.services.ai.token_tracking import (
+    bind_token_tracker,
+    get_current_token_tracker_root_id,
+)
 from shared.utils.chunk_refs import build_chunk_ref
 from shared.utils.text_utils import tokenize2stw_remove
 
@@ -230,6 +234,7 @@ def parse_atlas(
         pd.DataFrame with ALL_DF_COLS columns
     """
     logger.info(f"📐 Atlas pipeline: starting per-page chunking for {pdf_path}")
+    token_tracker_root_id = get_current_token_tracker_root_id()
 
     os.makedirs(output_dir, exist_ok=True)
     img_dir = os.path.join(output_dir, "images")
@@ -303,8 +308,9 @@ def parse_atlas(
         )
 
         def _vlm_task(page_num, img_name):
-            info = _vlm_extract_page_info(output_dir, img_name)
-            return page_num, info
+            with bind_token_tracker(token_tracker_root_id):
+                info = _vlm_extract_page_info(output_dir, img_name)
+                return page_num, info
 
         with ThreadPoolExecutor(max_workers=VLM_CONCURRENCY) as executor:
             futures = {
