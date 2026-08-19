@@ -2,8 +2,9 @@
 
 Entries are partitioned by printed-label kind (the same classifier Phase-2
 uses). Each regime takes its first few entries as probes and scans forward from
-the printed page until one is confirmed; that single confirmation fixes the
-regime's candidate offset. Phase-2 owns tail verification and bulk anchoring.
+the page after this TOC region's ``toc_range`` end until one is confirmed; that
+single confirmation fixes the regime's candidate offset. Phase-2 owns tail
+verification and bulk anchoring.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from app.services.document_agent.calibration.types import (
     CalibrationSample,
 )
 from app.services.document_agent.manifest import ToolContext
+from app.services.document_agent.structure.anchoring_primitives import toc_range_end
 from app.services.document_agent.structure.hierarchy_locator import (
     classify_page_number_kind,
     parse_printed_page,
@@ -105,6 +107,24 @@ def run_calibration_phase1(
         )
     ctx.blackboard.page_count = resolved_page_count
 
+    region = hierarchies[region_index]
+    toc_end = toc_range_end(region) if isinstance(region, dict) else None
+    if toc_end is None:
+        return CalibrationResult(
+            status="failed",
+            notes="toc_range end unknown",
+            failure_kind=FAILURE_TOC_EMPTY,
+            region_index=region_index,
+        )
+    scan_start = toc_end + 1
+    if scan_start > resolved_page_count:
+        return CalibrationResult(
+            status="failed",
+            notes=f"scan start {scan_start} beyond page_count {resolved_page_count}",
+            failure_kind=FAILURE_NO_OFFSET,
+            region_index=region_index,
+        )
+
     probes = _regime_probes(
         _region_entries(hierarchies, region_index), limit=probes_per_regime
     )
@@ -116,7 +136,7 @@ def run_calibration_phase1(
             scan = scan_title_forward(
                 ctx=ctx,
                 title=probe.title,
-                start_page=probe.printed,
+                start_page=scan_start,
                 page_count=resolved_page_count,
             )
             scans.append(scan)

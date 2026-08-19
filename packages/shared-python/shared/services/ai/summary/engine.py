@@ -257,6 +257,10 @@ def summarize(
     max_keywords: int = 5,
     model: str | None = None,
     usage_task: str | None = None,
+    # TODO(parse-budget-cleanup): no live caller passes a non-None budget after
+    # PROFILE BudgetTracker removal. Drop budget/budget_pool/budget_stage once
+    # remaining formats stop needing this duck-typed hook, or redirect any
+    # future limit to token_tracking instead.
     budget: Any | None = None,
     budget_pool: str = "visual",
     budget_stage: str | None = None,

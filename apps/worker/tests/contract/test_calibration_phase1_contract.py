@@ -96,7 +96,8 @@ def test_offset_is_found_page_minus_printed(patch_scan) -> None:
 
     assert result.status == "ok"
     assert [(r.kind, r.offset) for r in result.regimes] == [("decimal", 5)]
-    assert fake.calls == [("Chapter 1", 10)]
+    # toc_range=[1, 3] → scan starts at page after TOC end.
+    assert fake.calls == [("Chapter 1", 4)]
 
 
 def test_first_hit_stops_the_regime(patch_scan) -> None:
@@ -110,7 +111,7 @@ def test_first_hit_stops_the_regime(patch_scan) -> None:
 
     run_calibration_phase1(ctx=_ctx(), toc_hierarchies=hierarchies, page_count=60)
 
-    assert fake.calls == [("Chapter 1", 10)]
+    assert fake.calls == [("Chapter 1", 4)]
 
 
 def test_second_probe_runs_when_the_first_misses(patch_scan) -> None:
@@ -127,7 +128,7 @@ def test_second_probe_runs_when_the_first_misses(patch_scan) -> None:
         ctx=_ctx(), toc_hierarchies=hierarchies, page_count=60
     )
 
-    assert fake.calls == [("Chapter 1", 10), ("Chapter 2", 20)]
+    assert fake.calls == [("Chapter 1", 4), ("Chapter 2", 4)]
     assert [r.offset for r in result.regimes] == [5]
 
 
@@ -168,7 +169,7 @@ def test_roman_and_decimal_regimes_calibrate_independently(patch_scan) -> None:
         ("roman", 2),
         ("decimal", 5),
     }
-    assert fake.calls == [("Preface", 2), ("Chapter 1", 10)]
+    assert fake.calls == [("Preface", 4), ("Chapter 1", 4)]
 
 
 def test_confirmed_anchor_is_reported_as_a_sample(patch_scan) -> None:
@@ -196,7 +197,7 @@ def test_entries_without_a_parseable_printed_page_are_skipped(patch_scan) -> Non
 
     run_calibration_phase1(ctx=_ctx(), toc_hierarchies=hierarchies, page_count=60)
 
-    assert fake.calls == [("Chapter 1", 10)]
+    assert fake.calls == [("Chapter 1", 4)]
 
 
 def test_empty_toc_fails_without_scanning(patch_scan) -> None:
