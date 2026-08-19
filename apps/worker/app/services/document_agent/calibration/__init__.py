@@ -3,18 +3,21 @@
 Keep this module import-light: ``structure.section_page_verify`` imports
 ``calibration.prompts``, and heavy eager imports here recreate a circular
 import through ``tools`` → ``anchoring_primitives``.
+
+Public names are resolved lazily via ``__getattr__`` (no ``__all__`` list of
+undefined symbols — that trips CodeQL / pyright).
 """
 
 from typing import Any
 
-__all__ = [
+_LAZY_EXPORTS = (
     "CalibrationResult",
     "build_calibration_payload",
     "calibrate_offset",
     "finalize_calibration_result",
     "run_calibration_phase1",
     "scan_title_forward",
-]
+)
 
 
 def __getattr__(name: str) -> Any:
@@ -55,3 +58,7 @@ def __getattr__(name: str) -> Any:
 
         return scan_title_forward
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *_LAZY_EXPORTS})
