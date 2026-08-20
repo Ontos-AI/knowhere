@@ -193,7 +193,7 @@ class DemoSourceProjection:
         chunks: tuple[dict[str, Any], ...],
     ) -> dict[str, Any]:
         chunk = _resolve_citation_chunk(source=source, citation=citation, chunks=chunks)
-        page_numbers = _page_numbers_from_chunk(chunk)
+        page_numbers = _citation_page_numbers(citation=citation, chunk=chunk)
         page_citation_page_number = page_numbers[0] if page_numbers else None
         page_citation_asset_url = _page_citation_asset_url(
             source=source,
@@ -300,6 +300,34 @@ def _resolve_citation_chunk(
         "Demo citation does not resolve to a canonical chunk: "
         f"demo_source_id={source.demo_source_id}, section_path={citation.section_path}"
     )
+
+
+def _citation_page_numbers(
+    *,
+    citation: _DemoCitationDefinition,
+    chunk: dict[str, Any],
+) -> list[int]:
+    chunk_page_numbers = _page_numbers_from_chunk(chunk)
+    requested_page_number = getattr(citation, "page_number", None)
+    if requested_page_number is None:
+        return chunk_page_numbers
+    if (
+        not isinstance(requested_page_number, int)
+        or isinstance(requested_page_number, bool)
+        or requested_page_number < 1
+    ):
+        raise ValueError(
+            "Demo citation page_number must be a positive integer: "
+            f"section_path={citation.section_path}, "
+            f"page_number={requested_page_number!r}"
+        )
+    if requested_page_number not in chunk_page_numbers:
+        raise ValueError(
+            "Demo citation page_number is not in the resolved chunk: "
+            f"section_path={citation.section_path}, "
+            f"page_number={requested_page_number}"
+        )
+    return [requested_page_number]
 
 
 def _page_numbers_from_chunk(chunk: dict[str, Any]) -> list[int]:

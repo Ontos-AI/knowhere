@@ -21,6 +21,7 @@ class DemoCitationDefinition:
     section_path: str
     description: str
     content: str
+    page_number: int | None = None
 
 
 @dataclass(frozen=True)
@@ -137,7 +138,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=7_441_414,
         asset_directory="spacex-s1",
-        chunk_count=633,
+        chunk_count=227,
         examples=(
             DemoExampleDefinition(
                 id="demo-spacex-s1-starlink-scale",
@@ -153,12 +154,13 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 ),
                 citations=(
                     DemoCitationDefinition(
-                        section_path="spacex-s1.pdf/p28",
+                        section_path="spacex-s1.pdf/Root",
                         description="Starlink network scale",
                         content=(
                             "approximately 9,600 Starlink broadband "
                             "and mobile satellites"
                         ),
+                        page_number=28,
                     ),
                 ),
             ),
@@ -173,11 +175,12 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 ),
                 citations=(
                     DemoCitationDefinition(
-                        section_path="spacex-s1.pdf/p32",
+                        section_path="spacex-s1.pdf/Root",
                         description="Falcon 9 booster reuse",
                         content=(
                             "refly a first-stage 34 times"
                         ),
+                        page_number=32,
                     ),
                 ),
             ),
@@ -191,12 +194,13 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 ),
                 citations=(
                     DemoCitationDefinition(
-                        section_path="spacex-s1.pdf/p2",
+                        section_path="spacex-s1.pdf/Root",
                         description="Class A common stock offering",
                         content=(
                             "This is the initial public offering of shares of "
                             "Class A common stock"
                         ),
+                        page_number=2,
                     ),
                 ),
             ),
@@ -298,7 +302,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=940_068,
         asset_directory="financial-goog-10-k-2025",
-        chunk_count=99,
+        chunk_count=1,
         examples=(),
         original_file_name=None,
     ),
@@ -331,7 +335,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
         mime_type="application/pdf",
         size_bytes=131_758,
         asset_directory="financial-meta-q1-2026-earnings-call",
-        chunk_count=20,
+        chunk_count=3,
         examples=(),
         original_file_name=None,
     ),
