@@ -2,154 +2,293 @@
   "version": "1.0",
   "file_name": "Attention Is All You Need.pdf",
   "stats": {
-    "total_chunks": 16,
-    "text_chunks": 16,
-    "image_chunks": 0,
-    "table_chunks": 0,
-    "page_chunks": 0,
-    "max_depth": 2
+    "total_chunks": 34,
+    "text_chunks": 0,
+    "image_chunks": 5,
+    "table_chunks": 2,
+    "page_chunks": 27,
+    "max_depth": 4
   },
   "sections": [
     {
-      "title": "Page 1",
-      "path": "Attention Is All You Need.pdf/Page 1",
-      "level": 1,
-      "summary": "Provided proper attribution is provided, Google hereby grants permission to reproduce the tables and figures in this paper solely for use in journalistic or scholarly works. Attention Is All You Need Ashish Vaswani∗ Google Brain avaswani@google.com Noam Shazeer∗ Google Brain noam@google.com Niki Parmar∗ Google Research nikip@google.com Jakob Uszkoreit∗ Google Research usz@google.com Llion Jones∗ Google Research llion@google.com Aidan N. Gomez∗ † University of Toronto aidan@cs.toronto.edu Łukasz Kaiser ∗ Google Brain lukaszkaiser@google.com Illia Polosukhin∗ ‡ illia.polosukhin@gmail.com Abstract The dominant sequence transduction models are based on complex recurrent or convolutional...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 2",
-      "path": "Attention Is All You Need.pdf/Page 2",
+      "title": "Root",
+      "path": "Attention Is All You Need.pdf/Root",
       "level": 1,
       "summary": "",
-      "chunk_count": 2,
+      "chunk_count": 31,
       "children": [
         {
-          "title": "Part 1",
-          "path": "Attention Is All You Need.pdf/Page 2/Part 1",
+          "title": "Attention Is All You Need",
+          "path": "Attention Is All You Need.pdf/Root/Attention Is All You Need",
           "level": 2,
-          "summary": "1 Introduction Recurrent neural networks, long short-term memory [13] and gated recurrent [7] neural networks in particular, have been firmly established as state of the art approaches in sequence modeling and transduction problems such as language modeling and machine translation [ 35, 2, 5]. Numerous efforts have since continued to push the boundaries of recurrent language models and encoder-decoder architectures [38, 24, 15]. Recurrent models typically factor computation along the symbol positions of the input and output sequences. Aligning the positions to steps in computation time, they generate a sequence of hidden states ht, as a function of the previous hidden state ht−1 and the...",
+          "summary": "The section titled 'Attention Is All You Need' lists the authors of the paper, their affiliations (primarily Google Brain and Google Research), and their contact information. It also includes a footnote detailing the equal contributions of the authors to the work.",
           "chunk_count": 1,
           "children": []
         },
         {
-          "title": "Part 2",
-          "path": "Attention Is All You Need.pdf/Page 2/Part 2",
+          "title": "Abstract",
+          "path": "Attention Is All You Need.pdf/Root/Abstract",
           "level": 2,
-          "summary": "generated symbols as additional input when generating the next. 2",
+          "summary": "The abstract introduces the Transformer, a new network architecture based solely on attention mechanisms that dispenses with recurrence and convolutions. It highlights that this model is superior in quality, more parallelizable, and requires significantly less training time compared to dominant sequence transduction models. The text details performance results on machine translation tasks (WMT 2014 English-to-German and English-to-French), noting state-of-the-art BLEU scores achieved with reduced training costs. Additionally, it mentions successful application of the Transformer to English constituency parsing.",
           "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "1 Introduction",
+          "path": "Attention Is All You Need.pdf/Root/1 Introduction",
+          "level": 2,
+          "summary": "The section introduces recurrent neural networks (RNNs) and their limitations regarding sequential computation and parallelization. It discusses attention mechanisms as a solution for modeling dependencies but notes they are often used with RNNs. The authors propose the Transformer, a model architecture that eschews recurrence entirely in favor of an attention mechanism to draw global dependencies between input and output, allowing for significant parallelization.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "2 Background",
+          "path": "Attention Is All You Need.pdf/Root/2 Background",
+          "level": 2,
+          "summary": "The section discusses the background of sequence modeling, focusing on reducing sequential computation. It reviews models like Extended Neural GPU, ByteNet, and ConvS2S that use convolutional neural networks. It also covers self-attention (intra-attention) mechanisms used in tasks like reading comprehension and summarization, as well as end-to-end memory networks. The text concludes by stating that the Transformer is the first transduction model relying entirely on self-attention without using sequence-aligned RNNs or convolution.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "3 Model Architecture",
+          "path": "Attention Is All You Need.pdf/Root/3 Model Architecture",
+          "level": 2,
+          "summary": "The section titled '3 Model Architecture' introduces the standard encoder-decoder structure used in competitive neural sequence transduction models. It describes how an encoder maps an input sequence of symbol representations to a sequence of continuous representations, and how a decoder subsequently generates an output sequence one element at a time in an auto-regressive manner.",
+          "chunk_count": 9,
+          "children": [
+            {
+              "title": "3.1 Encoder and Decoder Stacks",
+              "path": "Attention Is All You Need.pdf/Root/3 Model Architecture/3.1 Encoder and Decoder Stacks",
+              "level": 3,
+              "summary": "Section 3.1 describes the architecture of the Encoder and Decoder stacks in the Transformer model. The encoder consists of a stack of N=6 identical layers, each containing two sub-layers: a multi-head self-attention mechanism and a position-wise fully connected feed-forward network. Both are surrounded by residual connections followed by layer normalization. The decoder also uses a stack of N=6 identical layers but includes an additional third sub-layer that performs multi-head attention over the encoder's output. This sub-layer is masked to prevent attending to subsequent positions, ensuring predictions depend only on known outputs.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "3.2 Attention",
+              "path": "Attention Is All You Need.pdf/Root/3 Model Architecture/3.2 Attention",
+              "level": 3,
+              "summary": "Section 3.2 introduces the concept of an attention function, defining it as a mapping from a query and a set of key-value pairs to an output vector. It states that the query, keys, values, and output are all vectors, and the output is computed as a weighted sum.",
+              "chunk_count": 4,
+              "children": [
+                {
+                  "title": "3.2.1 Scaled Dot-Product Attention",
+                  "path": "Attention Is All You Need.pdf/Root/3 Model Architecture/3.2 Attention/3.2.1 Scaled Dot-Product Attention",
+                  "level": 4,
+                  "summary": "This section defines Scaled Dot-Product Attention, an attention mechanism where weights are computed by taking the dot product of queries and keys, scaling them by the square root of the key dimension ($\\sqrt{d_k}$), and applying a softmax function. It presents the matrix formulation for computing outputs from packed query, key, and value matrices. The text compares this method to additive attention, noting that while theoretically similar, dot-product attention is faster and more space-efficient due to optimized matrix multiplication code. It also explains that scaling is necessary to prevent dot products from growing too large in magnitude for high-dimensional vectors, which would push the softmax into regions with extremely small gradients.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "3.2.2 Multi-Head Attention",
+                  "path": "Attention Is All You Need.pdf/Root/3 Model Architecture/3.2 Attention/3.2.2 Multi-Head Attention",
+                  "level": 4,
+                  "summary": "Section 3.2.2 introduces Multi-Head Attention, a mechanism that improves upon single attention functions by linearly projecting queries, keys, and values into multiple lower-dimensional spaces (h times). These projections are then processed in parallel using the attention function, allowing the model to jointly attend to information from different representation subspaces.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "3.2.3 Applications of Attention in our Model",
+                  "path": "Attention Is All You Need.pdf/Root/3 Model Architecture/3.2 Attention/3.2.3 Applications of Attention in our Model",
+                  "level": 4,
+                  "summary": "Section 3.2.3 describes the three ways multi-head attention is applied in the Transformer model: encoder-decoder attention (where queries come from the decoder and keys/values from the encoder), self-attention in the encoder (all keys, values, and queries originate from the previous encoder layer), and masked self-attention in the decoder (which prevents leftward information flow to preserve auto-regressive properties by masking illegal connections).",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "title": "3.3 Position-wise Feed-Forward Networks",
+              "path": "Attention Is All You Need.pdf/Root/3 Model Architecture/3.3 Position-wise Feed-Forward Networks",
+              "level": 3,
+              "summary": "Section 3.3 describes the Position-wise Feed-Forward Networks used in the model's encoder and decoder layers. These are fully connected networks applied independently to each position, consisting of two linear transformations with a ReLU activation function in between. The text provides the mathematical formula for this operation (FFN) and specifies the dimensionalities: input/output dimension ($d_{model}$) is 512, and the inner-layer dimensionality ($d_{ff}$) is 2048.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "3.4 Embeddings and Softmax",
+              "path": "Attention Is All You Need.pdf/Root/3 Model Architecture/3.4 Embeddings and Softmax",
+              "level": 3,
+              "summary": "Section 3.4 describes the use of learned embeddings to convert input and output tokens into vectors of dimension d_model. It also details the application of a linear transformation and softmax function to predict next-token probabilities, noting that the weight matrix is shared between the embedding layers and the pre-softmax transformation.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "3.5 Positional Encoding",
+              "path": "Attention Is All You Need.pdf/Root/3 Model Architecture/3.5 Positional Encoding",
+              "level": 3,
+              "summary": "Section 3.5 discusses the necessity of positional encoding in models without recurrence or convolution to capture sequence order. It details the use of sine and cosine functions with different frequencies as the chosen method, providing the specific mathematical formulas for these encodings. The text explains that wavelengths form a geometric progression and justifies this choice by its ability to allow the model to learn relative positions via linear functions. It also notes an experiment comparing this sinusoidal approach to learned embeddings, finding them nearly identical but preferring the sinusoidal version for better extrapolation capabilities.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "4 Why Self-Attention",
+          "path": "Attention Is All You Need.pdf/Root/4 Why Self-Attention",
+          "level": 2,
+          "summary": "This section compares self-attention layers with recurrent and convolutional layers based on three criteria: computational complexity per layer, the amount of parallelizable computation (measured by sequential operations), and path length for long-range dependencies. It references Table 1 to highlight that self-attention connects all positions with a constant number of sequential operations, making it faster than recurrent layers in terms of complexity when sequence lengths are large.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "5 Training",
+          "path": "Attention Is All You Need.pdf/Root/5 Training",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 6,
+          "children": [
+            {
+              "title": "5.1 Training Data and Batching",
+              "path": "Attention Is All You Need.pdf/Root/5 Training/5.1 Training Data and Batching",
+              "level": 3,
+              "summary": "This section describes the training data and batching strategy. It details the use of the WMT 2014 English-German dataset (approx. 4.5 million pairs) and the larger WMT 2014 English-French dataset (36M sentences). Sentences were encoded using byte-pair encoding with vocabularies of about 37,000 and 32,000 tokens respectively. Batching was performed by approximate sequence length, with each batch containing approximately 25,000 source and target tokens.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "5.2 Hardware and Schedule",
+              "path": "Attention Is All You Need.pdf/Root/5 Training/5.2 Hardware and Schedule",
+              "level": 3,
+              "summary": "Section 5.2 describes the hardware and training schedule used for the models. It specifies that training was performed on a machine equipped with 8 NVIDIA P100 GPUs. The section details the step time (0.4 seconds) and total duration (100,000 steps or 12 hours) for base models, as well as the step time (1.0 second) and duration (300,000 steps or 3.5 days) for big models.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "5.3 Optimizer",
+              "path": "Attention Is All You Need.pdf/Root/5 Training/5.3 Optimizer",
+              "level": 3,
+              "summary": "Section 5.3 describes the optimizer used for training, which is the Adam optimizer with specific parameters (β1=0.9, β2=0.98, ε=10^-9). It details a learning rate schedule that linearly increases for the first 4000 warmup steps and then decreases proportionally to the inverse square root of the step number.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "5.4 Regularization",
+              "path": "Attention Is All You Need.pdf/Root/5 Training/5.4 Regularization",
+              "level": 3,
+              "summary": "Section 5.4 introduces the regularization techniques employed during training, stating that three types are used.",
+              "chunk_count": 3,
+              "children": [
+                {
+                  "title": "Residual Dropout",
+                  "path": "Attention Is All You Need.pdf/Root/5 Training/5.4 Regularization/Residual Dropout",
+                  "level": 4,
+                  "summary": "The section describes the application of dropout in the Transformer model. It specifies that dropout is applied to the output of each sub-layer before it is added to the input and normalized, as well as to the sums of embeddings and positional encodings in both encoder and decoder stacks. For the base model, a dropout rate (P_drop) of 0.1 is used.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "Label Smoothing",
+                  "path": "Attention Is All You Need.pdf/Root/5 Training/5.4 Regularization/Label Smoothing",
+                  "level": 4,
+                  "summary": "The section describes the use of label smoothing during training with a value of epsilon_ls = 0.1, citing reference [36]. It notes that while this technique hurts perplexity by making the model more unsure, it improves accuracy and BLEU score.",
+                  "chunk_count": 1,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "6 Results",
+          "path": "Attention Is All You Need.pdf/Root/6 Results",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "6.1 Machine Translation",
+              "path": "Attention Is All You Need.pdf/Root/6 Results/6.1 Machine Translation",
+              "level": 3,
+              "summary": "Section 6.1 discusses the results of the Transformer model on WMT 2014 English-to-German and English-to-French translation tasks. It highlights that the big Transformer model achieved state-of-the-art BLEU scores (28.4 for EN-DE, 41.0 for EN-FR) at a fraction of the training cost compared to previous models. The section details the experimental setup, including the use of 8 P100 GPUs, averaging checkpoints for base and big models, beam search parameters, and early stopping strategies.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "6.2 Model Variations",
+              "path": "Attention Is All You Need.pdf/Root/6 Results/6.2 Model Variations",
+              "level": 3,
+              "summary": "Section 6.2 introduces an ablation study designed to evaluate the importance of different components within the Transformer architecture. The text explains that the authors varied their base model in different ways and measured the resulting changes in performance specifically on the English-to-German translation task.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "6.3 English Constituency Parsing",
+              "path": "Attention Is All You Need.pdf/Root/6 Results/6.3 English Constituency Parsing",
+              "level": 3,
+              "summary": "The page presents Table 3, which details variations on the Transformer architecture and their performance metrics (PPL, BLEU, parameters) on the English-to-German translation development set (newstest2013). The table compares a base model against several ablation studies labeled (A) through (E), varying parameters like attention heads, dimensions, dropout, and positional embeddings. Below the table, the text discusses these results, noting that reducing key size hurts quality and that bigger models perform better. Section 6.3 introduces experiments on English Constituency Parsing using the Wall Street Journal (WSJ) portion of the Penn Treebank.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "7 Conclusion",
+          "path": "Attention Is All You Need.pdf/Root/7 Conclusion",
+          "level": 2,
+          "summary": "The section summarizes the paper's contribution of the Transformer, a sequence transduction model based entirely on attention that replaces recurrent layers with multi-headed self-attention. It highlights that the model achieves new state-of-the-art results on WMT 2014 English-to-German and English-to-French translation tasks and outperforms previous ensembles. The authors also outline future plans to extend the model to other modalities like images and audio.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Acknowledgements",
+          "path": "Attention Is All You Need.pdf/Root/Acknowledgements",
+          "level": 2,
+          "summary": "The section expresses gratitude to Nal Kalchbrenner and Stephan Gouws for their comments, corrections, and inspiration.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "References",
+          "path": "Attention Is All You Need.pdf/Root/References",
+          "level": 2,
+          "summary": "This page contains the conclusion of a research paper on the Transformer model, specifically its application to English constituency parsing. It features Table 4, which compares the performance (WSJ 23 F1 scores) of the Transformer against various other parsers under different training settings (discriminative, semi-supervised, multi-task). The text discusses the results, highlighting that the Transformer outperforms previous models despite lacking task-specific tuning. The page also includes an acknowledgements section and the beginning of the references list.",
+          "chunk_count": 3,
+          "children": []
+        },
+        {
+          "title": "Attention Visualizations",
+          "path": "Attention Is All You Need.pdf/Root/Attention Visualizations",
+          "level": 2,
+          "summary": "This section, titled 'Attention Visualizations', presents three figures (3, 4, and 5) that illustrate the behavior of attention mechanisms in a neural network model. Figure 3 shows an example of an attention head following long-distance dependencies to complete a phrase. Figure 4 demonstrates two attention heads involved in anaphora resolution, showing how they link pronouns like 'its' to their antecedents. Figure 5 provides examples of attention heads learning to perform tasks related to sentence structure.",
+          "chunk_count": 3,
           "children": []
         }
       ]
-    },
-    {
-      "title": "Page 3",
-      "path": "Attention Is All You Need.pdf/Page 3",
-      "level": 1,
-      "summary": "Figure 1: The Transformer - model architecture. The Transformer follows this overall architecture using stacked self-attention and point-wise, fully connected layers for both the encoder and decoder, shown in the left and right halves of Figure 1, respectively. 3.1 Encoder and Decoder Stacks Encoder: The encoder is composed of a stack of N = 6 identical layers. Each layer has two sub-layers. The first is a multi-head self-attention mechanism, and the second is a simple, position- wise fully connected feed-forward network. We employ a residual connection [11] around each of the two sub-layers, followed by layer normalization [ 1]. That is, the output of each sub-layer is LayerNorm(x +...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 4",
-      "path": "Attention Is All You Need.pdf/Page 4",
-      "level": 1,
-      "summary": "Scaled Dot-Product Attention Multi-Head Attention Figure 2: (left) Scaled Dot-Product Attention. (right) Multi-Head Attention consists of several attention layers running in parallel. of the values, where the weight assigned to each value is computed by a compatibility function of the query with the corresponding key. 3.2.1 Scaled Dot-Product Attention We call our particular attention \"Scaled Dot-Product Attention\" (Figure 2). The input consists of queries and keys of dimension dk, and values of dimension dv. We compute the dot products of the query with all keys, divide each by √dk, and apply a softmax function to obtain the weights on the values. In practice, we compute the attention...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 5",
-      "path": "Attention Is All You Need.pdf/Page 5",
-      "level": 1,
-      "summary": "output values. These are concatenated and once again projected, resulting in the final values, as depicted in Figure 2. Multi-head attention allows the model to jointly attend to information from different representation subspaces at different positions. With a single attention head, averaging inhibits this. MultiHead(Q, K, V ) = Concat(head 1, ..., headh)W O where headi = Attention(QW Q i , KW K i , V W V i ) Where the projections are parameter matricesW Q i ∈ Rdmodel×dk, W K i ∈ Rdmodel×dk, W V i ∈ Rdmodel×dv and W O ∈ Rhdv×dmodel. In this work we employ h = 8 parallel attention layers, or heads. For each of these we use dk = dv = dmodel/h = 64. Due to the reduced dimension of each...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 6",
-      "path": "Attention Is All You Need.pdf/Page 6",
-      "level": 1,
-      "summary": "Table 1: Maximum path lengths, per-layer complexity and minimum number of sequential operations for different layer types. n is the sequence length, d is the representation dimension, k is the kernel size of convolutions and r the size of the neighborhood in restricted self-attention. Layer Type Complexity per Layer Sequential Maximum Path Length Operations Self-Attention O(n2 · d) O(1) O(1) Recurrent O(n · d2) O(n) O(n) Convolutional O(k · n · d2) O(1) O(logk(n)) Self-Attention (restricted) O(r · n · d) O(1) O(n/r) 3.5 Positional Encoding Since our model contains no recurrence and no convolution, in order for the model to make use of the order of the sequence, we must inject some...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 7",
-      "path": "Attention Is All You Need.pdf/Page 7",
-      "level": 1,
-      "summary": "length n is smaller than the representation dimensionality d, which is most often the case with sentence representations used by state-of-the-art models in machine translations, such as word-piece [38] and byte-pair [31] representations. To improve computational performance for tasks involving very long sequences, self-attention could be restricted to considering only a neighborhood of size r in the input sequence centered around the respective output position. This would increase the maximum path length to O(n/r). We plan to investigate this approach further in future work. A single convolutional layer with kernel width k < n does not connect all pairs of input and output positions....",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 8",
-      "path": "Attention Is All You Need.pdf/Page 8",
-      "level": 1,
-      "summary": "Table 2: The Transformer achieves better BLEU scores than previous state-of-the-art models on the English-to-German and English-to-French newstest2014 tests at a fraction of the training cost. Model BLEU Training Cost (FLOPs) EN-DE EN-FR EN-DE EN-FR ByteNet [18] 23.75 Deep-Att + PosUnk [39] 39.2 1.0 · 1020 GNMT + RL [38] 24.6 39.92 2.3 · 1019 1.4 · 1020 ConvS2S [9] 25.16 40.46 9.6 · 1018 1.5 · 1020 MoE [32] 26.03 40.56 2.0 · 1019 1.2 · 1020 Deep-Att + PosUnk Ensemble [39] 40.4 8.0 · 1020 GNMT + RL Ensemble [38] 26.30 41.16 1.8 · 1020 1.1 · 1021 ConvS2S Ensemble [9] 26.36 41.29 7.7 · 1019 1.2 · 1021 Transformer (base model) 27.3 38.1 3.3 · 1018 Transformer (big) 28.4 41.8 2.3 · 1019...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 9",
-      "path": "Attention Is All You Need.pdf/Page 9",
-      "level": 1,
-      "summary": "Table 3: Variations on the Transformer architecture. Unlisted values are identical to those of the base model. All metrics are on the English-to-German translation development set, newstest2013. Listed perplexities are per-wordpiece, according to our byte-pair encoding, and should not be compared to per-word perplexities. N d model dff h d k dv Pdrop ϵls train PPL BLEU params steps (dev) (dev) ×106 base 6 512 2048 8 64 64 0.1 0.1 100K 4.92 25.8 65 (A) 1 512 512 5.29 24.9 4 128 128 5.00 25.5 16 32 32 4.91 25.8 32 16 16 5.01 25.4 (B) 16 5.16 25.1 58 32 5.01 25.4 60 (C) 2 6.11 23.7 36 4 5.19 25.3 50 8 4.88 25.5 80 256 32 32 5.75 24.5 28 1024 128 128 4.66 26.0 168 1024 5.12 25.4 53 4096 4.75...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 10",
-      "path": "Attention Is All You Need.pdf/Page 10",
-      "level": 1,
-      "summary": "Table 4: The Transformer generalizes well to English constituency parsing (Results are on Section 23 of WSJ) Parser Training WSJ 23 F1 Vinyals & Kaiser el al. (2014) [37] WSJ only, discriminative 88.3 Petrov et al. (2006) [29] WSJ only, discriminative 90.4 Zhu et al. (2013) [40] WSJ only, discriminative 90.4 Dyer et al. (2016) [8] WSJ only, discriminative 91.7 Transformer (4 layers) WSJ only, discriminative 91.3 Zhu et al. (2013) [40] semi-supervised 91.3 Huang & Harper (2009) [14] semi-supervised 91.3 McClosky et al. (2006) [26] semi-supervised 92.1 Vinyals & Kaiser el al. (2014) [37] semi-supervised 92.1 Transformer (4 layers) semi-supervised 92.7 Luong et al. (2015) [23] multi-task...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 11",
-      "path": "Attention Is All You Need.pdf/Page 11",
-      "level": 1,
-      "summary": "[5] Kyunghyun Cho, Bart van Merrienboer, Caglar Gulcehre, Fethi Bougares, Holger Schwenk, and Yoshua Bengio. Learning phrase representations using rnn encoder-decoder for statistical machine translation. CoRR, abs/1406.1078, 2014. [6] Francois Chollet. Xception: Deep learning with depthwise separable convolutions. arXiv preprint arXiv:1610.02357, 2016. [7] Junyoung Chung, Çaglar Gülçehre, Kyunghyun Cho, and Yoshua Bengio. Empirical evaluation of gated recurrent neural networks on sequence modeling. CoRR, abs/1412.3555, 2014. [8] Chris Dyer, Adhiguna Kuncoro, Miguel Ballesteros, and Noah A. Smith. Recurrent neural network grammars. In Proc. of NAACL, 2016. [9] Jonas Gehring, Michael Auli,...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 12",
-      "path": "Attention Is All You Need.pdf/Page 12",
-      "level": 1,
-      "summary": "[25] Mitchell P Marcus, Mary Ann Marcinkiewicz, and Beatrice Santorini. Building a large annotated corpus of english: The penn treebank. Computational linguistics, 19(2):313–330, 1993. [26] David McClosky, Eugene Charniak, and Mark Johnson. Effective self-training for parsing. In Proceedings of the Human Language Technology Conference of the NAACL, Main Conference , pages 152–159. ACL, June 2006. [27] Ankur Parikh, Oscar Täckström, Dipanjan Das, and Jakob Uszkoreit. A decomposable attention model. In Empirical Methods in Natural Language Processing , 2016. [28] Romain Paulus, Caiming Xiong, and Richard Socher. A deep reinforced model for abstractive summarization. arXiv preprint...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 13",
-      "path": "Attention Is All You Need.pdf/Page 13",
-      "level": 1,
-      "summary": "Attention Visualizations Input-Input Layer5 It is in this spirit that a majority of American governments have passed new laws since 2009 making the registration or voting process more difficult . <EOS> <pad> <pad> <pad> <pad> <pad> <pad> It is in this spirit that a majority of American governments have passed new laws since 2009 making the registration or voting process more difficult . <EOS> <pad> <pad> <pad> <pad> <pad> <pad> Figure 3: An example of the attention mechanism following long-distance dependencies in the encoder self-attention in layer 5 of 6. Many of the attention heads attend to a distant dependency of the verb ‘making’, completing the phrase ‘making...more difficult’....",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 14",
-      "path": "Attention Is All You Need.pdf/Page 14",
-      "level": 1,
-      "summary": "Input-Input Layer5 The Law will never be perfect , but its application should be just - this is what we are missing , in my opinion . <EOS> <pad> The Law will never be perfect , but its application should be just - this is what we are missing , in my opinion . <EOS> <pad> Input-Input Layer5 The Law will never be perfect , but its application should be just - this is what we are missing , in my opinion . <EOS> <pad> The Law will never be perfect , but its application should be just - this is what we are missing , in my opinion . <EOS> <pad> Figure 4: Two attention heads, also in layer 5 of 6, apparently involved in anaphora resolution. Top: Full attentions for head 5. Bottom: Isolated...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 15",
-      "path": "Attention Is All You Need.pdf/Page 15",
-      "level": 1,
-      "summary": "Input-Input Layer5 The Law will never be perfect , but its application should be just - this is what we are missing , in my opinion . <EOS> <pad> The Law will never be perfect , but its application should be just - this is what we are missing , in my opinion . <EOS> <pad> Input-Input Layer5 The Law will never be perfect , but its application should be just - this is what we are missing , in my opinion . <EOS> <pad> The Law will never be perfect , but its application should be just - this is what we are missing , in my opinion . <EOS> <pad> Figure 5: Many of the attention heads exhibit behaviour that seems related to the structure of the sentence. We give two such examples above, from two...",
-      "chunk_count": 1,
-      "children": []
     }
   ],
   "resources": {
-    "images": [],
-    "tables": []
+    "images": [
+      {
+        "path": "images/image_page_3_figure_1.png",
+        "summary": "Figure 1: The Transformer - model architecture. [images/image_page_3_figure_1.png]"
+      },
+      {
+        "path": "images/image_page_4_figure_1.png",
+        "summary": "Figure 2: (left) Scaled Dot-Product Attention. (right) Multi-Head Attention consists of several attention layers running in parallel. [images/image_page_4_figure_1.png]"
+      },
+      {
+        "path": "images/image_page_13_figure_1.png",
+        "summary": "Figure 3: An example of the attention mechanism following long-distance dependencies in the encoder self-attention in layer 5 of 6. [images/image_page_13_figure_1.png]"
+      },
+      {
+        "path": "images/image_page_14_figure_1.png",
+        "summary": "Figure 4: Two attention heads, also in layer 5 of 6, apparently involved in anaphora resolution. [images/image_page_14_figure_1.png]"
+      },
+      {
+        "path": "images/image_page_15_figure_1.png",
+        "summary": "Figure 5: Many of the attention heads exhibit behaviour that seems related to the structure of the sentence. [images/image_page_15_figure_1.png]"
+      }
+    ],
+    "tables": [
+      {
+        "path": "tables/table_page_9_1.html",
+        "summary": "tables/table_page_9_1.html"
+      },
+      {
+        "path": "tables/table_page_10_1.html",
+        "summary": "tables/table_page_10_1.html"
+      }
+    ]
   }
 }

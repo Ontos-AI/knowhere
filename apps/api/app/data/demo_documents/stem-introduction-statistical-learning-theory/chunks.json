@@ -1,2185 +1,1334 @@
 {
   "chunks": [
     {
-      "chunk_id": "84debb14-fe3d-57f3-a62e-868f197a7ed3",
-      "type": "text",
-      "content": "Carlo Ciliberto\nDepartment of Computer Science, UCL\nOctober 5, 2018",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory",
-      "metadata": {
-        "length": 67,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Carlo",
-          "Ciliberto",
-          "Department",
-          "Computer",
-          "Science",
-          "UCL",
-          "October",
-          "2018"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "29f78cbc-320c-5371-ac77-cf126a372b55",
-      "type": "text",
-      "content": "▶ Class times: Fridays 14:00 - 15:30 $^{1}$\n▶ Location: Ground Floor Lecture Theater, Wilkins Building $^{2}$\n▶ Office hours: (Time TBA), 3rd Floor Hub room, CS Building, 66 Gower street.\nTA: Giulia Luise\nWebsite: ccilib er.github.io/intro-stl\nemail(s): ccilib er@gmail.com, g.luise.16@ucl.ac.uk\n▶ Workload: 2 assignments (50%) and a final exam (50%). Final exam requires to choose 3 problems out of 6. At least one problem from each “sides” of this course (RKHS or SLT) \\*must\\* be chosen.",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Administrative Info",
-      "metadata": {
-        "length": 490,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Class",
-          "times",
-          "Fridays",
-          "14",
-          "00",
-          "15",
-          "30",
-          "Location",
-          "Ground",
-          "Floor",
-          "Lecture",
-          "Theater",
-          "Wilkins",
-          "Building",
-          "Office",
-          "hours",
-          "Time",
-          "TBA",
-          "3rd",
-          "Hub",
-          "room",
-          "CS",
-          "66",
-          "Gower",
-          "street",
-          "TA",
-          "Giulia",
-          "Luise",
-          "Website",
-          "ccilib",
-          "er",
-          "github",
-          "io",
-          "intro",
-          "stl",
-          "email",
-          "gmail",
-          "luise.16",
-          "ucl",
-          "ac",
-          "uk",
-          "Workload",
-          "assignments",
-          "50%",
-          "final",
-          "exam",
-          "Final",
-          "requires",
-          "choose",
-          "problems",
-          "At",
-          "problem",
-          "sides",
-          "RKHS",
-          "SLT",
-          "chosen"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "f7e9b473-e838-5303-9b4b-10bf784b0422",
-      "type": "text",
-      "content": "Main resources for the course:\nClasses\nSlides\nBooks and other Resources:\nS. Shalev-Shwartz and S. Ben-David Understanding Machine Learning: From Theory to Algorithms (Online Book). Cambridge University Press, 2014.\n▶ O. Bousquet, S. Boucheron and G. Lugosi Introduction to Statistical Learning Theory (Tutorial).\nT. Poggio and L. Rosasco course slides and videos from MIT 9.520: Statistical Learning Theory and Applications.\nP. Liang course notes from Stanford CS229T: Statistical Learning Theory.",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Course Material",
-      "metadata": {
-        "length": 497,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Main",
-          "resources",
-          "Classes",
-          "Slides",
-          "Books",
-          "Resources",
-          "Shalev",
-          "Shwartz",
-          "Ben",
-          "David",
-          "Understanding",
-          "Machine",
-          "Learning",
-          "From",
-          "Theory",
-          "Algorithms",
-          "Online",
-          "Book",
-          "Cambridge",
-          "University",
-          "Press",
-          "2014",
-          "Bousquet",
-          "Boucheron",
-          "Lugosi",
-          "Introduction",
-          "Statistical",
-          "Tutorial",
-          "Poggio",
-          "Rosasco",
-          "slides",
-          "videos",
-          "MIT",
-          "9.520",
-          "Applications",
-          "Liang",
-          "notes",
-          "Stanford",
-          "CS229T"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "83696650-7104-5ddd-bc17-8eb72d435a59",
-      "type": "text",
-      "content": "▶ Linear Algebra: familiarity with vector spaces, matrix operations (e.g. inversion, singular value decomposition (SVD)), inner products and norms, etc.\n▶ Calculus: limits, derivatives, measures, integrals, etc.\n▶ Probability Theory: probability distributions, conditional and marginal distribution, expectation, variance, etc.",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Prerequisites",
-      "metadata": {
-        "length": 327,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Linear",
-          "Algebra",
-          "familiarity",
-          "vector",
-          "spaces",
-          "matrix",
-          "operations",
-          "inversion",
-          "singular",
-          "decomposition",
-          "SVD",
-          "products",
-          "norms",
-          "Calculus",
-          "limits",
-          "derivatives",
-          "measures",
-          "integrals",
-          "Probability",
-          "Theory",
-          "probability",
-          "distributions",
-          "conditional",
-          "marginal",
-          "distribution",
-          "expectation",
-          "variance"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "89e9a239-be09-5517-8475-22cd2ed2d51c",
-      "type": "text",
-      "content": "SLT addresses questions related to:\nWhat does it mean for an algorithm to learn.\nWhat we can/cannot expect from a learning algorithm.\n▶ How to design computationally & statistically efficient algorithms.\nWhat to do when a learning algorithm does not work...\nSLT studies theoretical quantities that we don't have access to:\nIt tries to bridge the gap between the unknown functional relations governing a process and our (finite) empirical observations of it.",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Statistical Learning Theory (SLT)",
-      "metadata": {
-        "length": 457,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "SLT",
-          "addresses",
-          "questions",
-          "related",
-          "What",
-          "algorithm",
-          "learn",
-          "expect",
-          "learning",
-          "How",
-          "design",
-          "computationally",
-          "statistically",
-          "efficient",
-          "algorithms",
-          "work",
-          "studies",
-          "theoretical",
-          "quantities",
-          "don",
-          "access",
-          "It",
-          "bridge",
-          "gap",
-          "unknown",
-          "functional",
-          "relations",
-          "governing",
-          "process",
-          "finite",
-          "empirical",
-          "observations"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "44b7e150-420d-51d0-9ef0-b6d363ec5ac5",
-      "type": "table",
-      "content": "<table><tr><td>Living area (feet $^{2}$ )</td><td>Price (1000$s)</td></tr><tr><td>2104</td><td>400</td></tr><tr><td>1600</td><td>330</td></tr><tr><td>2400</td><td>369</td></tr><tr><td>1416</td><td>232</td></tr><tr><td>3000</td><td>540</td></tr><tr><td>⋮</td><td>⋮</td></tr></table>",
-      "path": "tables/table-0 Housing Data.html",
-      "metadata": {
-        "length": 281,
-        "summary": "table-1\nThe table shows living area in square feet and corresponding house prices in thousands of dollars for several properties.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "tables/table-0 Housing Data.html",
-        "keywords": [
-          "Living area",
-          "Price",
-          "Housing"
-        ],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "df07e316-9d81-5a84-b29d-2556a47ed4e7",
+      "chunk_id": "asset_57bd276a-0b46-57b2-899b-bcc34534c267",
       "type": "image",
-      "content": "\nWhat to do when a learning algorithm does not work... <details>0\n[images/image-1-Housing Prices Scatter Plot.jpg]\n",
-      "path": "images/image-1-Housing Prices Scatter Plot.jpg",
+      "content": "Living area (feet²) | Price (1000$s)\n[images/image_page_6_table_1.png]",
+      "path": "images/image_page_6_table_1.png",
       "metadata": {
-        "length": 98,
-        "summary": "image-1\nChart Title: housing prices\nX-Axis Label: square feet (Range: 500 to 5000)\nY-Axis Label: price (in $1000) (Range: 0 to 1000)\nData Points: Blue 'x' markers representing individual data points.\nNotable Patterns: The chart displays a positive correlation between house size and price; as square footage increases, the price tends to increase. Most data points are clustered between 1000-3000 square feet and $200k-$600k.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-1-Housing Prices Scatter Plot.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "e3b44510-fade-50fc-b09c-082b23a357d9",
-      "type": "table",
-      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>square feet</th>\n      <th>price (in $1000)</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>1000</td>\n      <td>200</td>\n    </tr>\n    <tr>\n      <td>1200</td>\n      <td>250</td>\n    </tr>\n    <tr>\n      <td>1400</td>\n      <td>300</td>\n    </tr>\n    <tr>\n      <td>1600</td>\n      <td>350</td>\n    </tr>\n    <tr>\n      <td>1800</td>\n      <td>400</td>\n    </tr>\n    <tr>\n      <td>2000</td>\n      <td>450</td>\n    </tr>\n    <tr>\n      <td>2200</td>\n      <td>500</td>\n    </tr>\n    <tr>\n      <td>2400</td>\n      <td>550</td>\n    </tr>\n    <tr>\n      <td>2600</td>\n      <td>600</td>\n    </tr>\n    <tr>\n      <td>2800</td>\n      <td>650</td>\n    </tr>\n    <tr>\n      <td>3000</td>\n      <td>700</td>\n    </tr>\n    <tr>\n      <td>3200</td>\n      <td>650</td>\n    </tr>\n    <tr>\n      <td>3400</td>\n      <td>600</td>\n    </tr>\n    <tr>\n      <td>3600</td>\n      <td>550</td>\n    </tr>\n    <tr>\n      <td>3800</td>\n      <td>500</td>\n    </tr>\n    <tr>\n      <td>4000</td>\n      <td>450</td>\n    </tr>\n    <tr>\n      <td>4200</td>\n      <td>400</td>\n    </tr>\n    <tr>\n      <td>4400</td>\n      <td>350</td>\n    </tr>\n    <tr>\n      <td>4600</td>\n      <td>300</td>\n    </tr>\n    <tr>\n      <td>4800</td>\n      <td>250</td>\n    </tr>\n    <tr>\n      <td>5000</td>\n      <td>200</td>\n    </tr>\n  </tbody>\n</table>",
-      "path": "tables/table-1 House Price Data.html",
-      "metadata": {
-        "length": 1410,
-        "summary": "table-2\nThe table shows house prices (in $1000) vs. square footage. Price rises from $200k at 1000 sq ft to $700k at 3000 sq ft, then declines symmetrically back to $200k at 5000 sq ft.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "tables/table-1 House Price Data.html",
-        "keywords": [
-          "square feet",
-          "price",
-          "trend"
-        ],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "7fb3602f-2fd2-5e4a-8add-fbb72a65566d",
-      "type": "text",
-      "content": "[tables/table-0 Housing Data.html]\n\n\nWhat to do when a learning algorithm does not work... <details>0\n[images/image-1-Housing Prices Scatter Plot.jpg]\n\n<details>\n<summary>scatter plot</summary>\n\n[tables/table-1 House Price Data.html]\n\n</details>\nImage credits: coursera",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Statistical Learning Theory (SLT)/Motivations and Examples: Regression",
-      "metadata": {
-        "length": 290,
+        "length": 70,
         "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "What",
-          "learning",
-          "algorithm",
-          "work",
-          "details",
-          "summary",
-          "scatter",
-          "plot",
-          "Image",
-          "credits",
-          "coursera"
+        "page_nums": [
+          6
         ],
+        "file_path": "images/image_page_6_table_1.png",
         "keywords": [],
-        "connect_to": [
-          {
-            "target": "44b7e150-420d-51d0-9ef0-b6d363ec5ac5",
-            "relation": "embeds",
-            "ref": "[tables/table-0 Housing Data.html]",
-            "position": {
-              "start": 0,
-              "end": 34
-            }
-          },
-          {
-            "target": "df07e316-9d81-5a84-b29d-2556a47ed4e7",
-            "relation": "embeds",
-            "ref": "[images/image-1-Housing Prices Scatter Plot.jpg]",
-            "position": {
-              "start": 102,
-              "end": 150
-            }
-          },
-          {
-            "target": "e3b44510-fade-50fc-b09c-082b23a357d9",
-            "relation": "embeds",
-            "ref": "[tables/table-1 House Price Data.html]",
-            "position": {
-              "start": 195,
-              "end": 233
-            }
-          }
-        ]
+        "tokens": []
       }
     },
     {
-      "chunk_id": "01ba1b9a-cf54-523f-b929-fd0c48191149",
+      "chunk_id": "asset_7e9ff9a2-29fe-5ea1-a2b1-27f613c26623",
       "type": "image",
-      "content": "\n</details> <details>0\n[images/image-2-__details_.jpg]\n",
-      "path": "images/image-2-__details_.jpg",
+      "content": "housing prices\n[images/image_page_6_figure_2.png]",
+      "path": "images/image_page_6_figure_2.png",
+      "metadata": {
+        "length": 49,
+        "summary": "",
+        "page_nums": [
+          6
+        ],
+        "file_path": "images/image_page_6_figure_2.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_afa24be8-f074-5cb6-a64a-1d0a8fd586a2",
+      "type": "image",
+      "content": "Spam detection example\n[images/image_page_7_figure_1.png]",
+      "path": "images/image_page_7_figure_1.png",
+      "metadata": {
+        "length": 57,
+        "summary": "",
+        "page_nums": [
+          7
+        ],
+        "file_path": "images/image_page_7_figure_1.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_f63c2f57-67b3-5d12-8847-119c8f7dbb00",
+      "type": "image",
+      "content": "Image Classification example\n[images/image_page_7_figure_2.png]",
+      "path": "images/image_page_7_figure_2.png",
+      "metadata": {
+        "length": 63,
+        "summary": "",
+        "page_nums": [
+          7
+        ],
+        "file_path": "images/image_page_7_figure_2.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_b3d0bc46-f457-5009-976a-c41947e51094",
+      "type": "image",
+      "content": "Example: Caltech 101\n[images/image_page_8_figure_1.png]",
+      "path": "images/image_page_8_figure_1.png",
       "metadata": {
         "length": 55,
-        "summary": "image-2\n</details> <details>0",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-2-__details_.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "a2b7f45b-2661-5cf5-b628-22e2afc8baa4",
-      "type": "image",
-      "content": "\ngraph LR <details>0\n[images/image-3-graph LR _.jpg]\n",
-      "path": "images/image-3-graph LR _.jpg",
-      "metadata": {
-        "length": 53,
-        "summary": "image-3\ngraph LR <details>0",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-3-graph LR _.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "12e16a3b-1414-5c9e-9c3a-bcb0e96a077d",
-      "type": "text",
-      "content": "Spam detection: Automatically discriminate spam vs non-spam e-mails.\n\n</details> <details>0\n[images/image-2-__details_.jpg]\n\n<details>\n<summary>flowchart</summary>\n```mermaid\ngraph LR\nA[\"Stacked Document\"] --> B[\"{ legit, spam}\"]\n```\n</details>\nImage Classification\n\ngraph LR <details>0\n[images/image-3-graph LR _.jpg]\n\n<details>\n<summary>text_image</summary>\nf :\n→ {dog, not dog}\n</details>",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Statistical Learning Theory (SLT)/Motivations and Examples: Binary Classification",
-      "metadata": {
-        "length": 391,
         "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Spam",
-          "detection",
-          "Automatically",
-          "discriminate",
-          "spam",
-          "mails",
-          "details",
-          "summary",
-          "flowchart",
-          "mermaid",
-          "graph",
-          "LR",
-          "Stacked",
-          "Document",
-          "legit",
-          "Image",
-          "Classification",
-          "text",
-          "image",
-          "dog"
+        "page_nums": [
+          8
         ],
-        "keywords": [],
-        "connect_to": [
-          {
-            "target": "01ba1b9a-cf54-523f-b929-fd0c48191149",
-            "relation": "embeds",
-            "ref": "[images/image-2-__details_.jpg]",
-            "position": {
-              "start": 92,
-              "end": 123
-            }
-          },
-          {
-            "target": "a2b7f45b-2661-5cf5-b628-22e2afc8baa4",
-            "relation": "embeds",
-            "ref": "[images/image-3-graph LR _.jpg]",
-            "position": {
-              "start": 287,
-              "end": 318
-            }
-          }
-        ]
-      }
-    },
-    {
-      "chunk_id": "c5a45a02-6fb4-5f90-b557-4c71066aeef1",
-      "type": "image",
-      "content": "\n→ {dog, not dog} ### Motivations and Examples: Multi-class Classification0\n[images/image-4-Image Type_ Photo.jpg]\n",
-      "path": "images/image-4-Image Type_ Photo.jpg",
-      "metadata": {
-        "length": 108,
-        "summary": "image-4\nTitle: Image Grid of Objects and Scenes\n\n- Row 1 (baseball): Images include a player in uniform, wooden bats, a baseball field diagram, a batter swinging, and novelty baseball bats.\n- Row 2 (dog): Photos show dogs with life rings, on beaches, lying on blankets, groups of dogs, close-ups, and one dog in gear.\n- Row 3 (basketball-hoop): Various basketball hoops including backboards, nets, rims, and scenes with balls; includes text \"America Conference\".\n- Row 4 (Kayak): Kayaks in water, people kayaking near waterfalls, colorful kayaks lined up, and kayaks loaded on vehicles.\n- Row 5 (traffic light): Traffic lights at intersections, digital displays, pedestrian signals, and traffic control panels.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-4-Image Type_ Photo.jpg",
+        "file_path": "images/image_page_8_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "74dc7b10-e74b-5e26-babb-75698fbf50f2",
-      "type": "text",
-      "content": "Identify the category of the object depicted in an image.\nExample: Caltech 101\n\n→ {dog, not dog} ### Motivations and Examples: Multi-class Classification0\n[images/image-4-Image Type_ Photo.jpg]",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Statistical Learning Theory (SLT)/Motivations and Examples: Multi-class Classification",
+      "chunk_id": "asset_4806f738-34d2-5d6a-98d1-91cbadfc612c",
+      "type": "image",
+      "content": "ImageNet Large Scale Visual Recognition Challenge\n[images/image_page_9_figure_1.png]",
+      "path": "images/image_page_9_figure_1.png",
       "metadata": {
-        "length": 186,
+        "length": 84,
         "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Identify",
-          "category",
-          "object",
-          "depicted",
-          "image",
-          "Example",
-          "Caltech",
-          "101",
-          "dog",
-          "Motivations",
-          "Examples",
-          "Multi",
-          "class",
-          "Classification0"
+        "page_nums": [
+          9
         ],
-        "keywords": [],
-        "connect_to": [
-          {
-            "target": "c5a45a02-6fb4-5f90-b557-4c71066aeef1",
-            "relation": "embeds",
-            "ref": "[images/image-4-Image Type_ Photo.jpg]",
-            "position": {
-              "start": 155,
-              "end": 193
-            }
-          }
-        ]
-      }
-    },
-    {
-      "chunk_id": "4a7c125e-3ceb-542b-9dbe-590032b2a172",
-      "type": "image",
-      "content": "\nIdentify the category of the object depicted in an image. <details>0\n[images/image-5-Visual Data Grid.jpg]\n",
-      "path": "images/image-5-Visual Data Grid.jpg",
-      "metadata": {
-        "length": 102,
-        "summary": "image-5\nA large grid of small thumbnail images displaying a diverse collection of subjects. The top half primarily features nature scenes, including flowers, plants, and landscapes. The bottom half contains a wide variety of objects such as tools, musical instruments, vehicles, furniture, clothing, and household items.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-5-Visual Data Grid.jpg",
+        "file_path": "images/image_page_9_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "7fb0692d-5766-5652-8993-f710d8ef80ef",
-      "type": "text",
-      "content": "Scaling things up: detect correct object among thousands of categories. ImageNet Large Scale Visual Recognition Challenge\n\nIdentify the category of the object depicted in an image. <details>0\n[images/image-5-Visual Data Grid.jpg]\n\n<details>\n<summary>text_image</summary>\nGrid of numerous emoji icons and text, likely representing a collection of various application or service types.\n</details>",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Statistical Learning Theory (SLT)/Motivations and Examples: Multi-class Classification_2",
+      "chunk_id": "asset_c266f0ec-6de7-520c-8d82-cd5d4ed7b9eb",
+      "type": "image",
+      "content": "[images/image_page_10_figure_1.png]",
+      "path": "images/image_page_10_figure_1.png",
       "metadata": {
-        "length": 388,
+        "length": 35,
         "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Scaling",
-          "things",
-          "detect",
-          "correct",
-          "object",
-          "thousands",
-          "categories",
-          "ImageNet",
-          "Large",
-          "Scale",
-          "Visual",
-          "Recognition",
-          "Challenge",
-          "Identify",
-          "category",
-          "depicted",
-          "image",
-          "details",
-          "summary",
-          "text",
-          "Grid",
-          "numerous",
-          "emoji",
-          "icons",
-          "representing",
-          "collection",
-          "application",
-          "service",
-          "types"
+        "page_nums": [
+          10
         ],
-        "keywords": [],
-        "connect_to": [
-          {
-            "target": "4a7c125e-3ceb-542b-9dbe-590032b2a172",
-            "relation": "embeds",
-            "ref": "[images/image-5-Visual Data Grid.jpg]",
-            "position": {
-              "start": 192,
-              "end": 229
-            }
-          }
-        ]
-      }
-    },
-    {
-      "chunk_id": "3642f12c-21b7-567e-876a-26843beffb08",
-      "type": "image",
-      "content": "\nGrid of numerous emoji icons and text, likely representing a collection of various application or service types. <details>0\n[images/image-6-Grid of nu.jpg]\n",
-      "path": "images/image-6-Grid of nu.jpg",
-      "metadata": {
-        "length": 157,
-        "summary": "image-6\nGrid of numerous emoji icons and text, likely representing a collection of various application or service types. <details>0",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-6-Grid of nu.jpg",
+        "file_path": "images/image_page_10_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "c2c86116-9667-5259-9673-c2c211d97e44",
-      "type": "image",
-      "content": "\n<details> <details>0\n[images/image-7-_details_ .jpg]\n",
-      "path": "images/image-7-_details_ .jpg",
+      "chunk_id": "node_ef733585-c711-5c49-b82c-343c51cf5276",
+      "type": "page",
+      "content": "Class 1\nIntroduction to Statistical Learning Theory\nCarlo Ciliberto\nDepartment of Computer Science, UCL\nOctober 5, 2018",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Class 1",
       "metadata": {
-        "length": 54,
-        "summary": "image-7\n<details> <details>0",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-7-_details_ .jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "9069a803-e353-54ec-86fb-e0e460e392a0",
-      "type": "image",
-      "content": "\nCoffee mug Speech Recognition \"Ok Google\"0\n[images/image-8-Coffee mug.jpg]\n",
-      "path": "images/image-8-Coffee mug.jpg",
-      "metadata": {
-        "length": 76,
-        "summary": "image-8\nCoffee mug Speech Recognition \"Ok Google\"0",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-8-Coffee mug.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "3d6e9cd9-5f01-5937-abe7-61f3ae4302b4",
-      "type": "image",
-      "content": "\nNewspaper Speech Recognition \"Ok Google\"0\n[images/image-9-Newspaper .jpg]\n",
-      "path": "images/image-9-Newspaper .jpg",
-      "metadata": {
-        "length": 75,
-        "summary": "image-9\nNewspaper Speech Recognition \"Ok Google\"0",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-9-Newspaper .jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "010ac87f-546f-5206-a4ca-154e96ce8229",
-      "type": "image",
-      "content": "\nMovie Ranking Speech Recognition \"Ok Google\"0\n[images/image-10-Movie Rank.jpg]\n",
-      "path": "images/image-10-Movie Rank.jpg",
-      "metadata": {
-        "length": 80,
-        "summary": "image-10\nMovie Ranking Speech Recognition \"Ok Google\"0",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-10-Movie Rank.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "50f0b756-3174-5261-84b6-e0269f6ee370",
-      "type": "image",
-      "content": "\nuser:127 <details>0\n[images/image-11-user_127 _.jpg]\n",
-      "path": "images/image-11-user_127 _.jpg",
-      "metadata": {
-        "length": 54,
-        "summary": "image-11\nuser:127 <details>0",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-11-user_127 _.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "326ffa21-4abb-50ef-88be-5ca242cb4721",
-      "type": "image",
-      "content": "\n<details> ## Formulating The Learning Problem0\n[images/image-12-_details_ .jpg]\n",
-      "path": "images/image-12-_details_ .jpg",
-      "metadata": {
-        "length": 81,
-        "summary": "image-12\n<details> ## Formulating The Learning Problem0",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-12-_details_ .jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "500c756d-2e8a-5e5a-a3f8-dc178293d610",
-      "type": "image",
-      "content": "\n<summary>natural_image</summary> ## Formulating The Learning Problem0\n[images/image-13-_summary_n.jpg]\n",
-      "path": "images/image-13-_summary_n.jpg",
-      "metadata": {
-        "length": 104,
-        "summary": "image-13\n<summary>natural_image</summary> ## Formulating The Learning Problem0",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-13-_summary_n.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "fa1854a8-3cee-50e9-888c-b468deb65629",
-      "type": "text",
-      "content": "Image Captioning\n(also Localization Segmentation Classification)\n\nGrid of numerous emoji icons and text, likely representing a collection of various application or service types. <details>0\n[images/image-6-Grid of nu.jpg]\n\n<details>\n<summary>natural_image</summary>\nCat sitting at a desk with papers and a cup, viewed through a window with curtains (no visible text or symbols)\n</details>\n\n<details> <details>0\n[images/image-7-_details_ .jpg]\n\n<details>\n<summary>natural_image</summary>\nA cat sitting at a desk with a book, viewed through a window (no visible text or symbols)\n</details>\nGray striped cat\nBusiness suit\nCoffee mug\nNewspaper\nMovie Ranking\nNETFLIX\nuser:127\n\nCoffee mug Speech Recognition \"Ok Google\"0\n[images/image-8-Coffee mug.jpg]\n\n\nNewspaper Speech Recognition \"Ok Google\"0\n[images/image-9-Newspaper .jpg]\n\n\nMovie Ranking Speech Recognition \"Ok Google\"0\n[images/image-10-Movie Rank.jpg]\n\nSpeech Recognition \"Ok Google\"\n\nuser:127 <details>0\n[images/image-11-user_127 _.jpg]\n\n<details>\n<summary>natural_image</summary>\nAbstract blue waveform visualization with no text or symbols\n</details>\nProtein Folding\n\n<details> ## Formulating The Learning Problem0\n[images/image-12-_details_ .jpg]\n\n\n<summary>natural_image</summary> ## Formulating The Learning Problem0\n[images/image-13-_summary_n.jpg]",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Statistical Learning Theory (SLT)/Motivations and Examples: Structured Prediction Image Captioning",
-      "metadata": {
-        "length": 1307,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Image",
-          "Captioning",
-          "Localization",
-          "Segmentation",
-          "Classification",
-          "Grid",
-          "numerous",
-          "emoji",
-          "icons",
-          "text",
-          "representing",
-          "collection",
-          "application",
-          "service",
-          "types",
-          "details",
-          "summary",
-          "natural",
-          "image",
-          "Cat",
-          "sitting",
-          "desk",
-          "papers",
-          "cup",
-          "viewed",
-          "window",
-          "curtains",
-          "visible",
-          "symbols",
-          "cat",
-          "book",
-          "Gray",
-          "striped",
-          "Business",
-          "suit",
-          "Coffee",
-          "mug",
-          "Newspaper",
-          "Movie",
-          "Ranking",
-          "NETFLIX",
-          "user",
-          "127",
-          "Speech",
-          "Recognition",
-          "Ok",
-          "Google",
-          "Abstract",
-          "blue",
-          "waveform",
-          "visualization",
-          "Protein",
-          "Folding",
-          "Formulating",
-          "The",
-          "Learning",
-          "Problem0"
+        "length": 119,
+        "summary": "The title slide for 'Class 1' of a course on Statistical Learning Theory, presented by Carlo Ciliberto from the Department of Computer Science at UCL on October 5, 2018.",
+        "page_nums": [
+          1
         ],
-        "keywords": [],
-        "connect_to": [
-          {
-            "target": "3642f12c-21b7-567e-876a-26843beffb08",
-            "relation": "embeds",
-            "ref": "[images/image-6-Grid of nu.jpg]",
-            "position": {
-              "start": 190,
-              "end": 221
-            }
-          },
-          {
-            "target": "c2c86116-9667-5259-9673-c2c211d97e44",
-            "relation": "embeds",
-            "ref": "[images/image-7-_details_ .jpg]",
-            "position": {
-              "start": 411,
-              "end": 442
-            }
-          },
-          {
-            "target": "9069a803-e353-54ec-86fb-e0e460e392a0",
-            "relation": "embeds",
-            "ref": "[images/image-8-Coffee mug.jpg]",
-            "position": {
-              "start": 715,
-              "end": 746
-            }
-          },
-          {
-            "target": "3d6e9cd9-5f01-5937-abe7-61f3ae4302b4",
-            "relation": "embeds",
-            "ref": "[images/image-9-Newspaper .jpg]",
-            "position": {
-              "start": 791,
-              "end": 822
-            }
-          },
-          {
-            "target": "010ac87f-546f-5206-a4ca-154e96ce8229",
-            "relation": "embeds",
-            "ref": "[images/image-10-Movie Rank.jpg]",
-            "position": {
-              "start": 871,
-              "end": 903
-            }
-          },
-          {
-            "target": "50f0b756-3174-5261-84b6-e0269f6ee370",
-            "relation": "embeds",
-            "ref": "[images/image-11-user_127 _.jpg]",
-            "position": {
-              "start": 957,
-              "end": 989
-            }
-          },
-          {
-            "target": "326ffa21-4abb-50ef-88be-5ca242cb4721",
-            "relation": "embeds",
-            "ref": "[images/image-12-_details_ .jpg]",
-            "position": {
-              "start": 1170,
-              "end": 1202
-            }
-          },
-          {
-            "target": "500c756d-2e8a-5e5a-a3f8-dc178293d610",
-            "relation": "embeds",
-            "ref": "[images/image-13-_summary_n.jpg]",
-            "position": {
-              "start": 1275,
-              "end": 1307
-            }
-          }
-        ]
-      }
-    },
-    {
-      "chunk_id": "1fee5460-93df-5326-ae84-19ed917a5e29",
-      "type": "text",
-      "content": "",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem",
-      "metadata": {
-        "length": 0,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "ba241116-ef0c-54c9-969e-815f74640826",
-      "type": "text",
-      "content": "",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem",
-      "metadata": {
-        "length": 0,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "5ae7f40e-9137-565a-b028-e374630eb7ff",
-      "type": "text",
-      "content": "▶ X input and Y output spaces.\n▶ ρ unknown distribution on $X \\times Y$ .\n$\\ell : \\mathcal{Y} \\times \\mathcal{Y} \\to \\mathbb{R}$ a loss function measuring the discrepancy $\\ell(y, y')$ between any two points $y, y' \\in \\mathcal{Y}$ .\nWe would like to minimize the expected risk\n$$\n\\underset {f: \\mathcal {X} \\to \\mathcal {Y}} {\\text { minimize }}   \\mathcal {E} (f) \\quad \\mathcal {E} (f) = \\int_ {\\mathcal {X} \\times \\mathcal {Y}} \\ell (f (x), y) d \\rho (x, y)\n$$\nThe expected prediction error incurred by a predictor $^{3}$ $f : X \\to Y$ .",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Main ingredients:",
-      "metadata": {
-        "length": 541,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "input",
-          "output",
-          "spaces",
-          "unknown",
-          "distribution",
-          "times",
-          "ell",
-          "mathcal",
-          "mathbb",
-          "loss",
-          "function",
-          "measuring",
-          "discrepancy",
-          "points",
-          "We",
-          "minimize",
-          "expected",
-          "risk",
-          "underset",
-          "text",
-          "quad",
-          "int",
-          "rho",
-          "The",
-          "prediction",
-          "error",
-          "incurred",
-          "predictor"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "72758b2f-862d-5730-afd6-66ea5f213ad5",
-      "type": "text",
-      "content": "Linear Spaces\nVectors\nMatrices\nFunctions\n\"Structured\" Spaces\n▶ Strings\n▶ Graphs\nProbabilities\n▶ Points on a manifold\n▶ ...",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Input Space Linear Spaces",
-      "metadata": {
-        "length": 122,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Linear",
-          "Spaces",
-          "Vectors",
-          "Matrices",
-          "Functions",
-          "Structured",
-          "Strings",
-          "Graphs",
-          "Probabilities",
-          "Points",
-          "manifold"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "43e87468-5a10-5f4a-a1dd-8a05a8902a1b",
-      "type": "text",
-      "content": "Linear Spaces, e.g.\n▶ $\\mathcal{Y} = R$ regression\n▶ $Y = \\{1, \\ldots, T\\}$ classification\n$\\mathcal{Y} = \\mathbb{R}^{T}$ multi-task\n\"Structured\" Spaces, e.g.\n▶ Strings\nGraphs\nProbabilities\nOrders (i.e. Ranking)\n▶ ...",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Output Space",
-      "metadata": {
-        "length": 217,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Linear",
-          "Spaces",
-          "mathcal",
-          "regression",
-          "ldots",
-          "classification",
-          "mathbb",
-          "multi",
-          "task",
-          "Structured",
-          "Strings",
-          "Graphs",
-          "Probabilities",
-          "Orders",
-          "Ranking"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "9d88d4eb-79b4-5537-8153-b394ceafca5a",
-      "type": "text",
-      "content": "Informally: the distribution $\\rho$ on $X \\times Y$ encodes the probability of getting a pair $(x, y) \\in \\mathcal{X} \\times \\mathcal{Y}$ when observing (sampling from) the unknown process.\nThroughout the course we will assume $\\rho(x,y)=\\rho(y|x)\\rho_{\\mathcal{X}}(x)$\n▶ $\\rho_{\\mathcal{X}}(x)$ marginal distribution on X.\n▶ $\\rho(y|x)$ conditional distribution on Y given $x \\in X$ .",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Probability Distribution",
-      "metadata": {
-        "length": 385,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Informally",
-          "distribution",
-          "rho",
-          "times",
-          "encodes",
-          "probability",
-          "pair",
-          "mathcal",
-          "observing",
-          "sampling",
-          "unknown",
-          "process",
-          "Throughout",
-          "assume",
-          "marginal",
-          "conditional"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "09a454e5-02d8-5366-83a9-616342f1e42a",
-      "type": "text",
-      "content": "$\\rho(y|x)$ characterizes the relation between a given input x and the possible outcomes y that could be observed.\nIn noisy settings it represents the uncertainty in our observations.\nExample: $y = f_{*}(x) + \\epsilon$ , with $f_{*} : X \\to R$ the “true” function and $\\epsilon \\sim \\mathcal{N}(0, \\sigma)$ Gaussian distributed noise. Then:\n$$\n\\rho (y | x) = \\mathcal {N} (f _ {*} (x), \\sigma)\n$$",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Conditional Distribution",
-      "metadata": {
-        "length": 396,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "rho",
-          "characterizes",
-          "relation",
-          "input",
-          "outcomes",
-          "observed",
-          "In",
-          "noisy",
-          "settings",
-          "represents",
-          "uncertainty",
-          "observations",
-          "Example",
-          "epsilon",
-          "true",
-          "function",
-          "sim",
-          "mathcal",
-          "sigma",
-          "Gaussian",
-          "distributed",
-          "noise",
-          "Then"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "a77e64ce-1612-51c9-9a4c-a813e4916637",
-      "type": "text",
-      "content": "The loss function\n$$\n\\ell : \\mathcal {Y} \\times \\mathcal {Y} \\rightarrow [ 0, + \\infty)\n$$\nrepresents the cost $\\ell(f(x), y)$ incurred when predicting $f(x)$ instead of y.\nIt is part of the problem formulation:\n$$\n\\mathcal {E} (f) = \\int \\ell (f (x), y) d \\rho (x, y)\n$$\nThe minimizer of the risk (if it exists) is “chosen” by the loss.",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Loss Functions",
-      "metadata": {
-        "length": 337,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "The",
-          "loss",
-          "function",
-          "ell",
-          "mathcal",
-          "times",
-          "rightarrow",
-          "infty",
-          "represents",
-          "cost",
-          "incurred",
-          "predicting",
-          "It",
-          "part",
-          "problem",
-          "formulation",
-          "int",
-          "rho",
-          "minimizer",
-          "risk",
-          "exists",
-          "chosen"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "3348fe10-65e0-5889-bf3f-ac5697e82fd9",
-      "type": "image",
-      "content": "\nL (y, y ^ {\\prime}) = L (y - y ^ {\\prime}) <details>0\n[images/image-14-Loss Functions Comparison.jpg]\n",
-      "path": "images/image-14-Loss Functions Comparison.jpg",
-      "metadata": {
-        "length": 88,
-        "summary": "image-14\n- Chart Title: Comparison of Square Loss, Absolute, and Epsilon-insensitive loss functions\n- X-axis: Error values ranging from -1.0 to 1.0\n- Y-axis: Loss values ranging from 0.0 to 1.0\n- Curves displayed:\n  * Square Loss (blue curve): Parabolic shape increasing quadratically with error\n  * Absolute (purple line): Linear V-shape representing absolute value function\n  * ε-insensitive (yellow line): Flat region near zero with linear increase outside the epsilon margin\n- Legend identifies all three loss function types",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-14-Loss Functions Comparison.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "b77ecb8a-2fe4-50a2-9fc5-d95d3ea1d5f8",
-      "type": "table",
-      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>x</th>\n      <th>Square Loss</th>\n      <th>Absolute</th>\n      <th>ε - insensitive</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>1.0</td>\n      <td>1.0</td>\n      <td>1.0</td>\n      <td>0.7</td>\n    </tr>\n    <tr>\n      <td>0.5</td>\n      <td>0.2</td>\n      <td>0.4</td>\n      <td>0.2</td>\n    </tr>\n    <tr>\n      <td>0.0</td>\n      <td>0.0</td>\n      <td>0.0</td>\n      <td>0.0</td>\n    </tr>\n    <tr>\n      <td>0.5</td>\n      <td>0.2</td>\n      <td>0.4</td>\n      <td>0.2</td>\n    </tr>\n    <tr>\n      <td>1.0</td>\n      <td>1.0</td>\n      <td>1.0</td>\n      <td>0.7</td>\n    </tr>\n  </tbody>\n</table>",
-      "path": "tables/table-2 Loss Functions.html",
-      "metadata": {
-        "length": 707,
-        "summary": "table-3\nThe table compares three loss functions (Square, Absolute, ε-insensitive) across x values from -1.0 to 1.0, showing symmetric values with ε-insensitive loss being lower at extremes.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "tables/table-2 Loss Functions.html",
         "keywords": [
-          "Square Loss",
-          "Absolute Loss",
-          "ε-insensitive"
+          "Carlo Ciliberto",
+          "UCL"
         ],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "1a393e24-9e76-5c8f-9041-823a8ae5f56c",
-      "type": "text",
-      "content": "$$\nL (y, y ^ {\\prime}) = L (y - y ^ {\\prime})\n$$\n▶ Square loss $L(y, y') = (y - y')^{2}$ ,\n▶ Absolute loss $L(y, y') = |y - y'|$ ,\n▶ ε-insensitive $L(y, y') = \\max(|y - y'| - \\epsilon, 0)$ ,\n\nL (y, y ^ {\\prime}) = L (y - y ^ {\\prime}) <details>0\n[images/image-14-Loss Functions Comparison.jpg]\n\n<details>\n<summary>line chart</summary>\n\n[tables/table-2 Loss Functions.html]\n\n</details>",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Loss Functions/Loss Functions for Regression",
-      "metadata": {
-        "length": 391,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "prime",
-          "Square",
-          "loss",
-          "Absolute",
-          "insensitive",
-          "max",
-          "epsilon",
-          "details",
-          "summary",
-          "line",
-          "chart"
-        ],
-        "keywords": [],
-        "connect_to": [
+        "connect_to": [],
+        "page_assets": [
           {
-            "target": "3348fe10-65e0-5889-bf3f-ac5697e82fd9",
-            "relation": "embeds",
-            "ref": "[images/image-14-Loss Functions Comparison.jpg]",
-            "position": {
-              "start": 246,
-              "end": 293
-            }
-          },
-          {
-            "target": "b77ecb8a-2fe4-50a2-9fc5-d95d3ea1d5f8",
-            "relation": "embeds",
-            "ref": "[tables/table-2 Loss Functions.html]",
-            "position": {
-              "start": 336,
-              "end": 372
-            }
+            "page_num": 1,
+            "artifact_ref": "page_citation_assets/page-1.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
           }
         ]
       }
     },
     {
-      "chunk_id": "4c26451c-14b4-52f5-b064-93f0762fe772",
-      "type": "image",
-      "content": "\n$$ <details>0\n[images/image-15-Exponential Functions Graph.jpg]\n",
-      "path": "images/image-15-Exponential Functions Graph.jpg",
+      "chunk_id": "node_036e1501-8938-55d9-b4cb-08495962a86e",
+      "type": "page",
+      "content": "[SAME-AS Introduction to Statistical Learning Theory.pdf/Root/Class 1 p1]",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Introduction to Statistical Learning Theory",
       "metadata": {
-        "length": 48,
-        "summary": "image-15\n- Chart Title: None visible\n- Axes:\n  - X-axis: Range from approximately -0.5 to 2, with major tick marks at 0, 1, and 2.\n  - Y-axis: Range from 0 to above 2.0, with labeled ticks at 0.5, 1.0, 1.5, and 2.0.\n- Key Data Points & Features:\n  - All plotted curves intersect at the point (0, 1).\n  - One curve is a horizontal line at y = 1.\n  - Two curves show exponential decay (decreasing as x increases), one steeper than the other.\n  - One curve shows exponential growth (increasing as x increases) and intersects the decaying curves again near x = 1.5.\n- Context: The graph illustrates the behavior of different exponential functions passing through the common point (0, 1).",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "images/image-15-Exponential Functions Graph.jpg",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "c1e363f6-8706-5645-88f0-ab3f71838ded",
-      "type": "table",
-      "content": "<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th>x</th>\n      <th>Line 1</th>\n      <th>Line 2</th>\n      <th>Line 3</th>\n      <th>Line 4</th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <td>0</td>\n      <td>1.0</td>\n      <td>1.0</td>\n      <td>1.0</td>\n      <td>1.0</td>\n    </tr>\n    <tr>\n      <td>1</td>\n      <td>0.0</td>\n      <td>0.0</td>\n      <td>0.0</td>\n      <td>0.0</td>\n    </tr>\n    <tr>\n      <td>2</td>\n      <td>1.0</td>\n      <td>0.5</td>\n      <td>0.2</td>\n      <td>0.3</td>\n    </tr>\n  </tbody>\n</table>",
-      "path": "tables/table-3 Data Table.html",
-      "metadata": {
-        "length": 574,
-        "summary": "table-4\nThe table shows three rows of data with columns x, Line 1, Line 2, Line 3, and Line 4. Row 0 has all 1.0, row 1 has all 0.0, and row 2 has 1.0, 0.5, 0.2, 0.3.",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "file_path": "tables/table-3 Data Table.html",
+        "length": 73,
+        "summary": "This section is the title slide for 'Class 1: Introduction to Statistical Learning Theory', presented by Carlo Ciliberto from the Department of Computer Science at UCL on October 5, 2018.",
+        "page_nums": [
+          1
+        ],
         "keywords": [
-          "table",
-          "values",
-          "rows"
+          "Carlo Ciliberto",
+          "Department of Computer Science",
+          "UCL"
         ],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "017456a5-d7bb-52d0-b8fb-55742caee3d1",
-      "type": "text",
-      "content": "$$\nL (y, y ^ {\\prime}) = L (- y y ^ {\\prime})\n$$\n▶ 0-1 loss $L(y, y') = \\mathbf{1}_{\\{-yy' > 0\\}}$\n▶ Square loss $L(y, y') = (1 - yy')^{2}$ ,\n▶ Hinge-loss $L(y, y') = \\max(1 - yy', 0)$ ,\n▶ logistic loss $L(y, y') = \\log(1 + \\exp(-yy'))$ ,\n\n$$ <details>0\n[images/image-15-Exponential Functions Graph.jpg]\n\n<details>\n<summary>line chart</summary>\n\n[tables/table-3 Data Table.html]\n\n</details>\n— 01 loss\n— square loss\n— Hinge loss\n— Logistic loss",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem/Loss Functions/Loss Functions for Classification",
-      "metadata": {
-        "length": 443,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "prime",
-          "loss",
-          "mathbf",
-          "yy",
-          "Square",
-          "Hinge",
-          "max",
-          "logistic",
-          "log",
-          "exp",
-          "details",
-          "summary",
-          "line",
-          "chart",
-          "01",
-          "square",
-          "Logistic"
-        ],
-        "keywords": [],
-        "connect_to": [
+        "connect_to": [],
+        "page_assets": [
           {
-            "target": "4c26451c-14b4-52f5-b064-93f0762fe772",
-            "relation": "embeds",
-            "ref": "[images/image-15-Exponential Functions Graph.jpg]",
-            "position": {
-              "start": 254,
-              "end": 303
-            }
-          },
-          {
-            "target": "c1e363f6-8706-5645-88f0-ab3f71838ded",
-            "relation": "embeds",
-            "ref": "[tables/table-3 Data Table.html]",
-            "position": {
-              "start": 346,
-              "end": 378
-            }
+            "page_num": 1,
+            "artifact_ref": "page_citation_assets/page-1.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
           }
         ]
       }
     },
     {
-      "chunk_id": "e7b8bc0b-b341-5068-8975-eaf4e3107cae",
-      "type": "text",
-      "content": "The relation between X and Y encoded by the distribution $\\rho$ is unknown in reality. The only way we have to access a phenomenon is from finite observations.\nThe goal of a learning algorithm is therefore to find a good approximation $f_{n}: X \\to Y$ for the minimizer of expected risk\n$$\n\\inf _ {f: \\mathcal {X} \\to \\mathcal {Y}} \\mathcal {E} (f)\n$$\nfrom a finite set of examples $(x_{i}, y_{i})_{i=1}^{n}$ sampled independently from $\\rho$ .",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem_2",
+      "chunk_id": "node_1ebee177-3f58-5f82-8cd8-0257d42fb214",
+      "type": "page",
+      "content": "Administrative Info\n▶Class times: Fridays 14:00 - 15:301\n▶Location: Ground Floor Lecture Theater, Wilkins Building2\n▶Oﬃce hours: (Time TBA), 3rd Floor Hub room, CS Building, 66\nGower street.\n▶TA: Giulia Luise\n▶Website: cciliber.github.io/intro-stl\n▶email(s): cciliber@gmail.com, g.luise.16@ucl.ac.uk\n▶Workload: 2 assignments (50%) and a ﬁnal exam (50%). Final\nexam requires to choose 3 problems out of 6. At least one problem\nfrom each “sides” of this course (RKHS or SLT) *must* be chosen.\n1sometimes Wednesday though! See online syllabus\n2It will vary over the term! See online.",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Administrative Info",
       "metadata": {
-        "length": 444,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "The",
-          "relation",
-          "encoded",
-          "distribution",
-          "rho",
-          "unknown",
-          "reality",
-          "access",
-          "phenomenon",
-          "finite",
-          "observations",
-          "goal",
-          "learning",
-          "algorithm",
-          "find",
-          "good",
-          "approximation",
-          "minimizer",
-          "expected",
-          "risk",
-          "inf",
-          "mathcal",
-          "set",
-          "examples",
-          "sampled",
-          "independently"
+        "length": 580,
+        "summary": "This page provides administrative details for a course, including class times (Fridays 14:00-15:30), location (Ground Floor Lecture Theater, Wilkins Building), and office hours. It lists the Teaching Assistant as Giulia Luise and provides contact information via website, email, and physical address at UCL. The workload section outlines that the grade is split between two assignments (50%) and a final exam (50%), with specific requirements for the exam questions.",
+        "page_nums": [
+          2
         ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "126d2fc4-7b4b-5654-bf78-652d6b0fb30d",
-      "type": "text",
-      "content": "Let $S = \\bigcup_{n \\in N} (\\mathcal{X} \\times \\mathcal{Y})^n$ be the set of all finite datasets on $\\mathcal{X} \\times \\mathcal{Y}$ . Denote F the set of all measurable functions $f: \\mathcal{X} \\to \\mathcal{Y}$ . A learning algorithm is a map\n$$\n\\begin{array}{l} A: \\mathcal {S} \\to \\mathcal {F} \\\\ S \\mapsto A (S): \\mathcal {X} \\to \\mathcal {Y} \\\\ \\end{array}\n$$\nTo highlight our interest in studying the relation between the size of a training set $S = (x_{i}, y_{i})_{i=1}^{n}$ and the corresponding predictor produced by an algorithm A, we will often denote (with some abuse of notation)\n$$\nf _ {n} = A \\left(\\left(x _ {i}, y _ {i}\\right) _ {i = 1} ^ {n}\\right)\n$$\nNon-deterministic Learning Algorithms\nWe can also consider stochastic algorithms, where the estimator $f_{n}$ is not automatically determined by the training set.\nIn these cases, given a dataset $S \\in S$ , an algorithm $A(S)$ can be seen as a distribution on $\\mathcal{F}$ and its output is one sample from $A(S)$ .\nUnder this interpretation a deterministic algorithm corresponds to $A(S)$ being a Dirac's delta.",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Defining Learning Algorithms",
-      "metadata": {
-        "length": 1084,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Let",
-          "bigcup",
-          "mathcal",
-          "times",
-          "set",
-          "finite",
-          "datasets",
-          "Denote",
-          "measurable",
-          "functions",
-          "learning",
-          "algorithm",
-          "map",
-          "begin",
-          "array",
-          "mapsto",
-          "end",
-          "To",
-          "highlight",
-          "interest",
-          "studying",
-          "relation",
-          "size",
-          "training",
-          "predictor",
-          "produced",
-          "denote",
-          "abuse",
-          "notation",
-          "left",
-          "Non",
-          "deterministic",
-          "Learning",
-          "Algorithms",
-          "We",
-          "stochastic",
-          "algorithms",
-          "estimator",
-          "automatically",
-          "determined",
-          "In",
-          "cases",
-          "dataset",
-          "distribution",
-          "output",
-          "sample",
-          "Under",
-          "interpretation",
-          "corresponds",
-          "Dirac",
-          "delta"
+        "keywords": [
+          "Giulia Luise",
+          "Wilkins Building",
+          "CS Building",
+          "66 Gower street",
+          "UCL"
         ],
-        "keywords": [],
-        "connect_to": []
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 2,
+            "artifact_ref": "page_citation_assets/page-2.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
       }
     },
     {
-      "chunk_id": "2440ca50-2ea9-5213-9794-ecfa7ddab495",
-      "type": "text",
-      "content": "Given a training set, we would like a learning algorithm to find a “good” predictor $f_{n}$ .\nWhat does “good” mean? That it has small error (or excess risk) with respect to the best solution of the learning problem.\nExcess Risk\n$$\n\\mathcal {E} (f _ {n}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f)\n$$",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Formulating The Learning Problem/Formulating the Learning Problem_3",
+      "chunk_id": "node_3b96eddc-998e-5c18-8f66-f9a74f071e72",
+      "type": "page",
+      "content": "Course Material\nMain resources for the course:\n▶Classes\n▶Slides\nBooks and other Resources:\n▶S. Shalev-Shwartz and S. Ben-David Understanding Machine\nLearning: From Theory to Algorithms (Online Book). Cambridge\nUniversity Press , 2014.\n▶O. Bousquet, S. Boucheron and G. Lugosi Introduction to Statistical\nLearning Theory (Tutorial).\n▶T. Poggio and L. Rosasco course slides and videos from MIT 9.520:\nStatistical Learning Theory and Applications.\n▶P. Liang course notes from Stanford CS229T: Statistical Learning\nTheory.",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Course Material",
       "metadata": {
-        "length": 304,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Given",
-          "training",
-          "set",
-          "learning",
-          "algorithm",
-          "find",
-          "good",
-          "predictor",
-          "What",
-          "That",
-          "small",
-          "error",
-          "excess",
-          "risk",
-          "respect",
-          "solution",
-          "problem",
-          "Excess",
-          "Risk",
-          "mathcal",
-          "inf"
+        "length": 518,
+        "summary": "This page lists the main resources for a course, including classes and slides. It also details several books and other materials relevant to Statistical Learning Theory, such as 'Understanding Machine Learning' by Shalev-Shwartz and Ben-David, and course notes from Stanford.",
+        "page_nums": [
+          3
         ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "1009893c-ef52-5e1d-ac7e-a8c7294cdad0",
-      "type": "text",
-      "content": "",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory",
-      "metadata": {
-        "length": 0,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "7a3daf48-3a51-525f-b5a3-f7c7c93c591d",
-      "type": "text",
-      "content": "Ideally we would like the learning algorithm to be consistent\n$$\n\\lim _ {n \\to + \\infty} \\mathcal {E} (f _ {n}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) = 0\n$$\nNamely that (asymptotically) our algorithm “solves” the problem.\nHowever $f_{n}=A(S)$ is a random variable: the points in the training set $S=(x_{i},y_{i})_{i=1}^{n}$ are randomly sampled from $\\rho$ .\nSo what do we mean by $\\mathcal{E}(f_{n})\\to\\inf\\mathcal{E}(f)$ ?",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Consistency",
-      "metadata": {
-        "length": 433,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Ideally",
-          "learning",
-          "algorithm",
-          "consistent",
-          "lim",
-          "infty",
-          "mathcal",
-          "inf",
-          "Namely",
-          "asymptotically",
-          "solves",
-          "problem",
-          "However",
-          "random",
-          "variable",
-          "points",
-          "training",
-          "set",
-          "randomly",
-          "sampled",
-          "rho",
-          "So"
+        "keywords": [
+          "S. Shalev-Shwartz",
+          "S. Ben-David",
+          "Cambridge University Press",
+          "O. Bousquet",
+          "S. Boucheron",
+          "G. Lugosi",
+          "T. Poggio",
+          "L. Rosasco",
+          "MIT",
+          "P. Liang",
+          "Stanford"
         ],
-        "keywords": [],
-        "connect_to": []
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 3,
+            "artifact_ref": "page_citation_assets/page-3.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
       }
     },
     {
-      "chunk_id": "61b37d98-1574-56b2-891e-52e01646ea23",
-      "type": "text",
-      "content": "Convergence in expectation:\n$$\n\\lim _ {n \\to + \\infty} \\mathbb {E} \\left[ \\mathcal {E} (f _ {n}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) \\right] = 0\n$$\nConvergence in probability:\n$$\n\\lim _ {n \\rightarrow + \\infty} \\mathbb {P} \\left(\\mathcal {E} (f _ {n}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) > \\epsilon\\right) = 0 \\quad \\forall \\epsilon > 0\n$$\nMany other notions of convergence of random variables exist!",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Convergence of Random Variables",
+      "chunk_id": "node_c96b4201-616d-5f57-95a1-92c38a0f443f",
+      "type": "page",
+      "content": "Prerequisites\n▶Linear Algebra: familiarity with vector spaces, matrix operations\n(e.g. inversion, singular value decomposition (SVD)), inner products\nand norms, etc.\n▶Calculus: limits, derivatives, measures, integrals, etc.\n▶Probability Theory: probability distributions, conditional and\nmarginal distribution, expectation, variance, etc.",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Prerequisites",
       "metadata": {
-        "length": 422,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Convergence",
-          "expectation",
-          "lim",
-          "infty",
-          "mathbb",
-          "left",
-          "mathcal",
-          "inf",
-          "probability",
-          "rightarrow",
-          "epsilon",
-          "quad",
-          "forall",
-          "Many",
-          "notions",
-          "convergence",
-          "random",
-          "variables",
-          "exist"
+        "length": 338,
+        "summary": "The page lists the academic prerequisites required for a course or topic. It outlines three main areas of study: Linear Algebra, Calculus, and Probability Theory, providing specific examples of concepts within each field such as matrix operations, limits, and probability distributions.",
+        "page_nums": [
+          4
         ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "aec6578f-54bc-56d6-a3db-10b27a6817f3",
-      "type": "text",
-      "content": "Note that we are only interested in guaranteeing that the risk of our estimator will converge to the best possible value\n$$\n\\mathcal {E} (f _ {n}) \\to \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f)\n$$\nbut we are not directly interested in determining whether $f_{n} \\to f^{*}$ (in some norm) where $f^{*}: X \\to Y$ is a minimizer of the expected risk\n$$\n\\mathcal {E} (f ^ {*}) = \\inf _ {f: \\mathcal {X} \\to \\mathcal {Y}} \\mathcal {E} (f)\n$$\nActually, the risk could even not admit a minimizer $f^{*}$ (although typically it will).\nThis is a main difference with several settings such as compressive sensing and inverse problems.",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Consistency vs Convergence of the Estimator",
-      "metadata": {
-        "length": 626,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Note",
-          "interested",
-          "guaranteeing",
-          "risk",
-          "estimator",
-          "converge",
-          "mathcal",
-          "inf",
-          "directly",
-          "determining",
-          "norm",
-          "minimizer",
-          "expected",
-          "Actually",
-          "admit",
-          "typically",
-          "This",
-          "main",
-          "difference",
-          "settings",
-          "compressive",
-          "sensing",
-          "inverse",
-          "problems"
+        "keywords": [
+          "Linear Algebra",
+          "Calculus",
+          "Probability Theory"
         ],
-        "keywords": [],
-        "connect_to": []
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 4,
+            "artifact_ref": "page_citation_assets/page-4.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
       }
     },
     {
-      "chunk_id": "96478707-8087-5f16-ae05-5323763af418",
-      "type": "text",
-      "content": "However, the existence of $f^{*}$ can be useful in several situations.\nLeast Squares. $\\ell(f(x),y)=(f(x)-y)^{2}$ . Then\n$$\n\\mathcal {E} (f) - \\mathcal {E} (f ^ {*}) = \\| f - f ^ {*} \\| _ {L ^ {2} (\\mathcal {X}, \\rho)}\n$$\nLipschitz Loss. $|\\ell(z,y)-\\ell(z',y)|\\leq L|z-z'|$\n$$\n\\mathcal {E} (f) - \\mathcal {E} (f ^ {*}) \\leq L \\| f - f ^ {*} \\| _ {L ^ {1} (\\mathcal {X}, \\rho)}\n$$\nConvergence $f_{n} \\rightarrow f^{*}$ (in $L^{1}$ or $L^{2}$ norm respectively) automatically guarantees consistency!",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Existence of a Minimizer for the Risk",
-      "metadata": {
-        "length": 498,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "However",
-          "existence",
-          "situations",
-          "Least",
-          "Squares",
-          "ell",
-          "Then",
-          "mathcal",
-          "rho",
-          "Lipschitz",
-          "Loss",
-          "leq",
-          "Convergence",
-          "rightarrow",
-          "norm",
-          "automatically",
-          "guarantees",
-          "consistency"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "6e90785b-128f-5052-a6df-9feba3b1d65d",
-      "type": "text",
-      "content": "Is consistency enough? Well no. It does not provide a quantitative measure of how “good” a learning algorithm is.\nIn other words, question: how do we compare two learning algorithms?\nAnswer: via their Learning Rates, namely the “speed” at which the excess risk goes to zero as n increases.\nExample: Expectation\n$$\n\\mathbb {E} \\left[ \\mathcal {E} (f _ {n}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) \\right] = O (n ^ {- \\alpha}) \\quad \\text { for   some } \\alpha > 0.\n$$\nWe can compare two algorithms by determining which one has a faster learning rate (i.e. larger exponent $\\alpha$ ).",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Measuring the “Quality” of a Learning Algorithm",
-      "metadata": {
-        "length": 589,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Is",
-          "consistency",
-          "Well",
-          "It",
-          "provide",
-          "quantitative",
-          "measure",
-          "good",
-          "learning",
-          "algorithm",
-          "In",
-          "words",
-          "question",
-          "compare",
-          "algorithms",
-          "Answer",
-          "Learning",
-          "Rates",
-          "speed",
-          "excess",
-          "risk",
-          "increases",
-          "Example",
-          "Expectation",
-          "mathbb",
-          "left",
-          "mathcal",
-          "inf",
-          "alpha",
-          "quad",
-          "text",
-          "We",
-          "determining",
-          "faster",
-          "rate",
-          "larger",
-          "exponent"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "be940107-f71a-5ebd-9c4b-3297062fc171",
-      "type": "text",
-      "content": "Sample Complexity: minimum number $n(\\epsilon, \\delta)$ of training points the algorithm needs to achieve an excess risk lower than $\\epsilon$ with at least probability $1 - \\delta$ :\n$$\n\\mathbb {P} \\left(\\mathcal {E} (f _ {n (\\epsilon , \\delta)}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) \\leq \\epsilon\\right) \\geq 1 - \\delta\n$$\nError Bounds: Upper bound $\\epsilon(\\delta,n)>0$ on the excess risk of $f_{n}$ which holds with probability larger than $1-\\delta$\n$$\n\\mathbb {P} \\left(\\mathcal {E} (f _ {n}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) \\leq \\epsilon (\\delta , n)\\right) \\geq 1 - \\delta\n$$\nTail Bounds: Lower bound $\\delta(\\epsilon,n)\\in(0,1)$ on the probability that $f_{n}$ will have excess risk larger than $\\epsilon$\n$$\n\\mathbb {P} \\left(\\mathcal {E} (f _ {n}) - \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f) \\leq \\epsilon\\right) \\geq 1 - \\delta (\\epsilon , n)\n$$",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Sample Complexity, Error Bounds and Tail Bounds",
-      "metadata": {
-        "length": 886,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Sample",
-          "Complexity",
-          "minimum",
-          "number",
-          "epsilon",
-          "delta",
-          "training",
-          "points",
-          "algorithm",
-          "achieve",
-          "excess",
-          "risk",
-          "lower",
-          "probability",
-          "mathbb",
-          "left",
-          "mathcal",
-          "inf",
-          "leq",
-          "geq",
-          "Error",
-          "Bounds",
-          "Upper",
-          "bound",
-          "holds",
-          "larger",
-          "Tail",
-          "Lower"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "c2bd4750-b3ff-5917-ad13-1c86a0acb4a2",
-      "type": "text",
-      "content": "If $\\rho$ is unknown... how can we say anything about $\\mathcal{E}(f_n) - \\inf_{f\\in \\mathcal{F}}\\mathcal{E}(f)?$\nWe have “glimpses” of $\\rho$ only via the samples $(x_{i}, y_{i})_{i=1}^{n}$ . Can we use them to gather some information about $\\rho$ (or better, on $\\mathcal{E}(f)$ )?\nConsider function $f : X \\to Y$ and its empirical risk\n$$\n\\mathcal {E} _ {n} (f) = \\frac {1}{n} \\sum_ {i = 1} ^ {n} \\ell (f (x _ {i}), y _ {i})\n$$\nA simple calculation shows that\n$$\n\\mathbb {E} _ {S \\sim \\rho^ {n}} (\\mathcal {E} _ {n} (f)) = \\frac {1}{n} \\sum_ {i = 1} ^ {n} \\mathbb {E} _ {(x _ {i}, y _ {i}) \\sim \\rho} (\\ell (f (x _ {i}), y _ {i})) = \\frac {1}{n} \\sum_ {i = 1} ^ {n} \\mathcal {E} (f) = \\mathcal {E} (f)\n$$\nThe expectation of $\\mathcal{E}_{n}(f)$ is the expected risk $\\mathcal{E}(f)!$",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Empirical Risk as a Proxy",
-      "metadata": {
-        "length": 786,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "If",
-          "rho",
-          "unknown",
-          "mathcal",
-          "inf",
-          "We",
-          "glimpses",
-          "samples",
-          "Can",
-          "gather",
-          "information",
-          "Consider",
-          "function",
-          "empirical",
-          "risk",
-          "frac",
-          "sum",
-          "ell",
-          "simple",
-          "calculation",
-          "shows",
-          "mathbb",
-          "sim",
-          "The",
-          "expectation",
-          "expected"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "1294e2d3-ebe2-5f95-a138-451c5beb6654",
-      "type": "text",
-      "content": "How close is $\\mathcal{E}_{n}(f)$ to $\\mathcal{E}(f)$ with respect to the number n of training points?\nConsider i.i.d. random variables X and $(X_{i})_{i=1}^{n}$ . Let $\\bar{X}_{n} = \\frac{1}{n} \\sum_{i=1}^{n} X_{i}$ . Then\n$$\n\\mathbb {E} [ (\\bar {X} _ {n} - \\mathbb {E} (X)) ^ {2} ] = \\operatorname{Var} (\\bar {X} _ {n}) = \\frac {\\operatorname{Var} (X)}{n}\n$$\nTherefore the expected (squared) distance between the empirical mean of the $X_{i}$ and their expectation $\\mathbb{E}(X)$ goes to zero as $O(1/n)$ (Assuming X to have finite variance).\nIf $X_{i} = \\ell (f(x_{i}),y_{i})$ , we have $\\bar{X}_n = \\mathcal{E}_n(f)$ and therefore\n$$\n\\mathbb {E} [ (\\mathcal {E} _ {n} (f) - \\mathcal {E} (f)) ^ {2} ] = \\frac {\\operatorname{Var} (\\ell (f (x) , y))}{n}\n$$",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Empirical Vs Expected",
-      "metadata": {
-        "length": 758,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "How",
-          "close",
-          "mathcal",
-          "respect",
-          "number",
-          "training",
-          "points",
-          "Consider",
-          "random",
-          "variables",
-          "Let",
-          "bar",
-          "frac",
-          "sum",
-          "Then",
-          "mathbb",
-          "operatorname",
-          "Var",
-          "Therefore",
-          "expected",
-          "squared",
-          "distance",
-          "empirical",
-          "expectation",
-          "Assuming",
-          "finite",
-          "variance",
-          "If",
-          "ell"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "b5c7932a-1d9c-5a45-a20d-3d26e5af7a70",
-      "type": "text",
-      "content": "If $X_{i} = \\ell(f(x_{i}), y_{i})$ , we have $\\bar{X}_{n} = \\mathcal{E}_{n}(f)$ and therefore\n$$\n\\mathbb {E} [ (\\mathcal {E} _ {n} (f) - \\mathcal {E} (f)) ^ {2} ] = \\frac {\\mathrm{Var} (\\ell (f (x) , y))}{n}\n$$\nIn particular\n$$\n\\mathbb {E} [ | \\mathcal {E} _ {n} (f) - \\mathcal {E} (f) | ] \\leq \\sqrt {\\frac {\\mathrm{Var} (\\ell (f (x) , y))}{n}}\n$$",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Empirical Vs Expected Risk",
-      "metadata": {
-        "length": 348,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "If",
-          "ell",
-          "bar",
-          "mathcal",
-          "mathbb",
-          "frac",
-          "mathrm",
-          "Var",
-          "In",
-          "leq",
-          "sqrt"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "af70faba-faa4-5d71-842e-dcf45d775686",
-      "type": "text",
-      "content": "Assume for simplicity that there exists a minimizer $f_{*}: X \\to Y$ of the expected risk\n$$\n\\mathcal {E} (f _ {*}) = \\inf _ {f \\in \\mathcal {F}} \\mathcal {E} (f)\n$$\nFor any function $f : X \\to Y$ we can decompose the excess risk as\n$$\n\\begin{array}{l} \\mathcal {E} (f) - \\mathcal {E} (f _ {*}) = \\\\ \\mathcal {E} (f) - \\mathcal {E} _ {n} (f) + \\mathcal {E} _ {n} (f) - \\mathcal {E} _ {n} (f _ {*}) + \\mathcal {E} _ {n} (f _ {*}) - \\mathcal {E} (f _ {*}), \\\\ \\end{array}\n$$\nrecalling the definition $\\mathcal{E}_{n}(f):=\\frac{1}{n}\\sum_{i=1}^{n}\\ell(f(x_{i}),y_{i})$ of the empirical risk. Note that this in particularly then also holds for $f_{n}$ , which we will use below. We can therefore leverage on the statistical relation between $E_{n}$ and E to study the expected risk in terms of the empirical risk.\nThis perspective leads to one of the most well-established strategies on SLT: Empirical Risk Minimization",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Empirical Vs Expected_2",
-      "metadata": {
-        "length": 915,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Assume",
-          "simplicity",
-          "exists",
-          "minimizer",
-          "expected",
-          "risk",
-          "mathcal",
-          "inf",
-          "For",
-          "function",
-          "decompose",
-          "excess",
-          "begin",
-          "array",
-          "end",
-          "recalling",
-          "definition",
-          "frac",
-          "sum",
-          "ell",
-          "empirical",
-          "Note",
-          "holds",
-          "We",
-          "leverage",
-          "statistical",
-          "relation",
-          "study",
-          "terms",
-          "This",
-          "perspective",
-          "leads",
-          "established",
-          "strategies",
-          "SLT",
-          "Empirical",
-          "Risk",
-          "Minimization"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "f6c6e734-a3e3-582a-9842-1a9676e583ba",
-      "type": "text",
-      "content": "Let $f_{n}$ be the minimizer of the empirical risk\n$$\nf _ {n} = \\underset {f \\in \\mathcal {F}} {\\operatorname{argmin}} \\mathcal {E} _ {n} (f)\n$$\nThen we automatically have $\\mathcal{E}_{n}(f_{n}) - \\mathcal{E}_{n}(f_{*}) \\leq 0$ (for any choice of training set).\nThen\n$$\n\\mathbb {E} \\mathcal {E} (f _ {n}) - \\mathcal {E} (f _ {*}) \\leq \\mathbb {E} \\mathcal {E} (f _ {n}) - \\mathcal {E} _ {n} (f _ {n}) \\quad (\\text { why? })\n$$\nWe can focus on studying only the generalization error\n$$\n\\mathbb {E} \\mathcal {E} (f _ {n}) - \\mathcal {E} _ {n} (f _ {n})\n$$",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Empirical Risk Minimization",
-      "metadata": {
-        "length": 554,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Let",
-          "minimizer",
-          "empirical",
-          "risk",
-          "underset",
-          "mathcal",
-          "operatorname",
-          "argmin",
-          "Then",
-          "automatically",
-          "leq",
-          "choice",
-          "training",
-          "set",
-          "mathbb",
-          "quad",
-          "text",
-          "We",
-          "focus",
-          "studying",
-          "generalization",
-          "error"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "48483a48-d13f-5208-9429-d1a028799da9",
-      "type": "text",
-      "content": "How can we control the generalization error\n$$\n\\mathcal {E} _ {n} (f _ {n}) - \\mathcal {E} (f _ {n})\n$$\nwith respect to the number n of examples?\nThis question is far from trivial...\n(and it is one of the main subject of SLT)\nIndeed, $E_{n}$ and $f_{n}$ both depend on the sampled training data. Therefore, we cannot use the result\n$$\n\\mathbb {E} \\left[ \\left. \\left| \\mathcal {E} _ {n} (f _ {n}) - \\mathcal {E} (f _ {n}) \\right| \\right] \\leq O (1 / \\sqrt {n}) \\right.\n$$\nwhich indeed will not be true in general... (next class).",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/The Elements of Learning Theory/Generalization Error",
-      "metadata": {
-        "length": 529,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "How",
-          "control",
-          "generalization",
-          "error",
-          "mathcal",
-          "respect",
-          "number",
-          "examples",
-          "This",
-          "question",
-          "trivial",
-          "main",
-          "subject",
-          "SLT",
-          "Indeed",
-          "depend",
-          "sampled",
-          "training",
-          "data",
-          "Therefore",
-          "result",
-          "mathbb",
-          "left",
-          "leq",
-          "sqrt",
-          "true",
-          "general",
-          "class"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "19d4fe47-fb59-58f3-b8e2-77e3f3d2a95a",
-      "type": "text",
-      "content": "",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/A Taxonomy of Supervised Learning Problems",
-      "metadata": {
-        "length": 0,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "d830c289-073c-5073-b904-81e5e21cb6c1",
-      "type": "text",
-      "content": "In practice we can have many different problems and scenarios:\nParametric Vs Non-parametric learning\n▶ Fixed design Vs random design\n▶ Transductive Vs inductive learning\n▶ Offline/batch Vs online/adversarial learning\nDifferent goals and assumptions but similar tools to study/solve them!",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/A Taxonomy of Supervised Learning Problems/A Taxonomy of Supervised Learning Problems",
-      "metadata": {
-        "length": 287,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "In",
-          "practice",
-          "problems",
-          "scenarios",
-          "Parametric",
-          "Vs",
-          "Non",
-          "parametric",
-          "learning",
-          "Fixed",
-          "design",
-          "random",
-          "Transductive",
-          "inductive",
-          "Offline",
-          "batch",
-          "online",
-          "adversarial",
-          "Different",
-          "goals",
-          "assumptions",
-          "similar",
-          "tools",
-          "study",
-          "solve"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "a643e31b-cca0-52f2-af2e-45d84811a08d",
-      "type": "text",
-      "content": "How much do we know about the model?\n▶ Parametric: assume the predictor to be modeled by a finite number of unknown parameters. Goal: find the parametrization that best fits the observed data. In several scenario the goal is not in (only) having good predictions but rather use the recovered model for other purposes (e.g. identification).\n▶ Non-parametric. allow the parametrization of the model to increase in complexity as more examples are observed. Goal: find an estimator with optimal generalization performance (i.e. lowest expected risk E).",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/A Taxonomy of Supervised Learning Problems/A Taxonomy of Supervised Learning Problems/Parametric Vs Non-parametric",
-      "metadata": {
-        "length": 548,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "How",
-          "model",
-          "Parametric",
-          "assume",
-          "predictor",
-          "modeled",
-          "finite",
-          "number",
-          "unknown",
-          "parameters",
-          "Goal",
-          "find",
-          "parametrization",
-          "fits",
-          "observed",
-          "data",
-          "In",
-          "scenario",
-          "goal",
-          "good",
-          "predictions",
-          "recovered",
-          "purposes",
-          "identification",
-          "Non",
-          "parametric",
-          "increase",
-          "complexity",
-          "examples",
-          "estimator",
-          "optimal",
-          "generalization",
-          "performance",
-          "lowest",
-          "expected",
-          "risk"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "6d5a8381-4e83-5d13-b078-0e8775a1c3c7",
-      "type": "text",
-      "content": "From experiment design...\n▶ Fixed Design. Given training examples $(x_{i}, y_{i})_{i=1}^{n}$ , the goal is to achieve good estimates for $\\rho(y|x_{i})$ on the prescribed training inputs. No distribution on the input data $\\rho_{X}$ is assumed/considered.\n$$\n\\frac {1}{n} \\sum_ {i = 1} ^ {n} \\int_ {\\mathcal {Y}} \\ell (f (x _ {i}), y) d \\rho (y | x _ {i})\n$$\n▶ Random Design. Agnostic about where the learned model will be tested. The goal is to make good predictions with respect to the distribution $\\rho(x,y)$ .",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/A Taxonomy of Supervised Learning Problems/A Taxonomy of Supervised Learning Problems/Fixed Design Vs Random Design",
-      "metadata": {
-        "length": 514,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "From",
-          "experiment",
-          "design",
-          "Fixed",
-          "Design",
-          "Given",
-          "training",
-          "examples",
-          "goal",
-          "achieve",
-          "good",
-          "estimates",
-          "rho",
-          "prescribed",
-          "inputs",
-          "No",
-          "distribution",
-          "input",
-          "data",
-          "assumed",
-          "considered",
-          "frac",
-          "sum",
-          "int",
-          "mathcal",
-          "ell",
-          "Random",
-          "Agnostic",
-          "learned",
-          "model",
-          "tested",
-          "The",
-          "make",
-          "predictions",
-          "respect"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "7b4e6719-4965-51b0-8e0c-c6df7699b7aa",
-      "type": "text",
-      "content": "Do we have access to the test set in advance?\nTransductive: the goal is to achieve good prediction performance on a prescribed set of test points $(\\tilde{x}_{j})_{j=1}^{n_{test}}$ provided in advance. Transductive learning ignores the effect of $\\rho_{X}$ on the risk but focuses only on\n$$\n\\frac {1}{n _ {t e s t}} \\sum_ {j = 1} ^ {n _ {t e s t}} \\int_ {\\mathcal {Y}} \\ell (f (\\tilde {x} _ {j}), y) d \\rho (y | \\tilde {x} _ {j})\n$$\n▶ Inductive Agnostic about where the learned model will be tested. The goal is to make good predictions with respect to the distribution $\\rho(x, y)$ .",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/A Taxonomy of Supervised Learning Problems/A Taxonomy of Supervised Learning Problems/Inductive Vs Transductive Learning",
-      "metadata": {
-        "length": 585,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "Do",
-          "access",
-          "test",
-          "set",
-          "advance",
-          "Transductive",
-          "goal",
-          "achieve",
-          "good",
-          "prediction",
-          "performance",
-          "prescribed",
-          "points",
-          "tilde",
-          "provided",
-          "learning",
-          "ignores",
-          "effect",
-          "rho",
-          "risk",
-          "focuses",
-          "frac",
-          "sum",
-          "int",
-          "mathcal",
-          "ell",
-          "Inductive",
-          "Agnostic",
-          "learned",
-          "model",
-          "tested",
-          "The",
-          "make",
-          "predictions",
-          "respect",
-          "distribution"
-        ],
-        "keywords": [],
-        "connect_to": []
-      }
-    },
-    {
-      "chunk_id": "6a93ef9f-3177-570b-b2fc-6f0018369505",
-      "type": "text",
-      "content": "How do we observe samples from $\\rho$ ?\n▶ Offline/Batch: a finite sample of input-output examples independently and identically distributed. Goal: minimize prediction errors on new examples\n▶ Online/Adversarial: We observe one input, propose a prediction and then observe the output. Goal: minimize the regret (i.e. choose the estimator that would have made less mistakes).\nNote. The distribution could be adversarial: $\\rho(y|x, f(x))$ instead of $\\rho(y|x)$ can make things “hard” for us.",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/A Taxonomy of Supervised Learning Problems/A Taxonomy of Supervised Learning Problems/Offline∕Batch Vs Online∕Adversarial Learning",
+      "chunk_id": "node_223f4d14-e1fe-5e13-bf90-8c405eee8896",
+      "type": "page",
+      "content": "Statistical Learning Theory (SLT)\nSLT addresses questions related to:\n▶What does it mean for an algorithm to learn.\n▶What we can/cannot expect from a learning algorithm.\n▶How to design computationally & statistically eﬃcient algorithms.\n▶What to do when a learning algorithm does not work...\nSLT studies theoretical quantities that we don’t have access to:\nIt tries to bridge the gap between the unknown functional relations\ngoverning a process and our (ﬁnite) empirical observations of it.",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Statistical Learning Theory (SLT)",
       "metadata": {
         "length": 490,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "How",
-          "observe",
-          "samples",
-          "rho",
-          "Offline",
-          "Batch",
-          "finite",
-          "sample",
-          "input",
-          "output",
-          "examples",
-          "independently",
-          "identically",
-          "distributed",
-          "Goal",
-          "minimize",
-          "prediction",
-          "errors",
-          "Online",
-          "Adversarial",
-          "We",
-          "propose",
-          "regret",
-          "choose",
-          "estimator",
-          "made",
-          "mistakes",
-          "Note",
-          "The",
-          "distribution",
-          "adversarial",
-          "make",
-          "things",
-          "hard"
+        "summary": "This page introduces Statistical Learning Theory (SLT), outlining its primary objectives such as defining what it means for an algorithm to learn and how to design efficient algorithms. It further explains that SLT studies theoretical quantities not directly accessible, aiming to bridge the gap between unknown functional relations and finite empirical observations.",
+        "page_nums": [
+          5
         ],
-        "keywords": [],
-        "connect_to": []
+        "keywords": [
+          "Statistical Learning Theory",
+          "SLT"
+        ],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 5,
+            "artifact_ref": "page_citation_assets/page-5.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
       }
     },
     {
-      "chunk_id": "a5944f38-db40-5e9b-bbe2-3a3af7fbc77f",
-      "type": "text",
-      "content": "This class:\n▶ Motivations and Examples\nFormulating the learning problem\n▶ Brief introduction to Learning Theory\n▶ A Taxonomy of supervised learning problems\nNext class: overfitting and the need for regularization...",
-      "path": "lec1.pdf/Class 1 Introduction to Statistical Learning Theory/Wrapping up This class:",
+      "chunk_id": "node_04b780f8-a512-521e-946b-ea328a353171",
+      "type": "page",
+      "content": "Motivations and Examples: Regression\nImage credits: coursera",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Motivations and Examples: Regression",
       "metadata": {
-        "length": 215,
-        "summary": "",
-        "page_nums": [],
-        "document_top_summary": "This document includes: Class 1 Introduction to Statistical Learning Theory",
-        "tokens": [
-          "This",
-          "class",
-          "Motivations",
-          "Examples",
-          "Formulating",
-          "learning",
-          "problem",
-          "Brief",
-          "introduction",
-          "Learning",
-          "Theory",
-          "Taxonomy",
-          "supervised",
-          "problems",
-          "Next",
-          "overfitting",
-          "regularization"
+        "length": 60,
+        "summary": "The page is titled 'Motivations and Examples: Regression' and illustrates the concept of regression analysis using housing data. On the left, a table lists specific examples of living area in square feet alongside corresponding house prices in thousands of dollars. On the right, a scatter plot visualizes this relationship, plotting price against square footage to show a positive correlation.",
+        "page_nums": [
+          6
+        ],
+        "keywords": [
+          "coursera"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_57bd276a-0b46-57b2-899b-bcc34534c267",
+            "relation": "embeds",
+            "ref": "[images/image_page_6_table_1.png]"
+          },
+          {
+            "target": "asset_7e9ff9a2-29fe-5ea1-a2b1-27f613c26623",
+            "relation": "embeds",
+            "ref": "[images/image_page_6_figure_2.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 6,
+            "artifact_ref": "page_citation_assets/page-6.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_42e1f6ed-d88d-5d8f-be8a-0d50f21ef27b",
+      "type": "page",
+      "content": "Motivations and Examples: Binary Classiﬁcation\nSpam detection: Automatically discriminate spam vs non-spam e-mails.\nImage Classiﬁcation",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Motivations and Examples: Binary Classification/Spam detection",
+      "metadata": {
+        "length": 135,
+        "summary": "The section titled 'Spam detection' describes the task of automatically discriminating between spam and non-spam emails. It illustrates this as a binary classification problem where an input (represented by documents) is mapped to one of two output classes: 'legit' or 'spam'.",
+        "page_nums": [
+          7
         ],
         "keywords": [],
-        "connect_to": []
+        "connect_to": [
+          {
+            "target": "asset_afa24be8-f074-5cb6-a64a-1d0a8fd586a2",
+            "relation": "embeds",
+            "ref": "[images/image_page_7_figure_1.png]"
+          },
+          {
+            "target": "asset_f63c2f57-67b3-5d12-8847-119c8f7dbb00",
+            "relation": "embeds",
+            "ref": "[images/image_page_7_figure_2.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 7,
+            "artifact_ref": "page_citation_assets/page-7.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_3728caf6-e4cd-5312-9247-1796eda3f549",
+      "type": "page",
+      "content": "[SAME-AS Introduction to Statistical Learning Theory.pdf/Root/Motivations and Examples: Binary Classification/Spam detection p7]",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Motivations and Examples: Binary Classification/Image Classification",
+      "metadata": {
+        "length": 128,
+        "summary": "The section titled 'Image Classification' illustrates a binary classification task where an input image of a dog is processed by a function f to determine if it belongs to the class 'dog' or 'not dog'.",
+        "page_nums": [
+          7
+        ],
+        "keywords": [],
+        "connect_to": [
+          {
+            "target": "asset_afa24be8-f074-5cb6-a64a-1d0a8fd586a2",
+            "relation": "related",
+            "ref": "[images/image_page_7_figure_1.png]",
+            "same_as_owner": "Introduction to Statistical Learning Theory.pdf/Root/Motivations and Examples: Binary Classification/Spam detection"
+          },
+          {
+            "target": "asset_f63c2f57-67b3-5d12-8847-119c8f7dbb00",
+            "relation": "related",
+            "ref": "[images/image_page_7_figure_2.png]",
+            "same_as_owner": "Introduction to Statistical Learning Theory.pdf/Root/Motivations and Examples: Binary Classification/Spam detection"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 7,
+            "artifact_ref": "page_citation_assets/page-7.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_08d47043-72a6-5c75-9683-994c56764660",
+      "type": "page",
+      "content": "Motivations and Examples: Multi-class Classiﬁcation\nIdentify the category of the object depicted in an image.\nExample: Caltech 101\nImage Credits: Anna Bosch and Andrew Zisserman\n\nMotivations and Examples: Multi-class Classiﬁcation\nScaling things up: detect correct object among thousands of categories.\nImageNet Large Scale Visual Recognition Challenge\nhttp://www.image-net.org/ - Image Credits to Fengjun Lv",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Motivations and Examples: Multi-class Classification",
+      "metadata": {
+        "length": 408,
+        "summary": "The section titled 'Motivations and Examples: Multi-class Classification' introduces the task of identifying object categories in images. It begins with a simple example using the Caltech 101 dataset, showing sample images for classes like baseball-bat, dog, basketball-hoop, kayak, and traffic light. The content then scales up to discuss the ImageNet Large Scale Visual Recognition Challenge, which involves detecting correct objects among thousands of categories.",
+        "page_nums": [
+          8,
+          9
+        ],
+        "keywords": [
+          "Caltech 101",
+          "ImageNet Large Scale Visual Recognition Challenge",
+          "Anna Bosch",
+          "Andrew Zisserman",
+          "Fengjun Lv"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_b3d0bc46-f457-5009-976a-c41947e51094",
+            "relation": "embeds",
+            "ref": "[images/image_page_8_figure_1.png]"
+          },
+          {
+            "target": "asset_4806f738-34d2-5d6a-98d1-91cbadfc612c",
+            "relation": "embeds",
+            "ref": "[images/image_page_9_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 8,
+            "artifact_ref": "page_citation_assets/page-8.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          },
+          {
+            "page_num": 9,
+            "artifact_ref": "page_citation_assets/page-9.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_cf7f1dfc-9d41-59fa-a6fb-5aa86f80dc99",
+      "type": "page",
+      "content": "Motivations and Examples: Structured Prediction",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Motivations and Examples: Structured Prediction",
+      "metadata": {
+        "length": 47,
+        "summary": "The page is a presentation slide titled 'Motivations and Examples: Structured Prediction'. It illustrates four distinct applications of structured prediction through visual examples: Image Captioning (showing object localization and classification), Movie Ranking (using Netflix as an example to show user preference ordering), Speech Recognition (depicting the phrase 'Ok Google'), and Protein Folding (showing the transition from a sequence to a 3D structure).",
+        "page_nums": [
+          10
+        ],
+        "keywords": [
+          "Netflix",
+          "Google"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_c266f0ec-6de7-520c-8d82-cd5d4ed7b9eb",
+            "relation": "embeds",
+            "ref": "[images/image_page_10_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 10,
+            "artifact_ref": "page_citation_assets/page-10.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_d8ee9366-033a-52ee-83a4-38f0377c64d9",
+      "type": "page",
+      "content": "Formulating The Learning Problem\n\nFormulating the Learning Problem\nMain ingredients:\n▶X input and Y output spaces.\n▶ρ uknown distribution on X × Y.\n▶ℓ: Y × Y →R a loss function measuring the discrepancy ℓ(y, y′)\nbetween any two points y, y′ ∈Y.\nWe would like to minimize the expected risk\nminimize\nf:X→Y\nE(f)\nE(f) =\nZ\nX×Y\nℓ(f(x), y) dρ(x, y)\nThe expected prediction error incurred by a predictor3 f : X →Y.\n3only measurable predictors are considered.",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Formulating The Learning Problem",
+      "metadata": {
+        "length": 450,
+        "summary": "This section outlines the main ingredients for formulating a learning problem: input and output spaces (X and Y), an unknown distribution (ρ) on their product space, and a loss function (ℓ). It defines the objective as minimizing the expected risk E(f), which represents the expected prediction error incurred by a predictor f.",
+        "page_nums": [
+          11,
+          12
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 11,
+            "artifact_ref": "page_citation_assets/page-11.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          },
+          {
+            "page_num": 12,
+            "artifact_ref": "page_citation_assets/page-12.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_d8ab34a8-9a63-5c64-a64b-87831aa4145d",
+      "type": "page",
+      "content": "Input Space\nLinear Spaces\n▶Vectors\n▶Matrices\n▶Functions\n“Structured” Spaces\n▶Strings\n▶Graphs\n▶Probabilities\n▶Points on a manifold\n▶. . .",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Formulating The Learning Problem/Input Space/Linear Spaces",
+      "metadata": {
+        "length": 136,
+        "summary": "The section titled 'Linear Spaces' lists three types of mathematical objects that fall under this category: Vectors, Matrices, and Functions.",
+        "page_nums": [
+          13
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 13,
+            "artifact_ref": "page_citation_assets/page-13.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_06a5567e-5d1e-580f-9048-62c1afe301f1",
+      "type": "page",
+      "content": "[SAME-AS Introduction to Statistical Learning Theory.pdf/Root/Formulating The Learning Problem/Input Space/Linear Spaces p13]",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Formulating The Learning Problem/Input Space/\"Structured\" Spaces",
+      "metadata": {
+        "length": 125,
+        "summary": "The section titled \"Structured\" Spaces\" lists examples of non-linear data structures used as input spaces, including strings, graphs, probabilities, and points on a manifold.",
+        "page_nums": [
+          13
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 13,
+            "artifact_ref": "page_citation_assets/page-13.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_efc3e811-217c-514c-8502-114154a4a255",
+      "type": "page",
+      "content": "Output Space\nLinear Spaces, e.g.\n▶Y = R regression\n▶Y = {1, . . . , T} classiﬁcation\n▶Y = RT multi-task\n“Structured” Spaces, e.g.\n▶Strings\n▶Graphs\n▶Probabilities\n▶Orders (i.e. Ranking)\n▶. . .",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Formulating The Learning Problem/Output Space/Linear Spaces, e.g.",
+      "metadata": {
+        "length": 191,
+        "summary": "The section titled 'Linear Spaces, e.g.' lists three examples of linear output spaces used in machine learning: regression (where the output space is the set of real numbers), classification (where the output space is a finite set of integers from 1 to T), and multi-task learning (where the output space is a vector space of dimension T).",
+        "page_nums": [
+          14
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 14,
+            "artifact_ref": "page_citation_assets/page-14.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_3d5d00e3-42d9-55c1-a4f4-2d99217a129f",
+      "type": "page",
+      "content": "[SAME-AS Introduction to Statistical Learning Theory.pdf/Root/Formulating The Learning Problem/Output Space/Linear Spaces, e.g. p14]",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Formulating The Learning Problem/Output Space/\"Structured\" Spaces, e.g.",
+      "metadata": {
+        "length": 132,
+        "summary": "The section titled \"Structured\" Spaces, e.g. lists examples of structured output spaces used in machine learning or related fields. These include Strings, Graphs, Probabilities, and Orders (specifically Ranking), indicating types of outputs that have internal structure beyond simple linear values.",
+        "page_nums": [
+          14
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 14,
+            "artifact_ref": "page_citation_assets/page-14.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_78ce090e-6ae1-5902-8f8d-ca4362e9db9f",
+      "type": "page",
+      "content": "Probability Distribution\nInformally: the distribution ρ on X × Y encodes the probability of getting\na pair (x, y) ∈X × Y when observing (sampling from) the unknown\nprocess.\nThroughout the course we will assume ρ(x, y) = ρ(y|x)ρX (x)\n▶ρX (x) marginal distribution on X.\n▶ρ(y|x) conditional distribution on Y given x ∈X.",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Formulating The Learning Problem/Probability Distribution",
+      "metadata": {
+        "length": 318,
+        "summary": "The page defines the concept of a probability distribution, denoted as ρ on X × Y. It explains that this distribution encodes the probability of observing a pair (x, y) from an unknown process. The text further breaks down the joint distribution into its components: the marginal distribution on X and the conditional distribution on Y given x.",
+        "page_nums": [
+          15
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 15,
+            "artifact_ref": "page_citation_assets/page-15.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_401e4a88-d782-5dba-a28e-5be9b2dc7c29",
+      "type": "page",
+      "content": "Conditional Distribution\nρ(y|x) characterizes the relation between a given input x and the\npossible outcomes y that could be observed.\nIn noisy settings it represents the uncertainty in our observations.\nExample: y = f∗(x) + ϵ, with f∗: X →R the “true” function and\nϵ ∼N(0, σ) Gaussian distributed noise. Then:\nρ(y|x) = N(f∗(x), σ)",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Formulating The Learning Problem/Conditional Distribution",
+      "metadata": {
+        "length": 331,
+        "summary": "The page defines the concept of a conditional distribution, denoted as ρ(y|x), which characterizes the relationship between an input x and possible outcomes y. It explains that in noisy settings, this represents uncertainty. An example is provided where y equals a true function f*(x) plus Gaussian distributed noise ε, leading to the conclusion that the conditional distribution is a normal distribution centered at f*(x).",
+        "page_nums": [
+          16
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 16,
+            "artifact_ref": "page_citation_assets/page-16.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_3393d770-44a3-5d2d-84f1-952449bc2705",
+      "type": "page",
+      "content": "Loss Functions\nThe loss function\nℓ: Y × Y →[0, +∞)\nrepresents the cost ℓ(f(x), y) incurred when predicting f(x) instead of y.\nIt is part of the problem formulation:\nE(f) =\nZ\nℓ(f(x), y) dρ(x, y)\nThe minimizer of the risk (if it exists) is “chosen” by the loss.",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Formulating The Learning Problem/Loss Functions",
+      "metadata": {
+        "length": 259,
+        "summary": "This page defines the concept of a loss function in machine learning, denoted as ℓ. It explains that the loss function represents the cost incurred when predicting f(x) instead of the true value y. The text further presents the mathematical formulation for expected risk, E(f), defined as the integral of the loss over the probability distribution ρ(x,y).",
+        "page_nums": [
+          17
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 17,
+            "artifact_ref": "page_citation_assets/page-17.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_3f2189a3-6fe1-50e5-9fb3-8d80ddce34c6",
+      "type": "page",
+      "content": "Loss Functions for Regression\nL(y, y′) = L(y −y′)\n▶Square loss L(y, y′) = (y −y′)2,\n▶Absolute loss L(y, y′) = |y −y′|,\n▶ϵ-insensitive L(y, y′) = max(|y −y′| −ϵ, 0),\n1.0\n0.5\n0.5\n1.0\n0.2\n0.4\n0.6\n0.8\n1.0\nSquare Loss\nAbsolute\ninsensitive\n-\nImage credits: Lorenzo Rosasco.",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Formulating The Learning Problem/Loss Functions/Loss Functions for Regression",
+      "metadata": {
+        "length": 267,
+        "summary": "The page presents a slide titled 'Loss Functions for Regression,' which defines three common loss functions used in machine learning: Square loss, Absolute loss, and epsilon-insensitive loss. It provides the mathematical formula for each function and includes a chart that visually compares their behavior over a range of values from -1.0 to 1.0.",
+        "page_nums": [
+          18
+        ],
+        "keywords": [
+          "Lorenzo Rosasco"
+        ],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 18,
+            "artifact_ref": "page_citation_assets/page-18.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_2e10d8bb-456c-579e-b804-cd71dcc47d7f",
+      "type": "page",
+      "content": "Loss Functions for Classiﬁcation\nL(y, y′) = L(−yy′)\n▶0-1 loss L(y, y′) = 1{−yy′>0}\n▶Square loss L(y, y′) = (1 −yy′)2,\n▶Hinge-loss L(y, y′) = max(1 −yy′, 0),\n▶logistic loss L(y, y′) = log(1 + exp(−yy′)),\n1\n2\n0.5\n1.0\n1.5\n2.0\n0 1 loss\nsquare loss\nHinge\nloss\nLogistic\nloss\n0.5\nImage credits: Lorenzo Rosasco.\n\nFormulating the Learning Problem\nThe relation between X and Y encoded by the distribution ρ is unknown\nin reality. The only way we have to access a phenomenon is from ﬁnite\nobservations.\nThe goal of a learning algorithm is therefore to ﬁnd a good\napproximation fn : X →Y for the minimizer of expected risk\ninf\nf:X→Y E(f)\nfrom a ﬁnite set of examples (xi, yi)n\ni=1 sampled independently from ρ.",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Formulating The Learning Problem/Loss Functions/Loss Functions for Classification",
+      "metadata": {
+        "length": 699,
+        "summary": "The section titled 'Loss Functions for Classification' defines the general property of a loss function L(y, y') = L(-yy'). It then lists four specific types of loss functions used in classification: 0-1 loss, Square loss, Hinge-loss, and logistic loss, providing the mathematical formula for each. A graph at the bottom visualizes these four loss functions over a range of values.",
+        "page_nums": [
+          19,
+          20
+        ],
+        "keywords": [
+          "Lorenzo Rosasco"
+        ],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 19,
+            "artifact_ref": "page_citation_assets/page-19.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          },
+          {
+            "page_num": 20,
+            "artifact_ref": "page_citation_assets/page-20.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_2608198c-ce2c-5388-a83c-522a8ba16ac7",
+      "type": "page",
+      "content": "Deﬁning Learning Algorithms\nLet S = S\nn∈N(X × Y)n be the set of all ﬁnite datasets on X × Y.\nDenote F the set of all measurable functions f : X →Y. A learning\nalgorithm is a map\nA : S →F\nS 7→A(S) : X →Y\nTo highlight our interest in studying the relation between the size of a\ntraining set S = (xi, yi)n\ni=1 and the corresponding predictor produced by\nan algorithm A, we will often denote (with some abuse of notation)\nfn = A\n\u0010\n(xi, yi)n\ni=1\n\u0011\n\nNon-deterministic Learning Algorithms\nWe can also consider stochastic algorithms, where the estimator fn is not\nautomatically determined by the training set.\nIn these cases, given a dataset S ∈S, an algorithm A(S) can be seen as\na distribution on F and its output is one sample from A(S).\nUnder this interpretation a deterministic algorithm corresponds to A(S)\nbeing a Dirac’s delta.\n\nFormulating the Learning Problem\nGiven a training set, we would like a learning algorithm to ﬁnd a “good”\npredictor fn.\nWhat does “good” mean? That it has small error (or excess risk) with\nrespect to the best solution of the learning problem.\nExcess Risk\nE(fn) −inf\nf∈F E(f)",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Defining Learning Algorithms",
+      "metadata": {
+        "length": 1103,
+        "summary": "The section defines learning algorithms as maps from datasets to functions, introduces non-deterministic (stochastic) algorithms where the output is a distribution rather than a fixed function, and formulates the learning problem by defining 'good' predictors in terms of minimizing excess risk relative to the best possible solution.",
+        "page_nums": [
+          21,
+          22,
+          23
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 21,
+            "artifact_ref": "page_citation_assets/page-21.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          },
+          {
+            "page_num": 22,
+            "artifact_ref": "page_citation_assets/page-22.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          },
+          {
+            "page_num": 23,
+            "artifact_ref": "page_citation_assets/page-23.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_cda14a19-6d21-5b3e-a20a-f0bdbfd7d21e",
+      "type": "page",
+      "content": "The Elements of Learning Theory",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory",
+      "metadata": {
+        "length": 31,
+        "summary": "",
+        "page_nums": [
+          24
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 24,
+            "artifact_ref": "page_citation_assets/page-24.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_772c8923-44fd-56c0-bddf-1a4ceebf9267",
+      "type": "page",
+      "content": "Consistency\nIdeally we would like the learning algorithm to be consistent\nlim\nn→+∞E(fn) −inf\nf∈F E(f) = 0\nNamely that (asymptotically) our algorithm “solves” the problem.\nHowever fn = A(S) is a random variable: the points in the training set\nS = (xi, yi)n\ni=1 are randomly sampled from ρ.\nSo what do we mean by E(fn) →inf E(f)?",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Consistency",
+      "metadata": {
+        "length": 327,
+        "summary": "This page defines the concept of consistency in learning algorithms. It states that an algorithm is consistent if, as the sample size approaches infinity, the error of the learned function converges to the infimum of the error over all possible functions. The text notes that since the training set is randomly sampled, the learned function is a random variable, and poses the question of how to interpret this convergence.",
+        "page_nums": [
+          25
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 25,
+            "artifact_ref": "page_citation_assets/page-25.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_082237da-f30c-54c2-9a20-debe01ce9a67",
+      "type": "page",
+      "content": "Convergence of Random Variables\nConvergence in expectation:\nlim\nn→+∞E\n\u0014\nE(fn) −inf\nf∈F E(f)\n\u0015\n= 0\nConvergence in probability:\nlim\nn→+∞P\n\u0012\nE(fn) −inf\nf∈F E(f) > ϵ\n\u0013\n= 0\n∀ϵ > 0\nMany other notions of convergence of random variables exist!",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Consistency/Convergence of Random Variables/Convergence in expectation:",
+      "metadata": {
+        "length": 235,
+        "summary": "The section defines convergence in expectation, stating that the limit as n approaches infinity of the expected value of the difference between E(f_n) and the infimum of E(f) over f in F is equal to zero.",
+        "page_nums": [
+          26
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 26,
+            "artifact_ref": "page_citation_assets/page-26.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_d6fe48d3-8bdf-587c-9750-5df2b572148f",
+      "type": "page",
+      "content": "[SAME-AS Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Consistency/Convergence of Random Variables/Convergence in expectation: p26]",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Consistency/Convergence of Random Variables/Convergence in probability:",
+      "metadata": {
+        "length": 170,
+        "summary": "The section titled 'Convergence in probability' defines this concept using a mathematical limit formula. It states that the probability of the difference between E(f_n) and the infimum of E(f) over F being greater than epsilon approaches zero as n approaches infinity, for all epsilon greater than 0.",
+        "page_nums": [
+          26
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 26,
+            "artifact_ref": "page_citation_assets/page-26.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_e13deff4-bd26-5d25-ad84-f0019a5ffe23",
+      "type": "page",
+      "content": "Consistency vs Convergence of the Estimator\nNote that we are only interested in guaranteeing that the risk of our\nestimator will converge to the best possible value\nE(fn) →inf\nf∈F E(f)\nbut we are not directly interested in determining whether fn →f ∗(in\nsome norm) where f ∗: X →Y is a minimizer of the expected risk\nE(f ∗) =\ninf\nf:X→Y E(f)\nActually, the risk could even not admit a minimizer f ∗(although typically\nit will).\nThis is a main diﬀerence with several settings such as compressive\nsensing and inverse problems.",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Consistency/Consistency vs Convergence of the Estimator",
+      "metadata": {
+        "length": 522,
+        "summary": "The page discusses the distinction between consistency and convergence of an estimator, focusing on the goal of ensuring that the risk of an estimator converges to the best possible value. It presents mathematical expressions defining this convergence and contrasts it with determining whether a sequence of estimators converges to a minimizer of the expected risk. The text notes that in some cases, such as compressive sensing and inverse problems, a minimizer may not exist.",
+        "page_nums": [
+          27
+        ],
+        "keywords": [
+          "compressive sensing",
+          "inverse problems"
+        ],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 27,
+            "artifact_ref": "page_citation_assets/page-27.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_4f6c14da-b5f5-58a4-b6a7-81e2162cd3f6",
+      "type": "page",
+      "content": "Existence of a Minimizer for the Risk\nHowever, the existence of f ∗can be useful in several situations.\nLeast Squares. ℓ(f(x), y) = (f(x) −y)2. Then\nE(f) −E(f ∗) = ∥f −f ∗∥L2(X,ρ)\nLipschitz Loss. |ℓ(z, y) −ℓ(z′, y)| ≤L|z −z′|\nE(f) −E(f ∗) ≤L∥f −f ∗∥L1(X,ρ)\nConvergence fn →f ∗(in L1 or L2 norm respectively) automatically\nguarantees consistency!",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Consistency/Existence of a Minimizer for the Risk/Least Squares.",
+      "metadata": {
+        "length": 345,
+        "summary": "The section defines the Least Squares loss function as ℓ(f(x), y) = (f(x) - y)^2. It presents a mathematical relationship showing that the difference in risk between a function f and its minimizer f* is equal to the squared L2 norm of their difference, specifically ||f - f*||_{L^2(X, ρ)}.",
+        "page_nums": [
+          28
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 28,
+            "artifact_ref": "page_citation_assets/page-28.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_b1ec6f06-b289-5780-868a-8f6b7fbdadf4",
+      "type": "page",
+      "content": "[SAME-AS Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Consistency/Existence of a Minimizer for the Risk/Least Squares. p28]",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Consistency/Existence of a Minimizer for the Risk/Lipschitz Loss.",
+      "metadata": {
+        "length": 163,
+        "summary": "The section titled 'Lipschitz Loss' defines the Lipschitz condition for a loss function, stating that the difference in loss values is bounded by a constant L times the distance between inputs. It presents the resulting inequality relating the excess risk to the L1 norm of the difference between a function and its minimizer. The text concludes by noting that convergence in either L1 or L2 norms guarantees consistency.",
+        "page_nums": [
+          28
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 28,
+            "artifact_ref": "page_citation_assets/page-28.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_d5395849-b4a9-5b7c-b1d7-988f356e9511",
+      "type": "page",
+      "content": "Measuring the “Quality” of a Learning Algorithm\nIs consistency enough? Well no. It does not provide a quantitative\nmeasure of how “good” a learning algorithm is.\nIn other words, question: how do we compare two learning algorithms?\nAnswer: via their Learning Rates, namely the “speed” at which the\nexcess risk goes to zero as n increases.\nExample: Expectation\nE\n\u0014\nE(fn) −inf\nf∈F E(f)\n\u0015\n= O(n−α)\nfor some α > 0.\nWe can compare two algorithms by determining which one has a faster\nlearning rate (i.e. larger exponent α).",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Measuring the “Quality” of a Learning Algorithm",
+      "metadata": {
+        "length": 517,
+        "summary": "This page discusses the concept of measuring the quality of a learning algorithm, arguing that consistency alone is insufficient and proposing 'Learning Rates' as a quantitative metric. It explains that algorithms can be compared by their excess risk convergence speed as sample size increases, illustrated with an expectation formula showing O(n^-alpha) decay.",
+        "page_nums": [
+          29
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 29,
+            "artifact_ref": "page_citation_assets/page-29.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_b262db79-359f-5584-a71c-fcb010cd0a7d",
+      "type": "page",
+      "content": "Sample Complexity, Error Bounds and Tail Bounds\nSample Complexity: minimum number n(ϵ, δ) of training points the\nalgorithm needs to achieve an excess risk lower than ϵ with at least\nprobability 1 −δ:\nP\n\u0012\nE(fn(ϵ,δ)) −inf\nf∈F E(f) ≤ϵ\n\u0013\n≥1 −δ\nError Bounds: Upper bound ϵ(δ, n) > 0 on the excess risk of fn which\nholds with probability larger than 1 −δ\nP\n\u0012\nE(fn) −inf\nf∈F E(f) ≤ϵ(δ, n)\n\u0013\n≥1 −δ\nTail Bounds: Lower bound δ(ϵ, n) ∈(0, 1) on the probability that fn will\nhave excess risk larger than ϵ\nP\n\u0012\nE(fn) −inf\nf∈F E(f) ≤ϵ\n\u0013\n≥1 −δ(ϵ, n)",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Sample Complexity, Error Bounds and Tail Bounds",
+      "metadata": {
+        "length": 534,
+        "summary": "This page defines three key concepts in statistical learning theory: Sample Complexity, Error Bounds, and Tail Bounds. It provides formal mathematical definitions for each, using probability notation to describe the relationship between training points (n), excess risk, and confidence levels (epsilon and delta).",
+        "page_nums": [
+          30
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 30,
+            "artifact_ref": "page_citation_assets/page-30.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_c3eb967a-4e43-5e44-a4ce-fa45ff7ac824",
+      "type": "page",
+      "content": "Empirical Risk as a Proxy\nIf ρ is unknown... how can we say anything about E(fn) −inff∈F E(f)?\nWe have “glimpses” of ρ only via the samples (xi, yi)n\ni=1. Can we use\nthem to gather some information about ρ (or better, on E(f))?\nConsider function f : X →Y and its empirical risk\nEn(f) = 1\nn\nn\nX\ni=1\nℓ(f(xi), yi)\nA simple calculation shows that\nES∼ρn(En(f)) = 1\nn\nn\nX\ni=1\nE(xi,yi)∼ρ(ℓ(f(xi), yi)) = 1\nn\nn\nX\ni=1\nE(f) = E(f)\nThe expectation of En(f) is the expected risk E(f)!",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Empirical Risk as a Proxy",
+      "metadata": {
+        "length": 472,
+        "summary": "The page discusses the concept of using empirical risk as a proxy for true expected risk when the underlying probability distribution is unknown. It defines the empirical risk function based on a sample set and demonstrates through calculation that the expectation of the empirical risk equals the true expected risk.",
+        "page_nums": [
+          31
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 31,
+            "artifact_ref": "page_citation_assets/page-31.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_4fc64d20-1e57-5a61-9d90-c5e7091fbd11",
+      "type": "page",
+      "content": "Empirical Vs Expected\nHow close is En(f) to E(f) with respect to the number n of training\npoints?\nConsider i.i.d. random variables X and (Xi)n\ni=1. Let ¯Xn = 1\nn\nPn\ni=1 Xi.\nThen\nE[( ¯Xn −E(X))2] = Var( ¯Xn) = Var(X)\nn\nTherefore the expected (squared) distance between the empirical mean of\nthe Xi and their expectation E(X) goes to zero as O(1/n) (Assuming X\nto have ﬁnite variance).\nIf Xi = ℓ(f(xi), yi), we have ¯Xn = En(f) and therefore\nE[(En(f) −E(f))2] = Var(ℓ(f(x), y))\nn",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Empirical Risk as a Proxy/Empirical Vs Expected",
+      "metadata": {
+        "length": 477,
+        "summary": "This page discusses the convergence of empirical risk to expected risk in machine learning. It mathematically demonstrates that the squared distance between the empirical mean and the expectation goes to zero as O(1/n), assuming finite variance. The text derives a formula showing that the expected squared difference between the empirical risk E_n(f) and the true risk E(f) is equal to the variance of the loss function divided by n.",
+        "page_nums": [
+          32
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 32,
+            "artifact_ref": "page_citation_assets/page-32.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_40dc0247-a9a7-53dc-ae80-82f2e7407828",
+      "type": "page",
+      "content": "Empirical Vs Expected Risk\nIf Xi = ℓ(f(xi), yi), we have ¯Xn = En(f) and therefore\nE[(En(f) −E(f))2] = Var(ℓ(f(x), y))\nn\nIn particular\nE[|En(f) −E(f)|] ≤\nr\nVar(ℓ(f(x), y))\nn\n\nEmpirical Vs Expected\nAssume for simplicity that there exists a minimizer f∗: X →Y of the\nexpected risk\nE(f∗) = inf\nf∈F E(f)\nFor any function f : X →Y we can decompose the excess risk as\nE(f) −E(f∗) =\nE(f) −En(f) + En(f) −En(f∗) + En(f∗) −E(f∗),\nrecalling the deﬁnition En(f) := 1\nn\nPn\ni=1 ℓ(f(xi), yi) of the empirical risk.\nNote that this in particularly then also holds for fn, which we will use\nbelow. We can therefore leverage on the statistical relation between En\nand E to study the expected risk in terms of the empirical risk.\nThis perspective leads to one of the most well-established strategies on\nSLT: Empirical Risk Minimization",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Empirical Risk as a Proxy/Empirical Vs Expected Risk",
+      "metadata": {
+        "length": 816,
+        "summary": "The section titled 'Empirical Vs Expected Risk' discusses the relationship between empirical risk and expected risk in statistical learning theory. It presents mathematical derivations showing how the variance of the loss function relates to the difference between empirical and expected risk, particularly through inequalities involving sample size n. The content also introduces the concept of excess risk decomposition and mentions Empirical Risk Minimization as a key strategy.",
+        "page_nums": [
+          33,
+          34
+        ],
+        "keywords": [
+          "SLT"
+        ],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 33,
+            "artifact_ref": "page_citation_assets/page-33.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          },
+          {
+            "page_num": 34,
+            "artifact_ref": "page_citation_assets/page-34.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_f91cb4f3-63b5-533d-bebb-8d947b179728",
+      "type": "page",
+      "content": "Empirical Risk Minimization\nLet fn be the minimizer of the empirical risk\nfn = argmin\nf∈F\nEn(f)\nThen we automatically have En(fn) −En(f∗) ≤0 (for any choice of\ntraining set).\nThen\nE E(fn) −E(f∗) ≤E E(fn) −En(fn)\n(why?)\nWe can focus on studying only the generalization error\nE E(fn) −En(fn)",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Empirical Risk Minimization",
+      "metadata": {
+        "length": 289,
+        "summary": "The page presents mathematical derivations related to Empirical Risk Minimization. It defines the minimizer of empirical risk (f_n) and establishes an inequality showing that the difference between empirical risk and true risk is non-positive. The text then introduces a focus on studying generalization error, represented by the difference between expected risk and empirical risk.",
+        "page_nums": [
+          35
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 35,
+            "artifact_ref": "page_citation_assets/page-35.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_8ec5d45c-a111-5ed1-88d6-e93a8b87ac8d",
+      "type": "page",
+      "content": "Generalization Error\nHow can we control the generalization error\nEn(fn) −E(fn)\nwith respect to the number n of examples?\nThis question is far from trivial...\n(and it is one of the main subject of SLT)\nIndeed, En and fn both depend on the sampled training data. Therefore,\nwe cannot use the result\nE [ |En(fn) −E(fn)| ] ≤O(1/√n)\nwhich indeed will not be true in general... (next class).",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/The Elements of Learning Theory/Generalization Error",
+      "metadata": {
+        "length": 385,
+        "summary": "The page discusses the concept of generalization error in machine learning, specifically how to control the difference between empirical risk (E_n) and true risk (E) with respect to the number of training examples (n). It notes that this is a central topic in Statistical Learning Theory (SLT) because both terms depend on the sampled data. The text concludes by stating that a common bound involving O(1/sqrt(n)) is not generally true.",
+        "page_nums": [
+          36
+        ],
+        "keywords": [
+          "SLT"
+        ],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 36,
+            "artifact_ref": "page_citation_assets/page-36.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_ec031278-4edb-5234-bc1f-037c68105de1",
+      "type": "page",
+      "content": "A Taxonomy of Supervised Learning Problems\n\nA Taxonomy of Supervised Learning Problems\nIn practice we can have many diﬀerent problems and scenarios:\n▶Parametric Vs Non-parametric learning\n▶Fixed design Vs random design\n▶Transductive Vs inductive learning\n▶Oﬄine/batch Vs online/adversarial learning\nDiﬀerent goals and assumptions but similar tools to study/solve them!",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/A Taxonomy of Supervised Learning Problems",
+      "metadata": {
+        "length": 368,
+        "summary": "The section titled 'A Taxonomy of Supervised Learning Problems' outlines various practical scenarios and distinctions in supervised learning. It lists four key dichotomies: parametric versus non-parametric learning, fixed design versus random design, transductive versus inductive learning, and offline/batch versus online/adversarial learning. The text concludes by noting that while these problems have different goals and assumptions, they often utilize similar tools for study and solution.",
+        "page_nums": [
+          37,
+          38
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 37,
+            "artifact_ref": "page_citation_assets/page-37.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          },
+          {
+            "page_num": 38,
+            "artifact_ref": "page_citation_assets/page-38.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_78a33771-0881-5753-8320-b28c89b9f3e3",
+      "type": "page",
+      "content": "Parametric Vs Non-parametric\nHow much do we know about the model?\n▶Parametric: assume the predictor to be modeled by a ﬁnite number\nof unknown parameters. Goal: ﬁnd the parametrization that best ﬁts\nthe observed data. In several scenario the goal is not in (only)\nhaving good predictions but rather use the recovered model for other\npurposes (e.g. identiﬁcation).\n▶Non-parametric. allow the parametrization of the model to\nincrease in complexity as more examples are observed. Goal: ﬁnd an\nestimator with optimal generalization performance (i.e. lowest\nexpected risk E).",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/A Taxonomy of Supervised Learning Problems/Parametric Vs Non-parametric",
+      "metadata": {
+        "length": 570,
+        "summary": "This page presents a comparison between parametric and non-parametric modeling approaches. It defines parametric models as those assuming a finite number of unknown parameters, with the goal of finding a parametrization that best fits observed data for purposes like identification. In contrast, it describes non-parametric models as allowing model complexity to increase with more examples, aiming for an estimator with optimal generalization performance (lowest expected risk).",
+        "page_nums": [
+          39
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 39,
+            "artifact_ref": "page_citation_assets/page-39.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_a63b1525-569e-534f-a6cc-ce5819b6a06c",
+      "type": "page",
+      "content": "Fixed Design Vs Random Design\nFrom experiment design...\n▶Fixed Design. Given training examples (xi, yi)n\ni=1, the goal is to\nachieve good estimates for ρ(y|xi) on the prescribed training inputs.\nNo distribution on the input data ρX is assumed/considered.\n1\nn\nn\nX\ni=1\nZ\nY\nℓ(f(xi), y) dρ(y|xi)\n▶Random Design. Agnostic about where the learned model will be\ntested. The goal is to make good predictions with respect to the\ndistribution ρ(x, y).",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/A Taxonomy of Supervised Learning Problems/Fixed Design Vs Random Design",
+      "metadata": {
+        "length": 441,
+        "summary": "The page presents a comparison between Fixed Design and Random Design in the context of experiment design. It defines Fixed Design as an approach where training examples are given, and the goal is to estimate conditional probabilities on prescribed inputs without assuming a distribution on the input data. A mathematical formula for the expected loss is provided. In contrast, Random Design is described as being agnostic about where the model will be tested, aiming to make good predictions with respect to the joint distribution of inputs and outputs.",
+        "page_nums": [
+          40
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 40,
+            "artifact_ref": "page_citation_assets/page-40.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_f4482288-e142-526f-9d2c-b6bc040053fc",
+      "type": "page",
+      "content": "Inductive Vs Transductive Learning\nDo we have access to the test set in advance?\n▶Transductive: the goal is to achieve good prediction performance\non a prescribed set of test points (˜xj)ntest\nj=1 provided in advance.\nTransductive learning ignores the eﬀect of ρX on the risk but\nfocuses only on\n1\nntest\nntest\nX\nj=1\nZ\nY\nℓ(f(˜xj), y) dρ(y|˜xj)\n▶Inductive Agnostic about where the learned model will be tested.\nThe goal is to make good predictions with respect to the distribution\nρ(x, y).",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/A Taxonomy of Supervised Learning Problems/Inductive Vs Transductive Learning",
+      "metadata": {
+        "length": 487,
+        "summary": "This page defines and contrasts inductive versus transductive learning. It explains that transductive learning aims for good prediction performance on a specific, pre-specified set of test points provided in advance, focusing only on the risk associated with those points (represented by a mathematical formula). In contrast, inductive learning is agnostic about where the model will be tested and aims to make good predictions based on the general distribution of data.",
+        "page_nums": [
+          41
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 41,
+            "artifact_ref": "page_citation_assets/page-41.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_32a344f8-20be-584d-acab-b9e911a87e45",
+      "type": "page",
+      "content": "Oﬄine/Batch Vs Online/Adversarial Learning\nHow do we observe samples from ρ?\n▶Oﬄine/Batch: a ﬁnite sample of input-output examples\nindependently and identically distributed. Goal: minimize prediction\nerrors on new examples\n▶Online/Adversarial: We observe one input, propose a prediction\nand then observe the output. Goal: minimize the regret (i.e. choose\nthe estimator that would have made less mistakes).\nNote. The distribution could be adversarial: ρ(y|x, f(x)) instead of\nρ(y|x) can make things “hard” for us.",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/A Taxonomy of Supervised Learning Problems/Offline∕Batch Vs Online∕Adversarial Learning",
+      "metadata": {
+        "length": 512,
+        "summary": "This page defines and contrasts two learning paradigms: Offline/Batch Learning and Online/Adversarial Learning. It explains that Offline/Batch involves a finite sample of independent examples with the goal of minimizing prediction errors on new data, while Online/Adversarial involves observing inputs sequentially to propose predictions, aiming to minimize regret. A note at the bottom clarifies that the distribution can be adversarial, making the problem harder.",
+        "page_nums": [
+          42
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 42,
+            "artifact_ref": "page_citation_assets/page-42.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_a92b091b-f6ac-5797-9fa5-976b27e4c092",
+      "type": "page",
+      "content": "Wrapping up\nThis class:\n▶Motivations and Examples\n▶Formulating the learning problem\n▶Brief introduction to Learning Theory\n▶A Taxonomy of supervised learning problems\nNext class: overﬁtting and the need for regularization...",
+      "path": "Introduction to Statistical Learning Theory.pdf/Root/Wrapping up",
+      "metadata": {
+        "length": 224,
+        "summary": "This page is a 'Wrapping up' slide from a lecture or presentation. It summarizes the topics covered in the current class, including motivations, problem formulation, learning theory, and supervised learning taxonomies. It also previews the next class topic: overfitting and regularization.",
+        "page_nums": [
+          43
+        ],
+        "keywords": [],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 43,
+            "artifact_ref": "page_citation_assets/page-43.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 726,
+            "height": 545
+          }
+        ]
       }
     }
   ]

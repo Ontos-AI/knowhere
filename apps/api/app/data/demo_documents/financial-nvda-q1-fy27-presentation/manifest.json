@@ -1,65 +1,301 @@
 {
   "version": "2.0",
-  "job_id": "job_840184a62587",
-  "data_id": null,
-  "source_file_name": "NVDA-F1Q27-Quarterly-Presentation-FINAL.pdf",
-  "processing_date": "2026-06-16T03:25:59.990364Z",
+  "job_id": "job_983e1b5fd4c4",
+  "data_id": "demo-financial-nvda-q1-fy27-presentation",
+  "source_file_name": "NVIDIA Q1 FY27 Quarterly Presentation.pdf",
+  "processing_date": "2026-08-18T18:32:49.819184Z",
   "processing": {
     "page_count": 17,
     "billing_status": "charged",
     "cost": {
-      "micro_dollars": 25500,
-      "credits": 0.0255
+      "micro_dollars": 255000,
+      "credits": 0.255
+    },
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-18:874ab8b6c9e4",
+      "total_input_cost": 0.01453852,
+      "total_output_cost": 0.00219074,
+      "total_cost": 0.01672926,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 21259,
+          "output_tokens": 168,
+          "calls": 1,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        },
+        "deepseek-chat": {
+          "input_tokens": 1043,
+          "output_tokens": 158,
+          "calls": 1,
+          "input_rate_per_1m": 0.14,
+          "output_rate_per_1m": 0.28,
+          "input_cost": 0.00014602,
+          "output_cost": 4.424e-05,
+          "total_cost": 0.00019026,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.14,
+            "output_per_1m": 0.28,
+            "source": "DeepSeek official pricing",
+            "effective_date": "2026-06-11"
+          }
+        },
+        "qwen3.6-flash": {
+          "input_tokens": 57570,
+          "output_tokens": 1431,
+          "calls": 19,
+          "input_rate_per_1m": 0.25,
+          "output_rate_per_1m": 1.5,
+          "input_cost": 0.0143925,
+          "output_cost": 0.0021465,
+          "total_cost": 0.016539,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.25,
+            "output_per_1m": 1.5,
+            "source": "Qwen Cloud official pricing, <=256K input tier",
+            "effective_date": "2026-06-11"
+          }
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 21259,
+              "output_tokens": 168,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.hierarchy": {
+          "input_cost": 0.00014602,
+          "output_cost": 4.424e-05,
+          "total_cost": 0.00019026,
+          "models": {
+            "deepseek-chat": {
+              "input_tokens": 1043,
+              "output_tokens": 158,
+              "calls": 1,
+              "input_rate_per_1m": 0.14,
+              "output_rate_per_1m": 0.28,
+              "input_cost": 0.00014602,
+              "output_cost": 4.424e-05,
+              "total_cost": 0.00019026,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.14,
+                "output_per_1m": 0.28,
+                "source": "DeepSeek official pricing",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        },
+        "page_memory.asset_detect": {
+          "input_cost": 0.01391025,
+          "output_cost": 0.00195,
+          "total_cost": 0.01586025,
+          "models": {
+            "qwen3.6-flash": {
+              "input_tokens": 55641,
+              "output_tokens": 1300,
+              "calls": 17,
+              "input_rate_per_1m": 0.25,
+              "output_rate_per_1m": 1.5,
+              "input_cost": 0.01391025,
+              "output_cost": 0.00195,
+              "total_cost": 0.01586025,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.25,
+                "output_per_1m": 1.5,
+                "source": "Qwen Cloud official pricing, <=256K input tier",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        },
+        "page_memory.table_continuity": {
+          "input_cost": 0.00048225,
+          "output_cost": 0.0001965,
+          "total_cost": 0.00067875,
+          "models": {
+            "qwen3.6-flash": {
+              "input_tokens": 1929,
+              "output_tokens": 131,
+              "calls": 2,
+              "input_rate_per_1m": 0.25,
+              "output_rate_per_1m": 1.5,
+              "input_cost": 0.00048225,
+              "output_cost": 0.0001965,
+              "total_cost": 0.00067875,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.25,
+                "output_per_1m": 1.5,
+                "source": "Qwen Cloud official pricing, <=256K input tier",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
     },
     "timing": {
-      "started_at": "2026-06-16T03:24:55.507977+00:00",
-      "completed_at": "2026-06-16T03:25:59.984711+00:00",
-      "duration_ms": 64476
+      "started_at": "2026-08-18T18:26:48.887328+00:00",
+      "completed_at": "2026-08-18T18:32:49.805325+00:00",
+      "duration_ms": 360917
     },
     "stages": {
       "timing_ms": {
-        "document.profile": 5113,
-        "pdf.extract.standard": 44922,
-        "toc.detect_range_llm": 991,
-        "md.detect_toc": 1020,
-        "heading.merge_pre_pass_llm": 1193,
-        "heading.hierarchy_llm_call": 2280,
-        "heading.hierarchy_llm": 2288,
-        "md.predict_headings": 3599,
-        "md.deferred_summaries": 8986,
-        "md.build_dataframe": 1,
-        "pdf.parse_md": 14089,
-        "document.cleanup_unreferenced_images": 0,
-        "document.compress_images": 291,
-        "worker.parse.document": 64423
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 99635,
+        "page_memory.skeleton": 0,
+        "page_memory.title_render": 44530,
+        "page_memory.title_detection": 25907,
+        "page_memory.fine_hierarchy": 1806,
+        "page_memory.render": 49797,
+        "page_memory.tag": 19938,
+        "page_memory.assets": 106070,
+        "page_memory.node_summary": 12919,
+        "page_memory.node_rows": 57,
+        "page_memory.node_assembly": 12995,
+        "worker.parse.document": 360723
       },
       "token_usage": {
-        "prompt_tokens": 4543,
-        "completion_tokens": 317,
-        "total_tokens": 4860
+        "prompt_tokens": 79872,
+        "completion_tokens": 1757,
+        "total_tokens": 81629,
+        "calls": 21,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 21259,
+            "completion_tokens": 168,
+            "total_tokens": 21427,
+            "calls": 1
+          },
+          "deepseek-chat": {
+            "prompt_tokens": 1043,
+            "completion_tokens": 158,
+            "total_tokens": 1201,
+            "calls": 1
+          },
+          "qwen3.6-flash": {
+            "prompt_tokens": 57570,
+            "completion_tokens": 1431,
+            "total_tokens": 59001,
+            "calls": 19
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 21259,
+            "completion_tokens": 168,
+            "total_tokens": 21427,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 21259,
+                "completion_tokens": 168,
+                "total_tokens": 21427,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.hierarchy": {
+            "prompt_tokens": 1043,
+            "completion_tokens": 158,
+            "total_tokens": 1201,
+            "calls": 1,
+            "models": {
+              "deepseek-chat": {
+                "prompt_tokens": 1043,
+                "completion_tokens": 158,
+                "total_tokens": 1201,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.asset_detect": {
+            "prompt_tokens": 55641,
+            "completion_tokens": 1300,
+            "total_tokens": 56941,
+            "calls": 17,
+            "models": {
+              "qwen3.6-flash": {
+                "prompt_tokens": 55641,
+                "completion_tokens": 1300,
+                "total_tokens": 56941,
+                "calls": 17
+              }
+            }
+          },
+          "page_memory.table_continuity": {
+            "prompt_tokens": 1929,
+            "completion_tokens": 131,
+            "total_tokens": 2060,
+            "calls": 2,
+            "models": {
+              "qwen3.6-flash": {
+                "prompt_tokens": 1929,
+                "completion_tokens": 131,
+                "total_tokens": 2060,
+                "calls": 2
+              }
+            }
+          }
+        }
       }
     }
   },
   "statistics": {
-    "total_chunks": 39,
-    "text_chunks": 12,
-    "image_chunks": 11,
-    "table_chunks": 16,
+    "total_chunks": 28,
+    "text_chunks": 0,
+    "image_chunks": 9,
+    "table_chunks": 7,
+    "page_chunks": 12,
     "total_pages": null
   },
   "HIERARCHY": {
-    "Investor Presentation Q1 FY27": {
-      "Revenue \\$ in billions": {},
+    "Root": {
+      "Investor Presentation": {},
+      "Revenue": {},
+      "Data Center": {},
       "Gross Margin": {},
       "Operating Expenses": {},
+      "Earnings per Share": {},
       "Free Cash Flow and Capital Return": {},
-      "GAAP P&L Financial Measures \\$ in billions, except EPS": {},
-      "Non-GAAP P&L Financial Measures \\$ in billions, except EPS": {},
+      "GAAP P&L Financial Measures": {},
+      "Non-GAAP P&L Financial Measures": {},
       "Q2 FY27 Outlook – Non-GAAP": {},
       "Reconciliation of Non-GAAP to GAAP Financial Measures": {},
-      "Reconciliation of Non-GAAP to GAAP Financial Measures_2": {},
-      "Reconciliation of Non-GAAP to GAAP Financial Measures (contd.)": {},
-      "Reconciliation of Non-GAAP to GAAP Financial Measures (contd.)_2": {}
+      "Reconciliation of Non-GAAP to GAAP Financial Measures (contd.)": {}
     }
   }
 }

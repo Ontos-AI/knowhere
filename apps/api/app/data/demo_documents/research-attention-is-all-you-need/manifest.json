@@ -1,31 +1,283 @@
 {
   "version": "2.0",
-  "job_id": "job_demo_research_attention_is_all_you_need",
-  "data_id": null,
+  "job_id": "job_b583b4c5c4c0",
+  "data_id": "demo-research-attention-is-all-you-need",
   "source_file_name": "Attention Is All You Need.pdf",
-  "processing_date": "2026-06-17T11:37:37.488025Z",
+  "processing_date": "2026-08-18T18:01:58.856422Z",
   "processing": {
-    "page_count": null,
-    "billing_status": null,
+    "page_count": 15,
+    "billing_status": "charged",
     "cost": {
-      "micro_dollars": null,
-      "credits": null
+      "micro_dollars": 225000,
+      "credits": 0.225
     },
-    "cost_estimate": {},
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-18:874ab8b6c9e4",
+      "total_input_cost": 0.00495208,
+      "total_output_cost": 0.00114562,
+      "total_cost": 0.0060977,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 16650,
+          "output_tokens": 247,
+          "calls": 1,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        },
+        "deepseek-chat": {
+          "input_tokens": 1697,
+          "output_tokens": 379,
+          "calls": 1,
+          "input_rate_per_1m": 0.14,
+          "output_rate_per_1m": 0.28,
+          "input_cost": 0.00023758,
+          "output_cost": 0.00010612,
+          "total_cost": 0.0003437,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.14,
+            "output_per_1m": 0.28,
+            "source": "DeepSeek official pricing",
+            "effective_date": "2026-06-11"
+          }
+        },
+        "qwen3.6-flash": {
+          "input_tokens": 18858,
+          "output_tokens": 693,
+          "calls": 7,
+          "input_rate_per_1m": 0.25,
+          "output_rate_per_1m": 1.5,
+          "input_cost": 0.0047145,
+          "output_cost": 0.0010395,
+          "total_cost": 0.005754,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.25,
+            "output_per_1m": 1.5,
+            "source": "Qwen Cloud official pricing, <=256K input tier",
+            "effective_date": "2026-06-11"
+          }
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 16650,
+              "output_tokens": 247,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.hierarchy": {
+          "input_cost": 0.00023758,
+          "output_cost": 0.00010612,
+          "total_cost": 0.0003437,
+          "models": {
+            "deepseek-chat": {
+              "input_tokens": 1697,
+              "output_tokens": 379,
+              "calls": 1,
+              "input_rate_per_1m": 0.14,
+              "output_rate_per_1m": 0.28,
+              "input_cost": 0.00023758,
+              "output_cost": 0.00010612,
+              "total_cost": 0.0003437,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.14,
+                "output_per_1m": 0.28,
+                "source": "DeepSeek official pricing",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        },
+        "page_memory.asset_detect": {
+          "input_cost": 0.0047145,
+          "output_cost": 0.0010395,
+          "total_cost": 0.005754,
+          "models": {
+            "qwen3.6-flash": {
+              "input_tokens": 18858,
+              "output_tokens": 693,
+              "calls": 7,
+              "input_rate_per_1m": 0.25,
+              "output_rate_per_1m": 1.5,
+              "input_cost": 0.0047145,
+              "output_cost": 0.0010395,
+              "total_cost": 0.005754,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.25,
+                "output_per_1m": 1.5,
+                "source": "Qwen Cloud official pricing, <=256K input tier",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
+    },
     "timing": {
-      "started_at": null,
-      "completed_at": null,
-      "duration_ms": null
+      "started_at": "2026-08-18T17:59:18.685971+00:00",
+      "completed_at": "2026-08-18T18:01:58.852202+00:00",
+      "duration_ms": 160166
     },
-    "stages": {}
+    "stages": {
+      "timing_ms": {
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 40192,
+        "page_memory.skeleton": 0,
+        "page_memory.title_render": 7693,
+        "page_memory.title_detection": 18473,
+        "page_memory.fine_hierarchy": 2603,
+        "page_memory.render": 7453,
+        "page_memory.tag": 20487,
+        "page_memory.assets": 28561,
+        "page_memory.node_summary": 34363,
+        "page_memory.node_rows": 55,
+        "page_memory.node_assembly": 34424,
+        "worker.parse.document": 159947
+      },
+      "token_usage": {
+        "prompt_tokens": 37205,
+        "completion_tokens": 1319,
+        "total_tokens": 38524,
+        "calls": 9,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 16650,
+            "completion_tokens": 247,
+            "total_tokens": 16897,
+            "calls": 1
+          },
+          "deepseek-chat": {
+            "prompt_tokens": 1697,
+            "completion_tokens": 379,
+            "total_tokens": 2076,
+            "calls": 1
+          },
+          "qwen3.6-flash": {
+            "prompt_tokens": 18858,
+            "completion_tokens": 693,
+            "total_tokens": 19551,
+            "calls": 7
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 16650,
+            "completion_tokens": 247,
+            "total_tokens": 16897,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 16650,
+                "completion_tokens": 247,
+                "total_tokens": 16897,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.hierarchy": {
+            "prompt_tokens": 1697,
+            "completion_tokens": 379,
+            "total_tokens": 2076,
+            "calls": 1,
+            "models": {
+              "deepseek-chat": {
+                "prompt_tokens": 1697,
+                "completion_tokens": 379,
+                "total_tokens": 2076,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.asset_detect": {
+            "prompt_tokens": 18858,
+            "completion_tokens": 693,
+            "total_tokens": 19551,
+            "calls": 7,
+            "models": {
+              "qwen3.6-flash": {
+                "prompt_tokens": 18858,
+                "completion_tokens": 693,
+                "total_tokens": 19551,
+                "calls": 7
+              }
+            }
+          }
+        }
+      }
+    }
   },
   "statistics": {
-    "total_chunks": 16,
-    "text_chunks": 16,
-    "image_chunks": 0,
-    "table_chunks": 0,
-    "page_chunks": 0,
+    "total_chunks": 34,
+    "text_chunks": 0,
+    "image_chunks": 5,
+    "table_chunks": 2,
+    "page_chunks": 27,
     "total_pages": null
   },
-  "HIERARCHY": {}
+  "HIERARCHY": {
+    "Root": {
+      "Attention Is All You Need": {},
+      "Abstract": {},
+      "1 Introduction": {},
+      "2 Background": {},
+      "3 Model Architecture": {
+        "3.1 Encoder and Decoder Stacks": {},
+        "3.2 Attention": {
+          "3.2.1 Scaled Dot-Product Attention": {},
+          "3.2.2 Multi-Head Attention": {},
+          "3.2.3 Applications of Attention in our Model": {}
+        },
+        "3.3 Position-wise Feed-Forward Networks": {},
+        "3.4 Embeddings and Softmax": {},
+        "3.5 Positional Encoding": {}
+      },
+      "4 Why Self-Attention": {},
+      "5 Training": {
+        "5.1 Training Data and Batching": {},
+        "5.2 Hardware and Schedule": {},
+        "5.3 Optimizer": {},
+        "5.4 Regularization": {
+          "Residual Dropout": {},
+          "Label Smoothing": {}
+        }
+      },
+      "6 Results": {
+        "6.1 Machine Translation": {},
+        "6.2 Model Variations": {},
+        "6.3 English Constituency Parsing": {}
+      },
+      "7 Conclusion": {},
+      "Acknowledgements": {},
+      "References": {},
+      "Attention Visualizations": {}
+    }
+  }
 }

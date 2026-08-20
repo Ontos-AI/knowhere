@@ -1,58 +1,268 @@
 {
   "version": "2.0",
-  "job_id": "job_0e0ec2025607",
-  "data_id": null,
-  "source_file_name": "8.pdf",
-  "processing_date": "2026-06-16T03:39:28.853867Z",
+  "job_id": "job_3a655ead76a2",
+  "data_id": "demo-stem-jurafsky-transformers",
+  "source_file_name": "Speech and Language Processing, Chapter 8: Transformers.pdf",
+  "processing_date": "2026-08-18T18:01:12.702262Z",
   "processing": {
     "page_count": 27,
     "billing_status": "charged",
     "cost": {
-      "micro_dollars": 40500,
-      "credits": 0.0405
+      "micro_dollars": 405000,
+      "credits": 0.405
+    },
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-18:874ab8b6c9e4",
+      "total_input_cost": 0.01169954,
+      "total_output_cost": 0.00300776,
+      "total_cost": 0.0147073,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 16661,
+          "output_tokens": 204,
+          "calls": 1,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        },
+        "deepseek-chat": {
+          "input_tokens": 1786,
+          "output_tokens": 392,
+          "calls": 1,
+          "input_rate_per_1m": 0.14,
+          "output_rate_per_1m": 0.28,
+          "input_cost": 0.00025004,
+          "output_cost": 0.00010976,
+          "total_cost": 0.0003598,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.14,
+            "output_per_1m": 0.28,
+            "source": "DeepSeek official pricing",
+            "effective_date": "2026-06-11"
+          }
+        },
+        "qwen3.6-flash": {
+          "input_tokens": 45798,
+          "output_tokens": 1932,
+          "calls": 17,
+          "input_rate_per_1m": 0.25,
+          "output_rate_per_1m": 1.5,
+          "input_cost": 0.0114495,
+          "output_cost": 0.002898,
+          "total_cost": 0.0143475,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.25,
+            "output_per_1m": 1.5,
+            "source": "Qwen Cloud official pricing, <=256K input tier",
+            "effective_date": "2026-06-11"
+          }
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 16661,
+              "output_tokens": 204,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.hierarchy": {
+          "input_cost": 0.00025004,
+          "output_cost": 0.00010976,
+          "total_cost": 0.0003598,
+          "models": {
+            "deepseek-chat": {
+              "input_tokens": 1786,
+              "output_tokens": 392,
+              "calls": 1,
+              "input_rate_per_1m": 0.14,
+              "output_rate_per_1m": 0.28,
+              "input_cost": 0.00025004,
+              "output_cost": 0.00010976,
+              "total_cost": 0.0003598,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.14,
+                "output_per_1m": 0.28,
+                "source": "DeepSeek official pricing",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        },
+        "page_memory.asset_detect": {
+          "input_cost": 0.0114495,
+          "output_cost": 0.002898,
+          "total_cost": 0.0143475,
+          "models": {
+            "qwen3.6-flash": {
+              "input_tokens": 45798,
+              "output_tokens": 1932,
+              "calls": 17,
+              "input_rate_per_1m": 0.25,
+              "output_rate_per_1m": 1.5,
+              "input_cost": 0.0114495,
+              "output_cost": 0.002898,
+              "total_cost": 0.0143475,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.25,
+                "output_per_1m": 1.5,
+                "source": "Qwen Cloud official pricing, <=256K input tier",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
     },
     "timing": {
-      "started_at": "2026-06-16T03:37:55.446046+00:00",
-      "completed_at": "2026-06-16T03:39:28.840141+00:00",
-      "duration_ms": 93394
+      "started_at": "2026-08-18T17:58:27.164706+00:00",
+      "completed_at": "2026-08-18T18:01:12.690933+00:00",
+      "duration_ms": 165526
     },
     "stages": {
       "timing_ms": {
-        "document.profile": 8189,
-        "pdf.extract.standard": 65917,
-        "toc.detect_range_llm": 1402,
-        "md.detect_toc": 1427,
-        "heading.merge_pre_pass_llm": 1162,
-        "heading.hierarchy_llm_call": 3194,
-        "heading.hierarchy_llm": 3203,
-        "md.predict_headings": 5078,
-        "md.deferred_summaries": 12336,
-        "md.build_dataframe": 1,
-        "pdf.parse_md": 19209,
-        "document.cleanup_unreferenced_images": 1,
-        "document.compress_images": 0,
-        "worker.parse.document": 93322
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 19137,
+        "page_memory.skeleton": 0,
+        "page_memory.title_render": 7348,
+        "page_memory.title_detection": 24990,
+        "page_memory.fine_hierarchy": 3021,
+        "page_memory.render": 11417,
+        "page_memory.tag": 31403,
+        "page_memory.assets": 51622,
+        "page_memory.node_summary": 16293,
+        "page_memory.node_rows": 55,
+        "page_memory.node_assembly": 16365,
+        "worker.parse.document": 165363
       },
       "token_usage": {
-        "prompt_tokens": 5575,
-        "completion_tokens": 409,
-        "total_tokens": 5984
+        "prompt_tokens": 64245,
+        "completion_tokens": 2528,
+        "total_tokens": 66773,
+        "calls": 19,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 16661,
+            "completion_tokens": 204,
+            "total_tokens": 16865,
+            "calls": 1
+          },
+          "deepseek-chat": {
+            "prompt_tokens": 1786,
+            "completion_tokens": 392,
+            "total_tokens": 2178,
+            "calls": 1
+          },
+          "qwen3.6-flash": {
+            "prompt_tokens": 45798,
+            "completion_tokens": 1932,
+            "total_tokens": 47730,
+            "calls": 17
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 16661,
+            "completion_tokens": 204,
+            "total_tokens": 16865,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 16661,
+                "completion_tokens": 204,
+                "total_tokens": 16865,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.hierarchy": {
+            "prompt_tokens": 1786,
+            "completion_tokens": 392,
+            "total_tokens": 2178,
+            "calls": 1,
+            "models": {
+              "deepseek-chat": {
+                "prompt_tokens": 1786,
+                "completion_tokens": 392,
+                "total_tokens": 2178,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.asset_detect": {
+            "prompt_tokens": 45798,
+            "completion_tokens": 1932,
+            "total_tokens": 47730,
+            "calls": 17,
+            "models": {
+              "qwen3.6-flash": {
+                "prompt_tokens": 45798,
+                "completion_tokens": 1932,
+                "total_tokens": 47730,
+                "calls": 17
+              }
+            }
+          }
+        }
       }
     }
   },
   "statistics": {
-    "total_chunks": 46,
-    "text_chunks": 23,
-    "image_chunks": 19,
-    "table_chunks": 4,
+    "total_chunks": 47,
+    "text_chunks": 0,
+    "image_chunks": 20,
+    "table_chunks": 0,
+    "page_chunks": 27,
     "total_pages": null
   },
   "HIERARCHY": {
-    "CHAPTER 8 Transformers": {
-      "8.1 Attention": {},
-      "(8.3) The chicken didn't cross the road because it": {},
-      "8.2 Transformer Blocks": {},
-      "8.3 Parallelizing computation using a single matrix X": {},
+    "Root": {
+      "CHAPTER 8 Transformers": {},
+      "8.1 Attention": {
+        "8.1.1 Attention more formally": {
+          "Simplified version of attention": {},
+          "A single attention head using query, key, and value matrices": {}
+        },
+        "Multi-head Attention": {}
+      },
+      "8.2 Transformer Blocks": {
+        "Feedforward layer": {},
+        "Layer Norm": {},
+        "Putting it all together": {}
+      },
+      "8.3 Parallelizing computation using a single matrix X": {
+        "Parallelizing attention": {},
+        "Masking out the future": {},
+        "Parallelizing multi-head attention": {},
+        "Putting it all together with the parallel input matrix X": {}
+      },
       "8.4 The input: embeddings for token and position": {},
       "8.5 The Language Modeling Head": {},
       "8.6 More on Sampling": {
@@ -62,11 +272,7 @@
       "8.7 Training": {},
       "8.8 Dealing with Scale": {
         "8.8.1 Scaling laws": {},
-        "8.8.2 KV Cache": {
-          "1 x dk": {},
-          "1 x N": {},
-          "1 x dv": {}
-        },
+        "8.8.2 KV Cache": {},
         "8.8.3 Parameter Efficient Fine Tuning": {}
       },
       "8.9 Interpreting the Transformer": {

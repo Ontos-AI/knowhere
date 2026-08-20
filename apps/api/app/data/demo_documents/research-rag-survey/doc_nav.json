@@ -2,421 +2,338 @@
   "version": "1.0",
   "file_name": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf",
   "stats": {
-    "total_chunks": 37,
-    "text_chunks": 37,
-    "image_chunks": 0,
+    "total_chunks": 35,
+    "text_chunks": 0,
+    "image_chunks": 6,
     "table_chunks": 0,
-    "page_chunks": 0,
-    "max_depth": 2
+    "page_chunks": 29,
+    "max_depth": 4
   },
   "sections": [
     {
-      "title": "Page 1",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 1",
+      "title": "Root",
+      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root",
       "level": 1,
       "summary": "",
-      "chunk_count": 2,
+      "chunk_count": 35,
       "children": [
         {
-          "title": "Part 1",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 1/Part 1",
+          "title": "I. INTRODUCTION",
+          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/I. INTRODUCTION",
           "level": 2,
-          "summary": "1 Retrieval-Augmented Generation for Large Language Models: A Survey Yunfan Gaoa, Yun Xiong b, Xinyu Gao b, Kangxiang Jia b, Jinliu Pan b, Yuxi Bi c, Yi Dai a, Jiawei Sun a, Meng Wangc, and Haofen Wang a,c aShanghai Research Institute for Intelligent Autonomous Systems, Tongji University bShanghai Key Laboratory of Data Science, School of Computer Science, Fudan University cCollege of Design and Innovation, Tongji University Abstract—Large Language Models (LLMs) showcase impres- sive capabilities but encounter challenges like hallucination, outdated knowledge, and non-transparent, untraceable reasoning processes. Retrieval-Augmented Generation (RAG) has emerged as a promising solution by...",
+          "summary": "This document is the first page of a survey paper titled \"Retrieval-Augmented Generation for Large Language Models: A Survey.\" It introduces the concept of Retrieval-Augmented Generation (RAG) as a solution to challenges like hallucination in Large Language Models (LLMs). The abstract outlines the paper's scope, which includes reviewing RAG paradigms (Naive, Advanced, Modular), frameworks, and evaluation methods. The introduction further details the rapid development of RAG technology and its integration into LLMs.",
           "chunk_count": 1,
           "children": []
         },
         {
-          "title": "Part 2",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 1/Part 2",
+          "title": "II. OVERVIEW OF RAG",
+          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/II. OVERVIEW OF RAG",
           "level": 2,
-          "summary": "considers both technical paradigms and research methods, summarizing three main research paradigms from over 100 RAG studies, and analyzing key technologies in the core stages of “Retrieval,” “Generation,” and “Augmentation.” On the other hand, current research tends to focus more on methods, lacking analysis and summarization of how to evaluate RAG. This paper compre- hensively reviews the downstream tasks, datasets, benchmarks, and evaluation methods applicable to RAG. Overall, this paper sets out to meticulously compile and categorize the foundational technical concepts, historical progression, and the spectrum of RAG methodologies and applications that have emerged post-LLMs. It is...",
+          "summary": "",
+          "chunk_count": 4,
+          "children": [
+            {
+              "title": "A. Naive RAG",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/II. OVERVIEW OF RAG/A. Naive RAG",
+              "level": 3,
+              "summary": "This page presents a technology tree of Retrieval-Augmented Generation (RAG) research, visualizing the evolution of methods from 2020 to 2024 across pre-training, fine-tuning, and inference stages. The text introduces the scope of RAG within Large Language Models (LLMs), outlines the paper's structure, and begins an overview of RAG paradigms including Naive, Advanced, and Modular RAG.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "B. Advanced RAG",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/II. OVERVIEW OF RAG/B. Advanced RAG",
+              "level": 3,
+              "summary": "This page details the architecture and process of Retrieval-Augmented Generation (RAG), illustrated by a flowchart in Figure 2 that outlines the steps of indexing, retrieval, and generation. The text describes how Naive RAG functions through these three phases—converting documents into vector chunks, retrieving relevant context based on user queries, and generating answers using a Large Language Model (LLM). It also discusses challenges such as hallucination and redundancy, and introduces Advanced RAG strategies to improve performance.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "C. Modular RAG",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/II. OVERVIEW OF RAG/C. Modular RAG",
+              "level": 3,
+              "summary": "This page presents Figure 3, which visually compares three paradigms of Retrieval-Augmented Generation (RAG): Naive RAG, Advanced RAG, and Modular RAG. The text below the figure elaborates on pre-retrieval and post-retrieval processes, highlighting optimization strategies like query rewriting and reranking. It also details the Modular RAG architecture, emphasizing its flexibility through specialized components such as search modules and memory pools.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "D. RAG vs Fine-tuning",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/II. OVERVIEW OF RAG/D. RAG vs Fine-tuning",
+              "level": 3,
+              "summary": "The section 'D. RAG vs Fine-tuning' compares Retrieval-Augmented Generation (RAG) and Fine-tuning (FT) as optimization methods for Large Language Models (LLMs). It describes RAG as a method that leverages external knowledge sources, offering real-time updates and interpretability but with higher latency. In contrast, FT involves retraining the model to internalize knowledge, allowing for deep customization of behavior and style but requiring significant computational resources. The text notes that while unsupervised fine-tuning shows some improvement, RAG consistently outperforms it in handling new knowledge. The section concludes by stating that RAG and FT are not mutually exclusive and can complement each other.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "III. RETRIEVAL",
+          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/III. RETRIEVAL",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 8,
+          "children": [
+            {
+              "title": "A. Retrieval Source",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/III. RETRIEVAL/A. Retrieval Source",
+              "level": 3,
+              "summary": "This section, titled 'A. Retrieval Source', discusses the types of data sources used in Retrieval-Augmented Generation (RAG) systems to enhance Large Language Models (LLMs). It outlines the evolution from text as the primary source to include semi-structured data like PDFs and structured data such as Knowledge Graphs (KG). Additionally, it highlights a growing trend of utilizing content generated by LLMs themselves for retrieval and enhancement purposes.",
+              "chunk_count": 4,
+              "children": [
+                {
+                  "title": "TABLE I",
+                  "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/III. RETRIEVAL/A. Retrieval Source/TABLE I",
+                  "level": 4,
+                  "summary": "6 TABLE I SUMMARY OF RAG METHODS Method Retrieval Source Retrieval Data Type Retrieval Granularity Augmentation Stage Retrieval process CoG [29] Wikipedia Text Phrase Pre-training Iterative DenseX [30] FactoidWiki Text Proposition Inference Once EAR [31] Dataset-base Text Sentence Tuning Once UPRISE [20] Dataset-base Text Sentence Tuning Once RAST [32] Dataset-base Text Sentence Tuning Once Self-Mem [17] Dataset-base Text Sentence Tuning Iterative FLARE [24] Search Engine,Wikipedia Text Sentence Tuning Adaptive PGRA [33] Wikipedia Text Sentence Inference Once FILCO [34] Wikipedia Text Sentence Inference Once RADA [35] Dataset-base Text Sentence Inference Once Filter-rerank [36] Synthesized dataset Text Sentence Inference Once R-GQA [37] Dataset-base Text Sentence Pair Tuning Once LLM-R [38] Dataset-base Text Sentence Pair Inference Iterative TIGER [39] Dataset-base Text Item-base Pre-training Once LM-Indexer [40] Dataset-base Text Item-base Tuning Once BEQUE [9] Dataset-base Text Item-base Tuning Once CT-RAG [41] Synthesized dataset Text Item-base Tuning Once Atlas [42] Wikipedia, Common Crawl Text Chunk Pre-training Iterative RAVEN [43] Wikipedia Text Chunk Pre-training Once RETRO++ [44] Pre-training Corpus Text Chunk Pre-training Iterative INSTRUCTRETRO [45] Pre-training corpus Text...Once KnowledGPT [15] Dataset-base KG Triplet Inference Muti-time FABULA [80] Dataset-base,Graph KG Entity Inference Once HyKGE [81] CMeKG KG Entity Inference Once KALMV [82] Wikipedia KG Triplet Inference Iterative RoG [83] Freebase KG Triplet Inference Iterative G-Retriever [84] Dataset-base TextGraph Sub-Graph Inference Once",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "SUMMARY OF RAG METHODS",
+                  "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/III. RETRIEVAL/A. Retrieval Source/SUMMARY OF RAG METHODS",
+                  "level": 4,
+                  "summary": "The page features Figure 4, a chart comparing RAG (Retrieval-Augmented Generation) with other model optimization methods based on the axes of 'External Knowledge Required' and 'Model Adaptation Required'. The figure illustrates that Prompt Engineering requires low external knowledge and adaptation, while Fine-tuning requires high adaptation. The text below discusses various data sources for retrieval systems, including unstructured data (e.g., Wikipedia, HotpotQA), semi-structured data (e.g., PDFs, tables via TableGPT), and structured data like knowledge graphs (e.g., G-Retriever). It also covers LLM-generated content and retrieval granularity.",
+                  "chunk_count": 2,
+                  "children": []
+                }
+              ]
+            },
+            {
+              "title": "B. Indexing Optimization",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/III. RETRIEVAL/B. Indexing Optimization",
+              "level": 3,
+              "summary": "The section 'B. Indexing Optimization' discusses strategies for processing and segmenting documents into embeddings for storage in a vector database. It details three main approaches: Chunking Strategy (splitting text into fixed or recursive chunks, mentioning methods like Small2Big), Metadata Attachments (enriching chunks with page numbers, file names, or artificial metadata like hypothetical questions via Reverse HyDE), and Structural Index (establishing hierarchical structures like parent-child relationships or Knowledge Graphs to improve retrieval consistency and efficiency).",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "C. Query Optimization",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/III. RETRIEVAL/C. Query Optimization",
+              "level": 3,
+              "summary": "The section 'Query Optimization' addresses the challenges of Naive RAG, such as imprecise queries and language ambiguity. It outlines several strategies to improve retrieval effectiveness: Query Expansion (enriching a single query with more context), Multi-Query (executing multiple expanded queries in parallel), Sub-Query (decomposing complex questions into simpler sub-questions), and Chain-of-Verification (CoVe) (validating expanded queries via an LLM to reduce hallucinations).",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "D. Embedding",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/III. RETRIEVAL/D. Embedding",
+              "level": 3,
+              "summary": "The section discusses the role of embedding models in RAG systems, which calculate similarity between question and document chunks. It highlights prominent models like AnglE, Voyage, and BGE that benefit from multi-task instruction tuning. The text also mentions evaluation benchmarks such as Hugging Face's MTEB leaderboard (covering 8 tasks and 58 datasets) and C-MTEB for Chinese capability. Finally, it introduces 'Mix/hybrid Retrieval' as a method combining sparse and dense embedding approaches to capture different relevance features.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "E. Adapter",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/III. RETRIEVAL/E. Adapter",
+              "level": 3,
+              "summary": "The section titled 'E. Adapter' discusses the use of external adapters to address challenges in fine-tuning large language models (LLMs), such as limited computational resources or API integration constraints. It describes several approaches including UPRISE, which trains a lightweight prompt retriever; AAR (Augmentation-Adapted Retriever), a universal adapter for multiple downstream tasks; PRCA, a pluggable reward-driven contextual adapter; BGM, which uses a bridge Seq2Seq model between the retriever and LLM; and PKG, which employs advanced strategies like repetition.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "IV. GENERATION",
+          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/IV. GENERATION",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 2,
+          "children": [
+            {
+              "title": "A. Context Curation",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/IV. GENERATION/A. Context Curation",
+              "level": 3,
+              "summary": "The section 'A. Context Curation' discusses methods to process retrieved information before it is fed into a Large Language Model (LLM) to avoid issues like the 'Lost in the middle' problem. It details two main approaches: 1) Reranking, which reorders document chunks based on relevance using metrics or models like BERT and GPT; and 2) Context Selection/Compression, which reduces context length by removing unimportant tokens or summarizing content using techniques like contrastive learning or small language models (SLMs).",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "B. LLM Fine-tuning",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/IV. GENERATION/B. LLM Fine-tuning",
+              "level": 3,
+              "summary": "This section discusses targeted fine-tuning of Large Language Models (LLMs) to improve performance in specific domains or data formats. It highlights benefits such as incorporating additional knowledge, adapting to structured data (e.g., via the SANTA framework), and aligning outputs with human or retriever preferences through reinforcement learning. The text also covers distilling powerful proprietary models into smaller ones and coordinating fine-tuning between retrievers and generators using methods like RA-DIT.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "V. AUGMENTATION PROCESS IN RAG",
+          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/V. AUGMENTATION PROCESS IN RAG",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 3,
+          "children": [
+            {
+              "title": "A. Iterative Retrieval",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/V. AUGMENTATION PROCESS IN RAG/A. Iterative Retrieval",
+              "level": 3,
+              "summary": "The section titled 'A. Iterative Retrieval' introduces a process where the knowledge base is repeatedly searched based on an initial query and previously generated text to provide more comprehensive knowledge.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "B. Recursive Retrieval",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/V. AUGMENTATION PROCESS IN RAG/B. Recursive Retrieval",
+              "level": 3,
+              "summary": "The section 'B. Recursive Retrieval' describes a process used in information retrieval and NLP to improve search depth and relevance by iteratively refining queries based on previous results. It highlights methods like IRCoT, which uses chain-of-thought for guidance, and ToC, which creates clarification trees to optimize ambiguous queries. The text also notes that recursive retrieval is often combined with multi-hop retrieval techniques.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "C. Adaptive Retrieval",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/V. AUGMENTATION PROCESS IN RAG/C. Adaptive Retrieval",
+              "level": 3,
+              "summary": "This section discusses adaptive retrieval methods, which enable Large Language Models (LLMs) to actively determine the optimal timing and content for retrieval. It highlights Flare and Self-RAG as examples of this approach. The text also contextualizes these methods within a broader trend of LLMs employing active judgment, similar to model agents like AutoGPT, Toolformer, and Graph-Toolformer. Additionally, it mentions WebGPT's use of reinforcement learning to train GPT-3 for autonomous search engine usage.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "VI. TASK AND EVALUATION",
+          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/VI. TASK AND EVALUATION",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 5,
+          "children": [
+            {
+              "title": "A. Downstream Task",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/VI. TASK AND EVALUATION/A. Downstream Task",
+              "level": 3,
+              "summary": "The section 'A. Downstream Task' outlines the primary applications of Retrieval-Augmented Generation (RAG) models. It identifies Question Answering (QA) as the core task, covering various formats like single-hop/multi-hop QA and domain-specific scenarios. Additionally, it notes that RAG is expanding into other tasks such as Information Extraction (IE), dialogue generation, and code search. The text concludes by stating that these main downstream tasks and their corresponding datasets are summarized in Table II.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "B. Evaluation Target",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/VI. TASK AND EVALUATION/B. Evaluation Target",
+              "level": 3,
+              "summary": "This section discusses the historical focus of RAG model assessments on specific downstream tasks and the metrics used for them, such as EM, F1, Accuracy, BLEU, and ROUGE. It introduces the main evaluation objectives: Retrieval Quality (measuring context effectiveness) and Generation Quality (assessing the synthesis of coherent answers).",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "C. Evaluation Aspects",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/VI. TASK AND EVALUATION/C. Evaluation Aspects",
+              "level": 3,
+              "summary": "The section titled 'C. Evaluation Aspects' outlines the primary quality scores and essential abilities used to evaluate RAG models. It details three quality scores: Context Relevance, Answer Faithfulness, and Answer Relevance. Additionally, it describes four required abilities indicative of a model's adaptability and efficiency: Noise Robustness, Negative Rejection, Information Integration, and Counterfactual Robustness.",
+              "chunk_count": 2,
+              "children": []
+            },
+            {
+              "title": "D. Evaluation Benchmarks and Tools",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/VI. TASK AND EVALUATION/D. Evaluation Benchmarks and Tools",
+              "level": 3,
+              "summary": "This section discusses benchmark tests and tools proposed for evaluating Retrieval-Augmented Generation (RAG) models. It highlights prominent benchmarks such as RGB, RECALL, and CRUD, which focus on appraising essential RAG abilities. Additionally, it mentions state-of-the-art automated tools like RAGAS, ARES, and TruLens that employ Large Language Models (LLMs) to adjudicate quality scores.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "VII. DISCUSSION AND FUTURE PROSPECTS",
+          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/VII. DISCUSSION AND FUTURE PROSPECTS",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 6,
+          "children": [
+            {
+              "title": "A. RAG vs Long Context",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/VII. DISCUSSION AND FUTURE PROSPECTS/A. RAG vs Long Context",
+              "level": 3,
+              "summary": "This section discusses the impact of expanding Large Language Model (LLM) contexts, which now exceed 200,000 tokens. It explores whether Retrieval-Augmented Generation (RAG) remains necessary when LLMs can ingest entire documents directly. The text contrasts RAG with long-context approaches, noting that while long context improves efficiency and allows for complex problem solving, RAG offers benefits like faster inference speed, operational efficiency through chunked retrieval, and verifiable references. The section concludes by identifying the development of new RAG methods for super-long contexts as a future research trend.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "B. RAG Robustness",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/VII. DISCUSSION AND FUTURE PROSPECTS/B. RAG Robustness",
+              "level": 3,
+              "summary": "The section 'B. RAG Robustness' discusses the impact of noise or contradictory information on Retrieval-Augmented Generation (RAG) output quality, a problem described as 'Misinformation can be worse than no information at all'. It highlights that improving resistance to such adversarial inputs is a key performance metric. The text cites research by Cuconasu et al. [54], which found that including irrelevant documents can unexpectedly increase accuracy by over 30%, contradicting initial assumptions about reduced quality. This underscores the need for specialized strategies to integrate retrieval with language generation models.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "C. Hybrid Approaches",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/VII. DISCUSSION AND FUTURE PROSPECTS/C. Hybrid Approaches",
+              "level": 3,
+              "summary": "The section titled 'C. Hybrid Approaches' discusses the emerging strategy of combining Retrieval-Augmented Generation (RAG) with fine-tuning. It highlights the importance of determining the optimal integration method, whether sequential, alternating, or through end-to-end joint training, to effectively harness both parameterized and non-parameterized knowledge.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "D. Scaling laws of RAG",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/VII. DISCUSSION AND FUTURE PROSPECTS/D. Scaling laws of RAG",
+              "level": 3,
+              "summary": "This section discusses the scaling laws of RAG (Retrieval-Augmented Generation) models. It notes that while scaling laws are established for LLMs, their applicability to RAG remains uncertain. The text highlights that initial studies like RETRO++ have begun addressing this, but parameter counts in RAG models still lag behind those of LLMs. It also mentions the intriguing possibility of an Inverse Scaling Law, where smaller models might outperform larger ones.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "E. Production-Ready RAG",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/VII. DISCUSSION AND FUTURE PROSPECTS/E. Production-Ready RAG",
+              "level": 3,
+              "summary": "This section discusses the practicality and engineering requirements of production-ready RAG systems. It highlights key challenges such as enhancing retrieval efficiency, improving document recall in large knowledge bases, and ensuring data security to prevent inadvertent disclosure. The text also notes that the RAG ecosystem is significantly influenced by technical stack advancements, mentioning popular tools like LangChain and LlamaIndex, low-code platforms like Flowise AI, and services from traditional vendors like Weaviate's Verba and Amazon's Kendra. Finally, it identifies a trend towards specialization in RAG technology, focusing on customization and simplification.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "F. Multi-modal RAG",
+              "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/VII. DISCUSSION AND FUTURE PROSPECTS/F. Multi-modal RAG",
+              "level": 3,
+              "summary": "Section F discusses the expansion of Retrieval-Augmented Generation (RAG) beyond text-based tasks to include multimodal data. It details specific models and methods for handling images, audio, and video. For images, it mentions RA-CM3, BLIP-2, and the 'Visualize Before You Write' method. For audio and video, it describes the GSS method, UEOP, KNN-based attention fusion, Vid2Seq, RBPS, and the CoK method.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "VIII. CONCLUSION",
+          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/VIII. CONCLUSION",
+          "level": 2,
+          "summary": "The conclusion summarizes the paper's emphasis on RAG's advancement in enhancing LLM capabilities by integrating parameterized knowledge with external data. It outlines three developmental paradigms (Naive, Advanced, and Modular RAG) and highlights technical integrations like fine-tuning. The section concludes by noting RAG's expanding scope into multimodal domains such as images, videos, and code, underscoring its practical implications for AI deployment.",
           "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "REFERENCES",
+          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Root/REFERENCES",
+          "level": 2,
+          "summary": "This section is a comprehensive bibliography of academic papers and technical reports related to Retrieval-Augmented Generation (RAG) and large language models. The references cover topics such as retrieval methods, hallucination mitigation, evaluation benchmarks, and specific model architectures. The list includes publications from major conferences like NeurIPS, ACL, EMNLP, and ICSE, as well as arXiv preprints.",
+          "chunk_count": 5,
           "children": []
         }
       ]
-    },
-    {
-      "title": "Page 2",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 2",
-      "level": 1,
-      "summary": "2 Fig. 1. Technology tree of RAG research. The stages of involving RAG mainly include pre-training, fine-tuning, and inference. With the emergence of LLMs, research on RAG initially focused on leveraging the powerful in context learning abilities of LLMs, primarily concentrating on the inference stage. Subsequent research has delved deeper, gradually integrating more with the fine-tuning of LLMs. Researchers have also been exploring ways to enhance language models in the pre-training stage through retrieval-augmented techniques. advanced RAG, and modular RAG. This review contex- tualizes the broader scope of RAG research within the landscape of LLMs. • We identify and discuss the central...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 3",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 3",
-      "level": 1,
-      "summary": "3 Fig. 2. A representative instance of the RAG process applied to question answering. It mainly consists of 3 steps. 1) Indexing. Documents are split into chunks, encoded into vectors, and stored in a vector database. 2) Retrieval. Retrieve the Top k chunks most relevant to the question based on semantic similarity. 3) Generation. Input the original question and the retrieved chunks together into LLM to generate the final answer. widespread adoption of ChatGPT. The Naive RAG follows a traditional process that includes indexing, retrieval, and generation, which is also characterized as a “Retrieve-Read” framework [7]. Indexing starts with the cleaning and extraction of raw data in diverse...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 4",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 4",
-      "level": 1,
-      "summary": "4 Fig. 3. Comparison between the three paradigms of RAG. (Left) Naive RAG mainly consists of three parts: indexing, retrieval and generation. (Middle) Advanced RAG proposes multiple optimization strategies around pre-retrieval and post-retrieval, with a process similar to the Naive RAG, still following a chain-like structure. (Right) Modular RAG inherits and develops from the previous paradigm, showcasing greater flexibility overall. This is evident in the introduction of multiple specific functional modules and the replacement of existing modules. The overall process is not limited to sequential retrieval and generation; it includes methods such as iterative and adaptive retrieval. Pre-...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 5",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 5",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 5/Part 1",
-          "level": 2,
-          "summary": "5 aligns the text more closely with data distribution through iter- ative self-enhancement [17], [18]. Routing in the RAG system navigates through diverse data sources, selecting the optimal pathway for a query, whether it involves summarization, specific database searches, or merging different information streams [19]. The Predict module aims to reduce redundancy and noise by generating context directly through the LLM, ensuring relevance and accuracy [13]. Lastly, the Task Adapter module tailors RAG to various downstream tasks, automating prompt retrieval for zero-shot inputs and creating task-specific retrievers through few-shot query generation [20], [21] .This comprehensive approach...",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 2",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 5/Part 2",
-          "level": 2,
-          "summary": "with higher latency and ethical considerations regarding data retrieval. On the other hand, FT is more static, requiring retraining for updates but enabling deep customization of the model’s behavior and style. It demands significant compu- tational resources for dataset preparation and training, and while it can reduce hallucinations, it may face challenges with unfamiliar data. In multiple evaluations of their performance on various knowledge-intensive tasks across different topics, [28] re- vealed that while unsupervised fine-tuning shows some im- provement, RAG consistently outperforms it, for both exist- ing knowledge encountered during training and entirely new knowledge....",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 6",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 6",
-      "level": 1,
-      "summary": "6 TABLE I SUMMARY OF RAG METHODS Method Retrieval Source Retrieval Data Type Retrieval Granularity Augmentation Stage Retrieval process CoG [29] Wikipedia Text Phrase Pre-training Iterative DenseX [30] FactoidWiki Text Proposition Inference Once EAR [31] Dataset-base Text Sentence Tuning Once UPRISE [20] Dataset-base Text Sentence Tuning Once RAST [32] Dataset-base Text Sentence Tuning Once Self-Mem [17] Dataset-base Text Sentence Tuning Iterative FLARE [24] Search Engine,Wikipedia Text Sentence Tuning Adaptive PGRA [33] Wikipedia Text Sentence Inference Once FILCO [34] Wikipedia Text Sentence Inference Once RADA [35] Dataset-base Text Sentence Inference Once Filter-rerank [36]...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 7",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 7",
-      "level": 1,
-      "summary": "7 Fig. 4. RAG compared with other model optimization methods in the aspects of “External Knowledge Required” and “Model Adaption Required”. Prompt Engineering requires low modifications to the model and external knowledge, focusing on harnessing the capabilities of LLMs themselves. Fine-tuning, on the other hand, involves further training the model. In the early stages of RAG (Naive RAG), there is a low demand for model modifications. As research progresses, Modular RAG has become more integrated with fine-tuning techniques. Unstructured Data , such as text, is the most widely used retrieval source, which are mainly gathered from corpus. For open-domain question-answering (ODQA) tasks,...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 8",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 8",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 8/Part 1",
-          "level": 2,
-          "summary": "8 the appropriate retrieval granularity during inference can be a simple and effective strategy to improve the retrieval and downstream task performance of dense retrievers. In text, retrieval granularity ranges from fine to coarse, including Token, Phrase, Sentence, Proposition, Chunks, Doc- ument. Among them, DenseX [30]proposed the concept of using propositions as retrieval units. Propositions are defined as atomic expressions in the text, each encapsulating a unique factual segment and presented in a concise, self-contained nat- ural language format. This approach aims to enhance retrieval precision and relevance. On the Knowledge Graph (KG), retrieval granularity includes Entity,...",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 2",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 8/Part 2",
-          "level": 2,
-          "summary": "KGP [91] proposed a method of building an index between multiple documents using KG. This KG consists of nodes (representing paragraphs or structures in the documents, such as pages and tables) and edges (indicating semantic/lexical similarity between paragraphs or relationships within the document structure), effectively addressing knowl- edge retrieval and reasoning problems in a multi-document environment. C. Query Optimization One of the primary challenges with Naive RAG is its direct reliance on the user’s original query as the basis for retrieval. Formulating a precise and clear question is difficult, and imprudent queries result in subpar retrieval effectiveness. Sometimes, the...",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 9",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 9",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 9/Part 1",
-          "level": 2,
-          "summary": "9 2) Query Transformation: The core concept is to retrieve chunks based on a transformed query instead of the user’s original query. Query Rewrite.The original queries are not always optimal for LLM retrieval, especially in real-world scenarios. There- fore, we can prompt LLM to rewrite the queries. In addition to using LLM for query rewriting, specialized smaller language models, such as RRR (Rewrite-retrieve-read) [7]. The imple- mentation of the query rewrite method in the Taobao, known as BEQUE [9] has notably enhanced recall effectiveness for long-tail queries, resulting in a rise in GMV . Another query transformation method is to use prompt engineering to let LLM generate a query...",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 2",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 9/Part 2",
-          "level": 2,
-          "summary": "query generator to create task-specific retrievers, addressing chal- lenges in supervised fine-tuning, particularly in data-scarce domains. Another approach, LLM-Embedder [97], exploits LLMs to generate reward signals across multiple downstream tasks. The retriever is fine-tuned with two types of supervised signals: hard labels for the dataset and soft rewards from the LLMs. This dual-signal approach fosters a more effective fine-tuning process, tailoring the embedding model to diverse downstream applications. REPLUG [72] utilizes a retriever and an LLM to calculate the probability distributions of the retrieved documents and then performs supervised training by computing the KL...",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 10",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 10",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 10/Part 1",
-          "level": 2,
-          "summary": "10 introduces an innovative method for integrating knowledge into white-box models via directive fine-tuning [75]. In this approach, the retriever module is directly substituted to gen- erate relevant documents according to a query. This method assists in addressing the difficulties encountered during the fine-tuning process and enhances model performance. IV. G ENERATION After retrieval, it is not a good practice to directly input all the retrieved information to the LLM for answering questions. Following will introduce adjustments from two perspectives: adjusting the retrieved content and adjusting the LLM. A. Context Curation Redundant information can interfere with the final gener-...",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 2",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 10/Part 2",
-          "level": 2,
-          "summary": "style as instructed [37]. For retrieval tasks that engage with structured data, the SANTA framework [76] implements a tripartite training regimen to effectively encapsulate both structural and semantic nuances. The initial phase focuses on the retriever, where contrastive learning is harnessed to refine the query and document embeddings. Aligning LLM outputs with human or retriever preferences through reinforcement learning is a potential approach. For instance, manually annotating the final generated answers and then providing feedback through reinforcement learning. In addition to aligning with human preferences, it is also possible to align with the preferences of fine-tuned models and...",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 11",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 11",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 11/Part 1",
-          "level": 2,
-          "summary": "11 Fig. 5. In addition to the most common once retrieval, RAG also includes three types of retrieval augmentation processes. (left) Iterative retrieval involves alternating between retrieval and generation, allowing for richer and more targeted context from the knowledge base at each step. (Middle) Recursive retrieval involves gradually refining the user query and breaking down the problem into sub-problems, then continuously solving complex problems through retrieval and generation. (Right) Adaptive retrieval focuses on enabling the RAG system to autonomously determine whether external knowledge retrieval is necessary and when to stop retrieval and generation, often utilizing LLM-...",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 2",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 11/Part 2",
-          "level": 2,
-          "summary": "Flare automates timing retrieval by monitoring the confidence of the generation process, as indicated by the",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 12",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 12",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 12/Part 1",
-          "level": 2,
-          "summary": "12 probability of generated terms [24]. When the probability falls below a certain threshold would activates the retrieval system to collect relevant information, thus optimizing the retrieval cycle. Self-RAG [25] introduces “reflection tokens” that allow the model to introspect its outputs. These tokens come in two varieties: “retrieve” and “critic”. The model autonomously decides when to activate retrieval, or alternatively, a predefined threshold may trigger the process. During retrieval, the gen- erator conducts a fragment-level beam search across multiple paragraphs to derive the most coherent sequence. Critic scores are used to update the subdivision scores, with the flexibility to...",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 2",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 12/Part 2",
-          "level": 2,
-          "summary": "These qual- ity scores evaluate the efficiency of the RAG model from different perspectives in the process of information retrieval and generation [164]–[166]. Context Relevance evaluates the precision and specificity of the retrieved context, ensuring relevance and minimizing processing costs associated with extraneous content. Answer Faithfulness ensures that the generated answers remain true to the retrieved context, maintaining consistency and avoiding contradictions. Answer Relevance requires that the generated answers are directly pertinent to the posed questions, effectively addressing the core inquiry. 2) Required Abilities: RAG evaluation also encompasses four abilities...",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 13",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 13",
-      "level": 1,
-      "summary": "13 TABLE II DOWNSTREAM TASKS AND DATASETS OF RAG Task Sub Task Dataset Method QA Single-hop Natural Qustion(NQ) [111] [26], [30], [34], [42], [45], [50], [52], [59], [64], [82] [3], [4], [22], [27], [40], [43], [54], [62], [71], [112] [20], [44], [72] TriviaQA(TQA) [113] [13], [30], [34], [45], [50], [64] [4], [27], [59], [62], [112] [22], [25], [43], [44], [71], [72] SQuAD [114] [20], [23], [30], [32], [45], [69], [112] Web Questions(WebQ) [115] [3], [4], [13], [30], [50], [68] PopQA [116] [7], [25], [67] MS MARCO [117] [4], [40], [52] Multi-hop HotpotQA [118] [23], [26], [31], [34], [47], [51], [61], [82] [7], [14], [22], [27], [59], [62], [69], [71], [91] 2WikiMultiHopQA [119] [14],...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 14",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 14",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 14/Part 1",
-          "level": 2,
-          "summary": "14 TABLE III SUMMARY OF METRICS APPLICABLE FOR EVALUATION ASPECTS OF RAG Context Relevance Faithfulness Answer Relevance Noise Robustness Negative Rejection Information Integration Counterfactual Robustness Accuracy ✓ ✓ ✓ ✓ ✓ ✓ ✓ EM ✓ Recall ✓ Precision ✓ ✓ R-Rate ✓ Cosine Similarity ✓ Hit Rate ✓ MRR ✓ NDCG ✓ BLEU ✓ ✓ ✓ ROUGE/ROUGE-L ✓ ✓ ✓ The specific metrics for each evaluation aspect are sum- marized in Table III. It is essential to recognize that these metrics, derived from related work, are traditional measures and do not yet represent a mature or standardized approach for quantifying RAG evaluation aspects. Custom metrics tailored to the nuances of RAG models, though not included...",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 2",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 14/Part 2",
-          "level": 2,
-          "summary": "Determining the optimal integration of RAG and fine-tuning whether sequential, alternating, or through end-to- end joint training—and how to harness both parameterized",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 15",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 15",
-      "level": 1,
-      "summary": "15 TABLE IV SUMMARY OF EVALUATION FRAMEWORKS Evaluation Framework Evaluation Targets Evaluation Aspects Quantitative Metrics RGB† Retrieval Quality Generation Quality Noise Robustness Negative Rejection Information Integration Counterfactual Robustness Accuracy EM Accuracy Accuracy RECALL† Generation Quality Counterfactual Robustness R-Rate (Reappearance Rate) RAGAS‡ Retrieval Quality Generation Quality Context Relevance Faithfulness Answer Relevance * * Cosine Similarity ARES‡ Retrieval Quality Generation Quality Context Relevance Faithfulness Answer Relevance Accuracy Accuracy Accuracy TruLens‡ Retrieval Quality Generation Quality Context Relevance Faithfulness Answer Relevance * * *...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 16",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 16",
-      "level": 1,
-      "summary": "16 Fig. 6. Summary of RAG ecosystem initial learning curve. 3) Specialization - optimizing RAG to better serve production environments. The mutual growth of RAG models and their technology stacks is evident; technological advancements continuously establish new standards for existing infrastructure. In turn, enhancements to the technology stack drive the development of RAG capabilities. RAG toolkits are converging into a foundational technology stack, laying the groundwork for advanced enterprise applications. However, a fully integrated, comprehensive platform concept is still in the future, requiring further innovation and development. F . Multi-modal RAG RAG has transcended its initial...",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "Page 17",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 17",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 3,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 17/Part 1",
-          "level": 2,
-          "summary": "17 The growing ecosystem of RAG is evidenced by the rise in RAG-centric AI applications and the continuous development of supportive tools. As RAG’s application landscape broadens, there is a need to refine evaluation methodologies to keep pace with its evolution. Ensuring accurate and representative performance assessments is crucial for fully capturing RAG’s contributions to the AI research and development community. REFERENCES [1] N. Kandpal, H. Deng, A. Roberts, E. Wallace, and C. Raffel, “Large language models struggle to learn long-tail knowledge,” in Interna- tional Conference on Machine Learning . PMLR, 2023, pp. 15 696– 15 707. [2] Y . Zhang, Y . Li, L. Cui, D. Cai, L. Liu, T....",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 2",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 17/Part 2",
-          "level": 2,
-          "summary": "classification to generation: Insights into crosslingual retrieval augmented icl,” arXiv preprint arXiv:2311.06595, 2023. [20] D. Cheng, S. Huang, J. Bi, Y . Zhan, J. Liu, Y . Wang, H. Sun, F. Wei, D. Deng, and Q. Zhang, “Uprise: Universal prompt retrieval for improving zero-shot evaluation,” arXiv preprint arXiv:2303.08518, 2023. [21] Z. Dai, V . Y . Zhao, J. Ma, Y . Luan, J. Ni, J. Lu, A. Bakalov, K. Guu, K. B. Hall, and M.-W. Chang, “Promptagator: Few-shot dense retrieval from 8 examples,” arXiv preprint arXiv:2209.11755 , 2022. [22] Z. Sun, X. Wang, Y . Tay, Y . Yang, and D. Zhou, “Recitation-augmented language models,” arXiv preprint arXiv:2210.01296 , 2022. [23] O. Khattab, K....",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 3",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 17/Part 3",
-          "level": 2,
-          "summary": "Ping, P. Xu, M. Shoeybi, K. C.-C. Chang, and B. Catan- zaro, “Raven: In-context learning with retrieval augmented encoder- decoder language models,” arXiv preprint arXiv:2308.07922 , 2023.",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 18",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 18",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 3,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 18/Part 1",
-          "level": 2,
-          "summary": "18 [44] B. Wang, W. Ping, P. Xu, L. McAfee, Z. Liu, M. Shoeybi, Y . Dong, O. Kuchaiev, B. Li, C. Xiao et al. , “Shall we pretrain autoregressive language models with retrieval? a comprehensive study,”arXiv preprint arXiv:2304.06762, 2023. [45] B. Wang, W. Ping, L. McAfee, P. Xu, B. Li, M. Shoeybi, and B. Catan- zaro, “Instructretro: Instruction tuning post retrieval-augmented pre- training,” arXiv preprint arXiv:2310.07713 , 2023. [46] S. Siriwardhana, R. Weerasekera, E. Wen, T. Kaluarachchi, R. Rana, and S. Nanayakkara, “Improving the domain adaptation of retrieval augmented generation (rag) models for open domain question answer- ing,” Transactions of the Association for Computational...",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 2",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 18/Part 2",
-          "level": 2,
-          "summary": "Leyton- Brown, and Y . Shoham, “In-context retrieval-augmented language models,” arXiv preprint arXiv:2302.00083 , 2023. [65] Y . Ren, Y . Cao, P. Guo, F. Fang, W. Ma, and Z. Lin, “Retrieve-and- sample: Document-level event argument extraction via hybrid retrieval augmentation,” in Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 2023, pp. 293–306. [66] Z. Wang, X. Pan, D. Yu, D. Yu, J. Chen, and H. Ji, “Zemi: Learning zero-shot semi-parametric language models from multiple tasks,” arXiv preprint arXiv:2210.00185, 2022. [67] S.-Q. Yan, J.-C. Gu, Y . Zhu, and Z.-H. Ling, “Corrective retrieval augmented generation,” arXiv...",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 3",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 18/Part 3",
-          "level": 2,
-          "summary": "“Iseeq: Information seeking question generation using dynamic meta-information retrieval and knowledge graphs,” in Proceedings of the AAAI Conference on Artificial Intelligence, vol. 36, no. 10, 2022, pp. 10 672–10 680. [87] F. Shi, X. Chen, K. Misra, N. Scales, D. Dohan, E. H. Chi, N. Sch ¨arli, and D. Zhou, “Large language models can be easily distracted by irrelevant context,” in International Conference on Machine Learning . PMLR, 2023, pp. 31 210–31 227. [88] R. Teja, “Evaluating the ideal chunk size for a rag system using llamaindex,” https://www.llamaindex.ai/blog/ evaluating-the-ideal-chunk-size-for-a-rag-system-using-llamaindex-6207e5d3fec5, 2023.",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 19",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 19",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 3,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 19/Part 1",
-          "level": 2,
-          "summary": "19 [89] Langchain, “Recursively split by character,” https://python.langchain. com/docs/modules/data connection/document transformers/recursive text splitter, 2023. [90] S. Yang, “Advanced rag 01: Small-to- big retrieval,” https://towardsdatascience.com/ advanced-rag-01-small-to-big-retrieval-172181b396d4, 2023. [91] Y . Wang, N. Lipka, R. A. Rossi, A. Siu, R. Zhang, and T. Derr, “Knowledge graph prompting for multi-document question answering,” arXiv preprint arXiv:2308.11730 , 2023. [92] D. Zhou, N. Sch ¨arli, L. Hou, J. Wei, N. Scales, X. Wang, D. Schu- urmans, C. Cui, O. Bousquet, Q. Le et al., “Least-to-most prompting enables complex reasoning in large language models,” arXiv...",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 2",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 19/Part 2",
-          "level": 2,
-          "summary": "preprint arXiv:2112.09332, 2021. [111] T. Kwiatkowski, J. Palomaki, O. Redfield, M. Collins, A. Parikh, C. Alberti, D. Epstein, I. Polosukhin, J. Devlin, K. Lee et al., “Natural questions: a benchmark for question answering research,” Transactions of the Association for Computational Linguistics , vol. 7, pp. 453–466, 2019. [112] Y . Liu, S. Yavuz, R. Meng, M. Moorthy, S. Joty, C. Xiong, and Y . Zhou, “Exploring the integration strategies of retriever and large language models,” arXiv preprint arXiv:2308.12574 , 2023. [113] M. Joshi, E. Choi, D. S. Weld, and L. Zettlemoyer, “Triviaqa: A large scale distantly supervised challenge dataset for reading comprehen- sion,” arXiv preprint...",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 3",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 19/Part 3",
-          "level": 2,
-          "summary": "arXiv:1803.05457 , 2018. [132] A. Talmor, J. Herzig, N. Lourie, and J. Berant, “Commonsenseqa: A question answering challenge targeting commonsense knowledge,” arXiv preprint arXiv:1811.00937 , 2018. [133] E. Dinan, S. Roller, K. Shuster, A. Fan, M. Auli, and J. Weston, “Wizard of wikipedia: Knowledge-powered conversational agents,” arXiv preprint arXiv:1811.01241 , 2018. [134] H. Wang, M. Hu, Y . Deng, R. Wang, F. Mi, W. Wang, Y . Wang, W.- C. Kwan, I. King, and K.-F. Wong, “Large language models as source",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 20",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 20",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 3,
-      "children": [
-        {
-          "title": "Part 1",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 20/Part 1",
-          "level": 2,
-          "summary": "20 planner for personalized knowledge-grounded dialogue,”arXiv preprint arXiv:2310.08840, 2023. [135] ——, “Large language models as source planner for personal- ized knowledge-grounded dialogue,” arXiv preprint arXiv:2310.08840, 2023. [136] X. Xu, Z. Gou, W. Wu, Z.-Y . Niu, H. Wu, H. Wang, and S. Wang, “Long time no see! open-domain conversation with long-term persona memory,” arXiv preprint arXiv:2203.05797 , 2022. [137] T.-H. Wen, M. Gasic, N. Mrksic, L. M. Rojas-Barahona, P.-H. Su, S. Ultes, D. Vandyke, and S. Young, “Conditional generation and snapshot learning in neural dialogue systems,” arXiv preprint arXiv:1606.03352, 2016. [138] R. He and J. McAuley, “Ups and downs: Modeling the...",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 2",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 20/Part 2",
-          "level": 2,
-          "summary": "International Conference on Computational Linguistics, 2002. [156] R. Socher, A. Perelygin, J. Wu, J. Chuang, C. D. Manning, A. Y . Ng, and C. Potts, “Recursive deep models for semantic compositionality over a sentiment treebank,” in Proceedings of the 2013 conference on empirical methods in natural language processing , 2013, pp. 1631– 1642. [157] H. Husain, H.-H. Wu, T. Gazit, M. Allamanis, and M. Brockschmidt, “Codesearchnet challenge: Evaluating the state of semantic code search,” arXiv preprint arXiv:1909.09436 , 2019. [158] K. Cobbe, V . Kosaraju, M. Bavarian, M. Chen, H. Jun, L. Kaiser, M. Plappert, J. Tworek, J. Hilton, R. Nakano et al., “Training verifiers to solve math word...",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Part 3",
-          "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 20/Part 3",
-          "level": 2,
-          "summary": "and S. Hoi, “Blip-2: Bootstrapping language- image pre-training with frozen image encoders and large language models,” arXiv preprint arXiv:2301.12597 , 2023. [178] W. Zhu, A. Yan, Y . Lu, W. Xu, X. E. Wang, M. Eckstein, and W. Y . Wang, “Visualize before you write: Imagination-guided open-ended text generation,” arXiv preprint arXiv:2210.03765 , 2022. [179] J. Zhao, G. Haffar, and E. Shareghi, “Generating synthetic speech from spokenvocab for speech translation,” arXiv preprint arXiv:2210.08174, 2022. [180] D. M. Chan, S. Ghosh, A. Rastrow, and B. Hoffmeister, “Using external off-policy speech-to-text mappings in contextual end-to-end automated speech recognition,” arXiv preprint...",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "Page 21",
-      "path": "Retrieval-Augmented Generation for Large Language Models: A Survey.pdf/Page 21",
-      "level": 1,
-      "summary": "21 [181] A. Yang, A. Nagrani, P. H. Seo, A. Miech, J. Pont-Tuset, I. Laptev, J. Sivic, and C. Schmid, “Vid2seq: Large-scale pretraining of a visual language model for dense video captioning,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2023, pp. 10 714–10 726. [182] N. Nashid, M. Sintaha, and A. Mesbah, “Retrieval-based prompt selection for code-related few-shot learning,” in 2023 IEEE/ACM 45th International Conference on Software Engineering (ICSE) , 2023, pp. 2450–2462.",
-      "chunk_count": 1,
-      "children": []
     }
   ],
   "resources": {
-    "images": [],
+    "images": [
+      {
+        "path": "images/image_page_2_figure_1.png",
+        "summary": "Fig. 1. Technology tree of RAG research. [images/image_page_2_figure_1.png]"
+      },
+      {
+        "path": "images/image_page_3_figure_1.png",
+        "summary": "Fig. 2 [images/image_page_3_figure_1.png]"
+      },
+      {
+        "path": "images/image_page_4_figure_1.png",
+        "summary": "Fig. 3. Comparison between the three paradigms of RAG. [images/image_page_4_figure_1.png]"
+      },
+      {
+        "path": "images/image_page_7_figure_1.png",
+        "summary": "Fig. 4 [images/image_page_7_figure_1.png]"
+      },
+      {
+        "path": "images/image_page_11_figure_1.png",
+        "summary": "Fig. 5 [images/image_page_11_figure_1.png]"
+      },
+      {
+        "path": "images/image_page_16_figure_1.png",
+        "summary": "Summary of RAG ecosystem [images/image_page_16_figure_1.png]"
+      }
+    ],
     "tables": []
   }
 }

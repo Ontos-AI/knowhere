@@ -1,31 +1,283 @@
 {
   "version": "2.0",
-  "job_id": "job_demo_research_ai_agents_overview",
-  "data_id": null,
+  "job_id": "job_36b03afb3724",
+  "data_id": "demo-research-ai-agents-overview",
   "source_file_name": "AI Agents Overview.pdf",
-  "processing_date": "2026-06-17T11:37:42.768820Z",
+  "processing_date": "2026-08-18T18:04:15.936724Z",
   "processing": {
-    "page_count": null,
-    "billing_status": null,
+    "page_count": 33,
+    "billing_status": "charged",
     "cost": {
-      "micro_dollars": null,
-      "credits": null
+      "micro_dollars": 495000,
+      "credits": 0.495
     },
-    "cost_estimate": {},
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-18:874ab8b6c9e4",
+      "total_input_cost": 0.01224463,
+      "total_output_cost": 0.00353576,
+      "total_cost": 0.01578039,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 10442,
+          "output_tokens": 185,
+          "calls": 1,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        },
+        "deepseek-chat": {
+          "input_tokens": 1792,
+          "output_tokens": 392,
+          "calls": 1,
+          "input_rate_per_1m": 0.14,
+          "output_rate_per_1m": 0.28,
+          "input_cost": 0.00025088,
+          "output_cost": 0.00010976,
+          "total_cost": 0.00036064,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.14,
+            "output_per_1m": 0.28,
+            "source": "DeepSeek official pricing",
+            "effective_date": "2026-06-11"
+          }
+        },
+        "qwen3.6-flash": {
+          "input_tokens": 47975,
+          "output_tokens": 2284,
+          "calls": 25,
+          "input_rate_per_1m": 0.25,
+          "output_rate_per_1m": 1.5,
+          "input_cost": 0.01199375,
+          "output_cost": 0.003426,
+          "total_cost": 0.01541975,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.25,
+            "output_per_1m": 1.5,
+            "source": "Qwen Cloud official pricing, <=256K input tier",
+            "effective_date": "2026-06-11"
+          }
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 10442,
+              "output_tokens": 185,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.hierarchy": {
+          "input_cost": 0.00025088,
+          "output_cost": 0.00010976,
+          "total_cost": 0.00036064,
+          "models": {
+            "deepseek-chat": {
+              "input_tokens": 1792,
+              "output_tokens": 392,
+              "calls": 1,
+              "input_rate_per_1m": 0.14,
+              "output_rate_per_1m": 0.28,
+              "input_cost": 0.00025088,
+              "output_cost": 0.00010976,
+              "total_cost": 0.00036064,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.14,
+                "output_per_1m": 0.28,
+                "source": "DeepSeek official pricing",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        },
+        "page_memory.asset_detect": {
+          "input_cost": 0.01199375,
+          "output_cost": 0.003426,
+          "total_cost": 0.01541975,
+          "models": {
+            "qwen3.6-flash": {
+              "input_tokens": 47975,
+              "output_tokens": 2284,
+              "calls": 25,
+              "input_rate_per_1m": 0.25,
+              "output_rate_per_1m": 1.5,
+              "input_cost": 0.01199375,
+              "output_cost": 0.003426,
+              "total_cost": 0.01541975,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.25,
+                "output_per_1m": 1.5,
+                "source": "Qwen Cloud official pricing, <=256K input tier",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
+    },
     "timing": {
-      "started_at": null,
-      "completed_at": null,
-      "duration_ms": null
+      "started_at": "2026-08-18T18:00:28.632003+00:00",
+      "completed_at": "2026-08-18T18:04:15.830414+00:00",
+      "duration_ms": 227198
     },
-    "stages": {}
+    "stages": {
+      "timing_ms": {
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 45935,
+        "page_memory.skeleton": 0,
+        "page_memory.title_render": 7115,
+        "page_memory.title_detection": 29284,
+        "page_memory.fine_hierarchy": 2492,
+        "page_memory.render": 19813,
+        "page_memory.tag": 27795,
+        "page_memory.assets": 83807,
+        "page_memory.node_summary": 10352,
+        "page_memory.node_rows": 40,
+        "page_memory.node_assembly": 10407,
+        "worker.parse.document": 226739
+      },
+      "token_usage": {
+        "prompt_tokens": 60209,
+        "completion_tokens": 2861,
+        "total_tokens": 63070,
+        "calls": 27,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 10442,
+            "completion_tokens": 185,
+            "total_tokens": 10627,
+            "calls": 1
+          },
+          "deepseek-chat": {
+            "prompt_tokens": 1792,
+            "completion_tokens": 392,
+            "total_tokens": 2184,
+            "calls": 1
+          },
+          "qwen3.6-flash": {
+            "prompt_tokens": 47975,
+            "completion_tokens": 2284,
+            "total_tokens": 50259,
+            "calls": 25
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 10442,
+            "completion_tokens": 185,
+            "total_tokens": 10627,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 10442,
+                "completion_tokens": 185,
+                "total_tokens": 10627,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.hierarchy": {
+            "prompt_tokens": 1792,
+            "completion_tokens": 392,
+            "total_tokens": 2184,
+            "calls": 1,
+            "models": {
+              "deepseek-chat": {
+                "prompt_tokens": 1792,
+                "completion_tokens": 392,
+                "total_tokens": 2184,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.asset_detect": {
+            "prompt_tokens": 47975,
+            "completion_tokens": 2284,
+            "total_tokens": 50259,
+            "calls": 25,
+            "models": {
+              "qwen3.6-flash": {
+                "prompt_tokens": 47975,
+                "completion_tokens": 2284,
+                "total_tokens": 50259,
+                "calls": 25
+              }
+            }
+          }
+        }
+      }
+    }
   },
   "statistics": {
-    "total_chunks": 33,
-    "text_chunks": 33,
-    "image_chunks": 0,
+    "total_chunks": 58,
+    "text_chunks": 0,
+    "image_chunks": 30,
     "table_chunks": 0,
-    "page_chunks": 0,
+    "page_chunks": 28,
     "total_pages": null
   },
-  "HIERARCHY": {}
+  "HIERARCHY": {
+    "Root": {
+      "AI Agents Overview": {},
+      "What is AI Agent?": {},
+      "What is LLM Agents": {},
+      "Category": {
+        "Single-agent applications": {},
+        "Multi-agent systems": {},
+        "Human-Agent cooperation": {}
+      },
+      "Agent-to-Agent (A2A) Protocol": {
+        "Planning:": {
+          "Task Decomposition: Chain of thought": {},
+          "Task Decomposition: Tree of Thoughts": {},
+          "Self-Reflection: ReACT": {}
+        },
+        "Memory:": {
+          "LLM Agent Memory: Types of Memory in LLMs": {},
+          "Agent Memory Types": {},
+          "Limitations of LLM without external data (Why RAG)": {},
+          "Retrieve-Augmented Generation (RAG)": {
+            "Why retrieval-based LMs?": {},
+            "Long-term goal: can we possibly reduce the training and inference costs, and scale down the size of LLMs?": {}
+          }
+        },
+        "Tool use:": {}
+      },
+      "Why LLM Agents stand out?": {
+        "LLMs + APIs to expert models: HuggingGPT": {},
+        "LLMs + training for tool use: TALM": {},
+        "LLMs + training for tool use: Toolformer": {}
+      },
+      "MCP (Model Context Protocol)": {},
+      "AI Agent/Workflow Frameworks": {},
+      "What is AI Agent Infra?": {},
+      "Demo Time: Eigent Computer-Use Agent performing a Discord summarization task": {}
+    }
+  }
 }

@@ -1,31 +1,295 @@
 {
   "version": "2.0",
-  "job_id": "job_demo_research_toolformer",
-  "data_id": null,
+  "job_id": "job_8e54b45fba36",
+  "data_id": "demo-research-toolformer",
   "source_file_name": "Toolformer: Language Models Can Teach Themselves to Use Tools.pdf",
-  "processing_date": "2026-06-17T11:37:41.873051Z",
+  "processing_date": "2026-08-18T17:55:56.932131Z",
   "processing": {
-    "page_count": null,
-    "billing_status": null,
+    "page_count": 17,
+    "billing_status": "charged",
     "cost": {
-      "micro_dollars": null,
-      "credits": null
+      "micro_dollars": 255000,
+      "credits": 0.255
     },
-    "cost_estimate": {},
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-18:874ab8b6c9e4",
+      "total_input_cost": 0.00305376,
+      "total_output_cost": 0.0008233,
+      "total_cost": 0.00387706,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 17165,
+          "output_tokens": 190,
+          "calls": 1,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        },
+        "deepseek-chat": {
+          "input_tokens": 2134,
+          "output_tokens": 535,
+          "calls": 1,
+          "input_rate_per_1m": 0.14,
+          "output_rate_per_1m": 0.28,
+          "input_cost": 0.00029876,
+          "output_cost": 0.0001498,
+          "total_cost": 0.00044856,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.14,
+            "output_per_1m": 0.28,
+            "source": "DeepSeek official pricing",
+            "effective_date": "2026-06-11"
+          }
+        },
+        "qwen3.6-flash": {
+          "input_tokens": 11020,
+          "output_tokens": 449,
+          "calls": 4,
+          "input_rate_per_1m": 0.25,
+          "output_rate_per_1m": 1.5,
+          "input_cost": 0.002755,
+          "output_cost": 0.0006735,
+          "total_cost": 0.0034285,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.25,
+            "output_per_1m": 1.5,
+            "source": "Qwen Cloud official pricing, <=256K input tier",
+            "effective_date": "2026-06-11"
+          }
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 17165,
+              "output_tokens": 190,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.hierarchy": {
+          "input_cost": 0.00029876,
+          "output_cost": 0.0001498,
+          "total_cost": 0.00044856,
+          "models": {
+            "deepseek-chat": {
+              "input_tokens": 2134,
+              "output_tokens": 535,
+              "calls": 1,
+              "input_rate_per_1m": 0.14,
+              "output_rate_per_1m": 0.28,
+              "input_cost": 0.00029876,
+              "output_cost": 0.0001498,
+              "total_cost": 0.00044856,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.14,
+                "output_per_1m": 0.28,
+                "source": "DeepSeek official pricing",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        },
+        "page_memory.asset_detect": {
+          "input_cost": 0.002755,
+          "output_cost": 0.0006735,
+          "total_cost": 0.0034285,
+          "models": {
+            "qwen3.6-flash": {
+              "input_tokens": 11020,
+              "output_tokens": 449,
+              "calls": 4,
+              "input_rate_per_1m": 0.25,
+              "output_rate_per_1m": 1.5,
+              "input_cost": 0.002755,
+              "output_cost": 0.0006735,
+              "total_cost": 0.0034285,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.25,
+                "output_per_1m": 1.5,
+                "source": "Qwen Cloud official pricing, <=256K input tier",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
+    },
     "timing": {
-      "started_at": null,
-      "completed_at": null,
-      "duration_ms": null
+      "started_at": "2026-08-18T17:52:18.974338+00:00",
+      "completed_at": "2026-08-18T17:55:56.929376+00:00",
+      "duration_ms": 217955
     },
-    "stages": {}
+    "stages": {
+      "timing_ms": {
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 70827,
+        "page_memory.skeleton": 0,
+        "page_memory.title_render": 20813,
+        "page_memory.title_detection": 25688,
+        "page_memory.fine_hierarchy": 3376,
+        "page_memory.render": 3785,
+        "page_memory.tag": 33461,
+        "page_memory.assets": 14382,
+        "page_memory.node_summary": 45459,
+        "page_memory.node_rows": 30,
+        "page_memory.node_assembly": 45491,
+        "worker.parse.document": 217854
+      },
+      "token_usage": {
+        "prompt_tokens": 30319,
+        "completion_tokens": 1174,
+        "total_tokens": 31493,
+        "calls": 6,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 17165,
+            "completion_tokens": 190,
+            "total_tokens": 17355,
+            "calls": 1
+          },
+          "deepseek-chat": {
+            "prompt_tokens": 2134,
+            "completion_tokens": 535,
+            "total_tokens": 2669,
+            "calls": 1
+          },
+          "qwen3.6-flash": {
+            "prompt_tokens": 11020,
+            "completion_tokens": 449,
+            "total_tokens": 11469,
+            "calls": 4
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 17165,
+            "completion_tokens": 190,
+            "total_tokens": 17355,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 17165,
+                "completion_tokens": 190,
+                "total_tokens": 17355,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.hierarchy": {
+            "prompt_tokens": 2134,
+            "completion_tokens": 535,
+            "total_tokens": 2669,
+            "calls": 1,
+            "models": {
+              "deepseek-chat": {
+                "prompt_tokens": 2134,
+                "completion_tokens": 535,
+                "total_tokens": 2669,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.asset_detect": {
+            "prompt_tokens": 11020,
+            "completion_tokens": 449,
+            "total_tokens": 11469,
+            "calls": 4,
+            "models": {
+              "qwen3.6-flash": {
+                "prompt_tokens": 11020,
+                "completion_tokens": 449,
+                "total_tokens": 11469,
+                "calls": 4
+              }
+            }
+          }
+        }
+      }
+    }
   },
   "statistics": {
-    "total_chunks": 27,
-    "text_chunks": 27,
-    "image_chunks": 0,
-    "table_chunks": 0,
-    "page_chunks": 0,
+    "total_chunks": 41,
+    "text_chunks": 0,
+    "image_chunks": 4,
+    "table_chunks": 1,
+    "page_chunks": 36,
     "total_pages": null
   },
-  "HIERARCHY": {}
+  "HIERARCHY": {
+    "Root": {
+      "Abstract": {},
+      "1 Introduction": {},
+      "2 Approach": {
+        "Sampling API Calls": {},
+        "Executing API Calls": {},
+        "Filtering API Calls": {},
+        "Model Finetuning": {}
+      },
+      "3 Tools": {},
+      "4 Experiments": {},
+      "Appendix A": {
+        "Baseline Models": {},
+        "4.2 Downstream Tasks": {
+          "4.2.1 LAMA": {},
+          "4.2.2 Math Datasets": {},
+          "4.2.3 Question Answering": {},
+          "4.2.4 Multilingual Question Answering": {},
+          "4.2.5 Temporal Datasets": {}
+        },
+        "4.3 Language Modeling": {},
+        "4.4 Scaling Laws": {}
+      },
+      "5 Analysis": {},
+      "6 Related Work": {
+        "Tool Use": {},
+        "Bootstrapping": {}
+      },
+      "7 Limitations": {},
+      "8 Conclusion": {},
+      "References": {},
+      "A API Details": {
+        "A.1 Implementation": {},
+        "A.2 Prompts": {
+          "Wikipedia Search": {},
+          "Machine Translation": {},
+          "Calendar": {}
+        }
+      },
+      "B Toolformer Training": {},
+      "C Zero-Shot Prompts": {
+        "C.1 LAMA and TEMPLAMA": {},
+        "C.2 Math Benchmarks": {},
+        "C.3 Question Answering": {},
+        "C.4 Multilingual Question Answering": {}
+      },
+      "D DATESET": {}
+    }
+  }
 }
