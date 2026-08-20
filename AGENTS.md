@@ -586,7 +586,7 @@ Default agentic path is checklist map-nav (`nav/`): PLANNER (`plan_query`) → H
 2. Filters by `allowed_chunk_types` (data_type parameter)
 3. Hydrates `connect_to` targets (related table chunks inlined into text)
 4. Cleans asset path references from content
-5. Attaches citation: `{document_id, chunk_id, source_file_name, section_path}`
+5. Public projection builds `source`: `{document_id, source_file_name, section_path}` plus `page_nums` for `chunk_type=page` when present
 
 ### Small Corpus Optimization
 
@@ -666,12 +666,14 @@ cd apps/worker && uv run worker.py     # Celery worker
 
 ### Debug Scripts (Worker)
 
+PDF/PPT debug is track-split (not a single all-format one-shot):
+
 | Script | Purpose |
 |:---|:---|
-| `debug_parse.py` | Unified parsing debug: all formats, `--stop-at profile/hierarchy/full`, `--run-db` |
-| `debug_agentic_e2e.py` | End-to-end agentic retrieval test |
-| `debug_profiler.py` | Document profiler testing |
-| `debug_toc_detection.py` | TOC detection and hierarchy building |
+| `debug_text_track.py` | TEXT-TRACK (`chunk`) staged debug: `--stop-at profile/mineru/hierarchy/full`, `--clean` |
+| `page_memory/debug_pm_stage0..5.py` | PAGE-TRACK (`page_memory`) staged debug (bootstrap → finalize); shared `--clean` wipes output dir |
+| `debug_retrieval.py` | Retrieval debug |
+| `_debug_publish.py` | Optional `--run-db` publish helper for the scripts above |
 
 ### Quality Checks
 

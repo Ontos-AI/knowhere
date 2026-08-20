@@ -69,47 +69,6 @@ def _print_box(title: str, body: Any) -> None:
     print(line)
 
 
-def _summarize_tool_payload(payload: dict[str, Any] | None) -> str:
-    """Keep tool logs readable; full LLM prompts/responses are printed separately."""
-    if not isinstance(payload, dict):
-        return str(payload)
-
-    lines: list[str] = []
-    if 'top_doc_ids' in payload:
-        lines.append(f'top_doc_ids={payload.get("top_doc_ids")}')
-    if 'channel_counts' in payload:
-        lines.append(f'channel_counts={payload.get("channel_counts")}')
-    if 'fused_rows' in payload:
-        rows = payload.get('fused_rows') or []
-        lines.append(f'fused_rows={len(rows)}')
-        for row in rows[:5]:
-            lines.append(
-                f'  - score={row.get("score", 0):.4f} '
-                f'doc={str(row.get("document_id", ""))[:12]} '
-                f'path="{row.get("section_path") or row.get("source_chunk_path")}" '
-                f'chunk={row.get("chunk_id")}'
-            )
-    if 'candidate_docs' in payload:
-        docs = payload.get('candidate_docs') or []
-        lines.append(f'candidate_docs={len(docs)}')
-        for doc in docs:
-            lines.append(
-                f'  - doc={doc.get("document_id")} '
-                f'name="{doc.get("source_file_name", "")}" '
-                f'confidence={doc.get("confidence")}'
-            )
-    if 'document_id' in payload:
-        lines.append(f'document_id={payload.get("document_id")}')
-    if 'has_outline' in payload:
-        lines.append(f'has_outline={payload.get("has_outline")} '
-                     f'leaf_count={payload.get("leaf_count", 0)} '
-                     f'children_count={payload.get("children_count", 0)}')
-    for key in ('reason', 'document_id', 'raw_response', 'overflowed'):
-        if key in payload:
-            lines.append(f'{key}={payload.get(key)}')
-    return '\n'.join(lines) or str(payload)
-
-
 def _decision_stage(kind: str) -> tuple[str, str]:
     return {
         'kg_document_select': (

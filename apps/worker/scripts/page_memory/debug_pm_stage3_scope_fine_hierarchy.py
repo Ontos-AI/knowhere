@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 # ruff: noqa: E402
-"""Stage 4: Document-level page tagging + per-scope fine hierarchy.
+"""Stage 3: Coarse scopes + document page tagging + per-scope fine hierarchy.
 
-Renders and tags each processing page once (global concurrency), then fans
+Builds coarse hierarchy scopes, writes ``scopes/<id>/skeletons.json``, renders
+and tags each selected processing page once (global concurrency), then fans
 tag subsets into scopes for fine hierarchy refinement.
 
-Requires Stage 3 output: scopes/<id>/skeletons.json
-Uses Stage 2 skeletons in pipeline_state for ``next_title_by_path``.
+Requires Stage 2 output: _doc_agent/pipeline_state.json (with skeletons),
+doc_profile.json (after production ``run_toc_anchoring``).
 
 Usage:
   cd apps/worker
-  uv run python scripts/page_memory/debug_pm_stage4_fine_hierarchy.py \\
-      --file /path/to/doc.pdf --scope-id p14-23 --out-suffix boundary_clip
-  uv run python scripts/page_memory/debug_pm_stage4_fine_hierarchy.py --file ... --all-scopes
+  uv run python scripts/page_memory/debug_pm_stage3_scope_fine_hierarchy.py --file /path/to/doc.pdf
+  uv run python scripts/page_memory/debug_pm_stage3_scope_fine_hierarchy.py --fat-only
+  uv run python scripts/page_memory/debug_pm_stage3_scope_fine_hierarchy.py --all-scopes
+  uv run python scripts/page_memory/debug_pm_stage3_scope_fine_hierarchy.py --file ... --scope-id p14-23
 """
 
 import sys
@@ -33,24 +35,27 @@ from _debug_pm_shared import (
     TraceStageAdapter,
     add_scope_selection_args,
     base_argparser,
-    list_scope_dirs,
+    build_debug_coarse_scopes,
     load_anatomy_cache,
     resolve_anatomy_cache_path,
     load_pipeline_skeletons,
     load_scope_skeletons_artifact,
+    list_scope_dirs,
     pipeline_state_path,
     record_stage,
     require_file,
-    resolve_debug_scope_ids,
     resolve_paths,
+    scope_id_for_pages,
     sort_skeletons,
     stop_with_trace,
     update_pipeline_state,
+    write_debug_json,
     write_scope_artifacts,
     write_top_level_artifacts,
     page_scope_info,
     _derive_hierarchy_page_scope,
     _scope_manifest,
+    _serialize_scope_skeletons,
     _serialize_skeletons,
 )
 
@@ -111,7 +116,7 @@ def _run_fine_hierarchy_for_scope(
         token_cost_tracker.register_child_thread()
 
     skel_path = scope_dir / "skeletons.json"
-    require_file(skel_path, hint=f"Run Stage 3 first to create {skel_path}")
+    require_file(skel_path, hint=f"Stage 3 should have created {skel_path}")
     scope_meta, active_skeletons = load_scope_skeletons_artifact(skel_path)
     strategy = str(scope_meta.get("strategy") or "coarse_scope")
     processing_pages, excluded_toc_pages = _resolve_scope_processing_pages(
@@ -231,7 +236,7 @@ def _run_fine_hierarchy_for_scope(
 
 
 def main() -> int:
-    parser = base_argparser("Stage 4: Combined page tagging + fine hierarchy")
+    parser = base_argparser("Stage 3: Coarse scopes + fine hierarchy")
     add_scope_selection_args(parser)
     parser.add_argument(
         "--max-workers", type=int, default=5,
@@ -242,25 +247,23 @@ def main() -> int:
     from app.services.document_agent.pdf_text import read_page_texts
     from app.services.page_memory.fine_hierarchy import build_next_title_by_path
     from app.services.page_memory.memory_service import _render_and_tag_document_pages
+    from app.services.page_memory.skeleton_extractor import SectionSkeleton
     from toc_page_policy import TocPagePolicy
     from shared.models.schemas.page_memory_config import PageMemoryConfig
 
     pdf_path, filename, out_dir = resolve_paths(args)
-    doc_agent_dir = out_dir / "_doc_agent"
     anatomy_cache = resolve_anatomy_cache_path(out_dir)
     state_path = pipeline_state_path(out_dir)
-    legacy_locate_cache = doc_agent_dir / "locate_cache.json"
     scopes_dir = out_dir / "scopes"
 
+    require_file(
+        state_path,
+        hint="Run Stage 2 first: uv run python scripts/page_memory/debug_pm_stage2_calibration.py --file ...",
+    )
     require_file(
         anatomy_cache,
         hint="Run Stage 1 first: uv run python scripts/page_memory/debug_pm_stage1_hierarchy.py --file ...",
     )
-    if not state_path.exists() and not legacy_locate_cache.exists():
-        require_file(
-            state_path,
-            hint="Run Stage 2 first: uv run python scripts/page_memory/debug_pm_stage2_calibration.py --file ...",
-        )
 
     anatomy = load_anatomy_cache(anatomy_cache, pdf_path, filename)
     page_count = anatomy.page_count
@@ -268,49 +271,195 @@ def main() -> int:
     page_labels = anatomy.page_labels if anatomy else []
     toc_policy = TocPagePolicy.from_anatomy(anatomy)
     page_memory_config = PageMemoryConfig.default()
-
-    all_skeletons = load_pipeline_skeletons(
-        state_path,
-        legacy_locate_cache=legacy_locate_cache,
-    )
-    next_title_by_path = build_next_title_by_path(all_skeletons)
-    logger.info(
-        "   next_title_by_path: {} paths ({} with tail anchor)",
-        len(next_title_by_path),
-        sum(1 for title in next_title_by_path.values() if title),
-    )
-
-    scope_ids = resolve_debug_scope_ids(
-        scopes_dir=scopes_dir,
-        scope_id=args.scope_id,
-        page_range=args.page_range,
-        fat_only=args.fat_only,
-        all_scopes=args.all_scopes,
-        list_scopes=args.list_scopes,
-        require_file="skeletons.json",
-    )
-    partial_run = len(scope_ids) < len(list_scope_dirs(scopes_dir))
+    skeletons = load_pipeline_skeletons(state_path)
 
     logger.info("█" * 70)
-    logger.info(f"  STAGE 4: FINE HIERARCHY — {filename}")
+    logger.info(f"  STAGE 3: SCOPE + FINE HIERARCHY — {filename}")
     logger.info(f"  OUTPUT: {out_dir}")
-    logger.info(f"  SCOPES ({len(scope_ids)}): {scope_ids}")
-    if partial_run:
-        logger.info("  MODE: partial — will not overwrite top-level hierarchy.json")
     logger.info("█" * 70)
 
     t_start = time.time()
     trace_stages: list[dict] = []
     token_cost_tracker = TokenCostTracker()
 
+    # ── Build coarse scopes ──
+    coarse_scopes = build_debug_coarse_scopes(
+        skeletons=skeletons,
+        filename=filename,
+        page_count=page_count,
+        anatomy=anatomy,
+    )
+
+    if not coarse_scopes:
+        root_skel = SectionSkeleton(
+            section_path=f"{filename}/Root",
+            level=1,
+            start_page=1,
+            end_page=page_count,
+            title="Root",
+            parent_path=filename,
+            evidence={"source": "fallback_root"},
+        )
+        coarse_scopes = [
+            {
+                "scope_id": scope_id_for_pages(1, page_count),
+                "skeletons": [root_skel],
+                "start_page": 1,
+                "end_page": page_count,
+                "strategy": "fallback_root",
+                "processing_pages": toc_policy.filter_processing_pages(
+                    list(range(1, page_count + 1))
+                ),
+                "excluded_toc_pages": sorted(toc_policy.pure_toc_pages),
+            }
+        ]
+        logger.info("   no skeleton hierarchy → fallback Root scope p1-{}", page_count)
+
+    if args.list_scopes:
+        logger.info("Available scopes ({}):", len(coarse_scopes))
+        for scope in coarse_scopes:
+            start = int(scope["start_page"])
+            end = int(scope["end_page"])
+            logger.info(
+                "  {}  p{}-{}  pages={}  skeletons={}  {}",
+                scope["scope_id"],
+                start,
+                end,
+                max(end - start + 1, 0),
+                len(scope["skeletons"]),
+                scope.get("strategy") or "",
+            )
+        raise SystemExit(0)
+
+    # ── Scope selection (same priority as resolve_debug_scope_ids) ──
+    if args.scope_id:
+        requested = [
+            part.strip() for part in str(args.scope_id).split(",") if part.strip()
+        ]
+        by_id = {str(scope["scope_id"]): scope for scope in coarse_scopes}
+        missing = [sid for sid in requested if sid not in by_id]
+        if missing:
+            logger.error("❌ Unknown scope-id(s): {}", ", ".join(missing))
+            logger.error(
+                "   Available: {}",
+                ", ".join(str(scope["scope_id"]) for scope in coarse_scopes),
+            )
+            raise SystemExit(1)
+        selected_scopes = [by_id[sid] for sid in requested]
+    elif args.fat_only:
+        selected_scopes = [
+            max(coarse_scopes, key=lambda s: int(s["end_page"]) - int(s["start_page"]))
+        ]
+        logger.info(
+            "🎯 --fat-only: 1/{} scopes selected  {}  p{}-{}",
+            len(coarse_scopes),
+            selected_scopes[0]["scope_id"],
+            selected_scopes[0]["start_page"],
+            selected_scopes[0]["end_page"],
+        )
+    elif args.page_range:
+        parts = args.page_range.split("-")
+        pr_start = int(parts[0])
+        pr_end = int(parts[1]) if len(parts) > 1 else pr_start
+        requested_pages = list(range(pr_start, pr_end + 1))
+        pr_skeletons = [
+            s for s in skeletons
+            if s.start_page <= pr_end and s.end_page >= pr_start
+        ]
+        selected_scopes = [
+            {
+                "scope_id": scope_id_for_pages(pr_start, pr_end),
+                "skeletons": pr_skeletons,
+                "start_page": pr_start,
+                "end_page": pr_end,
+                "strategy": "manual_page_range",
+                "processing_pages": toc_policy.filter_processing_pages(
+                    requested_pages
+                ),
+                "excluded_toc_pages": sorted(
+                    set(requested_pages) & toc_policy.pure_toc_pages
+                ),
+            }
+        ]
+        logger.info(f"   --page-range: p{pr_start}-{pr_end} ({len(pr_skeletons)} skeletons)")
+    else:
+        selected_scopes = coarse_scopes
+        logger.info(
+            "   default: all {} scopes selected", len(selected_scopes),
+        )
+
+    record_stage(
+        trace_stages,
+        "C4.coarse_scopes",
+        variables={
+            "total_coarse_scopes": len(coarse_scopes),
+            "selected_scopes": len(selected_scopes),
+            "mode": (
+                "scope_id" if args.scope_id
+                else "fat_only" if args.fat_only
+                else "page_range" if args.page_range
+                else "all_scopes"
+            ),
+            "scopes": [
+                {
+                    "scope_id": s["scope_id"],
+                    "start_page": s["start_page"],
+                    "end_page": s["end_page"],
+                    "strategy": s.get("strategy", ""),
+                    "skeleton_count": len(s["skeletons"]),
+                    "processing_pages": list(s.get("processing_pages") or []),
+                    "excluded_toc_pages": list(s.get("excluded_toc_pages") or []),
+                }
+                for s in selected_scopes
+            ],
+        },
+    )
+
+    # ── Create per-scope directories ──
+    scopes_dir.mkdir(parents=True, exist_ok=True)
+    for s in selected_scopes:
+        scope_dir = scopes_dir / s["scope_id"]
+        scope_dir.mkdir(parents=True, exist_ok=True)
+        write_debug_json(
+            scope_dir / "skeletons.json",
+            {
+                **_serialize_scope_skeletons(
+                    scope_id=str(s["scope_id"]),
+                    start_page=int(s["start_page"]),
+                    end_page=int(s["end_page"]),
+                    strategy=str(s.get("strategy") or ""),
+                    skeletons=s["skeletons"],
+                ),
+                "processing_pages": list(s.get("processing_pages") or []),
+                "excluded_toc_pages": list(s.get("excluded_toc_pages") or []),
+            },
+        )
+        write_debug_json(scope_dir / "page_tags.json", [])
+        write_debug_json(scope_dir / "assets.json", [])
+
+    scope_ids = [str(s["scope_id"]) for s in selected_scopes]
+    partial_run = len(scope_ids) < len(list_scope_dirs(scopes_dir))
+    logger.info(f"  SCOPES ({len(scope_ids)}): {scope_ids}")
+    if partial_run:
+        logger.info("  MODE: partial — will not overwrite top-level hierarchy.json")
+
+    next_title_by_path = build_next_title_by_path(skeletons)
+    logger.info(
+        "   next_title_by_path: {} paths ({} with tail anchor)",
+        len(next_title_by_path),
+        sum(1 for title in next_title_by_path.values() if title),
+    )
+
     selected_processing_pages: set[int] = set()
     scope_payloads: list[tuple[str, Path, list[int]]] = []
     for sid in scope_ids:
         scope_dir = scopes_dir / sid
-        scope_meta, skeletons = load_scope_skeletons_artifact(scope_dir / "skeletons.json")
+        scope_meta, scope_skeletons = load_scope_skeletons_artifact(
+            scope_dir / "skeletons.json"
+        )
         processing_pages, _excluded = _resolve_scope_processing_pages(
             scope_meta=scope_meta,
-            skeletons=skeletons,
+            skeletons=scope_skeletons,
             page_count=page_count,
             toc_policy=toc_policy,
         )
@@ -412,7 +561,7 @@ def main() -> int:
         )
 
     elapsed = time.time() - t_start
-    logger.info(f"✅ Stage 4 done in {elapsed:.1f}s")
+    logger.info(f"✅ Stage 3 done in {elapsed:.1f}s")
     logger.info(
         f"   {len(scope_results)} scopes processed, "
         f"{len(merged_skeletons)} skeletons this run, "
@@ -421,11 +570,38 @@ def main() -> int:
     for sid in scope_ids:
         logger.info(f"   → {scopes_dir / sid / 'fine_hierarchy.json'}")
 
+    scope_rows = [
+        {
+            "scope_id": str(scope["scope_id"]),
+            "start_page": int(scope["start_page"]),
+            "end_page": int(scope["end_page"]),
+            "strategy": str(scope.get("strategy") or ""),
+            "skeleton_count": len(scope["skeletons"]),
+            "processing_pages": list(scope.get("processing_pages") or []),
+            "excluded_toc_pages": list(scope.get("excluded_toc_pages") or []),
+            "artifact_path": str(
+                scopes_dir / str(scope["scope_id"]) / "skeletons.json"
+            ),
+        }
+        for scope in selected_scopes
+    ]
     update_pipeline_state(
         state_path,
-        stage=4,
+        stage=3,
         payload={
+            "selection_mode": (
+                "scope_id"
+                if args.scope_id
+                else "fat_only"
+                if args.fat_only
+                else "page_range"
+                if args.page_range
+                else "all_scopes"
+            ),
             "partial_run": partial_run,
+            "total_scope_count": len(coarse_scopes),
+            "selected_scope_count": len(selected_scopes),
+            "scopes": scope_rows,
             "processed_scope_ids": scope_ids,
             "processed_scope_count": len(scope_results),
             "skeleton_count": len(merged_skeletons),
@@ -436,13 +612,14 @@ def main() -> int:
             ],
         },
     )
+    (out_dir / "coarse_scopes.json").unlink(missing_ok=True)
 
     return stop_with_trace(
         out_dir=out_dir,
         stages=trace_stages,
         stop_at="fine_hierarchy",
         page_count=page_count,
-        pipeline_stage=4,
+        pipeline_stage=3,
         elapsed_s=elapsed,
         scope_id=scope_ids[0] if len(scope_ids) == 1 else None,
         token_cost_tracker=token_cost_tracker,

@@ -9,9 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.services.retrieval.search.discovery import bottom_discovery
 from shared.services.retrieval.execution.reference_resolver import resolve_workflow_references
 from shared.services.retrieval.hydration.result_assembly import assemble_retrieval_results
-from shared.services.retrieval.execution.response_projection import (
-    attach_citation,
-)
 from shared.services.retrieval.hydration.legacy_evidence import render_legacy_evidence_text
 from shared.services.retrieval.execution.route_types import (
     RetrievalRouteContext,
@@ -84,7 +81,7 @@ async def _try_run_small_corpus_route(
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
     )
-    results = [attach_citation(row) for row in assembled_rows]
+    results = assembled_rows
     response = {
         "namespace": context.namespace,
         "query": context.query,
@@ -143,7 +140,7 @@ async def _run_classic_topk_route(
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
     )
-    results = [attach_citation(row) for row in assembled_rows]
+    results = assembled_rows
     response = {
         "namespace": context.namespace,
         "query": context.query,
@@ -269,7 +266,7 @@ async def _run_mapnav_route(
         "evidence_text": evidence_text,
         "answer_text": "",
         "referenced_chunks": resolved.refs,
-        "results": [attach_citation(row) for row in assembled_rows],
+        "results": assembled_rows,
         "stop_reason": stop_reason,
         "decision_trace": decision_trace,
     }

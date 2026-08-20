@@ -1,10 +1,14 @@
 """Deterministic calibration Phase-1: regime partition + forward-scan offsets.
 
 Entries are partitioned by printed-label kind (the same classifier Phase-2
-uses). Each regime takes its first few entries as probes and scans forward from
-the page after this TOC region's ``toc_range`` end until one is confirmed; that
-single confirmation fixes the regime's candidate offset. Phase-2 owns tail
-verification and bulk anchoring.
+uses). Each regime takes leaf probes from its first few distinct printed pages
+and scans forward until one is confirmed; that single confirmation fixes the
+regime's candidate offset. Phase-2 owns tail verification and bulk anchoring.
+
+A probe scans from ``max(toc_range end + 1, printed)``: a printed label never
+resolves to a physical page before itself, so the offset a scan can yield is
+structurally non-negative. Scanning below the printed page would let a section
+divider that repeats the heading confirm ahead of the numbered body page.
 """
 
 from __future__ import annotations
@@ -58,13 +62,17 @@ def _regime_probes(
     *,
     limit: int,
 ) -> dict[str, list[_Probe]]:
-    """Group entries by printed-label kind, keeping the first ``limit`` per kind."""
+    """Keep leaf probes from the first distinct printed pages of each kind."""
     from app.services.document_parser.structure.body_boundary import (
         normalize_heading_text,
     )
 
     probes: dict[str, list[_Probe]] = {}
-    for entry in entries:
+    seen_printed: dict[str, set[int]] = {}
+    levels = [int(entry.get("level") or 1) for entry in entries]
+    for index, entry in enumerate(entries):
+        if index + 1 < len(entries) and levels[index + 1] > levels[index]:
+            continue
         label = entry.get("page_number")
         kind = classify_page_number_kind(label)
         if len(probes.get(kind, ())) >= limit:
@@ -72,10 +80,13 @@ def _regime_probes(
         printed = parse_printed_page(label, kind=kind)
         if printed is None:
             continue
+        if printed in seen_printed.get(kind, set()):
+            continue
         title = normalize_heading_text(str(entry.get("heading") or ""))
         if not title:
             continue
         probes.setdefault(kind, []).append(_Probe(title=title, printed=printed))
+        seen_printed.setdefault(kind, set()).add(printed)
     return probes
 
 
@@ -116,11 +127,14 @@ def run_calibration_phase1(
             failure_kind=FAILURE_TOC_EMPTY,
             region_index=region_index,
         )
-    scan_start = toc_end + 1
-    if scan_start > resolved_page_count:
+    region_scan_start = toc_end + 1
+    if region_scan_start > resolved_page_count:
         return CalibrationResult(
             status="failed",
-            notes=f"scan start {scan_start} beyond page_count {resolved_page_count}",
+            notes=(
+                f"scan start {region_scan_start} beyond "
+                f"page_count {resolved_page_count}"
+            ),
             failure_kind=FAILURE_NO_OFFSET,
             region_index=region_index,
         )
@@ -136,7 +150,7 @@ def run_calibration_phase1(
             scan = scan_title_forward(
                 ctx=ctx,
                 title=probe.title,
-                start_page=scan_start,
+                start_page=max(region_scan_start, probe.printed),
                 page_count=resolved_page_count,
             )
             scans.append(scan)

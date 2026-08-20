@@ -117,6 +117,31 @@ def test_should_keep_demo_catalog_metadata_light_for_sources_without_examples(
     assert NVDA_EARNINGS_CALL_DEMO_SOURCE_ID not in loaded_demo_source_ids
 
 
+def test_should_project_demo_example_cite_markers_and_page_numbers() -> None:
+    catalog = _load_source_catalog_module().DemoSourceCatalog().get_catalog()
+    sources = {
+        str(source["demo_source_id"]): source
+        for source in catalog["sources"]
+    }
+    tesla = sources[DEMO_SOURCE_ID]
+    spacex = sources[SPACEX_DEMO_SOURCE_ID]
+    tesla_example = tesla["examples"][0]
+    tesla_citation = tesla_example["citations"][0]
+    spacex_example = spacex["examples"][0]
+    spacex_citation = spacex_example["citations"][0]
+
+    assert "[[cite:1]]" in tesla_example["answer"]
+    assert tesla_citation["page_citation_page_number"] == 12
+    assert tesla_citation["page_nums"] == [12]
+    assert str(tesla_citation["page_citation_asset_url"]).endswith(
+        "/page_citation_assets/page-12.png"
+    )
+    assert "[[cite:1]]" in spacex_example["answer"]
+    assert spacex_citation["page_citation_page_number"] == 28
+    assert spacex_citation["page_nums"] == [28]
+    assert str(spacex_citation["source"]["section_path"]).endswith("/Root")
+
+
 def test_should_preserve_filename_rooted_sections_when_publishing_demo_chunks() -> None:
     source_catalog_module = _load_source_catalog_module()
     catalog = source_catalog_module.DemoSourceCatalog()
@@ -164,14 +189,24 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     assert source["original_file"]["can_download"] is False
     assert citation["canonical_document_id"] == "demo-doc-tsla-q4-2025"
     assert citation["canonical_chunk_id"].startswith(f"{DEMO_SOURCE_ID}:")
+    assert "[[cite:1]]" in examples[0]["answer"]
+    assert citation["page_citation_page_number"] == 12
+    assert citation["page_nums"] == [12]
+    assert str(citation["page_citation_asset_url"]).endswith(
+        "/page_citation_assets/page-12.png"
+    )
     assert spacex_source["official_library"]["library_source_id"] == (
         "financial-spacex-s1"
     )
     assert spacex_source["canonical_document_id"] == "demo-doc-spacex-s1"
-    assert spacex_source["chunk_count"] == 633
+    assert spacex_source["chunk_count"] == 227
     assert spacex_citations[0]["canonical_chunk_id"].startswith(
         f"{SPACEX_DEMO_SOURCE_ID}:"
     )
+    assert "[[cite:1]]" in spacex_examples[0]["answer"]
+    assert spacex_citations[0]["page_citation_page_number"] == 28
+    assert spacex_citations[0]["page_nums"] == [28]
+    assert str(spacex_citations[0]["source"]["section_path"]).endswith("/Root")
     assert [
         category["category_id"]
         for category in cast(list[dict[str, Any]], official_library["categories"])
@@ -180,7 +215,7 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     assert library_sources_by_id["financial-spacex-s1"]["demo_source_id"] == (
         SPACEX_DEMO_SOURCE_ID
     )
-    assert library_sources_by_id["financial-spacex-s1"]["chunk_count"] == 633
+    assert library_sources_by_id["financial-spacex-s1"]["chunk_count"] == 227
     assert library_sources_by_id["stem-statistical-learning"]["status"] == "ready"
     assert library_sources_by_id["stem-statistical-learning"]["demo_source_id"] == (
         "demo-stem-statistical-learning"
