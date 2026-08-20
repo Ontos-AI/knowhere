@@ -193,7 +193,14 @@ class DemoSourceProjection:
         chunks: tuple[dict[str, Any], ...],
     ) -> dict[str, Any]:
         chunk = _resolve_citation_chunk(source=source, citation=citation, chunks=chunks)
-        return {
+        page_numbers = _citation_page_numbers(citation=citation, chunk=chunk)
+        page_citation_page_number = page_numbers[0] if page_numbers else None
+        page_citation_asset_url = _page_citation_asset_url(
+            source=source,
+            chunk=chunk,
+            page_number=page_citation_page_number,
+        )
+        payload: dict[str, Any] = {
             "demo_source_id": source.demo_source_id,
             "canonical_document_id": source.canonical_document_id,
             "canonical_chunk_id": self.canonical_chunk_id(source=source, chunk=chunk),
@@ -207,6 +214,13 @@ class DemoSourceProjection:
                 "section_path": str(chunk.get("path") or citation.section_path),
             },
         }
+        if page_citation_page_number is not None:
+            payload["page_citation_page_number"] = page_citation_page_number
+        if page_numbers:
+            payload["page_nums"] = page_numbers
+        if page_citation_asset_url:
+            payload["page_citation_asset_url"] = page_citation_asset_url
+        return payload
 
 
 def _publication_chunk(
@@ -285,6 +299,96 @@ def _resolve_citation_chunk(
     raise ValueError(
         "Demo citation does not resolve to a canonical chunk: "
         f"demo_source_id={source.demo_source_id}, section_path={citation.section_path}"
+    )
+
+
+def _citation_page_numbers(
+    *,
+    citation: _DemoCitationDefinition,
+    chunk: dict[str, Any],
+) -> list[int]:
+    chunk_page_numbers = _page_numbers_from_chunk(chunk)
+    requested_page_number = getattr(citation, "page_number", None)
+    if requested_page_number is None:
+        return chunk_page_numbers
+    if (
+        not isinstance(requested_page_number, int)
+        or isinstance(requested_page_number, bool)
+        or requested_page_number < 1
+    ):
+        raise ValueError(
+            "Demo citation page_number must be a positive integer: "
+            f"section_path={citation.section_path}, "
+            f"page_number={requested_page_number!r}"
+        )
+    if requested_page_number not in chunk_page_numbers:
+        raise ValueError(
+            "Demo citation page_number is not in the resolved chunk: "
+            f"section_path={citation.section_path}, "
+            f"page_number={requested_page_number}"
+        )
+    return [requested_page_number]
+
+
+def _page_numbers_from_chunk(chunk: dict[str, Any]) -> list[int]:
+    metadata = _metadata(chunk)
+    collected: list[int] = []
+    _collect_page_numbers(metadata.get("page_nums"), collected)
+    _collect_page_numbers(metadata.get("pageNums"), collected)
+    unique = sorted({page for page in collected if page > 0})
+    return unique
+
+
+def _collect_page_numbers(value: object, collected: list[int]) -> None:
+    if isinstance(value, bool):
+        return
+    if isinstance(value, int):
+        collected.append(value)
+        return
+    if isinstance(value, float) and value.is_integer():
+        collected.append(int(value))
+        return
+    if isinstance(value, str):
+        for part in value.split(","):
+            stripped = part.strip()
+            if stripped.isdigit():
+                collected.append(int(stripped))
+        return
+    if isinstance(value, list):
+        for item in value:
+            _collect_page_numbers(item, collected)
+
+
+def _page_citation_asset_url(
+    *,
+    source: _DemoSourceDefinition,
+    chunk: dict[str, Any],
+    page_number: int | None,
+) -> str | None:
+    metadata = _metadata(chunk)
+    raw_assets = metadata.get("page_assets")
+    if not isinstance(raw_assets, list):
+        return None
+    matching: dict[str, Any] | None = None
+    fallback: dict[str, Any] | None = None
+    for item in raw_assets:
+        if not isinstance(item, dict):
+            continue
+        artifact_ref = str(item.get("artifact_ref") or "").strip()
+        if not artifact_ref.startswith("page_citation_assets/"):
+            continue
+        if fallback is None:
+            fallback = item
+        asset_page = item.get("page_num")
+        if page_number is not None and asset_page == page_number:
+            matching = item
+            break
+    chosen = matching or fallback
+    if chosen is None:
+        return None
+    return _asset_url(
+        source=source,
+        file_path=str(chosen.get("artifact_ref") or "").strip(),
     )
 
 

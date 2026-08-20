@@ -21,6 +21,7 @@ class DemoCitationDefinition:
     section_path: str
     description: str
     content: str
+    page_number: int | None = None
 
 
 @dataclass(frozen=True)
@@ -61,11 +62,12 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 question="What does the document say about Tesla's xAI investment?",
                 answer=(
                     "Tesla entered an agreement on January 16, 2026 to invest "
-                    "approximately $2 billion in xAI Series E Preferred Stock.\n\n"
+                    "approximately $2 billion in xAI Series E Preferred Stock. "
+                    "[[cite:1]]\n\n"
                     "The document also says Tesla and xAI entered a framework "
                     "agreement to evaluate AI collaboration, with the investment "
                     "expected to close in Q1 2026 subject to customary regulatory "
-                    "conditions."
+                    "conditions. [[cite:1]]"
                 ),
                 citations=(
                     DemoCitationDefinition(
@@ -83,11 +85,12 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 question="What does the document say about energy storage?",
                 answer=(
                     "Tesla achieved its highest quarterly energy storage "
-                    "deployments, driven by record Megapack deployments.\n\n"
+                    "deployments, driven by record Megapack deployments. "
+                    "[[cite:1]]\n\n"
                     "Energy gross profit reached a record $1.1 billion, marking "
-                    "the fifth consecutive record quarter.\n\n"
+                    "the fifth consecutive record quarter. [[cite:1]]\n\n"
                     "Tesla also plans to begin Megapack 3 and Megablock "
-                    "production at Megafactory Houston in 2026."
+                    "production at Megafactory Houston in 2026. [[cite:1]]"
                 ),
                 citations=(
                     DemoCitationDefinition(
@@ -109,10 +112,11 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 question="What production plans does Tesla mention for 2026?",
                 answer=(
                     "Tesla says Cybercab, Tesla Semi, and Megapack 3 are on "
-                    "schedule for volume production starting in 2026.\n\n"
+                    "schedule for volume production starting in 2026. "
+                    "[[cite:1]]\n\n"
                     "The same product update also notes that first-generation "
                     "Optimus production lines are being installed before volume "
-                    "production."
+                    "production. [[cite:1]]"
                 ),
                 citations=(
                     DemoCitationDefinition(
@@ -142,10 +146,11 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 answer=(
                     "The filing says SpaceX operates a high-speed, low-latency "
                     "global broadband network powered by about 9,600 Starlink "
-                    "broadband and mobile satellites in Low-Earth Orbit.\n\n"
+                    "broadband and mobile satellites in Low-Earth Orbit. "
+                    "[[cite:1]]\n\n"
                     "It says that network serves consumer, enterprise, and "
                     "government customers across 164 countries, territories, "
-                    "and other markets as of March 31, 2026."
+                    "and other markets as of March 31, 2026. [[cite:1]]"
                 ),
                 citations=(
                     DemoCitationDefinition(
@@ -155,6 +160,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                             "approximately 9,600 Starlink broadband "
                             "and mobile satellites"
                         ),
+                        page_number=28,
                     ),
                 ),
             ),
@@ -163,9 +169,9 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 question="How does the filing describe SpaceX's launch reusability?",
                 answer=(
                     "The filing says Falcon 9 reusability gave SpaceX a "
-                    "step-function cost advantage in space access.\n\n"
+                    "step-function cost advantage in space access. [[cite:1]]\n\n"
                     "It also says Falcon 9 first stages had demonstrated the "
-                    "ability to refly 34 times as of March 31, 2026."
+                    "ability to refly 34 times as of March 31, 2026. [[cite:1]]"
                 ),
                 citations=(
                     DemoCitationDefinition(
@@ -174,6 +180,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                         content=(
                             "refly a first-stage 34 times"
                         ),
+                        page_number=32,
                     ),
                 ),
             ),
@@ -182,7 +189,8 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                 question="What offering does the filing describe?",
                 answer=(
                     "The filing describes an initial public offering of shares "
-                    "of Space Exploration Technologies Corp. Class A common stock."
+                    "of Space Exploration Technologies Corp. Class A common stock. "
+                    "[[cite:1]]"
                 ),
                 citations=(
                     DemoCitationDefinition(
@@ -192,6 +200,7 @@ _DEMO_SOURCE_DEFINITIONS: tuple[DemoSourceDefinition, ...] = (
                             "This is the initial public offering of shares of "
                             "Class A common stock"
                         ),
+                        page_number=2,
                     ),
                 ),
             ),
