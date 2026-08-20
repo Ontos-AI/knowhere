@@ -1,63 +1,222 @@
 {
   "version": "2.0",
-  "job_id": "job_fb6bc72584a9",
-  "data_id": null,
-  "source_file_name": "notes.pdf",
-  "processing_date": "2026-06-16T03:08:14.942348Z",
+  "job_id": "job_d5b4e9750b05",
+  "data_id": "demo-stem-statistical-learning",
+  "source_file_name": "Statistical Learning Notes.pdf",
+  "processing_date": "2026-08-19T04:18:05.907034Z",
   "processing": {
     "page_count": 62,
     "billing_status": "charged",
     "cost": {
-      "micro_dollars": 93000,
-      "credits": 0.093
+      "micro_dollars": 930000,
+      "credits": 0.93
+    },
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-19:874ab8b6c9e4",
+      "total_input_cost": 0.0,
+      "total_output_cost": 0.0,
+      "total_cost": 0.0,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 57500,
+          "output_tokens": 1547,
+          "calls": 14,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 17142,
+              "output_tokens": 153,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "calibration.react_loop": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 11664,
+              "output_tokens": 658,
+              "calls": 3,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "calibration.inspect_pages": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 12000,
+              "output_tokens": 151,
+              "calls": 2,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.page_locate": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 16694,
+              "output_tokens": 585,
+              "calls": 8,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
     },
     "timing": {
-      "started_at": "2026-06-16T03:06:46.440580+00:00",
-      "completed_at": "2026-06-16T03:08:14.923460+00:00",
-      "duration_ms": 88482
+      "started_at": "2026-08-19T04:10:50.975742+00:00",
+      "completed_at": "2026-08-19T04:18:05.877765+00:00",
+      "duration_ms": 434902
     },
     "stages": {
       "timing_ms": {
-        "document.profile": 3850,
-        "pdf.extract.standard": 55807,
-        "toc.detect_range_llm": 1106,
-        "heading.hierarchy_llm_call": 11455,
-        "toc.parse_hierarchy_llm": 4838,
-        "md.detect_toc": 5984,
-        "heading.merge_pre_pass_llm": 1254,
-        "heading.hierarchy_llm": 6636,
-        "md.predict_headings": 9029,
-        "md.deferred_summaries": 13117,
-        "md.build_dataframe": 1,
-        "pdf.parse_md": 28470,
-        "document.cleanup_unreferenced_images": 7,
-        "document.compress_images": 0,
-        "worker.parse.document": 88141
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 232624,
+        "page_memory.skeleton": 2,
+        "page_memory.node_summary": 30326,
+        "page_memory.node_rows": 109,
+        "page_memory.node_assembly": 30451,
+        "worker.parse.document": 434743
       },
       "token_usage": {
-        "prompt_tokens": 9447,
-        "completion_tokens": 1639,
-        "total_tokens": 11086
+        "prompt_tokens": 57500,
+        "completion_tokens": 1547,
+        "total_tokens": 59047,
+        "calls": 14,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 57500,
+            "completion_tokens": 1547,
+            "total_tokens": 59047,
+            "calls": 14
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 17142,
+            "completion_tokens": 153,
+            "total_tokens": 17295,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 17142,
+                "completion_tokens": 153,
+                "total_tokens": 17295,
+                "calls": 1
+              }
+            }
+          },
+          "calibration.react_loop": {
+            "prompt_tokens": 11664,
+            "completion_tokens": 658,
+            "total_tokens": 12322,
+            "calls": 3,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 11664,
+                "completion_tokens": 658,
+                "total_tokens": 12322,
+                "calls": 3
+              }
+            }
+          },
+          "calibration.inspect_pages": {
+            "prompt_tokens": 12000,
+            "completion_tokens": 151,
+            "total_tokens": 12151,
+            "calls": 2,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 12000,
+                "completion_tokens": 151,
+                "total_tokens": 12151,
+                "calls": 2
+              }
+            }
+          },
+          "page_memory.page_locate": {
+            "prompt_tokens": 16694,
+            "completion_tokens": 585,
+            "total_tokens": 17279,
+            "calls": 8,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 16694,
+                "completion_tokens": 585,
+                "total_tokens": 17279,
+                "calls": 8
+              }
+            }
+          }
+        }
       }
     }
   },
   "statistics": {
-    "total_chunks": 71,
-    "text_chunks": 60,
-    "image_chunks": 11,
+    "total_chunks": 45,
+    "text_chunks": 0,
+    "image_chunks": 6,
     "table_chunks": 0,
+    "page_chunks": 39,
     "total_pages": null
   },
   "HIERARCHY": {
-    "Root": {},
-    "Chapter 1 Kernel machines": {
-      "1.1 Ridge regression": {},
+    "1 Kernel machines": {
+      "1.1 Ridge regression": {
+        "1.1.1 The singular value decomposition and principal components analysis": {}
+      },
       "1.2 v-fold cross-validation": {},
       "1.3 The kernel trick": {},
       "1.4 Kernels": {
         "1.4.1 Examples of kernels": {},
         "1.4.2 Reproducing kernel Hilbert spaces": {},
-        "Examples": {},
         "1.4.3 The representer theorem": {}
       },
       "1.5 Kernel ridge regression": {},
@@ -67,19 +226,15 @@
       },
       "1.7 Large-scale kernel machines": {}
     },
-    "Chapter 2": {
-      "Introduction to the Lasso": {
-        "2.1 Model selection": {
-          "Best subset regression": {},
-          "Forward selection": {}
-        },
-        "2.2 The Lasso estimator": {
-          "2.2.1 Convexity and the Lasso": {},
-          "2.2.3 Concentration inequalities I": {}
-        }
+    "2 Introduction to the Lasso": {
+      "2.1 Model selection": {},
+      "2.2 The Lasso estimator": {
+        "2.2.1 Convexity and the Lasso": {},
+        "2.2.2 Prediction error of the Lasso with no assumptions on the design": {},
+        "2.2.3 Concentration inequalities I": {}
       }
     },
-    "Chapter 3 The Lasso and beyond": {
+    "3 The Lasso and beyond": {
       "3.1 Some facts from optimisation theory and convex analysis": {
         "3.1.1 Subgradients": {},
         "3.1.2 The Lagrangian method": {}
@@ -93,14 +248,11 @@
       },
       "3.6 Computation": {},
       "3.7 Extensions of the Lasso": {
-        "3.7.1 Structural penalties": {
-          "Group Lasso": {},
-          "Fused Lasso": {}
-        },
+        "3.7.1 Structural penalties": {},
         "3.7.2 Reducing the bias of the Lasso": {}
       }
     },
-    "Chapter 4 Graphical modelling and causal inference": {
+    "4 Graphical modelling and causal inference": {
       "4.1 Graphs": {},
       "4.2 Conditional independence graphs": {},
       "4.3 Gaussian graphical models": {
@@ -113,18 +265,17 @@
       "4.5 Interventions": {},
       "4.6 The Markov properties on DAGs": {},
       "4.7 Causal structure learning": {
-        "4.7.1 Three obstacles": {
-          "Causal minimality": {},
-          "Markov equivalent DAGs": {},
-          "Faithfulness": {}
-        },
+        "4.7.1 Three obstacles": {},
         "4.7.2 The PC algorithm": {
           "Population version": {},
-          "Sample version": {}
+          "Sample version": {},
+          "Chapter 5": {},
+          "Theorem 36.": {}
         }
       }
     },
-    "Chapter 5 High-dimensional inference": {},
-    "Bibliography": {}
+    "5 High-dimensional inference": {
+      "5.1 Using the debiased Lasso in practice": {}
+    }
   }
 }

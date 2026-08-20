@@ -2,491 +2,579 @@
   "version": "1.0",
   "file_name": "Probability Theory Lecture Notes.pdf",
   "stats": {
-    "total_chunks": 109,
-    "text_chunks": 69,
-    "image_chunks": 28,
-    "table_chunks": 12,
-    "max_depth": 4
+    "total_chunks": 68,
+    "text_chunks": 0,
+    "image_chunks": 12,
+    "table_chunks": 6,
+    "page_chunks": 50,
+    "max_depth": 3
   },
   "sections": [
     {
-      "title": "Root",
-      "path": "Notes.pdf",
-      "level": 1,
-      "summary": "Probability Theory Lecture Notes Phanuel Mariano",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "CHAPTER 1",
-      "path": "Notes.pdf/CHAPTER 1",
+      "title": "Chapter 1. Combinatorics",
+      "path": "Probability Theory Lecture Notes.pdf/Chapter 1. Combinatorics",
       "level": 1,
       "summary": "",
-      "chunk_count": 6,
+      "chunk_count": 5,
       "children": [
         {
-          "title": "Combinatorics",
-          "path": "Notes.pdf/CHAPTER 1/Combinatorics",
+          "title": "1.1. Counting Principle",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 1. Combinatorics/1.1. Counting Principle",
           "level": 2,
-          "summary": "",
-          "chunk_count": 5,
-          "children": [
-            {
-              "title": "1.1. Counting Principle",
-              "path": "Notes.pdf/CHAPTER 1/Combinatorics/1.1. Counting Principle",
-              "level": 3,
-              "summary": "\\- We need a way to help us count faster rather than counting by hand one by one. FACT. (Basic Counting Principle) Suppose 2 experiments are to be performed. If one experiment can result in m possibilities Second experiment can result in $n$ possibilities Then together there are mn possibilities - I like to use the box method. For example. Each box represent the number of possibilities in that experiment. - Example1: There are 20 teachers and 100 students in a school. How many ways can we pick a teacher and student of the year? \\- Solution: Use the box Method: $20 \\times 100 = 2000$ . - The counting principle can be generalized to any amount of experiments: $n_1 \\cdots n_r$ possibilities - Example2: - A college planning committee consists of 3 freshmen, 4 sophomores, 5 juniors, and 2 seniors. - A subcommittee of 4 consists 1 person from each class. How many? - Solution: Box method $3 \\times 4 \\times 5 \\times 2 = 120$ . \\- Example3: How many differen 6-place license plates are possible if the first 3 places are to be occupied by letters and the finals 3 by numbers? - Solution: $26 \\cdot 26 \\cdot 26 \\cdot 10 \\cdot 10 \\cdot 10 = ?$ - Question...repetition is allowed? - Solution: $26 \\cdot 25 \\cdot 24 \\cdot 10 \\cdot 9 \\cdot 8$ \\- Example4: How many functions defined on $n$ points are possible if each functional value is either 0 or 1. \\- Solution: Box method on the $1, \\ldots, n$ points gives us $2^n$ possible functions.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "1.2. PERMUTATIONS",
-              "path": "Notes.pdf/CHAPTER 1/Combinatorics/1.2. PERMUTATIONS",
-              "level": 3,
-              "summary": "The text introduces permutations as ordered arrangements of objects, using examples like arranging letters a, b, c (6 ways via 3!). It explains the factorial formula n! for n distinct objects, with order mattering. Examples include batting orders (9!), grouping books (4! * 4! * 3! * 2! * 1!), and handling repetitions (e.g., arranging a, a, b, c as 4!/2! = 12). The general formula for permutations with alike objects is n!/(n1!...nr!), illustrated with PEPPER (6!/(3!2!1!) = 30) and tennis players (11!/(4!4!3!)).",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "1.3. Combinations",
-              "path": "Notes.pdf/CHAPTER 1/Combinatorics/1.3. Combinations",
-              "level": 3,
-              "summary": "The passage explains the concept of combinations (order does not matter) versus permutations (order matters). It derives the formula for combinations: n choose r equals n!/((n-r)!r!). Examples include choosing a committee of 3 from 10 people, selecting 2 men and 3 women from groups, and inviting friends with constraints (feuding friends or those attending together). The Binomial Theorem is introduced: (x+y)^n = sum_{k=0}^n binom(n,k) x^k y^{n-k}, with a combinatorial proof. A combinatorial identity binom(n,r)=binom(n-1,r-1)+binom(n-1,r) is demonstrated using a committee selection analogy with a special president.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "1.4. Multinomial Coefficients",
-              "path": "Notes.pdf/CHAPTER 1/Combinatorics/1.4. Multinomial Coefficients",
-              "level": 3,
-              "summary": "The passage explains multinomial coefficients, which count ways to divide n objects into k groups of specified sizes. It provides examples: dividing 9 people into committees of sizes 3,4,2 yields 9!/(3!4!2!); assigning 10 police officers to duties (6 patrol, 2 station, 2 schools) gives 10!/(6!2!2!); ordering 10 flags (5 blue, 3 red, 2 yellow) gives 10!/(5!3!2!). It also covers distributing 8 indistinguishable balls into 3 boxes using stars and bars, resulting in C(10,8) or C(9,2)+9 ways.",
-              "chunk_count": 1,
-              "children": []
-            }
-          ]
+          "summary": "This page is from Chapter 1 of a document on Combinatorics, specifically section 1.1 covering the Counting Principle. It defines the Basic Counting Principle (multiplying possibilities for sequential experiments) and introduces the 'box method' as a visualization tool. The text includes four examples demonstrating how to apply this principle: selecting a teacher and student, forming a subcommittee with specific class requirements, calculating license plate combinations, and determining possible functions.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "1.2. Permutations",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 1. Combinatorics/1.2. Permutations",
+          "level": 2,
+          "summary": "This page, titled '1.2. Permutations', explains the mathematical concept of permutations and provides several examples. It defines a permutation as an ordered arrangement of objects and presents the formula for n distinct objects (n!). The text includes specific examples involving arranging letters, books on a shelf, and players from different countries, covering cases with repetitions.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "1.3. Combinations",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 1. Combinatorics/1.3. Combinations",
+          "level": 2,
+          "summary": "This section introduces combinations, defined as the number of ways to select r objects from a total of n where order does not matter. It provides the general formula for 'n choose r' and defines these values as binomial coefficients. The text includes several examples involving committees and party invitations, proves the Binomial Theorem using combinatorial logic, and demonstrates Pascal's Identity with a proof based on whether a specific person (the President) is included in a committee.",
+          "chunk_count": 2,
+          "children": []
+        },
+        {
+          "title": "1.4. Multinomial Coefficients",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 1. Combinatorics/1.4. Multinomial Coefficients",
+          "level": 2,
+          "summary": "This page, titled '1.4. Multinomial Coefficients', explains the concept of multinomial coefficients through several examples and a general formula. It details how to divide objects into distinct groups (like committees or police officers) and calculate the number of ways to do so using factorials. The page also covers related combinatorial problems involving indistinguishable items, such as arranging flags on a pole and distributing balls into boxes.",
+          "chunk_count": 1,
+          "children": []
         }
       ]
     },
     {
-      "title": "CHAPTER 2",
-      "path": "Notes.pdf/CHAPTER 2",
+      "title": "Chapter 2. Axioms of Probability",
+      "path": "Probability Theory Lecture Notes.pdf/Chapter 2. Axioms of Probability",
       "level": 1,
       "summary": "",
       "chunk_count": 9,
       "children": [
         {
-          "title": "Axioms of Probability",
-          "path": "Notes.pdf/CHAPTER 2/Axioms of Probability",
+          "title": "2.1. Sample Space and Events",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 2. Axioms of Probability/2.1. Sample Space and Events",
           "level": 2,
-          "summary": "",
-          "chunk_count": 8,
-          "children": [
-            {
-              "title": "2.1. Sample Space and Events",
-              "path": "Notes.pdf/CHAPTER 2/Axioms of Probability/2.1. Sample Space and Events",
-              "level": 3,
-              "summary": "\\- We will have a sample space, denoted $S$ (sometimes $\\Omega$ , or $\\mathcal{U}$ ) that consists of all possible outcomes from an experiment.",
-              "chunk_count": 5,
-              "children": [
-                {
-                  "title": "- Example1:",
-                  "path": "Notes.pdf/CHAPTER 2/Axioms of Probability/2.1. Sample Space and Events/- Example1:",
-                  "level": 4,
-                  "summary": "\\* Experiment: Roll two dice, \\* Sample Space: $S =$ would be all possible pairs made up of the numbers one through six. List it here. $\\{(i,j):i,j = 1,\\dots 6\\}$ . 36 points.",
-                  "chunk_count": 1,
-                  "children": []
-                },
-                {
-                  "title": "- Example 2:",
-                  "path": "Notes.pdf/CHAPTER 2/Axioms of Probability/2.1. Sample Space and Events/- Example 2:",
-                  "level": 4,
-                  "summary": "\\* Experiment: Toss a coin twice \\* $S = \\{HH,HT,TH,TT\\}$",
-                  "chunk_count": 1,
-                  "children": []
-                },
-                {
-                  "title": "- Example3:",
-                  "path": "Notes.pdf/CHAPTER 2/Axioms of Probability/2.1. Sample Space and Events/- Example3:",
-                  "level": 4,
-                  "summary": "\\* Experiment: Measuring the number of accidents of a random person before they had turn 18. $$ \\cdot S = \\{0, 1, 2, \\dots \\} $$",
-                  "chunk_count": 1,
-                  "children": []
-                },
-                {
-                  "title": "- Others:",
-                  "path": "Notes.pdf/CHAPTER 2/Axioms of Probability/2.1. Sample Space and Events/- Others:",
-                  "level": 4,
-                  "summary": "The passage defines events as subsets of a sample space S, and explains basic set operations: union (A ∪ B), intersection (A ∩ B), and complement (A^c). It provides examples from rolling two dice and age at death. It also covers properties like commutativity, associativity, distributivity, DeMorgan's Laws, and the concept of disjoint (mutually exclusive) events.",
-                  "chunk_count": 1,
-                  "children": []
-                }
-              ]
-            },
-            {
-              "title": "2.2. Axioms of Probability",
-              "path": "Notes.pdf/CHAPTER 2/Axioms of Probability/2.2. Axioms of Probability",
-              "level": 3,
-              "summary": "The text defines probability through axioms: non-negativity, total probability of sample space equals 1, and countable additivity for disjoint events. It introduces relative frequency as motivation but notes its limitations. Key properties derived include probability of empty set is 0, complement rule, monotonicity, and inclusion-exclusion for two events. Examples illustrate fair and biased coin tosses, die rolling, and a basketball game probability calculation using DeMorgan's law and the inclusion-exclusion formula.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "2.3. Equally Likely Outcomes",
-              "path": "Notes.pdf/CHAPTER 2/Axioms of Probability/2.3. Equally Likely Outcomes",
-              "level": 3,
-              "summary": "The passage covers basic probability concepts with equally likely outcomes, including examples like rolling dice, drawing balls from an urn, selecting committees, and poker hands. It explains how to compute probabilities using combinatorial formulas, such as combinations and permutations, and includes the birthday problem as an illustration of probability calculations.",
-              "chunk_count": 1,
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "title": "CHAPTER 3",
-      "path": "Notes.pdf/CHAPTER 3",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
+          "summary": "This section defines the fundamental concepts of sample space (S) and events in probability theory. It provides examples of sample spaces for various experiments, such as rolling dice or tossing coins. The text then defines an event as a subset of the sample space and explains set operations including union, intersection, and complement. It also covers properties like De Morgan's Law, the empty set, and the concept of disjoint (mutually exclusive) events.",
+          "chunk_count": 2,
+          "children": []
+        },
         {
-          "title": "Independence",
-          "path": "Notes.pdf/CHAPTER 3/Independence",
+          "title": "2.2. Axioms of Probability",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 2. Axioms of Probability/2.2. Axioms of Probability",
           "level": 2,
-          "summary": "The text defines independent events as those where the probability of their intersection equals the product of their individual probabilities. It provides examples including coin flips, card draws, and dice rolls. It proves that if events E and F are independent, then E and F^c are also independent. The definition extends to three or more events requiring pairwise and joint independence. Applications include calculating probabilities for drawing balls from urns and the Gambler's Ruin problem, where the probability of reaching a target before ruin is linear. The text also introduces Bernoulli trials and the binomial distribution for independent trials with constant success probability.",
-          "chunk_count": 1,
+          "summary": "This section introduces the axioms of probability as a formal framework, moving beyond the concept of relative frequency. It defines three core axioms: non-negativity (probability is between 0 and 1), normalization (the probability of the sample space S is 1), and countable additivity for disjoint events. The text provides examples using coin tosses and dice rolls to illustrate these concepts. It then presents Proposition 1, which lists several derived rules of probability, such as the probability of an empty set being zero and the formula for the union of two events. The section concludes with proofs for these propositions and a practical example involving the probabilities of UConn Basketball winning games against Kentucky.",
+          "chunk_count": 3,
+          "children": []
+        },
+        {
+          "title": "2.3. Equally Likely Outcomes",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 2. Axioms of Probability/2.3. Equally Likely Outcomes",
+          "level": 2,
+          "summary": "This section, titled 'Equally Likely Outcomes', introduces the concept of probability spaces with finitely many points that have equal probabilities. It provides the formula for calculating the probability of an event in such a space and illustrates its application through several examples. These examples include rolling dice to get a specific sum, drawing colored balls from a bowl, forming a committee from a group of men and women, and drawing colored balls from an urn. The section also covers probability problems related to poker hands (4 of a kind, straight, full house) and the classic Birthday Problem.",
+          "chunk_count": 4,
           "children": []
         }
       ]
     },
     {
-      "title": "CHAPTER 4",
-      "path": "Notes.pdf/CHAPTER 4",
+      "title": "Chapter 3. Independence",
+      "path": "Probability Theory Lecture Notes.pdf/Chapter 3. Independence",
       "level": 1,
       "summary": "",
       "chunk_count": 4,
       "children": [
         {
-          "title": "Conditional Probability and Independence",
-          "path": "Notes.pdf/CHAPTER 4/Conditional Probability and Independence",
+          "title": "3.1. Independent Events",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 3. Independence/3.1. Independent Events",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 4,
+          "children": [
+            {
+              "title": "Example (A variation of Gambler's ruin)",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 3. Independence/3.1. Independent Events/Example (A variation of Gambler's ruin)",
+              "level": 3,
+              "summary": "This section presents a variation of the Gambler's ruin problem where an individual can go arbitrarily far into debt. It seeks to find the probability p(x) of reaching $200 starting from x. The text analyzes two methods: first, by observing that the slope of the linear function cannot be negative or positive (as it would violate probability bounds), concluding p(x) is constant and equal to 1; second, by computing the limit as the lower bound M approaches infinity, also yielding a probability of 1.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Example:",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 3. Independence/3.1. Independent Events/Example:",
+              "level": 3,
+              "summary": "This section presents two examples related to independent events. The first example is a variation of the Gambler's ruin problem, calculating the probability of reaching a target amount ($200) starting from debt, concluding that the probability is 1. The second example calculates the probability of rolling exactly four twos in ten dice rolls, introducing the concept of Bernoulli trials and the Binomial distribution formula.",
+              "chunk_count": 2,
+              "children": []
+            },
+            {
+              "title": "Conditional Probability and Independence",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 3. Independence/3.1. Independent Events/Conditional Probability and Independence",
+              "level": 3,
+              "summary": "This page is from Chapter 4, titled 'Conditional Probability and Independence,' and covers section 4.1 on Conditional Probabilities. It introduces the concept through a scenario involving men and women smokers, defines the mathematical formula for conditional probability P(E | F), and discusses independence. The text concludes with an example problem regarding rolling two dice to calculate probabilities.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Chapter 4. Conditional Probability and Independence",
+      "path": "Probability Theory Lecture Notes.pdf/Chapter 4. Conditional Probability and Independence",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 5,
+      "children": [
+        {
+          "title": "4.1. Conditional Probabilities",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 4. Conditional Probability and Independence/4.1. Conditional Probabilities",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 2,
+          "children": [
+            {
+              "title": "Example5:",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 4. Conditional Probability and Independence/4.1. Conditional Probabilities/Example5:",
+              "level": 3,
+              "summary": "The section titled 'Example 5' presents a probability problem involving an urn containing 5 white balls and 7 black balls. The experiment involves drawing 3 balls with replacement, where each drawn ball is returned to the urn along with an additional ball of the same color (a Polya Urn scheme). Part (a) calculates the probability of drawing 3 white balls in succession, resulting in the calculation P(3 white balls) = (5/12) * (6/13) * (7/14).",
+              "chunk_count": 2,
+              "children": []
+            }
+          ]
+        },
+        {
+          "title": "4.2. Bayes's Formula",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 4. Conditional Probability and Independence/4.2. Bayes's Formula",
+          "level": 2,
+          "summary": "This section introduces Bayes's Formula by first deriving the Law of Total Probability. It then presents five examples to illustrate its application: calculating accident proneness in insurance, determining HIV test accuracy, finding the probability of a student being a woman given an 'A' grade, analyzing defective iPhones from different factory machines, and solving a multiple-choice test problem.",
+          "chunk_count": 3,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Chapter 5. Random Variables",
+      "path": "Probability Theory Lecture Notes.pdf/Chapter 5. Random Variables",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 14,
+      "children": [
+        {
+          "title": "5.1. Random Variables",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 5. Random Variables/5.1. Random Variables",
+          "level": 2,
+          "summary": "This section defines a random variable as a function that maps outcomes of an experiment to numerical values. It provides several examples, including tossing a coin, rolling a die, and counting successes in trials, to illustrate how different experiments can be modeled by random variables (denoted by capital letters like X or Y). The text also discusses the range of possible values a random variable can attain. The second page continues this discussion by assigning probabilities to the specific values of a random variable derived from tossing a coin three times, demonstrating that the sum of these probabilities equals 1.",
+          "chunk_count": 2,
+          "children": []
+        },
+        {
+          "title": "5.2. Discrete Random Variables",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 5. Random Variables/5.2. Discrete Random Variables",
+          "level": 2,
+          "summary": "This page, titled '5.2. Discrete Random Variables', defines discrete random variables and their probability mass function (pmf). It outlines the properties of a pmf, including that probabilities must be between 0 and 1 and sum to 1. The page provides examples, such as a coin toss modeled by a bar graph, and details calculations for a Poisson distribution with parameter λ.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "5.3. Expected Value",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 5. Random Variables/5.3. Expected Value",
+          "level": 2,
+          "summary": "The section titled '5.3. Expected Value' defines the concept of expectation for a random variable X with a probability mass function p(x) using the formula E[X] = Σ xp(x). It provides three examples: calculating the expected value for a coin flip (Example 1), a fair die roll (Example 2), and the number of tornadoes in Connecticut per year (Example 3). The text also reviews infinite geometric series and their derivatives to solve the third example, which involves an infinite sum.",
+          "chunk_count": 2,
+          "children": []
+        },
+        {
+          "title": "5.4. The C.D.F.",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 5. Random Variables/5.4. The C.D.F.",
+          "level": 2,
+          "summary": "This section defines the Cumulative Distribution Function (CDF), denoted as F(x) = P(X ≤ x). It provides an example of calculating the CDF for a discrete random variable representing the number of heads in three coin flips, showing both the step function formula and its graph. The section then lists key properties of the CDF, such as being non-decreasing and right-continuous. Finally, it presents Proposition 3, which relates probabilities to limits of the CDF, and includes a proof for part (a) along with another example demonstrating how to compute specific probabilities using the CDF.",
+          "chunk_count": 3,
+          "children": []
+        },
+        {
+          "title": "5.5. Expected Value of Sums of Random Variables",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 5. Random Variables/5.5. Expected Value of Sums of Random Variables",
+          "level": 2,
+          "summary": "This section introduces a formal definition for the expected value of a random variable, denoted as E[X], which sums over the sample space S. It provides an example to illustrate this definition and proves that it is equivalent to the standard definition based on the range of values. The section then uses this definition to prove the linearity of expectation (Theorem 5), showing that E[X + Y] = E[X] + E[Y] and E[aX] = aE[X].",
+          "chunk_count": 2,
+          "children": []
+        },
+        {
+          "title": "5.6. Expectation of a Function of a Random Variable",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 5. Random Variables/5.6. Expectation of a Function of a Random Variable",
+          "level": 2,
+          "summary": "This section explains how to calculate the expected value of a function of a random variable, $g(X)$. It introduces Theorem 6, which provides the formula for this calculation: $\\mathbb{E}[g(X)] = \\sum g(x_i)p(x_i)$. A proof is provided showing that summing over the values of $Y=g(X)$ is equivalent to summing over the values of $X$ weighted by their probabilities. The section also defines the mean ($\\mu = \\mathbb{E}X$) as the first moment and generalizes this to the $n$th moment ($\\mathbb{E}X^n$).",
+          "chunk_count": 2,
+          "children": []
+        },
+        {
+          "title": "5.7. Variance",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 5. Random Variables/5.7. Variance",
+          "level": 2,
+          "summary": "This section defines variance as a measure of the spread of values in a random variable, contrasting it with expectation. It provides the formal definition Var(X) = E[(X - μ)²] and derives an alternate formula, Var(X) = E[X²] - (E[X])². The section includes an example calculating the variance of a fair die roll and concludes with Proposition 7, which states the property Var(aX + b) = a²Var(X), followed by the definition of standard deviation.",
+          "chunk_count": 2,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Chapter 6. Some Discrete Distributions",
+      "path": "Probability Theory Lecture Notes.pdf/Chapter 6. Some Discrete Distributions",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 11,
+      "children": [
+        {
+          "title": "6.1. Bernouli and Binomial Random Variables",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 6. Some Discrete Distributions/6.1. Bernouli and Binomial Random Variables",
+          "level": 2,
+          "summary": "This section defines Bernoulli and Binomial random variables. It details the probability mass function, mean, and variance for a Bernoulli distribution. For the Binomial distribution, it provides the formula, interprets it as the number of successes in independent trials, and derives its mean and variance using properties of independent Bernoulli trials. The section concludes with two applied examples: one calculating the probability of fewer than 3 hurricanes in a 20-year period, and another calculating the probability that a basketball player makes at least 2 out of 10 free throws.",
+          "chunk_count": 3,
+          "children": []
+        },
+        {
+          "title": "6.2. The Poisson Distribution",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 6. Some Discrete Distributions/6.2. The Poisson Distribution",
+          "level": 2,
+          "summary": "This section introduces the Poisson distribution, defining it by its probability mass function p_X(i) = e^(-λ) * (λ^i / i!) for a parameter λ > 0. It provides examples of phenomena that follow this distribution, such as misprints on a page or telephone calls in a day. The section then derives the mean and variance of the Poisson distribution, showing both are equal to λ. It also discusses the relationship between the Binomial and Poisson distributions, stating that a Binomial(n, p) distribution can be approximated by a Poisson(λ) distribution when n is large and p is small, with λ = np. Several numerical examples are provided to illustrate these concepts.",
+          "chunk_count": 4,
+          "children": []
+        },
+        {
+          "title": "6.3. Other Discrete Distributions",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 6. Some Discrete Distributions/6.3. Other Discrete Distributions",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 4,
+          "children": [
+            {
+              "title": "Negative Binomial(Need to know for Actuarial Exam):",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 6. Some Discrete Distributions/6.3. Other Discrete Distributions/Negative Binomial(Need to know for Actuarial Exam):",
+              "level": 3,
+              "summary": "This section defines the Negative Binomial distribution, describing an experiment where independent trials are performed until a total of r successes are accumulated. It provides the probability mass function for X (the number of trials required), notation X ~ NegativeBinomial(r,p), and formulas for the Mean (r/p) and Variance (r(1-p)/p^2). It also notes that the Geometric distribution is a special case where r=1. Finally, it presents an example problem calculating the expected value of throwing a die until the outcome '1' occurs 4 times.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Hypergeometric Distribution(Need to know for Actuarial Exam):",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 6. Some Discrete Distributions/6.3. Other Discrete Distributions/Hypergeometric Distribution(Need to know for Actuarial Exam):",
+              "level": 3,
+              "summary": "This section introduces the Hypergeometric Distribution, a discrete probability distribution used when sampling without replacement. It defines an experiment where a sample of size n is chosen from an urn containing N balls (m white and N-m black). The text provides the probability mass function for X (the number of white balls selected), notation (X ~ Hypergeometric(n, N, m)), and formulas for the Mean (E[X] = nm/N) and Variance.",
+              "chunk_count": 2,
+              "children": []
+            },
+            {
+              "title": "Continuous Random Variables",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 6. Some Discrete Distributions/6.3. Other Discrete Distributions/Continuous Random Variables",
+              "level": 3,
+              "summary": "The section defines a continuous random variable and its probability density function (pdf). It outlines the two necessary properties for a function to be a pdf: non-negativity and an integral over all real numbers equaling 1. The text also provides key properties of continuous distributions, such as the probability of a single point being zero, and gives examples of continuous variables like time, stock prices, and height. Finally, it presents an example problem calculating a constant 'c' for a given piecewise pdf.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Chapter 7. Continuous Random Variables",
+      "path": "Probability Theory Lecture Notes.pdf/Chapter 7. Continuous Random Variables",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 8,
+      "children": [
+        {
+          "title": "7.1. Intro to continuous R.V",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 7. Continuous Random Variables/7.1. Intro to continuous R.V",
+          "level": 2,
+          "summary": "This section introduces continuous random variables (R.V.) by defining a continuous distribution via a probability density function (pdf), denoted as f(x). It outlines the two key properties of a pdf: non-negativity and that its integral over all real numbers equals 1. The text explains that for continuous variables, the probability of any single point is zero, and probabilities are calculated as the area under the curve. Examples include time to finish an exam, stock prices, and student height. The section provides examples of calculating constants for valid pdfs, finding cumulative distribution functions (c.d.f.), and using the c.d.f. to find probabilities. A key relationship highlighted is that the derivative of the CDF is the PDF.",
+          "chunk_count": 2,
+          "children": []
+        },
+        {
+          "title": "7.2. Expectation and Variance",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 7. Continuous Random Variables/7.2. Expectation and Variance",
+          "level": 2,
+          "summary": "This section defines the expectation (mean) for continuous random variables using integrals and provides examples of its calculation. It presents Theorem 9 on the linearity of expectation, a proposition for finding the expected value of a function of a random variable, and Lemma 10 for non-negative random variables. The section also introduces variance, defining it with two equivalent formulas and stating its properties. Several examples are worked through to calculate expectations and variances for specific probability density functions.",
+          "chunk_count": 3,
+          "children": []
+        },
+        {
+          "title": "7.3. The uniform Random Variable",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 7. Continuous Random Variables/7.3. The uniform Random Variable",
+          "level": 2,
+          "summary": "This page, titled '7.3. The uniform Random Variable', defines a continuous random variable that is uniformly distributed on an interval [a, b]. It provides the probability density function (PDF) and cumulative distribution function (CDF) for this distribution. Additionally, it presents Example 1, which derives the mean and variance of a Uniform(a, b) random variable through integration.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "7.4. More practice",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 7. Continuous Random Variables/7.4. More practice",
+          "level": 2,
+          "summary": "The section titled '7.4. More practice' presents a set of exercises based on a given probability density function (p.d.f.), f(x) = 9e^(-9x) for x ≥ 0. The problems involve setting up integrals to find the cumulative distribution function F_X(x) and various probabilities, such as P(1 < X < 5), P(X > 3), and P(X < 2).",
+          "chunk_count": 2,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Chapter 8. Normal Distributions",
+      "path": "Probability Theory Lecture Notes.pdf/Chapter 8. Normal Distributions",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 4,
+      "children": [
+        {
+          "title": "8.1. The normal distribution",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 8. Normal Distributions/8.1. The normal distribution",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 4,
+          "children": [
+            {
+              "title": "Summary of the normal distribution:",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 8. Normal Distributions/8.1. The normal distribution/Summary of the normal distribution:",
+              "level": 3,
+              "summary": "This page, titled '8.1. THE NORMAL DISTRIBUTION', presents a mathematical proof for Theorem 11 regarding the mean and variance of a normal random variable $X$. It details the derivation using probability density functions and cumulative distribution functions. The bottom section summarizes key properties of the normal distribution, including the definition of the standard normal random variable $Z$, the concept of Z-scores, and the formula for the cumulative distribution function $ ext{Phi}(x)$.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "THEOREM 12. If X ~ N(μ, σ) then",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 8. Normal Distributions/8.1. The normal distribution/THEOREM 12. If X ~ N(μ, σ) then",
+              "level": 3,
+              "summary": "This section presents Theorem 12 regarding the standardization of a normal distribution variable X ~ N(μ, σ). It provides two detailed examples demonstrating how to calculate probabilities using this theorem: Example 1 calculates P(1 ≤ X ≤ 4) for a specific normal distribution, and Example 2 determines the standard deviation given a probability condition. An extra example is introduced at the end. The content continues on the next page with the solution to the extra example and introduces the '68-95-99.7 Rule' (Empirical Rule), which describes the percentage of data within one, two, and three standard deviations of the mean, illustrated by a bell curve graph.",
+              "chunk_count": 2,
+              "children": []
+            },
+            {
+              "title": "Normal approximations to the binomial",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 8. Normal Distributions/8.1. The normal distribution/Normal approximations to the binomial",
+              "level": 3,
+              "summary": "The section titled 'Normal approximations to the binomial' introduces Theorem 13, which states that a standardized binomial random variable converges in distribution to a standard normal variable as n approaches infinity. It explains how to approximate probabilities for a binomial variable S_n using the normal distribution by standardizing with mean μ = np and standard deviation σ = √(np(1-p)). The text highlights that since S_n is discrete while the normal distribution is continuous, one must use inequalities rather than equalities. It provides a convention for estimating P(S_n = i) by integrating over the interval (i - 1/2, i + 1/2). The section concludes with an example setup involving tossing a fair coin 100 times.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Chapter 9. Normal approximations to the binomial",
+      "path": "Probability Theory Lecture Notes.pdf/Chapter 9. Normal approximations to the binomial",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 2,
+      "children": [
+        {
+          "title": "9.1. The normal approximates Binomial",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 9. Normal approximations to the binomial/9.1. The normal approximates Binomial",
+          "level": 2,
+          "summary": "This section explains the normal approximation to the binomial distribution. It presents Theorem 13, which states that for a large number of trials (n), the standardized binomial random variable converges to a standard normal distribution. The text highlights the distinction between discrete binomial variables and continuous normal variables, introducing the concept of continuity correction (e.g., approximating P(S_n = i) as P(i - 0.5 < S_n < i + 0.5)) to handle this difference. An example is provided involving tossing a fair coin 100 times to demonstrate how to calculate probabilities using the normal approximation.",
+          "chunk_count": 2,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "Chapter 10. Some continuous distributions",
+      "path": "Probability Theory Lecture Notes.pdf/Chapter 10. Some continuous distributions",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 9,
+      "children": [
+        {
+          "title": "10.1. Exponential Random Variables",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 10. Some continuous distributions/10.1. Exponential Random Variables",
+          "level": 2,
+          "summary": "This section defines the exponential random variable, providing its probability density function (pdf), cumulative distribution function (cdf), mean, and variance. It explains how to interpret the variable as the time until a specific event occurs and illustrates this with examples involving phone call lengths and earthquake timing. The section also introduces the memoryless property of the exponential distribution, proving it mathematically and applying it to an example about the lifespan of an iPhone. Finally, it presents a problem concerning the probability of accidents for 'BAD drivers' over a period of days.",
+          "chunk_count": 3,
+          "children": []
+        },
+        {
+          "title": "10.2. Other Continuous Distributions",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 10. Some continuous distributions/10.2. Other Continuous Distributions",
+          "level": 2,
+          "summary": "The section titled '10.2. Other Continuous Distributions' introduces three specific probability distributions: the Gamma Distribution, the Weibull Distribution, and the Cauchy Distribution. For each distribution, it provides the mathematical definition of its probability density function (PDF), key parameters, and relevant properties or applications. The Gamma distribution is defined with parameters α and λ, including its relation to the Chi-Squared distribution. The Weibull distribution is noted for its utility in engineering contexts regarding object lifetimes. The Cauchy distribution is highlighted for having an undefined mean, with a derivation provided to demonstrate this property.",
+          "chunk_count": 2,
+          "children": []
+        },
+        {
+          "title": "10.3. The distribution function of a Random variable",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 10. Some continuous distributions/10.3. The distribution function of a Random variable",
+          "level": 2,
+          "summary": "",
+          "chunk_count": 4,
+          "children": [
+            {
+              "title": "Example3",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 10. Some continuous distributions/10.3. The distribution function of a Random variable/Example3",
+              "level": 3,
+              "summary": "The section titled 'Example3' presents a problem where X is uniformly distributed on (0, 1] and Y = -ln(X). The goal is to find the probability density function (pdf) of Y. The solution begins by recalling the pdf of X, then proceeds to derive the cumulative distribution function (cdf) of Y in terms of F_X, followed by taking the derivative to obtain the pdf of Y. The final result shows that Y follows an exponential distribution with parameter 1.",
+              "chunk_count": 2,
+              "children": []
+            },
+            {
+              "title": "PROPOSITION 15. Suppose g : R -> R is a strictly increasing function, then the inverse g^-1 exists and g(x) <= y implies x <= g^-1(y).",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 10. Some continuous distributions/10.3. The distribution function of a Random variable/PROPOSITION 15. Suppose g : R -> R is a strictly increasing function, then the inverse g^-1 exists and g(x) <= y implies x <= g^-1(y).",
+              "level": 3,
+              "summary": "This page from a mathematics textbook (page 73) covers the distribution function of a random variable. It includes an exercise regarding the Gamma distribution and a detailed example problem involving an Actuarial Exam question about the time a manufacturing system is out of operation. The solution demonstrates how to find the density function for a cost variable Y derived from the time T, using cumulative distribution functions and derivatives. The page concludes with Proposition 15 concerning strictly increasing functions and their inverses.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Multivariate distributions",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 10. Some continuous distributions/10.3. The distribution function of a Random variable/Multivariate distributions",
+              "level": 3,
+              "summary": "This page is from Chapter 11 of a textbook, covering 'Multivariate distributions' and specifically section 11.1 on 'Joint distribution functions'. It defines joint probability mass functions (pmf) for discrete variables and cumulative distribution functions (cdf), followed by an example involving rolling two 3-sided dice to calculate the joint pmf of the maximum value and the sum. The page concludes with a brief introduction to continuous random variables and their joint probability density function.",
+              "chunk_count": 1,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Chapter 11. Multivariate distributions",
+      "path": "Probability Theory Lecture Notes.pdf/Chapter 11. Multivariate distributions",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 12,
+      "children": [
+        {
+          "title": "11.1. Joint distribution functions",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 11. Multivariate distributions/11.1. Joint distribution functions",
           "level": 2,
           "summary": "",
           "chunk_count": 3,
           "children": [
             {
-              "title": "4.1. Conditional Probabilities",
-              "path": "Notes.pdf/CHAPTER 4/Conditional Probability and Independence/4.1. Conditional Probabilities",
+              "title": "Example2:",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 11. Multivariate distributions/11.1. Joint distribution functions/Example2:",
               "level": 3,
-              "summary": "The text defines conditional probability P(E|F)=P(E∩F)/P(F) for P(F)>0, and explains that if P(E|F)=P(E) then E and F are independent with P(E∩F)=P(E)P(F). It provides several examples: rolling two dice to find P(sum=8|first die=3)=1/6; drawing marbles from a box (P(second red|first red)=1/2); Landon's textbook problem (P(Union|not Monteith)=2/3); card drawing with Annabelle and Bobby (P(Bobby has one ace|Annabelle has two aces)=C(2,1)C(37,12)/C(39,13)); urn with replacement and additional balls (P(3 white)=5/12*6/13*7/14, P(1 white)=3*5*7*8/(12*13*14)); Phan's course selection (P(A∩C)=1/2*1/7=1/14); and a table of 500 married couples' salaries (P(husband<25k)=248/500, P(wife>25k|husband>25k)=54/252≈0.214, P(wife>25k|husband<25k)=36/248≈0.145). The general multiplication rule for n events is also given.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "4.2. Bayes's Formula",
-              "path": "Notes.pdf/CHAPTER 4/Conditional Probability and Independence/4.2. Bayes's Formula",
-              "level": 3,
-              "summary": "The text explains the Law of Total Probability and Bayes' Theorem with examples. The Law of Total Probability computes P(E) by summing over mutually exclusive events: P(E) = Σ P(E|Fi)P(Fi). Bayes' Theorem finds conditional probabilities: P(Fj|E) = P(E|Fj)P(Fj) / Σ P(E|Fi)P(Fi). Examples include insurance accident risk, HIV test accuracy (98% accurate, 0.5% prevalence yields 19.8% positive predictive value), class grade probabilities, factory defect rates (machines I, II, III with 2%, 1%, 3% defects and 35%, 25%, 40% production), and multiple-choice test knowledge (probability student knew answer given correct response is mp/(1+(m-1)p)).",
-              "chunk_count": 1,
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "title": "CHAPTER 5",
-      "path": "Notes.pdf/CHAPTER 5",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 8,
-      "children": [
-        {
-          "title": "Random Variables",
-          "path": "Notes.pdf/CHAPTER 5/Random Variables",
-          "level": 2,
-          "summary": "",
-          "chunk_count": 7,
-          "children": [
-            {
-              "title": "5.1. Random Variables",
-              "path": "Notes.pdf/CHAPTER 5/Random Variables/5.1. Random Variables",
-              "level": 3,
-              "summary": "The passage introduces the concept of a random variable as a function mapping outcomes of an experiment to real numbers, enabling calculus on outcomes. Examples include coin tosses (X=1 for heads, 0 for tails), die rolls (X equals the outcome), and defining Y based on odd/even outcomes. It explains determining the range of X, such as number of heads in 10 tosses (0-10) or liability amounts. A detailed example with 3 coin tosses shows assigning probabilities to X values (0-3), summing to 1.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "5.2. Discrete Random Variables",
-              "path": "Notes.pdf/CHAPTER 5/Random Variables/5.2. Discrete Random Variables",
-              "level": 3,
-              "summary": "The text defines a discrete random variable as one with at most a countable number of possible values. It introduces the probability mass function (pmf) p(x) = P(X=x), which maps real numbers to [0,1]. Key properties include p(x_i) > 0 for attainable values and sum of all p(x_i) = 1. Examples illustrate a coin toss with a bar graph and a Poisson pmf p(i)=e^{-λ} λ^i / i! for i=0,1,2,... The Poisson example computes P(X=0)=e^{-λ} and P(X>2)=1 - e^{-λ} - λ e^{-λ} - (λ^2 e^{-λ})/2.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "5.3. Expected Value",
-              "path": "Notes.pdf/CHAPTER 5/Random Variables/5.3. Expected Value",
-              "level": 3,
-              "summary": "The passage introduces the concept of expectation (expected value) for discrete random variables, defined as the sum of outcomes weighted by their probabilities. Examples include a coin flip (E[X]=0.5), a fair die (E[X]=3.5), and a geometric distribution for tornado counts (E[X]=1). It then defines the cumulative distribution function (CDF) as F(x)=P(X≤x), which is nondecreasing, right-continuous, and has limits 0 and 1 at ±∞. Properties and examples show how to compute probabilities like P(X<a), P(X=a), and P(a<X≤b) using the CDF, including a step function for a binomial example and a mixed distribution example.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "5.5. Expected Value of Sums of Random Variables",
-              "path": "Notes.pdf/CHAPTER 5/Random Variables/5.5. Expected Value of Sums of Random Variables",
-              "level": 3,
-              "summary": "The text discusses two definitions of expectation for discrete random variables. Definition 1 sums over the range of X (values weighted by their probabilities). Definition 2 sums over the sample space S (outcomes weighted by their probabilities). An example with dice shows both yield the same result. Proposition 4 proves equivalence. Theorem 5 proves linearity: E[X+Y]=EX+EY and E[aX]=aEX, using the sample-space definition.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "5.6. Expectation of a Function of a Random Variable",
-              "path": "Notes.pdf/CHAPTER 5/Random Variables/5.6. Expectation of a Function of a Random Variable",
-              "level": 3,
-              "summary": "The text explains how to compute the expected value of a function of a discrete random variable. It provides an example where X takes values -1, 0, 1 with given probabilities, and Y = X^2. The expectation E[Y] is found to be 0.5, and it is noted that E[X^2] is not equal to (E[X])^2. A theorem states that for a discrete random variable X with probability mass function p(x_i), the expectation of g(X) is the sum of g(x_i)p(x_i). The proof groups values of g(X) and uses the definition of expectation. The text also defines the mean μ = E[X] and the nth moment E[X^n].",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "5.7. Variance",
-              "path": "Notes.pdf/CHAPTER 5/Random Variables/5.7. Variance",
-              "level": 3,
-              "summary": "The passage introduces variance as a measure of spread for a random variable, contrasting it with expectation which does not capture variation. It defines variance as E[(X-μ)^2] and derives the alternate formula Var(X)=E[X^2]-(E[X])^2. An example calculates variance for a fair die roll. It also proves Var(aX+b)=a^2Var(X) and defines standard deviation as the square root of variance.",
-              "chunk_count": 1,
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "title": "CHAPTER 6",
-      "path": "Notes.pdf/CHAPTER 6",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 10,
-      "children": [
-        {
-          "title": "Some Discrete Distributions",
-          "path": "Notes.pdf/CHAPTER 6/Some Discrete Distributions",
-          "level": 2,
-          "summary": "",
-          "chunk_count": 9,
-          "children": [
-            {
-              "title": "6.1. Bernouli and Binomial Random Variables",
-              "path": "Notes.pdf/CHAPTER 6/Some Discrete Distributions/6.1. Bernouli and Binomial Random Variables",
-              "level": 3,
-              "summary": "",
-              "chunk_count": 4,
-              "children": [
-                {
-                  "title": "• Bernoulli Distribution",
-                  "path": "Notes.pdf/CHAPTER 6/Some Discrete Distributions/6.1. Bernouli and Binomial Random Variables/• Bernoulli Distribution",
-                  "level": 4,
-                  "summary": "- Suppose that a trial or experiment takes place, whose outcome is either success or failure. - Let $X = 1$ when the outcome is a success and $X = 0$ if it is a failure. - The pmf of $X$ is given by $$ p (0) = \\mathbb {P} (X = 0) = 1 - p $$ $$ p (1) = \\mathbb {P} (X = 1) = p $$ where $0 \\leq p \\leq 1$ . \\- For this $X$ , $X$ is said to be a Bernoulli random variable with parameter $p$ , \\* We wrtie this as $X \\sim \\text{Bernoulli}(p)$ , \\* Properties: $\\cdot \\mathbb{E}X = p\\cdot 1 + (1 - p)\\cdot 0 = p$ $\\cdot\\mathbb{E}X^{2}=1^{2}\\cdot p+0^{2}(1-p)=p.$ - So $\\operatorname{Var} X = p - p^2 = p(1 - p)$ .",
-                  "chunk_count": 1,
-                  "children": []
-                },
-                {
-                  "title": "• Binomial Distribution:",
-                  "path": "Notes.pdf/CHAPTER 6/Some Discrete Distributions/6.1. Bernouli and Binomial Random Variables/• Binomial Distribution:",
-                  "level": 4,
-                  "summary": "\\- We say $X$ has a binomial distribution with parameters $n$ and $p$ if $$ p _ {X} (k) = \\mathbb {P} \\left(X = k\\right) = \\binom{n}{k} p ^ {k} \\left(1 - p\\right) ^ {n - k}. $$ \\- Interpret: $X =$ the number of successes in $n$ independent trials. \\* Let's take this as given. \\- We say $X \\sim \\text{Binomial}(n, p)$ or $X \\sim \\text{bin}(n, p)$ .",
-                  "chunk_count": 1,
-                  "children": []
-                },
-                {
-                  "title": "• Properties of the Binomial",
-                  "path": "Notes.pdf/CHAPTER 6/Some Discrete Distributions/6.1. Bernouli and Binomial Random Variables/• Properties of the Binomial",
-                  "level": 4,
-                  "summary": "The passage covers the binomial distribution, including checking that probabilities sum to 1 using the binomial theorem, deriving the mean as np by summing independent Bernoulli variables, and computing the variance as np(1-p) via the second moment. It also mentions moments and provides TI-84 calculator functions. Two examples are given: one calculating the probability of fewer than 3 hurricanes in 20 years with p=0.05, and another finding the probability of making at least 2 free throws out of 10 with p=0.6.",
-                  "chunk_count": 1,
-                  "children": []
-                }
-              ]
-            },
-            {
-              "title": "6.2. The Poisson Distribution",
-              "path": "Notes.pdf/CHAPTER 6/Some Discrete Distributions/6.2. The Poisson Distribution",
-              "level": 3,
-              "summary": "The Poisson distribution models the number of events occurring in a fixed interval, given a constant average rate λ. Its probability mass function is P(X=i)=e^{-λ}λ^i/i!. The mean and variance both equal λ. It approximates the binomial distribution when n is large and p is small, with λ=np. Examples include misprints per page, homicides per month, and earthquake occurrences.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "6.3. Other Discrete Distributions",
-              "path": "Notes.pdf/CHAPTER 6/Some Discrete Distributions/6.3. Other Discrete Distributions",
-              "level": 3,
-              "summary": "",
+              "summary": "This section, titled 'Example2', presents a multi-part problem involving a joint probability density function (pdf) for two random variables, X and Y. The example first determines the constant 'c' that normalizes the pdf. It then calculates the probability P(X < Y) using two different methods of integration (Top-Bottom and Right-Left). Subsequently, it sets up the integral for P(X > 1, Y < 1), finds the marginal density f_X(x), and finally calculates the expected value E[X].",
               "chunk_count": 3,
-              "children": [
-                {
-                  "title": "• Uniform Distribution:",
-                  "path": "Notes.pdf/CHAPTER 6/Some Discrete Distributions/6.3. Other Discrete Distributions/• Uniform Distribution:",
-                  "level": 4,
-                  "summary": "\\- We say $X$ is uniform, and write this as $X \\sim \\text{uniform}(n)$ , if $X \\in \\{1, 2, \\ldots, n\\}$ and $$ p _ {X} (i) = \\mathbb {P} (X = i) = \\frac {1}{n} \\text { for } i = 1, 2, \\dots , n. $$ \\- $\\underline{\\text{Exercise:}}$ $\\mathbb{E}X = \\sum_{i=1}^{n} i\\frac{1}{n} = \\frac{1}{n}\\sum_{i=1}^{n} i = \\frac{1}{n}\\frac{n(n-1)}{2} = \\frac{n-1}{2}$ and find $\\operatorname{Var}X$ .",
-                  "chunk_count": 1,
-                  "children": []
-                },
-                {
-                  "title": "- Geometric Distribution:",
-                  "path": "Notes.pdf/CHAPTER 6/Some Discrete Distributions/6.3. Other Discrete Distributions/- Geometric Distribution:",
-                  "level": 4,
-                  "summary": "The passage covers three discrete probability distributions: Geometric, Negative Binomial, and Hypergeometric. For the Geometric distribution (number of trials until first success), it provides the probability mass function, mean (1/p), and variance ((1-p)/p^2), with an example involving drawing balls from an urn. The Negative Binomial distribution (trials until r successes) is introduced with its mean (r/p) and variance (r(1-p)/p^2), noting that Geometric is a special case with r=1. The Hypergeometric distribution (sampling without replacement) is defined with its mean (nm/N) and variance formula. Examples include calculating probabilities and expected values for specific scenarios.",
-                  "chunk_count": 1,
-                  "children": []
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "title": "CHAPTER 7",
-      "path": "Notes.pdf/CHAPTER 7",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 6,
-      "children": [
-        {
-          "title": "Continuous Random Variables",
-          "path": "Notes.pdf/CHAPTER 7/Continuous Random Variables",
-          "level": 2,
-          "summary": "",
-          "chunk_count": 5,
-          "children": [
-            {
-              "title": "7.1. Intro to continuous R.V",
-              "path": "Notes.pdf/CHAPTER 7/Continuous Random Variables/7.1. Intro to continuous R.V",
-              "level": 3,
-              "summary": "This text defines continuous random variables and their probability density functions (PDFs). It states that a random variable X has a continuous distribution if there exists a non-negative function f such that probabilities are integrals of f. The PDF must satisfy f(x) ≥ 0 and integrate to 1 over all real numbers. Key properties include that P(X = a) = 0 and the cumulative distribution function (CDF) F(x) is the integral of the PDF from negative infinity to x. The derivative of the CDF equals the PDF. Examples demonstrate finding a constant c in a PDF and computing probabilities using the CDF.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "7.2. Expectation and Variance",
-              "path": "Notes.pdf/CHAPTER 7/Continuous Random Variables/7.2. Expectation and Variance",
-              "level": 3,
-              "summary": "This passage defines expectation for continuous random variables using integrals, presents properties like linearity, and introduces variance. Examples compute E[X] and Var(X) for given densities, and solve for parameters using moment conditions.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "7.3. The uniform Random Variable",
-              "path": "Notes.pdf/CHAPTER 7/Continuous Random Variables/7.3. The uniform Random Variable",
-              "level": 3,
-              "summary": "\\- A continuous random variable is said to be uniformly distributed on the interval $[a, b]$ if $$ f _ {X} (x) = \\left\\{ \\begin{array}{l l} \\frac {1}{b - a} & a \\leq x \\leq b \\\\ 0 & \\text { otherwise } \\end{array} \\right.. $$ - So $X$ can only attain values in $X \\in [a, b]$ . - We say $X \\sim \\text{Uniform}(a, b)$ . - The cdf is $$ F _ {X} (x) = \\left\\{ \\begin{array}{l l} 0 & x < a \\\\ \\frac {x - a}{b - a} & a \\leq x \\leq b \\\\ 1 & x > b \\end{array} \\right.. $$ \\- Example1: Suppose $X \\sim \\text{Uniform}(a, b)$ Part (a) Find the mean of $X$ . Part (b) Find the variance of $X$ . \\- Part (a): We compute $$ \\begin{array}{l} \\mathbb {E} X = \\int_ {- \\infty} ^ {\\infty} x f _ {X} (x) d x = \\int_ {a} ^ {b} x \\frac {1}{b - a} d x \\\\ = \\frac {1}{b - a} \\left(\\frac {b ^ {2}}{2} - \\frac {a ^ {2}}{2}\\right) = \\frac {a + b}{2}. \\\\ \\end{array} $$ \\* Which makes sense right? It should be the midpoint of the interval $[a, b]$ . \\- Part(b): We compute first the second moment $$ \\begin{array}{l} \\mathbb {E} X ^ {2} = \\int_ {a} ^ {b} x ^ {2} \\frac {1}{b - a} d x...frac {1}{b - a} (b - a) (a ^ {2} + a b + b ^ {2}) \\\\ = \\frac {a ^ {2} + a b + b ^ {2}}{3}. \\\\ \\end{array} $$ Thus after some algebra $$ \\operatorname{Var} X = \\frac {a ^ {2} + a b + b ^ {2}}{3} - \\left(\\frac {a + b}{2}\\right) ^ {2} = \\frac {(b - a) ^ {2}}{1 2}. $$",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "7.4. More practice",
-              "path": "Notes.pdf/CHAPTER 7/Continuous Random Variables/7.4. More practice",
-              "level": 3,
-              "summary": "\\- Suppose we are given the pd.f. $$ f (x) = \\left\\{ \\begin{array}{l l} 9 e ^ {- 9 x} & x \\geq 0 \\\\ 0 & x < 0 \\end{array} \\right. $$ \\- Part (a): Set up integral to find $F_{X}(x)$ : \\* We have for $x > 0$ , that $$ F _ {X} (x) = \\int_ {0} ^ {x} 9 e ^ {- 9 y} d y = 1 - e ^ {- 9 x}, $$ so that $$ F _ {X} (x) = \\left\\{ \\begin{array}{l l} 1 - e ^ {- 9 x} & x \\geq 0 \\\\ 0 & x < 0 \\end{array} \\right. / $$ \\- Part (b): Set up integral to find $\\mathbb{P}(1 < X < 5)$ $$ * \\int_ {1} ^ {5} 9 e ^ {- 9 x} d x $$ \\- Part (c): Set up integral to find $\\mathbb{P}(X > 3)$ $$ * \\int_ {3} ^ {\\infty} 9 e ^ {- 9 x} d x. $$ \\- Part (s): Set up integral to find $\\mathbb{P}(X < 2)$ $$ * \\int_ {0} ^ {2} 9 e ^ {- 9 x} d x. $$",
-              "chunk_count": 1,
               "children": []
             }
           ]
-        }
-      ]
-    },
-    {
-      "title": "CHAPTER 8",
-      "path": "Notes.pdf/CHAPTER 8",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
+        },
         {
-          "title": "Normal Distributions",
-          "path": "Notes.pdf/CHAPTER 8/Normal Distributions",
+          "title": "11.2. Independent Random Variables",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 11. Multivariate distributions/11.2. Independent Random Variables",
           "level": 2,
-          "summary": "The text covers the normal (Gaussian) distribution, its density function, properties, and the standard normal random variable Z. It explains that any normal variable X with mean μ and variance σ² can be standardized as Z = (X - μ)/σ, which follows N(0,1). Key results include the cumulative distribution function Φ(x), symmetry property Φ(-x)=1-Φ(x), and the 68-95-99.7 rule stating that about 68%, 95%, and 99.7% of data lies within 1, 2, and 3 standard deviations of the mean, respectively. Examples demonstrate calculating probabilities using Z-scores and finding standard deviation from a given probability.",
+          "summary": "This section defines independent random variables for both discrete and continuous cases, stating that independence holds when the joint probability mass function (pmf) or probability density function (pdf) factors into the product of the marginal functions. It presents Theorem 16, which formalizes this condition, and provides four examples demonstrating how to check for independence by calculating marginals and verifying the factorization, including a case where the domain is not rectangular.",
+          "chunk_count": 2,
+          "children": []
+        },
+        {
+          "title": "11.3. Sums of independent Random Variables(*)",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 11. Multivariate distributions/11.3. Sums of independent Random Variables(*)",
+          "level": 2,
+          "summary": "The section titled 'Sums of independent Random Variables' derives the cumulative distribution function (CDF) and probability density function (PDF) for the sum of two independent random variables. It presents key facts regarding the sums of independent normal random variables, including properties of linear combinations, and provides a detailed example calculating probabilities related to the average grades of two students, Tyler and Habib. The section also covers the relationship between standard normal variables and the Chi-squared distribution, as well as the property that the sum of independent Poisson random variables is itself a Poisson random variable.",
+          "chunk_count": 2,
+          "children": []
+        },
+        {
+          "title": "11.4. Conditional Distributions- Discrete(*)",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 11. Multivariate distributions/11.4. Conditional Distributions- Discrete(*)",
+          "level": 2,
+          "summary": "This page presents Section 11.4 on Conditional Distributions for Discrete Random Variables. It defines the conditional probability mass function (pmf) and cumulative distribution function (cdf), states a fact regarding independence, and provides 'Example1' which includes a table of joint pmf values for variables X and Y. The example demonstrates how to compute specific conditional probabilities and concludes by determining that the variables are not independent.",
           "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "11.5. Conditional Distributions- Continuous(*)",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 11. Multivariate distributions/11.5. Conditional Distributions- Continuous(*)",
+          "level": 2,
+          "summary": "This page presents Section 11.5 on Conditional Distributions for continuous random variables. It defines the conditional probability density function (pdf) and cumulative distribution function (cdf), states a fact regarding independent variables, and provides a worked example calculating the conditional pdf of X given Y=y based on a specific joint pdf.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "11.6. Joint PDF of functions",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 11. Multivariate distributions/11.6. Joint PDF of functions",
+          "level": 2,
+          "summary": "This section, titled 'Joint PDF of functions', outlines the methodology for determining the joint probability density function (PDF) of new random variables derived from existing ones. It details a three-step process: calculating the Jacobian determinant, solving for the original variables in terms of the new ones, and applying the transformation formula to find the new joint PDF. The section includes three illustrative examples covering linear transformations, transformations involving independent normal distributions, and non-linear transformations.",
+          "chunk_count": 3,
           "children": []
         }
       ]
     },
     {
-      "title": "CHAPTER 9",
-      "path": "Notes.pdf/CHAPTER 9",
+      "title": "Chapter 12. Expectations",
+      "path": "Probability Theory Lecture Notes.pdf/Chapter 12. Expectations",
       "level": 1,
       "summary": "",
-      "chunk_count": 2,
+      "chunk_count": 7,
       "children": [
         {
-          "title": "Normal approximations to the binomial",
-          "path": "Notes.pdf/CHAPTER 9/Normal approximations to the binomial",
+          "title": "12.1. Expectation of Sums of R.V.",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 12. Expectations/12.1. Expectation of Sums of R.V.",
           "level": 2,
-          "summary": "This passage explains the normal approximation to the binomial distribution. It states Theorem 13, which says that as n grows large, the standardized binomial variable (Sn - np)/sqrt(np(1-p)) converges in distribution to a standard normal Z. It notes that Sn is discrete while the normal is continuous, so a continuity correction is needed: P(Sn = i) is approximated by P(i-0.5 < Sn < i+0.5). An example with 100 fair coin tosses is given: (a) P(more than 60 heads) is approximated using 60.5, yielding about 0.0179; (b) P(exactly 60 heads) is approximated by P(59.5 ≤ Sn ≤ 60.5), giving Φ(2.1)-Φ(1.9).",
-          "chunk_count": 1,
+          "summary": "This section, titled 'Expectation of Sums of R.V.', introduces theorems and examples for calculating the expectation of functions of random variables. It begins with Theorem 17, defining the expectation for joint probability mass functions (pmf) and probability density functions (pdf). Three examples follow: Example 1 calculates E[XY] using a discrete joint pmf table; Example 2 sets up a double integral for independent exponential random variables to find E[X²Y]; and Example 3 computes E[XY] and Var(Y) given a continuous joint pdf. The section then presents Theorem 18 on the linearity of expectation (E[X+Y] = E[X] + E[Y]) and provides its proof. Example 4 demonstrates that the expected value of the sample mean equals the population mean (μ). Finally, Theorem 19 states that for independent random variables X and Y, E[XY] = E[X]E[Y], followed by its proof and a generalization in Theorem 20.",
+          "chunk_count": 3,
+          "children": []
+        },
+        {
+          "title": "12.2. Covariance and Correlations.",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 12. Expectations/12.2. Covariance and Correlations.",
+          "level": 2,
+          "summary": "This section defines covariance and correlation for random variables. It provides the mathematical definitions, explains that covariance measures linear relationships (positive or negative), and lists its properties. The section then introduces the correlation coefficient as a standardized measure of linearity, detailing its range from -1 to 1 and what different values signify. A worked example demonstrates how to calculate the covariance, variance, and correlation coefficient for two random variables with a given joint probability density function.",
+          "chunk_count": 4,
           "children": []
         }
       ]
     },
     {
-      "title": "CHAPTER 10",
-      "path": "Notes.pdf/CHAPTER 10",
+      "title": "Chapter 13. Moment generating functions",
+      "path": "Probability Theory Lecture Notes.pdf/Chapter 13. Moment generating functions",
       "level": 1,
       "summary": "",
-      "chunk_count": 8,
+      "chunk_count": 4,
       "children": [
         {
-          "title": "Some continuous distributions",
-          "path": "Notes.pdf/CHAPTER 10/Some continuous distributions",
+          "title": "13.1. Moment Generating Functions",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 13. Moment generating functions/13.1. Moment Generating Functions",
           "level": 2,
           "summary": "",
-          "chunk_count": 7,
+          "chunk_count": 4,
           "children": [
             {
-              "title": "10.1. Exponential Random Variables",
-              "path": "Notes.pdf/CHAPTER 10/Some continuous distributions/10.1. Exponential Random Variables",
+              "title": "Example3",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 13. Moment generating functions/13.1. Moment Generating Functions/Example3",
               "level": 3,
-              "summary": "The exponential distribution is a continuous probability distribution with parameter λ, defined by its probability density function f(x)=λe^{-λx} for x≥0. Its cumulative distribution function is F(a)=1-e^{-λa}, mean is 1/λ, and variance is 1/λ². It models the time until a specific event occurs, such as phone call length, earthquake occurrence, or device lifetime. The distribution is memoryless, meaning P(X>t+s|X>t)=P(X>s). Examples include calculating probabilities for phone calls with average length 10 minutes, iPhone lifetime with mean 4 years, and accident occurrence for bad drivers where 30% have accidents in the first 50 days.",
+              "summary": "The section titled 'Example3' presents a problem involving two independent binomial random variables, X and Y. It demonstrates how to find the distribution of their sum (X + Y) by multiplying their respective moment generating functions (m.g.f.) and identifying the resulting distribution as another binomial distribution.",
               "chunk_count": 1,
               "children": []
             },
             {
-              "title": "10.2. Other Continuous Distributions",
-              "path": "Notes.pdf/CHAPTER 10/Some continuous distributions/10.2. Other Continuous Distributions",
+              "title": "Example4",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 13. Moment generating functions/13.1. Moment Generating Functions/Example4",
               "level": 3,
-              "summary": "",
-              "chunk_count": 4,
-              "children": [
-                {
-                  "title": "• Gamma Distribution:",
-                  "path": "Notes.pdf/CHAPTER 10/Some continuous distributions/10.2. Other Continuous Distributions/• Gamma Distribution:",
-                  "level": 4,
-                  "summary": "\\- We say $X \\sim Gamma(\\alpha, \\lambda)$ has density $$ f (x) = \\left\\{ \\begin{array}{l l} \\frac {\\lambda e ^ {- \\lambda x} (\\lambda x) ^ {\\alpha - 1}}{\\Gamma (\\alpha)} & x \\geq 0 \\\\ 0 & x < 0 \\end{array} \\right. $$ where $\\Gamma (\\alpha)$ is the Gamma function $$ \\Gamma (\\alpha) = \\int_ {0} ^ {\\infty} e ^ {- y} y ^ {\\alpha - 1} d y. $$ - If $Y \\sim Gamma\\left(\\frac{n}{2}, \\frac{1}{2}\\right) = \\chi_n^2$ , this is called the Chi-Squared distribution. - The chi-square distribution is used a lot in statistics. \\* Its mean is $\\mathbb{E}X = \\frac{\\alpha}{\\lambda}$ and $\\operatorname{Var}X = \\frac{\\alpha}{\\lambda^2}$ .",
-                  "chunk_count": 1,
-                  "children": []
-                },
-                {
-                  "title": "• Weibull Distribution:",
-                  "path": "Notes.pdf/CHAPTER 10/Some continuous distributions/10.2. Other Continuous Distributions/• Weibull Distribution:",
-                  "level": 4,
-                  "summary": "- Usefull in engineering: Look in the book for its pdf. - $X =$ . If there is an object consisting many parts, and suppose that the object experiences death once any of its parts fails. $X =$ lifetime of this object.",
-                  "chunk_count": 1,
-                  "children": []
-                },
-                {
-                  "title": "• Cauchy Distribution:",
-                  "path": "Notes.pdf/CHAPTER 10/Some continuous distributions/10.2. Other Continuous Distributions/• Cauchy Distribution:",
-                  "level": 4,
-                  "summary": "\\- We say $X$ is cauchy with parameter $-\\infty < \\theta < \\infty$ if $$ f (x) = \\frac {1}{\\pi} \\frac {1}{1 + (x - \\theta) ^ {2}}. $$ - Importance: It does not have finite mean: That is $\\mathbb{E}X = \\infty$ . - To see this, We compute for $\\theta = 0$ $$ \\mathbb {E} X = \\frac {1}{\\pi} \\int_ {- \\infty} ^ {\\infty} \\frac {x}{1 + x ^ {2}} d x $$ $$ \\sim \\frac {1}{\\pi} \\int_ {- \\infty} ^ {\\infty} \\frac {1}{x} d x $$ $$ \\sim \\lim _ {x \\to \\infty} \\ln | x | - \\ln \\lim _ {x \\to - \\infty} | x | $$ which is not defined.",
-                  "chunk_count": 1,
-                  "children": []
-                }
-              ]
+              "summary": "The section presents Example 4, which involves a discrete random variable X defined by its moment generating function (m.g.f.). The example asks for the probability mass function (p.m.f.) of X and its expected value E[X]. The solution derives the p.m.f. coefficients directly from the m.g.f. terms and calculates the expectation by evaluating the first derivative of the m.g.f. at t=0.",
+              "chunk_count": 1,
+              "children": []
             },
             {
-              "title": "10.3. The distribution function of a Random variable",
-              "path": "Notes.pdf/CHAPTER 10/Some continuous distributions/10.3. The distribution function of a Random variable",
+              "title": "Example5",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 13. Moment generating functions/13.1. Moment Generating Functions/Example5",
               "level": 3,
-              "summary": "The passage explains how to derive the probability density function (PDF) of a transformed continuous random variable Y = g(X) using the cumulative distribution function (CDF) method. It begins with the fundamental relationship F'(x)=f(x) and demonstrates through multiple examples: Y=2X, Y=e^{3X} with uniform X, Y=-ln X yielding exponential(1), Y=tan X yielding Cauchy(0), and an actuarial example with Y=T^2. The key steps are: write the CDF of Y in terms of X's CDF, then differentiate using the chain rule to obtain the PDF. The method relies on g being strictly increasing so the inverse exists.",
+              "summary": "The section titled 'Example5' presents a problem where a random variable X has the moment generating function m_X(t) = (1 - 2t)^(-1/2). The solution demonstrates how to find the first and second moments of X by calculating the first derivative m'_X(t) and the second derivative m''_X(t), and then evaluating them at t=0. The calculated values are E[X] = 1 and E[X^2] = 3.",
+              "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Limit Laws",
+              "path": "Probability Theory Lecture Notes.pdf/Chapter 13. Moment generating functions/13.1. Moment Generating Functions/Limit Laws",
+              "level": 3,
+              "summary": "The section titled 'Limit Laws' introduces the Central Limit Theorem (CLT), describing it as a key theorem in probability that explains why natural populations often exhibit bell-shaped curves. It defines i.i.d. (independent and identically distributed) random variables and presents Theorem 24, which states that the distribution of the standardized sum of i.i.d. variables with mean μ and variance σ² converges to the standard normal distribution Z as n approaches infinity. The text also notes the CLT's utility in approximating probabilities for sums of independent variables and mentions the use of ±0.5 continuity correction for discrete distributions. An example is provided involving rolling 10 fair dice to find the approximate probability that the sum is between 30 and 40.",
               "chunk_count": 1,
               "children": []
             }
@@ -495,93 +583,18 @@
       ]
     },
     {
-      "title": "CHAPTER 11",
-      "path": "Notes.pdf/CHAPTER 11",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 6,
-      "children": [
-        {
-          "title": "Multivariate distributions",
-          "path": "Notes.pdf/CHAPTER 11/Multivariate distributions",
-          "level": 2,
-          "summary": "",
-          "chunk_count": 5,
-          "children": [
-            {
-              "title": "11.1. Joint distribution functions",
-              "path": "Notes.pdf/CHAPTER 11/Multivariate distributions/11.1. Joint distribution functions",
-              "level": 3,
-              "summary": "The passage discusses joint probability distributions for discrete and continuous random variables. For discrete variables, it defines the joint probability mass function (pmf) p(x,y) = P(X=x, Y=y) with properties 0≤p≤1 and sum=1, and the multivariate cdf F(x,y)=P(X≤x,Y≤y). An example with two 3-sided dice finds the joint pmf of X (largest value) and Y (sum), and computes a conditional probability. For continuous variables, it defines the joint probability density function (pdf) f(x,y) with properties f≥0 and double integral=1, and the cdf as the double integral of f. Marginal densities are obtained by integrating out the other variable. A detailed example with joint pdf f(x,y)=2e^{-x}e^{-2y} for x,y>0 finds the normalizing constant c=2, computes P(X<Y)=1/3 using two integration methods, sets up P(X>1,Y<1), finds marginal f_X(x)=e^{-x}, and computes E[X]=1.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "11.2. Independent Random Variables",
-              "path": "Notes.pdf/CHAPTER 11/Multivariate distributions/11.2. Independent Random Variables",
-              "level": 3,
-              "summary": "This text defines independence for discrete and continuous random variables (RVs) via joint pmf/pdf factorization and joint CDF. It provides examples checking independence by verifying if joint pdf equals product of marginals, highlighting cases where domain restrictions (non-rectangular) prevent factorization. It then covers sums of independent RVs, deriving the convolution formula for pdf/cdf. Key results include: sum of independent normals is normal with summed means and variances; sum of independent Poissons is Poisson with summed rates; sum of squared standard normals follows chi-squared distribution. Examples compute probabilities for average grades and difference of grades using normal distribution properties.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "11.4. Conditional Distributions- Discrete(★)",
-              "path": "Notes.pdf/CHAPTER 11/Multivariate distributions/11.4. Conditional Distributions- Discrete(★)",
-              "level": 3,
-              "summary": "The text defines conditional probability mass functions (PMF) for discrete random variables and conditional probability density functions (PDF) for continuous random variables. It provides formulas: p_{X|Y}(x|y) = p(x,y)/p_Y(y) for discrete, and f_{X|Y}(x|y) = f(x,y)/f_Y(y) for continuous, defined only when the marginal is positive. It notes that if X and Y are independent, the conditional distribution equals the marginal. Examples include computing conditional PMF from a joint table and checking independence, and computing conditional PDF from a given joint PDF.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "11.6. Joint PDF of functions",
-              "path": "Notes.pdf/CHAPTER 11/Multivariate distributions/11.6. Joint PDF of functions",
-              "level": 3,
-              "summary": "This passage explains how to find the joint probability density function (pdf) of new random variables that are functions of two original random variables. It outlines a three-step method: first, compute the Jacobian determinant of the transformation; second, solve for the original variables in terms of the new ones; third, apply the formula using the original joint pdf and the absolute inverse Jacobian. Three examples are provided: one with a uniform-like joint pdf and linear transformations, one with independent normal variables and linear combinations, and one with a polynomial joint pdf and a nonlinear transformation. The method is general for invertible transformations.",
-              "chunk_count": 1,
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "title": "CHAPTER 12",
-      "path": "Notes.pdf/CHAPTER 12",
-      "level": 1,
-      "summary": "The text covers expectation properties for sums of random variables, including formulas for discrete and continuous cases. It defines covariance and correlation, explaining their roles in measuring linear relationships between variables. Examples illustrate computing expectations, variances, covariance, and correlation for given joint distributions.",
-      "chunk_count": 1,
-      "children": []
-    },
-    {
-      "title": "CHAPTER 13",
-      "path": "Notes.pdf/CHAPTER 13",
+      "title": "Chapter 14. Limit Laws",
+      "path": "Probability Theory Lecture Notes.pdf/Chapter 14. Limit Laws",
       "level": 1,
       "summary": "",
       "chunk_count": 2,
       "children": [
         {
-          "title": "Moment generating functions",
-          "path": "Notes.pdf/CHAPTER 13/Moment generating functions",
+          "title": "14.1. The Central Limit Theorem",
+          "path": "Probability Theory Lecture Notes.pdf/Chapter 14. Limit Laws/14.1. The Central Limit Theorem",
           "level": 2,
-          "summary": "This text defines moment generating functions (m.g.f.) for random variables, showing how to compute them for discrete and continuous cases. It explains that moments can be found by differentiating the m.g.f. and evaluating at zero. Examples are given for Bernoulli, Binomial, Poisson, Exponential, and Normal distributions. Properties include that the m.g.f. of a sum of independent variables is the product of their m.g.f.s, and that the m.g.f. uniquely determines the distribution. Several examples demonstrate using m.g.f.s to find distributions and moments.",
-          "chunk_count": 1,
-          "children": []
-        }
-      ]
-    },
-    {
-      "title": "CHAPTER 14",
-      "path": "Notes.pdf/CHAPTER 14",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 2,
-      "children": [
-        {
-          "title": "Limit Laws",
-          "path": "Notes.pdf/CHAPTER 14/Limit Laws",
-          "level": 2,
-          "summary": "The Central Limit Theorem (CLT) states that for i.i.d. random variables with mean μ and variance σ², the distribution of the standardized sum tends to the standard normal as n→∞. It explains why many natural populations exhibit bell-shaped curves. Two examples illustrate its application: rolling 10 fair dice to approximate the probability the sum is between 30 and 40 (using continuity correction, result ≈0.692), and grading 25 exams with mean 20 min and SD 4 min, finding P(time ≤450 min)≈0.006.",
-          "chunk_count": 1,
+          "summary": "This section introduces the Central Limit Theorem (CLT), a fundamental concept in probability that explains why many natural populations exhibit bell-shaped (normal) curves. It formally states that for independent and identically distributed (i.i.d.) random variables with mean μ and variance σ², the distribution of their standardized sum converges to the standard normal distribution as the sample size n approaches infinity. The text highlights the CLT's utility in approximating probabilities involving sums of i.i.d. variables and notes the use of the ±0.5 continuity correction when dealing with discrete distributions. Two examples are provided: one calculating the approximate probability of the sum of 10 fair dice rolls falling between 30 and 40, and another estimating the probability that an instructor can grade at least 25 exams within 450 minutes given the average grading time.",
+          "chunk_count": 2,
           "children": []
         }
       ]
@@ -590,166 +603,78 @@
   "resources": {
     "images": [
       {
-        "path": "images/image-1-_- Events_.jpg",
-        "summary": "image-1 \\- Events: An event $A$ is a subset of $S$ . In this case we use the notation $A \\subset S$ , to mean $A$ is a subset of $S$ .0"
+        "path": "images/image_page_11_figure_1.png",
+        "summary": "[images/image_page_11_figure_1.png]"
       },
       {
-        "path": "images/image-2-- $A _cup .jpg",
-        "summary": "image-2 - $A \\cup B$ : points in $S$ such that is in $A$ OR $B$ OR BOTH.0"
+        "path": "images/image_page_34_figure_1.png",
+        "summary": "The graph is given by [images/image_page_34_figure_1.png]"
       },
       {
-        "path": "images/image-3-- $A _cap .jpg",
-        "summary": "image-3 - $A \\cap B$ , points in $A$ AND $B$ . (you may also see $AB$ )0"
+        "path": "images/image_page_34_figure_1.png",
+        "summary": "The graph is given by [images/image_page_34_figure_1.png]"
       },
       {
-        "path": "images/image-4-- $A^c$ is.jpg",
-        "summary": "image-4 - $A^c$ is the compliment of $A$ , the points NOT in $A$ . (you may also see $A'$ )0"
+        "path": "images/image_page_60_figure_1.png",
+        "summary": "[images/image_page_60_figure_1.png]"
       },
       {
-        "path": "images/image-5-- Can exte.jpg",
-        "summary": "image-5 - Can extend to $A_1, \\ldots, A_n$ events. $\\bigcup_{i=1}^{n} A_i$ and $\\bigcap_{i=1}^{n} A_i$ . • Example1: Roll two dice.0"
+        "path": "images/image_page_62_figure_1.png",
+        "summary": "[images/image_page_62_figure_1.png]"
       },
       {
-        "path": "images/image-6-• Example1.jpg",
-        "summary": "image-6 • Example1: Roll two dice.0"
+        "path": "images/image_page_63_figure_1.png",
+        "summary": "[images/image_page_63_figure_1.png]"
       },
       {
-        "path": "images/image-7-• Example1.jpg",
-        "summary": "image-7 • Example1: Roll two dice.0"
+        "path": "images/image_page_75_figure_1.png",
+        "summary": "[images/image_page_75_figure_1.png]"
       },
       {
-        "path": "images/image-8-• Example1.jpg",
-        "summary": "image-8 • Example1: Roll two dice.0"
+        "path": "images/image_page_76_figure_1.png",
+        "summary": "[images/image_page_76_figure_1.png]"
       },
       {
-        "path": "images/image-9-• Example1.jpg",
-        "summary": "image-9 • Example1: Roll two dice.0"
+        "path": "images/image_page_77_figure_1.png",
+        "summary": "[images/image_page_77_figure_1.png]"
       },
       {
-        "path": "images/image-10-PROPOSITIO.jpg",
-        "summary": "image-10 PROPOSITION 2. If $E$ and $F$ are independent, then $E$ and $F^c$ are independent. \\- Remark: Independence and mutually exclusive, are two different things!0"
+        "path": "images/image_page_79_figure_1.png",
+        "summary": "[images/image_page_79_figure_1.png]"
       },
       {
-        "path": "images/image-11-Step Function Graph.jpg",
-        "summary": "image-11 - Chart Type: Step function plotted on a Cartesian coordinate system - X-axis Range: -1 to 4 (major grid lines at intervals of 0.5) - Y-axis Range: -1 to 1 (major grid lines at intervals of 0.5) - Data Segments: - y = 0 for x < 0 - y = 0.2 for 0 ≤ x < 1 - y = 0.5 for 1 ≤ x < 2 - y = 0.8 for 2 ≤ x < 3 - y = 1 for x ≥ 3"
+        "path": "images/image_page_90_figure_1.png",
+        "summary": "[images/image_page_90_figure_1.png]"
       },
       {
-        "path": "images/image-12-PROOF. We .jpg",
-        "summary": "image-12 PROOF. We start with the first definition. Let $X = x_{1}, x_{2}, \\ldots$ \\- Using this definition, we can prove linearity of the expectation.0"
-      },
-      {
-        "path": "images/image-13-Thus plugg.jpg",
-        "summary": "image-13 Thus plugging this back into $(\\star)$ we have that - Remark: $\\mathbb{E}X^{2} = \\sum x_{i}^{2}p(x_{i})$ .0"
-      },
-      {
-        "path": "images/image-14-DEFINITION.jpg",
-        "summary": "image-14 DEFINITION. We define # CHAPTER 60"
-      },
-      {
-        "path": "images/image-15-$$ _- Summ.jpg",
-        "summary": "image-15 $$ \\- Summary of Theorem: This theorem says that suppose $n$ is large and $p$ is small, Thus0"
-      },
-      {
-        "path": "images/image-16-$$ PROPOSI.jpg",
-        "summary": "image-16 $$ PROPOSITION. If $X$ is a continuous $R.V.$ with pdf $f(x)$ , then for any real valued function $g$ ,0"
-      },
-      {
-        "path": "images/image-17-Standard Normal Distribution Curve.jpg",
-        "summary": "image-17 - Chart Type: Bell curve representing a standard normal distribution (Gaussian distribution) - X-axis Range: -3 to 3 - Center Point: 0 (representing the mean and median) - Key Features: Symmetrical shape with peak at x=0, tails extending towards negative and positive infinity"
-      },
-      {
-        "path": "images/image-10-PROPOSITIO.jpg_2",
-        "summary": "image-10 PROPOSITION 2. If $E$ and $F$ are independent, then $E$ and $F^c$ are independent. \\- Remark: Independence and mutually exclusive, are two different things!0"
-      },
-      {
-        "path": "images/image-18-Standard Normal Distribution Graph.jpg",
-        "summary": "image-18 - Chart Title: φ(Z) (PDF function of standard normal distribution) - X-Axis Label: Z (Standard Score / Z-score) - Y-Axis Label: φ(Z) (Probability Density Function) - Key Features: - Bell-shaped curve centered at zero. - Blue shaded area under the curve represents the Cumulative Distribution Function (CDF). - An arrow labeled \"CDF\" points to the shaded region, indicating the probability accumulated up to a specific Z value. - A vertical line marks a specific point on the X-axis labeled \"Z\", defining the upper bound of the shaded CDF area."
-      },
-      {
-        "path": "images/image-19-Normal Distribution Curve.jpg",
-        "summary": "image-19 - Chart Title: Normal Distribution (Bell Curve) - Axis Labels: Horizontal axis represents standard deviations from the mean ($\\mu$), marked as $-3\\sigma, -2\\sigma, -1\\sigma, \\mu, 1\\sigma, 2\\sigma, 3\\sigma$. Vertical axis is unlabeled but represents probability density. - Key Data Points & Percentages: - Central Region ($\\mu \\pm 1\\sigma$): Two sections of 34.1% each (Total 68.2%) - Second Region ($\\pm 1\\sigma$ to $\\pm 2\\sigma$): Two sections of 13.6% each (Total 27.2%) - Third Region ($\\pm 2\\sigma$ to $\\pm 3\\sigma$): Two sections of 2.1% each (Total 4.2%) - Outer Regions (Beyond $\\pm 3\\sigma$): Two sections of 0.1% each (Total 0.2%)"
-      },
-      {
-        "path": "images/image-20-PROOF. To .jpg",
-        "summary": "image-20 PROOF. To show this we have • Example3:(Exam P Q29)0"
-      },
-      {
-        "path": "images/image-21-Graph of Inequality.jpg",
-        "summary": "image-21 - Chart Type: Cartesian coordinate system showing a shaded region - X-axis range: -1 to 2.5 (major grid lines at intervals of 0.5) - Y-axis range: -0.5 to 1.5 (major grid lines at intervals of 0.5) - Shaded Region: The area where x ≥ 0 and y ≥ 0 (First Quadrant) - Boundary Line: Vertical line along the Y-axis (x = 0) - Color: Light orange shading fills the positive quadrant"
-      },
-      {
-        "path": "images/image-22-Linear Inequality Region.jpg",
-        "summary": "image-22 - Chart Type: 2D Cartesian coordinate plot with a shaded region - X-axis range: -0.4 to 1.2 (major grid lines at intervals of 0.2) - Y-axis range: -0.2 to 1.0 (major grid lines at intervals of 0.2) - Shaded Region: A triangular area filled in orange - Boundary Lines: - Vertical line at x = 0 (y-axis) - Horizontal line at y = 1 - Diagonal line connecting origin (0,0) to point (1,1), representing the equation y = x - Region Definition: The shaded area represents the inequality where x ≥ 0, y ≤ 1, and y ≥ x"
-      },
-      {
-        "path": "images/image-23-Graph of Inequality.jpg",
-        "summary": "image-23 - Chart Type: Cartesian coordinate system showing a shaded region representing an inequality. - X-axis: Labeled with integers from -2 to 6. - Y-axis: Labeled with integers from -1 to 2. - Shaded Region: An orange rectangular area covering the first quadrant. - Boundaries: The region is bounded on the left by the vertical line x = 1 and below by the horizontal line y = 0 (the x-axis). - Mathematical Representation: The graph visually represents the inequality $x \\ge 1$ for $y \\ge 0$."
-      },
-      {
-        "path": "images/image-24-$$ _- Exam.jpg",
-        "summary": "image-24 $$ \\- Example1: Let $X, Y$ be r.v. with joint pdf0"
-      },
-      {
-        "path": "images/image-25-Linear Function Graph.jpg",
-        "summary": "image-25 Chart Title: None visible Axes: X-axis ranges from -0.2 to 1.2; Y-axis ranges from -0.2 to 1.0 Data Representation: A linear function plotted as a straight line starting at the origin (0,0) and ending at approximately (1,1). Shaded Region: The area under the curve (between the line and the x-axis) is shaded in orange. Grid: Background grid lines are present for both axes with increments of 0.2."
-      },
-      {
-        "path": "images/image-26-(b) If $X .jpg",
-        "summary": "image-26 (b) If $X \\leq Y$ then $\\mathbb{E}X \\leq \\mathbb{E}Y$ . \\- Example4: Let $X_{1}, \\ldots, X_{n}$ be independent and identically distributed random (i.i.d.) random variables. Suppose $\\mathbb{E}X_{i} = \\mu$ . We call the quantity0"
-      },
-      {
-        "path": "images/image-27-Scatter Plot with Trend Line.jpg",
-        "summary": "image-27 Chart Type: Scatter plot with linear regression line (red) and data points (blue). X-Axis Range: -20 to 60. Y-Axis Range: 5 to 15. Key Data Points: - X-axis ticks at intervals of 10 (-20, -10, 0, 10, 20, 30, 40, 50, 60). - Y-axis ticks at intervals of 5 (5, 10, 15). Trend Analysis: The blue dots show a positive correlation, indicating that as the x-value increases, the y-value generally increases. The red line represents the best-fit trend through these points."
+        "path": "images/image_page_90_figure_1.png",
+        "summary": "[images/image_page_90_figure_1.png]"
       }
     ],
     "tables": [
       {
-        "path": "tables/table-0 Income by Gender.html",
-        "summary": "table-1 A table shows counts of couples based on wife's and husband's income levels, with 212 couples both under $25k and 54 both over $25k."
+        "path": "tables/table_page_25_1.html",
+        "summary": "tables/table_page_25_1.html"
       },
       {
-        "path": "tables/table-1 Data Table.html",
-        "summary": "table-2 The table shows six data points with x values from -0.5 to 3.5 and corresponding y values from 0.0 to 1.0, indicating a non-linear relationship."
+        "path": "tables/table_page_74_1.html",
+        "summary": "tables/table_page_74_1.html"
       },
       {
-        "path": "tables/table-2 Symmetric Data.html",
-        "summary": "table-3 The table shows x values from -3.0 to 3.0 with corresponding y values peaking at 1.000 when x=0.0, decreasing symmetrically to 0.000 at the extremes."
+        "path": "tables/table_page_74_2.html",
+        "summary": "tables/table_page_74_2.html"
       },
       {
-        "path": "tables/table-3 Z and CDF Table.html",
-        "summary": "table-4 The table shows Z values and their corresponding CDF, with entries for 0 and z mapping to 0 and Peak respectively."
+        "path": "tables/table_page_82_1.html",
+        "summary": "tables/table_page_82_1.html"
       },
       {
-        "path": "tables/table-4 Normal Distribution.html",
-        "summary": "table-5 The table shows the percentage of data within each standard deviation from the mean in a normal distribution, with 34.1% at the mean and decreasing percentages outward."
+        "path": "tables/table_page_82_1.html",
+        "summary": "tables/table_page_82_1.html"
       },
       {
-        "path": "tables/table-5 Table of Pairs.html",
-        "summary": "table-6 The table shows pairs (X,Y) for outcomes 1-3, with values like (1,2), (2,3), (3,4), (2,4), (3,5), and (3,6)."
-      },
-      {
-        "path": "tables/table-6 Joint Probability Table.html",
-        "summary": "table-7 A joint probability table for X and Y with values 1-3 and 2-6, showing probabilities like P(X=1,Y=2)=1/9, P(X=2,Y=3)=2/9, etc."
-      },
-      {
-        "path": "tables/table-7 Linear Data Table.html",
-        "summary": "table-8 The table shows six pairs of x and y values from 0.0 to 1.0, where y equals x, indicating a perfect linear relationship."
-      },
-      {
-        "path": "tables/table-8 Data Table.html",
-        "summary": "table-9 The table contains a single row with X=1 and Y=1, showing a simple data pair."
-      },
-      {
-        "path": "tables/table-9 Linear Data Table.html",
-        "summary": "table-10 The table shows six data points where x and y values are equal, ranging from 0 to 1, indicating a perfect linear relationship."
-      },
-      {
-        "path": "tables/table-10 Joint Probability.html",
-        "summary": "table-11 The table shows joint probabilities for two binary variables X and Y, with values: P(0,0)=0.4, P(0,1)=0.2, P(1,0)=0.1, P(1,1)=0.3."
-      },
-      {
-        "path": "tables/table-11 Linear Data Table.html",
-        "summary": "table-12 The table shows a linear relationship between x and y, where y increases by 1 for every 5-unit increase in x, ranging from x=-20 to x=60."
+        "path": "tables/table_page_87_1.html",
+        "summary": "tables/table_page_87_1.html"
       }
     ]
   }
