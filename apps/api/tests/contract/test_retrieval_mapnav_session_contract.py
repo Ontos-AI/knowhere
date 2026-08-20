@@ -220,5 +220,5 @@ async def test_mapnav_route_should_release_route_session_before_fresh_final_hydr
         "fresh_db_close",
     ]
     assert outcome.response["router_used"] == "mapnav"
-    assert outcome.response["results"][0]["citation"]["document_id"] == "doc_contract"
+    assert outcome.response["results"][0]["document_id"] == "doc_contract"
     assert outcome.completion_label == "MAPNAV RETRIEVAL"

@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import importlib
+from types import ModuleType
 from typing import Any, Dict, List
 
 import pytest
 
-from app.services.connect_builder.summary_builder import (
-    SUMMARY_MAX_LEN,
-    _deterministic_section_summary,
-    _llm_summarize,
-    _recursive_summarize_nav,
-    build_self_only_lookup,
-)
+
+def _summary_builder() -> ModuleType:
+    """Resolve the live module.
+
+    Worker contract tests may evict/reimport ``app.*``. Calling functions bound at
+    collection time would miss later monkeypatches on the new module object.
+    """
+    return importlib.import_module("app.services.connect_builder.summary_builder")
 
 
 def _leaf(title: str, summary: str = "", path: str = "") -> Dict[str, Any]:
@@ -41,7 +44,8 @@ def _parent(
 
 class TestDeterministicAssembly:
     def test_order_covers_self_only_then_titles(self) -> None:
-        text = _deterministic_section_summary(
+        sb = _summary_builder()
+        text = sb._deterministic_section_summary(
             is_top_level=False,
             self_only="intro paragraph here",
             child_titles=["Alpha", "Beta"],
@@ -53,6 +57,7 @@ class TestDeterministicAssembly:
         assert text.index("intro paragraph here") < text.index("Alpha, Beta")
 
     def test_all_child_titles_even_when_summary_empty(self) -> None:
+        sb = _summary_builder()
         parent = _parent(
             "Parent",
             [
@@ -61,7 +66,7 @@ class TestDeterministicAssembly:
             ],
             path="doc.pdf/Parent",
         )
-        result = _recursive_summarize_nav(
+        result = sb._recursive_summarize_nav(
             parent,
             use_llm=False,
             source_file_name="doc.pdf",
@@ -73,6 +78,7 @@ class TestDeterministicAssembly:
 
 class TestSelfOnlyLookup:
     def test_exact_path_only_excludes_descendants(self) -> None:
+        sb = _summary_builder()
         chunks = [
             {
                 "path": "doc.pdf/2.4.4 隐患治理",
@@ -83,12 +89,13 @@ class TestSelfOnlyLookup:
                 "content": "CHILD_BODY_SHOULD_NOT_APPEAR",
             },
         ]
-        lookup = build_self_only_lookup(chunks, source_file_name="doc.pdf")
+        lookup = sb.build_self_only_lookup(chunks, source_file_name="doc.pdf")
         assert lookup["2.4.4 隐患治理"] == "PARENT_INTRO_ONLY"
         assert "CHILD_BODY_SHOULD_NOT_APPEAR" not in lookup["2.4.4 隐患治理"]
         assert "2.4.4 隐患治理 / 清单项A" in lookup
 
     def test_nonleaf_includes_self_only_in_deterministic(self) -> None:
+        sb = _summary_builder()
         parent = _parent(
             "2.4.4 隐患治理",
             [
@@ -97,11 +104,11 @@ class TestSelfOnlyLookup:
             ],
             path="doc.pdf/2.4.4 隐患治理",
         )
-        lookup = build_self_only_lookup(
+        lookup = sb.build_self_only_lookup(
             [{"path": "doc.pdf/2.4.4 隐患治理", "content": "方案包括以下内容："}],
             source_file_name="doc.pdf",
         )
-        result = _recursive_summarize_nav(
+        result = sb._recursive_summarize_nav(
             parent,
             use_llm=False,
             self_only_lookup=lookup,
@@ -115,22 +122,22 @@ class TestSelfOnlyLookup:
 
 class TestLlmTrigger:
     def test_short_contrib_skips_llm(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        sb = _summary_builder()
         called = {"n": 0}
 
         def _boom(**kwargs: Any) -> str:
             called["n"] += 1
             return "SHOULD_NOT_USE"
 
-        monkeypatch.setattr(
-            "app.services.connect_builder.summary_builder._llm_summarize",
-            _boom,
-        )
+        monkeypatch.setattr(sb, "_llm_summarize", _boom)
         parent = _parent(
             "P",
             [_leaf("A", summary="x"), _leaf("B", summary="y")],
             path="doc.pdf/P",
         )
-        result = _recursive_summarize_nav(parent, use_llm=True, source_file_name="doc.pdf")
+        result = sb._recursive_summarize_nav(
+            parent, use_llm=True, source_file_name="doc.pdf"
+        )
         assert called["n"] == 0
         assert result.startswith("This section covers: ")
         assert "A" in result and "B" in result
@@ -138,17 +145,15 @@ class TestLlmTrigger:
     def test_long_contrib_calls_llm_with_title_for_empty_summary(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        sb = _summary_builder()
         captured: Dict[str, Any] = {}
 
         def _fake_llm(**kwargs: Any) -> str:
             captured.update(kwargs)
             return "LLM_SUMMARY"
 
-        monkeypatch.setattr(
-            "app.services.connect_builder.summary_builder._llm_summarize",
-            _fake_llm,
-        )
-        long_a = "A" * (SUMMARY_MAX_LEN + 5)
+        monkeypatch.setattr(sb, "_llm_summarize", _fake_llm)
+        long_a = "A" * (sb.SUMMARY_MAX_LEN + 5)
         parent = _parent(
             "P",
             [
@@ -159,7 +164,7 @@ class TestLlmTrigger:
         )
         lookup = {"P": "SELF_ONLY_INTRO"}
         # section path from doc.pdf/P is "P"
-        result = _recursive_summarize_nav(
+        result = sb._recursive_summarize_nav(
             parent,
             use_llm=True,
             self_only_lookup=lookup,
@@ -176,17 +181,19 @@ class TestLlmTrigger:
     def test_single_child_with_self_only_does_not_copy_child(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        sb = _summary_builder()
         monkeypatch.setattr(
-            "app.services.connect_builder.summary_builder._llm_summarize",
+            sb,
+            "_llm_summarize",
             lambda **kwargs: "MERGED",
         )
-        long_child = "C" * (SUMMARY_MAX_LEN + 1)
+        long_child = "C" * (sb.SUMMARY_MAX_LEN + 1)
         parent = _parent(
             "P",
             [_leaf("OnlyChild", summary=long_child)],
             path="doc.pdf/P",
         )
-        result = _recursive_summarize_nav(
+        result = sb._recursive_summarize_nav(
             parent,
             use_llm=True,
             self_only_lookup={"P": "intro"},
@@ -200,6 +207,7 @@ class TestPromptPayload:
     def test_file_summary_prompt_contains_scope_blocks(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        sb = _summary_builder()
         captured: Dict[str, Any] = {}
 
         def _fake_client(**_kwargs: Any) -> Any:
@@ -215,7 +223,7 @@ class TestPromptPayload:
             _fake_client,
         )
         # Ensure build_prompt path works
-        out = _llm_summarize(
+        out = sb._llm_summarize(
             node_name="Parent",
             self_only="intro text",
             child_rows=[("ChildA", "summary A"), ("ChildB", "ChildB")],
@@ -239,11 +247,7 @@ class TestDocNavTopSummaryPersistence:
     ) -> None:
         import json
 
-        from app.services.connect_builder.summary_builder import (
-            enrich_doc_nav_summaries,
-            load_nav_top_summary,
-        )
-
+        sb = _summary_builder()
         captured: Dict[str, Any] = {}
 
         def _fake_llm(**kwargs: Any) -> str:
@@ -252,14 +256,11 @@ class TestDocNavTopSummaryPersistence:
             captured["calls"] = int(captured.get("calls") or 0) + 1
             return "LLM document overview"
 
-        monkeypatch.setattr(
-            "app.services.connect_builder.summary_builder._llm_summarize",
-            _fake_llm,
-        )
+        monkeypatch.setattr(sb, "_llm_summarize", _fake_llm)
 
         file_dir = tmp_path / "report.pdf"
         file_dir.mkdir()
-        long_leaf = "L" * (SUMMARY_MAX_LEN + 5)
+        long_leaf = "L" * (sb.SUMMARY_MAX_LEN + 5)
         doc_nav = {
             "version": "1.0",
             "file_name": "report.pdf",
@@ -287,7 +288,7 @@ class TestDocNavTopSummaryPersistence:
             encoding="utf-8",
         )
 
-        results = enrich_doc_nav_summaries(
+        results = sb.enrich_doc_nav_summaries(
             str(tmp_path),
             source_file="report.pdf",
             use_llm=False,
@@ -301,6 +302,6 @@ class TestDocNavTopSummaryPersistence:
         assert saved["top_summary"] == "LLM document overview"
         # Section leaves keep original summaries; top LLM must not rewrite them.
         assert saved["sections"][0]["summary"] == long_leaf
-        assert load_nav_top_summary(str(file_dir), "report.pdf") == (
+        assert sb.load_nav_top_summary(str(file_dir), "report.pdf") == (
             "LLM document overview"
         )

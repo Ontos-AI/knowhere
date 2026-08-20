@@ -286,12 +286,11 @@ def _log_retrieval_complete(
     results = outcome.get("results", [])
     if isinstance(results, list):
         for index, result in enumerate(results[:10]):
-            source = result.get("source", {})
             logger.info(
                 f"    [{index + 1}] type={result.get('chunk_type', '?')}  "
                 f"score={result.get('score') or 0.0:.4f}"
-                f"  path={source.get('section_path', '')}"
-                f"  file={source.get('source_file_name', '')}"
+                f"  path={result.get('section_path') or ''}"
+                f"  file={result.get('source_file_name') or ''}"
             )
         if len(results) > 10:
             logger.info(f"    ... and {len(results) - 10} more")
