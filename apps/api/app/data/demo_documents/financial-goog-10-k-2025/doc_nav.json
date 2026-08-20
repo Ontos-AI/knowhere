@@ -2,20 +2,804 @@
   "version": "1.0",
   "file_name": "GOOG 10-K 2025.pdf",
   "stats": {
-    "total_chunks": 1,
+    "total_chunks": 99,
     "text_chunks": 0,
     "image_chunks": 0,
     "table_chunks": 0,
-    "page_chunks": 1,
+    "page_chunks": 99,
     "max_depth": 1
   },
   "sections": [
     {
-      "title": "Root",
-      "path": "GOOG 10-K 2025.pdf/Root",
+      "title": "p1",
+      "path": "GOOG 10-K 2025.pdf/p1",
       "level": 1,
-      "summary": "This section, titled 'Root', serves as the cover page and introductory material for Alphabet Inc.'s Form 10-K Annual Report for the fiscal year ended December 31, 2025. It identifies the registrant (Alphabet Inc.), its jurisdiction of incorporation (Delaware), principal address, and tax identification number. The section also lists all securities registered under Section 12(b) of the Securities Exchange Act of 1934, including Class A and Class C Common Stock with their respective trading symbols (GOOGL and GOOG), and a comprehensive list of Senior Notes due between 2028 and 2064, all registered on the Nasdaq Stock Market LLC. Additionally, it includes check-boxes indicating the company's status as a large accelerated filer and confirms that it is not a shell company.",
-      "chunk_count": 99,
+      "summary": "UNITED STATES SECURITIES AND EXCHANGE COMMISSION Washington, D.C. 20549 ___________________________________________ FORM 10-K ___________________________________________ (Mark One) ☒ ANNUAL REPORT PURSUANT TO SECTION 13 OR 15(d) OF THE SECURITIES EXCHANGE ACT OF 1934 For the f...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p2",
+      "path": "GOOG 10-K 2025.pdf/p2",
+      "level": 1,
+      "summary": "Indicate by check mark whether the registrant (1) has filed all reports required to be filed by Section 13 or 15(d) of the Securities Exchange Act of 1934 during the preceding 12 months (or for such shorter period that the registrant was required to file such reports), and (2)...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p3",
+      "path": "GOOG 10-K 2025.pdf/p3",
+      "level": 1,
+      "summary": "Alphabet Inc. Form 10-K For the Fiscal Year Ended December 31, 2025 TABLE OF CONTENTS Page Note About Forward-Looking Statements 3 PART I Item 1. Business 3 Item 1A. Risk Factors 9 Item 1B. Unresolved Staff Comments 23 Item 1C. Cybersecurity 23 Item 2. Properties 24 Item 3. Le...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p4",
+      "path": "GOOG 10-K 2025.pdf/p4",
+      "level": 1,
+      "summary": "Note About Forward-Looking Statements This Annual Report on Form 10-K contains forward-looking statements within the meaning of the Private Securities Litigation Reform Act of 1995. Forward-looking statements generally can be identified by words such as, but are not limited to...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p5",
+      "path": "GOOG 10-K 2025.pdf/p5",
+      "level": 1,
+      "summary": "Making AI Helpful for Everyone We believe AI is a profound platform shift that can bring meaningful and positive change to people and societies across the world, and to our business . We aim to build the most advanced, safe, and responsible AI through our full- stack approach,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p6",
+      "path": "GOOG 10-K 2025.pdf/p6",
+      "level": 1,
+      "summary": "Our products and services have come a long way since the company was founded more than 25 years ago. While Google Search started as a way to find web pages, organized into ten blue links, we have driven technical advancements and product innovations that have transformed Googl...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p7",
+      "path": "GOOG 10-K 2025.pdf/p7",
+      "level": 1,
+      "summary": "• AI-optimized Infrastructure: runs on our Cloud, at the edge, or in customers' data centers. It can be used to migrate and modernize information technology (IT) systems and to train and serve various types of AI models. Our AI infrastructure delivers cost-performance for AI w...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p8",
+      "path": "GOOG 10-K 2025.pdf/p8",
+      "level": 1,
+      "summary": "Competing successfully depends heavily on our ability to continually develop and distribute innovative products and technologies to the marketplace across our businesses. For example, for advertising, competing successfully depends on attracting and retaining: • users, for who...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p9",
+      "path": "GOOG 10-K 2025.pdf/p9",
+      "level": 1,
+      "summary": "Intellectual Property We rely on intellectual property such as trademarks, copyrights, patents, and trade secrets, as well as confidentiality procedures and contractual provisions, to protect our proprietary technology and our brand. We have registered, and applied for the reg...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p10",
+      "path": "GOOG 10-K 2025.pdf/p10",
+      "level": 1,
+      "summary": "ITEM 1A. RISK FACTORS Our operations and financial results are subject to various risks and uncertainties, including but not limited to those described below, which could harm our business, reputation, financial condition, and operating results, and may affect the trading pric...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p11",
+      "path": "GOOG 10-K 2025.pdf/p11",
+      "level": 1,
+      "summary": "Within Google Services, we continue to invest heavily in devices, including our smartphones, home devices, and wearables, which is a highly competitive market with frequent introduction of new products and services, rapid adoption of technological advance ments by competitors,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p12",
+      "path": "GOOG 10-K 2025.pdf/p12",
+      "level": 1,
+      "summary": "AI products and technologies that are similar or superior to our technologies or more cost-effective to develop or deploy. Other companies may also have (or in the future may obtain) patents or other proprietary rights that would prevent, limit, or interfere with our ability t...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p13",
+      "path": "GOOG 10-K 2025.pdf/p13",
+      "level": 1,
+      "summary": "new and innovative products and services that better serve the needs of our users, advertisers, customers, content providers, and other partners. Our brands have been, and may in the future be, harmed by a number of factors, including, among others, reputational issues , third...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p14",
+      "path": "GOOG 10-K 2025.pdf/p14",
+      "level": 1,
+      "summary": "Interruption to, interference with, or failure of our complex information technology and communications systems could hurt our ability to effectively provide our products and services, which could harm our reputation, financial condition, and operating results. The availabilit...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p15",
+      "path": "GOOG 10-K 2025.pdf/p15",
+      "level": 1,
+      "summary": "leases, backstops, guarantees, and potential liabilities from large commercial agreements, could harm our financial condition and reduce our financial and business flexibility. We are exposed to fluctuations in the fair values of our investments and, in some instances, our fin...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p16",
+      "path": "GOOG 10-K 2025.pdf/p16",
+      "level": 1,
+      "summary": "significantly in efforts to promote high-quality and relevant results and to detect and prevent low-quality content and invalid traffic, we have been unable and may continue to be unable to detect and prevent all such abuses or promote uniformly high-quality content. Increased...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p17",
+      "path": "GOOG 10-K 2025.pdf/p17",
+      "level": 1,
+      "summary": "and other critical infrastructure, which could affect our or other parties' systems. We expect to continue to experience such incidents or vulnerabilities in the future. Our efforts to prevent security incidents and address undesirable activity on our platform may require us t...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p18",
+      "path": "GOOG 10-K 2025.pdf/p18",
+      "level": 1,
+      "summary": "regulatory inquiries, which could result in monetary penalties and damages, divert management's time and attention, and lead to enhanced regulatory oversight. Our business depends on continued and unimpeded access to the Internet by us and our users. Internet access providers...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p19",
+      "path": "GOOG 10-K 2025.pdf/p19",
+      "level": 1,
+      "summary": "• Data privacy, collection, processing, and portability: Laws and regulations further restricting the collection, processing, or sharing of user or advertising-related data, including privacy and data protection laws; laws affecting the processing of children's data (as discus...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p20",
+      "path": "GOOG 10-K 2025.pdf/p20",
+      "level": 1,
+      "summary": "For example, the DOJ and a number of state Attorneys General filed a lawsuit concerning our Search and Search advertising practices and our compliance with US antitrust laws. In August 2024, the US District Court for the District of Columbia ruled against Google, and in Decemb...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p21",
+      "path": "GOOG 10-K 2025.pdf/p21",
+      "level": 1,
+      "summary": "of data protection laws, imposing specific obligations with respect to the processing of personal data, including required notices, consents, and opt-outs. Further, the increased risk of inadvertent disclosure of confidential information or personal data in connection with the...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p22",
+      "path": "GOOG 10-K 2025.pdf/p22",
+      "level": 1,
+      "summary": "result in loss of revenues and harm our business. Moreover, intellectual property indemnities provided to us by our suppliers, when obtainable, may not cover all damages and losses suffered by us and our customers arising from intellectual property infringement claims. Further...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p23",
+      "path": "GOOG 10-K 2025.pdf/p23",
+      "level": 1,
+      "summary": "outstanding Class B stock, which represented approximately 52.7% of the voting power of our outstanding common stock. Through their stock ownership, Larry and Sergey have significant influence over all matters requiring stockholder approval, including the election of directors...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p24",
+      "path": "GOOG 10-K 2025.pdf/p24",
+      "level": 1,
+      "summary": "realize the expected financial or strategic goals of a transaction; or investigations or litigation by governmental authorities related to our acquisitions, investments, and other strategic arrangements; • failure to successfully integrate the acquired operations, technologies...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p25",
+      "path": "GOOG 10-K 2025.pdf/p25",
+      "level": 1,
+      "summary": "We maintain a comprehensive process for iden tifying, assessing, and managing material risks from cybersecurity threats as part of our broader risk management system and processes. For example, some risks include our software supply chain and other third-party dependencies, vu...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p26",
+      "path": "GOOG 10-K 2025.pdf/p26",
+      "level": 1,
+      "summary": "PART II ITEM 5. MARKET FOR REGISTRANT’S COMMON EQUITY, RELATED STOCKHOLDER MATTERS, AND ISSUER PURCHASES OF EQUITY SECURITIES As of October 2, 2015, Alphabet Inc. became the successor issuer of Google Inc. pursuant to Rule 12g-3(a) under the Exchange Act. Our Class A stock has...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p27",
+      "path": "GOOG 10-K 2025.pdf/p27",
+      "level": 1,
+      "summary": "Stock Performance Graphs The graph below matches Alphabet Inc. Class A's cumulative five-year total stockholder return on common stock with the cumulative total returns of the S&P 500 index, the NASDAQ Composite index, and the RDG Internet Composite index. The graph tracks the...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p28",
+      "path": "GOOG 10-K 2025.pdf/p28",
+      "level": 1,
+      "summary": "The graph below matches Alphabet Inc. Class C's cumulative five-year total stockholder return on capital stock with the cumulative total returns of the S&P 500 index, the NASDAQ Composite index, and the RDG Internet Composite index. The graph tracks the performance of a $100 i...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p29",
+      "path": "GOOG 10-K 2025.pdf/p29",
+      "level": 1,
+      "summary": "ITEM 7. MANAGEMENT’S DISCUSSION AND ANALYSIS OF FINANCIAL CONDITION AND RESULTS OF OPERATIONS Please read the following discussion and analysis of our financial condition and results of operations together with “Note about Forward-Looking Statements,” Part I, Item 1 \"Business,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p30",
+      "path": "GOOG 10-K 2025.pdf/p30",
+      "level": 1,
+      "summary": "shift from Google Network properties to Google Search & other properties. Our TAC rate will continue to be affected by changes in device mix; geographic mix; partner agreement terms; partner mix; the percentage of queries channeled through paid access points; product mix; the...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p31",
+      "path": "GOOG 10-K 2025.pdf/p31",
+      "level": 1,
+      "summary": "We use certain metrics to track how well traffic across various properties is monetized as it relates to our advertising revenues: paid clicks and cost-per-click pertain to traffic on Google Search & other properties, while impressions and cost-per-impression pertain to traffi...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p32",
+      "path": "GOOG 10-K 2025.pdf/p32",
+      "level": 1,
+      "summary": "Other Bets Revenues from Other Bets are generated primarily from the sale of autonomous transportation services and internet services. Costs and Expenses Our cost structure has two components: cost of revenues and operating expenses. Our operating expenses include costs relate...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p33",
+      "path": "GOOG 10-K 2025.pdf/p33",
+      "level": 1,
+      "summary": "• employee compensation expenses for employees in finance, human resources, information technology, legal, and other administrative support functions; • expenses relating to legal and other matters, including certain fines and settlements; and • third-party services fees, incl...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p34",
+      "path": "GOOG 10-K 2025.pdf/p34",
+      "level": 1,
+      "summary": "• In 2025 , we entered into definitive agreements to acquire Wiz, a leading cloud security platform, for $32.0 billion, and Intersect, a provider of data center and energy infrastructure solutions, for $4.8 billion in cash plus the assumption of debt. Both acquisitions are exp...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p35",
+      "path": "GOOG 10-K 2025.pdf/p35",
+      "level": 1,
+      "summary": "YouTube ads YouTube ads revenues increased $4.2 billion from 2024 to 2025. The growth was driven by our direct response advertising products followed by our brand advertising products, both of which benefited from increased spending by our advertisers. Google Network Google Ne...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p36",
+      "path": "GOOG 10-K 2025.pdf/p36",
+      "level": 1,
+      "summary": "Cost of Revenues The following table presents cost of revenues, including TAC (in millions, except percentages): Year Ended December 31, 2024 2025 TAC $ 54,900 $ 59,926 Other cost of revenues 91,406 102,609 Total cost of revenues $ 146,306 $ 162,535 Total cost of revenues as a...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p37",
+      "path": "GOOG 10-K 2025.pdf/p37",
+      "level": 1,
+      "summary": "Segment Profitability We report our segment results as Google Services, Google Cloud, and Other Bets. Additionally, certain costs are not allocated to our segments because they represent Alphabet-level activities. For further details on our segments, see Part I, Item 1 Busines...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p38",
+      "path": "GOOG 10-K 2025.pdf/p38",
+      "level": 1,
+      "summary": "Provision for Income Taxes The following table presents provision for income taxes (in millions, except effective tax rate): Year Ended December 31, 2024 2025 Income before provision for income taxes $ 119,815 $ 158,826 Provision for income taxes $ 19,697 $ 26,656 Effective ta...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p39",
+      "path": "GOOG 10-K 2025.pdf/p39",
+      "level": 1,
+      "summary": "Net cash provided by operating activities increased from 2024 to 2025 due to an increase in cash received from customers, partially offset by an increase in cash payments for cost of revenues and operating expenses. Cash Used in Investing Activities Cash provided by investing...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p40",
+      "path": "GOOG 10-K 2025.pdf/p40",
+      "level": 1,
+      "summary": "For additional information on leases, see Note 4 of the Notes to Consolidated Financial Statements included in Item 8 of this Annual Report on Form 10-K. Financing As of December 31, 2025, we had senior unsecured notes outstanding with a total carrying value of $48.5 billion,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p41",
+      "path": "GOOG 10-K 2025.pdf/p41",
+      "level": 1,
+      "summary": "Taxes As of December 31, 2025 , we had long-term income taxes payable of $9.5 billion primarily related to unrecognized tax benefits. The timing and amount of any payment related to these unrecognized tax benefits are uncertain and cannot be estimated. Purchase Commitments and...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p42",
+      "path": "GOOG 10-K 2025.pdf/p42",
+      "level": 1,
+      "summary": "Adjustments are determined primarily based on a market approach as of the transaction date and involve the use of estimates using the best information available, which may include cash flow projections or other available market data. Non-marketable equity securities are also e...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p43",
+      "path": "GOOG 10-K 2025.pdf/p43",
+      "level": 1,
+      "summary": "We monitor our foreign currency exposures and hedge foreign exchange risks with derivative and non-derivative instruments, including forwards, options (including collars), cross-currency swaps, and foreign currency-denominated debt. Gains or losses on these foreign currency ex...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p44",
+      "path": "GOOG 10-K 2025.pdf/p44",
+      "level": 1,
+      "summary": "Our marketable equity securities are primarily publicly traded stocks or funds and our non-marketable equity securities are primarily investments in privately held companies , some of which are in the startup or development stages. We record marketable equity securities at fai...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p45",
+      "path": "GOOG 10-K 2025.pdf/p45",
+      "level": 1,
+      "summary": "ITEM 8. FINANCIAL STATEMENTS AND SUPPLEMENTARY DATA Alphabet Inc. INDEX TO CONSOLIDATED FINANCIAL STATEMENTS Page Reports of Independent Registered Public Accounting Firm (PCAOB ID: 42) 45 Financial Statements: Consolidated Balance Sheets 48 Consolidated Statements of Income 4...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p46",
+      "path": "GOOG 10-K 2025.pdf/p46",
+      "level": 1,
+      "summary": "REPORT OF INDEPENDENT REGISTERED PUBLIC ACCOUNTING FIRM To the Stockholders and the Board of Directors of Alphabet Inc. Opinion on the Financial Statements We have audited the accompanying consolidated balance sheets of Alphabet Inc. (the Company) as of December 31, 2024 and 2...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p47",
+      "path": "GOOG 10-K 2025.pdf/p47",
+      "level": 1,
+      "summary": "Loss Contingencies Description of the Matter The Company is subject to claims, lawsuits, regulatory and government inquiries and investigations, other proceedings, and consent orders. As described in Note 10 to the consolidated financial statements, such claims, lawsuits, regu...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p48",
+      "path": "GOOG 10-K 2025.pdf/p48",
+      "level": 1,
+      "summary": "REPORT OF INDEPENDENT REGISTERED PUBLIC ACCOUNTING FIRM To the Stockholders and the Board of Directors of Alphabet Inc. Opinion on Internal Control Over Financial Reporting We have audited Alphabet Inc.’s internal control over financial reporting as of December 31, 2025 , base...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p49",
+      "path": "GOOG 10-K 2025.pdf/p49",
+      "level": 1,
+      "summary": "Alphabet Inc. CONSOLIDATED BALANCE SHEETS (in millions, except par value per share amounts) As of December 31, 2024 2025 Assets Current assets: Cash and cash equivalents $ 23,466 $ 30,708 Marketable securities 72,191 96,135 Total cash, cash equivalents, and marketable securiti...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p50",
+      "path": "GOOG 10-K 2025.pdf/p50",
+      "level": 1,
+      "summary": "Alphabet Inc. CONSOLIDATED STATEMENTS OF INCOME (in millions, except per share amounts) Year Ended December 31, 2023 2024 2025 Revenues $ 307,394 $ 350,018 $ 402,836 Costs and expenses: Cost of revenues 133,332 146,306 162,535 Research and development 45,427 49,326 61,087 Sale...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p51",
+      "path": "GOOG 10-K 2025.pdf/p51",
+      "level": 1,
+      "summary": "Alphabet Inc. CONSOLIDATED STATEMENTS OF COMPREHENSIVE INCOME (in millions) Year Ended December 31, 2023 2024 2025 Net income $ 73,795 $ 100,118 $ 132,170 Other comprehensive income (loss): Change in foreign currency translation adjustment, net of income tax benefit (expense)...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p52",
+      "path": "GOOG 10-K 2025.pdf/p52",
+      "level": 1,
+      "summary": "Alphabet Inc. CONSOLIDATED STATEMENTS OF STOCKHOLDERS’ EQUITY (in millions) Class A, Class B, Class C Stock and Additional Paid-In Capital Accumulated Other Comprehensive Income (Loss) Retained Earnings Total Stockholders’ Equity Shares Amount Balance as of December 31, 2022 1...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p53",
+      "path": "GOOG 10-K 2025.pdf/p53",
+      "level": 1,
+      "summary": "Alphabet Inc. CONSOLIDATED STATEMENTS OF CASH FLOWS (in millions) Year Ended December 31, 2023 2024 2025 Operating activities Net income $ 73,795 $ 100,118 $ 132,170 Adjustments: Depreciation of property and equipment 11,946 15,311 21,136 Stock-based compensation expense 22,46...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p54",
+      "path": "GOOG 10-K 2025.pdf/p54",
+      "level": 1,
+      "summary": "Alphabet Inc. NOTES TO CONSOLIDATED FINANCIAL STATEMENTS Note 1. Summary of Significant Accounting Policies Nature of Operations Google was incorporated in California in September 1998 and re-incorporated in the State of Delaware in August 2003. In 2015, we implemented a holdi...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p55",
+      "path": "GOOG 10-K 2025.pdf/p55",
+      "level": 1,
+      "summary": "• consumer subscriptions, which primarily include revenues from YouTube services, such as YouTube TV, YouTube Music and Premium, and NFL Sunday Ticket, as well as Google One, which offers access to our most capable Gemini models; • platforms, which primarily include revenues f...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p56",
+      "path": "GOOG 10-K 2025.pdf/p56",
+      "level": 1,
+      "summary": "◦ content acquisition costs, which are payments to content providers from whom we license video and other content for distribution, primarily related to YouTube (we pay fees to these content providers based on revenues generated, subscriber counts, or a flat fee); ◦ depreciati...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p57",
+      "path": "GOOG 10-K 2025.pdf/p57",
+      "level": 1,
+      "summary": "Level 3 - Unobservable inputs that are supported by little or no market activities. The fair value hierarchy requires an entity to maximize the use of observable inputs and minimize the use of unobservable inputs when measuring fair value. The determination of fair value invol...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p58",
+      "path": "GOOG 10-K 2025.pdf/p58",
+      "level": 1,
+      "summary": "Derivative Financial Instruments See Note 3 for the accounting policy pertaining to derivative financial instruments. Financial Guarantees In certain arrangements, we provide reimbursements for costs incurred by third parties during power generation project development phases...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p59",
+      "path": "GOOG 10-K 2025.pdf/p59",
+      "level": 1,
+      "summary": "Variable Interest Entities We determine at the inception of each arrangement whether an entity in which we have made an investment or in which we have other variable interests is considered a variable interest entity (VIE). We consolidate VIEs when we are the primary beneficia...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p60",
+      "path": "GOOG 10-K 2025.pdf/p60",
+      "level": 1,
+      "summary": "Impairment of Long-Lived Assets We review leases, property and equipment, and intangible assets, excluding goodwill, for impairment when events or changes in circumstances indicate the carrying amount may not be recoverable. The evaluation is performed at the lowest level of i...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p61",
+      "path": "GOOG 10-K 2025.pdf/p61",
+      "level": 1,
+      "summary": "In December 2023, the FASB issued ASU 2023-09 \"Income Taxes (Topics 740): Improvements to Income Tax Disclosures\" which expands the disclosure requirements for income taxes. We adopted this ASU for our 2025 annual period with the comparative periods updated to reflect addition...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p62",
+      "path": "GOOG 10-K 2025.pdf/p62",
+      "level": 1,
+      "summary": "recognized as revenues for the year ended December 31, 2025. Total deferred revenue as of December 31, 2025 was $8.6 billion. Note 3. Financial Instruments Fair Value Measurements Investments Measured at Fair Value on a Recurring Basis Cash equivalents and marketable equity se...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p63",
+      "path": "GOOG 10-K 2025.pdf/p63",
+      "level": 1,
+      "summary": "As of December 31, 2025 Quoted Prices in Active Markets for Identical Assets (Level 1) Significant Other Observable Inputs (Level 2) Total Cash $ 15,305 Cash equivalents: Money market funds $ 11,349 $ 0 $ 11,349 Time deposits 0 3,353 3,353 Government bonds 0 602 602 Corporate...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p64",
+      "path": "GOOG 10-K 2025.pdf/p64",
+      "level": 1,
+      "summary": "As of December 31, 2024 Adjusted Cost Gross Unrealized Gains Gross Unrealized Losses Fair Value Time deposits $ 2,217 $ 0 $ 0 $ 2,217 Government bonds 27,551 83 (214) 27,420 Corporate debt securities 18,300 79 (222) 18,157 Mortgage-backed and asset-backed securities 14,437 63...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p65",
+      "path": "GOOG 10-K 2025.pdf/p65",
+      "level": 1,
+      "summary": "We determine realized gains or losses on the sale or extinguishment of debt securities on a specific identification method. For certain marketable debt securities, we have elected the fair value option for which changes in fair value are recorded in OI&E. The fair value option...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p66",
+      "path": "GOOG 10-K 2025.pdf/p66",
+      "level": 1,
+      "summary": "Year Ended December 31, 2023 2024 2025 Gross unrealized gain on non-marketable equity securities accounted for under the measurement alternative $ 1,806 $ 5,582 $ 22,666 Gross unrealized loss (including impairments) on non- marketable equity securities accounted for under the...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p67",
+      "path": "GOOG 10-K 2025.pdf/p67",
+      "level": 1,
+      "summary": "subsidiaries. Net investment hedge amounts included in the assessment of hedge effectiveness are recognized in AOCI. Changes in the fair value of hedge components of forward and option contracts that are excluded from the assessment of hedge effectiveness are recognized in OI&...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p68",
+      "path": "GOOG 10-K 2025.pdf/p68",
+      "level": 1,
+      "summary": "The gains (losses) on derivatives and non-derivative financial instruments in cash flow hedging and net investment hedging relationships recognized in other comprehensive income are summarized below (in millions): Year Ended December 31, 2023 2024 2025 Cash flow hedging relati...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p69",
+      "path": "GOOG 10-K 2025.pdf/p69",
+      "level": 1,
+      "summary": "Offsetting of Derivatives We enter into master netting arrangements and collateral security arrangements to reduce credit risk. Cash collateral received related to derivative instruments under our collateral security arrangements are included in other current assets with a cor...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p70",
+      "path": "GOOG 10-K 2025.pdf/p70",
+      "level": 1,
+      "summary": "Supplemental information related to leases was as follows (in millions): December 31, 2024 2025 Weighted-average remaining lease term: Operating leases 7.8 years 7.6 years Finance leases 10.4 years 8.3 years Weighted-average discount rate: Operating leases 3.4 % 3.6 % Finance...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p71",
+      "path": "GOOG 10-K 2025.pdf/p71",
+      "level": 1,
+      "summary": "Future lease payments as of December 31, 2025 were as follows (in millions): Operating Leases Finance Leases 2026 $ 3,275 $ 491 2027 3,082 345 2028 2,510 335 2029 2,061 314 2030 1,669 241 Thereafter 5,654 1,143 Total undiscounted lease payments 18,251 2,869 Less: imputed inter...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p72",
+      "path": "GOOG 10-K 2025.pdf/p72",
+      "level": 1,
+      "summary": "Leases with data center leasing VIEs are accounted for as finance leases and are included within total lease obligations disclosed in Note 4. The maximum exposure arising from leases with VIEs is limited to the net carrying value of commenced finance lease assets, plus the und...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p73",
+      "path": "GOOG 10-K 2025.pdf/p73",
+      "level": 1,
+      "summary": "The notes in the table above are senior unsecured obligations and rank equally with each other. We may redeem the fixed-rate notes at any time in whole or in part at specified redemption prices. The floating-rate notes are not redeemable prior to maturity. Interest is payable...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p74",
+      "path": "GOOG 10-K 2025.pdf/p74",
+      "level": 1,
+      "summary": "As of December 31, 2024 2025 Accrued fines and settlements(1) $ 9,830 $ 15,594 Accrued purchases of property and equipment 7,104 8,877 Accrued customer liabilities 4,304 5,029 Payables to brokers for unsettled investment trades 3,866 950 Income taxes payable, net 2,905 523 Oth...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p75",
+      "path": "GOOG 10-K 2025.pdf/p75",
+      "level": 1,
+      "summary": "Year Ended December 31, AOCI Components Location 2023 2024 2025 Unrealized gains (losses) on available-for-sale investments Other income (expense), net $ (1,497) $ (1,008) $ 213 Benefit (provision) for income taxes 329 226 (44) Net of income tax (1,168) (782) 169 Unrealized ga...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p76",
+      "path": "GOOG 10-K 2025.pdf/p76",
+      "level": 1,
+      "summary": "Google Services Google Cloud Other Bets Total Balance as of December 31, 2023 $ 21,118 $ 7,199 $ 881 $ 29,198 Additions 2,441 295 0 2,736 Foreign currency translation and other adjustments (38) (4) (7) (49) Balance as of December 31, 2024 23,521 7,490 874 31,885 Additions 1,26...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p77",
+      "path": "GOOG 10-K 2025.pdf/p77",
+      "level": 1,
+      "summary": "Antitrust Matters We are subject to formal and informal inquiries and investigations as well as litigation on various competition matters by regulatory authorities and private parties in the US, Europe, and other jurisdictions globally, including the following: • Shopping: In...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p78",
+      "path": "GOOG 10-K 2025.pdf/p78",
+      "level": 1,
+      "summary": "$3.5 billion in the third quarter of 2025, and we placed bank guarantees in the fourth quarter of 2025 in lieu of cash payment. In September 2024, the UK also issued a Statement of Objections concerning Google's advertising technology and its compliance with UK antitrust laws,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p79",
+      "path": "GOOG 10-K 2025.pdf/p79",
+      "level": 1,
+      "summary": "For example, we periodically have data incidents that we report to relevant regulators as required by law. Such claims, consent orders, lawsuits, regulatory and government investigations, and other proceedings could result in substantial fines and penalties, injunctive relief,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p80",
+      "path": "GOOG 10-K 2025.pdf/p80",
+      "level": 1,
+      "summary": "In April 2025, the company's Board of Directors increased the quarterly cash dividend by 5% to $0.21 per share of outstanding Class A, Class B, and Class C shares. The company has declared a quarterly cash dividend in the current quarter, and intends to pay quarterly cash divi...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p81",
+      "path": "GOOG 10-K 2025.pdf/p81",
+      "level": 1,
+      "summary": "The following tables set forth the computation of basic and diluted net income per share of Class A, Class B, and Class C stock (in millions, except per share amounts): Year Ended December 31, 2023 Class A Class B Class C Consolidated Basic net income per share: Numerator Allo...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p82",
+      "path": "GOOG 10-K 2025.pdf/p82",
+      "level": 1,
+      "summary": "Year Ended December 31, 2024 Class A Class B Class C Consolidated Basic net income per share: Numerator Allocation of distributed earnings (cash dividends paid) $ 3,509 $ 519 $ 3,335 $ 7,363 Allocation of undistributed earnings 44,085 6,520 42,150 92,755 Net income $ 47,594 $...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p83",
+      "path": "GOOG 10-K 2025.pdf/p83",
+      "level": 1,
+      "summary": "Year Ended December 31, 2025 Class A Class B Class C Consolidated Basic net income per share: Numerator Allocation of distributed earnings (cash dividends paid) $ 4,832 $ 703 $ 4,514 $ 10,049 Allocation of undistributed earnings 58,682 8,557 54,882 122,121 Net income $ 63,514...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p84",
+      "path": "GOOG 10-K 2025.pdf/p84",
+      "level": 1,
+      "summary": "Stock-Based Award Activities The following table summarizes the activities for unvested Alphabet RSUs, which include dividend equivalents awarded to holders of unvested stock, for the year ended December 31, 2025 (in millions, except per share amounts): Number of Shares Weight...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p85",
+      "path": "GOOG 10-K 2025.pdf/p85",
+      "level": 1,
+      "summary": "The reconciliation of federal statutory income tax rate to our effective income tax rate was as follows: Year Ended December 31, 2023 2024 2025 US federal statutory rate 18,001 21.0 % 25,161 21.0 % 33,353 21.0 % State and local income taxes, net of federal income tax effect(1)...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p86",
+      "path": "GOOG 10-K 2025.pdf/p86",
+      "level": 1,
+      "summary": "Deferred Income Taxes Deferred income taxes reflect the net effects of temporary differences between the carrying amounts of assets and liabilities for financial reporting purposes and the amounts used for income tax purposes. Significant components of our deferred tax assets...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p87",
+      "path": "GOOG 10-K 2025.pdf/p87",
+      "level": 1,
+      "summary": "Cash paid for income taxes, net of refunds, were as follows (in millions): Year Ended December 31, 2023 2024 2025 US federal $ 13,689 $ 19,921 $ 13,658 US state and local 1,224 2,697 2,919 Foreign: Brazil 1,264 1,101 1,368 Other 2,987 3,634 3,581 Total foreign 4,251 4,735 4,94...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p88",
+      "path": "GOOG 10-K 2025.pdf/p88",
+      "level": 1,
+      "summary": "• Other Bets is a combination of multiple operating segments that are not individually material. Revenues from Other Bets are generated primarily from the sale of autonomous transportation services and internet services. Revenues, certain costs, such as costs associated with c...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p89",
+      "path": "GOOG 10-K 2025.pdf/p89",
+      "level": 1,
+      "summary": "Google Services and Google Cloud employee compensation expenses include the costs associated with direct and allocated employees. Google Services and Google Cloud other costs and expenses primarily include direct costs, such as advertising and promotional activities , legal an...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p90",
+      "path": "GOOG 10-K 2025.pdf/p90",
+      "level": 1,
+      "summary": "ITEM 9. CHANGES IN AND DISAGREEMENTS WITH ACCOUNTANTS ON ACCOUNTING AND FINANCIAL DISCLOSURE None. ITEM 9A. CONTROLS AND PROCEDURES Evaluation of Disclosure Controls and Procedures Our management, with the participation of our chief executive officer and chief financial office...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p91",
+      "path": "GOOG 10-K 2025.pdf/p91",
+      "level": 1,
+      "summary": "Trading and actual sale transactions made pursuant to such trading arrangements will be disclosed publicly in Section 16 filings with the SEC in accordance with applicable securities laws, rules, and regulations. Required Disclosure Pursuant to Section 13(r) of the Exchange Ac...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p92",
+      "path": "GOOG 10-K 2025.pdf/p92",
+      "level": 1,
+      "summary": "PART III ITEM 10. DIRECTORS, EXECUTIVE OFFICERS, AND CORPORATE GOVERNANCE The information required by this item will be included under the caption \"Directors, Executive Officers, and Corporate Governance\" in our Proxy Statement for the 2026 Annual Meeting of Stockholders to be...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p93",
+      "path": "GOOG 10-K 2025.pdf/p93",
+      "level": 1,
+      "summary": "PART IV ITEM 15. EXHIBITS, FINANCIAL STATEMENT SCHEDULES We have filed the following documents as part of this Annual Report on Form 10-K: 1. Consolidated Financial Statements Reports of Independent Registered Public Accounting Firm 45 Financial Statements: Consolidated Balanc...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p94",
+      "path": "GOOG 10-K 2025.pdf/p94",
+      "level": 1,
+      "summary": "4.07 Transfer Restriction Agreement, dated October 2, 2015, between the Registrant and Eric E. Schmidt and certain of its affiliates Current Report on Form 8-K (File No. 001-37580) October 2, 2015 4.08 Class C Undertaking, dated October 2, 2015, executed by the Registrant Curr...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p95",
+      "path": "GOOG 10-K 2025.pdf/p95",
+      "level": 1,
+      "summary": "4.32 Form of Global Note representing the Registrant’s 4.375% notes due 2064 Current Report on Form 8-K (File No. 001-37580) November 6, 2025 4.33 Form of Global Note representing the Registrant’s floating rate notes due 2028 Current Report on Form 8-K (File No. 001-37580) Nov...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p96",
+      "path": "GOOG 10-K 2025.pdf/p96",
+      "level": 1,
+      "summary": "10.08.5 u Alphabet Inc. Amended and Restated 2021 Stock Plan – Form of Alphabet CEO Performance Stock Unit Agreement Quarterly Report on Form 10- Q (File No. 001-37580) April 26, 2024 10.08.6 u Alphabet Inc. Amended and Restated 2021 Stock Plan - Form of Alphabet 2022 Non- CEO...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p97",
+      "path": "GOOG 10-K 2025.pdf/p97",
+      "level": 1,
+      "summary": "_________________ u Indicates management compensatory plan, contract, or arrangement. * Filed herewith. ‡ Furnished herewith. ITEM 16. FORM 10-K SUMMARY None. Table of Contents Alphabet Inc. 96.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p98",
+      "path": "GOOG 10-K 2025.pdf/p98",
+      "level": 1,
+      "summary": "SIGNATURES Pursuant to the requirements of Section 13 or 15(d) of the Securities Exchange Act of 1934, the Registrant has duly caused this Annual Report on Form 10-K to be signed on its behalf by the undersigned, thereunto duly authorized. Date: February 4, 2026 ALPHABET INC....",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p99",
+      "path": "GOOG 10-K 2025.pdf/p99",
+      "level": 1,
+      "summary": "Signature Title Date /S/ SUNDAR PICHAI Chief Executive Officer and Director (Principal Executive Officer) February 4, 2026 Sundar Pichai /S/ ANAT ASHKENAZI Senior Vice President and Chief Financial Officer (Principal Financial Officer) February 4, 2026 Anat Ashkenazi /S/ AMIE...",
+      "chunk_count": 1,
       "children": []
     }
   ],

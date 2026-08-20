@@ -2,46 +2,173 @@
   "version": "1.0",
   "file_name": "Meta Q1 2026 Earnings Call Transcript.pdf",
   "stats": {
-    "total_chunks": 3,
+    "total_chunks": 20,
     "text_chunks": 0,
     "image_chunks": 0,
     "table_chunks": 0,
-    "page_chunks": 3,
-    "max_depth": 2
+    "page_chunks": 20,
+    "max_depth": 1
   },
   "sections": [
     {
-      "title": "Root",
-      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/Root",
+      "title": "p1",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p1",
       "level": 1,
-      "summary": "",
-      "chunk_count": 21,
-      "children": [
-        {
-          "title": "Kenneth Dorell, Director, Investor Relations",
-          "path": "Meta Q1 2026 Earnings Call Transcript.pdf/Root/Kenneth Dorell, Director, Investor Relations",
-          "level": 2,
-          "summary": "Kenneth Dorell, Director of Investor Relations, welcomes participants to Meta Platforms' first quarter 2026 earnings conference call. He introduces the speakers, Mark Zuckerberg (CEO) and Susan Li (CFO), and outlines the call's scope, including forward-looking statements, GAAP and non-GAAP financial measures, and where to find supporting materials like the press release and investor presentation. The section concludes with him handing over the call to Mark Zuckerberg.",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Mark Zuckerberg, CEO",
-          "path": "Meta Q1 2026 Earnings Call Transcript.pdf/Root/Mark Zuckerberg, CEO",
-          "level": 2,
-          "summary": "Mark Zuckerberg, CEO of Meta Platforms, Inc., discusses the company's strong performance in Q1 2026, highlighting over 3.5 billion daily active users across its family of apps. He details the release of the Muse family of AI models and the upgraded Meta AI assistant from Meta Superintelligence Labs. Zuckerberg outlines his vision for personal and business agents designed to amplify human capabilities rather than replace people, and mentions plans to integrate these models into recommendation systems for Facebook and Instagram. The section concludes with an update on infrastructure investments, including increased capex due to memory costs and the rollout of custom silicon developed with Broadcom alongside AMD and Nvidia chips.",
-          "chunk_count": 2,
-          "children": []
-        },
-        {
-          "title": "Susan Li, CFO",
-          "path": "Meta Q1 2026 Earnings Call Transcript.pdf/Root/Susan Li, CFO",
-          "level": 2,
-          "summary": "This section covers the financial results for Meta's first quarter. It details segment performance, including a 33% year-over-year increase in Family of Apps revenue to $55.9 billion and a slight decline in Reality Labs revenue to $402 million. Consolidated results show total revenue of $56.3 billion and net income of $26.8 billion. The CFO also discusses business performance drivers like content recommendations and monetization efficiency, highlighting growth on Instagram Reels and Facebook video time, as well as advancements in AI-powered ad tools and commerce initiatives.",
-          "chunk_count": 18,
-          "children": []
-        }
-      ]
+      "summary": "1 Meta Platforms, Inc. (META) First Quarter 2026 Results Conference Call April 29th, 2026 Kenneth Dorell, Director, Investor Relations Thank you. Good afternoon and welcome to Meta Platforms’ first quarter 2026 earnings conference call. Joining me today to discuss our results...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p2",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p2",
+      "level": 1,
+      "summary": "2 personal and business agents to billions of people around the world. Our goal is not just to deliver Meta AI as an assistant, but to deliver agents that can understand your goals and then work day and night to help you achieve them. My view of AI is very different from many...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p3",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p3",
+      "level": 1,
+      "summary": "3 Talking about building physical goods at scale, our AI glasses continue to perform well with the number of people using them daily tripling year-over-year. This continues to be one of the fastest- growing categories of consumer electronics ever. We released Ray-Ban Meta Opti...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p4",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p4",
+      "level": 1,
+      "summary": "4 In Q1, the total number of ad impressions served across our services increased 19%. Impression growth was healthy across all regions, driven primarily by growth in engagement and users, as well as ad load optimizations. The global average price per ad increased 12% year-over...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p5",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p5",
+      "level": 1,
+      "summary": "5 Turning now to the business performance. There are two primary factors that drive our revenue performance: our ability to deliver engaging experiences for our community, and our effectiveness at monetizing that engagement over time. On the first, we’re continuing to see sign...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p6",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p6",
+      "level": 1,
+      "summary": "6 engagement gains that accelerated week-over-week with each new iteration of the model. We’re seeing similar gains within Meta AI following the broad roll out of our new model, with double -digit percent increases in Meta AI sessions per user. Muse Spark is now powering Meta...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p7",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p7",
+      "level": 1,
+      "summary": "7 that to AI so businesses and agencies can analyze and optimize campaigns with the tools they’re already using. Usage of our ad creative tools is also scaling, with more than 8 million advertisers using at least one of our gen AI ad creative tools and particularly strong adop...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p8",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p8",
+      "level": 1,
+      "summary": "8 infrastructure purchase agreements drove a $107 billion step up in our contractual commitments this quarter. Our investments will support our training needs for future models, and most importantly, provide us the inference capacity necessary to deliver personal and business...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p9",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p9",
+      "level": 1,
+      "summary": "9 mute your computer speakers. And your first question comes from Brian Nowak with Morgan Stanley. Please go ahead. Brian Nowak: Thanks for taking my question. Mark, I wanted to ask you just about the level of investment you’re making and sort of the signposts you’re watching...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p10",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p10",
+      "level": 1,
+      "summary": "10 And then we’ll also ramp up monetization over that period of time as well. So I think that those are the set of things that I look at. I think for the kind of specific financial questions, I think Susan can jump in if there’s anything more to add. Operator: Your next questi...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p11",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p11",
+      "level": 1,
+      "summary": "11 building the businesses around them and decreasing the costs. And this is kind of how we’ve done everything over the last 20 years of running the company, and that is basically the plan. Susan Li: Mark, on your second question, we aren’t providing a specific outlook for 202...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p12",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p12",
+      "level": 1,
+      "summary": "12 more agentic capabilities, enabling agents to help people be more productive, but also agents for businesses and enabling, frankly, those agents to interact with each other and build what we hope will be a thriving commerce ecosystem on our platform. So I would say some of...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p13",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p13",
+      "level": 1,
+      "summary": "13 We’re very focused on leveraging AI tools to substantially increase our productivity, and we’re seeing that reflected in the accelerating output from our engineers. And we’re generally approaching -- we’re approaching this with a bias toward wanting to use these tools to bu...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p14",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p14",
+      "level": 1,
+      "summary": "14 and because I think some of the stuff we are more focused on quality than hitting a specific date. I mean on the research side, this is research, right? We are trying novel things. You don’t exactly know when they’re going to land. And on the product side, I think we care a...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p15",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p15",
+      "level": 1,
+      "summary": "15 talking about is delivering personal superintelligence for billions of people around the world. So how do you make a version of that experience that is a lot more polished and dialed and easy and that has all the infrastructure basically done for people already and that jus...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p16",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p16",
+      "level": 1,
+      "summary": "16 I mean one is this kind of agents version vision of what we’re doing. The other is that self-improvement is really important because you can’t build a leading AI product if you don’t have leading models. So -- and you’re not going to have leading models in the future if you...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p17",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p17",
+      "level": 1,
+      "summary": "17 Each month, each generation of models, they just have more capabilities and can do more things and people absorb it and are able to get more superpowers and it’s awesome. It’s like the most exciting time in the industry. So I think of the agents as the product vehicle for d...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p18",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p18",
+      "level": 1,
+      "summary": "18 you just talk at all about the strategic importance and the role in developing agentic products for Meta and then just current status around the tech and the deal. Susan Li: I’ll take that question. On Manus, we’re still working through the details. So we don’t have an upda...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p19",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p19",
+      "level": 1,
+      "summary": "19 And then the second, please, maybe, Susan, can you talk a little bit about -- based on your model improvements and the content recommendations, where -- how much visibility do you think you have to kind of the growth trajectory on the core business? You continue to grow at...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p20",
+      "path": "Meta Q1 2026 Earnings Call Transcript.pdf/p20",
+      "level": 1,
+      "summary": "20 But I don’t hear any other labs out there talking about how they’re building an AI that’s really good at shopping. And I think that the reason for that is like not because shopping is the most important thing by itself, but because like empowering people to do the things th...",
+      "chunk_count": 1,
+      "children": []
     }
   ],
   "resources": {

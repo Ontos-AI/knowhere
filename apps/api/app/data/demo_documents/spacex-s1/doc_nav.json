@@ -2,20 +2,3268 @@
   "version": "1.0",
   "file_name": "spacex-s1.pdf",
   "stats": {
-    "total_chunks": 227,
+    "total_chunks": 633,
     "text_chunks": 0,
     "image_chunks": 94,
     "table_chunks": 132,
-    "page_chunks": 1,
+    "page_chunks": 407,
     "max_depth": 1
   },
   "sections": [
     {
-      "title": "Root",
-      "path": "spacex-s1.pdf/Root",
+      "title": "p1",
+      "path": "spacex-s1.pdf/p1",
       "level": 1,
-      "summary": "This section, titled 'Root', serves as the introductory part of a registration statement and prospectus for Space Exploration Technologies Corp. (SpaceX). It details the company's initial public offering (IPO) of Class A common stock, including its ticker symbol ('SPCX'), the two classes of stock structure (Class A and Class B), and the significant voting control held by founder Elon Musk. The section also provides key business metrics and historical milestones for SpaceX's space launch operations and Starlink connectivity services.",
-      "chunk_count": 407,
+      "summary": "S-1 1 spaceexplorationtechnologi.htm S-1 As filed with the U.S. Securities and Exchange Commission on May 20, 2026 Registration No. 333- UNITED STATES SECURITIES AND EXCHANGE COMMISSION WASHINGTON, DC 20549 FORM S-1 REGISTRATION STATEMENT UNDER THE SECURITIES ACT OF 1933 Space...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p2",
+      "path": "spacex-s1.pdf/p2",
+      "level": 1,
+      "summary": "Shares Space Exploration Technologies Corp. Class A Common Stock This is the initial public offering of shares of Class A common stock, par value $0.001 per share, of Space Exploration Technologies Corp., a Texas corporation. We are offering shares of our Class A common stock....",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p3",
+      "path": "spacex-s1.pdf/p3",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p4",
+      "path": "spacex-s1.pdf/p4",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p5",
+      "path": "spacex-s1.pdf/p5",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p6",
+      "path": "spacex-s1.pdf/p6",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p7",
+      "path": "spacex-s1.pdf/p7",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p8",
+      "path": "spacex-s1.pdf/p8",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p9",
+      "path": "spacex-s1.pdf/p9",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p10",
+      "path": "spacex-s1.pdf/p10",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p11",
+      "path": "spacex-s1.pdf/p11",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p12",
+      "path": "spacex-s1.pdf/p12",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p13",
+      "path": "spacex-s1.pdf/p13",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p14",
+      "path": "spacex-s1.pdf/p14",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p15",
+      "path": "spacex-s1.pdf/p15",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p16",
+      "path": "spacex-s1.pdf/p16",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p17",
+      "path": "spacex-s1.pdf/p17",
+      "level": 1,
+      "summary": "Table of Contents TABLE OF CONTENTS Page GLOSSARY OF TERMS ................................................................................................................................. iv PROSPECTUS SUMMARY .....................................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p18",
+      "path": "spacex-s1.pdf/p18",
+      "level": 1,
+      "summary": "ii Table of Contents General Information Except as otherwise indicated or required by the context, all references to “SpaceX,” the “Company,” “we,” “our” and “us” or similar terms refer to Space Exploration Technologies Corp. and its consolidated subsidiaries. For the definiti...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p19",
+      "path": "spacex-s1.pdf/p19",
+      "level": 1,
+      "summary": "iii Table of Contents Inference, Jensen Math, Feynman, dated March 18, 2025, by SemiAnalysis; (xxix) NVIDIA Blackwell Ultra Datasheet, dated February 16, 2026, by SemiAnalysis; (xxx) H100 Rental Price Over Time (2023–2025): A Complete Market Analysis, dated December 21, 2025,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p20",
+      "path": "spacex-s1.pdf/p20",
+      "level": 1,
+      "summary": "iv Table of Contents GLOSSARY OF TERMS The terms and abbreviations defined in this section are used throughout this prospectus: • “AI” or “artificial intelligence” refers to advanced computational technologies and systems enabling machines to learn, comprehend reality, solve c...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p21",
+      "path": "spacex-s1.pdf/p21",
+      "level": 1,
+      "summary": "v Table of Contents • “daily posts” on X and Grok refers to the aggregate volume of original posts, replies, reposts, quotes and media shared daily by users on the X platform, and the real-time interactions, analysis and generative capabilities provided to a user by Grok. This...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p22",
+      "path": "spacex-s1.pdf/p22",
+      "level": 1,
+      "summary": "vi Table of Contents • “Imagine” refers to our image and video generation system. • “inference” refers to the process by which a trained artificial intelligence model generates outputs (such as text, images, or predictions) from new input data. • “International Docking System...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p23",
+      "path": "spacex-s1.pdf/p23",
+      "level": 1,
+      "summary": "vii Table of Contents when measuring MAU. Furthermore, only users who have registered for an X or Grok account are included. While we believe our methodologies provide a reasonable approximation of MAU based on the number of unique users, they may not fully capture all instanc...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p24",
+      "path": "spacex-s1.pdf/p24",
+      "level": 1,
+      "summary": "viii Table of Contents • “propellant” refers to the chemical substance or combination of substances consumed by a rocket engine to produce thrust by generating high-velocity exhaust gases. • “propulsive landing” refers to the process of landing a rocket or spacecraft using its...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p25",
+      "path": "spacex-s1.pdf/p25",
+      "level": 1,
+      "summary": "ix Table of Contents • “Starlink Consumer Broadband” refers to a category of Starlink active users encompassing both individual residential users (households and personal use) and small-to-medium-sized businesses. • “Starlink Fixed Site” refers to a category of Starlink active...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p26",
+      "path": "spacex-s1.pdf/p26",
+      "level": 1,
+      "summary": "x Table of Contents • “throughput” refers to the rate at which data or material can be processed or transferred, often referring to network capacity or production output. • “tokens” refers to the basic units of text or images processed and generated by an AI model, used to mea...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p27",
+      "path": "spacex-s1.pdf/p27",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p28",
+      "path": "spacex-s1.pdf/p28",
+      "level": 1,
+      "summary": "1 Table of Contents PROSPECTUS SUMMARY This summary highlights information contained elsewhere in this prospectus. This summary is not complete and does not contain all of the information you should consider before investing in our Class A common stock. You should read this en...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p29",
+      "path": "spacex-s1.pdf/p29",
+      "level": 1,
+      "summary": "2 Table of Contents We believe that space represents the largest economic frontier in human history. Connectivity infrastructure in space is designed to help everyone on Earth have access to education, healthcare, entertainment, and communications, and to enable people to over...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p30",
+      "path": "spacex-s1.pdf/p30",
+      "level": 1,
+      "summary": "3 Table of Contents constellations—with potentially millions of satellites—for orbital data centers. We believe these AI compute satellites in Sun-synchronous orbit will be able to handle energy-intensive AI workloads, such as inference demand, at far greater scale and efficie...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p31",
+      "path": "spacex-s1.pdf/p31",
+      "level": 1,
+      "summary": "4 Table of Contents them a reason to look ahead with excitement, with the prospect that we are entering an age of abundance with an endlessly prosperous and exciting future. For decades, a reality where humanity travels between the planets and the stars has felt tantalizingly...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p32",
+      "path": "spacex-s1.pdf/p32",
+      "level": 1,
+      "summary": "5 Table of Contents As of March 31, 2026, SpaceX had launched a total mass to orbit of approximately 7,400 metric tons with an over 99% mission success rate across our Falcon rockets. We have completed approximately 650 orbital space launches, and over 540 of those launches we...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p33",
+      "path": "spacex-s1.pdf/p33",
+      "level": 1,
+      "summary": "6 Table of Contents Our Leading Capabilities Across Space, Connectivity, and AI Space. While our launch capabilities support our other businesses, such as Starlink Consumer Broadband and Starlink Mobile, we also sell launches to third-party customers. We offer launch services...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p34",
+      "path": "spacex-s1.pdf/p34",
+      "level": 1,
+      "summary": "7 Table of Contents chip manufacturing, data center infrastructure, and power generation; the future of AI will be determined by the control of the physical stack. • Truth-Seeking Frontier Model. Since launching Grok-1 in November 2023, we have released four major versions and...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p35",
+      "path": "spacex-s1.pdf/p35",
+      "level": 1,
+      "summary": "8 Table of Contents • The first to manufacture consumer-grade phased-array user terminals at scale (2022); • The first to deploy a large-scale LEO satellite-to-mobile constellation (2025); • The first to build a gigawatt-scale AI training cluster and largest coherent supercomp...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p36",
+      "path": "spacex-s1.pdf/p36",
+      "level": 1,
+      "summary": "9 Table of Contents We Believe Orbital AI Can Accelerate Time to Power and Reduce Token Costs. The Sun contains approximately 99.8% of the solar system’s energy and offers what we believe is the only truly scalable solution to the challenge of accelerating demand for compute r...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p37",
+      "path": "spacex-s1.pdf/p37",
+      "level": 1,
+      "summary": "10 Table of Contents have not yet been determined. With this internal manufacturing capability, we plan to alleviate potential future chip shortages at SpaceX, especially as we develop orbital AI at scale, and design chips that are optimized for the space environment. • We can...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p38",
+      "path": "spacex-s1.pdf/p38",
+      "level": 1,
+      "summary": "11 Table of Contents Our Market Opportunity We believe we have identified the largest actionable total addressable market (“TAM”) in human history. We estimate that our quantifiable TAM is $28.5 trillion, consisting of $370 billion in Space from space-enabled solutions; $1.6 t...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p39",
+      "path": "spacex-s1.pdf/p39",
+      "level": 1,
+      "summary": "12 Table of Contents annual compute power to orbit, the establishment of a lunar economy and interplanetary industrialization, and the launch cadence required to achieve these goals may be difficult or impossible to determine. Our growth strategy may take longer to execute tha...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p40",
+      "path": "spacex-s1.pdf/p40",
+      "level": 1,
+      "summary": "13 Table of Contents consider software development as a strategically important use case for AI given its combination of high-quality structured data, rapid feedback cycles and frequent, mission-critical usage. AI-assisted coding workflows generate context-rich, verifiable dat...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p41",
+      "path": "spacex-s1.pdf/p41",
+      "level": 1,
+      "summary": "14 Table of Contents the outcome of matters requiring shareholder approval, including election of all our directors, and to control our business and affairs. Our Controlled Company Status We will be a controlled company as of the completion of this offering under Nasdaq and Na...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p42",
+      "path": "spacex-s1.pdf/p42",
+      "level": 1,
+      "summary": "15 Table of Contents Summary of Risk Factors An investment in our Class A common stock involves risks and uncertainties. The following is a summary of the principal factors that make an investment in our Class A common stock speculative or risky, all of which are more fully de...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p43",
+      "path": "spacex-s1.pdf/p43",
+      "level": 1,
+      "summary": "16 Table of Contents services, and any supply shortages or disruptions or failures in their performance could have a material adverse effect on our business, financial condition, results of operations, and future prospects. • Our ability to scale our AI products relies on our...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p44",
+      "path": "spacex-s1.pdf/p44",
+      "level": 1,
+      "summary": "17 Table of Contents The Offering Issuer ...................................................................... Space Exploration Technologies Corp. Class A common stock offered by us ..................... shares (or shares if the underwriters exercise their option to purchase...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p45",
+      "path": "spacex-s1.pdf/p45",
+      "level": 1,
+      "summary": "18 Table of Contents Dividend policy ...................................................... We do not anticipate declaring or paying any cash dividends to holders of our common stock in the foreseeable future. We currently intend to retain future earnings, if any, to finance t...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p46",
+      "path": "spacex-s1.pdf/p46",
+      "level": 1,
+      "summary": "19 Table of Contents • shares of Class A common stock issuable upon the exercise of outstanding stock options granted under the Equity Plans (as defined below) granted after March 31, 2026 with a weighted-average exercise price of $ per share; • shares of Class A common stock...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p47",
+      "path": "spacex-s1.pdf/p47",
+      "level": 1,
+      "summary": "20 Table of Contents • an initial public offering price of $ per share of Class A common stock (the midpoint of the price range set forth on the cover of this prospectus); • that the underwriters do not exercise their option to purchase additional shares of Class A common stoc...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p48",
+      "path": "spacex-s1.pdf/p48",
+      "level": 1,
+      "summary": "21 Table of Contents Summary Historical Consolidated Financial and Operating Data The following table sets forth the summary historical consolidated financial and operating data for the periods and as of the dates presented. The summary historical consolidated financial data a...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p49",
+      "path": "spacex-s1.pdf/p49",
+      "level": 1,
+      "summary": "22 Table of Contents The following table sets forth the computation of unaudited pro forma basic and diluted net loss per share of common stock attributable to common shareholders for the period presented: (in millions, except per share data) Three Months EndedMarch 31, 2026 Y...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p50",
+      "path": "spacex-s1.pdf/p50",
+      "level": 1,
+      "summary": "23 Table of Contents Balance Sheet Data: March 31, December 31, 2026 2025 2024 (in millions) (unaudited) Cash and cash equivalents .............................................................. $ 15,852 $ 24,747 $ 11,385 Total current assets ......................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p51",
+      "path": "spacex-s1.pdf/p51",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p52",
+      "path": "spacex-s1.pdf/p52",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p53",
+      "path": "spacex-s1.pdf/p53",
+      "level": 1,
+      "summary": "26 Table of Contents RISK FACTORS Investing in our Class A common stock involves a high degree of risk. You should carefully consider the risks and uncertainties described below, together with all of the other information contained in this prospectus, including our consolidate...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p54",
+      "path": "spacex-s1.pdf/p54",
+      "level": 1,
+      "summary": "27 Table of Contents Our ability to execute our growth strategy is highly dependent on Starship. If we are unable to achieve the commercial development, anticipated performance, launch cadence, or cost efficiencies associated with Starship within expected timeframes, our abili...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p55",
+      "path": "spacex-s1.pdf/p55",
+      "level": 1,
+      "summary": "28 Table of Contents forced to delay or cancel planned launches, which could cause missed customer commitments, increased costs, and underutilization of our launch resources. Obtaining a launch license involves rigorous safety and environmental reviews, and unforeseen issues i...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p56",
+      "path": "spacex-s1.pdf/p56",
+      "level": 1,
+      "summary": "29 Table of Contents providers – for example, mandates to partner with a local entity, to host certain infrastructure within its borders, or to adhere to specific standards relating to data privacy and cybersecurity (including data localization) and, in some cases, regulators...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p57",
+      "path": "spacex-s1.pdf/p57",
+      "level": 1,
+      "summary": "30 Table of Contents regulations relating to the responsible use of AI, public confidence in AI could be undermined, adoption of our AI products and services could slow, and we may suffer reputational or financial harm. Certain of our AI products, including Grok, offer feature...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p58",
+      "path": "spacex-s1.pdf/p58",
+      "level": 1,
+      "summary": "31 Table of Contents personal data. The validity of various data transfer mechanisms we currently rely upon remains subject to legal, regulatory and political developments globally, which may require us to adapt our existing arrangements. Evolving data protection laws and regu...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p59",
+      "path": "spacex-s1.pdf/p59",
+      "level": 1,
+      "summary": "32 Table of Contents and cybersecurity laws and regulations, may subject us to enforcement actions, investigations, litigation, reputational harm or requirements to modify or cease our business practices. Our business strategy depends on successfully designing, developing, and...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p60",
+      "path": "spacex-s1.pdf/p60",
+      "level": 1,
+      "summary": "33 Table of Contents materially reduce a satellite’s operational life, impair performance, increase fuel consumption, or render the satellite unusable. Our satellites, launch vehicles, and other space-related technologies operate, and in the case of orbital AI compute, will op...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p61",
+      "path": "spacex-s1.pdf/p61",
+      "level": 1,
+      "summary": "34 Table of Contents environmental effects of emissions and other byproducts from rocket launches in Earth’s upper atmosphere. Additional regulation in this area could adversely impact our business, financial condition, results of operations, and future prospects. Furthermore,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p62",
+      "path": "spacex-s1.pdf/p62",
+      "level": 1,
+      "summary": "35 Table of Contents Manufacturing, testing and launching rockets, satellites, and spacecraft, including our efforts to reuse rockets and spacecraft, involve inherent risks that could result in human injury or death, property damage and environmental damage or other adverse en...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p63",
+      "path": "spacex-s1.pdf/p63",
+      "level": 1,
+      "summary": "36 Table of Contents Our ability to scale our AI products relies on our terrestrial and orbital AI compute infrastructure, which depends on the availability of power, AI processors, and other critical components, telecommunications services, and any shortages or disruptions th...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p64",
+      "path": "spacex-s1.pdf/p64",
+      "level": 1,
+      "summary": "37 Table of Contents We face intense competition in the markets in which we operate, and while we have historically outperformed certain competitors in our Space and Connectivity segments, we may not continue to do so, which could adversely affect our business, financial condi...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p65",
+      "path": "spacex-s1.pdf/p65",
+      "level": 1,
+      "summary": "38 Table of Contents volatility in the market price of their stock have been subject to securities litigation, including class action litigation. Such matters could be costly, time-consuming, and divert management’s attention from executing our strategic initiatives and operat...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p66",
+      "path": "spacex-s1.pdf/p66",
+      "level": 1,
+      "summary": "39 Table of Contents cybersecurity laws and regulations, disruptions in, or unauthorized access to, our customers’ computer systems, increased costs, loss of revenue, loss of trust, litigation or regulatory penalties. As the scale, frequency, sophistication, or intensity of cy...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p67",
+      "path": "spacex-s1.pdf/p67",
+      "level": 1,
+      "summary": "40 Table of Contents operational flexibility and make it more difficult for us to obtain additional capital and to pursue business opportunities. Our ability to access the capital markets or secure other sources of financing may be adversely affected by factors beyond our cont...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p68",
+      "path": "spacex-s1.pdf/p68",
+      "level": 1,
+      "summary": "41 Table of Contents availability, and the success of our partnerships with mobile carriers. In addition, the X platform faces intense competition from social media, messaging and media companies and traditional media outlets, such as television, radio and print, for advertisi...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p69",
+      "path": "spacex-s1.pdf/p69",
+      "level": 1,
+      "summary": "42 Table of Contents Many of our initiatives, including those to develop orbital AI compute at scale, manufacture AI chips at scale, establish a lunar economy, develop human augmentation systems, and transport humans and cargo to the Moon and Mars, involve significant technica...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p70",
+      "path": "spacex-s1.pdf/p70",
+      "level": 1,
+      "summary": "43 Table of Contents The global nature of our business poses risks with respect to unstable, malicious or arbitrary legal regimes and authorities. We, particularly through Starlink, maintain global operations. As a result, we may face risks that our operations will be subject...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p71",
+      "path": "spacex-s1.pdf/p71",
+      "level": 1,
+      "summary": "44 Table of Contents affect our sales in the United States and internationally. We and our facilities could also be targeted by foreign adversaries and non-state actors due to such perception. Government customers may also subject our contracts to rigorous audits and investiga...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p72",
+      "path": "spacex-s1.pdf/p72",
+      "level": 1,
+      "summary": "45 Table of Contents environment in the United States is highly polarized, and shifts in the composition of the U.S. Congress or changes in the presidential administration can result in significant changes in government spending priorities, regulatory posture, and the allocati...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p73",
+      "path": "spacex-s1.pdf/p73",
+      "level": 1,
+      "summary": "46 Table of Contents drive such adoption. There can be no assurance that these modifications will be adopted on our preferred timeline, or at all. Internationally, we face similar constraints until handset manufacturers implement hardware and software modifications to support...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p74",
+      "path": "spacex-s1.pdf/p74",
+      "level": 1,
+      "summary": "47 Table of Contents the practices of third parties who may utilize our AI technologies. As such, third parties have in the past used, and may in the future use, such AI technologies for improper purposes, including through the dissemination of illegal, inaccurate, defamatory...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p75",
+      "path": "spacex-s1.pdf/p75",
+      "level": 1,
+      "summary": "48 Table of Contents utilize power generation sources that are required for the operation of these data centers and would adversely affect our AI business. We cannot predict with certainty how future legislative or regulatory developments will affect our business, but complian...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p76",
+      "path": "spacex-s1.pdf/p76",
+      "level": 1,
+      "summary": "49 Table of Contents plaintiffs may file infringement or other litigation relating to the training or development of our AI models. In addition, we are currently subject to, and in the future may be subject to claims from various “non-practicing entities” or other companies th...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p77",
+      "path": "spacex-s1.pdf/p77",
+      "level": 1,
+      "summary": "50 Table of Contents rights. Despite our efforts, we may not be able to prevent unauthorized use, copy, reverse engineering, misappropriation of our technology or intellectual property rights to create technology that compete with ours, or independent development of similar te...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p78",
+      "path": "spacex-s1.pdf/p78",
+      "level": 1,
+      "summary": "51 Table of Contents inoperability of satellites or related infrastructure may require us to accelerate depreciation or recognize impairment charges, thereby adversely affecting our business, financial condition, results of operations, and future prospects. Even minor anomalie...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p79",
+      "path": "spacex-s1.pdf/p79",
+      "level": 1,
+      "summary": "52 Table of Contents include open source software, and it is possible that certain outputs of our AI products may be subject to open source license restrictions or obligations. The terms of many open source licenses are ambiguous and have not been interpreted by United States...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p80",
+      "path": "spacex-s1.pdf/p80",
+      "level": 1,
+      "summary": "53 Table of Contents banking, and other financial services initiatives, which may subject us to many of the foregoing risks and additional licensing requirements. Our efforts to support the creation of permanent installations on the Moon and Mars depend on the successful devel...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p81",
+      "path": "spacex-s1.pdf/p81",
+      "level": 1,
+      "summary": "54 Table of Contents The artificial intelligence industry is highly dynamic and rapidly evolving. We face significant uncertainty relating to technological developments, changing customer preferences, evolving regulatory and legal frameworks, increasing public scrutiny, and in...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p82",
+      "path": "spacex-s1.pdf/p82",
+      "level": 1,
+      "summary": "55 Table of Contents unable to execute on our growth strategy and as a result of the other risks described in this prospectus. Furthermore, if we fail to maintain or increase our revenue to offset increases in our operating expenses or manage our costs as we invest in our busi...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p83",
+      "path": "spacex-s1.pdf/p83",
+      "level": 1,
+      "summary": "56 Table of Contents remediate in time to meet the deadline imposed by the Sarbanes-Oxley Act for compliance with the requirements of Section 404. In addition, we may encounter problems or delays in completing the remediation of any deficiencies identified by our independent r...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p84",
+      "path": "spacex-s1.pdf/p84",
+      "level": 1,
+      "summary": "57 Table of Contents Certain of our directors and key employees may have conflicts of interest because they are also employees or directors of affiliates of Mr. Musk or other large shareholders. The resolution of these conflicts of interest may not be in our or your best inter...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p85",
+      "path": "spacex-s1.pdf/p85",
+      "level": 1,
+      "summary": "58 Table of Contents A significant reduction by Mr. Musk or other existing shareholders of their ownership interest in us could adversely affect us. We believe that Mr. Musk’s substantial ownership interest in us provides him with an economic incentive to assist us to be succe...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p86",
+      "path": "spacex-s1.pdf/p86",
+      "level": 1,
+      "summary": "59 Table of Contents Nasdaq and Nasdaq Texas. In the event that we cease to be a “controlled company” and our shares continue to be listed on Nasdaq and Nasdaq Texas, we will be required to comply with all of the applicable governance requirements within the applicable transit...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p87",
+      "path": "spacex-s1.pdf/p87",
+      "level": 1,
+      "summary": "60 Table of Contents If Mr. Musk retains a significant portion of his holdings of Class B common stock for an extended period of time, he could continue to control the election and removal of a majority of our board. However, other persons will also hold shares of Class B comm...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p88",
+      "path": "spacex-s1.pdf/p88",
+      "level": 1,
+      "summary": "61 Table of Contents immediately upon qualifying as a “nationally listed corporation.” As a result, except with respect to director nominations and procedural resolutions ancillary to the conduct of a shareholders’ meeting, a shareholder or group of shareholders seeking to sub...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p89",
+      "path": "spacex-s1.pdf/p89",
+      "level": 1,
+      "summary": "62 Table of Contents under the Exchange Act (or the rules and regulations thereunder) in a court other than the Business Court, that court could deny a motion to transfer the action to the Business Court pursuant to the Forum Selection Bylaw. Accordingly, the bylaws provide th...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p90",
+      "path": "spacex-s1.pdf/p90",
+      "level": 1,
+      "summary": "63 Table of Contents such actions, including in other jurisdictions, which could adversely affect our business, financial condition, or results of operations.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p91",
+      "path": "spacex-s1.pdf/p91",
+      "level": 1,
+      "summary": "64 Table of Contents CAUTIONARY STATEMENT REGARDING FORWARD-LOOKING STATEMENTS This prospectus contains forward-looking statements. Forward-looking statements include those that express a belief, expectation, or intention, as well as those that are not statements of historical...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p92",
+      "path": "spacex-s1.pdf/p92",
+      "level": 1,
+      "summary": "65 Table of Contents • general economic conditions. These forward-looking statements may be accompanied by words such as “anticipate,” “believe,” “estimate,” “expect,” “intend,” “may,” “outlook,” “plan,” “potential,” “predict,” “project,” “will,” “should,” “could,” “would,” “l...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p93",
+      "path": "spacex-s1.pdf/p93",
+      "level": 1,
+      "summary": "66 Table of Contents USE OF PROCEEDS We expect to receive approximately $ of net proceeds from this offering (or $ if the underwriters exercise their option to purchase additional shares of Class A common stock in full), based upon the assumed initial public offering price of...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p94",
+      "path": "spacex-s1.pdf/p94",
+      "level": 1,
+      "summary": "67 Table of Contents DIVIDEND POLICY We do not anticipate declaring or paying any cash dividends to holders of our common stock in the foreseeable future. We currently intend to retain future earnings, if any, to finance the growth of our business. Our future dividend policy i...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p95",
+      "path": "spacex-s1.pdf/p95",
+      "level": 1,
+      "summary": "68 Table of Contents CAPITALIZATION The following table sets forth our cash and cash equivalents and capitalization as of March 31, 2026: • on an actual basis; • on a pro forma basis, giving effect to (i) the Preferred Conversion as if such conversion had occurred on March 31,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p96",
+      "path": "spacex-s1.pdf/p96",
+      "level": 1,
+      "summary": "69 Table of Contents Preferred stock, par value $0.001; no shares issued and outstanding, actual; 2,400,000,000 shares authorized, no shares issued or outstanding, pro forma and pro forma as adjusted ................................................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p97",
+      "path": "spacex-s1.pdf/p97",
+      "level": 1,
+      "summary": "70 Table of Contents DILUTION Purchasers of the Class A common stock in this offering will experience immediate and substantial dilution in the net tangible book value per share of the Class A common stock for accounting purposes. Our net tangible book value as of March 31, 20...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p98",
+      "path": "spacex-s1.pdf/p98",
+      "level": 1,
+      "summary": "71 Table of Contents consideration paid by all shareholders by $ million, assuming that the assumed initial public offering price remains the same and after deducting estimated underwriting discounts and commissions and estimated offering expenses payable by us.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p99",
+      "path": "spacex-s1.pdf/p99",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p100",
+      "path": "spacex-s1.pdf/p100",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p101",
+      "path": "spacex-s1.pdf/p101",
+      "level": 1,
+      "summary": "74 Table of Contents MANAGEMENT’S DISCUSSION AND ANALYSIS OF FINANCIAL CONDITION AND RESULTS OF OPERATIONS The following discussion and analysis of our financial condition and results of operations should be read in conjunction with our audited consolidated financial statement...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p102",
+      "path": "spacex-s1.pdf/p102",
+      "level": 1,
+      "summary": "75 Table of Contents Earth. Since 2023, we have launched more than 80% of mass to orbit for the world each year with an over 99% mission success rate with Falcon rockets. We also operate a high-speed, low-latency global broadband data and communications network powered by appr...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p103",
+      "path": "spacex-s1.pdf/p103",
+      "level": 1,
+      "summary": "76 Table of Contents version of Falcon Heavy in 2018 further reduced this cost to approximately $1,400 per kilogram, a reduction of approximately 92% compared to the historical average cost. With the future deployment of Starship, which is designed to be the world’s first full...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p104",
+      "path": "spacex-s1.pdf/p104",
+      "level": 1,
+      "summary": "77 Table of Contents constellation. In February 2026, we acquired xAI, the first company to build a gigawatt-scale AI training cluster and largest coherent supercomputer. The graphic below illustrates key milestones for our business.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p105",
+      "path": "spacex-s1.pdf/p105",
+      "level": 1,
+      "summary": "78 Table of Contents Our Repeatable Business Model Our business model is built on a repeatable, engineering-driven framework that combines our unparalleled launch capabilities, extreme vertical integration, rapid iteration, and disciplined capital investment to create durable,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p106",
+      "path": "spacex-s1.pdf/p106",
+      "level": 1,
+      "summary": "79 Table of Contents Our financial results reflect the strength of our operating model and our ability to create and scale multiple new businesses: • For the three months ended March 31, 2026, we generated revenue on a consolidated basis of $4,694 million, loss from operations...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p107",
+      "path": "spacex-s1.pdf/p107",
+      "level": 1,
+      "summary": "80 Table of Contents Falcon 9 First Stage Booster Landing As of March 31, 2026, SpaceX had launched a total mass to orbit of approximately 7,400 metric tons with an over 99% mission success rate across our Falcon rockets. We have completed approximately 650 orbital space launc...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p108",
+      "path": "spacex-s1.pdf/p108",
+      "level": 1,
+      "summary": "81 Table of Contents significant amount of launch capacity to our Connectivity segment, and expect to allocate a significant amount to our AI segment in the future. Our Space segment revenue only reflects customer launches and other customer activities. As a result, notwithsta...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p109",
+      "path": "spacex-s1.pdf/p109",
+      "level": 1,
+      "summary": "82 Table of Contents hospitals, aircraft, cruise ships, trains, and hotels. Our enterprise customers include companies such as United Airlines, Carnival, Maersk, and John Deere, among others. We also serve a broad fixed‐site customer base across industries such as retail and f...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p110",
+      "path": "spacex-s1.pdf/p110",
+      "level": 1,
+      "summary": "83 Table of Contents human cognitive capabilities can be replicated and scaled at machine speeds, profoundly augmenting human productivity. Once an AGI system exists, its true value derives from the ability to create limitless duplicates of human-like intelligence, necessitati...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p111",
+      "path": "spacex-s1.pdf/p111",
+      "level": 1,
+      "summary": "84 Table of Contents (April 2026). Building on this trajectory, we expect to continue scaling Grok through subsequent generations. Ongoing training of next‐generation models is expected to scale toward multiple trillions of parameters, which could represent a step change in re...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p112",
+      "path": "spacex-s1.pdf/p112",
+      "level": 1,
+      "summary": "85 Table of Contents Adjusted EBITDA from our Space segment, along with additional equity capital that we raised externally, creating a segment that generates predictable and recurring revenue from consumer, enterprise, and government customers. We continue to invest meaningfu...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p113",
+      "path": "spacex-s1.pdf/p113",
+      "level": 1,
+      "summary": "86 Table of Contents Launches: Launches are a key measure of our operational scale, which in turn supports our revenue growth and mission to expand humanity’s presence in space. Launches in a period represent the sum of all successful orbital and flight tests across our rocket...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p114",
+      "path": "spacex-s1.pdf/p114",
+      "level": 1,
+      "summary": "87 Table of Contents amount to our AI segment in the future. Our Space segment revenue only reflects our customer launches and customer activities. __________________ (1) With respect to Falcon launches, the number of launches for the years ended December 31, 2023, 2024, and 2...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p115",
+      "path": "spacex-s1.pdf/p115",
+      "level": 1,
+      "summary": "88 Table of Contents Subscribers totaled approximately 10.3 million and 5.0 million, up 105% and 91% on a year-over-year basis, in the quarters ended March 31, 2026 and March 31, 2025, respectively. Starlink Subscriber ARPU: We calculate ARPU as service revenue generated from...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p116",
+      "path": "spacex-s1.pdf/p116",
+      "level": 1,
+      "summary": "89 Table of Contents month in 2024 to $81 per month in 2025. These decreases were driven primarily by international expansion and the addition of lower priced service plans. AI Nameplate Compute Draw: We calculate Nameplate Compute Draw for a period as the number of GPUs insta...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p117",
+      "path": "spacex-s1.pdf/p117",
+      "level": 1,
+      "summary": "90 Table of Contents 31, 2026 as we brought COLOSSUS and COLOSSUS II online. We use this metric to assess our ability to deploy and scale compute capacity. Segment Income (Loss) from Operations Space Income (Loss) from Operations Space loss from operations for the three months...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p118",
+      "path": "spacex-s1.pdf/p118",
+      "level": 1,
+      "summary": "91 Table of Contents December 31, 2024 increased by $1,537 million to $2,006 million compared to $469 million for the year ended December 31, 2023. The year-over-year increase in 2025 was primarily driven by increased revenue from growth of our consumer and enterprise customer...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p119",
+      "path": "spacex-s1.pdf/p119",
+      "level": 1,
+      "summary": "92 Table of Contents higher revenue from growth in our consumer and enterprise customers, partially offset by higher marketing and international expansion costs to grow our subscribers, as well as higher research and development costs for our next- generation product developme...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p120",
+      "path": "spacex-s1.pdf/p120",
+      "level": 1,
+      "summary": "93 Table of Contents $2,455 million in 2023. The increase in each year-over-year period was primarily driven by higher satellite and ground equipment costs as we continue to increase our number of satellites and grow our satellite network. AI Capital Expenditures AI capital ex...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p121",
+      "path": "spacex-s1.pdf/p121",
+      "level": 1,
+      "summary": "94 Table of Contents the mix of customer and internal payloads and related financial reporting, or weather which can delay a launch from one period to another. Increasing Satellite Capacity. The scale, reliability, and capacity of our LEO broadband and mobile satellite constel...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p122",
+      "path": "spacex-s1.pdf/p122",
+      "level": 1,
+      "summary": "95 Table of Contents applications enabled by more connected devices. We also continue to develop specialized networks for secure government applications via Starshield. By leveraging proven performance in mission-critical environments and expanding through channel partners in...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p123",
+      "path": "spacex-s1.pdf/p123",
+      "level": 1,
+      "summary": "96 Table of Contents cooling systems—enables us to translate available power into usable compute capacity with exceptional efficiency. As we continue to scale and optimize, we expect to drive further improvements in Power Usage Effectiveness. We expect these gains to accelerat...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p124",
+      "path": "spacex-s1.pdf/p124",
+      "level": 1,
+      "summary": "97 Table of Contents believe continued investment in AI‐powered advertising will further improve advertiser ROI while further enhancing user experience. Conversion of Users to Paid Subscribers. In parallel, we are focused on converting a greater portion of our user base into p...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p125",
+      "path": "spacex-s1.pdf/p125",
+      "level": 1,
+      "summary": "98 Table of Contents The Company recognizes Launch Services revenue at a point in time, due to the interchangeability of flight hardware and minimal unique engineering costs. Revenue and costs are deferred and not recognized until upon the launch or deployment of the customer’...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p126",
+      "path": "spacex-s1.pdf/p126",
+      "level": 1,
+      "summary": "99 Table of Contents salaries, benefits, and share-based compensation), tooling and equipment expenses, depreciation for R&D equipment, and allocated overhead. R&D also includes certain expenses related to the development of features and modules created through engineering ser...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p127",
+      "path": "spacex-s1.pdf/p127",
+      "level": 1,
+      "summary": "100 Table of Contents Expenses - Connectivity Cost of Revenue Connectivity segment’s cost of revenue includes depreciation (inclusive of launch, satellite, and ground infrastructure costs), Starlink Kit costs, shipping and handling costs, ground operating expenses, employee co...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p128",
+      "path": "spacex-s1.pdf/p128",
+      "level": 1,
+      "summary": "101 Table of Contents Revenue for AI solutions and infrastructure includes: (i) premium subscriptions on X and Grok which is recognized ratably over the period of the subscription term (ranging from month-to-month to one year), (ii) data licensing revenue which is generally re...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p129",
+      "path": "spacex-s1.pdf/p129",
+      "level": 1,
+      "summary": "102 Table of Contents Other Corporate Expenses Interest Expense Interest expense includes interest expense related to our borrowings, amortization of associated debt issuance costs, undrawn fees, and finance leases. Interest expense is reflected net of capitalized interest. In...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p130",
+      "path": "spacex-s1.pdf/p130",
+      "level": 1,
+      "summary": "103 Table of Contents Revenue Revenue for the three months ended March 31, 2026 increased by $627 million, or 15.4%, compared to the three months ended March 31, 2025. This increase was primarily due to an increase in revenue from our Connectivity segment of $782 million as ou...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p131",
+      "path": "spacex-s1.pdf/p131",
+      "level": 1,
+      "summary": "104 Table of Contents Interest Income Interest income for the three months ended March 31, 2026 increased by $96 million, or 82.1%, compared to the prior three months ended March 31, 2025. This increase was primarily due to an increase in interest income earned from cash equiv...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p132",
+      "path": "spacex-s1.pdf/p132",
+      "level": 1,
+      "summary": "105 Table of Contents Research and Development Research and development for the three months ended March 31, 2026 increased by $404 million, or 76.8%, compared to the prior three months ended March 31, 2025. This increase was primarily driven by higher production costs of $194...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p133",
+      "path": "spacex-s1.pdf/p133",
+      "level": 1,
+      "summary": "106 Table of Contents Research and Development Research and development for the three months ended March 31, 2026 increased by $82 million, or 66.7%, compared to the prior three months ended March 31, 2025. This increase was primarily due to higher costs for the next-generatio...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p134",
+      "path": "spacex-s1.pdf/p134",
+      "level": 1,
+      "summary": "107 Table of Contents million associated with the continued build out of our compute infrastructure, as well as higher employee compensation expenses (including salaries, benefits, and share-based compensation) of $262 million. Selling, General, and Administrative Selling, gen...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p135",
+      "path": "spacex-s1.pdf/p135",
+      "level": 1,
+      "summary": "108 Table of Contents Development revenue for work performed on government contracts, and an increase in revenue from our AI segment of $581 million as advertising, Grok and X subscriptions, and data licensing arrangements grew. Cost of Revenue Cost of revenue for the year end...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p136",
+      "path": "spacex-s1.pdf/p136",
+      "level": 1,
+      "summary": "109 Table of Contents Interest Income Interest income for the year ended December 31, 2025 increased by $121 million, or 32.6%, compared to the prior year ended December 31, 2024. This increase was primarily due to an increase in dividend income earned from marketable securiti...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p137",
+      "path": "spacex-s1.pdf/p137",
+      "level": 1,
+      "summary": "110 Table of Contents Cost of Revenue Cost of revenue for the year ended December 31, 2025 decreased by $189 million, or 12.2%, compared to the prior year ended December 31, 2024. This decrease was primarily due increased reusability of our Falcon launch vehicles resulting in...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p138",
+      "path": "spacex-s1.pdf/p138",
+      "level": 1,
+      "summary": "111 Table of Contents Revenue Revenue for the year ended December 31, 2025 increased by $3,788 million, or 49.8%, compared to the prior year ended December 31, 2024. This increase was primarily driven by an increase of $2,377 million in revenue from our consumer subscribers, c...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p139",
+      "path": "spacex-s1.pdf/p139",
+      "level": 1,
+      "summary": "112 Table of Contents AI Year Ended December 31, 2025 vs. 2024 Change (in millions) 2025 2024 $ Change % Change Revenue ............................................................... $ 3,201 $ 2,620 $ 581 22.2% Costs and expenses Cost of revenue .................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p140",
+      "path": "spacex-s1.pdf/p140",
+      "level": 1,
+      "summary": "113 Table of Contents Loss from Operations AI loss from operations for the year ended December 31, 2025 increased by $4,794 million, or 307.1%, compared to the prior year ended December 31, 2024 driven by the factors described above. Comparison of the Years Ended December 31,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p141",
+      "path": "spacex-s1.pdf/p141",
+      "level": 1,
+      "summary": "114 Table of Contents $990 million related to advancing our AI technologies and higher costs of $297 million in our Space segment for investment in Starship production, launch and engineering costs, and related facilities. Selling, General, and Administrative Selling, general,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p142",
+      "path": "spacex-s1.pdf/p142",
+      "level": 1,
+      "summary": "115 Table of Contents Net Income (Loss) Net income for the year ended December 31, 2024 increased by $5,419 million compared to the prior year ended December 31, 2023 driven by the factors described above. Space Year Ended December 31, 2024 vs. 2023 Change (in millions) 2024 2...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p143",
+      "path": "spacex-s1.pdf/p143",
+      "level": 1,
+      "summary": "116 Table of Contents Impairment Impairment for the year ended December 31, 2024 increased by $24 million compared to the prior year ended December 31, 2023. This increase was primarily due to non-recurring impairment losses resulting from one-time launch anomalies experienced...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p144",
+      "path": "spacex-s1.pdf/p144",
+      "level": 1,
+      "summary": "117 Table of Contents Impairment Impairment for the year ended December 31, 2024 increased by $39 million compared to the prior year ended December 31, 2023. This increase was due to a discontinuation of a certain Starlink Kit production line. Income from Operations Income fro...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p145",
+      "path": "spacex-s1.pdf/p145",
+      "level": 1,
+      "summary": "118 Table of Contents amortization expense of $107 million related to the Twitter brand becoming a finite-lived intangible asset and higher legal costs of $65 million, partially offset by lower employee and facilities related costs of $125 million and lower professional fees o...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p146",
+      "path": "spacex-s1.pdf/p146",
+      "level": 1,
+      "summary": "119 Table of Contents The following table sets forth a reconciliation of Net income (loss), the most directly comparable GAAP measure, to Adjusted EBITDA: Three Months Ended March 31, Year Ended December 31, (in millions) 2026 2025 2025 2024 2023 Net income (loss) ...............",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p147",
+      "path": "spacex-s1.pdf/p147",
+      "level": 1,
+      "summary": "120 Table of Contents The following table sets forth a reconciliation of Income (loss) from operations for each segment, the most directly comparable GAAP measure, to Segment Adjusted EBITDA: Three Months Ended March 31, 2026 (in millions) Space Connectivity AI Total Reportabl...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p148",
+      "path": "spacex-s1.pdf/p148",
+      "level": 1,
+      "summary": "121 Table of Contents Year Ended December 31, 2024 (in millions) Space Connectivity AI Total Reportable Segments Income (loss) from operations ............................ $ 21 $ 2,006 $ (1,561) $ 466 Add: Depreciation and amortization ............................ 637 1,508 1,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p149",
+      "path": "spacex-s1.pdf/p149",
+      "level": 1,
+      "summary": "122 Table of Contents maximum financial covenant requiring the Company to maintain a Consolidated Leverage Ratio (as defined in the SpaceX Credit Facility) of no greater than 3.75 to 1.0 as of the end of each fiscal quarter (subject to temporary increases to 4.25 to 1.0 follow...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p150",
+      "path": "spacex-s1.pdf/p150",
+      "level": 1,
+      "summary": "123 Table of Contents equal to the net cash proceeds of certain debt financings to repay amounts outstanding under the SpaceX Bridge Loan and to apply an amount equal to the net proceeds of a qualified initial public offering, including this offering, to repay such amounts wit...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p151",
+      "path": "spacex-s1.pdf/p151",
+      "level": 1,
+      "summary": "124 Table of Contents Operating Activities Net cash provided by operating activities increased by $320 million from $727 million during the three months ended March 31, 2025 to $1,047 million during the three months ended March 31, 2026. This increase was primarily driven by a...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p152",
+      "path": "spacex-s1.pdf/p152",
+      "level": 1,
+      "summary": "125 Table of Contents Net cash provided by financing activities increased by $11,408 million from $422 million during the year ended December 31, 2023 to $11,830 million during the year ended December 31, 2024. This increase was primarily driven by an increase in proceeds from...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p153",
+      "path": "spacex-s1.pdf/p153",
+      "level": 1,
+      "summary": "126 Table of Contents Determining the useful lives and the number of average flights a flight vehicle and spacecraft can fly require the Company to estimate the period over which we expect to recover the economic value of our property, plant, and equipment. For each of our fli...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p154",
+      "path": "spacex-s1.pdf/p154",
+      "level": 1,
+      "summary": "127 Table of Contents net income as a result of gains (losses) on the settlement and the re-measurement of monetary assets and liabilities not denominated in our functional currencies. We do not hedge foreign currency risk and changes in exchange rates could have an adverse im...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p155",
+      "path": "spacex-s1.pdf/p155",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p156",
+      "path": "spacex-s1.pdf/p156",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p157",
+      "path": "spacex-s1.pdf/p157",
+      "level": 1,
+      "summary": "130 Table of Contents BUSINESS “You want to wake up in the morning and think the future is going to be great—and that’s what being a space-faring civilization is all about. It’s about believing in the future and thinking that the future will be better than the past. And I can’...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p158",
+      "path": "spacex-s1.pdf/p158",
+      "level": 1,
+      "summary": "131 Table of Contents age of abundance. Our innovations and technological advancements are redefining industries on Earth, while we aim to create new ones on the Moon, Mars, and beyond. We are truly building the infrastructure of the future. SpaceX is the only company that has...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p159",
+      "path": "spacex-s1.pdf/p159",
+      "level": 1,
+      "summary": "132 Table of Contents sustainable battery storage systems, and innovations in advanced liquid cooling, high-density rack layouts, and efficient networking. Our facilities also incorporate innovative design features that limit the effects on regional electricity pricing for nei...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p160",
+      "path": "spacex-s1.pdf/p160",
+      "level": 1,
+      "summary": "133 Table of Contents of the Terafab initiative aims to further extend our control to the foundational processor layer. We believe that the key constraints in the continued growth of AI are physical—chip manufacturing, data center infrastructure, and power generation; the futu...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p161",
+      "path": "spacex-s1.pdf/p161",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p162",
+      "path": "spacex-s1.pdf/p162",
+      "level": 1,
+      "summary": "135 Table of Contents We have an intense, mission-driven, engineering-first culture that seeks to achieve what many have deemed impossible. “The Algorithm,” as it is known internally, is a five-step iterative process that emphasizes making the requirements less dumb, deleting...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p163",
+      "path": "spacex-s1.pdf/p163",
+      "level": 1,
+      "summary": "136 Table of Contents • In our newly acquired AI segment, we plan to prioritize growth and investment to capture significant opportunities in AI applications and compute infrastructure. For the three months ended March 31, 2026, our AI segment generated revenue of $818 million...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p164",
+      "path": "spacex-s1.pdf/p164",
+      "level": 1,
+      "summary": "137 Table of Contents For decades, a reality where humanity travels between the planets and the stars has felt tantalizingly close but still locked in the pages and screens of science fiction. We are capable of better understanding the universe, exploring the universe, and ult...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p165",
+      "path": "spacex-s1.pdf/p165",
+      "level": 1,
+      "summary": "138 Table of Contents Starlink rapidly deployed over 650 terminals to restore high-speed internet connectivity, enabling first responders, humanitarian organizations, and survivors to coordinate relief efforts, access aid resources, communicate with family, and support recover...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p166",
+      "path": "spacex-s1.pdf/p166",
+      "level": 1,
+      "summary": "139 Table of Contents by approximately 9,600 Starlink broadband and mobile satellites in Low-Earth Orbit, delivering connectivity to millions of consumer, enterprise, and government customers across 164 countries, territories, and other markets, as of March 31, 2026. We also b...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p167",
+      "path": "spacex-s1.pdf/p167",
+      "level": 1,
+      "summary": "140 Table of Contents Booster Reusability Enables Increasing Launch Rates Our principal launch vehicles and spacecraft include: • Falcon 9. As the world’s first orbital-class rapidly reusable rocket, Falcon 9 was first launched in 2010 and has a payload capacity to LEO of appr...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p168",
+      "path": "spacex-s1.pdf/p168",
+      "level": 1,
+      "summary": "141 Table of Contents such as catching a booster using “chopstick” arms on the same tower it launched from. We expect this capability will facilitate rapid refurbishment and reuse, allowing for multiple launches per day at reduced costs. Upon achieving rocket reusability, we r...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p169",
+      "path": "spacex-s1.pdf/p169",
+      "level": 1,
+      "summary": "142 Table of Contents increase in Starlink downlink capacity deployed relative to a Falcon 9 launch. As of March 31, 2026, we had approximately 10.3 million Starlink Subscribers, up approximately 105% from 5.0 million subscribers a year prior. We charge our Starlink Subscriber...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p170",
+      "path": "spacex-s1.pdf/p170",
+      "level": 1,
+      "summary": "143 Table of Contents Our Global Starlink Subscriber Base AI. We operate a highly vertically integrated AI platform spanning gigawatt-scale AI compute infrastructure, our truth-seeking frontier AI model, Grok, AI solutions for consumer and enterprise customers, and X, our real...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p171",
+      "path": "spacex-s1.pdf/p171",
+      "level": 1,
+      "summary": "144 Table of Contents • Truth-Seeking Frontier Model. xAI has developed one of the world’s most advanced, truth-seeking frontier models with Grok. Since launching Grok-1 in November 2023, we have released four major versions and notable variations thereof, achieving one of the...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p172",
+      "path": "spacex-s1.pdf/p172",
+      "level": 1,
+      "summary": "145 Table of Contents into an equity interest in SpaceX. Tesla and xAI continue to build upon their longstanding collaborative relationship by evaluating future strategic opportunities between the companies. One expected area of collaboration is an AI project called Macrohard....",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p173",
+      "path": "spacex-s1.pdf/p173",
+      "level": 1,
+      "summary": "146 Table of Contents 2026. Exercise of the call option is in our sole discretion and subject to further approval by our board of directors. Cursor is also subject to certain exclusivity obligations under the option agreement. If we exercise the call option, we would simultane...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p174",
+      "path": "spacex-s1.pdf/p174",
+      "level": 1,
+      "summary": "147 Table of Contents Our Repeatable Business Model Our business model is built on a repeatable, engineering-driven framework that combines our unparalleled launch capabilities, extreme vertical integration, rapid iteration, and disciplined capital investment to create durable...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p175",
+      "path": "spacex-s1.pdf/p175",
+      "level": 1,
+      "summary": "148 Table of Contents Our Engineering-First Culture We are able to achieve transformative technological breakthroughs because we accept only the laws of physics as the limiting factors to our work and mission. Our core approach is deeply rooted in first-principles thinking, wh...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p176",
+      "path": "spacex-s1.pdf/p176",
+      "level": 1,
+      "summary": "149 Table of Contents multi-step task execution, meaningfully increasing compute demand per human user interaction. In addition, compute infrastructure with end-to-end, cluster-level coherence through tight integration across software and hardware systems enables more efficien...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p177",
+      "path": "spacex-s1.pdf/p177",
+      "level": 1,
+      "summary": "150 Table of Contents pursuing improvements in compute hardware cost, we believe we can achieve a meaningfully lower overall cost per token in the future. We Have a Dual Speed and Cost Advantage in Terrestrial AI Compute. We have established a leading position in building and...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p178",
+      "path": "spacex-s1.pdf/p178",
+      "level": 1,
+      "summary": "151 Table of Contents V4. Future generations of Starship are being designed to eventually deliver millions of tons to orbit and beyond per year. Delivering large amounts of mass to orbit at low cost will be critical to deploying AI compute satellites at scale. We Believe Orbit...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p179",
+      "path": "spacex-s1.pdf/p179",
+      "level": 1,
+      "summary": "152 Table of Contents • We have unmatched satellite launch capabilities to enable deployment at scale. Our ability to launch mass at scale and low cost is our foundational competitive advantage. Deployment of 100 gigawatts per year via satellites carrying over 100 kilowatts of...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p180",
+      "path": "spacex-s1.pdf/p180",
+      "level": 1,
+      "summary": "153 Table of Contents Our 100 gigawatt annual power deployment goal is based on reasoned engineering analyses and design parameters developed through our ongoing design and development work on next-generation AI compute satellites. These analyses are based on currently availab...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p181",
+      "path": "spacex-s1.pdf/p181",
+      "level": 1,
+      "summary": "154 Table of Contents have not yet been determined. Our strategy for Terafab is to vertically integrate across design of lithography masks, fabrication of logic and memory chips, design of advanced packaging and rapidly test and iterate in order to improve chip design and perf...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p182",
+      "path": "spacex-s1.pdf/p182",
+      "level": 1,
+      "summary": "155 Table of Contents Design and manufacture our own chips. Terafab aims to be the world’s largest chip manufacturing facility, with the goal of achieving one terawatt of annual compute production capacity. While Terafab is intended to expand our internal chip manufacturing ca...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p183",
+      "path": "spacex-s1.pdf/p183",
+      "level": 1,
+      "summary": "156 Table of Contents along with Rocketplane Kistler, the landmark Commercial Orbital Transportation Services contract that heralded the age of commercial space launch, marking a shift toward a more scalable approach to accessing space. This inflection point catalyzed a transi...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p184",
+      "path": "spacex-s1.pdf/p184",
+      "level": 1,
+      "summary": "157 Table of Contents Falcon Heavy Boosters Landing On the back of dramatically reduced launch cost pioneered by SpaceX over the past two decades, the global economy is reorganizing around a new domain: space. We believe the development of a lunar economy will be central to un...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p185",
+      "path": "spacex-s1.pdf/p185",
+      "level": 1,
+      "summary": "158 Table of Contents Consumer Broadband Residential internet access began with the dial-up connection in the late 1990s with maximum speeds of .056 Mbps, when early users relied on narrowband copper phone lines to connect. As demand for speed and reliability grew, dial-up gav...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p186",
+      "path": "spacex-s1.pdf/p186",
+      "level": 1,
+      "summary": "159 Table of Contents have not delivered the latency or consistency needed for enterprise‐grade applications, with average terrestrial ISP download speeds at 120 Mbps and average latency from 7-34 milliseconds. Defense and civil agencies similarly require secure, resilient, an...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p187",
+      "path": "spacex-s1.pdf/p187",
+      "level": 1,
+      "summary": "160 Table of Contents most consequential—chapter in this progression. For the first time, we are creating systems that do more than simply amplify or transmit human-generated knowledge. These systems can reason, learn, and generate new knowledge autonomously—synthesizing infor...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p188",
+      "path": "spacex-s1.pdf/p188",
+      "level": 1,
+      "summary": "161 Table of Contents AI are further strengthening advertising, allowing enterprises to optimize campaigns and measure outcomes. At the same time, consumer expectations for AI‐powered tools are rising, with users seeking timely, accurate and trustworthy information across an e...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p189",
+      "path": "spacex-s1.pdf/p189",
+      "level": 1,
+      "summary": "162 Table of Contents over the rest of the industry when we first landed our Falcon 9 booster back from space in 2015, but we have continued to invest significantly in further increasing our lead by pursuing full and rapid reusability at scale, including investing over $15 bil...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p190",
+      "path": "spacex-s1.pdf/p190",
+      "level": 1,
+      "summary": "163 Table of Contents believe this technological and logistical gap is widening meaningfully as our speed and cost advantage compound. Our vertical integration extends beyond design and manufacturing—it permeates our entire business model, encompassing engineering, deployment,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p191",
+      "path": "spacex-s1.pdf/p191",
+      "level": 1,
+      "summary": "164 Table of Contents In addition, we believe we are poised to catalyze transformative breakthroughs in other industries on Earth and in space such as long haul point-to-point terrestrial travel, in-orbit manufacturing, passenger and cargo transportation to the Moon and Mars,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p192",
+      "path": "spacex-s1.pdf/p192",
+      "level": 1,
+      "summary": "165 Table of Contents segments are expected to be the primary driver of revenue growth in the near term. In the next few years, we are focused on increasing the monetization of our existing Connectivity infrastructure and our existing AI user base. We also intend to continue t...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p193",
+      "path": "spacex-s1.pdf/p193",
+      "level": 1,
+      "summary": "166 Table of Contents Once resource utilization capabilities are proven feasible, we believe there is an opportunity to commercialize the harvesting and exportation of rare materials, which is estimated to be present on the Moon in quantities exceeding one million tons and has...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p194",
+      "path": "spacex-s1.pdf/p194",
+      "level": 1,
+      "summary": "167 Table of Contents industries such as retail and financial services that require high availability for critical operations as well as reliable connectivity in remote or hard-to-serve locations. As companies continue to invest in secure and resilient networks to keep critica...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p195",
+      "path": "spacex-s1.pdf/p195",
+      "level": 1,
+      "summary": "168 Table of Contents of Grok subscribers. Subscribers benefit from enhanced functionality, exclusive features, and access to our latest AI models. Since the introduction of our Grok subscription offering in 2025, we have increased the number of available features to add value...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p196",
+      "path": "spacex-s1.pdf/p196",
+      "level": 1,
+      "summary": "169 Table of Contents inference of our AI models. To rapidly bring gigawatt-scale data centers online, we leverage world-class engineering, first-principles thinking and deep “shovels-to-tokens” vertical integration. Our AI compute facilities, COLOSSUS and COLOSSUS II, collect...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p197",
+      "path": "spacex-s1.pdf/p197",
+      "level": 1,
+      "summary": "170 Table of Contents eventually achieving one terawatt of annual compute production capacity. While Terafab is intended to expand our internal chip manufacturing capabilities, we expect to continue sourcing a significant portion of our compute hardware from third-party suppli...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p198",
+      "path": "spacex-s1.pdf/p198",
+      "level": 1,
+      "summary": "171 Table of Contents • Manufacturing capabilities on the Moon and Mars. We plan to build manufacturing infrastructure on the Moon and Mars that utilizes local resources to produce fuel, construction materials, and other essential resources, reducing dependence on Earth resupp...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p199",
+      "path": "spacex-s1.pdf/p199",
+      "level": 1,
+      "summary": "172 Table of Contents SpaceX’s Estimated TAM by Segment Space While the size of the space market is massive for any company to address, our capabilities in space represent a foundational competitive advantage that allow us to address markets that represent significant portions...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p200",
+      "path": "spacex-s1.pdf/p200",
+      "level": 1,
+      "summary": "173 Table of Contents from a scientific outpost into an industrial frontier, SpaceX is positioned to spearhead this revolutionary expansion, and we believe that continued advancements in our launch capabilities, space infrastructure capabilities, and cost efficiency will allow...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p201",
+      "path": "spacex-s1.pdf/p201",
+      "level": 1,
+      "summary": "174 Table of Contents Research, the global business broadband market in 2025 across small to medium sized business and enterprise usage is estimated to be $200 billion. • Government Solutions. Driven by increasing demand for resilient, low-latency, and highly secure communicat...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p202",
+      "path": "spacex-s1.pdf/p202",
+      "level": 1,
+      "summary": "175 Table of Contents efficiency. There are approximately 23,900 commercial aircraft, according to Oliver Wyman, and approximately 24,500 privately owned aircraft, according to Corporate Jet Investor, in the world, which can be served by our aviation offering. In maritime, Sta...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p203",
+      "path": "spacex-s1.pdf/p203",
+      "level": 1,
+      "summary": "176 Table of Contents Effectiveness of 1.2 and an all-in chip power consumption per GPU of 1.3 kilowatts per GPU—that of an H100 SXM—this AI workload demand corresponds to 104 million GPUs required. We apply an 80% utilization rate per the National Electrical Installation Stan...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p204",
+      "path": "spacex-s1.pdf/p204",
+      "level": 1,
+      "summary": "177 Table of Contents Future Markets Beyond the established markets reflected in our TAM, we envision that ongoing advancements in our technology and infrastructure will unlock entirely new markets over time. As launch costs decline, satellite capabilities advance, and large-s...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p205",
+      "path": "spacex-s1.pdf/p205",
+      "level": 1,
+      "summary": "178 Table of Contents Our Solutions & Services Unparalleled Launch Capability Our unmatched launch capability is the foundational competitive advantage that enables our unique solutions and services. We are the market leader in orbital launch, providing low-cost, reliable, and...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p206",
+      "path": "spacex-s1.pdf/p206",
+      "level": 1,
+      "summary": "179 Table of Contents ocean or on one of our landing zones near our launch pads ahead of being refurbished for a future launch, and its payload fairing halves, which are recovered via parachute-assisted splashdowns and are refurbished and reused after retrieval. The second sta...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p207",
+      "path": "spacex-s1.pdf/p207",
+      "level": 1,
+      "summary": "180 Table of Contents International Space Station. As of December 31, 2025, Falcon 9 has successfully launched 19 human spaceflight missions with a 100% mission success rate. • In-House Engine Development and Manufacturing: Falcon 9 is powered by Merlin engines that are design...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p208",
+      "path": "spacex-s1.pdf/p208",
+      "level": 1,
+      "summary": "181 Table of Contents Falcon Heavy Overview • Reusability: Falcon Heavy incorporates a design focused on reusability, which has contributed to lowering the cost of access to space and altering the launch industry’s economic model for large or high-value payloads. The vehicle’s...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p209",
+      "path": "spacex-s1.pdf/p209",
+      "level": 1,
+      "summary": "182 Table of Contents Falcon Heavy • Exploratory Missions Beyond Earth’s Orbit: Falcon Heavy first launched in February 2018, when it put a Tesla Roadster and its mannequin passenger, Starman, into orbit around the Sun. This was the first instance of a car sent into deep space...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p210",
+      "path": "spacex-s1.pdf/p210",
+      "level": 1,
+      "summary": "183 Table of Contents Starman in Orbit • Perfect Performance Record: As of March 31, 2026, Falcon Heavy had successfully completed 11 launches, all resulting in successful payload delivery. Falcon Heavy flown boosters have also safely completed 18 total recoveries and 16 refli...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p211",
+      "path": "spacex-s1.pdf/p211",
+      "level": 1,
+      "summary": "184 Table of Contents associated infrastructure assumes continued successful iteration through flight testing, regulatory progress, supply chain scaling, and cost reduction driven by increasing reusability. We have made substantial investments in manufacturing scale-up, includ...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p212",
+      "path": "spacex-s1.pdf/p212",
+      "level": 1,
+      "summary": "185 Table of Contents “Chopstick” Super Heavy Booster Catch The Starship upper stage, after orbital delivery or missions beyond, is designed to reenter protected by advanced heat shield tiles, execute a propulsive landing burn, and be similarly caught mid-air by the launch tow...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p213",
+      "path": "spacex-s1.pdf/p213",
+      "level": 1,
+      "summary": "186 Table of Contents • Improvements in Engine Development Underpin Starship’s Massive Payload Capacity: With a payload bay volume rivaling the pressurized sections of the International Space Station, Starship is designed to deploy structures like space station modules, large...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p214",
+      "path": "spacex-s1.pdf/p214",
+      "level": 1,
+      "summary": "187 Table of Contents Dragon Cargo Overview • Key features: Key highlights of the Dragon cargo spacecraft include its propulsion system with 16 Draco thrusters for precise orbital maneuvering, autonomous docking capabilities via NASA’s International Docking System Standard (ID...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p215",
+      "path": "spacex-s1.pdf/p215",
+      "level": 1,
+      "summary": "188 Table of Contents Dragon Orbiting Earth's Poles • Key features: Dragon Crew spacecraft is equipped with advanced avionics, touchscreen interfaces for manual control, and an integrated trunk with solar power generation. Dragon Crew’s propulsion includes 16 Draco thrusters f...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p216",
+      "path": "spacex-s1.pdf/p216",
+      "level": 1,
+      "summary": "189 Table of Contents Starlink Consumer Broadband is enabled by the largest satellite constellation in human history with approximately 9,000 broadband satellites as of March 31, 2026, operating in LEO to deliver latency comparable to many terrestrial broadband connections. We...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p217",
+      "path": "spacex-s1.pdf/p217",
+      "level": 1,
+      "summary": "190 Table of Contents 110W or more under load. Each type of terminal is designed to be quick and seamless for a consumer to self-set up, support in-motion connectivity up to speeds of 100 mph, and deliver global, oceanwide coverage for consumer maritime use. We believe that th...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p218",
+      "path": "spacex-s1.pdf/p218",
+      "level": 1,
+      "summary": "191 Table of Contents Enterprise Solutions Aviation Connectivity Starlink Aviation provides broadband connectivity for commercial and private aircraft, enabling high-quality internet service for passengers and crew from gate to gate, including during taxi and prior to take-off...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p219",
+      "path": "spacex-s1.pdf/p219",
+      "level": 1,
+      "summary": "192 Table of Contents Land Mobility and IoT Starlink supports in-motion connectivity for land mobility and industrial IoT applications where terrestrial networks are intermittent or unavailable. These deployments include fleet vehicles, remote field operations, and ruggedized...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p220",
+      "path": "spacex-s1.pdf/p220",
+      "level": 1,
+      "summary": "193 Table of Contents space, we enable data, over-the-top voice, video and messaging in remote and hard-to-reach locations where terrestrial networks have historically been unavailable or unreliable. Starlink Mobile is already commercially available for messaging in select mar...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p221",
+      "path": "spacex-s1.pdf/p221",
+      "level": 1,
+      "summary": "194 Table of Contents Map of Starlink Mobile Coverage Satellite Life We estimate that our satellites have useful lives of three to five years based on engineering studies, historical on- orbit performance, propellant life, utilization patterns, design enhancements across gener...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p222",
+      "path": "spacex-s1.pdf/p222",
+      "level": 1,
+      "summary": "195 Table of Contents training of next‐generation models is expected to scale toward multiple trillions of parameters, which could represent a step change in reasoning in depth and overall intelligence. In this context, the number of parameters refers to the scale of the model...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p223",
+      "path": "spacex-s1.pdf/p223",
+      "level": 1,
+      "summary": "196 Table of Contents COLOSSUS II Facility X Platform X is a real-time information, entertainment, and free speech platform that serves as a foundational distribution and data engine for our AI ecosystem. With a global user base generating substantial volumes of content at all...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p224",
+      "path": "spacex-s1.pdf/p224",
+      "level": 1,
+      "summary": "197 Table of Contents X is Our Real-time Information, Entertainment, and Free Speech Platform X is our real-time information, entertainment, and free speech platform that serves as a global town square with integrated AI capabilities powered by Grok. Designed to evolve toward...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p225",
+      "path": "spacex-s1.pdf/p225",
+      "level": 1,
+      "summary": "198 Table of Contents Grok Holds Front and Center Real Estate on the X Platform With native integration of Grok’s frontier models, including real-time access to X data for up-to-date insights, trending analysis, and enhanced search, X delivers personalized feeds, smarter recom...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p226",
+      "path": "spacex-s1.pdf/p226",
+      "level": 1,
+      "summary": "199 Table of Contents By combining high-volume user interactions with frontier AI, AI compute infrastructure, and vertical integration, X accelerates progress toward ubiquitous connectivity, real-time global awareness, and the foundational social layer for multiplanetary human...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p227",
+      "path": "spacex-s1.pdf/p227",
+      "level": 1,
+      "summary": "200 Table of Contents Grok Imagine. Grok Imagine is Grok’s generative visual and multimedia creation suite, powered by proprietary models for producing high-quality images, short videos (up to 15 seconds at 720p in current iterations), and synchronized audio from text prompts,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p228",
+      "path": "spacex-s1.pdf/p228",
+      "level": 1,
+      "summary": "201 Table of Contents Infrastructure and Facilities SpaceX maintains a highly vertically integrated, geographically diverse manufacturing ecosystem that designs, produces, and qualifies a significant share of components in-house, from raw materials and rocket engines to comple...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p229",
+      "path": "spacex-s1.pdf/p229",
+      "level": 1,
+      "summary": "202 Table of Contents partnership with the newly formed city, is developing local infrastructure and municipal services, including utilities, governance, schools, and environmental conservation initiatives, to support a world-class, concentrated engineering and manufacturing c...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p230",
+      "path": "spacex-s1.pdf/p230",
+      "level": 1,
+      "summary": "203 Table of Contents • Hawthorne, California: Our original flagship facility in Hawthorne, California manufactures Falcon 9 and Falcon Heavy first and second stages, Dragon Crew and Dragon Cargo spacecraft, Merlin engines, Starship’s Raptor engines, Starlink User Terminals, a...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p231",
+      "path": "spacex-s1.pdf/p231",
+      "level": 1,
+      "summary": "204 Table of Contents • McGregor, Texas: The McGregor rocket engine complex is the most active rocket development and testing facility in the world. It serves as the primary site for qualification, acceptance, and post-flight testing of Merlin and Raptor engines. It features 1...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p232",
+      "path": "spacex-s1.pdf/p232",
+      "level": 1,
+      "summary": "205 Table of Contents • Redmond, Washington: The Redmond Starlink satellite manufacturing facility has produced an average of approximately 70 satellites per week (approximately 3,640 per year at full rate) from December 2025 to April 2026, covering bus structures, phased-arra...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p233",
+      "path": "spacex-s1.pdf/p233",
+      "level": 1,
+      "summary": "206 Table of Contents • Bastrop, Texas: We build the majority of Starlink products at our manufacturing facility in Bastrop, Texas, which opened in 2023, producing tens of thousands of Starlink Kits per day and all of the current generation Starlink Standard and Performance Ki...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p234",
+      "path": "spacex-s1.pdf/p234",
+      "level": 1,
+      "summary": "207 Table of Contents In connection with preparing leased real property for our launch operations, we make significant capital improvements and install extensive real and personal property at these government-owned sites. The launch facilities we build are a unique capital imp...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p235",
+      "path": "spacex-s1.pdf/p235",
+      "level": 1,
+      "summary": "208 Table of Contents Cape Canaveral Space Force Station, Florida • Vandenberg Space Force Base, Space Launch Complex 4: Space Launch Complex 4 East at Vandenberg Space Force Base is our West Coast launch site and serves as our primary facility for polar and high-inclination o...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p236",
+      "path": "spacex-s1.pdf/p236",
+      "level": 1,
+      "summary": "209 Table of Contents Vandenberg Space Force Base, California",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p237",
+      "path": "spacex-s1.pdf/p237",
+      "level": 1,
+      "summary": "210 Table of Contents • Memphis, Tennessee and Southaven, Mississippi: We operate a cluster of high-density data centers in the Greater Memphis Area extending into northern Mississippi along the state border, to power training and inference for frontier AI models, including th...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p238",
+      "path": "spacex-s1.pdf/p238",
+      "level": 1,
+      "summary": "211 Table of Contents • Palo Alto, California: The corporate headquarters for our AI operations following the acquisition of xAI in February 2026 is located in Palo Alto, California. This location, under long-term lease, houses our advanced AI research, development, and engine...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p239",
+      "path": "spacex-s1.pdf/p239",
+      "level": 1,
+      "summary": "212 Table of Contents Autonomous Drone Ship “A Shortfall of Gravitas” • Starlink ground stations: A Starlink ground station, also referred to as a gateway, is a terrestrial relay station that communicates with our satellite constellation. These stations transmit data between s...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p240",
+      "path": "spacex-s1.pdf/p240",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p241",
+      "path": "spacex-s1.pdf/p241",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p242",
+      "path": "spacex-s1.pdf/p242",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p243",
+      "path": "spacex-s1.pdf/p243",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p244",
+      "path": "spacex-s1.pdf/p244",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p245",
+      "path": "spacex-s1.pdf/p245",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p246",
+      "path": "spacex-s1.pdf/p246",
+      "level": 1,
+      "summary": "219 Table of Contents Competition Our principal sources of competition vary based on the segment and market in which our business operates. In Space, we compete with launch service providers that transport small, medium, and heavy payloads and astronauts to Earth’s orbit and b...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p247",
+      "path": "spacex-s1.pdf/p247",
+      "level": 1,
+      "summary": "220 Table of Contents is based on factors that include network coverage, capacity, latency and reliability, spectrum access, density of urban environments, satellite deployment capability and efficiency, price and user acquisition, retention, and experience. In AI, we compete...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p248",
+      "path": "spacex-s1.pdf/p248",
+      "level": 1,
+      "summary": "221 Table of Contents substantial costs to monitor and take actions to comply with governmental and other regulations that are or will be applicable to our businesses, including, among others, restrictions and regulations of the U.S. Department of Transportation, the FAA, the...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p249",
+      "path": "spacex-s1.pdf/p249",
+      "level": 1,
+      "summary": "222 Table of Contents jurisdiction of the Committee on Foreign Investment in the United States (“CFIUS”), which has authority to conduct national security reviews of certain foreign investments. CFIUS may impose mitigation conditions to grant clearance of a particular transact...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p250",
+      "path": "spacex-s1.pdf/p250",
+      "level": 1,
+      "summary": "223 Table of Contents predict. Divergent or conflicting regulatory approaches across jurisdictions, as well as evolving enforcement priorities, may also create compliance uncertainty and require market-specific limitations or modifications to AI- related functionality, increas...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p251",
+      "path": "spacex-s1.pdf/p251",
+      "level": 1,
+      "summary": "224 Table of Contents requirements. For example, the UK’s Online Safety Act 2023 and Australia’s Online Safety Amendment (Social Media Minimum Age) Act 2024 impose risk mitigation and age-related requirements on certain online platforms. As a result of these requirements or to...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p252",
+      "path": "spacex-s1.pdf/p252",
+      "level": 1,
+      "summary": "225 Table of Contents including our launch operations, manufacturing activities, fuel storage and handling operations, launch facilities and ground infrastructure, and data center operations and expansion plans.” Government Contracts A portion of our revenue is derived from co...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p253",
+      "path": "spacex-s1.pdf/p253",
+      "level": 1,
+      "summary": "226 Table of Contents MANAGEMENT Below is certain information as of May 1, 2026 regarding individuals who are expected to serve as our executive officers and directors upon the completion of this offering. Name Age Position Elon Musk ...................... 54 Chief Executive O...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p254",
+      "path": "spacex-s1.pdf/p254",
+      "level": 1,
+      "summary": "227 Table of Contents a decade at Broadcom Inc., a global semiconductor company, from 1999 to 2008, holding roles of increasing responsibility within the organization, including serving as Vice President and Corporate Controller. Mr. Johnsen serves as a Trustee of the Universi...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p255",
+      "path": "spacex-s1.pdf/p255",
+      "level": 1,
+      "summary": "228 Table of Contents investment strategy, portfolio company management and improvement, operations of business, and finance across several industries, including aerospace, technology, and manufacturing. Donald Harrison has served on our board since February 2015. Mr. Harrison...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p256",
+      "path": "spacex-s1.pdf/p256",
+      "level": 1,
+      "summary": "229 Table of Contents and a class of investors who sold certain Twitter, Inc. equity securities between May 13 and October 4, 2022. The judgment is based on a jury verdict rendered on March 20, 2026 that found (i) in favor of plaintiffs on claims alleging that Mr. Musk violate...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p257",
+      "path": "spacex-s1.pdf/p257",
+      "level": 1,
+      "summary": "230 Table of Contents Class B Directors and Ira Ehrenpreis, Randy Glein, and Steve Jurvetson will serve as the initial Common Stock Directors. Our board will be subject to annual elections. Each director will hold office until the next annual meeting of our shareholders and un...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p258",
+      "path": "spacex-s1.pdf/p258",
+      "level": 1,
+      "summary": "231 Table of Contents • preparing the report required by the SEC for inclusion in our annual proxy or information statement; • approving audit and non-audit services to be performed by the independent accountants; and • performing such other functions as our board may from tim...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p259",
+      "path": "spacex-s1.pdf/p259",
+      "level": 1,
+      "summary": "232 Table of Contents extent required by applicable SEC rules and the corporate governance rules of Nasdaq and Nasdaq Texas. Information contained on our website or linked therein or otherwise connected thereto does not constitute part of, nor is it incorporated by reference i...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p260",
+      "path": "spacex-s1.pdf/p260",
+      "level": 1,
+      "summary": "233 Table of Contents EXECUTIVE COMPENSATION Compensation Discussion and Analysis This Compensation Discussion and Analysis, or CD&A, provides an overview of our executive compensation philosophy, objectives, and design and each element of our executive compensation program wi...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p261",
+      "path": "spacex-s1.pdf/p261",
+      "level": 1,
+      "summary": "234 Table of Contents Long-Term Incentive Compensation In 2025, we granted long-term incentive compensation under our 2024 Equity Incentive Plan (the “2024 Plan”), which replaced our 2015 Equity Incentive Plan (the “2015 Plan”) with respect to new grants; however, outstanding...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p262",
+      "path": "spacex-s1.pdf/p262",
+      "level": 1,
+      "summary": "235 Table of Contents Employee Stock Purchase Plans Historically, we have provided two employee stock purchase plans in which all of our U.S. employees, including the NEOs, are eligible to participate. Our Amended and Restated 2017 Employee Stock Purchase Plan (the “2017 ESPP”...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p263",
+      "path": "spacex-s1.pdf/p263",
+      "level": 1,
+      "summary": "236 Table of Contents in additional valuation, in each case, subject to Mr. Musk’s continued employment with us. The first valuation milestone was achieved prior to the xAI Merger, and Mr. Musk was issued 25,172,695 shares of our Class A common stock in settlement of that port...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p264",
+      "path": "spacex-s1.pdf/p264",
+      "level": 1,
+      "summary": "237 Table of Contents Grants of Plan-Based Awards The following table provides information on the stock options to purchase shares of our Class C common stock and RSUs representing a right to receive shares of our Class C common stock, in each case, granted to each NEO during...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p265",
+      "path": "spacex-s1.pdf/p265",
+      "level": 1,
+      "summary": "238 Table of Contents Name Option Awards Number of Securities Underlying Unexercised Options (#) Exercisable Number of Securities Underlying Unexercised Options (#) Unexercisable Equity Incentive Plan Awards: Number of Securities Underlying Unexercised Unearned Options (#) Opt...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p266",
+      "path": "spacex-s1.pdf/p266",
+      "level": 1,
+      "summary": "239 Table of Contents Option Exercises and Stock Vested The following table reflects stock options to purchase Class C common stock exercised by our NEOs during the 2025 Fiscal Years and RSUs held by our NEOs which vested during 2025. Name Option Awards Stock Awards Number of...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p267",
+      "path": "spacex-s1.pdf/p267",
+      "level": 1,
+      "summary": "240 Table of Contents Shares of Class A common stock subject to any award under our 2012 Equity Incentive Plan or the 2015 Plan that expires, terminates or is forfeited or that are reacquired, withheld or not issued to satisfy a tax withholding obligation will be added to the...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p268",
+      "path": "spacex-s1.pdf/p268",
+      "level": 1,
+      "summary": "241 Table of Contents Amendment and Termination The Plan Administrator may amend, suspend or terminate the A&R 2024 Plan at any time; however certain enumerated material amendments may not be made without shareholder approval. Suspension or termination of the A&R 2024 Plan may...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p269",
+      "path": "spacex-s1.pdf/p269",
+      "level": 1,
+      "summary": "242 Table of Contents During the purchase period, a participant may contribute between 1% and 100% of their eligible earnings (in whole percentage increments) through payroll deductions. A participant may change their payroll deduction prior to the beginning of an offering; ho...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p270",
+      "path": "spacex-s1.pdf/p270",
+      "level": 1,
+      "summary": "243 Table of Contents CERTAIN RELATIONSHIPS AND RELATED PERSON TRANSACTIONS The following is a description of certain relationships and transactions that exist, are proposed to exist or have existed or that we have entered into or propose to enter into with our directors, exec...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p271",
+      "path": "spacex-s1.pdf/p271",
+      "level": 1,
+      "summary": "244 Table of Contents • X Holdings advertising agreements. Tesla has directly and indirectly purchased advertising on our X platform. These amounts totaled $0.5 million in 2024, $4 million in 2025, and $0 from January 1, 2026 through February 28, 2026. • Aircraft usage. Since...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p272",
+      "path": "spacex-s1.pdf/p272",
+      "level": 1,
+      "summary": "245 Table of Contents Other Transactions with our Directors and Executive Officers We own and operate, through our subsidiary, Falcon Landing, LLC, three aircraft for use by our directors, executive officers and employees in connection with the performance of their duties for...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p273",
+      "path": "spacex-s1.pdf/p273",
+      "level": 1,
+      "summary": "246 Table of Contents Policies and Procedures for Review of Related Person Transactions In connection with the completion of this offering, we will adopt a written policy pursuant to which the audit committee will review and approve or disapprove certain “related person transa...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p274",
+      "path": "spacex-s1.pdf/p274",
+      "level": 1,
+      "summary": "247 Table of Contents SECURITY OWNERSHIP OF CERTAIN BENEFICIAL OWNERS AND MANAGEMENT The following table sets forth certain information with respect to the beneficial ownership of our common stock as of May 1, 2026 and as adjusted to give effect to the completion of this offer...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p275",
+      "path": "spacex-s1.pdf/p275",
+      "level": 1,
+      "summary": "248 Table of Contents Shares Beneficially Owned Before This Offering Shares Beneficially Owned After This Offering (No Exercise) Class A common stock(8) Class B common stock Combinedvoting power Class A common stock Class B common stock Combinedvoting power Number % Number % %...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p276",
+      "path": "spacex-s1.pdf/p276",
+      "level": 1,
+      "summary": "249 Table of Contents (8) The amounts in the table with respect to Class A Common Stock do not include the shares of Class B Common Stock beneficially owned by the persons listed therein. Each share of Class B common stock is convertible at any time at the option of the holder...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p277",
+      "path": "spacex-s1.pdf/p277",
+      "level": 1,
+      "summary": "250 Table of Contents DESCRIPTION OF CAPITAL STOCK The following summary of the Company’s capital stock and charter and bylaws (each as in effect upon completion of this offering) does not purport to be complete and is qualified in its entirety by reference to the provisions o...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p278",
+      "path": "spacex-s1.pdf/p278",
+      "level": 1,
+      "summary": "251 Table of Contents the outstanding shares of voting common stock, voting together as a single class, or by the remaining directors, subject to the terms of our charter. Upon completion of this offering, Mr. Musk will continue to serve as our Chief Executive Officer, Chief T...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p279",
+      "path": "spacex-s1.pdf/p279",
+      "level": 1,
+      "summary": "252 Table of Contents Issuance of Additional Shares We may issue additional authorized shares of Class A common stock, Class B common stock and Class C common stock at any time or from time to time, subject to applicable provisions of our charter, our bylaws and Texas law. Our...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p280",
+      "path": "spacex-s1.pdf/p280",
+      "level": 1,
+      "summary": "253 Table of Contents Class B common stock, Mr. Musk will be able to elect, remove or fill any vacancy among the Class B Directors. As a result, Mr. Musk will have the power to control the outcome of matters requiring shareholder approval, including election of the board, and...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p281",
+      "path": "spacex-s1.pdf/p281",
+      "level": 1,
+      "summary": "254 Table of Contents shareholder approval of certain issuances equal to or exceeding 20% of the then-outstanding voting power or the then-outstanding number of shares of common stock. We may issue additional shares for a variety of corporate purposes, including future public...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p282",
+      "path": "spacex-s1.pdf/p282",
+      "level": 1,
+      "summary": "255 Table of Contents • If more than three claims arising from the same or similar conduct, transaction, or occurrence are submitted to arbitration within any three-year period, all but the first-filed claim shall be stayed pending final resolution of that first-filed claim. I...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p283",
+      "path": "spacex-s1.pdf/p283",
+      "level": 1,
+      "summary": "256 Table of Contents the Company shall be deemed to have irrevocably and unconditionally waived, any right it may have to a trial by jury in any legal action or proceeding relating to Internal Disputes described above. • Internal Disputes may not be brought as a class, or con...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p284",
+      "path": "spacex-s1.pdf/p284",
+      "level": 1,
+      "summary": "257 Table of Contents Company. Under Section 21.419 of the TBOC, in taking or declining to take any action on any matters of a corporation’s business, a director or officer of the Company is presumed to act (i) in good faith, (ii) on an informed basis, (iii) in furtherance of...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p285",
+      "path": "spacex-s1.pdf/p285",
+      "level": 1,
+      "summary": "258 Table of Contents SHARES ELIGIBLE FOR FUTURE SALE Prior to this offering, there has been no public market for our Class A common stock. Future sales of our Class A common stock in the public market, or the availability of such shares for sale in the public market, could ad...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p286",
+      "path": "spacex-s1.pdf/p286",
+      "level": 1,
+      "summary": "259 Table of Contents Beginning 90 days after the effective date of the registration statement of which this prospectus forms a part, a person (or persons whose shares are aggregated) who is deemed to be an affiliate of ours and who has beneficially owned restricted securities...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p287",
+      "path": "spacex-s1.pdf/p287",
+      "level": 1,
+      "summary": "260 Table of Contents MATERIAL U.S. FEDERAL INCOME TAX CONSIDERATIONS FOR NON-U.S. HOLDERS OF CLASS A COMMON STOCK The following discussion is a summary of the material U.S. federal income tax consequences of the purchase, ownership, and disposition of shares of our Class A co...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p288",
+      "path": "spacex-s1.pdf/p288",
+      "level": 1,
+      "summary": "261 Table of Contents THIS DISCUSSION OF U.S. FEDERAL INCOME TAX CONSIDERATIONS IS FOR GENERAL INFORMATION PURPOSES ONLY AND IS NOT TAX ADVICE. PROSPECTIVE HOLDERS SHOULD CONSULT THEIR TAX ADVISORS CONCERNING THE U.S. FEDERAL INCOME TAX CONSEQUENCES TO THEM OF PURCHASING, OWNI...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p289",
+      "path": "spacex-s1.pdf/p289",
+      "level": 1,
+      "summary": "262 Table of Contents • we are or have been a “United States real property holding corporation” for U.S. federal income tax purposes at any time within the shorter of the five-year period ending on the date of disposition or the period that such Non- U.S. Holder held shares of...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p290",
+      "path": "spacex-s1.pdf/p290",
+      "level": 1,
+      "summary": "263 Table of Contents Under the applicable Treasury Regulations and administrative guidance, withholding under FATCA generally applies to payments of dividends on our Class A common stock. However, under proposed Treasury Regulations (on which taxpayers may rely until final Tr...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p291",
+      "path": "spacex-s1.pdf/p291",
+      "level": 1,
+      "summary": "264 Table of Contents UNDERWRITING Under the terms and subject to the conditions in an underwriting agreement dated the date of this prospectus, the underwriters named below, for whom Goldman Sachs & Co. LLC, Morgan Stanley & Co. LLC, BofA Securities, Inc., Citigroup Global Ma...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p292",
+      "path": "spacex-s1.pdf/p292",
+      "level": 1,
+      "summary": "265 Table of Contents time be varied by the representatives. Sales of Class A common stock made outside of the United States may be made by affiliates of the underwriters. We have granted to the underwriters an option, exercisable for 30 days after the date of this prospectus,...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p293",
+      "path": "spacex-s1.pdf/p293",
+      "level": 1,
+      "summary": "266 Table of Contents of our common stock or such other securities, whether any such transaction described in clause (a) or (b) above is to be settled by delivery of our common stock or such other securities, in cash or otherwise. These restrictions will not apply to securitie...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p294",
+      "path": "spacex-s1.pdf/p294",
+      "level": 1,
+      "summary": "267 Table of Contents c. up to additional 7% of the Early Release Eligible Shares may be transferred on or after each of the dates that are 70 days, 90 days, 105 days, 120 days, and 135 days, respectively, after this offering; d. on the second full trading day immediately foll...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p295",
+      "path": "spacex-s1.pdf/p295",
+      "level": 1,
+      "summary": "268 Table of Contents of Citigroup Global Markets Inc., Goldman Sachs & Co. LLC and Morgan Stanley & Co. LLC serve as co- syndication agents; affiliates of Barclays Capital Inc., Deutsche Bank Securities Inc. and Wells Fargo Securities, LLC serve as co-documentation agents; af...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p296",
+      "path": "spacex-s1.pdf/p296",
+      "level": 1,
+      "summary": "269 Table of Contents Selling Restrictions Argentina The shares of Class A common stock are not authorized for public offering in Argentina by the Comisión Nacional de Valores pursuant to Argentine Public Offering Law No. 17,811, as amended, and they shall not be sold publicly...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p297",
+      "path": "spacex-s1.pdf/p297",
+      "level": 1,
+      "summary": "270 Table of Contents purchasers pursuant to a private offering within the meaning of Article 4 of the Chilean Securities Market Act (Ley de Mercado de Valores) (an offer that is not “addressed to the public at large or to a certain sector or specific group of the public”). Ch...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p298",
+      "path": "spacex-s1.pdf/p298",
+      "level": 1,
+      "summary": "271 Table of Contents India This prospectus has not been and will not be registered as a prospectus with any registrar of companies in India. This prospectus has not been and will not be reviewed or approved by any regulatory authority in India, including the Securities and Ex...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p299",
+      "path": "spacex-s1.pdf/p299",
+      "level": 1,
+      "summary": "272 Table of Contents Malaysia No prospectus or other offering material or document in connection with the offer and sale of shares of Class A common stock offered by this prospectus has been or will be registered with the Securities Commission of Malaysia (the “Malaysian Comm...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p300",
+      "path": "spacex-s1.pdf/p300",
+      "level": 1,
+      "summary": "273 Table of Contents • is an eligible investor within the meaning of clause 41 of Schedule I of the FMC Act. Peru The shares of Class A common stock and the information contained herein are not being publicly marketed or offered in Peru and will not be distributed or caused t...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p301",
+      "path": "spacex-s1.pdf/p301",
+      "level": 1,
+      "summary": "274 Table of Contents Singapore This prospectus has not been registered as a prospectus with the Monetary Authority of Singapore. Accordingly, the shares of Class A common stock may not be offered or sold, or made the subject of an invitation for subscription or purchase, nor...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p302",
+      "path": "spacex-s1.pdf/p302",
+      "level": 1,
+      "summary": "275 Table of Contents of Korea except pursuant to the applicable laws and regulations of Korea, including the FSCMA and the Foreign Exchange Transaction Law of Korea and the decrees and regulations thereunder (the “FETL”). The shares of Class A common stock have not been liste...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p303",
+      "path": "spacex-s1.pdf/p303",
+      "level": 1,
+      "summary": "276 Table of Contents 2024 (the “POATRs”) and, accordingly, there will not be a prospectus prepared or published for the purposes of the POATRs. This prospectus does not constitute a prospectus for the purposes of the POATRs. Each underwriter has represented and agreed that it...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p304",
+      "path": "spacex-s1.pdf/p304",
+      "level": 1,
+      "summary": "277 Table of Contents LEGAL MATTERS The validity of the shares of Class A common stock offered by this prospectus will be passed upon for us by Gibson, Dunn & Crutcher LLP, Houston, Texas. Certain legal matters in connection with this offering will be passed upon for the under...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p305",
+      "path": "spacex-s1.pdf/p305",
+      "level": 1,
+      "summary": "F-1 Table of Contents INDEX TO FINANCIAL STATEMENTS Page Space Exploration Technologies Corp. Audited Consolidated Financial Statements Report of Independent Registered Public Accounting Firm ................................................................... F-2 Consolidated...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p306",
+      "path": "spacex-s1.pdf/p306",
+      "level": 1,
+      "summary": "F-2 Table of Contents Report of Independent Registered Public Accounting Firm To the Board of Directors and Shareholders of Space Exploration Technologies Corp. Opinion on the Financial Statements We have audited the accompanying consolidated balance sheets of Space Exploratio...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p307",
+      "path": "spacex-s1.pdf/p307",
+      "level": 1,
+      "summary": "F-3 Table of Contents Revenue Recognition – Estimate of Total Cost at Completion for Certain Contracts Recognized Over Time As described in Notes 2 and 3 to the consolidated financial statements, the Company recognized revenue of $4.1 billion and $11.4 billion for the year end...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p308",
+      "path": "spacex-s1.pdf/p308",
+      "level": 1,
+      "summary": "F-4 Table of Contents Space Exploration Technologies Corp. Consolidated Balance Sheets (in millions, except per share data) December 31, 2025 2024 Assets Current assets Cash and cash equivalents .....................................................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p309",
+      "path": "spacex-s1.pdf/p309",
+      "level": 1,
+      "summary": "F-5 Table of Contents Space Exploration Technologies Corp. Consolidated Statements of Operations (in millions, except per share data) Year Ended December 31, 2025 2024 2023 Revenue ........................................................................................ $ 18,67...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p310",
+      "path": "spacex-s1.pdf/p310",
+      "level": 1,
+      "summary": "F-6 Table of Contents Space Exploration Technologies Corp. Consolidated Statements of Comprehensive Income (Loss) (in millions) Year Ended December 31, 2025 2024 2023 Net income (loss) ......................................................................... $ (4,937) $ 791 $...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p311",
+      "path": "spacex-s1.pdf/p311",
+      "level": 1,
+      "summary": "F-7 Table of Contents Space Exploration Technologies Corp. Consolidated Statements of Redeemable Convertible Preferred Stock and Shareholders’ Equity (in millions) Redeemable Convertible Preferred Stock Common Stock Shares Amount Shares Amount Additional Paid-in Capital Accumu...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p312",
+      "path": "spacex-s1.pdf/p312",
+      "level": 1,
+      "summary": "F-8 Table of Contents Space Exploration Technologies Corp. Consolidated Statements of Cash Flows (in millions) Year Ended December 31, 2025 2024 2023 Cash flows from operating activities Net income (loss) ...........................................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p313",
+      "path": "spacex-s1.pdf/p313",
+      "level": 1,
+      "summary": "F-9 Table of Contents Year Ended December 31, 2025 2024 2023 Payments for repurchase of common and redeemable convertible preferred stock ............................................................................ (1,125) (1,021) (170) Taxes paid related to net share settleme...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p314",
+      "path": "spacex-s1.pdf/p314",
+      "level": 1,
+      "summary": "F-10 Table of Contents SPACE EXPLORATION TECHNOLOGIES CORP. NOTES TO THE CONSOLIDATED FINANCIAL STATEMENTS (tables in millions, except per share data) Note 1 - Nature of Business Description of Business Space Exploration Technologies Corp. and its wholly owned subsidiaries, co...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p315",
+      "path": "spacex-s1.pdf/p315",
+      "level": 1,
+      "summary": "F-11 Table of Contents Note 13, Redeemable Convertible Preferred Stock and Shareholders’ Equity for additional details. As the consolidated financial statements already reflect the reorganization of entities under common control for all periods presented, separate financial st...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p316",
+      "path": "spacex-s1.pdf/p316",
+      "level": 1,
+      "summary": "F-12 Table of Contents The Company’s total cash and cash equivalents and restricted cash, as presented in the consolidated statements of cash flows, are as follows: Year Ended December 31, 2025 2024 2023 Cash and cash equivalents ..................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p317",
+      "path": "spacex-s1.pdf/p317",
+      "level": 1,
+      "summary": "F-13 Table of Contents Level II Inputs other than quoted prices in active markets that are observable either directly or indirectly Level III Unobservable inputs for which there is little or no market data The fair value hierarchy requires the use of observable market data whe...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p318",
+      "path": "spacex-s1.pdf/p318",
+      "level": 1,
+      "summary": "F-14 Table of Contents Satellites include costs to build the satellites (parts, labor, and allocated overhead) as well as capitalized launch costs incurred by the Space segment to launch the satellites to orbit, which include an allocation of the flight vehicle hardware costs....",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p319",
+      "path": "spacex-s1.pdf/p319",
+      "level": 1,
+      "summary": "F-15 Table of Contents Upon lease commencement, the Company recognizes a lease liability measured at the present value of the fixed future minimum lease payments and a right-of-use asset for an amount equal to the lease liability, adjusted by prepaid and accrued rent, lease in...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p320",
+      "path": "spacex-s1.pdf/p320",
+      "level": 1,
+      "summary": "F-16 Table of Contents cumulative effect of the changes made on the Company’s January 1, 2024 consolidated balance sheet for the adoption of ASU 2023-08 were as follows: Balance at December 31, 2023 Adjustment from adoption of ASU 2023-08 Balance at January 1, 2024 Assets Digi...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p321",
+      "path": "spacex-s1.pdf/p321",
+      "level": 1,
+      "summary": "F-17 Table of Contents contracts using the cost-to-cost input method, as the Company believes this represents the most appropriate measure towards satisfaction of its performance obligation. Under the cost-to-cost input method, the Company records revenue based upon costs (suc...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p322",
+      "path": "spacex-s1.pdf/p322",
+      "level": 1,
+      "summary": "F-18 Table of Contents AI Segment The AI segment generates revenue from the sale of advertising and from AI solutions and infrastructure services, which include (i) subscription offerings, (ii) data licensing arrangements, and (iii) API access to Grok models. Revenue from adve...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p323",
+      "path": "spacex-s1.pdf/p323",
+      "level": 1,
+      "summary": "F-19 Table of Contents Warranty on Starlink Kits The Company offers a standard product warranty for a period of one to two years on Starlink Kits. The Company has an obligation to either repair or replace the defective Starlink Kit. At the time revenue is recognized, an estima...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p324",
+      "path": "spacex-s1.pdf/p324",
+      "level": 1,
+      "summary": "F-20 Table of Contents Net Income (Loss) per Share of Common Stock Attributable to Common Shareholders Net income (loss) per share attributable to common shareholders is computed using the two-class method required for participating securities. Under this method, net income is...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p325",
+      "path": "spacex-s1.pdf/p325",
+      "level": 1,
+      "summary": "F-21 Table of Contents subsidiary, the Company applies the monthly average functional exchange rate to its monthly income or loss and the month-end functional currency rate to translate the balance sheet. Foreign currency transaction gains and losses are a result of the effect...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p326",
+      "path": "spacex-s1.pdf/p326",
+      "level": 1,
+      "summary": "F-22 Table of Contents Note 3 - Revenue Revenue disaggregated by products and services is as follows: Year Ended December 31, 2025 2024 2023 Products .......................................................................................... $ 1,510 $ 1,470 $ 1,093 Services ......",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p327",
+      "path": "spacex-s1.pdf/p327",
+      "level": 1,
+      "summary": "F-23 Table of Contents Concentration of risk Consolidated revenue from a significant customer is as follows: Year Ended December 31, 2025 2024 2023 Customer A .................................................................................... 20.9% 24.2% 25.2% Revenue from th...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p328",
+      "path": "spacex-s1.pdf/p328",
+      "level": 1,
+      "summary": "F-24 Table of Contents which is included in Construction-in-progress amounts above. No interest was capitalized during the years ended December 31, 2024 and 2023. For the years ended December 31, 2025 and 2024, the Company recorded impairment charges of $38 million and $63 mil...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p329",
+      "path": "spacex-s1.pdf/p329",
+      "level": 1,
+      "summary": "F-25 Table of Contents Amortization expense associated with finite-lived intangible assets was $786 million, $847 million, and $738 million in the years ended December 31, 2025, 2024, and 2023, respectively. The Company also has indefinite-lived intangible assets of $11 millio...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p330",
+      "path": "spacex-s1.pdf/p330",
+      "level": 1,
+      "summary": "F-26 Table of Contents On November 5, 2025, the parties amended and restated the Spectrum License Purchase Agreement to include EchoStar’s licenses for up to 15MHz of additional unpaired AWS-3 spectrum, and increased the consideration by $2,600 million, to a total amount of co...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p331",
+      "path": "spacex-s1.pdf/p331",
+      "level": 1,
+      "summary": "F-27 Table of Contents The fair value of digital assets is determined using a Level I in the fair value hierarchy. The following table provides activities related to digital assets: Year Ended December 31, 2025 2024 Beginning balance, at fair value ...............................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p332",
+      "path": "spacex-s1.pdf/p332",
+      "level": 1,
+      "summary": "F-28 Table of Contents Note 9 - Investments in Unconsolidated Affiliates Equity method investment In April 2025, the Company, through its wholly-owned subsidiary CTC Property LLC (“CTC”), entered into a joint venture Stateline Power, LLC (“Stateline”), with Solaris Power Solut...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p333",
+      "path": "spacex-s1.pdf/p333",
+      "level": 1,
+      "summary": "F-29 Table of Contents Note 10 - Debt As of December 31, 2025 Principal Unamortized Deferred Financing Costs Net X 2027 and X 2030 Notes .............................................................. $ 27 $ — $ 27 X B-1 Term Loan ..................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p334",
+      "path": "spacex-s1.pdf/p334",
+      "level": 1,
+      "summary": "F-30 Table of Contents subject to a customary financial covenant and other reporting requirements. The SpaceX Credit Facility terminates, and all outstanding loans become due and payable, on February 7, 2030, unless the parties agree to an extension. No amounts were borrowed u...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p335",
+      "path": "spacex-s1.pdf/p335",
+      "level": 1,
+      "summary": "F-31 Table of Contents B-3 Term Loan for an additional commitment of $1,225 million with the same terms and conditions, increasing the total X B-3 Term Loan borrowings to $5,966 million. Proceeds. The proceeds from the X B-3 Term Loan were used to pay down and extinguish the F...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p336",
+      "path": "spacex-s1.pdf/p336",
+      "level": 1,
+      "summary": "F-32 Table of Contents January 20, 2023, 13.00% (“Second Lien Bridge Total Cap”). After the Bridge Conversion Date, any outstanding borrowings under the Second Lien Bridge Credit Facility bore interest at the Second Lien Bridge Total Cap. xAI First Lien Credit Agreement Genera...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p337",
+      "path": "spacex-s1.pdf/p337",
+      "level": 1,
+      "summary": "F-33 Table of Contents borrowings under the line of credit during 2025. Letters of credit issued under the revolving line of credit were $145 million as of December 31, 2025. Interest Rates. Interest on any borrowings is calculated based on the 30-day average SOFR plus the Int...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p338",
+      "path": "spacex-s1.pdf/p338",
+      "level": 1,
+      "summary": "F-34 Table of Contents Note 11 - Leases The balances of the Company’s operating and finance leases, included in Other assets, Accrued expenses and other current liabilities, and Other liabilities for operating leases, and Finance lease right-of-use assets, Debt and finance lea...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p339",
+      "path": "spacex-s1.pdf/p339",
+      "level": 1,
+      "summary": "F-35 Table of Contents Other information related to leases is as follows: December 31, 2025 2024 Weighted-average remaining lease term (in years): Operating leases ......................................................................................................... 5.9 5.2...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p340",
+      "path": "spacex-s1.pdf/p340",
+      "level": 1,
+      "summary": "F-36 Table of Contents Note 12 - Balance Sheet Components Certain financial statement details are as follows: December 31, 2025 2024 Prepaid expenses and other current assets Tax related assets ......................................................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p341",
+      "path": "spacex-s1.pdf/p341",
+      "level": 1,
+      "summary": "F-37 Table of Contents approved the 2026 Stock Split, pursuant to which each share of the Class A, Class B, and Class C SpaceX Common Stock issued and outstanding was split into five shares of SpaceX Common Stock. xAI Redeemable Convertible Preferred Stock and Common Stock On...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p342",
+      "path": "spacex-s1.pdf/p342",
+      "level": 1,
+      "summary": "F-38 Table of Contents xAI Warrants xAI also issued warrants to customer that were outstanding as of the effective date of the xAI Merger, which had a ten-year term originally set to expire in 2035, with an exercise price equal to the par value of the stock, and vesting terms...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p343",
+      "path": "spacex-s1.pdf/p343",
+      "level": 1,
+      "summary": "F-39 Table of Contents Dividend Per Share Initial Price Per Share Authorized Shares Outstanding (1) Liquidation Preference Net Carrying Value 2025 2025 2025 2025 2024 2025 2025 Series K ................................ $ 10.20 $ 204.00 2.7 2.5 2.5 518 518 Series L ...............",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p344",
+      "path": "spacex-s1.pdf/p344",
+      "level": 1,
+      "summary": "F-40 Table of Contents greater of the liquidation preference per share indicated above, or the amount each series would be entitled to receive if all such outstanding SpaceX Redeemable Convertible Preferred Stock were converted to Class A or Class B SpaceX Common Stock, as app...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p345",
+      "path": "spacex-s1.pdf/p345",
+      "level": 1,
+      "summary": "F-41 Table of Contents described in the table above for each outstanding share of xAI Redeemable Convertible Preferred Stock. Any such dividends declared at the discretion of the Board of Directors and are not cumulative. After payment of any such preferred dividends, holders...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p346",
+      "path": "spacex-s1.pdf/p346",
+      "level": 1,
+      "summary": "F-42 Table of Contents Common Stock The following describes all of the activity that occurred within each class of SpaceX Common Stock during the years ended December 31, 2025 and 2024, incorporating all activity that occurred within the class of xAI Common Stock on an as-conv...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p347",
+      "path": "spacex-s1.pdf/p347",
+      "level": 1,
+      "summary": "F-43 Table of Contents Conversion Rights Each share of Class B is convertible at the option of the holder, at any time, into one share of Class A. Each share of Class B will automatically convert into one share of Class A upon a transfer, other than a Permitted Transfer (as de...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p348",
+      "path": "spacex-s1.pdf/p348",
+      "level": 1,
+      "summary": "F-44 Table of Contents Note 14 - Earnings per Share The following table presents the reconciliation of net income (loss) attributable to common shareholders to net income (loss) used in computing basic and diluted net income (loss) per share of common stock: Year Ended Decembe...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p349",
+      "path": "spacex-s1.pdf/p349",
+      "level": 1,
+      "summary": "F-45 Table of Contents The following potentially dilutive securities on an as-converted basis are excluded from the calculation of diluted net income (loss) per share attributable to common shareholders for the periods presented because the impact of including them would be an...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p350",
+      "path": "spacex-s1.pdf/p350",
+      "level": 1,
+      "summary": "F-46 Table of Contents Summary Activity under the Plans Below table summarizes activities related to the Company’s Plans, presented on an as-converted basis per the xAI Merger. For the purposes of the table below, each xAI option, RSU and RSA is presented as 0.1433 SpaceX opti...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p351",
+      "path": "spacex-s1.pdf/p351",
+      "level": 1,
+      "summary": "F-47 Table of Contents CEO Award In November 2025, the Company granted a performance-based award (“xAI Award”) to Elon Musk consisting of twelve tranches. Each tranche represents the right to receive a number of shares at fair market value equal to 1.0% of xAI’s valuation at t...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p352",
+      "path": "spacex-s1.pdf/p352",
+      "level": 1,
+      "summary": "F-48 Table of Contents The weighted-average assumptions that were used to calculate the grant date fair value of the CEO’s xAI Award are as follows: Expected term (years) .............................................................................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p353",
+      "path": "spacex-s1.pdf/p353",
+      "level": 1,
+      "summary": "F-49 Table of Contents The current and deferred provisions (benefits) for federal, state, and foreign income taxes consist of the following: Year Ended December 31, 2025 2024 2023 Current: Federal ...................................................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p354",
+      "path": "spacex-s1.pdf/p354",
+      "level": 1,
+      "summary": "F-50 Table of Contents The following table is a reconciliation of taxes at the U.S. federal statutory income tax rate to the Company’s benefit from income taxes for the years ended December 31, 2024 and 2023 in accordance with the guidance prior to the Company’s adoption of AS...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p355",
+      "path": "spacex-s1.pdf/p355",
+      "level": 1,
+      "summary": "F-51 Table of Contents The significant components of the deferred tax assets and liabilities are as follows: December 31, 2025 2024 Deferred tax assets: Net operating loss carryforwards ............................................................................. $ 2,275 $ 572...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p356",
+      "path": "spacex-s1.pdf/p356",
+      "level": 1,
+      "summary": "F-52 Table of Contents The valuation allowance on the Company’s net deferred tax assets increased by $2,665 million, $39 million and $1,235 million during the years ended December 31, 2025, 2024, and 2023, respectively. The changes in valuation allowance are primarily driven b...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p357",
+      "path": "spacex-s1.pdf/p357",
+      "level": 1,
+      "summary": "F-53 Table of Contents benefits. As of December 31, 2025, unrecognized tax benefits of $11 million, if recognized, would affect our effective tax rate. The Company files income tax returns in the U.S. and all state and various foreign jurisdictions. To the extent the Company h...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p358",
+      "path": "spacex-s1.pdf/p358",
+      "level": 1,
+      "summary": "F-54 Table of Contents addition, the Company believes there is a reasonable possibility that it may incur a loss in some of these matters and the loss may be material or exceed its estimated ranges of possible loss. The outcomes of the matters described in this section, such a...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p359",
+      "path": "spacex-s1.pdf/p359",
+      "level": 1,
+      "summary": "F-55 Table of Contents 2013-2022 and it seeks a monetary award in the range of € 250 to € 2,500 per person. On February 4, 2026, the Court declined to allow the case to proceed as a class action and indicated that it is considering staying the proceedings until the Court of Ju...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p360",
+      "path": "spacex-s1.pdf/p360",
+      "level": 1,
+      "summary": "F-56 Table of Contents complexity and uncertainty of some of these matters, however, as well as the judicial process in certain jurisdictions, the final outcome of these audits may be materially different from the Company’s expectations. Indemnifications In the ordinary course...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p361",
+      "path": "spacex-s1.pdf/p361",
+      "level": 1,
+      "summary": "F-57 Table of Contents Note 19 - Segments Following the Mergers, the Company evaluated how to view and measure performance of the combined company and potential realignment of individual entity’s historical segment structure. Following this evaluation, the Company determined t...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p362",
+      "path": "spacex-s1.pdf/p362",
+      "level": 1,
+      "summary": "F-58 Table of Contents Year Ended December 31, 2024 Space Connectivity AI Total Reportable Segments Revenue ............................................................. $ 3,796 $ 7,599 $ 2,620 $ 14,015 Costs and expenses Cost of revenue ..........................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p363",
+      "path": "spacex-s1.pdf/p363",
+      "level": 1,
+      "summary": "F-59 Table of Contents The following tables provide revenue by geography based on the country of domicile in which the transaction originated: Year Ended December 31, 2025 2024 2023 USA ..............................................................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p364",
+      "path": "spacex-s1.pdf/p364",
+      "level": 1,
+      "summary": "F-60 Table of Contents Officer Equity Awards In January 2026, the Company granted 1,000 million performance-based restricted shares of Class B common stock to Elon Musk. The restricted shares vest upon (i) the Company’s achievement of specified market capitalization milestones...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p365",
+      "path": "spacex-s1.pdf/p365",
+      "level": 1,
+      "summary": "F-61 Table of Contents applicable regulatory waiting period, SpaceX issued 3.8 million shares of Class A Common Stock (on a pre-2026 Stock Split basis) to Tesla in accordance with the terms of the foregoing agreements. Tesla Collaboration In March 2026, the Company announced a...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p366",
+      "path": "spacex-s1.pdf/p366",
+      "level": 1,
+      "summary": "F-62 Table of Contents Company’s material breach of the option agreement, Cursor is entitled to a $1.5 billion termination fee under the option agreement and an $8.5 billion deferred services fee under the compute agreement. These fees are payable in cash (or Class A common st...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p367",
+      "path": "spacex-s1.pdf/p367",
+      "level": 1,
+      "summary": "F-63 Table of Contents Space Exploration Technologies Corp. Consolidated Balance Sheets (in millions, except per share data) (unaudited) March 31, 2026 December 31, 2025 Assets Current assets Cash and cash equivalents ..............................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p368",
+      "path": "spacex-s1.pdf/p368",
+      "level": 1,
+      "summary": "F-64 Table of Contents Space Exploration Technologies Corp. Consolidated Statements of Operations (in millions, except per share data) (unaudited) Three Months Ended March 31, 2026 2025 Revenue ......................................................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p369",
+      "path": "spacex-s1.pdf/p369",
+      "level": 1,
+      "summary": "F-65 Table of Contents Space Exploration Technologies Corp. Consolidated Statements of Comprehensive Loss (in millions) (unaudited) Three Months Ended March 31, 2026 2025 Net loss ....................................................................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p370",
+      "path": "spacex-s1.pdf/p370",
+      "level": 1,
+      "summary": "F-66 Table of Contents Space Exploration Technologies Corp. Consolidated Statements of Redeemable Convertible Preferred Stock and Shareholders’ Equity (in millions) (unaudited) Redeemable Convertible Preferred Stock Common Stock Shares Amount Shares Amount Additional Paid-in C...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p371",
+      "path": "spacex-s1.pdf/p371",
+      "level": 1,
+      "summary": "F-67 Table of Contents Space Exploration Technologies Corp. Consolidated Statements of Cash Flows (in millions) (unaudited) Three Months Ended March 31, 2026 2025 Cash flows from operating activities Net loss .......................................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p372",
+      "path": "spacex-s1.pdf/p372",
+      "level": 1,
+      "summary": "F-68 Table of Contents Three Months Ended March 31, 2026 2025 Supplemental disclosures of cash flow information Cash paid for the following: Interest, net of interest capitalized ......................................................................................$ 990 $ 382...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p373",
+      "path": "spacex-s1.pdf/p373",
+      "level": 1,
+      "summary": "F-69 Table of Contents SPACE EXPLORATION TECHNOLOGIES CORP. NOTES TO THE CONSOLIDATED FINANCIAL STATEMENTS (tables in millions, except per share data) (unaudited) Note 1 - Nature of Business Description of Business Space Exploration Technologies Corp. and its wholly owned subs...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p374",
+      "path": "spacex-s1.pdf/p374",
+      "level": 1,
+      "summary": "F-70 Table of Contents accompanying notes should be read in conjunction with the annual consolidated financial statements and the accompanying notes. The interim consolidated financial statements and the accompanying notes have been prepared on the same basis as the annual con...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p375",
+      "path": "spacex-s1.pdf/p375",
+      "level": 1,
+      "summary": "F-71 Table of Contents Recently adopted accounting pronouncements In July 2025, the FASB issued ASU No. 2025-05, Financial Instruments—Credit Losses (Topic 326): Measurement of Credit Losses for Accounts Receivable and Contract Assets. The amendments in this update provide a p...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p376",
+      "path": "spacex-s1.pdf/p376",
+      "level": 1,
+      "summary": "F-72 Table of Contents 2026, of which $13,236 million was recognized as deferred revenue at March 31, 2026. Approximately 36% is expected to be recognized within one year, and approximately 46% is expected to be recognized between one and three years, with the remaining 18% to...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p377",
+      "path": "spacex-s1.pdf/p377",
+      "level": 1,
+      "summary": "F-73 Table of Contents Note 6 - Intangible Assets and Goodwill Intangible Assets Finite-lived intangible assets consist of the following: March 31, 2026 Weighted-Average Useful Life (years) Gross Carrying Value Accumulated Amortization Net Carrying Value Brand ...................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p378",
+      "path": "spacex-s1.pdf/p378",
+      "level": 1,
+      "summary": "F-74 Table of Contents Note 7 - Financial Instruments The Company’s assets that are measured at fair value on a recurring basis are as follows: March 31, 2026 Level Cost Unrealized Gain Unrealized Loss Fair Value Cash and cash equivalents Cash ....................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p379",
+      "path": "spacex-s1.pdf/p379",
+      "level": 1,
+      "summary": "F-75 Table of Contents Note 8 - Investments in Unconsolidated Affiliates Equity method investment As of March 31, 2026 and December 31, 2025, the Company held an investment in Stateline Power, LLC, which is accounted for as an equity method investment, of $80 million and $86 m...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p380",
+      "path": "spacex-s1.pdf/p380",
+      "level": 1,
+      "summary": "F-76 Table of Contents SpaceX Bridge Loan General. In March 2026, SpaceX entered into a new bridge loan credit agreement (the “SpaceX Bridge Loan”) with a syndicate of lenders, providing for an unsecured bridge term loan facility in an aggregate principal amount of $20,000 mil...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p381",
+      "path": "spacex-s1.pdf/p381",
+      "level": 1,
+      "summary": "F-77 Table of Contents certain definitions and covenants under the SpaceX Credit Facility to conform to the terms of the SpaceX Bridge Loan. Interest Rates. Under the SpaceX Credit Facility, borrowings bear interest at the Company’s option, at a rate per annum of (i) between 0...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p382",
+      "path": "spacex-s1.pdf/p382",
+      "level": 1,
+      "summary": "F-78 Table of Contents B-3 Term Loan for an additional commitment of $1,225 million with the same terms and conditions, increasing the total X B-3 Term Loan borrowings to $5,966 million. Interest Rates. The X B-1 Term Loan bore interest at a rate per annum of, initially, adjus...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p383",
+      "path": "spacex-s1.pdf/p383",
+      "level": 1,
+      "summary": "F-79 Table of Contents Interest Rates. The xAI 12.5% Senior Secured Notes had a fixed interest rate of 12.50% per annum. Interest was payable bi-annually on January 15 and July 15, commencing on January 15, 2026. Principal Repayments. On March 5, 2026, the Company repaid the f...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p384",
+      "path": "spacex-s1.pdf/p384",
+      "level": 1,
+      "summary": "F-80 Table of Contents Note 10 - Leases The components of lease expense are as follows within the consolidated statements of operations: Three Months Ended March 31, 2026 2025 Operating lease expense: Operating lease expense .......................................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p385",
+      "path": "spacex-s1.pdf/p385",
+      "level": 1,
+      "summary": "F-81 Table of Contents Note 12 - Redeemable Convertible Preferred Stock and Shareholders’ Equity SpaceX Preferred and Common Stock The Company has five classes of stock - four classes to be designated Class A common stock (“Class A”), Class B common stock (“Class B”), Class C...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p386",
+      "path": "spacex-s1.pdf/p386",
+      "level": 1,
+      "summary": "F-82 Table of Contents received the applicable shares of SpaceX Common Stock. Any shares of xAI Redeemable Convertible Preferred Stock previously held by the Company were canceled and retired and did not receive any consideration. Because the xAI Redeemable Convertible Preferr...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p387",
+      "path": "spacex-s1.pdf/p387",
+      "level": 1,
+      "summary": "F-83 Table of Contents Redeemable Convertible Preferred Stock Information for each series of SpaceX and xAI Redeemable Convertible Preferred Stock (collectively, the “Combined Redeemable Convertible Preferred Stock”) is as follows: Dividend Per Share Initial Price Per Share Au...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p388",
+      "path": "spacex-s1.pdf/p388",
+      "level": 1,
+      "summary": "F-84 Table of Contents The following describes the various rights and preferences of the SpaceX Redeemable Convertible Preferred Stock: Dividend Provisions On a per annum basis, holders of shares of SpaceX Redeemable Convertible Preferred Stock are entitled to receive dividend...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p389",
+      "path": "spacex-s1.pdf/p389",
+      "level": 1,
+      "summary": "F-85 Table of Contents In the event of a transfer of a share of Series A or Series B (other than a Permitted Transfer as defined in the charter), such share shall automatically be cancelled and converted into a corresponding share of Series A-1 or Series B-1. Voting Rights Hol...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p390",
+      "path": "spacex-s1.pdf/p390",
+      "level": 1,
+      "summary": "F-86 Table of Contents Class A Common Stock Class B Common Stock Class C Common Stock Class D Common Stock Shares Amount Shares Amount Shares Amount Shares Amount Balances at December 31, 2025 ................................... 1,952 $ 3 643 $ 1 484 $ 0 — $ — Common stock iss...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p391",
+      "path": "spacex-s1.pdf/p391",
+      "level": 1,
+      "summary": "F-87 Table of Contents Convertible Preferred Stock and Class B, as applicable, plus shares granted and available for grant under the Company’s share plans. The amount of such shares of the SpaceX Common Stock reserved for these purposes at March 31, 2026 is as follows: Number...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p392",
+      "path": "spacex-s1.pdf/p392",
+      "level": 1,
+      "summary": "F-88 Table of Contents Note 13 - Earnings per Share The following table presents the reconciliation of net loss attributable to common shareholders to net loss used in computing basic and diluted net income loss per share of common stock: Three Months Ended March 31, 2026 2025...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p393",
+      "path": "spacex-s1.pdf/p393",
+      "level": 1,
+      "summary": "F-89 Table of Contents As part of the X Merger, each X RSU that was outstanding was converted to a xAI RSU to receive 2.776 shares of xAI Common Stock. General The Company grants RSUs, RSAs, and non-statutory options to eligible employees, key executives, and certain non- empl...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p394",
+      "path": "spacex-s1.pdf/p394",
+      "level": 1,
+      "summary": "F-90 Table of Contents Fair Value Determination The fair value and derived service period of the SpaceX CEO Award and AI CEO Award are estimated on the grant date using a Monte Carlo simulation model. The weighted-average assumptions that were used to calculate the grant date...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p395",
+      "path": "spacex-s1.pdf/p395",
+      "level": 1,
+      "summary": "F-91 Table of Contents Note 16 - Commitments and Contingencies Unconditional Obligations During the three months ended March 31, 2026, there have been no material changes to the Company’s unconditional obligation since December 31, 2025 other than the execution of certain purc...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p396",
+      "path": "spacex-s1.pdf/p396",
+      "level": 1,
+      "summary": "F-92 Table of Contents infringe any claim of the ‘506 patent and two out of three claims of the ‘304 patent and that each of those patent claims was invalid, but (ii) that Twitter willfully infringed one claim of the ‘304 patent. The jury awarded Plaintiff $105 million in dama...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p397",
+      "path": "spacex-s1.pdf/p397",
+      "level": 1,
+      "summary": "F-93 Table of Contents Beginning in January 2026, the Company and certain subsidiaries have been named as defendants in multiple lawsuits arising from Grok’s image-generation and editing features. The complaints generally allege that Grok’s image-generation and editing feature...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p398",
+      "path": "spacex-s1.pdf/p398",
+      "level": 1,
+      "summary": "F-94 Table of Contents Note 18 - Segments Following the Mergers, the Company evaluated how to view and measure performance of the combined company and potential realignment of individual entity’s historical segment structure. Following this evaluation, the Company determined t...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p399",
+      "path": "spacex-s1.pdf/p399",
+      "level": 1,
+      "summary": "F-95 Table of Contents Three Months Ended March 31, 2025 Space Connectivity AI Total Reportable Segments Revenue .............................................................. $ 865 $ 2,475 $ 727 $ 4,067 Costs and expenses Cost of revenue .........................................",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p400",
+      "path": "spacex-s1.pdf/p400",
+      "level": 1,
+      "summary": "F-96 Table of Contents Note 20 - Subsequent Events The Company has evaluated subsequent events that occurred from April 1, 2026 through May 7, 2026, which is the date the consolidated financial statements were available to be issued, and determined that there were no subsequen...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p401",
+      "path": "spacex-s1.pdf/p401",
+      "level": 1,
+      "summary": "Table of Contents Shares Space Exploration Technologies Corp. Class A Common Stock PRELIMINARY PROSPECTUS , 2026 Through and including , 2026 (the 25th day after the date of this prospectus), all dealers effecting transactions in our Class A common stock, whether or not partic...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p402",
+      "path": "spacex-s1.pdf/p402",
+      "level": 1,
+      "summary": "II-1 Table of Contents PART II INFORMATION NOT REQUIRED IN PROSPECTUS Item 13.Other Expenses of Issuance and Distribution. The following table shows the costs and expenses, other than underwriting discounts and commissions, payable in connection with the sale and distribution...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p403",
+      "path": "spacex-s1.pdf/p403",
+      "level": 1,
+      "summary": "II-2 Table of Contents that a court may also order indemnification under various circumstances. In addition, the TBOC permits indemnification in certain circumstances in which we would not otherwise have the power to do so under the provisions of the TBOC or our charter or byl...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p404",
+      "path": "spacex-s1.pdf/p404",
+      "level": 1,
+      "summary": "II-3 Table of Contents Item 15.Recent Sales of Unregistered Securities. The following sets forth information regarding all unregistered securities we have issued in the last three years. Unless stated otherwise, the sale of the securities listed below were deemed to be exempt...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p405",
+      "path": "spacex-s1.pdf/p405",
+      "level": 1,
+      "summary": "II-4 Table of Contents Exhibit No. Description of Exhibit 10.8^ Amended and Restated License Purchase Agreement, dated as of November 5, 2025, by and among EchoStar Corporation, Space Exploration Technologies Corp. and Spectrum Business Trust 2025-1. 10.9^ Bridge Loan Credit A...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p406",
+      "path": "spacex-s1.pdf/p406",
+      "level": 1,
+      "summary": "II-5 Table of Contents SIGNATURES Pursuant to the requirements of the Securities Act of 1933, the registrant has duly caused this Registration Statement to be signed on its behalf by the undersigned, thereunto duly authorized, in the city of Starbase, Texas, on May 20, 2026. S...",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "p407",
+      "path": "spacex-s1.pdf/p407",
+      "level": 1,
+      "summary": "II-6 Table of Contents POWER OF ATTORNEY KNOW ALL PEOPLE BY THESE PRESENTS, that each person whose signature appears below constitutes and appoints Gwynne Shotwell and Bret Johnsen, and each of them, as his or her true and lawful attorneys-in-fact and agents, each with full po...",
+      "chunk_count": 1,
       "children": []
     }
   ],
