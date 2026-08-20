@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 # ruff: noqa: E402
-"""Stage 6: Canonical chunk assembly (C7) + finalize (C9).
+"""Stage 5: Canonical chunk assembly (C7) + finalize (C9).
 
-Loads the combined page tags produced by Stage 4, assembles canonical chunks,
+Loads the combined page tags produced by Stage 3, assembles canonical chunks,
 and optionally produces chunks.json / doc_nav.json / manifest.json.
 
-Requires Stage 4 output: scopes/<id>/fine_hierarchy.json
-Prefer Stage 5 document assets: assets.json
-Legacy fallback: scopes/<id>/assets.json (deduped by asset_id)
+Requires Stage 3 output: scopes/<id>/fine_hierarchy.json
+Prefer Stage 4 document assets: assets.json
+Fallback: scopes/<id>/assets.json (deduped by asset_id)
 
 Usage:
   cd apps/worker
-  uv run python scripts/page_memory/debug_pm_stage6_tagging_finalize.py --file /path/to/doc.pdf
-  uv run python scripts/page_memory/debug_pm_stage6_tagging_finalize.py --all-scopes --finalize
-  uv run python scripts/page_memory/debug_pm_stage6_tagging_finalize.py --scope-id p1-100 --finalize --run-db
+  uv run python scripts/page_memory/debug_pm_stage5_tagging_finalize.py --file /path/to/doc.pdf
+  uv run python scripts/page_memory/debug_pm_stage5_tagging_finalize.py --all-scopes --finalize
+  uv run python scripts/page_memory/debug_pm_stage5_tagging_finalize.py --scope-id p1-100 --finalize --run-db
 """
 
 import sys
@@ -75,7 +75,7 @@ def _run_tagging_for_scope(
     args: Any,
     token_cost_tracker: TokenCostTracker | None = None,
 ) -> ScopeResult:
-    """Load Stage-4 combined tags and rehydrate renders for final assembly."""
+    """Load Stage-3 combined tags and rehydrate renders for final assembly."""
     from app.services.page_memory.page_renderer import render_document_pages
 
     scope_stages: list[dict[str, Any]] = []
@@ -83,7 +83,7 @@ def _run_tagging_for_scope(
         token_cost_tracker.register_child_thread()
 
     fine_hierarchy_path = scope_dir / "fine_hierarchy.json"
-    require_file(fine_hierarchy_path, hint=f"Run Stage 4 to produce {fine_hierarchy_path}")
+    require_file(fine_hierarchy_path, hint=f"Run Stage 3 to produce {fine_hierarchy_path}")
     prior_scope, active_skeletons = load_hierarchy_artifact(fine_hierarchy_path)
     if not active_skeletons:
         logger.warning("   [scope {}] no skeletons — skipping", scope_id)
@@ -93,7 +93,7 @@ def _run_tagging_for_scope(
         )
 
     tags_path = scope_dir / "page_tags.json"
-    require_file(tags_path, hint=f"Run Stage 4 to produce {tags_path}")
+    require_file(tags_path, hint=f"Run Stage 3 to produce {tags_path}")
     tags = load_page_tags_artifact(tags_path)
 
     # Load existing assets if available
@@ -109,7 +109,7 @@ def _run_tagging_for_scope(
                 exc,
             )
 
-    # Reuse Stage-4's exact scope contract. Fall back only for old artifacts.
+    # Reuse Stage-3's exact scope contract. Fall back only for older artifacts.
     recorded_pages = prior_scope.get("processing_pages")
     final_pages = (
         [int(page) for page in recorded_pages]
@@ -161,7 +161,7 @@ def _run_tagging_for_scope(
         },
     )
 
-    # Preserve Stage-4 tags while attaching Stage-5 assets.
+    # Preserve Stage-3 tags while attaching Stage-4 assets.
     write_scope_artifacts(
         out_dir=out_dir,
         scope_id=scope_id,
@@ -247,7 +247,7 @@ def _build_report(
 
 
 def main() -> int:
-    parser = base_argparser("Stage 6: Node assembly + finalize")
+    parser = base_argparser("Stage 5: Node assembly + finalize")
     add_scope_selection_args(parser)
     parser.add_argument(
         "--max-workers", type=int, default=5,
@@ -315,7 +315,7 @@ def main() -> int:
         nonempty_json=True,
     )
     logger.info("█" * 70)
-    logger.info(f"  STAGE 6: ASSEMBLY + FINALIZE — {filename}")
+    logger.info(f"  STAGE 5: ASSEMBLY + FINALIZE — {filename}")
     logger.info(f"  OUTPUT: {out_dir}")
     logger.info(f"  SCOPES: {scope_ids}")
     logger.info("█" * 70)
@@ -578,7 +578,7 @@ def main() -> int:
         stages=trace_stages,
         stop_at="finalize" if args.finalize else "assembly",
         page_count=page_count,
-        pipeline_stage=6,
+        pipeline_stage=5,
         elapsed_s=elapsed,
         token_cost_tracker=token_cost_tracker,
         final_status="success",
@@ -662,7 +662,7 @@ def main() -> int:
 
     update_pipeline_state(
         state_path,
-        stage=6,
+        stage=5,
         payload={
             "processed_scope_ids": [sr.scope_id for sr in scope_results],
             "finalized": bool(args.finalize),

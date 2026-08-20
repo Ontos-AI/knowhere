@@ -2,7 +2,7 @@
 # ruff: noqa: E402, F401
 """Shared utilities for the staged page-memory debug scripts.
 
-All stage scripts (debug_pm_stage0..6) import from here instead of
+All stage scripts (debug_pm_stage0..5) import from here instead of
 duplicating bootstrap, artifact I/O, and argparse helpers.
 """
 
@@ -192,6 +192,11 @@ def base_argparser(description: str) -> argparse.ArgumentParser:
     parser.add_argument("--vlm-model", default=None, help="VLM model override")
     parser.add_argument("--no-vlm", action="store_true", help="Disable VLM calls")
     parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Delete the page_memory output dir before running (full retest wipe)",
+    )
+    parser.add_argument(
         "--out-suffix",
         default="",
         help=(
@@ -217,58 +222,23 @@ def resolve_paths(args: argparse.Namespace) -> tuple[str, str, Path]:
         safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in suffix)
         dir_name = f"{dir_name}__{safe}"
     out_dir = OUTPUT_ROOT / dir_name / "page_memory"
+    if bool(getattr(args, "clean", False)) and out_dir.exists():
+        import shutil
+
+        logger.info("🗑️  Cleaning {}", out_dir)
+        shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     return pdf_path, filename, out_dir
-
-
-# ── ToolContext builder ───────────────────────────────────────────────────────
-
-
-def build_ctx(
-    *, pdf_path: str, job_id: str, out_dir: Path,
-    page_count: int, page_texts: dict[int, str], vlm_model: str | None,
-    asset_extraction_enabled: bool = False,
-):
-    from app.services.document_agent.manifest import ToolContext
-    from app.services.document_agent.state import ProfileBlackboard
-
-    blackboard = ProfileBlackboard()
-    blackboard.page_count = page_count
-    blackboard.page_full_text_cache = dict(page_texts)
-
-    vmodel = vlm_model or os.environ.get("IMAGE_MODEL")
-    reason_model = os.environ.get("PAGE_LOCATE_REASON_MODEL") or os.environ.get("NORMOL_MODEL")
-
-    return ToolContext(
-        pdf_path=pdf_path,
-        job_id=job_id,
-        blackboard=blackboard,
-        trace=None,
-        output_dir=str(out_dir / "_doc_agent"),
-        settings={
-            "vlm_model": vmodel,
-            "model": reason_model,
-            "profile_png_dpi": os.environ.get("AGENT_PNG_DPI", "144"),
-        },
-    )
 
 
 # ── Anatomy / doc-profile cache ──────────────────────────────────────────────
 
 
 def resolve_anatomy_cache_path(out_dir: Path) -> Path:
-    """Prefer package-root ``doc_profile.json``; fall back to legacy paths."""
+    """Canonical package-root ``doc_profile.json`` written by Stage 0/1."""
     from app.services.document_agent.persist import DOC_PROFILE_FILENAME
 
-    candidates = (
-        out_dir / DOC_PROFILE_FILENAME,
-        out_dir / "_doc_agent" / DOC_PROFILE_FILENAME,
-        out_dir / "_doc_agent" / "anatomy_map.json",
-    )
-    for path in candidates:
-        if path.is_file():
-            return path
-    return candidates[0]
+    return out_dir / DOC_PROFILE_FILENAME
 
 
 def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
@@ -392,88 +362,7 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
     )
 
 
-# ── Profile ───────────────────────────────────────────────────────────────────
-
-
-def run_profile(
-    pdf_path: str,
-    job_id: str,
-    out_dir: Path,
-    model: str | None,
-    *,
-    skip_toc_anchoring: bool = False,
-):
-    """Run page-memory profile exactly like production ``memory_service.run``.
-
-    Uses ``profile_document(..., skip_shard_plan=True, oversized_policy="page_memory")``
-    so coarse → anatomy matches the live track (no LLM shard planning).
-
-    ``skip_toc_anchoring=True`` stops after TOC extract (legacy monolithic
-    helper). Prefer staged debug: Stage-0 bootstrap then Stage-1 TOC.
-    """
-    from app.services.document_parser.profiling.doc_profiler import profile_document
-    from shared.core.config import settings
-
-    logger.info("=" * 70)
-    logger.info(f"🧬 DOC_PROFILE (page_memory, monolithic) — {job_id}")
-    logger.info("=" * 70)
-    if skip_toc_anchoring:
-        logger.info("   skip_toc_anchoring=True (TOC extract only; no calibration)")
-
-    previous_image_model = settings.IMAGE_MODEL
-    if model:
-        settings.IMAGE_MODEL = model
-        logger.info(f"   IMAGE_MODEL override → {model}")
-
-    t0 = time.time()
-    try:
-        profile = profile_document(
-            pdf_path,
-            job_id,
-            job_id=job_id,
-            output_dir=str(out_dir),
-            skip_shard_plan=True,
-            oversized_policy="page_memory",
-            skip_toc_anchoring=skip_toc_anchoring,
-        )
-    finally:
-        if model:
-            settings.IMAGE_MODEL = previous_image_model
-
-    logger.info(f"   profile done in {time.time() - t0:.1f}s")
-    logger.info(
-        "   category={} routing={} page_count={} is_atlas={}",
-        profile.category,
-        getattr(profile.routing_category, "value", profile.routing_category),
-        profile.page_count,
-        profile.is_atlas,
-    )
-
-    anatomy = profile.anatomy
-    if anatomy is None:
-        raise RuntimeError(
-            "page_memory profile returned no anatomy "
-            f"(routing={profile.routing_category}). Atlas / no-anatomy path "
-            "cannot continue Stage 1."
-        )
-
-    from app.services.document_agent.persist import DOC_PROFILE_FILENAME
-
-    profile_path = out_dir / DOC_PROFILE_FILENAME
-    if not profile_path.exists():
-        write_debug_json(profile_path, anatomy.to_dict())
-
-    asset_pages = sum(1 for f in anatomy.page_features if getattr(f, "has_asset", False))
-    logger.info(f"   page_count={anatomy.page_count}")
-    logger.info(f"   toc_pages={anatomy.toc_result.toc_pages}")
-    logger.info(f"   has_asset_pages={asset_pages}/{anatomy.page_count}")
-    logger.info(
-        "   shard_plan.enabled={} shards={}",
-        anatomy.shard_plan.enabled,
-        len(anatomy.shard_plan.shards),
-    )
-    logger.info(f"   doc_profile → {profile_path}")
-    return anatomy
+# ── Profile helpers (staged Stage-0 / Stage-1) ─────────────────────────────────
 
 
 def _build_debug_coordinator(
@@ -912,48 +801,22 @@ def page_text_cache_path(out_dir: Path) -> Path:
 
 def load_pipeline_state(
     state_path: Path,
-    *,
-    legacy_locate_cache: Path | None = None,
 ) -> dict[str, Any]:
-    """Load the shared Stage 0-6 ledger, with locate-cache compatibility."""
-    if state_path.exists():
-        data = json.loads(state_path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            raise ValueError(f"pipeline state must be an object: {state_path}")
-        data.setdefault("version", PIPELINE_STATE_VERSION)
-        data.setdefault("stages", {})
-        return data
-
-    if legacy_locate_cache is not None and legacy_locate_cache.exists():
-        rows = json.loads(legacy_locate_cache.read_text(encoding="utf-8"))
-        if not isinstance(rows, list):
-            raise ValueError(
-                f"legacy locate cache must be a list: {legacy_locate_cache}"
-            )
-        logger.warning(
-            "Legacy locate cache detected; it will be migrated on the next stage write: {}",
-            legacy_locate_cache,
-        )
-        return {
-            "version": PIPELINE_STATE_VERSION,
-            "stages": {
-                "stage2": {
-                    "status": "legacy",
-                    "skeletons": rows,
-                }
-            },
-        }
-
-    raise FileNotFoundError(state_path)
+    """Load the shared Stage 0-6 ledger from ``pipeline_state.json``."""
+    if not state_path.exists():
+        raise FileNotFoundError(state_path)
+    data = json.loads(state_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"pipeline state must be an object: {state_path}")
+    data.setdefault("version", PIPELINE_STATE_VERSION)
+    data.setdefault("stages", {})
+    return data
 
 
 def _pipeline_skeleton_rows(state: dict[str, Any]) -> list[dict[str, Any]]:
     stages = state.get("stages")
     stage2 = stages.get("stage2") if isinstance(stages, dict) else None
     rows = stage2.get("skeletons") if isinstance(stage2, dict) else None
-    if rows is None:
-        # Compatibility with the short-lived ``stage2_state.json`` proposal.
-        rows = state.get("skeletons")
     if not isinstance(rows, list):
         raise ValueError("pipeline state is missing stages.stage2.skeletons[]")
     return [row for row in rows if isinstance(row, dict)]
@@ -961,15 +824,10 @@ def _pipeline_skeleton_rows(state: dict[str, Any]) -> list[dict[str, Any]]:
 
 def load_pipeline_skeletons(
     state_path: Path,
-    *,
-    legacy_locate_cache: Path | None = None,
 ) -> list[Any]:
     from app.services.page_memory.skeleton_extractor import SectionSkeleton
 
-    state = load_pipeline_state(
-        state_path,
-        legacy_locate_cache=legacy_locate_cache,
-    )
+    state = load_pipeline_state(state_path)
     return [
         SectionSkeleton(
             section_path=str(row["section_path"]),
@@ -1035,53 +893,6 @@ def update_pipeline_state(
     return state
 
 
-def remove_legacy_doc_agent_artifacts(
-    doc_agent_dir: Path,
-    *,
-    include_stage2: bool = False,
-    keep_resume_cache: bool = True,
-) -> None:
-    """Drop nested doc-agent clutter; keep resume + pipeline history by default.
-
-    Canonical package artifacts live at ``page_memory/`` root
-    (``doc_profile.json``, ``trace.json``). Nested ``anatomy_map.json`` and
-    calibration page PNGs are duplicates / inspect leftovers.
-    """
-    import shutil
-
-    names = {
-        "parser_profile.json",
-        "toc_hierarchies.json",
-        "anatomy_map.json",
-        "trace.json",
-        "doc_profile.json",
-    }
-    if include_stage2:
-        names.update(
-            {
-                "calibration_result.json",
-                "null_page_parent_locate.json",
-                "locate_cache.json",
-                "stage2_state.json",
-            }
-        )
-    if not keep_resume_cache:
-        names.update(
-            {
-                STAGE0_STATE_NAME,
-                PAGE_TEXT_CACHE_NAME,
-                "stage_costs.json",
-            }
-        )
-    for name in names:
-        (doc_agent_dir / name).unlink(missing_ok=True)
-    for dirname in ("coarse_assets", "calibration_inspect"):
-        legacy_dir = doc_agent_dir / dirname
-        if legacy_dir.is_dir():
-            shutil.rmtree(legacy_dir)
-    (doc_agent_dir / "coarse_assets.html").unlink(missing_ok=True)
-
-
 def record_stage(
     stages: list[dict[str, Any]],
     stage: str,
@@ -1101,7 +912,7 @@ def record_stage(
 
 STAGE_COSTS_VERSION = "1.0"
 STAGE_COSTS_NAME = "stage_costs.json"
-_COST_STAGE_KEYS = tuple(f"stage{number}" for number in range(0, 7))
+_COST_STAGE_KEYS = tuple(f"stage{number}" for number in range(0, 6))
 
 
 def stage_costs_path(out_dir: Path) -> Path:
@@ -1414,7 +1225,6 @@ def stop_with_trace(
         summary=summary,
     )
     remove_nested_doc_agent_trace(out_dir)
-    remove_legacy_doc_agent_artifacts(out_dir / "_doc_agent", include_stage2=True)
     maybe_purge_debug_visuals(out_dir)
     return 0
 
@@ -1475,40 +1285,6 @@ def write_top_level_artifacts(
         (out_dir / "assets.json").unlink(missing_ok=True)
 
 
-def cleanup_page_memory_artifacts(out_dir: Path) -> None:
-    stale_files = {
-        "assets.json",
-        "chunks.json",
-        "coarse_scopes.json",
-        "doc_nav.json",
-        "hierarchy.json",
-        "manifest.json",
-        "node_rows.csv",
-        "node_rows.json",
-        "page_plans.json",
-        "page_rendered.json",
-        "page_tags.json",
-        "report.md",
-        "trace.json",
-    }
-    for name in stale_files:
-        path = out_dir / name
-        try:
-            if path.is_file():
-                path.unlink()
-        except Exception:
-            logger.debug(f"cleanup failed for {path}")
-    for name in ("asset_annotate", "debug", "images", "pages", "scopes", "tables"):
-        path = out_dir / name
-        try:
-            if path.is_dir():
-                import shutil
-
-                shutil.rmtree(path)
-        except Exception:
-            logger.debug(f"cleanup failed for {path}")
-
-
 # ── Tree helpers ──────────────────────────────────────────────────────────────
 
 
@@ -1518,21 +1294,6 @@ def walk(nodes: list, depth: int = 0) -> list[tuple[int, Any]]:
         rows.append((depth, node))
         rows.extend(walk(node.children, depth + 1))
     return rows
-
-
-def walk_node_count(nodes: list) -> int:
-    return len(walk(nodes))
-
-
-def hierarchy_metrics(nodes: list, *, source: str) -> dict[str, Any]:
-    rows = walk(nodes)
-    depths = [depth + 1 for depth, _node in rows]
-    return {
-        "hierarchy_source": source,
-        "title_node_count": len(rows),
-        "title_leaf_count": sum(1 for _depth, node in rows if not node.children),
-        "title_max_depth": max(depths) if depths else 0,
-    }
 
 
 # ── Artifact loaders ──────────────────────────────────────────────────────────
@@ -1567,12 +1328,6 @@ def load_hierarchy_artifact(path: Path) -> tuple[dict[str, Any], list[Any]]:
         )
     scope = data.get("scope") if isinstance(data, dict) else None
     return dict(scope) if isinstance(scope, dict) else {}, sort_skeletons(skeletons)
-
-
-def load_skeletons_from_hierarchy_artifact(path: Path) -> list[Any]:
-    """Compatibility reader for callers that only need hierarchy nodes."""
-    _scope, skeletons = load_hierarchy_artifact(path)
-    return skeletons
 
 
 def load_page_tags_artifact(path: Path) -> list[Any]:
@@ -1724,24 +1479,6 @@ def _scope_meta_from_dir(scope_dir: Path) -> dict[str, Any]:
     }
 
 
-def load_locate_cache(locate_cache: Path) -> list[Any]:
-    from app.services.page_memory.skeleton_extractor import SectionSkeleton
-
-    raw = json.loads(locate_cache.read_text(encoding="utf-8"))
-    return [
-        SectionSkeleton(
-            section_path=r["section_path"],
-            title=r["title"],
-            level=r["level"],
-            start_page=r["start_page"],
-            end_page=r["end_page"],
-            parent_path=r.get("parent_path"),
-            evidence=r.get("evidence", {}),
-        )
-        for r in raw
-    ]
-
-
 def _serialize_skeletons(skeletons: list[Any]) -> list[dict[str, Any]]:
     return [
         {
@@ -1797,7 +1534,7 @@ def build_debug_coarse_scopes(
 
 
 def add_scope_selection_args(parser: argparse.ArgumentParser) -> None:
-    """Flags shared by stage 4/5/6 for picking one or more coarse scopes."""
+    """Flags shared by stage 3/4/5 for picking one or more coarse scopes."""
     parser.add_argument(
         "--scope-id",
         default=None,
@@ -1806,12 +1543,12 @@ def add_scope_selection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--all-scopes",
         action="store_true",
-        help="Process every scope under scopes/ (default when no selector is set)",
+        help="Process every coarse scope (default when no selector is set)",
     )
     parser.add_argument(
         "--page-range",
         default=None,
-        help="Select scope(s) overlapping this page range (e.g. 14-23 or 225)",
+        help="Page-range selector (e.g. 14-23 or 225)",
     )
     parser.add_argument(
         "--fat-only",
@@ -1900,7 +1637,7 @@ def resolve_debug_scope_ids(
         logger.error("❌ No scope directories with {} found under {}", require_file, scopes_dir)
         logger.error(
             "   Run Stage 3 first: uv run python scripts/page_memory/"
-            "debug_pm_stage3_coarse_scope.py --file ..."
+            "debug_pm_stage3_scope_fine_hierarchy.py --file ..."
         )
         raise SystemExit(1)
 

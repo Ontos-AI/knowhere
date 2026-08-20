@@ -77,7 +77,7 @@ def _get_iloveapi_token_lease():
 
 def pptx_to_pdf_api(pptx_path, outdir="."):
     """
-    use iloveapi to convert pptx to pdf (file-path based, used by debug_parse.py)
+    use iloveapi to convert pptx to pdf (file-path based)
     API docs: https://www.iloveapi.com/docs/api-reference
     """
     with open(pptx_path, "rb") as f:

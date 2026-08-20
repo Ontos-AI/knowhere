@@ -96,8 +96,8 @@ def test_offset_is_found_page_minus_printed(patch_scan) -> None:
 
     assert result.status == "ok"
     assert [(r.kind, r.offset) for r in result.regimes] == [("decimal", 5)]
-    # toc_range=[1, 3] → scan starts at page after TOC end.
-    assert fake.calls == [("Chapter 1", 4)]
+    # toc_range=[1, 3], printed=10 → scan starts at the printed page.
+    assert fake.calls == [("Chapter 1", 10)]
 
 
 def test_first_hit_stops_the_regime(patch_scan) -> None:
@@ -111,7 +111,7 @@ def test_first_hit_stops_the_regime(patch_scan) -> None:
 
     run_calibration_phase1(ctx=_ctx(), toc_hierarchies=hierarchies, page_count=60)
 
-    assert fake.calls == [("Chapter 1", 4)]
+    assert fake.calls == [("Chapter 1", 10)]
 
 
 def test_second_probe_runs_when_the_first_misses(patch_scan) -> None:
@@ -128,7 +128,43 @@ def test_second_probe_runs_when_the_first_misses(patch_scan) -> None:
         ctx=_ctx(), toc_hierarchies=hierarchies, page_count=60
     )
 
-    assert fake.calls == [("Chapter 1", 4), ("Chapter 2", 4)]
+    assert fake.calls == [("Chapter 1", 10), ("Chapter 2", 20)]
+    assert [r.offset for r in result.regimes] == [5]
+
+
+def test_probes_use_distinct_printed_pages(patch_scan) -> None:
+    fake = patch_scan(_FakeScan({"Chapter 2": 25}))
+    hierarchies = _hierarchy(
+        [
+            {"heading": "Chapter 1", "page_number": "10", "level": 1},
+            {"heading": "Chapter 1 Detail", "page_number": "10", "level": 1},
+            {"heading": "Chapter 2", "page_number": "20", "level": 1},
+        ]
+    )
+
+    result = run_calibration_phase1(
+        ctx=_ctx(), toc_hierarchies=hierarchies, page_count=60
+    )
+
+    assert fake.calls == [("Chapter 1", 10), ("Chapter 2", 20)]
+    assert [r.offset for r in result.regimes] == [5]
+
+
+def test_probe_prefers_leaf_within_a_printed_page(patch_scan) -> None:
+    fake = patch_scan(_FakeScan({"A1 Purpose": 15}))
+    hierarchies = _hierarchy(
+        [
+            {"heading": "Part A", "page_number": "10", "level": 1},
+            {"heading": "A1 Purpose", "page_number": "10", "level": 2},
+            {"heading": "A2 Scope", "page_number": "20", "level": 2},
+        ]
+    )
+
+    result = run_calibration_phase1(
+        ctx=_ctx(), toc_hierarchies=hierarchies, page_count=60
+    )
+
+    assert fake.calls == [("A1 Purpose", 10)]
     assert [r.offset for r in result.regimes] == [5]
 
 
@@ -169,7 +205,49 @@ def test_roman_and_decimal_regimes_calibrate_independently(patch_scan) -> None:
         ("roman", 2),
         ("decimal", 5),
     }
-    assert fake.calls == [("Preface", 4), ("Chapter 1", 4)]
+    # printed=2 sits inside the TOC range → floor at toc end + 1; printed=10 wins.
+    assert fake.calls == [("Preface", 4), ("Chapter 1", 10)]
+
+
+def test_scan_floor_is_the_printed_page_so_offset_is_never_negative(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A divider repeating the heading cannot confirm ahead of the printed page."""
+
+    class _ConfirmFirstPage:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, int]] = []
+
+        def __call__(
+            self,
+            *,
+            ctx: ToolContext,
+            title: str,
+            start_page: int,
+            page_count: int,
+            **kwargs: Any,
+        ) -> TitleScanResult:
+            self.calls.append((title, start_page))
+            return TitleScanResult(
+                title=title,
+                found=True,
+                found_page=start_page,
+                scanned_pages=[start_page],
+                next_start=start_page + 1,
+            )
+
+    fake = _ConfirmFirstPage()
+    monkeypatch.setattr(phase1_module, "scan_title_forward", fake)
+    hierarchies = _hierarchy(
+        [{"heading": "Chapter 1", "page_number": "10", "level": 1}]
+    )
+
+    result = run_calibration_phase1(
+        ctx=_ctx(), toc_hierarchies=hierarchies, page_count=60
+    )
+
+    assert fake.calls == [("Chapter 1", 10)]
+    assert [r.offset for r in result.regimes] == [0]
 
 
 def test_confirmed_anchor_is_reported_as_a_sample(patch_scan) -> None:
@@ -197,7 +275,7 @@ def test_entries_without_a_parseable_printed_page_are_skipped(patch_scan) -> Non
 
     run_calibration_phase1(ctx=_ctx(), toc_hierarchies=hierarchies, page_count=60)
 
-    assert fake.calls == [("Chapter 1", 4)]
+    assert fake.calls == [("Chapter 1", 10)]
 
 
 def test_empty_toc_fails_without_scanning(patch_scan) -> None:
