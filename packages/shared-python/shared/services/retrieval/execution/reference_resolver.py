@@ -9,7 +9,10 @@ from shared.services.retrieval.hydration.reference import hydrate_referenced_chu
 from shared.services.retrieval.execution.response_projection import (
     enrich_referenced_chunks_with_asset_url,
 )
-from shared.services.retrieval.hydration.row_utils import build_reference_lookup_key
+from shared.services.retrieval.hydration.row_utils import (
+    build_reference_lookup_key,
+    extract_page_nums,
+)
 
 
 @dataclass(frozen=True)
@@ -36,7 +39,7 @@ async def resolve_workflow_references(
     resolved = _select_matching_references(refs, hydrated_rows)
     enriched_rows = await enrich_referenced_chunks_with_asset_url(resolved.rows)
     return ResolvedWorkflowReferences(
-        refs=_merge_reference_asset_url(resolved.refs, enriched_rows),
+        refs=_merge_reference_projection(resolved.refs, enriched_rows),
         rows=resolved.rows,
     )
 
@@ -95,7 +98,7 @@ def _row_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
     )
 
 
-def _merge_reference_asset_url(
+def _merge_reference_projection(
     refs: list[dict[str, Any]],
     rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -116,6 +119,9 @@ def _merge_reference_asset_url(
         if row is not None:
             if row.get("asset_url"):
                 merged["asset_url"] = row["asset_url"]
+            page_nums = extract_page_nums(row)
+            if page_nums is not None:
+                merged["page_nums"] = page_nums
         merged_refs.append(merged)
     return merged_refs
 

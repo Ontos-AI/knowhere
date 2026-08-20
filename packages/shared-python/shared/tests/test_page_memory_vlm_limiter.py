@@ -179,7 +179,7 @@ def test_page_memory_summary_unavailable_exception_propagates(
     monkeypatch.setattr(
         summary_engine._client_mod,
         "get_openai_client",
-        lambda model=None: _FakeClient(),
+        lambda model=None, api_key=None, api_url=None, **_kwargs: _FakeClient(),
     )
 
     with pytest.raises(UnavailableException):
@@ -208,7 +208,7 @@ def test_page_memory_transcription_unavailable_exception_propagates(
     monkeypatch.setattr(
         summary_engine._client_mod,
         "get_openai_client",
-        lambda model=None: _FakeClient(),
+        lambda model=None, api_key=None, api_url=None, **_kwargs: _FakeClient(),
     )
 
     with pytest.raises(UnavailableException):

@@ -586,7 +586,7 @@ Default agentic path is checklist map-nav (`nav/`): PLANNER (`plan_query`) → H
 2. Filters by `allowed_chunk_types` (data_type parameter)
 3. Hydrates `connect_to` targets (related table chunks inlined into text)
 4. Cleans asset path references from content
-5. Attaches citation: `{document_id, chunk_id, source_file_name, section_path}`
+5. Public projection builds `source`: `{document_id, source_file_name, section_path}` plus `page_nums` for `chunk_type=page` when present
 
 ### Small Corpus Optimization
 

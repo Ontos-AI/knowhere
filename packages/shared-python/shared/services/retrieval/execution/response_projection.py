@@ -9,18 +9,8 @@ from shared.services.retrieval.hydration.row_utils import (
 )
 
 
-def attach_citation(row: dict[str, Any]) -> dict[str, Any]:
-    citation = {
-        'document_id': row.get('document_id'),
-        'chunk_id': row.get('chunk_id'),
-        'source_file_name': row.get('source_file_name'),
-        'section_path': row.get('section_path'),
-    }
-    return {**row, 'citation': citation}
-
-
 def to_public_source(row: dict[str, Any]) -> dict[str, Any]:
-    return {field: row.get(field) for field in PUBLIC_SOURCE_FIELDS}
+    return {field: row[field] for field in PUBLIC_SOURCE_FIELDS if field in row}
 
 
 async def enrich_referenced_chunks_with_asset_url(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -63,10 +53,7 @@ async def project_public_retrieval_response(response: dict[str, Any]) -> dict[st
             metadata = row.get('chunk_metadata')
         if isinstance(metadata, dict):
             public_row['metadata'] = metadata
-        if 'source' in row:
-            public_row['source'] = row['source']
-        else:
-            public_row['source'] = to_public_source(row)
+        public_row['source'] = to_public_source(row)
         public_results.append(public_row)
 
     public_response['results'] = public_results

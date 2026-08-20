@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.row_utils import (
     clean_content,
+    extract_page_nums,
     filter_excluded_rows,
     iter_connected_target_ids,
     normalize_chunk_type,
@@ -59,6 +60,9 @@ async def assemble_retrieval_results(
         if chunk_type == 'page':
             assembled_row['content'] = _page_summary(row)
             assembled_row['content_source'] = 'summary'
+            page_nums = extract_page_nums(row)
+            if page_nums is not None:
+                assembled_row['page_nums'] = page_nums
         elif chunk_type == 'table':
             assembled_row['content'] = _compose_table_content(row, rows_by_chunk_id)
             assembled_row['content_source'] = 'summary'
