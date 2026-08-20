@@ -168,7 +168,7 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
         "financial-spacex-s1"
     )
     assert spacex_source["canonical_document_id"] == "demo-doc-spacex-s1"
-    assert spacex_source["chunk_count"] == 633
+    assert spacex_source["chunk_count"] == 227
     assert spacex_citations[0]["canonical_chunk_id"].startswith(
         f"{SPACEX_DEMO_SOURCE_ID}:"
     )
@@ -180,7 +180,7 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     assert library_sources_by_id["financial-spacex-s1"]["demo_source_id"] == (
         SPACEX_DEMO_SOURCE_ID
     )
-    assert library_sources_by_id["financial-spacex-s1"]["chunk_count"] == 633
+    assert library_sources_by_id["financial-spacex-s1"]["chunk_count"] == 227
     assert library_sources_by_id["stem-statistical-learning"]["status"] == "ready"
     assert library_sources_by_id["stem-statistical-learning"]["demo_source_id"] == (
         "demo-stem-statistical-learning"
