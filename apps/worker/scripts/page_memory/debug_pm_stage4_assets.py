@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 # ruff: noqa: E402
-"""Stage 5: Document-level page asset extraction (C5) — NO page tagging.
+"""Stage 4: Document-level page asset extraction (C5) — NO page tagging.
 
 Unions processing pages from selected scopes, renders/extracts each unique page
 once, writes top-level ``assets.json``, and projects references into scope dirs.
-Does NOT run page tagging (C3) — Stage 4 already produced shared document-level tags.
+Does NOT run page tagging (C3) — Stage 3 already produced shared document-level tags.
 
-Requires Stage 4 output: scopes/<id>/fine_hierarchy.json
+Requires Stage 3 output: scopes/<id>/fine_hierarchy.json
 
 Usage:
   cd apps/worker
-  uv run python scripts/page_memory/debug_pm_stage5_assets.py --file /path/to/doc.pdf
-  uv run python scripts/page_memory/debug_pm_stage5_assets.py --scope-id p1-100
-  uv run python scripts/page_memory/debug_pm_stage5_assets.py --all-scopes
+  uv run python scripts/page_memory/debug_pm_stage4_assets.py --file /path/to/doc.pdf
+  uv run python scripts/page_memory/debug_pm_stage4_assets.py --scope-id p1-100
+  uv run python scripts/page_memory/debug_pm_stage4_assets.py --all-scopes
 """
 
 import sys
@@ -69,7 +69,7 @@ def _load_scope_asset_context(
     fine_hierarchy_path = scope_dir / "fine_hierarchy.json"
     require_file(
         fine_hierarchy_path,
-        hint=f"Run Stage 4 first to produce {fine_hierarchy_path}",
+        hint=f"Run Stage 3 first to produce {fine_hierarchy_path}",
     )
     prior_scope, active_skeletons = load_hierarchy_artifact(fine_hierarchy_path)
     if not active_skeletons:
@@ -113,13 +113,13 @@ def _load_scope_asset_context(
 
 
 def main() -> int:
-    parser = base_argparser("Stage 5: Document-level asset extraction (C5)")
+    parser = base_argparser("Stage 4: Document-level asset extraction (C5)")
     add_scope_selection_args(parser)
     parser.add_argument(
         "--max-workers",
         type=int,
         default=5,
-        help="Kept for CLI compatibility; Stage 5 extracts once at document level",
+        help="Kept for CLI compatibility; Stage 4 extracts once at document level",
     )
     args = parser.parse_args()
 
@@ -164,7 +164,7 @@ def main() -> int:
         nonempty_json=True,
     )
     logger.info("█" * 70)
-    logger.info(f"  STAGE 5: DOCUMENT ASSET EXTRACTION — {filename}")
+    logger.info(f"  STAGE 4: DOCUMENT ASSET EXTRACTION — {filename}")
     logger.info(f"  OUTPUT: {out_dir}")
     logger.info(f"  SCOPES: {scope_ids}")
     logger.info("█" * 70)
@@ -276,14 +276,14 @@ def main() -> int:
         )
 
     elapsed = time.time() - t_start
-    logger.info(f"✅ Stage 5 done in {elapsed:.1f}s")
+    logger.info(f"✅ Stage 4 done in {elapsed:.1f}s")
     logger.info(
         f"   {len(scope_contexts)} scopes, {asset_count} assets, "
         f"{len(union_pages)} unique pages"
     )
     update_pipeline_state(
         state_path,
-        stage=5,
+        stage=4,
         payload={
             "processed_scope_ids": [context.scope_id for context in scope_contexts],
             "processed_scope_count": len(scope_contexts),
@@ -303,7 +303,7 @@ def main() -> int:
         stages=trace_stages,
         stop_at="assets",
         page_count=page_count,
-        pipeline_stage=5,
+        pipeline_stage=4,
         elapsed_s=elapsed,
         token_cost_tracker=token_cost_tracker,
     )

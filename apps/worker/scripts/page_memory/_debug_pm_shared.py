@@ -2,7 +2,7 @@
 # ruff: noqa: E402, F401
 """Shared utilities for the staged page-memory debug scripts.
 
-All stage scripts (debug_pm_stage0..6) import from here instead of
+All stage scripts (debug_pm_stage0..5) import from here instead of
 duplicating bootstrap, artifact I/O, and argparse helpers.
 """
 
@@ -912,7 +912,7 @@ def record_stage(
 
 STAGE_COSTS_VERSION = "1.0"
 STAGE_COSTS_NAME = "stage_costs.json"
-_COST_STAGE_KEYS = tuple(f"stage{number}" for number in range(0, 7))
+_COST_STAGE_KEYS = tuple(f"stage{number}" for number in range(0, 6))
 
 
 def stage_costs_path(out_dir: Path) -> Path:
@@ -1534,7 +1534,7 @@ def build_debug_coarse_scopes(
 
 
 def add_scope_selection_args(parser: argparse.ArgumentParser) -> None:
-    """Flags shared by stage 4/5/6 for picking one or more coarse scopes."""
+    """Flags shared by stage 3/4/5 for picking one or more coarse scopes."""
     parser.add_argument(
         "--scope-id",
         default=None,
@@ -1543,12 +1543,12 @@ def add_scope_selection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--all-scopes",
         action="store_true",
-        help="Process every scope under scopes/ (default when no selector is set)",
+        help="Process every coarse scope (default when no selector is set)",
     )
     parser.add_argument(
         "--page-range",
         default=None,
-        help="Select scope(s) overlapping this page range (e.g. 14-23 or 225)",
+        help="Page-range selector (e.g. 14-23 or 225)",
     )
     parser.add_argument(
         "--fat-only",
@@ -1637,7 +1637,7 @@ def resolve_debug_scope_ids(
         logger.error("❌ No scope directories with {} found under {}", require_file, scopes_dir)
         logger.error(
             "   Run Stage 3 first: uv run python scripts/page_memory/"
-            "debug_pm_stage3_coarse_scope.py --file ..."
+            "debug_pm_stage3_scope_fine_hierarchy.py --file ..."
         )
         raise SystemExit(1)
 

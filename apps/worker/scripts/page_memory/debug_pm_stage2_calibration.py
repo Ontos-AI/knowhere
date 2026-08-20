@@ -8,7 +8,7 @@ Same PROFILE anchoring path as production PAGE/TEXT:
   classify contained/parallel → graft contained → write skeleton_*
 
 Also resolves coarse skeletons (C4 resolve-only) into pipeline state so
-Stage 3 can resume without re-anchoring. No fine hierarchy.
+Stage 3 can resume without re-anchoring. No scope build or fine hierarchy.
 
 Requires Stage 0 → Stage 1 first:
   uv run python scripts/page_memory/debug_pm_stage0_bootstrap.py --file ...

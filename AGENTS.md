@@ -671,7 +671,7 @@ PDF/PPT debug is track-split (not a single all-format one-shot):
 | Script | Purpose |
 |:---|:---|
 | `debug_text_track.py` | TEXT-TRACK (`chunk`) staged debug: `--stop-at profile/mineru/hierarchy/full`, `--clean` |
-| `page_memory/debug_pm_stage0..6.py` | PAGE-TRACK (`page_memory`) staged debug (bootstrap → finalize); shared `--clean` wipes output dir |
+| `page_memory/debug_pm_stage0..5.py` | PAGE-TRACK (`page_memory`) staged debug (bootstrap → finalize); shared `--clean` wipes output dir |
 | `debug_retrieval.py` | Retrieval debug |
 | `_debug_publish.py` | Optional `--run-db` publish helper for the scripts above |
 
