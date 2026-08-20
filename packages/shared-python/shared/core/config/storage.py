@@ -80,13 +80,14 @@ class StorageConfig(BaseModel):
         "Documents exceeding this are rejected with a contact-support message.",
     )
     PDF_PROFILE_TOC_ENABLED: bool = Field(
-        default=False,
+        default=True,
         description=(
-            "Enable page-owned PDF TOC profiling for the CHUNK track during "
-            "parser-entry DOC_PROFILE. When disabled, chunk-track PDF parsing "
-            "treats documents as no-TOC and does not fall back to Markdown TOC "
-            "detection. NOTE: the page-memory track always forces TOC profiling "
-            "on regardless of this flag, since its sections are TOC-anchored."
+            "Default-on PROFILE TOC find/extract/calibration for PDF parsing "
+            "(chunk and page_memory tracks share this pipeline). When True, "
+            "missing TOC or calibration failure degrades to no-TOC downstream. "
+            "Set False only as an emergency kill switch for the chunk track. "
+            "NOTE: page_memory always forces TOC profiling on regardless of "
+            "this flag, since its sections are TOC-anchored."
         ),
     )
     MINERU_SHARD_CONCURRENCY: int = Field(

@@ -1,30 +1,338 @@
 {
   "version": "2.0",
-  "job_id": "job_b7886be54d96",
+  "job_id": "job_424aa26c4f99",
   "data_id": null,
   "source_file_name": "TSLA-Q4-2025-Update.pdf",
-  "processing_date": "2026-05-12T02:42:26.779662Z",
+  "processing_date": "2026-08-18T09:54:35.950352Z",
   "processing": {
     "page_count": 35,
     "billing_status": "charged",
     "cost": {
-      "micro_dollars": 52500,
-      "credits": 0.0525
+      "micro_dollars": 525000,
+      "credits": 0.525
+    },
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-18:874ab8b6c9e4",
+      "total_input_cost": 0.03063332,
+      "total_output_cost": 0.00541008,
+      "total_cost": 0.0360434,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 21291,
+          "output_tokens": 200,
+          "calls": 1,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        },
+        "deepseek-chat": {
+          "input_tokens": 2238,
+          "output_tokens": 561,
+          "calls": 1,
+          "input_rate_per_1m": 0.14,
+          "output_rate_per_1m": 0.28,
+          "input_cost": 0.00031332,
+          "output_cost": 0.00015708,
+          "total_cost": 0.0004704,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.14,
+            "output_per_1m": 0.28,
+            "source": "DeepSeek official pricing",
+            "effective_date": "2026-06-11"
+          }
+        },
+        "qwen3.6-flash": {
+          "input_tokens": 121280,
+          "output_tokens": 3502,
+          "calls": 41,
+          "input_rate_per_1m": 0.25,
+          "output_rate_per_1m": 1.5,
+          "input_cost": 0.03032,
+          "output_cost": 0.005253,
+          "total_cost": 0.035573,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.25,
+            "output_per_1m": 1.5,
+            "source": "Qwen Cloud official pricing, <=256K input tier",
+            "effective_date": "2026-06-11"
+          }
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 21291,
+              "output_tokens": 200,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.hierarchy": {
+          "input_cost": 0.00031332,
+          "output_cost": 0.00015708,
+          "total_cost": 0.0004704,
+          "models": {
+            "deepseek-chat": {
+              "input_tokens": 2238,
+              "output_tokens": 561,
+              "calls": 1,
+              "input_rate_per_1m": 0.14,
+              "output_rate_per_1m": 0.28,
+              "input_cost": 0.00031332,
+              "output_cost": 0.00015708,
+              "total_cost": 0.0004704,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.14,
+                "output_per_1m": 0.28,
+                "source": "DeepSeek official pricing",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        },
+        "page_memory.asset_detect": {
+          "input_cost": 0.02863875,
+          "output_cost": 0.0046335,
+          "total_cost": 0.03327225,
+          "models": {
+            "qwen3.6-flash": {
+              "input_tokens": 114555,
+              "output_tokens": 3089,
+              "calls": 35,
+              "input_rate_per_1m": 0.25,
+              "output_rate_per_1m": 1.5,
+              "input_cost": 0.02863875,
+              "output_cost": 0.0046335,
+              "total_cost": 0.03327225,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.25,
+                "output_per_1m": 1.5,
+                "source": "Qwen Cloud official pricing, <=256K input tier",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        },
+        "page_memory.table_continuity": {
+          "input_cost": 0.00168125,
+          "output_cost": 0.0006195,
+          "total_cost": 0.00230075,
+          "models": {
+            "qwen3.6-flash": {
+              "input_tokens": 6725,
+              "output_tokens": 413,
+              "calls": 6,
+              "input_rate_per_1m": 0.25,
+              "output_rate_per_1m": 1.5,
+              "input_cost": 0.00168125,
+              "output_cost": 0.0006195,
+              "total_cost": 0.00230075,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.25,
+                "output_per_1m": 1.5,
+                "source": "Qwen Cloud official pricing, <=256K input tier",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
     },
     "timing": {
-      "started_at": "2026-05-12T02:41:42.463885+00:00",
-      "completed_at": "2026-05-12T02:42:26.292306+00:00",
-      "duration_ms": 43828
+      "started_at": "2026-08-18T09:47:33.118517+00:00",
+      "completed_at": "2026-08-18T09:54:35.946390+00:00",
+      "duration_ms": 422827
+    },
+    "stages": {
+      "timing_ms": {
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 24090,
+        "page_memory.skeleton": 0,
+        "page_memory.title_render": 8467,
+        "page_memory.title_detection": 61266,
+        "page_memory.fine_hierarchy": 3800,
+        "page_memory.render": 9305,
+        "page_memory.tag": 48637,
+        "page_memory.assets": 217531,
+        "page_memory.node_summary": 49523,
+        "page_memory.node_rows": 51,
+        "page_memory.node_assembly": 49577,
+        "worker.parse.document": 422703
+      },
+      "token_usage": {
+        "prompt_tokens": 144809,
+        "completion_tokens": 4263,
+        "total_tokens": 149072,
+        "calls": 43,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 21291,
+            "completion_tokens": 200,
+            "total_tokens": 21491,
+            "calls": 1
+          },
+          "deepseek-chat": {
+            "prompt_tokens": 2238,
+            "completion_tokens": 561,
+            "total_tokens": 2799,
+            "calls": 1
+          },
+          "qwen3.6-flash": {
+            "prompt_tokens": 121280,
+            "completion_tokens": 3502,
+            "total_tokens": 124782,
+            "calls": 41
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 21291,
+            "completion_tokens": 200,
+            "total_tokens": 21491,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 21291,
+                "completion_tokens": 200,
+                "total_tokens": 21491,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.hierarchy": {
+            "prompt_tokens": 2238,
+            "completion_tokens": 561,
+            "total_tokens": 2799,
+            "calls": 1,
+            "models": {
+              "deepseek-chat": {
+                "prompt_tokens": 2238,
+                "completion_tokens": 561,
+                "total_tokens": 2799,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.asset_detect": {
+            "prompt_tokens": 114555,
+            "completion_tokens": 3089,
+            "total_tokens": 117644,
+            "calls": 35,
+            "models": {
+              "qwen3.6-flash": {
+                "prompt_tokens": 114555,
+                "completion_tokens": 3089,
+                "total_tokens": 117644,
+                "calls": 35
+              }
+            }
+          },
+          "page_memory.table_continuity": {
+            "prompt_tokens": 6725,
+            "completion_tokens": 413,
+            "total_tokens": 7138,
+            "calls": 6,
+            "models": {
+              "qwen3.6-flash": {
+                "prompt_tokens": 6725,
+                "completion_tokens": 413,
+                "total_tokens": 7138,
+                "calls": 6
+              }
+            }
+          }
+        }
+      }
     }
   },
   "statistics": {
-    "total_chunks": 70,
-    "text_chunks": 36,
-    "image_chunks": 19,
-    "table_chunks": 15,
+    "total_chunks": 71,
+    "text_chunks": 0,
+    "image_chunks": 18,
+    "table_chunks": 16,
+    "page_chunks": 37,
     "total_pages": null
   },
   "HIERARCHY": {
-    "Root": {}
+    "Root": {
+      "Q4 and FY 2025 Update": {},
+      "HIGHLIGHTS": {},
+      "SUMMARY": {},
+      "FINANCIAL SUMMARY": {},
+      "OPERATIONAL SUMMARY": {},
+      "MANUFACTURING & HARDWARE": {
+        "Automotive": {},
+        "Energy generation and storage": {},
+        "Robotics": {}
+      },
+      "SUPPORTING INFRASTRUCTURE": {
+        "AI Training Compute": {},
+        "Battery": {},
+        "Other Supporting Infrastructure": {},
+        "AI Software": {},
+        "AI Inference Compute": {},
+        "Automotive and Other Software": {}
+      },
+      "SERVICES": {
+        "Robotaxi": {},
+        "FSD (Supervised)": {},
+        "Automotive Services": {}
+      },
+      "OTHER UPDATES": {},
+      "OUTLOOK": {
+        "Volume": {},
+        "Cash": {},
+        "Profit": {},
+        "Product": {}
+      },
+      "PHOTOS & CHARTS": {},
+      "TESLA SEMI - MEGACHARGER NETWORK PLANNED SITES FOR 2026": {},
+      "KEY METRICS QUARTERLY": {},
+      "KEY METRICS TRAILING 12 MONTHS (TTM)": {},
+      "KEY METRICS YEAR-OVER-YEAR FINANCIAL SUMMARY": {
+        "Revenue": {},
+        "Profitability": {}
+      },
+      "FINANCIAL STATEMENTS": {},
+      "STATEMENT OF OPERATIONS": {},
+      "BALANCE SHEET": {},
+      "STATEMENT OF CASH FLOWS": {},
+      "RECONCILIATION OF GAAP TO NON-GAAP FINANCIAL INFORMATION": {},
+      "ADDITIONAL INFORMATION": {
+        "WEBCAST INFORMATION": {},
+        "CERTAIN TERMS": {},
+        "NON-GAAP FINANCIAL INFORMATION": {},
+        "FORWARD-LOOKING STATEMENTS": {}
+      }
+    }
   }
 }

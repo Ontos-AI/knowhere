@@ -121,13 +121,11 @@ class DemoSourceProjection:
         chunk: dict[str, Any],
         sort_order: int,
     ) -> dict[str, Any]:
-        metadata = _metadata(chunk)
-        file_path = _first_string(
-            metadata.get("file_path"),
-            metadata.get("filePath"),
-            chunk.get("file_path"),
-            chunk.get("path") if _is_media_chunk(chunk) else None,
+        metadata = _page_assets_with_demo_urls(
+            source=source,
+            metadata=_metadata(chunk),
         )
+        file_path = _file_path_for_chunk(chunk=chunk, metadata=metadata)
         return {
             "id": self.canonical_chunk_id(source=source, chunk=chunk),
             "chunk_id": chunk["chunk_id"],
@@ -206,7 +204,7 @@ class DemoSourceProjection:
             "source": {
                 "document_id": source.canonical_document_id,
                 "source_file_name": source.title,
-                "section_path": citation.section_path,
+                "section_path": str(chunk.get("path") or citation.section_path),
             },
         }
 
@@ -220,11 +218,9 @@ def _publication_chunk(
     metadata = _metadata(materialized_chunk)
     raw_path = _first_string(metadata.get("path"), materialized_chunk.get("path"))
     publication_path = _publication_path(source=source, raw_path=raw_path)
-    file_path = _first_string(
-        metadata.get("file_path"),
-        metadata.get("filePath"),
-        materialized_chunk.get("file_path"),
-        materialized_chunk.get("path") if _is_media_chunk(materialized_chunk) else None,
+    file_path = _file_path_for_chunk(
+        chunk=materialized_chunk,
+        metadata=metadata,
     )
 
     metadata["path"] = publication_path
@@ -246,7 +242,7 @@ def _publication_path(
     if not raw:
         return prefix
 
-    if raw.startswith("images/") or raw.startswith("tables/"):
+    if _is_client_asset_path(raw):
         return f"{prefix}/Assets/{raw}"
 
     parts = split_escaped_document_path(raw)
@@ -277,6 +273,10 @@ def _resolve_citation_chunk(
         for chunk in chunks:
             if normalized_content in _normalize_text(str(chunk.get("content") or "")):
                 return chunk
+        for chunk in chunks:
+            metadata = _metadata(chunk)
+            if normalized_content in _normalize_text(str(metadata.get("summary") or "")):
+                return chunk
 
     for chunk in chunks:
         if str(chunk.get("path") or "") == citation.section_path:
@@ -293,8 +293,68 @@ def _metadata(chunk: dict[str, Any]) -> dict[str, Any]:
     return dict(metadata) if isinstance(metadata, dict) else {}
 
 
+_CLIENT_ASSET_PREFIXES = ("images/", "tables/", "page_citation_assets/")
+
+
+def _is_client_asset_path(value: str) -> bool:
+    return value.startswith(_CLIENT_ASSET_PREFIXES)
+
+
 def _is_media_chunk(chunk: dict[str, Any]) -> bool:
     return _normalize_chunk_type(chunk.get("type")) in {"image", "table"}
+
+
+def _file_path_for_chunk(
+    *,
+    chunk: dict[str, Any],
+    metadata: dict[str, Any],
+) -> str | None:
+    return _first_string(
+        metadata.get("file_path"),
+        metadata.get("filePath"),
+        chunk.get("file_path"),
+        chunk.get("path") if _is_media_chunk(chunk) else None,
+        _first_page_asset_ref(metadata),
+    )
+
+
+def _first_page_asset_ref(metadata: dict[str, Any]) -> str | None:
+    raw_assets = metadata.get("page_assets")
+    if not isinstance(raw_assets, list):
+        return None
+    for item in raw_assets:
+        if not isinstance(item, dict):
+            continue
+        artifact_ref = str(item.get("artifact_ref") or "").strip()
+        if artifact_ref.startswith("page_citation_assets/"):
+            return artifact_ref
+    return None
+
+
+def _page_assets_with_demo_urls(
+    *,
+    source: _DemoSourceDefinition,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    raw_assets = metadata.get("page_assets")
+    if not isinstance(raw_assets, list):
+        return metadata
+
+    page_assets: list[dict[str, Any]] = []
+    for item in raw_assets:
+        if not isinstance(item, dict):
+            continue
+        asset = dict(item)
+        artifact_ref = str(asset.get("artifact_ref") or "").strip()
+        if artifact_ref:
+            asset["asset_url"] = _asset_url(source=source, file_path=artifact_ref)
+        page_assets.append(asset)
+    if not page_assets:
+        return metadata
+
+    enriched = dict(metadata)
+    enriched["page_assets"] = page_assets
+    return enriched
 
 
 def _asset_url(
@@ -310,7 +370,7 @@ def _asset_url(
 
 def _normalize_chunk_type(value: object) -> str:
     raw = str(value or "").strip().split("\n", 1)[0].lower()
-    return raw if raw in {"text", "image", "table"} else "text"
+    return raw if raw in {"text", "image", "table", "page"} else "text"
 
 
 def _first_string(*values: object) -> str | None:

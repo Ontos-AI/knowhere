@@ -129,16 +129,16 @@ def extract_section_skeletons(
 
     match_overrides = skeleton_anchor.match_overrides
     null_page_report = skeleton_anchor.null_page_report
-    if skeleton_anchor.locate_agent == "offset_guided_bulk":
+    if skeleton_anchor.locate_method == "offset_guided_bulk":
         locate_summary: dict[str, Any] = {
-            "agent": "offset_guided_bulk",
+            "locate_method": "offset_guided_bulk",
             "offset": skeleton_anchor.offset,
             "bulk_count": skeleton_anchor.bulk_count,
             "pruned_out_of_scope": skeleton_anchor.pruned_count,
         }
     else:
         locate_summary = {
-            "agent": "offset_only",
+            "locate_method": "offset_only",
             "offset": skeleton_anchor.offset,
             "reason": "offset_guided_anchoring_skipped_or_empty",
             "pruned_out_of_scope": skeleton_anchor.pruned_count,
@@ -158,7 +158,6 @@ def extract_section_skeletons(
     ranges = resolve_hierarchy_page_ranges(
         resolve_nodes,
         page_count=primary_page_count,
-        page_texts=page_texts,
         body_pages=primary_body_pages,
         match_overrides=match_overrides,
     )
@@ -327,7 +326,7 @@ def _resolve_pending_tocs(
         match_overrides = skeleton_anchor.match_overrides
         null_page_report = skeleton_anchor.null_page_report
         locate_summary: dict[str, Any] = {
-            "agent": skeleton_anchor.locate_agent,
+            "locate_method": skeleton_anchor.locate_method,
             "offset": skeleton_anchor.offset,
             "bulk_count": skeleton_anchor.bulk_count,
             "pruned_out_of_scope": skeleton_anchor.pruned_count,
@@ -350,7 +349,6 @@ def _resolve_pending_tocs(
         ranges = resolve_hierarchy_page_ranges(
             resolve_nodes,
             page_count=toc_scope_end,
-            page_texts=page_texts,
             body_pages=toc_body_pages,
             match_overrides=match_overrides,
         )

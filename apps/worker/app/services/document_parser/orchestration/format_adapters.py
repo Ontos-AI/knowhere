@@ -72,7 +72,7 @@ class ImageParseAdapter:
 
 @dataclass(frozen=True)
 class PdfParseAdapter:
-    # Deprecated: prefer page_memory track for PDF (parse_track="page_memory").
+    # Chunk-track PDF adapter (API v1). v2 .pdf/.pptx uses parse_track="page_memory".
     document_format: object
 
     def parse(self, session: ParseSession) -> ParseOutput:
@@ -137,11 +137,8 @@ class XlsxParseAdapter:
 
 @dataclass(frozen=True)
 class PptxParseAdapter:
-    # Deprecated: prefer page_memory track for PPTX (parse_track="page_memory").
-    # TODO(pptx): convert PPTX→PDF first, then reuse the standard PDF PROFILE
-    # path instead of a separate PPTX PROFILE; keep page_memory input schema
-    # stable (fields may expand later). page_memory/normalizer.py already
-    # converts before PROFILE.
+    # Chunk-track PPTX adapter (API v1). v2 .pptx uses parse_track="page_memory"
+    # (normalizer converts PPTX→PDF before PROFILE).
     document_format: object
 
     def parse(self, session: ParseSession) -> ParseOutput:

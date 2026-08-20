@@ -1,531 +1,1529 @@
 {
   "chunks": [
     {
-      "chunk_id": "d66f69dd-ae97-5b5f-9c82-dee05a54c1d4",
-      "type": "text",
-      "content": "AI Agents Overview\nYiying Zhang\nSome slides adopted from https://llm-course.github.io/",
-      "path": "AI Agents Overview.pdf/Page 1",
+      "chunk_id": "asset_aad9f9d5-852f-556e-9f18-c25c42550ed4",
+      "type": "image",
+      "content": "Scenario of an envisioned society composed of AI agents\n[images/image_page_3_figure_1.png]",
+      "path": "images/image_page_3_figure_1.png",
       "metadata": {
-        "length": 86,
-        "summary": "AI Agents Overview Yiying Zhang Some slides adopted from https://llm-course.github.io/",
-        "page_nums": [
-          1
-        ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "2a6954a6-9f05-58d8-89d1-a9755a892d6f",
-      "type": "text",
-      "content": "What is AI Agent?\n•From outside: an autonomous entity that can operate on its own\n•What’s inside: a program involving model calls and often tool calls\n•Diﬀerence from an LLM: can perceive env, make decisions, take actions\n•Diﬀerence from an AI workﬂow: Autonomous and can “morph”",
-      "path": "AI Agents Overview.pdf/Page 2",
-      "metadata": {
-        "length": 279,
-        "summary": "What is AI Agent? •From outside: an autonomous entity that can operate on its own •What’s inside: a program involving model calls and often tool calls •Diﬀerence from an LLM: can perceive env, make decisions, take actions •Diﬀerence from an AI workﬂow: Autonomous and can “morph”",
-        "page_nums": [
-          2
-        ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "2c63139b-6ac1-5538-8597-270339399a3b",
-      "type": "text",
-      "content": "What is LLM Agents\nThe Rise and Potential of Large Language Model Based Agents: A Survey\nScenario of an envisioned society composed of AI agents\nIn the kitchen, one agent \norders dishes, while \nanother agent is responsible \nfor planning and solving \nthe cooking task. At the \nconcert, three agents are \ncollaborating to perform in \na band. Outdoors, two \nagents are discussing \nlantern-making, planning \nthe required materials, \nand finances by selecting \nand using tools. Users can \nparticipate in any of these \nstages of this social activity",
-      "path": "AI Agents Overview.pdf/Page 3",
-      "metadata": {
-        "length": 543,
-        "summary": "What is LLM Agents The Rise and Potential of Large Language Model Based Agents: A Survey Scenario of an envisioned society composed of AI agents In the kitchen, one agent orders dishes, while another agent is responsible for planning and solving the cooking task. At the concert, three agents are collaborating to perform in a band. Outdoors, two agents are discussing lantern-making, planning the required materials, and finances by selecting and using tools. Users can participate in any of these stages of this social activity",
+        "length": 90,
+        "summary": "",
         "page_nums": [
           3
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_3_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "6086be8a-b3b3-5a9e-bc08-4191aeb3b8f2",
-      "type": "text",
-      "content": "The use cases for LLM agents, or Language Model-based agents, are vast and diverse. These \nagents, powered by large language models (LLMs), can be used in various scenarios, including:\n1.Single-agent applications\n2.Multi-agent systems\n3.Human-Agent cooperation\nCategory\nhttps://gptpluginz.com/llm-agents/",
-      "path": "AI Agents Overview.pdf/Page 4",
+      "chunk_id": "asset_2047b26b-211d-5ab1-9a7c-6e4151b23f90",
+      "type": "image",
+      "content": "[images/image_page_4_figure_1.png]",
+      "path": "images/image_page_4_figure_1.png",
       "metadata": {
-        "length": 304,
-        "summary": "The use cases for LLM agents, or Language Model-based agents, are vast and diverse. These agents, powered by large language models (LLMs), can be used in various scenarios, including: 1.Single-agent applications 2.Multi-agent systems 3.Human-Agent cooperation Category https://gptpluginz.com/llm-agents/",
+        "length": 34,
+        "summary": "",
         "page_nums": [
           4
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_4_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "b2cb30f6-6359-5b7a-a91c-bae5c400dd16",
-      "type": "text",
-      "content": "LLM agents can be utilized as personal assistants to assist users in breaking free from daily \ntasks and repetitive labor. They can analyze, plan, and solve problems independently, reducing \nthe work pressure on individuals and enhancing task-solving efficiency.\nSingle-agent applications\nhttps://github.com/langchain-ai/langchain",
-      "path": "AI Agents Overview.pdf/Page 5",
+      "chunk_id": "asset_ce565b56-f187-565c-bc2c-7126cf270bf1",
+      "type": "image",
+      "content": "Single Agent\n[images/image_page_5_figure_1.png]",
+      "path": "images/image_page_5_figure_1.png",
       "metadata": {
-        "length": 330,
-        "summary": "LLM agents can be utilized as personal assistants to assist users in breaking free from daily tasks and repetitive labor. They can analyze, plan, and solve problems independently, reducing the work pressure on individuals and enhancing task-solving efficiency. Single-agent applications https://github.com/langchain-ai/langchain",
+        "length": 47,
+        "summary": "",
         "page_nums": [
           5
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_5_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "ca3d5819-d675-58b0-8d7f-3a8498d41c72",
-      "type": "text",
-      "content": "Multi-agent systems:LLM agents can interact with each other in a collaborative or competitive manner. \nThis enables them to achieve advancement through teamwork or adversarial interactions. In these systems, \nagents can work together on complex tasksor compete against each otherto improve their performance.\nMulti-agent systems",
-      "path": "AI Agents Overview.pdf/Page 6",
+      "chunk_id": "asset_111cae2b-b419-5c26-9e8c-dd1688446a85",
+      "type": "image",
+      "content": "LangChain Agent - Sequence Of Events\n[images/image_page_5_figure_2.png]",
+      "path": "images/image_page_5_figure_2.png",
       "metadata": {
-        "length": 328,
-        "summary": "Multi-agent systems:LLM agents can interact with each other in a collaborative or competitive manner. This enables them to achieve advancement through teamwork or adversarial interactions. In these systems, agents can work together on complex tasksor compete against each otherto improve their performance. Multi-agent systems",
+        "length": 71,
+        "summary": "",
+        "page_nums": [
+          5
+        ],
+        "file_path": "images/image_page_5_figure_2.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_7f4f3725-b641-5f6f-bfb6-7c0c273e007b",
+      "type": "image",
+      "content": "Agent-Agent\n[images/image_page_6_figure_1.png]",
+      "path": "images/image_page_6_figure_1.png",
+      "metadata": {
+        "length": 46,
+        "summary": "",
         "page_nums": [
           6
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_6_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "583e5271-87b6-5c70-b95f-66f8cbf83a9e",
-      "type": "text",
-      "content": "Human-Agent cooperation:LLM agents can interact with humans, providing them with \nassistance and performing tasks more efficiently and safely. \nExample: interactively write code together with ChatGPT.\nHuman-Agent cooperation\nhttps://gptpluginz.com/llm-agents/",
-      "path": "AI Agents Overview.pdf/Page 7",
+      "chunk_id": "asset_d49086b7-c910-5d18-a2c7-ff5574dc210a",
+      "type": "image",
+      "content": "LLM Master Agent\n[images/image_page_6_figure_2.png]",
+      "path": "images/image_page_6_figure_2.png",
       "metadata": {
-        "length": 259,
-        "summary": "Human-Agent cooperation:LLM agents can interact with humans, providing them with assistance and performing tasks more efficiently and safely. Example: interactively write code together with ChatGPT. Human-Agent cooperation https://gptpluginz.com/llm-agents/",
+        "length": 51,
+        "summary": "",
+        "page_nums": [
+          6
+        ],
+        "file_path": "images/image_page_6_figure_2.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_dc080370-5a99-5488-bf5b-a2553830d869",
+      "type": "image",
+      "content": "MetaGPT Agents Collaboration with Developing SOP\n[images/image_page_7_figure_1.png]",
+      "path": "images/image_page_7_figure_1.png",
+      "metadata": {
+        "length": 83,
+        "summary": "",
         "page_nums": [
           7
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_7_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "2d84548b-75eb-559e-8c3d-860824f975fc",
-      "type": "text",
-      "content": "Agent-to-Agent (A2A) Protocol\n●A protocol enabling standardized \ncommunication across agents \n●Support agents using different \nframeworks to communicate \n●A client (local) agent can discover \nagents by fetching “Agent Card” \nof available remote agents \n●And then delegate a task to the \nchosen remote agent \n●Supports streaming and asynchronous \npush notifications for long tasks",
-      "path": "AI Agents Overview.pdf/Page 8",
+      "chunk_id": "asset_5732a7e8-3fc0-50d9-bb3b-23f07192bd7e",
+      "type": "image",
+      "content": "[images/image_page_8_figure_1.png]",
+      "path": "images/image_page_8_figure_1.png",
       "metadata": {
-        "length": 379,
-        "summary": "Agent-to-Agent (A2A) Protocol ●A protocol enabling standardized communication across agents ●Support agents using different frameworks to communicate ●A client (local) agent can discover agents by fetching “Agent Card” of available remote agents ●And then delegate a task to the chosen remote agent ●Supports streaming and asynchronous push notifications for long tasks",
+        "length": 34,
+        "summary": "",
         "page_nums": [
           8
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_8_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "75c77c1e-b433-5833-bd9d-37b794fb6b49",
-      "type": "text",
-      "content": "Here is a famous picture from Lilian Weng (from OpenAI)\nWhat is LLM Agents\nhttps://gptpluginz.com/llm-agents/\nhttps://lilianweng.github.io/posts/2023-06-23-agent/",
-      "path": "AI Agents Overview.pdf/Page 9",
+      "chunk_id": "asset_8e352ade-ab4f-531c-b2d3-3bcbd37aa8ec",
+      "type": "image",
+      "content": "[images/image_page_9_figure_1.png]",
+      "path": "images/image_page_9_figure_1.png",
       "metadata": {
-        "length": 162,
-        "summary": "Here is a famous picture from Lilian Weng (from OpenAI) What is LLM Agents https://gptpluginz.com/llm-agents/ https://lilianweng.github.io/posts/2023-06-23-agent/",
+        "length": 34,
+        "summary": "",
         "page_nums": [
           9
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_9_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "6830ffd3-59ab-5cee-bedc-a89bf7608460",
-      "type": "text",
-      "content": "Planning: \nƔSubgoal and decomposition:The agent breaks down large tasks into smaller, manageable \nsubgoals, enabling efficient handling of complex tasks.\nƔReflection and refinement:The agent can do self-criticism and self-reflection over past \nactions, learn from mistakes and refine them for future steps, thereby improving the quality \nof final results.\nWhat is LLM Agents\nhttps://gptpluginz.com/llm-agents/\nhttps://lilianweng.github.io/posts/2023-06-23-agent/",
-      "path": "AI Agents Overview.pdf/Page 10",
+      "chunk_id": "asset_5844ea9f-02af-58c7-8ff9-075808cf24f0",
+      "type": "image",
+      "content": "[images/image_page_10_figure_1.png]",
+      "path": "images/image_page_10_figure_1.png",
       "metadata": {
-        "length": 462,
-        "summary": "Planning: ƔSubgoal and decomposition:The agent breaks down large tasks into smaller, manageable subgoals, enabling efficient handling of complex tasks. ƔReflection and refinement:The agent can do self-criticism and self-reflection over past actions, learn from mistakes and refine them for future steps, thereby improving the quality of final results. What is LLM Agents https://gptpluginz.com/llm-agents/ https://lilianweng.github.io/posts/2023-06-23-agent/",
+        "length": 35,
+        "summary": "",
         "page_nums": [
           10
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_10_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "a1029d15-9b37-5065-a32d-6f1dfe4982d4",
-      "type": "text",
-      "content": "Task Decomposition: Chain of thought\nChain of Thought (CoT) has become a standard prompting technique for enhancing model \nperformance on complex tasks. The model is instructed to ³think step by step´to utilize more test-\ntime computation to decompose hard tasks into smaller and simpler steps. CoT transforms big \ntasks into multiple manageable tasks and shed lights into an interpretation of the model¶s thinking \nprocess.\nChain-of-Thought Prompting Elicits Reasoning in Large Language Models",
-      "path": "AI Agents Overview.pdf/Page 11",
+      "chunk_id": "asset_32af31e9-3032-5c8c-b65b-84356378df04",
+      "type": "image",
+      "content": "Standard Prompting vs Chain-of-Thought Prompting comparison diagram\n[images/image_page_11_figure_1.png]",
+      "path": "images/image_page_11_figure_1.png",
       "metadata": {
-        "length": 494,
-        "summary": "Task Decomposition: Chain of thought Chain of Thought (CoT) has become a standard prompting technique for enhancing model performance on complex tasks. The model is instructed to ³think step by step´to utilize more test- time computation to decompose hard tasks into smaller and simpler steps. CoT transforms big tasks into multiple manageable tasks and shed lights into an interpretation of the model¶s thinking process. Chain-of-Thought Prompting Elicits Reasoning in Large Language Models",
+        "length": 103,
+        "summary": "",
         "page_nums": [
           11
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_11_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "259ddb8a-830b-5b65-a536-bf6942496c2b",
-      "type": "text",
-      "content": "Task Decomposition: Tree of Thoughts\nTree of Thoughts extends CoT by exploring multiple reasoning possibilities at each step. It first \ndecomposes the problem into multiple thought steps and generates multiple thoughts per step, \ncreating a tree structure. The search process can be BFS (breadth-first search) or DFS (depth-first \nsearch) with each state evaluated by a classifier (via a prompt) or majority vote.\nTree of Thoughts: Deliberate Problem Solving with Large Language Models",
-      "path": "AI Agents Overview.pdf/Page 12",
+      "chunk_id": "asset_b45f8366-46f8-5ee6-b7d5-17d669b35587",
+      "type": "image",
+      "content": "Figure 2: PaLM 540B performance on GSM8K benchmark bar chart\n[images/image_page_11_figure_2.png]",
+      "path": "images/image_page_11_figure_2.png",
       "metadata": {
-        "length": 485,
-        "summary": "Task Decomposition: Tree of Thoughts Tree of Thoughts extends CoT by exploring multiple reasoning possibilities at each step. It first decomposes the problem into multiple thought steps and generates multiple thoughts per step, creating a tree structure. The search process can be BFS (breadth-first search) or DFS (depth-first search) with each state evaluated by a classifier (via a prompt) or majority vote. Tree of Thoughts: Deliberate Problem Solving with Large Language Models",
+        "length": 96,
+        "summary": "",
+        "page_nums": [
+          11
+        ],
+        "file_path": "images/image_page_11_figure_2.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_ca640eb6-b0b1-5178-8dda-580adc11c380",
+      "type": "image",
+      "content": "Tree of Thoughts: Deliberate Problem Solving with Large Language Models\n[images/image_page_12_figure_1.png]",
+      "path": "images/image_page_12_figure_1.png",
+      "metadata": {
+        "length": 107,
+        "summary": "",
         "page_nums": [
           12
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_12_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "b2669b41-4eae-5410-9885-9743869b621f",
-      "type": "text",
-      "content": "Self-Reflection: ReACT\nReACT integrates reasoning and acting within LLM by extending the action space to be a \ncombination of task-specific discrete actions and the language space. The former enables LLM \nto interact with the environment (e.g. use Wikipedia search API), while the latter prompting LLM \nto generate reasoning traces in natural language.\nThe ReAct prompt template incorporates explicit steps for LLM to think, roughly formatted as:\nReAct: Synergizing Reasoning and Acting in Language Models",
-      "path": "AI Agents Overview.pdf/Page 13",
+      "chunk_id": "asset_591887dc-e262-5fbb-8760-54186884a060",
+      "type": "image",
+      "content": "ReAct prompt template format\n[images/image_page_13_figure_1.png]",
+      "path": "images/image_page_13_figure_1.png",
       "metadata": {
-        "length": 505,
-        "summary": "Self-Reflection: ReACT ReACT integrates reasoning and acting within LLM by extending the action space to be a combination of task-specific discrete actions and the language space. The former enables LLM to interact with the environment (e.g. use Wikipedia search API), while the latter prompting LLM to generate reasoning traces in natural language. The ReAct prompt template incorporates explicit steps for LLM to think, roughly formatted as: ReAct: Synergizing Reasoning and Acting in Language Models",
+        "length": 64,
+        "summary": "",
         "page_nums": [
           13
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_13_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "5c2472c6-654e-58d5-b8f3-6e5dc2f68365",
-      "type": "text",
-      "content": "Self-Reflection: ReACT\nIn both experiments on knowledge-intensive tasks and decision-making tasks, ReActworks better \nthan the Act-only baseline where 7KRXJKW\u001d\u0003«step is removed.\nReAct: Synergizing Reasoning and Acting in Language Models",
-      "path": "AI Agents Overview.pdf/Page 14",
+      "chunk_id": "asset_1bc42cb0-894b-5f6f-a688-7683bc0e8a0a",
+      "type": "image",
+      "content": "[images/image_page_14_figure_1.png]",
+      "path": "images/image_page_14_figure_1.png",
       "metadata": {
-        "length": 236,
-        "summary": "Self-Reflection: ReACT In both experiments on knowledge-intensive tasks and decision-making tasks, ReActworks better than the Act-only baseline where 7KRXJKW \u0003«step is removed. ReAct: Synergizing Reasoning and Acting in Language Models",
+        "length": 35,
+        "summary": "",
         "page_nums": [
           14
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_14_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "150e0099-a08d-5046-94d1-107f64dbd186",
-      "type": "text",
-      "content": "Memory: \nƔShort-term memory:all the in-context learning is \nutilizing short-term memory of the model to learn.\nƔLong-term memory:this provides the agent with \nthe capability to retain and recall (infinite) \ninformation over extended periods, often by \nleveraging an external vector store and fast retrieval.\nWhat is LLM Agents\nhttps://gptpluginz.com/llm-agents/\nhttps://lilianweng.github.io/posts/2023-06-23-agent/",
-      "path": "AI Agents Overview.pdf/Page 15",
+      "chunk_id": "asset_e85b9dfe-e895-5740-8734-92149aa21bdd",
+      "type": "image",
+      "content": "[images/image_page_15_figure_1.png]",
+      "path": "images/image_page_15_figure_1.png",
       "metadata": {
-        "length": 414,
-        "summary": "Memory: ƔShort-term memory:all the in-context learning is utilizing short-term memory of the model to learn. ƔLong-term memory:this provides the agent with the capability to retain and recall (infinite) information over extended periods, often by leveraging an external vector store and fast retrieval. What is LLM Agents https://gptpluginz.com/llm-agents/ https://lilianweng.github.io/posts/2023-06-23-agent/",
+        "length": 35,
+        "summary": "",
         "page_nums": [
           15
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_15_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "33795b02-506e-5621-9618-2e647b5ae62d",
-      "type": "text",
-      "content": "LLM Agent Memory: Types of Memory in LLMs\n1.Sensory Meory:learning embedding representations for raw inputs, including text, image or \nother modalities;[Vision encoder/speech encoder]\n2.Short-Term Memory (STM):in-context learning. It is short and finite, as it is restricted by \nthe finite context window length of Transformer.[prompt engineering]\n3.Long-Term Memory (LTM):the external vector store that the agent can attend to at query \ntime, accessible via fast retrieval. [Retrieval-augmentedLMs ]",
-      "path": "AI Agents Overview.pdf/Page 16",
+      "chunk_id": "asset_59c5a1b0-ea0a-5a80-9170-e5f3980736f6",
+      "type": "image",
+      "content": "[images/image_page_16_figure_1.png]",
+      "path": "images/image_page_16_figure_1.png",
       "metadata": {
-        "length": 500,
-        "summary": "LLM Agent Memory: Types of Memory in LLMs 1.Sensory Meory:learning embedding representations for raw inputs, including text, image or other modalities;[Vision encoder/speech encoder] 2.Short-Term Memory (STM):in-context learning. It is short and finite, as it is restricted by the finite context window length of Transformer.[prompt engineering] 3.Long-Term Memory (LTM):the external vector store that the agent can attend to at query time, accessible via fast retrieval. [Retrieval-augmentedLMs ]",
+        "length": 35,
+        "summary": "",
         "page_nums": [
           16
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_16_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "2049f60e-d13f-5c8d-8001-980bc8211cb1",
-      "type": "text",
-      "content": "Agent Memory Types\n●Semantic: facts and general \nknowledge \n●Episodic: past requests/actions \n●Procedural: skills defined in \nprograms or fine-tuned \n●Short-term: context within a \nrequest execution\nhttps://www.newsletter.swirlai.com/p/simple-way-to-explain-memory-in-ai",
-      "path": "AI Agents Overview.pdf/Page 17",
+      "chunk_id": "asset_49dd7428-c30c-5432-972c-dd5acf9d105a",
+      "type": "image",
+      "content": "AI Agents Memory\n[images/image_page_17_figure_1.png]",
+      "path": "images/image_page_17_figure_1.png",
       "metadata": {
-        "length": 270,
-        "summary": "Agent Memory Types ●Semantic: facts and general knowledge ●Episodic: past requests/actions ●Procedural: skills defined in programs or fine-tuned ●Short-term: context within a request execution https://www.newsletter.swirlai.com/p/simple-way-to-explain-memory-in-ai",
+        "length": 52,
+        "summary": "",
         "page_nums": [
           17
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_17_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "634bd646-d09f-571d-b9c0-4c7b1ce9e610",
-      "type": "text",
-      "content": "Limitations of LLM without external data (Why RAG)\n●Static: LLM’s knowledge is frozen at the time of training \n●No proprietary info: LLM usually trained with only public data \n●Non-attributable: Difficult to trace the source of an LLM generation \n●Hallucination: Easier to hallucinate when asked about knowledge outside \ntraining set",
-      "path": "AI Agents Overview.pdf/Page 18",
+      "chunk_id": "asset_6b6bb2b0-efd8-58b1-ac7e-00f4244ebdf2",
+      "type": "image",
+      "content": "[images/image_page_20_figure_1.png]",
+      "path": "images/image_page_20_figure_1.png",
       "metadata": {
-        "length": 333,
-        "summary": "Limitations of LLM without external data (Why RAG) ●Static: LLM’s knowledge is frozen at the time of training ●No proprietary info: LLM usually trained with only public data ●Non-attributable: Difficult to trace the source of an LLM generation ●Hallucination: Easier to hallucinate when asked about knowledge outside training set",
-        "page_nums": [
-          18
-        ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "02c7c3ae-5bf0-5ce0-94b2-de1ed88084ca",
-      "type": "text",
-      "content": "Retrieve-Augmented Generation (RAG)\n●Data source \n●Can be structured data, raw documents, images, videos, etc. \n●Preprocessed by chunking and embedding, usually stored in a vector DB \n●Retrieve \n●Convert query into embedding \n●Get the chunk from the DB with highest similarity with the embedding \n●Augment and generate \n●Summarize and combine the retrieved chunks with existing context \n●Fed to downstream LLMs or tools in an agent",
-      "path": "AI Agents Overview.pdf/Page 19",
-      "metadata": {
-        "length": 431,
-        "summary": "Retrieve-Augmented Generation (RAG) ●Data source ●Can be structured data, raw documents, images, videos, etc. ●Preprocessed by chunking and embedding, usually stored in a vector DB ●Retrieve ●Convert query into embedding ●Get the chunk from the DB with highest similarity with the embedding ●Augment and generate ●Summarize and combine the retrieved chunks with existing context ●Fed to downstream LLMs or tools in an agent",
-        "page_nums": [
-          19
-        ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "c3104c4e-24e2-5fca-82f4-baac0945263a",
-      "type": "text",
-      "content": "source: https://www.designveloper.com/blog/what-is-retrieval-augmented-generation/",
-      "path": "AI Agents Overview.pdf/Page 20",
-      "metadata": {
-        "length": 82,
-        "summary": "source: https://www.designveloper.com/blog/what-is-retrieval-augmented-generation/",
+        "length": 35,
+        "summary": "",
         "page_nums": [
           20
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_20_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "240e0b90-af27-54b5-bf21-fa83b65f7fa9",
-      "type": "text",
-      "content": "Why retrieval-based LMs?\nLLMs are large and expensive to train and run\ne.g., RETRO (Borgeaud et al., 2021): ³obtains comparable \nperformance to GPT-3 on the Pile, despite using 25x fewer \nparameters´\nLong-term goal:can we possibly reduce the training\nand inference costs, and scale down the size of LLMs?",
-      "path": "AI Agents Overview.pdf/Page 21",
+      "chunk_id": "asset_ffdb76b8-5227-5efa-a2df-b152f82bfa07",
+      "type": "image",
+      "content": "[images/image_page_21_figure_1.png]",
+      "path": "images/image_page_21_figure_1.png",
       "metadata": {
-        "length": 304,
-        "summary": "Why retrieval-based LMs? LLMs are large and expensive to train and run e.g., RETRO (Borgeaud et al., 2021): ³obtains comparable performance to GPT-3 on the Pile, despite using 25x fewer parameters´ Long-term goal:can we possibly reduce the training and inference costs, and scale down the size of LLMs?",
+        "length": 35,
+        "summary": "",
         "page_nums": [
           21
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_21_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "e7223e7b-4006-5dc1-bf99-206ea76a617e",
-      "type": "text",
-      "content": "Tool use: \nƔThe agent learns to call external APIsfor extra information that is missing from the model \nweights (often hard to change after pre-training), including current information, code \nexecution capability, access to proprietary information sources and more.\nWhat is LLM Agents\nhttps://gptpluginz.com/llm-agents/\nhttps://lilianweng.github.io/posts/2023-06-23-agent/",
-      "path": "AI Agents Overview.pdf/Page 22",
+      "chunk_id": "asset_1dc190d2-2cdb-549c-bd40-6e5ab0f7c35d",
+      "type": "image",
+      "content": "[images/image_page_22_figure_1.png]",
+      "path": "images/image_page_22_figure_1.png",
       "metadata": {
-        "length": 372,
-        "summary": "Tool use: ƔThe agent learns to call external APIsfor extra information that is missing from the model weights (often hard to change after pre-training), including current information, code execution capability, access to proprietary information sources and more. What is LLM Agents https://gptpluginz.com/llm-agents/ https://lilianweng.github.io/posts/2023-06-23-agent/",
+        "length": 35,
+        "summary": "",
         "page_nums": [
           22
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_22_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "1f65dc76-c981-5128-a0b5-512ec6beaf2f",
-      "type": "text",
-      "content": "Equipping Agents: The Power of Tooling\n●Tools: external functions, APIs, or even another (utility) agent (e.g., MCP \nserver) \n●Agents can often decide when to call tools and what tools to call \n●Common tools \n○Web search + crawling \n○Browser \n○Social media, email hooks \n○Code + CLI execution",
-      "path": "AI Agents Overview.pdf/Page 23",
+      "chunk_id": "asset_9954a93f-1caa-533a-810d-a5f6a4388e3d",
+      "type": "image",
+      "content": "[images/image_page_24_figure_1.png]",
+      "path": "images/image_page_24_figure_1.png",
       "metadata": {
-        "length": 292,
-        "summary": "Equipping Agents: The Power of Tooling ●Tools: external functions, APIs, or even another (utility) agent (e.g., MCP server) ●Agents can often decide when to call tools and what tools to call ●Common tools ○Web search + crawling ○Browser ○Social media, email hooks ○Code + CLI execution",
-        "page_nums": [
-          23
-        ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
-        "keywords": [],
-        "tokens": []
-      }
-    },
-    {
-      "chunk_id": "5465baba-c987-5dd0-9fe1-9a8f3a1ba7b7",
-      "type": "text",
-      "content": "https://lilianweng.github.io/posts/2023-06-23-agent/\nAction:\nƔThe agent's ability to execute actions in the real or virtual world is crucial. This can range \nfrom performing tasks in a digital environment to controlling physical robots or devices. \nThe execution phase relies on the agent's planning, memory, and tool use to carry out \ntasks effectively and adaptively.\nWhat is LLM Agents https://gptpluginz.com/llm-agents/",
-      "path": "AI Agents Overview.pdf/Page 24",
-      "metadata": {
-        "length": 423,
-        "summary": "https://lilianweng.github.io/posts/2023-06-23-agent/ Action: ƔThe agent's ability to execute actions in the real or virtual world is crucial. This can range from performing tasks in a digital environment to controlling physical robots or devices. The execution phase relies on the agent's planning, memory, and tool use to carry out tasks effectively and adaptively. What is LLM Agents https://gptpluginz.com/llm-agents/",
+        "length": 35,
+        "summary": "",
         "page_nums": [
           24
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_24_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "c6b6e1e2-eadb-5648-a596-44dabec4a03e",
-      "type": "text",
-      "content": "ƔLanguage Mastery:Their inherent capability to both \ncomprehend and produce language ensures seamless \nuser interaction.\nƔDecision-making:LLMs are equipped to reason and \ndecide, making them adept at solving intricate issues.\nƔFlexibility:Their adaptability ensures they can be \nmolded for diverse applications.\nƔCollaborative Interactions:They can collaborate \nwith humans or other agents, paving the way for \nmultifaceted interactions.\nWhy LLM Agents stand out?",
-      "path": "AI Agents Overview.pdf/Page 25",
+      "chunk_id": "asset_db9a38f5-c388-5b96-9e8b-4450a4ba1dfb",
+      "type": "image",
+      "content": "[images/image_page_25_figure_1.png]",
+      "path": "images/image_page_25_figure_1.png",
       "metadata": {
-        "length": 463,
-        "summary": "ƔLanguage Mastery:Their inherent capability to both comprehend and produce language ensures seamless user interaction. ƔDecision-making:LLMs are equipped to reason and decide, making them adept at solving intricate issues. ƔFlexibility:Their adaptability ensures they can be molded for diverse applications. ƔCollaborative Interactions:They can collaborate with humans or other agents, paving the way for multifaceted interactions. Why LLM Agents stand out?",
+        "length": 35,
+        "summary": "",
         "page_nums": [
           25
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_25_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "ebeff34e-c7a0-5576-96e8-19f70879a405",
-      "type": "text",
-      "content": "HuggingGPT: Solving AI Tasks with ChatGPT and its Friends in Hugging Face\nLLMs + APIs to expert models: HuggingGPT",
-      "path": "AI Agents Overview.pdf/Page 26",
+      "chunk_id": "asset_98ab5096-7f8a-51af-bbae-5255356de55c",
+      "type": "image",
+      "content": "[images/image_page_25_figure_2.png]",
+      "path": "images/image_page_25_figure_2.png",
       "metadata": {
-        "length": 114,
-        "summary": "HuggingGPT: Solving AI Tasks with ChatGPT and its Friends in Hugging Face LLMs + APIs to expert models: HuggingGPT",
+        "length": 35,
+        "summary": "",
+        "page_nums": [
+          25
+        ],
+        "file_path": "images/image_page_25_figure_2.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_865b70e5-37b9-554c-880a-6cc2f8289ddb",
+      "type": "image",
+      "content": "[images/image_page_26_figure_1.png]",
+      "path": "images/image_page_26_figure_1.png",
+      "metadata": {
+        "length": 35,
+        "summary": "",
         "page_nums": [
           26
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_26_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "4a9b2fc5-8099-5b8e-b743-9209d7aca05d",
-      "type": "text",
-      "content": "HuggingGPT: Solving AI Tasks with ChatGPT and its Friends in Hugging Face\nThe system comprises of 4 stages:\nƔTask Planning:LLM analyze the user's \nrequests, breaking them down into solvable \ntasks through prompts. \nƔModel Selection:LLM is presented with a \nlist of models to choose from and distributes \nthe tasks to expert models. LLM.\nƔTask Execution:Expert models execute on \nthe specific tasks and log results.\nƔResponse Generation:LLM receives the \nexecution results and provides summarized \nresults to users.\nLLMs + APIs to expert models: HuggingGPT",
-      "path": "AI Agents Overview.pdf/Page 27",
+      "chunk_id": "asset_2a6c504c-aeb9-54d4-9b76-557bde6d473a",
+      "type": "image",
+      "content": "[images/image_page_27_figure_1.png]",
+      "path": "images/image_page_27_figure_1.png",
       "metadata": {
-        "length": 555,
-        "summary": "HuggingGPT: Solving AI Tasks with ChatGPT and its Friends in Hugging Face The system comprises of 4 stages: ƔTask Planning:LLM analyze the user's requests, breaking them down into solvable tasks through prompts. ƔModel Selection:LLM is presented with a list of models to choose from and distributes the tasks to expert models. LLM. ƔTask Execution:Expert models execute on the specific tasks and log results. ƔResponse Generation:LLM receives the execution results and provides summarized results to users. LLMs + APIs to expert models: HuggingGPT",
+        "length": 35,
+        "summary": "",
         "page_nums": [
           27
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_27_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "772b4765-6a00-5d88-b00e-82765cb52b9e",
-      "type": "text",
-      "content": "TALM: Tool Augmented Language Models\nTALM: Tool Augmented Language Models\nLLMs + training for tool use: TALM",
-      "path": "AI Agents Overview.pdf/Page 28",
+      "chunk_id": "asset_5e581ea3-e69c-5801-a992-100942877554",
+      "type": "image",
+      "content": "TALM: Tool Augmented Language Models\n[images/image_page_28_figure_1.png]",
+      "path": "images/image_page_28_figure_1.png",
       "metadata": {
-        "length": 108,
-        "summary": "TALM: Tool Augmented Language Models TALM: Tool Augmented Language Models LLMs + training for tool use: TALM",
+        "length": 72,
+        "summary": "",
         "page_nums": [
           28
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_28_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "9d32f9cc-df6d-505b-8159-916c5948a59c",
-      "type": "text",
-      "content": "Toolformer: Language Models Can Teach Themselves to Use Tools\nLLMs + training for tool use: Toolformer",
-      "path": "AI Agents Overview.pdf/Page 29",
+      "chunk_id": "asset_ecdaf8b8-90d2-5137-9cba-dc0e9f5064a8",
+      "type": "image",
+      "content": "[images/image_page_29_figure_1.png]",
+      "path": "images/image_page_29_figure_1.png",
       "metadata": {
-        "length": 102,
-        "summary": "Toolformer: Language Models Can Teach Themselves to Use Tools LLMs + training for tool use: Toolformer",
+        "length": 35,
+        "summary": "",
         "page_nums": [
           29
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_29_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "b938c5a3-5c49-5b0b-b1ee-177cc587f39f",
-      "type": "text",
-      "content": "MCP (Model Context Protocol)\n●Connecting (N) LLMs to (M) external tools/resources used to be a NxM problem \n●MCP standardizes the LLM-tool communication into a N->1->M process \n●Build with a client-server model \n●MCP client: the agent that needs to call tool/data \n●MCP server: a service to expose external tools and data sources",
-      "path": "AI Agents Overview.pdf/Page 30",
+      "chunk_id": "asset_e52518bb-ee6d-57f9-adc3-a13c4af839db",
+      "type": "image",
+      "content": "[images/image_page_29_figure_2.png]",
+      "path": "images/image_page_29_figure_2.png",
       "metadata": {
-        "length": 329,
-        "summary": "MCP (Model Context Protocol) ●Connecting (N) LLMs to (M) external tools/resources used to be a NxM problem ●MCP standardizes the LLM-tool communication into a N->1->M process ●Build with a client-server model ●MCP client: the agent that needs to call tool/data ●MCP server: a service to expose external tools and data sources",
+        "length": 35,
+        "summary": "",
+        "page_nums": [
+          29
+        ],
+        "file_path": "images/image_page_29_figure_2.png",
+        "keywords": [],
+        "tokens": []
+      }
+    },
+    {
+      "chunk_id": "asset_bf40ff8e-7844-59d0-9d09-dad403add7a9",
+      "type": "image",
+      "content": "[images/image_page_30_figure_1.png]",
+      "path": "images/image_page_30_figure_1.png",
+      "metadata": {
+        "length": 35,
+        "summary": "",
         "page_nums": [
           30
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
+        "file_path": "images/image_page_30_figure_1.png",
         "keywords": [],
         "tokens": []
       }
     },
     {
-      "chunk_id": "1c624d5e-6da8-5caf-bc01-fa8f30673dc6",
-      "type": "text",
-      "content": "AI Agent/Workflow Frameworks\n●Frameworks initially proposed to standardize AI workflows, provide some out-of-box \ndesign patterns and abstractions \n●Some examples \n●LangChain: Came out the earliest, probably the most popular and hardest to use \n●LlamaIndex: Good RAG support \n●CrewAI and Camel: multi-agent framework for more complex tasks \n●But a lot of unnecessary, added complexity for agents, harder to customize \n●My experience of what’s the easiest and sufficient for many tasks \n●No framework (pure Python) \n●No MCP (can just write your own functions or hooks) \n●No A2A (no need for multi-agent)",
-      "path": "AI Agents Overview.pdf/Page 31",
+      "chunk_id": "node_25922db6-520e-5cd7-b563-068657dc8189",
+      "type": "page",
+      "content": "AI Agents Overview\nYiying Zhang\nSome slides adopted from https://llm-course.github.io/",
+      "path": "AI Agents Overview.pdf/Root/AI Agents Overview",
       "metadata": {
-        "length": 602,
-        "summary": "AI Agent/Workflow Frameworks ●Frameworks initially proposed to standardize AI workflows, provide some out-of-box design patterns and abstractions ●Some examples ●LangChain: Came out the earliest, probably the most popular and hardest to use ●LlamaIndex: Good RAG support ●CrewAI and Camel: multi-agent framework for more complex tasks ●But a lot of unnecessary, added complexity for agents, harder to customize ●My experience of what’s the easiest and sufficient for many tasks ●No framework (pure Python) ●No MCP (can just write your own functions or hooks) ●No A2A (no need for multi-agent)",
+        "length": 86,
+        "summary": "This page is the title slide for a presentation titled 'AI Agents Overview' by Yiying Zhang. It indicates that some of the slides were adopted from the website https://llm-course.github.io/.",
+        "page_nums": [
+          1
+        ],
+        "keywords": [
+          "Yiying Zhang"
+        ],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 1,
+            "artifact_ref": "page_citation_assets/page-1.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_19ee2b69-eede-5706-9c0b-7415918be038",
+      "type": "page",
+      "content": "What is AI Agent?\n• From outside: an autonomous entity that can operate on its own \n• What’s inside: a program involving model calls and often tool calls \n• Difference from an LLM: can perceive env, make decisions, take actions \n• Difference from an AI workflow: Autonomous and can “morph”",
+      "path": "AI Agents Overview.pdf/Root/What is AI Agent?",
+      "metadata": {
+        "length": 289,
+        "summary": "This slide defines an AI Agent by contrasting it with other concepts. It describes an agent as an autonomous entity that operates independently, consisting of a program involving model and tool calls. The content distinguishes agents from LLMs (which lack perception and action) and AI workflows (which are not autonomous or capable of morphing).",
+        "page_nums": [
+          2
+        ],
+        "keywords": [
+          "AI Agent",
+          "LLM"
+        ],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 2,
+            "artifact_ref": "page_citation_assets/page-2.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_f1d4a8c0-1125-57ec-a52f-abfa7a25c9b5",
+      "type": "page",
+      "content": "What is LLM Agents\nThe Rise and Potential of Large Language Model Based Agents: A Survey\nScenario of an envisioned society composed of AI agents\nIn the kitchen, one agent \norders dishes, while \nanother agent is responsible \nfor planning and solving \nthe cooking task. At the \nconcert, three agents are \ncollaborating to perform in \na band. Outdoors, two \nagents are discussing \nlantern-making, planning \nthe required materials, \nand finances by selecting \nand using tools. Users can \nparticipate in any of these \nstages of this social activity",
+      "path": "AI Agents Overview.pdf/Root/What is LLM Agents",
+      "metadata": {
+        "length": 543,
+        "summary": "This page, titled 'What is LLM Agents', illustrates a scenario of an envisioned society composed of AI agents. The central figure depicts various social activities such as cooking in a kitchen, performing in a band at a concert, and making lanterns outdoors. The accompanying text explains how different agents collaborate to perform tasks like ordering dishes, planning, solving problems, and managing finances within this simulated environment.",
+        "page_nums": [
+          3
+        ],
+        "keywords": [
+          "LLM Agents",
+          "The Rise and Potential of Large Language Model Based Agents: A Survey"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_aad9f9d5-852f-556e-9f18-c25c42550ed4",
+            "relation": "embeds",
+            "ref": "[images/image_page_3_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 3,
+            "artifact_ref": "page_citation_assets/page-3.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_881145c9-26a3-5c70-8cb0-bf4b30e382a0",
+      "type": "page",
+      "content": "The use cases for LLM agents, or Language Model-based agents, are vast and diverse. These \nagents, powered by large language models (LLMs), can be used in various scenarios, including:\n1.\nSingle-agent applications\n2.\nMulti-agent systems\n3.\nHuman-Agent cooperation\nCategory\nhttps://gptpluginz.com/llm-agents/",
+      "path": "AI Agents Overview.pdf/Root/Category",
+      "metadata": {
+        "length": 307,
+        "summary": "This page outlines the categories of use cases for LLM agents, which are powered by large language models. It lists three main scenarios: single-agent applications, multi-agent systems, and human-agent cooperation. A figure at the bottom visually illustrates these three categories using icons to represent a Single Agent, Agent-Agent interaction, and Agent-Human interaction.",
+        "page_nums": [
+          4
+        ],
+        "keywords": [
+          "LLM agents",
+          "Language Model-based agents",
+          "large language models",
+          "LLMs"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_2047b26b-211d-5ab1-9a7c-6e4151b23f90",
+            "relation": "embeds",
+            "ref": "[images/image_page_4_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 4,
+            "artifact_ref": "page_citation_assets/page-4.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_b7682c5e-c5c6-5119-9ce2-8d36597c1e2f",
+      "type": "page",
+      "content": "LLM agents can be utilized as personal assistants to assist users in breaking free from daily \ntasks and repetitive labor. They can analyze, plan, and solve problems independently, reducing \nthe work pressure on individuals and enhancing task-solving efficiency.\nSingle-agent applications\nhttps://github.com/langchain-ai/langchain",
+      "path": "AI Agents Overview.pdf/Root/Category/Single-agent applications",
+      "metadata": {
+        "length": 330,
+        "summary": "This page illustrates single-agent applications, featuring a diagram of a 'Single Agent' and a flowchart titled 'LangChain Agent - Sequence Of Events'. The sequence depicts the agent's workflow: Action leads to Observation, which informs Thought, ultimately resulting in a Final Answer. The text explains that LLM agents serve as personal assistants to help users with daily tasks and repetitive labor by analyzing, planning, and solving problems independently.",
+        "page_nums": [
+          5
+        ],
+        "keywords": [
+          "LangChain",
+          "github.com/langchain-ai/langchain"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_ce565b56-f187-565c-bc2c-7126cf270bf1",
+            "relation": "embeds",
+            "ref": "[images/image_page_5_figure_1.png]"
+          },
+          {
+            "target": "asset_111cae2b-b419-5c26-9e8c-dd1688446a85",
+            "relation": "embeds",
+            "ref": "[images/image_page_5_figure_2.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 5,
+            "artifact_ref": "page_citation_assets/page-5.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_041ca1f3-dd63-51a6-98aa-0cc0ca40d239",
+      "type": "page",
+      "content": "Multi-agent systems: LLM agents can interact with each other in a collaborative or competitive manner. \nThis enables them to achieve advancement through teamwork or adversarial interactions. In these systems, \nagents can work together on complex tasks or compete against each other to improve their performance.\nMulti-agent systems",
+      "path": "AI Agents Overview.pdf/Root/Category/Multi-agent systems",
+      "metadata": {
+        "length": 331,
+        "summary": "The page illustrates the concept of multi-agent systems, featuring a diagram that depicts an 'LLM Master Agent' delegating tasks to specialized sub-agents (Customer Service, Sales, Help Desk) which then utilize specific skills or APIs. The text explains that LLM agents can interact collaboratively or competitively to achieve advancement through teamwork or adversarial interactions.",
+        "page_nums": [
+          6
+        ],
+        "keywords": [
+          "LLM Master Agent",
+          "LLM Agent 1",
+          "LLM Agent 2",
+          "LLM Agent 3"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_7f4f3725-b641-5f6f-bfb6-7c0c273e007b",
+            "relation": "embeds",
+            "ref": "[images/image_page_6_figure_1.png]"
+          },
+          {
+            "target": "asset_d49086b7-c910-5d18-a2c7-ff5574dc210a",
+            "relation": "embeds",
+            "ref": "[images/image_page_6_figure_2.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 6,
+            "artifact_ref": "page_citation_assets/page-6.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_64cc75d3-1112-5438-9ed5-5b002197e8a8",
+      "type": "page",
+      "content": "Human-Agent cooperation: LLM agents can interact with humans, providing them with \nassistance and performing tasks more efficiently and safely. \nExample: interactively write code together with ChatGPT.\nHuman-Agent cooperation\nhttps://gptpluginz.com/llm-agents/",
+      "path": "AI Agents Overview.pdf/Root/Category/Human-Agent cooperation",
+      "metadata": {
+        "length": 260,
+        "summary": "The page illustrates the concept of Human-Agent cooperation, explaining that LLM agents can interact with humans to perform tasks efficiently and safely. It features a diagram titled 'MetaGPT Agents Collaboration with Developing SOP' which details a workflow involving roles like Product Manager, Architect, Project Manager, Engineer, and QA Engineer. The diagram also includes an example of human interaction where a user requests a Flappy Bird game and receives feedback from the system.",
+        "page_nums": [
+          7
+        ],
+        "keywords": [
+          "MetaGPT",
+          "ChatGPT"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_dc080370-5a99-5488-bf5b-a2553830d869",
+            "relation": "embeds",
+            "ref": "[images/image_page_7_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 7,
+            "artifact_ref": "page_citation_assets/page-7.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_e907a8e8-7932-5f7d-bec9-557049a768a0",
+      "type": "page",
+      "content": "Agent-to-Agent (A2A) Protocol\n●\nA protocol enabling standardized \ncommunication across agents \n●\nSupport agents using different \nframeworks to communicate \n●\nA client (local) agent can discover \nagents by fetching “Agent Card” \nof available remote agents \n●\nAnd then delegate a task to the \nchosen remote agent \n●\nSupports streaming and asynchronous \npush notifications for long tasks\n\nHere is a famous picture from Lilian Weng (from OpenAI)\nWhat is LLM Agents\nhttps://gptpluginz.com/llm-agents/\nhttps://lilianweng.github.io/posts/2023-06-23-agent/",
+      "path": "AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol",
+      "metadata": {
+        "length": 548,
+        "summary": "The section titled 'Agent-to-Agent (A2A) Protocol' describes a standardized communication framework designed to enable agents using different frameworks to interact. It outlines the process where a local client agent discovers remote agents by fetching their 'Agent Card', delegates tasks to them, and supports streaming or asynchronous push notifications for long-running tasks. The accompanying diagram illustrates the interaction flow between an A2A Client and an A2A Server, covering discovery, task delegation via messages, progress notifications, and result retrieval.",
+        "page_nums": [
+          8,
+          9
+        ],
+        "keywords": [
+          "Lilian Weng",
+          "OpenAI"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_5732a7e8-3fc0-50d9-bb3b-23f07192bd7e",
+            "relation": "embeds",
+            "ref": "[images/image_page_8_figure_1.png]"
+          },
+          {
+            "target": "asset_8e352ade-ab4f-531c-b2d3-3bcbd37aa8ec",
+            "relation": "embeds",
+            "ref": "[images/image_page_9_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 8,
+            "artifact_ref": "page_citation_assets/page-8.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          },
+          {
+            "page_num": 9,
+            "artifact_ref": "page_citation_assets/page-9.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_51bb8c1c-7ab7-5787-a100-80473af2dace",
+      "type": "page",
+      "content": "Planning: \nƔ\nSubgoal and decomposition: The agent breaks down large tasks into smaller, manageable \nsubgoals, enabling efficient handling of complex tasks.\nƔ\nReflection and refinement: The agent can do self-criticism and self-reflection over past \nactions, learn from mistakes and refine them for future steps, thereby improving the quality \nof final results.\nWhat is LLM Agents\nhttps://gptpluginz.com/llm-agents/\nhttps://lilianweng.github.io/posts/2023-06-23-agent/",
+      "path": "AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol/Planning:",
+      "metadata": {
+        "length": 466,
+        "summary": "This page explains the concept of LLM Agents, specifically focusing on the 'Planning' aspect. It details two key components: subgoal and decomposition, which involves breaking down large tasks into smaller manageable parts, and reflection and refinement, where the agent learns from past actions to improve future results. A diagram illustrates the architecture of an Agent interacting with Memory, Tools, Action, and Planning modules.",
+        "page_nums": [
+          10
+        ],
+        "keywords": [
+          "LLM Agents",
+          "gptpluginz.com",
+          "lilianweng.github.io"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_5844ea9f-02af-58c7-8ff9-075808cf24f0",
+            "relation": "embeds",
+            "ref": "[images/image_page_10_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 10,
+            "artifact_ref": "page_citation_assets/page-10.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_c57e62f0-e74c-50b0-91b0-5a707d86918b",
+      "type": "page",
+      "content": "Task Decomposition: Chain of thought\nChain of Thought (CoT) has become a standard prompting technique for enhancing model \nperformance on complex tasks. The model is instructed to ³think step by step´ to utilize more test-\ntime computation to decompose hard tasks into smaller and simpler steps. CoT transforms big \ntasks into multiple manageable tasks and shed lights into an interpretation of the model¶s thinking \nprocess.\nChain-of-Thought Prompting Elicits Reasoning in Large Language Models",
+      "path": "AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol/Planning:/Task Decomposition: Chain of thought",
+      "metadata": {
+        "length": 495,
+        "summary": "This page introduces Chain of Thought (CoT) as a prompting technique that enhances model performance by instructing the model to 'think step by step' and decompose complex tasks into smaller steps. It visually contrasts Standard Prompting with Chain-of-Thought Prompting using math word problems, demonstrating how CoT leads to correct reasoning and answers compared to incorrect outputs from standard methods. Additionally, Figure 2 presents a bar chart showing that PaLM 540B achieves state-of-the-art performance on the GSM8K benchmark when using chain-of-thought prompting.",
+        "page_nums": [
+          11
+        ],
+        "keywords": [
+          "Chain of Thought",
+          "CoT",
+          "PaLM 540B",
+          "GPT-3",
+          "GSM8K",
+          "Cobbe et al."
+        ],
+        "connect_to": [
+          {
+            "target": "asset_32af31e9-3032-5c8c-b65b-84356378df04",
+            "relation": "embeds",
+            "ref": "[images/image_page_11_figure_1.png]"
+          },
+          {
+            "target": "asset_b45f8366-46f8-5ee6-b7d5-17d669b35587",
+            "relation": "embeds",
+            "ref": "[images/image_page_11_figure_2.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 11,
+            "artifact_ref": "page_citation_assets/page-11.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_8823eb45-3093-5e8a-992f-beb48f79f14a",
+      "type": "page",
+      "content": "Task Decomposition: Tree of Thoughts\nTree of Thoughts extends CoT by exploring multiple reasoning possibilities at each step. It first \ndecomposes the problem into multiple thought steps and generates multiple thoughts per step, \ncreating a tree structure. The search process can be BFS (breadth-first search) or DFS (depth-first \nsearch) with each state evaluated by a classifier (via a prompt) or majority vote.\nTree of Thoughts: Deliberate Problem Solving with Large Language Models",
+      "path": "AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol/Planning:/Task Decomposition: Tree of Thoughts",
+      "metadata": {
+        "length": 485,
+        "summary": "This page introduces the 'Tree of Thoughts' (ToT) method, a task decomposition technique that extends Chain of Thought (CoT) by exploring multiple reasoning possibilities at each step. It describes how ToT creates a tree structure through multiple thought steps and utilizes search processes like BFS or DFS, evaluating states via classifiers or majority vote. The page includes a figure comparing four prompting strategies: Input-Output Prompting (IO), Chain of Thought Prompting (CoT), Self Consistency with CoT (CoT-SC), and Tree of Thoughts (ToT).",
+        "page_nums": [
+          12
+        ],
+        "keywords": [
+          "Tree of Thoughts",
+          "CoT",
+          "BFS",
+          "DFS",
+          "Input-Output Prompting",
+          "Chain of Thought Prompting",
+          "Self Consistency with CoT",
+          "Tree of Thoughts: Deliberate Problem Solving with Large Language Models"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_ca640eb6-b0b1-5178-8dda-580adc11c380",
+            "relation": "embeds",
+            "ref": "[images/image_page_12_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 12,
+            "artifact_ref": "page_citation_assets/page-12.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_48386d94-ca51-5bab-bbc3-61c55e2ff927",
+      "type": "page",
+      "content": "Self-Reflection: ReACT\nReACT integrates reasoning and acting within LLM by extending the action space to be a \ncombination of task-specific discrete actions and the language space. The former enables LLM \nto interact with the environment (e.g. use Wikipedia search API), while the latter prompting LLM \nto generate reasoning traces in natural language.\nThe ReAct prompt template incorporates explicit steps for LLM to think, roughly formatted as:\nReAct: Synergizing Reasoning and Acting in Language Models\n\nSelf-Reflection: ReACT\nIn both experiments on knowledge-intensive tasks and decision-making tasks, ReAct works better \nthan the Act-only baseline where 7KRXJKW\u001d\u0003« step is removed.\nReAct: Synergizing Reasoning and Acting in Language Models",
+      "path": "AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol/Planning:/Self-Reflection: ReACT",
+      "metadata": {
+        "length": 745,
+        "summary": "The page describes the ReACT framework, which integrates reasoning and acting within Large Language Models (LLMs) by combining task-specific discrete actions with natural language generation. It explains that this approach allows LLMs to interact with environments (e.g., via Wikipedia search APIs) while generating reasoning traces. The text also presents a prompt template structure consisting of repeating 'Thought', 'Action', and 'Observation' steps. The page presents a comparative analysis of different reasoning strategies for an AI agent, titled 'Self-Reflection: ReACT'. It contrasts four approaches—Standard, Chain-of-Thought (CoT), Act-Only, and the proposed ReAct (Reason + Act)—using a specific question about the Apple Remote. The diagram illustrates how the ReAct method successfully navigates search queries to find the correct answer ('keyboard function keys'), while other methods fail or provide incorrect answers.",
+        "page_nums": [
+          13,
+          14
+        ],
+        "keywords": [
+          "ReACT",
+          "LLM",
+          "Wikipedia",
+          "Apple Remote",
+          "Apple TV",
+          "iPhone",
+          "iPad",
+          "iPod Touch",
+          "Front Row"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_591887dc-e262-5fbb-8760-54186884a060",
+            "relation": "embeds",
+            "ref": "[images/image_page_13_figure_1.png]"
+          },
+          {
+            "target": "asset_1bc42cb0-894b-5f6f-a688-7683bc0e8a0a",
+            "relation": "embeds",
+            "ref": "[images/image_page_14_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 13,
+            "artifact_ref": "page_citation_assets/page-13.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          },
+          {
+            "page_num": 14,
+            "artifact_ref": "page_citation_assets/page-14.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_bea3a45d-637a-5eb0-a02f-8422189421f7",
+      "type": "page",
+      "content": "Memory: \nƔ\nShort-term memory: all the in-context learning is \nutilizing short-term memory of the model to learn.\nƔ\nLong-term memory: this provides the agent with \nthe capability to retain and recall (infinite) \ninformation over extended periods, often by \nleveraging an external vector store and fast retrieval.\nWhat is LLM Agents\nhttps://gptpluginz.com/llm-agents/\nhttps://lilianweng.github.io/posts/2023-06-23-agent/",
+      "path": "AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol/Memory:",
+      "metadata": {
+        "length": 418,
+        "summary": "This page defines the concept of 'LLM Agents' with a specific focus on their memory systems. It distinguishes between short-term memory, which relies on in-context learning, and long-term memory, which allows for infinite information retention using external vector stores. A diagram illustrates the architecture of an agent, showing how it interacts with tools, planning, action, and both types of memory.",
+        "page_nums": [
+          15
+        ],
+        "keywords": [
+          "LLM Agents",
+          "gptpluginz.com",
+          "lilianweng.github.io"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_e85b9dfe-e895-5740-8734-92149aa21bdd",
+            "relation": "embeds",
+            "ref": "[images/image_page_15_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 15,
+            "artifact_ref": "page_citation_assets/page-15.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_f5913cb2-0f8e-5021-bd48-d7a04b163fa1",
+      "type": "page",
+      "content": "LLM Agent Memory: Types of Memory in LLMs\n1.\nSensory Meory: learning embedding representations for raw inputs, including text, image or \nother modalities; [Vision encoder/speech encoder]\n2.\nShort-Term Memory (STM): in-context learning. It is short and finite, as it is restricted by \nthe finite context window length of Transformer. [prompt engineering]\n3.\nLong-Term Memory (LTM): the external vector store that the agent can attend to at query \ntime, accessible via fast retrieval. [Retrieval-augmented LMs ]",
+      "path": "AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol/Memory:/LLM Agent Memory: Types of Memory in LLMs",
+      "metadata": {
+        "length": 509,
+        "summary": "The page outlines the types of memory in LLMs, starting with a hierarchical diagram that categorizes memory into Sensory, Short-term (Working), and Long-term memory, further breaking down Long-term memory into Explicit/Declarative and Implicit/Procedural types. Below the diagram, three numbered points define these concepts in the context of AI: Sensory Memory involves learning embeddings for raw inputs like text or images; Short-Term Memory (STM) refers to in-context learning limited by the Transformer's context window; and Long-Term Memory (LTM) describes an external vector store accessible via retrieval.",
+        "page_nums": [
+          16
+        ],
+        "keywords": [
+          "LLM Agent Memory",
+          "Transformer"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_59c5a1b0-ea0a-5a80-9170-e5f3980736f6",
+            "relation": "embeds",
+            "ref": "[images/image_page_16_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 16,
+            "artifact_ref": "page_citation_assets/page-16.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_07543d38-81d2-5249-b52a-99e9c2a78659",
+      "type": "page",
+      "content": "Agent Memory Types\n●\nSemantic: facts and general \nknowledge \n●\nEpisodic: past requests/actions \n●\nProcedural: skills defined in \nprograms or fine-tuned \n●\nShort-term: context within a \nrequest execution\nhttps://www.newsletter.swirlai.com/p/simple-way-to-explain-memory-in-ai",
+      "path": "AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol/Memory:/Agent Memory Types",
+      "metadata": {
+        "length": 274,
+        "summary": "The page outlines four types of agent memory: Semantic (facts and general knowledge), Episodic (past requests/actions), Procedural (skills defined in programs or fine-tuned), and Short-term (context within a request execution). The right side features a diagram titled 'AI Agents Memory' illustrating the architecture, including components like LLM, Orchestrator, Vector Database, and various memory types such as Episodic, Semantic, and Procedural Memory.",
+        "page_nums": [
+          17
+        ],
+        "keywords": [
+          "Aurimas Griciunas",
+          "LinkedIn",
+          "Swirl AI"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_49dd7428-c30c-5432-972c-dd5acf9d105a",
+            "relation": "embeds",
+            "ref": "[images/image_page_17_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 17,
+            "artifact_ref": "page_citation_assets/page-17.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_db4ddf41-c056-5921-805d-df14c9498987",
+      "type": "page",
+      "content": "Limitations of LLM without external data (Why RAG)\n●\nStatic: LLM’s knowledge is frozen at the time of training \n●\nNo proprietary info: LLM usually trained with only public data \n●\nNon-attributable: Difficult to trace the source of an LLM generation \n●\nHallucination: Easier to hallucinate when asked about knowledge outside \ntraining set",
+      "path": "AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol/Memory:/Limitations of LLM without external data (Why RAG)",
+      "metadata": {
+        "length": 337,
+        "summary": "The page outlines the limitations of Large Language Models (LLMs) when used without external data, serving as a justification for Retrieval-Augmented Generation (RAG). It lists four key issues: static knowledge frozen at training time, lack of proprietary information due to reliance on public data, difficulty in attributing sources of generation, and susceptibility to hallucinations regarding out-of-training-set topics.",
+        "page_nums": [
+          18
+        ],
+        "keywords": [
+          "LLM",
+          "RAG"
+        ],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 18,
+            "artifact_ref": "page_citation_assets/page-18.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_e1bcffd3-9503-5538-802d-3f7f7f549ca2",
+      "type": "page",
+      "content": "Retrieve-Augmented Generation (RAG)\n●\nData source \n●\nCan be structured data, raw documents, images, videos, etc. \n●\nPreprocessed by chunking and embedding, usually stored in a vector DB \n●\nRetrieve \n●\nConvert query into embedding \n●\nGet the chunk from the DB with highest similarity with the embedding \n●\nAugment and generate \n●\nSummarize and combine the retrieved chunks with existing context \n●\nFed to downstream LLMs or tools in an agent\n\nsource: https://www.designveloper.com/blog/what-is-retrieval-augmented-generation/",
+      "path": "AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol/Memory:/Retrieve-Augmented Generation (RAG)",
+      "metadata": {
+        "length": 524,
+        "summary": "The section titled 'Retrieve-Augmented Generation (RAG)' outlines the core components and workflow of RAG systems. It describes three main stages: Data source, where raw data is chunked and embedded into a vector database; Retrieve, where queries are converted to embeddings to find similar chunks; and Augment and generate, where retrieved context is combined with existing context and fed to downstream LLMs or agents. The accompanying diagram visualizes this process, showing data flowing through chunking and an embedding model into a vector store, which then provides relevant context to a prompt for an LLM to generate a response.",
+        "page_nums": [
+          19,
+          20
+        ],
+        "keywords": [
+          "LLMs",
+          "designveloper.com"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_6b6bb2b0-efd8-58b1-ac7e-00f4244ebdf2",
+            "relation": "embeds",
+            "ref": "[images/image_page_20_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 19,
+            "artifact_ref": "page_citation_assets/page-19.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          },
+          {
+            "page_num": 20,
+            "artifact_ref": "page_citation_assets/page-20.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_e4bcb31a-54aa-5807-9c35-836c282053d7",
+      "type": "page",
+      "content": "Why retrieval-based LMs?\nLLMs are large and expensive to train and run\ne.g., RETRO (Borgeaud et al., 2021): ³obtains comparable \nperformance to GPT-3 on the Pile, despite using 25x fewer \nparameters´\nLong-term goal: can we possibly reduce the training\nand inference costs, and scale down the size of LLMs?",
+      "path": "AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol/Memory:/Retrieve-Augmented Generation (RAG)/Why retrieval-based LMs?",
+      "metadata": {
+        "length": 305,
+        "summary": "The section titled 'Why retrieval-based LMs?' explains that Large Language Models (LLMs) are large and expensive to train and run. It contrasts a standard LM with a retrieval-based approach where an LM interacts with a datastore, suggesting this method can reduce costs and model size.",
+        "page_nums": [
+          21
+        ],
+        "keywords": [
+          "RETRO",
+          "Borgeaud et al.",
+          "GPT-3"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_ffdb76b8-5227-5efa-a2df-b152f82bfa07",
+            "relation": "embeds",
+            "ref": "[images/image_page_21_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 21,
+            "artifact_ref": "page_citation_assets/page-21.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_a288d3be-46b7-579b-aee2-99e07e285a10",
+      "type": "page",
+      "content": "[SAME-AS AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol/Memory:/Retrieve-Augmented Generation (RAG)/Why retrieval-based LMs? p21]",
+      "path": "AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol/Memory:/Retrieve-Augmented Generation (RAG)/Long-term goal: can we possibly reduce the training and inference costs, and scale down the size of LLMs?",
+      "metadata": {
+        "length": 140,
+        "summary": "The section discusses the motivation for retrieval-based language models (LMs) by highlighting that large language models (LLMs) are expensive to train and run. It poses a long-term goal of reducing training and inference costs while scaling down model size. As an example, it cites RETRO (Borgeaud et al., 2021), which achieves comparable performance to GPT-3 on the Pile dataset using 25 times fewer parameters.",
+        "page_nums": [
+          21
+        ],
+        "keywords": [
+          "RETRO",
+          "Borgeaud et al.",
+          "GPT-3",
+          "the Pile"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_ffdb76b8-5227-5efa-a2df-b152f82bfa07",
+            "relation": "related",
+            "ref": "[images/image_page_21_figure_1.png]",
+            "same_as_owner": "AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol/Memory:/Retrieve-Augmented Generation (RAG)/Why retrieval-based LMs?"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 21,
+            "artifact_ref": "page_citation_assets/page-21.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_f001c222-87eb-5517-b682-a0b50ec450c7",
+      "type": "page",
+      "content": "Tool use: \nƔ\nThe agent learns to call external APIs for extra information that is missing from the model \nweights (often hard to change after pre-training), including current information, code \nexecution capability, access to proprietary information sources and more.\nWhat is LLM Agents\nhttps://gptpluginz.com/llm-agents/\nhttps://lilianweng.github.io/posts/2023-06-23-agent/\n\nEquipping Agents: The Power of Tooling\n●\nTools: external functions, APIs, or even another (utility) agent (e.g., MCP \nserver) \n●\nAgents can often decide when to call tools and what tools to call \n●\nCommon tools \n○\nWeb search + crawling \n○\nBrowser \n○\nSocial media, email hooks \n○\nCode + CLI execution\n\nhttps://lilianweng.github.io/posts/2023-06-23-agent/\nAction:\nƔ\nThe agent's ability to execute actions in the real or virtual world is crucial. This can range \nfrom performing tasks in a digital environment to controlling physical robots or devices. \nThe execution phase relies on the agent's planning, memory, and tool use to carry out \ntasks effectively and adaptively.\nWhat is LLM Agents\nhttps://gptpluginz.com/llm-agents/",
+      "path": "AI Agents Overview.pdf/Root/Agent-to-Agent (A2A) Protocol/Tool use:",
+      "metadata": {
+        "length": 1101,
+        "summary": "The section titled 'Equipping Agents: The Power of Tooling' defines tools as external functions, APIs, or utility agents (such as an MCP server) that LLM agents can call. It highlights that agents have the autonomy to decide when and which tools to invoke. The text lists common tool categories including web search and crawling, browsers, social media and email hooks, and code plus CLI execution.",
+        "page_nums": [
+          22,
+          23,
+          24
+        ],
+        "keywords": [
+          "MCP server"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_1dc190d2-2cdb-549c-bd40-6e5ab0f7c35d",
+            "relation": "embeds",
+            "ref": "[images/image_page_22_figure_1.png]"
+          },
+          {
+            "target": "asset_9954a93f-1caa-533a-810d-a5f6a4388e3d",
+            "relation": "embeds",
+            "ref": "[images/image_page_24_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 22,
+            "artifact_ref": "page_citation_assets/page-22.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          },
+          {
+            "page_num": 23,
+            "artifact_ref": "page_citation_assets/page-23.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          },
+          {
+            "page_num": 24,
+            "artifact_ref": "page_citation_assets/page-24.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_97b1aa29-3cea-521a-a3c9-62b1d99d77ad",
+      "type": "page",
+      "content": "Ɣ\nLanguage Mastery: Their inherent capability to both \ncomprehend and produce language ensures seamless \nuser interaction.\nƔ\nDecision-making: LLMs are equipped to reason and \ndecide, making them adept at solving intricate issues.\nƔ\nFlexibility: Their adaptability ensures they can be \nmolded for diverse applications.\nƔ\nCollaborative Interactions: They can collaborate \nwith humans or other agents, paving the way for \nmultifaceted interactions.\nWhy LLM Agents stand out?",
+      "path": "AI Agents Overview.pdf/Root/Why LLM Agents stand out?",
+      "metadata": {
+        "length": 471,
+        "summary": "The page explains why LLM Agents stand out by highlighting four key capabilities: Language Mastery, Decision-making, Flexibility, and Collaborative Interactions. A visual diagram on the right uses a SpongeBob meme format to illustrate the evolution from a basic LLM to an Agent, which combines LLMs with Planning, Memory, and Tools.",
+        "page_nums": [
+          25
+        ],
+        "keywords": [
+          "LLM",
+          "SpongeBob"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_db9a38f5-c388-5b96-9e8b-4450a4ba1dfb",
+            "relation": "embeds",
+            "ref": "[images/image_page_25_figure_1.png]"
+          },
+          {
+            "target": "asset_98ab5096-7f8a-51af-bbae-5255356de55c",
+            "relation": "embeds",
+            "ref": "[images/image_page_25_figure_2.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 25,
+            "artifact_ref": "page_citation_assets/page-25.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_36ee409c-ec79-5c9f-87ef-077d06f637c8",
+      "type": "page",
+      "content": "HuggingGPT: Solving AI Tasks with ChatGPT and its Friends in Hugging Face\nLLMs + APIs to expert models: HuggingGPT\n\nHuggingGPT: Solving AI Tasks with ChatGPT and its Friends in Hugging Face\nThe system comprises of 4 stages:\nƔ\nTask Planning: LLM analyze the user's \nrequests, breaking them down into solvable \ntasks through prompts. \nƔ\nModel Selection: LLM is presented with a \nlist of models to choose from and distributes \nthe tasks to expert models. LLM.\nƔ\nTask Execution: Expert models execute on \nthe specific tasks and log results.\nƔ\nResponse Generation: LLM receives the \nexecution results and provides summarized \nresults to users.\nLLMs + APIs to expert models: HuggingGPT",
+      "path": "AI Agents Overview.pdf/Root/Why LLM Agents stand out?/LLMs + APIs to expert models: HuggingGPT",
+      "metadata": {
+        "length": 679,
+        "summary": "The section describes the HuggingGPT system, which integrates Large Language Models (LLMs) with expert models via APIs to solve complex AI tasks. The system operates through four distinct stages: Task Planning, where the LLM breaks down user requests into solvable sub-tasks; Model Selection, where the LLM chooses appropriate expert models from a list for each task; Task Execution, where the selected expert models perform the specific tasks and log results; and Response Generation, where the LLM synthesizes the execution results to provide a summarized response to the user.",
+        "page_nums": [
+          26,
+          27
+        ],
+        "keywords": [
+          "HuggingGPT",
+          "HuggingFace"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_865b70e5-37b9-554c-880a-6cc2f8289ddb",
+            "relation": "embeds",
+            "ref": "[images/image_page_26_figure_1.png]"
+          },
+          {
+            "target": "asset_2a6c504c-aeb9-54d4-9b76-557bde6d473a",
+            "relation": "embeds",
+            "ref": "[images/image_page_27_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 26,
+            "artifact_ref": "page_citation_assets/page-26.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          },
+          {
+            "page_num": 27,
+            "artifact_ref": "page_citation_assets/page-27.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_61dfffd6-5f5b-534c-a587-c1bd9f973d5f",
+      "type": "page",
+      "content": "TALM: Tool Augmented Language Models\nTALM: Tool Augmented Language Models\nLLMs + training for tool use: TALM",
+      "path": "AI Agents Overview.pdf/Root/Why LLM Agents stand out?/LLMs + training for tool use: TALM",
+      "metadata": {
+        "length": 108,
+        "summary": "The page presents a diagram comparing a standard Language Model with a Tool Augmented Language Model (TALM). The top section illustrates the basic input-to-output flow of a standard model, while the bottom section details the TALM process, which involves taking an input, calling an external tool to generate a result, and appending that result before producing the final output. The slide is titled 'LLMs + training for tool use: TALM'.",
+        "page_nums": [
+          28
+        ],
+        "keywords": [
+          "TALM",
+          "Tool Augmented Language Models"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_5e581ea3-e69c-5801-a992-100942877554",
+            "relation": "embeds",
+            "ref": "[images/image_page_28_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 28,
+            "artifact_ref": "page_citation_assets/page-28.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_2dcee0a7-f321-5792-820d-7c44a02cfa32",
+      "type": "page",
+      "content": "Toolformer: Language Models Can Teach Themselves to Use Tools\nLLMs + training for tool use: Toolformer",
+      "path": "AI Agents Overview.pdf/Root/Why LLM Agents stand out?/LLMs + training for tool use: Toolformer",
+      "metadata": {
+        "length": 102,
+        "summary": "This slide illustrates the concept of 'Toolformer', a method for training Large Language Models (LLMs) to use external tools. It displays four examples where an LLM invokes specific tools—such as a calculator, a question-answering system, a machine translation tool, and a search engine—to retrieve information or perform calculations within its text generation process. The right side of the slide features icons representing these tools: a calculator, a Q&A icon, Google Translate, and Wikipedia.",
+        "page_nums": [
+          29
+        ],
+        "keywords": [
+          "The New England Journal of Medicine",
+          "Massachusetts Medical Society",
+          "MMS",
+          "California",
+          "Brown Act",
+          "The Ralph M. Brown Act",
+          "California State Legislature"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_ecdaf8b8-90d2-5137-9cba-dc0e9f5064a8",
+            "relation": "embeds",
+            "ref": "[images/image_page_29_figure_1.png]"
+          },
+          {
+            "target": "asset_e52518bb-ee6d-57f9-adc3-a13c4af839db",
+            "relation": "embeds",
+            "ref": "[images/image_page_29_figure_2.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 29,
+            "artifact_ref": "page_citation_assets/page-29.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_903eb1e5-4704-50c4-822f-6af85bef6b71",
+      "type": "page",
+      "content": "MCP (Model Context Protocol)\n●\nConnecting (N) LLMs to (M) external tools/resources used to be a NxM problem \n●\nMCP standardizes the LLM-tool communication into a N->1->M process \n●\nBuild with a client-server model \n●\nMCP client: the agent that needs to call tool/data \n●\nMCP server: a service to expose external tools and data sources",
+      "path": "AI Agents Overview.pdf/Root/MCP (Model Context Protocol)",
+      "metadata": {
+        "length": 334,
+        "summary": "This page introduces the Model Context Protocol (MCP), a standard designed to simplify connecting multiple Large Language Models (LLMs) to various external tools and resources. It explains that while direct connections used to be an NxM problem, MCP standardizes this into an N->1->M process using a client-server model where clients request data and servers expose it. A diagram illustrates this architecture by contrasting the complex web of connections 'without MCP' against the streamlined hub-and-spoke topology 'with MCP'.",
+        "page_nums": [
+          30
+        ],
+        "keywords": [
+          "MCP",
+          "Model Context Protocol",
+          "LLMs"
+        ],
+        "connect_to": [
+          {
+            "target": "asset_bf40ff8e-7844-59d0-9d09-dad403add7a9",
+            "relation": "embeds",
+            "ref": "[images/image_page_30_figure_1.png]"
+          }
+        ],
+        "page_assets": [
+          {
+            "page_num": 30,
+            "artifact_ref": "page_citation_assets/page-30.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
+      }
+    },
+    {
+      "chunk_id": "node_8355daaa-f4db-5883-b409-7a07f749c483",
+      "type": "page",
+      "content": "AI Agent/Workflow Frameworks\n●\nFrameworks initially proposed to standardize AI workflows, provide some out-of-box \ndesign patterns and abstractions \n●\nSome examples \n●\nLangChain: Came out the earliest, probably the most popular and hardest to use \n●\nLlamaIndex: Good RAG support \n●\nCrewAI and Camel: multi-agent framework for more complex tasks \n●\nBut a lot of unnecessary, added complexity for agents, harder to customize \n●\nMy experience of what’s the easiest and sufficient for many tasks \n●\nNo framework (pure Python) \n●\nNo MCP (can just write your own functions or hooks) \n●\nNo A2A (no need for multi-agent)",
+      "path": "AI Agents Overview.pdf/Root/AI Agent∕Workflow Frameworks",
+      "metadata": {
+        "length": 612,
+        "summary": "This page discusses AI Agent/Workflow Frameworks, describing them as tools designed to standardize workflows and provide design patterns. It lists examples such as LangChain, LlamaIndex, CrewAI, and Camel, noting their specific strengths like RAG support or multi-agent capabilities. The text concludes with a personal perspective suggesting that for many tasks, using no framework (pure Python) is often the easiest and most sufficient approach.",
         "page_nums": [
           31
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
-        "keywords": [],
-        "tokens": []
+        "keywords": [
+          "LangChain",
+          "LlamaIndex",
+          "CrewAI",
+          "Camel"
+        ],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 31,
+            "artifact_ref": "page_citation_assets/page-31.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
       }
     },
     {
-      "chunk_id": "4ea931a8-0aa6-57ad-a958-2d4584b60b55",
-      "type": "text",
-      "content": "What is AI Agent Infra?\n●Agent testing and evaluation \n○Unit + e2e test, metrics, benchmarks, human-in-the-loop \n●Agent autotuning and optimization \n○Automated prompt tuning, model selection, tool selection, workflow \noptimization \n●Agent hosting \n○Serverless or long-running? \n○Stateful or stateless? \n●Tooling, memory, data",
-      "path": "AI Agents Overview.pdf/Page 32",
+      "chunk_id": "node_944ea52c-ee4b-502e-80f4-f12e53545646",
+      "type": "page",
+      "content": "What is AI Agent Infra?\n●\nAgent testing and evaluation \n○\nUnit + e2e test, metrics, benchmarks, human-in-the-loop \n●\nAgent autotuning and optimization \n○\nAutomated prompt tuning, model selection, tool selection, workflow \noptimization \n●\nAgent hosting \n○\nServerless or long-running?  \n○\nStateful or stateless? \n●\nTooling, memory, data",
+      "path": "AI Agents Overview.pdf/Root/What is AI Agent Infra?",
       "metadata": {
-        "length": 325,
-        "summary": "What is AI Agent Infra? ●Agent testing and evaluation ○Unit + e2e test, metrics, benchmarks, human-in-the-loop ●Agent autotuning and optimization ○Automated prompt tuning, model selection, tool selection, workflow optimization ●Agent hosting ○Serverless or long-running? ○Stateful or stateless? ●Tooling, memory, data",
+        "length": 334,
+        "summary": "This page defines the components of AI Agent Infrastructure (AI Agent Infra). It outlines four main areas: agent testing and evaluation (including unit tests, benchmarks, and human-in-the-loop), agent autotuning and optimization (covering prompt tuning, model selection, and workflow optimization), agent hosting considerations (serverless vs. long-running, stateful vs. stateless), and tooling, memory, and data.",
         "page_nums": [
           32
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
         "keywords": [],
-        "tokens": []
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 32,
+            "artifact_ref": "page_citation_assets/page-32.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
       }
     },
     {
-      "chunk_id": "e45be9ad-bce4-535b-8cc5-45fb89702a98",
-      "type": "text",
+      "chunk_id": "node_455ceca4-0385-5fb8-9944-0311d5066228",
+      "type": "page",
       "content": "Demo Time: Eigent Computer-Use \nAgent performing a Discord \nsummarization task",
-      "path": "AI Agents Overview.pdf/Page 33",
+      "path": "AI Agents Overview.pdf/Root/Demo Time: Eigent Computer-Use Agent performing a Discord summarization task",
       "metadata": {
         "length": 78,
-        "summary": "Demo Time: Eigent Computer-Use Agent performing a Discord summarization task",
+        "summary": "The page displays a title slide for a demonstration. It introduces the 'Eigent Computer-Use Agent' and specifies that the demo will show this agent performing a summarization task on Discord.",
         "page_nums": [
           33
         ],
-        "document_top_summary": "Research paper: AI Agents Overview.pdf",
-        "keywords": [],
-        "tokens": []
+        "keywords": [
+          "Eigent",
+          "Discord"
+        ],
+        "connect_to": [],
+        "page_assets": [
+          {
+            "page_num": 33,
+            "artifact_ref": "page_citation_assets/page-33.png",
+            "content_type": "image/png",
+            "source": "knowhere-rendered-page-citation-source",
+            "width": 1440,
+            "height": 810
+          }
+        ]
       }
     }
   ]

@@ -895,7 +895,6 @@ def test_oversized_pdf_shard_failure_preserves_processing_error(
     monkeypatch.setenv("S3_TEMP_PATH", str(tmp_path))
 
     from app.services.document_agent.manifest import (
-        H1BoundaryResult,
         PageAnatomyMap,
         Shard,
         ShardPlan,
@@ -931,7 +930,6 @@ def test_oversized_pdf_shard_failure_preserves_processing_error(
                     page_features=[],
                     page_labels=[],
                     toc_result=TocResult(method="none"),
-                    h1_result=H1BoundaryResult(method="none"),
                     shard_plan=ShardPlan(
                         enabled=True,
                         reason="too_large",
@@ -943,7 +941,6 @@ def test_oversized_pdf_shard_failure_preserves_processing_error(
                                 page_offset=0,
                                 anchor_type="forced_max_size",
                                 anchor_evidence="fixture",
-                                confidence=1.0,
                             )
                         ],
                     ),
@@ -968,7 +965,6 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
     monkeypatch.setenv("S3_TEMP_PATH", str(tmp_path))
 
     from app.services.document_agent.manifest import (
-        H1BoundaryResult,
         PageAnatomyMap,
         Shard,
         ShardPlan,
@@ -999,7 +995,6 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
         page_features=[],
         page_labels=[],
         toc_result=TocResult(toc_pages=[1], method="vlm_batch"),
-        h1_result=H1BoundaryResult(method="toc_grep"),
         shard_plan=ShardPlan(
             enabled=True,
             reason="too_large",
@@ -1011,7 +1006,6 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
                     page_offset=0,
                     anchor_type="toc_leaf_boundary",
                     anchor_evidence="Chapter 1",
-                    confidence=0.9,
                 ),
                 Shard(
                     shard_index=1,
@@ -1020,7 +1014,6 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
                     page_offset=2,
                     anchor_type="toc_leaf_boundary",
                     anchor_evidence="Chapter 2",
-                    confidence=0.9,
                 ),
             ],
         ),

@@ -230,28 +230,25 @@ def build_ctx(
     asset_extraction_enabled: bool = False,
 ):
     from app.services.document_agent.manifest import ToolContext
-    from app.services.document_agent.state import AgentBlackboard
-    from app.services.document_agent.budget import BudgetTracker
+    from app.services.document_agent.state import ProfileBlackboard
 
-    blackboard = AgentBlackboard()
+    blackboard = ProfileBlackboard()
     blackboard.page_count = page_count
     blackboard.page_full_text_cache = dict(page_texts)
 
     vmodel = vlm_model or os.environ.get("IMAGE_MODEL")
     reason_model = os.environ.get("PAGE_LOCATE_REASON_MODEL") or os.environ.get("NORMOL_MODEL")
 
-    budget = BudgetTracker(plan_budget=50000, visual_budget=200000)
     return ToolContext(
         pdf_path=pdf_path,
         job_id=job_id,
         blackboard=blackboard,
-        budget=budget,
         trace=None,
         output_dir=str(out_dir / "_doc_agent"),
         settings={
             "vlm_model": vmodel,
             "model": reason_model,
-            "agent_png_dpi": os.environ.get("AGENT_PNG_DPI", "144"),
+            "profile_png_dpi": os.environ.get("AGENT_PNG_DPI", "144"),
         },
     )
 
@@ -276,8 +273,6 @@ def resolve_anatomy_cache_path(out_dir: Path) -> Path:
 
 def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
     from app.services.document_agent.manifest import (
-        H1BoundaryResult,
-        H1Candidate,
         PageAnatomyMap,
         PageFeature,
         PageLabel,
@@ -292,7 +287,6 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
     logger.info(f"⏩ Reusing cached anatomy: {cache_path}")
     data = json.loads(cache_path.read_text(encoding="utf-8"))
     toc = data.get("toc_result") or {}
-    h1 = data.get("h1_result") or {}
     sp = data.get("shard_plan") or {}
 
     page_features = []
@@ -316,7 +310,6 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
         page_labels.append(PageLabel(
             page=int(pl.get("page", 0)),
             kind=pl.get("kind", "normal"),
-            confidence=float(pl.get("confidence", 0)),
             evidence=pl.get("evidence", {}),
         ))
 
@@ -328,7 +321,7 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
             TocAnchorPage(
                 page=int(candidate.get("page", 0)),
                 png_path=str(candidate.get("png_path") or ""),
-                source=candidate.get("source", "text_scan"),
+                source="text_scan",
             )
         )
     evidence = []
@@ -339,10 +332,13 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
             TocEvidence(
                 page_index=int(item.get("page_index", 0)),
                 source=str(item.get("source") or ""),
-                confidence=float(item.get("confidence", 0) or 0),
                 reason=str(item.get("reason") or ""),
             )
         )
+
+    method = toc.get("method", "none")
+    if method not in {"vlm_batch", "pdf_outline", "none"}:
+        method = "none"
 
     return PageAnatomyMap(
         job_id=data.get("job_id", job_id),
@@ -354,21 +350,9 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
             toc_pages=list(toc.get("toc_pages", [])),
             candidates=candidates,
             evidence=evidence,
-            method=toc.get("method", "none"),
+            method=method,  # type: ignore[arg-type]
             notes=str(toc.get("notes") or ""),
             failure_kind=toc.get("failure_kind", "none"),
-        ),
-        h1_result=H1BoundaryResult(
-            h1_candidates=[
-                H1Candidate(
-                    title=c.get("title", ""),
-                    page=int(c.get("page", 0)),
-                    confidence=float(c.get("confidence", 0) or 0),
-                    matched_line=c.get("matched_line", ""),
-                    source=c.get("source", "none"),
-                )
-                for c in h1.get("h1_candidates", [])
-            ],
         ),
         shard_plan=ShardPlan(
             enabled=bool(sp.get("enabled", False)),
@@ -381,13 +365,30 @@ def load_anatomy_cache(cache_path: Path, pdf_path: str, job_id: str):
                     page_offset=int(s.get("page_offset", 0)),
                     anchor_type=s.get("anchor_type", "forced_max_size"),
                     anchor_evidence=s.get("anchor_evidence", ""),
-                    confidence=float(s.get("confidence", 0) or 0),
+                    toc_hierarchies=(
+                        list(s["toc_hierarchies"])
+                        if isinstance(s.get("toc_hierarchies"), list)
+                        else None
+                    ),
                 )
                 for i, s in enumerate(sp.get("shards", []))
             ],
             validation=ValidationReport(valid=True),
         ),
         toc_hierarchies=data.get("toc_hierarchies"),
+        document_profile=_document_profile_from_dict(data.get("document_profile")),
+        skeleton_anchor=data.get("skeleton_anchor")
+        if isinstance(data.get("skeleton_anchor"), dict)
+        else None,
+        skeleton_nodes=list(data.get("skeleton_nodes") or [])
+        if isinstance(data.get("skeleton_nodes"), list)
+        else None,
+        pending_skeleton_anchors=list(data.get("pending_skeleton_anchors") or [])
+        if isinstance(data.get("pending_skeleton_anchors"), list)
+        else [],
+        global_signals=dict(data.get("global_signals") or {})
+        if isinstance(data.get("global_signals"), dict)
+        else {},
     )
 
 
@@ -405,10 +406,10 @@ def run_profile(
     """Run page-memory profile exactly like production ``memory_service.run``.
 
     Uses ``profile_document(..., skip_shard_plan=True, oversized_policy="page_memory")``
-    so coarse → anatomy matches the live track (no ReAct shard planning).
+    so coarse → anatomy matches the live track (no LLM shard planning).
 
-    ``skip_toc_anchoring=True`` stops after TOC extract + link attach (legacy
-    monolithic helper). Prefer staged debug: Stage-0 bootstrap then Stage-1 TOC.
+    ``skip_toc_anchoring=True`` stops after TOC extract (legacy monolithic
+    helper). Prefer staged debug: Stage-0 bootstrap then Stage-1 TOC.
     """
     from app.services.document_parser.profiling.doc_profiler import profile_document
     from shared.core.config import settings
@@ -417,7 +418,7 @@ def run_profile(
     logger.info(f"🧬 DOC_PROFILE (page_memory, monolithic) — {job_id}")
     logger.info("=" * 70)
     if skip_toc_anchoring:
-        logger.info("   skip_toc_anchoring=True (TOC + links only; no calibration)")
+        logger.info("   skip_toc_anchoring=True (TOC extract only; no calibration)")
 
     previous_image_model = settings.IMAGE_MODEL
     if model:
@@ -466,8 +467,6 @@ def run_profile(
     logger.info(f"   page_count={anatomy.page_count}")
     logger.info(f"   toc_pages={anatomy.toc_result.toc_pages}")
     logger.info(f"   has_asset_pages={asset_pages}/{anatomy.page_count}")
-    if anatomy.h1_result:
-        logger.info(f"   h1_candidates={len(anatomy.h1_result.h1_candidates)}")
     logger.info(
         "   shard_plan.enabled={} shards={}",
         anatomy.shard_plan.enabled,
@@ -494,7 +493,6 @@ def _build_debug_coordinator(
     agent_output_dir = out_dir / "_doc_agent"
     agent_output_dir.mkdir(parents=True, exist_ok=True)
     merged = {
-        "planner_model": settings.IMAGE_MODEL,
         "vlm_model": settings.IMAGE_MODEL,
         "toc_profile_enabled": True,
         "model": settings.HIERARCHY_LLM_MODEL or settings.NORMOL_MODEL,
@@ -564,7 +562,6 @@ def _page_labels_from_dicts(rows: list[Any]) -> list[Any]:
             PageLabel(
                 page=int(pl.get("page", 0)),
                 kind=pl.get("kind", "normal"),
-                confidence=float(pl.get("confidence", 0)),
                 evidence=dict(pl.get("evidence") or {}),
             )
         )
@@ -632,7 +629,6 @@ def load_stage0_into_coordinator(coordinator, out_dir: Path) -> None:
     # Stage-1 owns TOC + assets from here.
     bb.toc_result = None
     bb.toc_hierarchies = None
-    bb.toc_page_offset = None
     bb.skeleton_anchor = None
     bb.skeleton_nodes = None
     bb.pending_skeleton_anchors = []
@@ -720,7 +716,7 @@ def run_stage1_toc(
     out_dir: Path,
     model: str | None,
 ):
-    """Production-aligned Stage-1: Find → extract → link attach (no calibration).
+    """Production-aligned Stage-1: Find → extract (no calibration).
 
     Resumes Stage-0 blackboard (including asset probe). Skips
     ``run_toc_anchoring`` (Stage-2). Does not re-run asset probe.
@@ -734,7 +730,7 @@ def run_stage1_toc(
     from shared.core.config import settings
 
     logger.info("=" * 70)
-    logger.info(f"🧬 Stage 1: TOC FIND → EXTRACT → LINK — {job_id}")
+    logger.info(f"🧬 Stage 1: TOC FIND → EXTRACT — {job_id}")
     logger.info("=" * 70)
 
     previous_image_model = settings.IMAGE_MODEL
@@ -756,6 +752,11 @@ def run_stage1_toc(
         persist_anatomy_map(coordinator.ctx, {})
         profile_path = out_dir / DOC_PROFILE_FILENAME
         write_debug_json(profile_path, anatomy.to_dict())
+        # Canonical profile is at package root; drop nested duplicate.
+        try:
+            (out_dir / "_doc_agent" / "anatomy_map.json").unlink()
+        except FileNotFoundError:
+            pass
         update_pipeline_state(
             pipeline_state_path(out_dir),
             stage=1,
@@ -1038,10 +1039,22 @@ def remove_legacy_doc_agent_artifacts(
     doc_agent_dir: Path,
     *,
     include_stage2: bool = False,
+    keep_resume_cache: bool = True,
 ) -> None:
+    """Drop nested doc-agent clutter; keep resume + pipeline history by default.
+
+    Canonical package artifacts live at ``page_memory/`` root
+    (``doc_profile.json``, ``trace.json``). Nested ``anatomy_map.json`` and
+    calibration page PNGs are duplicates / inspect leftovers.
+    """
+    import shutil
+
     names = {
         "parser_profile.json",
         "toc_hierarchies.json",
+        "anatomy_map.json",
+        "trace.json",
+        "doc_profile.json",
     }
     if include_stage2:
         names.update(
@@ -1052,13 +1065,20 @@ def remove_legacy_doc_agent_artifacts(
                 "stage2_state.json",
             }
         )
+    if not keep_resume_cache:
+        names.update(
+            {
+                STAGE0_STATE_NAME,
+                PAGE_TEXT_CACHE_NAME,
+                "stage_costs.json",
+            }
+        )
     for name in names:
         (doc_agent_dir / name).unlink(missing_ok=True)
-    legacy_preview_dir = doc_agent_dir / "coarse_assets"
-    if legacy_preview_dir.is_dir():
-        import shutil
-
-        shutil.rmtree(legacy_preview_dir)
+    for dirname in ("coarse_assets", "calibration_inspect"):
+        legacy_dir = doc_agent_dir / dirname
+        if legacy_dir.is_dir():
+            shutil.rmtree(legacy_dir)
     (doc_agent_dir / "coarse_assets.html").unlink(missing_ok=True)
 
 
@@ -1394,6 +1414,7 @@ def stop_with_trace(
         summary=summary,
     )
     remove_nested_doc_agent_trace(out_dir)
+    remove_legacy_doc_agent_artifacts(out_dir / "_doc_agent", include_stage2=True)
     maybe_purge_debug_visuals(out_dir)
     return 0
 

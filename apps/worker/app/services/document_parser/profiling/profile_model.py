@@ -10,7 +10,6 @@ from app.services.document_parser.profiling.taxonomy import PdfRoutingCategory
 class TocEvidence:
     page_index: int
     source: str
-    confidence: float
     reason: str = ""
 
 
@@ -41,7 +40,6 @@ class ParserDocumentProfile:
     language: str = "unknown"
     reasoning: str = ""
     toc: ParserTocProfile = field(default_factory=ParserTocProfile)
-    granularity: str = "page"
     anatomy: Any | None = None
     metrics: dict[str, Any] = field(default_factory=dict)
     page_full_text_cache: dict[int, str] = field(default_factory=dict)

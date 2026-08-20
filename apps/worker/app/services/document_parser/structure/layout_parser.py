@@ -105,9 +105,14 @@ def format_toc_context_for_llm(toc_context) -> str:
         toc_entries = toc_item.get("toc_with_level") or []
 
         if toc_range and len(toc_range) == 2:
-            formatted_blocks.append(
-                f"TOC {toc_idx} (source rows {toc_range[0]}-{toc_range[1]}):"
-            )
+            if toc_item.get("toc_range_unit") == "page":
+                formatted_blocks.append(
+                    f"TOC {toc_idx} (pages {toc_range[0]}-{toc_range[1]}):"
+                )
+            else:
+                formatted_blocks.append(
+                    f"TOC {toc_idx} (source rows {toc_range[0]}-{toc_range[1]}):"
+                )
         else:
             formatted_blocks.append(f"TOC {toc_idx}:")
 
@@ -298,7 +303,7 @@ def hiearchy_llm(
 
 
 def _compute_zone_boundaries(toc_hierarchies, coordinate_mode="post_removal"):
-    """Compute content zone boundaries for documents with multiple TOC areas.
+    """Compute content zones for line/element-based TOC areas.
 
     When multiple TOCs exist, they divide the document into zones. Each zone
     starts right after a TOC area and extends to just before the next TOC area
@@ -306,9 +311,12 @@ def _compute_zone_boundaries(toc_hierarchies, coordinate_mode="post_removal"):
 
     coordinate_mode:
         - "post_removal": TOC ranges are in original coordinates, but heading IDs
-          are measured after TOC rows were removed (MD/PDF path).
+          are measured after TOC rows were removed (native Markdown path).
         - "original": heading IDs stay in original document coordinates, so zones
           can be computed directly from TOC boundaries (DOCX path).
+
+    PROFILE-owned PDF TOCs use page coordinates and are sliced per shard before
+    this stage. They must never enter this line/element-coordinate calculation.
 
     Args:
         toc_hierarchies: List of toc hierarchy dicts (sorted by toc_range start)
@@ -403,10 +411,10 @@ def _resolve_first_toc_boundary(toc_hierarchies=None, first_toc_ele_num=None):
     """Resolve the earliest available first-TOC boundary across coordinate sources.
 
     Page-based TOC boundaries (``toc_range_unit == "page"``, produced by
-    DOC_AGENT/VLM for PDF/PPT) are in *page numbers*, NOT line/element IDs.
+    PROFILE/VLM for PDF/PPT) are in *page numbers*, NOT line/element IDs.
     They must NOT be used for pre-TOC row removal because ``raw_preds["id"]``
     are line indices that restart from 0 in each shard.  For these documents
-    the DOC_AGENT has already handled shard splitting around TOC pages.
+    PROFILE has already handled shard splitting around TOC pages.
     """
     toc_range_start = None
     toc_unit = None
@@ -418,12 +426,9 @@ def _resolve_first_toc_boundary(toc_hierarchies=None, first_toc_ele_num=None):
 
     # Page-based coordinates cannot be compared against line/element IDs.
     if toc_unit == "page":
-        if first_toc_ele_num is not None:
-            # DOCX fallback: element-based boundary is safe to use.
-            return first_toc_ele_num
         logger.debug(
             "📌 Skipping pre-TOC removal: TOC uses page-based coordinates "
-            "(DOC_AGENT already handled shard boundaries)"
+            "(PROFILE already handled shard boundaries)"
         )
         return None
 
@@ -446,10 +451,27 @@ def _resolve_first_toc_boundary(toc_hierarchies=None, first_toc_ele_num=None):
     return resolved_start
 
 
-def _first_toc_range_unit(toc_hierarchies=None) -> str | None:
-    if not toc_hierarchies:
-        return None
-    return toc_hierarchies[0].get("toc_range_unit")
+def _uses_page_toc_coordinates(toc_hierarchies=None) -> bool:
+    return bool(
+        toc_hierarchies
+        and toc_hierarchies[0].get("toc_range_unit") == "page"
+    )
+
+
+def _supports_multi_toc_zones(
+    toc_hierarchies,
+    *,
+    doc_type: str,
+    smart_parse: bool,
+) -> bool:
+    """Whether TOC ranges share coordinates with heading candidate IDs."""
+    return bool(
+        toc_hierarchies
+        and len(toc_hierarchies) > 1
+        and doc_type in {"md", "docx"}
+        and smart_parse
+        and not _uses_page_toc_coordinates(toc_hierarchies)
+    )
 
 
 def pred_titles(
@@ -507,7 +529,7 @@ def pred_titles(
         if (
             first_toc_start is None
             and is_first_shard
-            and _first_toc_range_unit(toc_hierarchies) == "page"
+            and _uses_page_toc_coordinates(toc_hierarchies)
         ):
             level1_titles = extract_level1_titles(toc_hierarchies or [])
             first_toc_start = find_first_body_boundary(infos, level1_titles)
@@ -539,13 +561,11 @@ def pred_titles(
                     f"(id < {first_toc_start}) from heading prediction"
                 )
 
-    # 2. Zone-based prediction when multiple TOCs exist
-    if (
-        toc_hierarchies
-        and len(toc_hierarchies) > 1
-        and doc_type in {"md", "docx"}
-        and smart_parse
-        and _first_toc_range_unit(toc_hierarchies) != "page"
+    # 2. Zone-based prediction for native Markdown/DOCX coordinates only.
+    if _supports_multi_toc_zones(
+        toc_hierarchies,
+        doc_type=doc_type,
+        smart_parse=smart_parse,
     ):
         # Multiple TOCs divide the document into independent zones.
         # Each zone gets its own naive + LLM pipeline with zone-specific TOC context.

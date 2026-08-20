@@ -1,142 +1,298 @@
 {
   "version": "2.0",
-  "job_id": "job_58112accb346",
-  "data_id": null,
-  "source_file_name": "927dc2d6-a76c-4006-9f34-8769b2c665fb.pdf",
-  "processing_date": "2026-06-16T03:24:45.225219Z",
+  "job_id": "job_2fa89f92637f",
+  "data_id": "demo-financial-nvda-q1-fy27-results",
+  "source_file_name": "NVIDIA Q1 FY27 Results.pdf",
+  "processing_date": "2026-08-19T04:16:17.664021Z",
   "processing": {
     "page_count": 45,
     "billing_status": "charged",
     "cost": {
-      "micro_dollars": 67500,
-      "credits": 0.0675
+      "micro_dollars": 675000,
+      "credits": 0.675
+    },
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-19:874ab8b6c9e4",
+      "total_input_cost": 0.0,
+      "total_output_cost": 0.0,
+      "total_cost": 0.0,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 30919,
+          "output_tokens": 1016,
+          "calls": 7,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 16650,
+              "output_tokens": 157,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "calibration.react_loop": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 8265,
+              "output_tokens": 711,
+              "calls": 3,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "calibration.inspect_pages": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 3985,
+              "output_tokens": 80,
+              "calls": 2,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.page_locate": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 2019,
+              "output_tokens": 68,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
     },
     "timing": {
-      "started_at": "2026-06-16T03:21:39.093490+00:00",
-      "completed_at": "2026-06-16T03:24:45.205058+00:00",
-      "duration_ms": 186111
+      "started_at": "2026-08-19T04:10:34.195098+00:00",
+      "completed_at": "2026-08-19T04:16:17.645493+00:00",
+      "duration_ms": 343450
     },
     "stages": {
       "timing_ms": {
-        "document.profile": 12761,
-        "pdf.extract.standard": 147250,
-        "toc.detect_range_llm": 1363,
-        "heading.hierarchy_llm_call": 7403,
-        "toc.parse_hierarchy_llm": 996,
-        "md.detect_toc": 2395,
-        "heading.merge_pre_pass_llm": 1861,
-        "heading.hierarchy_llm": 6431,
-        "md.predict_headings": 8982,
-        "md.deferred_summaries": 14231,
-        "md.build_dataframe": 1,
-        "pdf.parse_md": 26003,
-        "document.cleanup_unreferenced_images": 1,
-        "document.compress_images": 0,
-        "worker.parse.document": 186022
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 76712,
+        "page_memory.skeleton": 1,
+        "page_memory.node_summary": 68632,
+        "page_memory.node_rows": 295,
+        "page_memory.node_assembly": 68934,
+        "worker.parse.document": 343126
       },
       "token_usage": {
-        "prompt_tokens": 8743,
-        "completion_tokens": 1228,
-        "total_tokens": 9971
+        "prompt_tokens": 30919,
+        "completion_tokens": 1016,
+        "total_tokens": 31935,
+        "calls": 7,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 30919,
+            "completion_tokens": 1016,
+            "total_tokens": 31935,
+            "calls": 7
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 16650,
+            "completion_tokens": 157,
+            "total_tokens": 16807,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 16650,
+                "completion_tokens": 157,
+                "total_tokens": 16807,
+                "calls": 1
+              }
+            }
+          },
+          "calibration.react_loop": {
+            "prompt_tokens": 8265,
+            "completion_tokens": 711,
+            "total_tokens": 8976,
+            "calls": 3,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 8265,
+                "completion_tokens": 711,
+                "total_tokens": 8976,
+                "calls": 3
+              }
+            }
+          },
+          "calibration.inspect_pages": {
+            "prompt_tokens": 3985,
+            "completion_tokens": 80,
+            "total_tokens": 4065,
+            "calls": 2,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 3985,
+                "completion_tokens": 80,
+                "total_tokens": 4065,
+                "calls": 2
+              }
+            }
+          },
+          "page_memory.page_locate": {
+            "prompt_tokens": 2019,
+            "completion_tokens": 68,
+            "total_tokens": 2087,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 2019,
+                "completion_tokens": 68,
+                "total_tokens": 2087,
+                "calls": 1
+              }
+            }
+          }
+        }
       }
     }
   },
   "statistics": {
-    "total_chunks": 120,
-    "text_chunks": 72,
-    "image_chunks": 6,
-    "table_chunks": 42,
+    "total_chunks": 98,
+    "text_chunks": 0,
+    "image_chunks": 0,
+    "table_chunks": 39,
+    "page_chunks": 59,
     "total_pages": null
   },
   "HIERARCHY": {
-    "Root": {},
-    "Where You Can Find More Information": {},
-    "Part I. Financial Information": {
-      "Item 1. Financial Statements (Unaudited)": {},
-      "Note 1 - Summary of Significant Accounting Policies": {
-        "Basis of Presentation": {},
-        "Significant Accounting Policies": {
-          "Fiscal Year": {},
-          "Principles of Consolidation": {},
-          "Use of Estimates": {}
+    "Item 1. Financial Statements (Unaudited)": {
+      "a) Condensed Consolidated Statements of Income for the three months ended April 26, 2026 and April 27, 2025": {},
+      "b) Condensed Consolidated Statements of Comprehensive Income for the three months ended April 26, 2026 and April 27, 2025": {},
+      "c) Condensed Consolidated Balance Sheets as of April 26, 2026 and January 25, 2026": {},
+      "d) Condensed Consolidated Statements of Shareholders' Equity for the three months ended April 26, 2026 and April 27, 2025": {},
+      "e) Condensed Consolidated Statements of Cash Flows for the three months ended April 26, 2026 and April 27, 2025": {},
+      "f) Notes to Condensed Consolidated Financial Statements": {
+        "Note 1 - Summary of Significant Accounting Policies": {
+          "Basis of Presentation": {},
+          "Significant Accounting Policies": {
+            "Fiscal Year": {},
+            "Principles of Consolidation": {},
+            "Use of Estimates": {}
+          },
+          "Recently Issued Accounting Pronouncements": {}
         },
-        "Recently Issued Accounting Pronouncements": {}
-      },
-      "Note 2 - Stock-Based Compensation": {},
-      "Note 3 - Net Income Per Share": {},
-      "Note 4 - Amortizable Intangible Assets and Goodwill": {},
-      "Note 5 - Cash Equivalents and Marketable Securities": {},
-      "Note 6 - Non-marketable Securities": {
-        "Non-marketable Equity Securities": {},
-        "Equity Method Investments": {},
-        "Investment Commitments": {}
-      },
-      "Note 7 - Balance Sheet Components": {
-        "Property and Equipment:": {},
-        "Deferred Revenue": {}
-      },
-      "Note 8 - Derivative Financial Instruments": {
-        "Foreign Currency Derivatives": {},
-        "Facility Lease Guarantee": {}
-      },
-      "Note 10 - Commitments and Contingencies": {
-        "Commitments": {},
-        "Accrual for Product Warranty Liabilities": {},
-        "Litigation": {
-          "Securities Class Action and Derivative Lawsuits": {},
+        "Note 2 - Stock-Based Compensation": {},
+        "Note 3 - Net Income Per Share": {},
+        "Note 4 - Amortizable Intangible Assets and Goodwill": {},
+        "Note 5 - Cash Equivalents and Marketable Securities": {},
+        "Note 6 - Non-marketable Securities": {
+          "Non-marketable Equity Securities": {},
+          "Equity Method Investments": {},
+          "Investment Commitments": {}
+        },
+        "Note 7 - Balance Sheet Components": {
+          "Property and Equipment:": {},
+          "Deferred Revenue": {}
+        },
+        "Note 8 - Derivative Financial Instruments": {
+          "Foreign Currency Derivatives": {},
+          "Facility Lease Guarantee": {}
+        },
+        "Note 9 - Debt": {},
+        "Note 10 - Commitments and Contingencies": {
+          "Accrual for Product Warranty Liabilities": {},
+          "Litigation": {},
           "Accounting for Loss Contingencies": {}
-        }
-      },
-      "Note 11 - Income Taxes": {},
-      "Note 12 - Shareholders' Equity": {},
-      "Note 13 - Segment Information": {},
-      "Note 14 - Leases": {}
+        },
+        "Note 11 - Income Taxes": {},
+        "Note 12 - Shareholders' Equity": {},
+        "Note 13 - Segment Information": {},
+        "Note 14 - Leases": {}
+      }
     },
-    "Forward-Looking Statements": {
+    "Item 2. Management's Discussion and Analysis of Financial Condition and Results of Operations": {
+      "Forward-Looking Statements": {},
       "Overview": {
         "Our Company and Our Businesses": {},
-        "Recent Developments, Future Objectives and Challenges": {},
-        "Financial Information by Business Segment and Geographic Data": {}
+        "Recent Developments, Future Objectives and Challenges": {}
       },
+      "First Quarter of Fiscal Year 2027 Summary": {},
+      "Financial Information by Business Segment and Geographic Data": {},
       "Critical Accounting Policies and Estimates": {},
       "Results of Operations": {
         "Reportable Segments": {
           "Revenue by Reportable Segments": {},
-          "Operating Income by Reportable Segments": {},
-          "Concentration of Revenue": {}
+          "Operating Income by Reportable Segments": {}
         },
+        "Concentration of Revenue": {},
         "Gross Profit and Gross Margin": {},
-        "Income Taxes": {},
-        "Liquidity": {
-          "Capital Return to Shareholders": {},
-          "Outstanding Indebtedness and Commercial Paper Program": {},
-          "Material Cash Requirements and Other Obligations": {}
-        }
+        "Operating Expenses": {},
+        "Total Other Income, Net": {},
+        "Income Taxes": {}
+      },
+      "Liquidity and Capital Resources": {
+        "Liquidity": {},
+        "Capital Return to Shareholders": {},
+        "Outstanding Indebtedness and Commercial Paper Program": {},
+        "Material Cash Requirements and Other Obligations": {}
       },
       "Adoption of New and Recently Issued Accounting Pronouncements": {}
     },
-    "Item 3. Quantitative and Qualitative Disclosures About Market Risk": {
-      "Investment and Interest Rate Risk": {},
-      "Foreign Exchange Rate Risk": {}
+    "Item 3. Quantitative and Qualitative Disclosures About Market Risk": {},
+    "Item 4. Controls and Procedures": {},
+    "Item 1. Legal Proceedings": {},
+    "Item 1A. Risk Factors": {
+      "Long manufacturing lead times and uncertain supply and capacity availability, combined with a failure to estimate customer demand accurately, has led and could in the future lead to mismatches between supply and demand.": {},
+      "We are subject to complex laws, rules, regulations, and political and other actions, including restrictions on the export of our products, which may adversely impact our business.": {}
     },
-    "Item 4. Controls and Procedures": {
-      "Controls and Procedures": {
-        "Disclosure Controls and Procedures": {},
-        "Changes in Internal Control Over Financial Reporting": {},
-        "Inherent Limitations on Effectiveness of Controls": {}
-      }
-    },
-    "Part II. Other Information": {
-      "Item 1. Legal Proceedings": {},
-      "Item 1A. Risk Factors": {},
-      "Issuer Purchases of Equity Securities": {},
-      "Recent Sales of Unregistered Securities and Use of Proceeds": {},
-      "Item 5. Other Information": {}
-    },
-    "Signature": {},
-    "CERTIFICATION": {},
-    "CERTIFICATION_2": {},
-    "CERTIFICATION_3": {},
-    "CERTIFICATION_4": {}
+    "Item 2. Unregistered Sales of Equity Securities and Use of Proceeds": {},
+    "Item 5. Other Information": {},
+    "Item 6. Exhibits": {},
+    "Signature": {
+      "CERTIFICATION": {}
+    }
   }
 }

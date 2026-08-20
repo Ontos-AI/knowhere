@@ -1,101 +1,333 @@
 {
   "version": "2.0",
-  "job_id": "job_b510179326c7",
-  "data_id": null,
-  "source_file_name": "Fiscal%20Year%202026%20Interim%20Report.pdf",
-  "processing_date": "2026-06-16T03:39:11.026115Z",
+  "job_id": "job_8aacc19b54f8",
+  "data_id": "demo-financial-alibaba-fy2026-interim-report",
+  "source_file_name": "Alibaba Fiscal Year 2026 Interim Report.pdf",
+  "processing_date": "2026-08-18T18:07:33.368928Z",
   "processing": {
     "page_count": 83,
     "billing_status": "charged",
     "cost": {
-      "micro_dollars": 124500,
-      "credits": 0.1245
+      "micro_dollars": 1245000,
+      "credits": 1.245
+    },
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-18:874ab8b6c9e4",
+      "total_input_cost": 0.00092106,
+      "total_output_cost": 0.00054292,
+      "total_cost": 0.00146398,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 49130,
+          "output_tokens": 1744,
+          "calls": 13,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        },
+        "deepseek-chat": {
+          "input_tokens": 6579,
+          "output_tokens": 1939,
+          "calls": 1,
+          "input_rate_per_1m": 0.14,
+          "output_rate_per_1m": 0.28,
+          "input_cost": 0.00092106,
+          "output_cost": 0.00054292,
+          "total_cost": 0.00146398,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.14,
+            "output_per_1m": 0.28,
+            "source": "DeepSeek official pricing",
+            "effective_date": "2026-06-11"
+          }
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 18076,
+              "output_tokens": 226,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "calibration.react_loop": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 6633,
+              "output_tokens": 772,
+              "calls": 3,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "calibration.inspect_pages": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 8688,
+              "output_tokens": 237,
+              "calls": 2,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.page_locate": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 15733,
+              "output_tokens": 509,
+              "calls": 7,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.hierarchy": {
+          "input_cost": 0.00092106,
+          "output_cost": 0.00054292,
+          "total_cost": 0.00146398,
+          "models": {
+            "deepseek-chat": {
+              "input_tokens": 6579,
+              "output_tokens": 1939,
+              "calls": 1,
+              "input_rate_per_1m": 0.14,
+              "output_rate_per_1m": 0.28,
+              "input_cost": 0.00092106,
+              "output_cost": 0.00054292,
+              "total_cost": 0.00146398,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.14,
+                "output_per_1m": 0.28,
+                "source": "DeepSeek official pricing",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
     },
     "timing": {
-      "started_at": "2026-06-16T03:35:17.798204+00:00",
-      "completed_at": "2026-06-16T03:39:10.995478+00:00",
-      "duration_ms": 233197
+      "started_at": "2026-08-18T17:59:01.068453+00:00",
+      "completed_at": "2026-08-18T18:07:33.362481+00:00",
+      "duration_ms": 512294
     },
     "stages": {
       "timing_ms": {
-        "document.profile": 7645,
-        "pdf.extract.standard": 178449,
-        "toc.detect_range_llm": 1797,
-        "heading.hierarchy_llm_call": 15078,
-        "toc.parse_hierarchy_llm": 1851,
-        "md.detect_toc": 3709,
-        "heading.merge_pre_pass_llm": 3010,
-        "heading.hierarchy_llm": 13257,
-        "md.predict_headings": 17338,
-        "md.deferred_summaries": 25282,
-        "md.build_dataframe": 2,
-        "pdf.parse_md": 46970,
-        "document.cleanup_unreferenced_images": 2,
-        "document.compress_images": 0,
-        "worker.parse.document": 233091
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 178838,
+        "page_memory.skeleton": 0,
+        "page_memory.title_render": 20885,
+        "page_memory.title_detection": 94513,
+        "page_memory.fine_hierarchy": 9167,
+        "page_memory.render": 12422,
+        "page_memory.tag": 73904,
+        "page_memory.assets": 1,
+        "page_memory.node_summary": 122116,
+        "page_memory.node_rows": 145,
+        "page_memory.node_assembly": 122271,
+        "worker.parse.document": 512157
       },
       "token_usage": {
-        "prompt_tokens": 13512,
-        "completion_tokens": 2901,
-        "total_tokens": 16413
+        "prompt_tokens": 55709,
+        "completion_tokens": 3683,
+        "total_tokens": 59392,
+        "calls": 14,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 49130,
+            "completion_tokens": 1744,
+            "total_tokens": 50874,
+            "calls": 13
+          },
+          "deepseek-chat": {
+            "prompt_tokens": 6579,
+            "completion_tokens": 1939,
+            "total_tokens": 8518,
+            "calls": 1
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 18076,
+            "completion_tokens": 226,
+            "total_tokens": 18302,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 18076,
+                "completion_tokens": 226,
+                "total_tokens": 18302,
+                "calls": 1
+              }
+            }
+          },
+          "calibration.react_loop": {
+            "prompt_tokens": 6633,
+            "completion_tokens": 772,
+            "total_tokens": 7405,
+            "calls": 3,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 6633,
+                "completion_tokens": 772,
+                "total_tokens": 7405,
+                "calls": 3
+              }
+            }
+          },
+          "calibration.inspect_pages": {
+            "prompt_tokens": 8688,
+            "completion_tokens": 237,
+            "total_tokens": 8925,
+            "calls": 2,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 8688,
+                "completion_tokens": 237,
+                "total_tokens": 8925,
+                "calls": 2
+              }
+            }
+          },
+          "page_memory.page_locate": {
+            "prompt_tokens": 15733,
+            "completion_tokens": 509,
+            "total_tokens": 16242,
+            "calls": 7,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 15733,
+                "completion_tokens": 509,
+                "total_tokens": 16242,
+                "calls": 7
+              }
+            }
+          },
+          "page_memory.hierarchy": {
+            "prompt_tokens": 6579,
+            "completion_tokens": 1939,
+            "total_tokens": 8518,
+            "calls": 1,
+            "models": {
+              "deepseek-chat": {
+                "prompt_tokens": 6579,
+                "completion_tokens": 1939,
+                "total_tokens": 8518,
+                "calls": 1
+              }
+            }
+          }
+        }
       }
     }
   },
   "statistics": {
-    "total_chunks": 216,
-    "text_chunks": 164,
-    "image_chunks": 2,
-    "table_chunks": 50,
+    "total_chunks": 125,
+    "text_chunks": 0,
+    "image_chunks": 0,
+    "table_chunks": 0,
+    "page_chunks": 125,
     "total_pages": null
   },
   "HIERARCHY": {
-    "Root": {},
-    "Weighted Voting Rights": {
+    "Root": {
+      "Weighted Voting Rights": {},
       "Exchange Rate Information": {},
       "Safe Harbor Statements": {},
-      "Six Months Ended September Segment Results": {
-        "Alibaba China E-commerce Group": {
-          "(i) Segment revenue": {
-            "• E-commerce Business": {},
-            "• Quick Commerce Business": {},
-            "• China Commerce Wholesale Business": {}
+      "MANAGEMENT DISCUSSION AND ANALYSIS": {
+        "Six Months Ended September Summary Financial Results": {},
+        "Six Months Ended September Segment Results": {
+          "Alibaba China E-commerce Group": {
+            "(i) Segment revenue": {},
+            "Quick Commerce Business": {},
+            "China Commerce Wholesale Business": {}
           },
-          "(ii) Segment adjusted EBITA": {}
-        },
-        "Alibaba International Digital Commerce Group": {
-          "(i) Segment revenue": {
-            "• International Commerce Retail Business": {},
-            "• International Commerce Wholesale Business": {}
+          "Segment adjusted EBITA": {},
+          "Alibaba International Digital Commerce Group": {
+            "International Commerce Retail Business": {},
+            "International Commerce Wholesale Business": {}
           },
-          "(ii) Segment adjusted EBITA": {}
+          "Cloud Intelligence Group": {},
+          "All Others": {}
         },
-        "Cloud Intelligence Group": {
-          "(i) Segment revenue": {},
-          "(ii) Segment adjusted EBITA": {}
-        },
-        "All Others": {
-          "(i) Segment revenue": {},
-          "(ii) Segment adjusted EBITA": {}
+        "Six Months Ended September Other Financial Results": {
+          "Cost of revenue": {},
+          "Product development expenses": {},
+          "Sales and marketing expenses": {},
+          "General and administrative expenses": {},
+          "Share-based compensation expense": {},
+          "Amortization and impairment of intangible assets": {},
+          "Income from operations and operating margin": {},
+          "Adjusted EBITDA and Adjusted EBITA": {},
+          "Adjusted EBITA by segment": {},
+          "Interest and investment income, net": {},
+          "Other (expense) income, net": {},
+          "Income tax expenses": {},
+          "Share of results of equity method investees": {},
+          "Net income and Non-GAAP net income": {},
+          "Net income attributable to ordinary shareholders": {},
+          "Diluted earnings per ADS/share and non-GAAP diluted earnings per ADS/share": {},
+          "Cash and cash equivalents, short-term investments and other treasury investments": {},
+          "Net cash provided by operating activities and free cash flow": {},
+          "Net cash used in investing activities": {},
+          "Net cash provided by financing activities": {},
+          "Employees": {}
         }
       },
-      "Six Months Ended September Other Financial Results Costs and Expenses": {
-        "Income from operations and operating margin": {},
-        "Adjusted EBITDA and Adjusted EBITA": {},
-        "Adjusted EBITA by segment": {},
-        "Interest and investment income, net": {},
-        "Other (expense) income, net": {},
-        "Income tax expenses": {},
-        "Share of results of equity method investees": {},
-        "Net income and Non-GAAP net income": {},
-        "Net income attributable to ordinary shareholders": {},
-        "Net cash provided by operating activities and free cash flow": {},
-        "Net cash used in investing activities": {},
-        "Net cash provided by financing activities": {},
-        "Employees": {}
-      },
-      "Non-GAAP Financial Measures": {},
-      "Other Financial Information": {
-        "Liquidity and Capital Resources": {},
+      "Reconciliations of Non-GAAP Measures to the Nearest Comparable U.S. GAAP Measures": {},
+      "Reconciliations of Non-GAAP Measures to the Nearest Comparable U.S. GAAP Measures (Continued)": {},
+      "Non-GAAP Financial Measures": {
+        "Non-GAAP diluted earnings per share": {},
+        "Free cash flow": {},
+        "Other Financial Information": {},
         "Significant Investments": {},
         "Material Investments, Acquisitions and Dispositions": {},
         "Pledge of Assets": {},
@@ -104,155 +336,102 @@
         "Capital Expenditure and Capital Commitment": {},
         "Remuneration Policy": {},
         "Subsequent Events": {}
-      }
-    },
-    "DIRECTORS AND CHIEF EXECUTIVE OFFICER": {
-      "Biographical Information": {},
-      "Board Committees": {
-        "Audit Committee": {},
-        "Compensation Committee": {},
-        "Nominating and Corporate Governance Committee": {},
-        "Sustainability Committee": {},
-        "Compliance and Risk Committee": {},
-        "Capital Management Committee": {}
-      }
-    },
-    "DISCLOSURE OF INTERESTS": {},
-    "EQUITY INCENTIVE PLANS": {
-      "The 2014 Plan": {
-        "Notes:": {},
-        "Notes:_2": {}
       },
-      "The 2024 Plan": {},
-      "The 2024 Plan (Existing Shares)": {}
-    },
-    "PURCHASE, SALE OR REDEMPTION OF OUR COMPANY'S LISTED SECURITIES": {},
-    "OTHER INFORMATION": {
-      "Corporate Governance": {
-        "Compliance with the Corporate Governance Code": {},
-        "Compliance with the Model Code": {},
-        "Audit Committee Review": {}
+      "DIRECTORS AND CHIEF EXECUTIVE OFFICER": {
+        "Biographical Information": {
+          "J. Michael EVANS": {},
+          "Maggie Wei WU (武衛)": {},
+          "Jerry YANG (楊致遠)": {},
+          "Wan Ling MARTELLO": {},
+          "Weijian SHAN (單偉建)": {},
+          "Irene Yun-Lien LEE (利蘊蓮)": {},
+          "Albert Kong Ping NG (吳港平)": {},
+          "Kabir MISRA": {}
+        },
+        "Board Committees": {
+          "Audit Committee": {},
+          "Compensation Committee": {},
+          "Nominating and Corporate Governance Committee": {},
+          "Sustainability Committee": {},
+          "Compliance and Risk Committee": {},
+          "Capital Management Committee": {}
+        }
       },
-      "Interim Dividend": {},
-      "Use of Proceeds from the Notes Offerings": {}
-    },
-    "DEFINITIONS Conventions that apply to this Interim Report": {},
-    "ALIBABA GROUP HOLDING LIMITED": {
-      "INDEX TO CONDENSED CONSOLIDATED INTERIM FINANCIAL STATEMENTS": {
+      "DISCLOSURE OF INTERESTS": {},
+      "Substantial Shareholders": {},
+      "EQUITY INCENTIVE PLANS": {
+        "The 2014 Plan": {},
+        "The 2024 Plan": {},
+        "The 2024 Plan (Existing Shares)": {}
+      },
+      "PURCHASE, SALE OR REDEMPTION OF OUR COMPANY'S LISTED SECURITIES": {},
+      "OTHER INFORMATION": {
+        "Corporate Governance": {
+          "Compliance with the Corporate Governance Code": {},
+          "Compliance with the Model Code": {}
+        },
+        "Audit Committee Review": {},
+        "Use of Proceeds from the Notes Offerings": {}
+      },
+      "DEFINITIONS": {
+        "Conventions that apply to this Interim Report": {},
         "Introduction": {},
         "Scope of Review": {},
         "Conclusion": {},
-        "PricewaterhouseCoopers Certified Public Accountants": {}
-      }
-    },
-    "ALIBABA GROUP HOLDING LIMITED_2": {
-      "UNAUDITED CONDENSED CONSOLIDATED STATEMENTS OF CASH FLOWS": {},
-      "1. Organization and principal activities": {},
-      "2. Summary of significant accounting policies": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_3": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
-      "2. Summary of significant accounting policies (Continued)": {
-        "(b) Use of estimates": {},
-        "(c) Consolidation": {}
-      },
-      "2. Summary of significant accounting policies (Continued)_2": {
-        "(d) Derivatives and hedging": {
-          "Cash flow hedges": {},
-          "Net investment hedges": {}
+        "Assets": {},
+        "Liabilities, mezzanine equity and shareholders’ equity": {},
+        "1. Organization and principal activities": {},
+        "2. Summary of significant accounting policies": {},
+        "2. Summary of significant accounting policies (Continued)": {
+          "(b) Use of estimates": {},
+          "(c) Consolidation": {},
+          "(d) Derivatives and hedging": {
+            "Cash flow hedges": {},
+            "Net investment hedges": {}
+          },
+          "(e) Borrowings": {},
+          "(f) Recent accounting pronouncements": {}
+        },
+        "3. Significant mergers and acquisitions, investments and dispositions": {},
+        "4. Revenue": {},
+        "4. Revenue (Continued)": {},
+        "5. Income tax expenses": {},
+        "6. Share-based compensation expense by function": {},
+        "7. Earnings per share/ADS": {},
+        "8. Equity securities and other investments": {
+          "Equity securities": {},
+          "Debt investments": {}
+        },
+        "8. Equity securities and other investments (Continued)": {},
+        "9. Fair value measurement": {},
+        "9. Fair value measurement (Continued)": {},
+        "10. Intangible assets, net": {},
+        "11. Goodwill": {},
+        "12. Supplier Finance Programs": {},
+        "13. Convertible unsecured senior notes": {},
+        "13. Convertible unsecured senior notes (Continued)": {},
+        "14. Exchangeable bonds": {},
+        "15. Bank borrowings": {},
+        "16. Related party transactions": {},
+        "16. Related party transactions (Continued)": {},
+        "17. Risks and contingencies": {},
+        "17. Risks and contingencies (Continued)": {},
+        "18. Segment information": {},
+        "18. Segment information (Continued)": {},
+        "19. Aging analysis": {},
+        "20. Dividends": {},
+        "21. Subsequent events": {},
+        "22. Reconciliations between U.S. GAAP and International Financial Reporting Standards": {},
+        "22. Reconciliations between U.S. GAAP and International Financial Reporting Standards (Continued)": {
+          "(i) Consolidation and business combinations": {},
+          "(ii) Equity securities without readily determinable fair value": {},
+          "(iii) Equity method investments": {},
+          "(iv) Share-based awards": {},
+          "(v) Operating leases": {},
+          "(vi) Redeemable noncontrolling interests": {},
+          "(vii) Hyperinflation": {},
+          "(viii) Convertible unsecured senior notes and instruments in an entity’s own equity": {}
         }
-      },
-      "2. Summary of significant accounting policies (Continued)_3": {
-        "(e) Borrowings": {},
-        "(f) Recent accounting pronouncements": {}
-      },
-      "3. Significant mergers and acquisitions, investments and dispositions": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_4": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
-      "4. Revenue": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_5": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
-      "4. Revenue (Continued)": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_6": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
-      "5. Income tax expenses": {},
-      "6. Share-based compensation expense by function": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_7": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
-      "7. Earnings per share∕ADS": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_8": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
-      "8. Equity securities and other investments": {
-        "Equity securities": {},
-        "Debt investments": {}
-      },
-      "8. Equity securities and other investments (Continued)": {},
-      "9. Fair value measurement": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_9": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
-      "9. Fair value measurement (Continued)": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_10": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
-      "9. Fair value measurement (Continued)": {},
-      "10. Intangible assets, net": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_11": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
-      "11. Goodwill": {},
-      "12. Supplier Finance Programs": {},
-      "13. Convertible unsecured senior notes": {},
-      "13. Convertible unsecured senior notes (Continued)": {},
-      "14. Exchangeable bonds": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_12": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
-      "15. Bank borrowings": {},
-      "16. Related party transactions": {},
-      "16. Related party transactions (Continued)": {},
-      "17. Risks and contingencies": {},
-      "17. Risks and contingencies (Continued)": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_13": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
-      "18. Segment information": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_14": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
-      "18. Segment information (Continued)": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_15": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {},
-      "19. Aging analysis": {
-        "Accounts receivable": {},
-        "Accounts payable": {}
-      },
-      "20. Dividends": {},
-      "21. Subsequent events": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_16": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_17": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {}
-    },
-    "ALIBABA GROUP HOLDING LIMITED_18": {
-      "NOTES TO UNAUDITED CONDENSED CONSOLIDATED FINANCIAL STATEMENTS": {
-        "FOR THE SIX MONTHS ENDED SEPTEMBER 30, 2024 and 2025": {},
-        "(i) Consolidation and business combinations": {},
-        "(ii) Equity securities without readily determinable fair value": {},
-        "(iii) Equity method investments": {},
-        "(iv) Share-based awards": {},
-        "(v) Operating leases": {},
-        "(vi) Redeemable noncontrolling interests": {},
-        "(vii) Hyperinflation": {},
-        "Alibaba": {}
       }
     }
   }

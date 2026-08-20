@@ -64,13 +64,21 @@ DEFAULT_SJSYJ_PDF = Path(
 )
 
 PRODUCTION_OUTPUT_ROOT = Path("~/.knowhere/chengke_kb").expanduser()
-AGENT_TRANSIENT_DIRS = (
+PROFILE_TRANSIENT_DIRS = (
     "_doc_agent",
-    "planner_pages",
+    "coarse_profile_pages",
+    "calibration_scan",
+    "calibration_verify",
     "toc_pages",
+    "ocr_pages",
     "inspect_pages",
-    "verify_pages",
+    "profile_visuals",
+    # Legacy dirs from older runs.
     "agent_visuals",
+    "planner_pages",
+    "page_locate_pages",
+    "verify_pages",
+    "calibration_inspect",
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -302,14 +310,14 @@ def _finalize_output(
 def _cleanup_agent_transient_dirs(add_dir: str) -> None:
     """Remove VLM render caches before packaging debug output."""
     removed: list[str] = []
-    for dirname in AGENT_TRANSIENT_DIRS:
+    for dirname in PROFILE_TRANSIENT_DIRS:
         path = os.path.join(add_dir, dirname)
         if os.path.isdir(path):
             shutil.rmtree(path)
             removed.append(dirname)
     nested_doc_agent = os.path.join(add_dir, "_doc_agent")
     if os.path.isdir(nested_doc_agent):
-        for dirname in AGENT_TRANSIENT_DIRS:
+        for dirname in PROFILE_TRANSIENT_DIRS:
             path = os.path.join(nested_doc_agent, dirname)
             if os.path.isdir(path):
                 shutil.rmtree(path)

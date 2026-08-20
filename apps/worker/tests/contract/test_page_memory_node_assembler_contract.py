@@ -120,7 +120,6 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
         },
         filename="demo.pdf",
         verdict="page",
-        budget=None,
         vlm_model=None,
     )
 
@@ -166,7 +165,6 @@ def test_build_node_rows_preserves_order_under_summary_concurrency(
         tag_by_page={},
         filename="demo.pdf",
         verdict="page",
-        budget=None,
         vlm_model="fake-vlm",
         node_assembly_concurrency=2,
     )
@@ -208,7 +206,6 @@ def test_build_node_rows_unavailable_propagates_from_node_summary(
             tag_by_page={},
             filename="demo.pdf",
             verdict="page",
-            budget=None,
             vlm_model="fake-vlm",
             node_assembly_concurrency=1,
         )
@@ -230,7 +227,6 @@ def test_build_node_rows_attaches_page_citation_assets_for_rendered_pages(tmp_pa
         },
         filename="demo.pdf",
         verdict="page",
-        budget=None,
         vlm_model=None,
     )
 
@@ -279,7 +275,6 @@ def test_build_node_rows_keeps_internal_section_body_pages() -> None:
         },
         filename="demo.pdf",
         verdict="page",
-        budget=None,
         vlm_model=None,
     )
 
@@ -362,7 +357,6 @@ def test_build_node_rows_uses_vlm_node_summary_with_boundary(
         },
         filename="demo.pdf",
         verdict="page",
-        budget=None,
         vlm_model="fake-vlm",
     )
 
@@ -403,7 +397,6 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
         },
         filename="demo.pdf",
         verdict="page",
-        budget=None,
         vlm_model=None,
         page_assets_by_page={231: [asset]},
     )

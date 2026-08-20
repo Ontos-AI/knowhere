@@ -2,74 +2,83 @@
   "version": "1.0",
   "file_name": "Deep Learning - Transformer Network.pdf",
   "stats": {
-    "total_chunks": 25,
-    "text_chunks": 8,
-    "image_chunks": 11,
-    "table_chunks": 6,
+    "total_chunks": 18,
+    "text_chunks": 0,
+    "image_chunks": 10,
+    "table_chunks": 0,
+    "page_chunks": 8,
     "max_depth": 3
   },
   "sections": [
     {
-      "title": "Deep Learning Transformer network",
-      "path": "dl_10.pdf/Deep Learning Transformer network",
+      "title": "Root",
+      "path": "Deep Learning - Transformer Network.pdf/Root",
       "level": 1,
-      "summary": "Transformer network Jan Platoš, Radek Svoboda May 5, 2026 Department of Computer Science Faculty of Electrical Engineering and Computer Science VŠB - Technical University of Ostrava",
-      "chunk_count": 8,
+      "summary": "",
+      "chunk_count": 37,
       "children": [
         {
-          "title": "Transformer network",
-          "path": "dl_10.pdf/Deep Learning Transformer network/Transformer network",
+          "title": "Deep Learning",
+          "path": "Deep Learning - Transformer Network.pdf/Root/Deep Learning",
           "level": 2,
-          "summary": "- Recurrent neural network works in synchronized serial way. - This prevent efficient computation in parallel. - The attention-mechanism looks at an input sequence and decides at each step which other parts of the sequence are important. - The attention mechanism helps the decoder to focus on the important part of the input sequence.",
-          "chunk_count": 3,
+          "summary": "The slide serves as a title page for a presentation or document section on Deep Learning, specifically focusing on Transformer networks. It lists the authors Jan Platoš and Radek Svoboda, the date May 5, 2026, and their affiliation with the Department of Computer Science at VSB - Technical University of Ostrava.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Transformer network",
+          "path": "Deep Learning - Transformer Network.pdf/Root/Transformer network",
+          "level": 2,
+          "summary": "This section introduces the Transformer network, contrasting it with recurrent neural networks by highlighting its ability to perform parallel computation. It explains the core concept of the attention mechanism, which allows the model to focus on relevant parts of an input sequence, inspired by human reading. The section details how each word is projected into Query (Q), Key (K), and Value (V) vectors to compute attention weights using a specific formula, resulting in a new context-aware representation for each word.",
+          "chunk_count": 20,
           "children": [
             {
-              "title": "Transformer network - Attention- What it is?",
-              "path": "dl_10.pdf/Deep Learning Transformer network/Transformer network/Transformer network - Attention- What it is?",
+              "title": "Sinusoidal functions are used to provide:",
+              "path": "Deep Learning - Transformer Network.pdf/Root/Transformer network/Sinusoidal functions are used to provide:",
               "level": 3,
-              "summary": "The passage explains the attention mechanism, which allows a model to focus on relevant parts of input when processing each word, inspired by human reading. It describes how for each word, attention computes scores for every other word, then creates a weighted sum of representations to produce context-aware outputs. Key components include Query, Key, and Value vectors, with the formula Attention(Q,K,V)=softmax(QK^T/√d_k)V. The Transformer architecture is introduced as a novel sequence-to-sequence model using attention without recurrent connections, consisting of stacked encoder and decoder modules with multi-head attention, feed-forward layers, and normalization.",
+              "summary": "This section outlines the benefits of using sinusoidal functions for positional encoding in Transformer networks. It highlights that these functions provide a unique yet smoothly varying encoding for each position, allow for interpolation or generalization to longer sequences, and utilize simple mathematical patterns to capture relative distances.",
               "chunk_count": 1,
               "children": []
             },
             {
-              "title": "Transformer network - Positional encoding- What is?",
-              "path": "dl_10.pdf/Deep Learning Transformer network/Transformer network/Transformer network - Positional encoding- What is?",
+              "title": "Alternative: learned positional encodings",
+              "path": "Deep Learning - Transformer Network.pdf/Root/Transformer network/Alternative: learned positional encodings",
               "level": 3,
-              "summary": "The content explains positional encoding in Transformers, which injects word order information using sinusoidal functions. It covers the formulas for PE, the benefits of sinusoidal encoding (unique, continuous, generalizable), and contrasts it with learned positional encodings. It then introduces multi-head attention, where multiple attention heads run in parallel with different learned projections, allowing the model to attend to different representation subspaces. The encoder and decoder use multi-head attention differently: encoder attends to all input positions, decoder attends to previous positions (masked), and encoder-decoder attention allows the decoder to attend to encoder output.",
+              "summary": "This section describes an alternative to sinusoidal positional encodings known as learned positional encodings. It notes that in this approach, the positional vectors are trainable parameters. While this method offers more flexibility, it is limited to handling sequence lengths that were seen during the training phase.",
               "chunk_count": 1,
+              "children": []
+            },
+            {
+              "title": "Without PE:",
+              "path": "Deep Learning - Transformer Network.pdf/Root/Transformer network/Without PE:",
+              "level": 3,
+              "summary": "The section titled 'Without PE' explains the critical role of positional encoding in Transformer networks. It states that without positional encoding (PE), a model loses the ability to understand word order, treating sentences with the same words but different arrangements as identical.",
+              "chunk_count": 6,
               "children": []
             }
           ]
         },
         {
           "title": "Training a Transformer (Seq2Seq model):",
-          "path": "dl_10.pdf/Deep Learning Transformer network/Training a Transformer (Seq2Seq model):",
+          "path": "Deep Learning - Transformer Network.pdf/Root/Training a Transformer (Seq2Seq model):",
           "level": 2,
-          "summary": "- Uses teacher forcing – the true previous output is fed into the decoder. - The target sequence is right-shifted by one position. - A <sos> token is added at the beginning, and <eos> at the end. - A causal mask ensures decoder only sees previous positions. - Loss is computed between decoder output and original target sequence. - The target sequence is right-shifted to prevent the model from copying input. - A <sos> token is added at the beginning, and <eos> at the end. - A causal mask ensures that each decoder step sees only previous tokens. - The loss is computed against the original (unshifted) target sequence.",
-          "chunk_count": 1,
+          "summary": "The section details the training process for a Transformer Seq2Seq model, specifically focusing on decoder preparation. It explains that teacher forcing is used where the true previous output is fed into the decoder. The target sequence is right-shifted by one position to prevent the model from copying input, with <sos> and <eos> tokens added at the beginning and end respectively. A causal mask ensures the decoder only sees previous positions during each step. Finally, the loss is computed between the decoder output and the original (unshifted) target sequence.",
+          "chunk_count": 2,
           "children": []
         },
         {
           "title": "Inference – autoregressive decoding:",
-          "path": "dl_10.pdf/Deep Learning Transformer network/Inference – autoregressive decoding:",
+          "path": "Deep Learning - Transformer Network.pdf/Root/Inference – autoregressive decoding:",
           "level": 2,
-          "summary": "The passage describes two main topics: autoregressive decoding in Transformer inference, where the decoder generates tokens step-by-step using past outputs and encoder context until an <eos> token is produced; and BERT (Bidirectional Encoder Representations from Transformers), a bidirectional model using only the Transformer encoder to learn contextual word representations from unlabeled text. BERT is trained with masked language modeling (predicting masked tokens) and next sentence prediction, using special tokens like [CLS] and [SEP], along with sentence and positional embeddings.",
-          "chunk_count": 1,
+          "summary": "The section titled 'Inference – autoregressive decoding' outlines the step-by-step process for generating text with a Transformer model. The procedure involves inputting the full encoder sequence, starting the decoder with a special start-of-sequence token (<sos>), predicting the first output token, and then iteratively appending each new prediction to the decoder's input until an end-of-sequence token (<eos>) is generated. A key characteristic highlighted is that at every step, the decoder has access to its own previously generated outputs as well as the context from the encoder.",
+          "chunk_count": 13,
           "children": []
         },
         {
-          "title": "Transformer network - BERT - How to use BERT (Fine-tuning)",
-          "path": "dl_10.pdf/Deep Learning Transformer network/Transformer network - BERT - How to use BERT (Fine-tuning)",
+          "title": "Questions?",
+          "path": "Deep Learning - Transformer Network.pdf/Root/Questions?",
           "level": 2,
-          "summary": "\\- BERT can be used for a wide variety of language tasks, while only adding a small layer to the core model: 1. Classification tasks such as sentiment analysis are done similarly to Next Sentence classification, by adding a classification layer on top of the Transformer output for the [CLS] token. 2. In Question Answering tasks (e.g. SQuAD v1.1), the software receives a question regarding a text sequence and is required to mark the answer in the sequence. Using BERT, a Q&A model can be trained by learning two extra vectors that mark the beginning and the end of the answer. 3. In Named Entity Recognition (NER), the software receives a text sequence and is required to mark the various types of entities (Person, Organization, Date, etc) that appear in the text. Using BERT, a NER model can be trained by feeding the output vector of each token into a classification layer that predicts the NER label. 1. What is a Transformer? by Maxime, https://medium.com/inside-machine-learning/ what-is-a-transformer-d07dd1fbec04 2. A Beginner's Guide to Attention Mechanisms and Memory Networks https://wiki.pathmind.com/attention-mechanism-memory-network 3. What is Teacher Forcing for Recurrent Neural Networks? by Jason Brownlee https://machinelearningmastery.com/ teacher-forcing-for-recurrent-neural-networks/ 4. Positional Encoding: Everything You Need to Know by Darjan Salaj https://www.inovex.de/de/blog/ positional-encoding-everything-you-need-to-know",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Transformer network - References ii",
-          "path": "dl_10.pdf/Deep Learning Transformer network/Transformer network - References ii",
-          "level": 2,
-          "summary": "5. Luong, Minh-Thang, Hieu Pham, and Christopher D. Manning. \"Effective approaches to attention-based neural machine translation.\" arXiv preprint arXiv:1508.04025 (2015). 6. Devlin, Jacob, et al. \"Bert: Pre-training of deep bidirectional transformers for language understanding.\" arXiv preprint arXiv:1810.04805 (2018). 7. BERT Explained: State of the art language model for NLP by Rani Horev https://towardsdatascience.com/ bert-explained-state-of-the-art-language-model-for-nlp-f8b21a 8. Understanding BERT Transformer: Attention isn't all you need by Damien Sileo https://medium.com/synapse-dev/understanding-bert-transformer-attention-isnt-all-you-need-58",
+          "summary": "Questions?",
           "chunk_count": 1,
           "children": []
         }
@@ -79,75 +88,46 @@
   "resources": {
     "images": [
       {
-        "path": "images/image-1-Attention Mechanism Process.jpg",
-        "summary": "image-1 1. Input: sequence of words (e.g., \"The animal didn't cross ...\") 2. Compute attention scores for every pair of words (represented by a grid matrix) 3. Form weighted sum of word representations 4. Output: context-aware representations"
+        "path": "images/image_page_4_figure_1.png",
+        "summary": "[images/image_page_4_figure_1.png]"
       },
       {
-        "path": "images/image-2-Attention Matrix Heatmap.jpg",
-        "summary": "image-2 Chart Title: Words attended to (X-axis) vs. Words attending (Y-axis) Data Source: Attention weights between word pairs Key Data Points: - Highest attention values (0.4): - \"animal\" -> \"animal\" (Self-attention) - \"didn't\" -> \"didn't\" (Self-attention) - \"cross\" -> \"cross\" (Self-attention) - Notable cross-word attention (0.3): - \"The\" -> \"animal\" - \"the\" -> \"the\" - \"street\" -> \"street\" (Self-attention) - Lowest attention values (0.1): - Most off-diagonal interactions show minimal attention (0.1) Scale Range: 0.10 to 0.40 Words Involved: The, animal, didn't, cross, the, street"
+        "path": "images/image_page_6_figure_1.png",
+        "summary": "Self-Attention Heatmap [images/image_page_6_figure_1.png]"
       },
       {
-        "path": "images/image-3-Word Alignment Matrix.jpg",
-        "summary": "image-3 The image displays a diagonal alignment matrix visualizing the correspondence between English and French phrases. **English Text (Top Axis):** \"The agreement on the European Economic Area was signed in August 1992 <end>\" **French Text (Left Axis):** \"L'accord sur la zone économique européenne a été signé en août 1992 <end>\" **Alignment Pattern:** - The matrix shows a strong diagonal pattern, indicating a direct word-for-word translation structure. - Key alignments visible include: \"agreement\" <-> \"accord\", \"European Economic Area\" <-> \"zone économique européenne\", \"signed\" <-> \"signé\", and \"August 1992\" <-> \"août 1992\"."
+        "path": "images/image_page_7_figure_1.png",
+        "summary": "[images/image_page_7_figure_1.png]"
       },
       {
-        "path": "images/image-4-Transformer Architecture Diagram.jpg",
-        "summary": "image-4 - **Input Side (Encoder):** - Inputs flow into Input Embedding. - Combined with Positional Encoding. - Passes through N identical layers (labeled Nx). - Each layer contains: - Multi-Head Attention block followed by Add & Norm. - Feed Forward block followed by Add & Norm. - **Output Side (Decoder):** - Outputs (shifted right) flow into Output Embedding. - Combined with Positional Encoding. - Passes through N identical layers (labeled Nx). - Each layer contains: - Masked Multi-Head Attention block followed by Add & Norm. - Multi-Head Attention block followed by Add & Norm. - Feed Forward block followed by Add & Norm. - **Final Output:** - Linear layer processes the final decoder output. - Softmax layer produces Output Probabilities."
+        "path": "images/image_page_9_figure_1.png",
+        "summary": "Figure 1: The Transformer - model architecture. [images/image_page_9_figure_1.png]"
       },
       {
-        "path": "images/image-5-Heatmap Visualization.jpg",
-        "summary": "image-5 Chart Title: None visible Axis Labels: - X-axis: time step (range 0 to 196) - Y-axis: input dimension (range 0 to 11) Color Scale: Range from -0.8 (dark purple/black) to 0.8 (light beige/white), with 0.0 represented by red/orange. Key Data Patterns: - Input dimensions 0, 1, and 2 exhibit a high-frequency alternating pattern of dark and light vertical stripes across all time steps. - Input dimensions 3 through 5 show lower frequency oscillations with broader bands of color variation. - Input dimensions 6 through 11 display large, solid horizontal bands of uniform color, indicating stable values over the entire time range."
+        "path": "images/image_page_12_figure_1.png",
+        "summary": "Sinusoid absolute positional encoding [images/image_page_12_figure_1.png]"
       },
       {
-        "path": "images/image-6-Heatmap Visualization.jpg",
-        "summary": "image-6 Chart Title: Embedding dimension heatmap X-axis: Embedding dimension (0 to 15) Y-axis: Position (0 to 48) Data Pattern: The visualization displays a gradient of values across embedding dimensions. Dimensions 0-2 show high variability with alternating red and blue bands, indicating fluctuating positive and negative values. Dimension 3 shows a transition zone. Dimensions 4 through 15 are predominantly solid red, suggesting consistently high or positive values across all positions for these dimensions."
+        "path": "images/image_page_14_figure_1.png",
+        "summary": "Transformer network - Positional encoding- Comparison [images/image_page_14_figure_1.png]"
       },
       {
-        "path": "images/image-7-Heatmap Visualization.jpg",
-        "summary": "image-7 Chart Title: Embedding dimension heatmap X-axis Label: Embedding dimension (Range: 0 to 15) Y-axis Label: Position (Range: 0 to 48) Data Representation: A grid of colored blocks representing values across embedding dimensions and positions. Color Scale: The visualization uses a diverging color scheme ranging from dark blue (likely low values) through light blue/white (neutral) to orange/red (high values). Notable Patterns: - Strong positive values (red/orange) are concentrated in the column for Embedding dimension 7, specifically at Positions 27 through 39. - Strong negative values (dark blue) appear in columns 2, 8, and 14. - Most other areas show neutral or weak values (light blue/white)."
+        "path": "images/image_page_16_figure_1.png",
+        "summary": "Figure 2: (left) Scaled Dot-Product Attention. (right) Multi-Head Attention consists of several attention layers running in parallel. [images/image_page_16_figure_1.png]"
       },
       {
-        "path": "images/image-8-$$ _detail.jpg",
-        "summary": "image-8 $$ <details>0"
+        "path": "images/image_page_22_figure_1.png",
+        "summary": "Transformer Inference (Autoregressive Decoding) [images/image_page_22_figure_1.png]"
       },
       {
-        "path": "images/image-9-E --_ G[_K.jpg",
-        "summary": "image-9 E --> G[\"K\"] <details>0"
+        "path": "images/image_page_25_figure_1.png",
+        "summary": "Transformer network - BERT [images/image_page_25_figure_1.png]"
       },
       {
-        "path": "images/image-10-Attention Mechanism Visualization.jpg",
-        "summary": "image-10 Top Layer (Source Tokens): A, man, is, walking, . Bottom Layer (Target Tokens): <sos>, Un, homme, marche, . Relationships: Dense connections (attention weights) link each source token to every target token. Context: Illustrates a sequence-to-sequence model translating English (\"A man is walking\") to French (\"Un homme marche\")."
-      },
-      {
-        "path": "images/image-11-Transformer Encoder Architecture.jpg",
-        "summary": "image-11 - Input Sequence: W1, W2, W3, [MASK], W5 (where W4 is masked) - Embedding Layer: Converts input tokens into embeddings - Core Component: Transformer encoder block - Output Representation: O1, O2, O3, O4, O5 - Classification Layer: Fully-connected layer + GELU activation + Normalization - Final Output: Predicted probabilities w'1 through w'5 via embedding to vocabulary and softmax"
+        "path": "images/image_page_29_figure_1.png",
+        "summary": "[images/image_page_29_figure_1.png]"
       }
     ],
-    "tables": [
-      {
-        "path": "tables/table-0 Attention Matrix.html",
-        "summary": "table-1 The table shows attention weights between words in a sentence. Each row indicates how much a word attends to others, with diagonal values often highest."
-      },
-      {
-        "path": "tables/table-1 EEA Agreement.html",
-        "summary": "table-2 The agreement on the European Economic Area was signed in August 1992."
-      },
-      {
-        "path": "tables/table-2 Constant Matrix.html",
-        "summary": "table-3 The table shows a 12x12 matrix where every entry is -0.8, indicating a uniform constant value across all rows and columns."
-      },
-      {
-        "path": "tables/table-3 Low Values Table.html",
-        "summary": "table-4 The table shows six rows (positions 48,45,39,36,33,30) each with 16 columns all containing the value 'Low'."
-      },
-      {
-        "path": "tables/table-4 Color Pattern Table.html",
-        "summary": "table-5 The table shows a repeating pattern of colors across rows, with Blue, Orange, Light Blue, Red, and Dark Blue in columns 0-15 for rows 0-6."
-      },
-      {
-        "path": "tables/table-5 BERT Embeddings.html",
-        "summary": "table-6 The table shows BERT input embeddings: token, sentence (A/B), and positional embeddings for two sentences separated by [SEP], with [MASK] tokens."
-      }
-    ]
+    "tables": []
   }
 }

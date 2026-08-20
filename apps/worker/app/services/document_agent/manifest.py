@@ -1,4 +1,4 @@
-"""Contracts for the hierarchy-first document profile agent."""
+"""Contracts for the hierarchy-first document profile workflow."""
 
 from __future__ import annotations
 
@@ -10,10 +10,7 @@ from typing import Any, Literal
 PageKind = Literal["normal", "landscape"]
 TocFailureKind = Literal["none", "confirm_failed", "rejected_all", "degraded"]
 
-# Executor loop steps are always tool calls. Profile success/abort is owned
-# exclusively by the ``verdict`` tool (AgentVerdict.status), not by a separate
-# ReflexionAction shortcut.
-ReflexionAction = Literal["tool_call"]
+# Profile success/abort is owned exclusively by the ``verdict`` tool.
 VerdictStatus = Literal["success", "abort"]
 
 
@@ -43,7 +40,6 @@ class PageFeature:
 class PageLabel:
     page: int
     kind: PageKind
-    confidence: float
     evidence: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -67,39 +63,9 @@ class DocumentProfile:
 
 
 @dataclass
-class AgentVerdict:
+class ProfileVerdict:
     status: VerdictStatus
     rationale: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class ReflexionDecision:
-    action: ReflexionAction
-    rationale: str
-    tool_name: str | None = None
-    tool_args: dict[str, Any] = field(default_factory=dict)
-    verdict: AgentVerdict | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "action": self.action,
-            "rationale": self.rationale,
-            "tool_name": self.tool_name,
-            "tool_args": dict(self.tool_args),
-            "verdict": self.verdict.to_dict() if self.verdict else None,
-        }
-
-
-@dataclass
-class TocCandidate:
-    title: str
-    normalized_title: str
-    source_page: int
-    line_index: int
-    numbering: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -111,7 +77,7 @@ class TocAnchorPage:
 
     page: int  # 1-based page number
     png_path: str  # local PNG path for VLM inspection
-    source: Literal["page_label", "text_scan", "visual_scan"]  # how this anchor was discovered
+    source: Literal["text_scan"] = "text_scan"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -121,7 +87,6 @@ class TocAnchorPage:
 class TocEvidence:
     page_index: int
     source: str
-    confidence: float
     reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -133,39 +98,23 @@ class TocResult:
     toc_pages: list[int] = field(default_factory=list)
     candidates: list[TocAnchorPage] = field(default_factory=list)
     evidence: list[TocEvidence] = field(default_factory=list)
-    method: Literal["toc_marker", "vlm_progressive", "vlm_batch", "visual_scan", "none"] = "none"
+    method: Literal["vlm_batch", "pdf_outline", "none"] = "none"
     notes: str = ""
     failure_kind: TocFailureKind = "none"
+
+    @property
+    def profile_source(self) -> str:
+        """Honest profile ``source`` label derived from ``method``."""
+        if self.method == "pdf_outline":
+            return "pdf_outline"
+        if self.method == "vlm_batch":
+            return "pdf_vlm"
+        return "none"
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["candidates"] = [candidate.to_dict() for candidate in self.candidates]
         data["evidence"] = [item.to_dict() for item in self.evidence]
-        return data
-
-
-@dataclass
-class H1Candidate:
-    title: str
-    page: int
-    confidence: float
-    matched_line: str
-    source: Literal["toc_exact_top", "toc_fuzzy_top", "heading_grep", "toc_grep", "h2_refine", "none"]
-    evidence: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class H1BoundaryResult:
-    h1_candidates: list[H1Candidate] = field(default_factory=list)
-    method: Literal["toc_grep", "heading_grep", "none"] = "none"
-    notes: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        data = asdict(self)
-        data["h1_candidates"] = [candidate.to_dict() for candidate in self.h1_candidates]
         return data
 
 
@@ -191,7 +140,10 @@ class Shard:
         "toc_leaf_boundary",
     ]
     anchor_evidence: str
-    confidence: float
+    # Calibrated TOC slice for this shard (heading+level), attached at
+    # propose.shard_plan. TEXT-TRACK consumes this directly; no printed→physical
+    # re-filter at parse time.
+    toc_hierarchies: list[dict[str, Any]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -227,10 +179,8 @@ class PageAnatomyMap:
     page_labels: list[PageLabel]
     toc_result: TocResult
     shard_plan: ShardPlan
-    h1_result: H1BoundaryResult | None = None
     document_profile: DocumentProfile | None = None
     toc_hierarchies: list[dict[str, Any]] | None = None
-    toc_page_offset: int | None = None
     skeleton_anchor: dict[str, Any] | None = None
     skeleton_nodes: list[dict[str, Any]] | None = None
     pending_skeleton_anchors: list[dict[str, Any]] = field(default_factory=list)
@@ -249,12 +199,10 @@ class PageAnatomyMap:
             "page_features": [feature.to_dict() for feature in self.page_features],
             "page_labels": [label.to_dict() for label in self.page_labels],
             "toc_result": self.toc_result.to_dict(),
-            "h1_result": self.h1_result.to_dict() if self.h1_result else None,
             "shard_plan": self.shard_plan.to_dict(),
             "document_profile": self.document_profile.to_dict()
             if self.document_profile
             else None,
-            "toc_page_offset": self.toc_page_offset,
             "skeleton_anchor": self.skeleton_anchor,
             "skeleton_nodes": self.skeleton_nodes,
             "pending_skeleton_anchors": list(self.pending_skeleton_anchors),
@@ -281,7 +229,6 @@ class ToolContext:
     pdf_path: str
     job_id: str
     blackboard: Any
-    budget: Any
     trace: Any
     output_dir: str | None = None
     settings: dict[str, Any] = field(default_factory=dict)

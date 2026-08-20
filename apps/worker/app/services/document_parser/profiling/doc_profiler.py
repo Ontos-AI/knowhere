@@ -44,17 +44,17 @@ def profile_document(
         job_id: Parse job id for profile trace artifacts
         output_dir: Parser output directory
         skip_shard_plan: When True, lightweight and structural anatomy skip
-            LLM/ReAct shard planning and populate a single-shard placeholder.
+            LLM shard planning and populate a single-shard placeholder.
             Used by the page-memory track, which never consumes the shard plan.
             Chunk-track keeps the default (False) so oversized MinerU sharding
             still receives a real plan.
         oversized_policy: Controls oversized PDF admission. ``chunk`` applies
             the MinerU shard gate, while ``page_memory`` lets the page-memory
             track continue to structural profiling.
-        skip_toc_anchoring: When True, TOC find/extract/link-attach still run,
-            but ``run_toc_anchoring`` is skipped. Used by the staged debug
-            path (Stage-1 TOC after Stage-0 bootstrap) so calibration stays
-            in Stage-2.
+        skip_toc_anchoring: When True, TOC find/extract still run, but
+            ``run_toc_anchoring`` is skipped. Used by the staged debug path
+            (Stage-1 TOC after Stage-0 bootstrap) so calibration stays in
+            Stage-2.
 
     Returns:
         ParserDocumentProfile
@@ -122,10 +122,9 @@ def _profile_pdf_with_db(
 ) -> ParserDocumentProfile:
     profile_job_id = job_id or filename
     agent_output_dir = os.path.join(output_dir, "_doc_agent") if output_dir else None
-    # Page-memory sections are anchored on the TOC (page-based VLM TOC pipeline),
-    # so TOC profiling is mandatory for that track regardless of the global
-    # PDF_PROFILE_TOC_ENABLED flag (which only gates the optional chunk-track
-    # TOC profiling that can otherwise fall back to MinerU markdown headings).
+    # PROFILE TOC is default-on for both tracks. page_memory always forces it
+    # on (sections are TOC-anchored) even if PDF_PROFILE_TOC_ENABLED is used as
+    # an emergency kill switch for the chunk track.
     page_toc_enabled = (
         oversized_policy == "page_memory" or settings.PDF_PROFILE_TOC_ENABLED
     )
@@ -136,7 +135,6 @@ def _profile_pdf_with_db(
         db=db,
         model=settings.IMAGE_MODEL,
         settings={
-            "planner_model": settings.IMAGE_MODEL,
             "vlm_model": settings.IMAGE_MODEL,
             "toc_profile_enabled": page_toc_enabled,
             "skip_toc_anchoring": bool(skip_toc_anchoring),
@@ -214,12 +212,11 @@ def _map_toc_profile(coordinator: ProfileCoordinator) -> ParserTocProfile:
         TocEvidence(
             page_index=item.page_index,
             source=item.source,
-            confidence=item.confidence,
             reason=item.reason,
         )
         for item in toc_result.evidence
     ]
-    source = "pdf_vlm" if toc_result.method != "none" else "none"
+    source = toc_result.profile_source
     return ParserTocProfile(
         toc_pages=list(toc_result.toc_pages),
         hierarchies=coordinator.blackboard.toc_hierarchies,

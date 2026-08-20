@@ -1,146 +1,304 @@
 {
   "version": "2.0",
-  "job_id": "job_78a787d29920",
-  "data_id": null,
-  "source_file_name": "Notes.pdf",
-  "processing_date": "2026-06-16T03:46:38.981591Z",
+  "job_id": "job_459e062c475a",
+  "data_id": "demo-stem-probability-theory-lecture-notes",
+  "source_file_name": "Probability Theory Lecture Notes.pdf",
+  "processing_date": "2026-08-19T04:17:41.618125Z",
   "processing": {
     "page_count": 98,
     "billing_status": "charged",
     "cost": {
-      "micro_dollars": 147000,
-      "credits": 0.147
+      "micro_dollars": 1470000,
+      "credits": 1.47
+    },
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-19:874ab8b6c9e4",
+      "total_input_cost": 0.0,
+      "total_output_cost": 0.0,
+      "total_cost": 0.0,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 40558,
+          "output_tokens": 915,
+          "calls": 9,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 16616,
+              "output_tokens": 160,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "calibration.react_loop": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 14083,
+              "output_tokens": 618,
+              "calls": 4,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "calibration.inspect_pages": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 7831,
+              "output_tokens": 49,
+              "calls": 3,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.page_locate": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 2028,
+              "output_tokens": 88,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
     },
     "timing": {
-      "started_at": "2026-06-16T03:41:20.623929+00:00",
-      "completed_at": "2026-06-16T03:46:38.938512+00:00",
-      "duration_ms": 318314
+      "started_at": "2026-08-19T04:11:07.840984+00:00",
+      "completed_at": "2026-08-19T04:17:41.586289+00:00",
+      "duration_ms": 393745
     },
     "stages": {
       "timing_ms": {
-        "document.profile": 3615,
-        "pdf.extract.standard": 279850,
-        "heading.hierarchy_llm_call": 10545,
-        "toc.parse_hierarchy_llm": 3255,
-        "md.detect_toc": 4740,
-        "heading.merge_pre_pass_llm": 2238,
-        "heading.hierarchy_llm": 7313,
-        "md.predict_headings": 12515,
-        "md.deferred_summaries": 16962,
-        "md.build_dataframe": 6,
-        "pdf.parse_md": 34713,
-        "document.cleanup_unreferenced_images": 23,
-        "document.compress_images": 0,
-        "worker.parse.document": 318208
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 145658,
+        "page_memory.skeleton": 2,
+        "page_memory.node_summary": 49666,
+        "page_memory.node_rows": 165,
+        "page_memory.node_assembly": 49846,
+        "worker.parse.document": 393576
       },
       "token_usage": {
-        "prompt_tokens": 5855,
-        "completion_tokens": 1685,
-        "total_tokens": 7540
+        "prompt_tokens": 40558,
+        "completion_tokens": 915,
+        "total_tokens": 41473,
+        "calls": 9,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 40558,
+            "completion_tokens": 915,
+            "total_tokens": 41473,
+            "calls": 9
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 16616,
+            "completion_tokens": 160,
+            "total_tokens": 16776,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 16616,
+                "completion_tokens": 160,
+                "total_tokens": 16776,
+                "calls": 1
+              }
+            }
+          },
+          "calibration.react_loop": {
+            "prompt_tokens": 14083,
+            "completion_tokens": 618,
+            "total_tokens": 14701,
+            "calls": 4,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 14083,
+                "completion_tokens": 618,
+                "total_tokens": 14701,
+                "calls": 4
+              }
+            }
+          },
+          "calibration.inspect_pages": {
+            "prompt_tokens": 7831,
+            "completion_tokens": 49,
+            "total_tokens": 7880,
+            "calls": 3,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 7831,
+                "completion_tokens": 49,
+                "total_tokens": 7880,
+                "calls": 3
+              }
+            }
+          },
+          "page_memory.page_locate": {
+            "prompt_tokens": 2028,
+            "completion_tokens": 88,
+            "total_tokens": 2116,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 2028,
+                "completion_tokens": 88,
+                "total_tokens": 2116,
+                "calls": 1
+              }
+            }
+          }
+        }
       }
     }
   },
   "statistics": {
-    "total_chunks": 109,
-    "text_chunks": 69,
-    "image_chunks": 28,
-    "table_chunks": 12,
+    "total_chunks": 68,
+    "text_chunks": 0,
+    "image_chunks": 12,
+    "table_chunks": 6,
+    "page_chunks": 50,
     "total_pages": null
   },
   "HIERARCHY": {
-    "Root": {},
-    "CHAPTER 1": {
-      "Combinatorics": {
-        "1.1. Counting Principle": {},
-        "1.2. PERMUTATIONS": {},
-        "1.3. Combinations": {},
-        "1.4. Multinomial Coefficients": {}
+    "Chapter 1. Combinatorics": {
+      "1.1. Counting Principle": {},
+      "1.2. Permutations": {},
+      "1.3. Combinations": {},
+      "1.4. Multinomial Coefficients": {}
+    },
+    "Chapter 2. Axioms of Probability": {
+      "2.1. Sample Space and Events": {},
+      "2.2. Axioms of Probability": {},
+      "2.3. Equally Likely Outcomes": {}
+    },
+    "Chapter 3. Independence": {
+      "3.1. Independent Events": {
+        "Example (A variation of Gambler's ruin)": {},
+        "Example:": {},
+        "Conditional Probability and Independence": {}
       }
     },
-    "CHAPTER 2": {
-      "Axioms of Probability": {
-        "2.1. Sample Space and Events": {
-          "- Example1:": {},
-          "- Example 2:": {},
-          "- Example3:": {},
-          "- Others:": {}
-        },
-        "2.2. Axioms of Probability": {},
-        "2.3. Equally Likely Outcomes": {}
+    "Chapter 4. Conditional Probability and Independence": {
+      "4.1. Conditional Probabilities": {
+        "Example5:": {}
+      },
+      "4.2. Bayes's Formula": {}
+    },
+    "Chapter 5. Random Variables": {
+      "5.1. Random Variables": {},
+      "5.2. Discrete Random Variables": {},
+      "5.3. Expected Value": {},
+      "5.4. The C.D.F.": {},
+      "5.5. Expected Value of Sums of Random Variables": {},
+      "5.6. Expectation of a Function of a Random Variable": {},
+      "5.7. Variance": {}
+    },
+    "Chapter 6. Some Discrete Distributions": {
+      "6.1. Bernouli and Binomial Random Variables": {},
+      "6.2. The Poisson Distribution": {},
+      "6.3. Other Discrete Distributions": {
+        "Negative Binomial(Need to know for Actuarial Exam):": {},
+        "Hypergeometric Distribution(Need to know for Actuarial Exam):": {},
+        "Continuous Random Variables": {}
       }
     },
-    "CHAPTER 3": {
-      "Independence": {}
+    "Chapter 7. Continuous Random Variables": {
+      "7.1. Intro to continuous R.V": {},
+      "7.2. Expectation and Variance": {},
+      "7.3. The uniform Random Variable": {},
+      "7.4. More practice": {}
     },
-    "CHAPTER 4": {
-      "Conditional Probability and Independence": {
-        "4.1. Conditional Probabilities": {},
-        "4.2. Bayes's Formula": {}
+    "Chapter 8. Normal Distributions": {
+      "8.1. The normal distribution": {
+        "Summary of the normal distribution:": {},
+        "THEOREM 12. If X ~ N(μ, σ) then": {},
+        "Normal approximations to the binomial": {}
       }
     },
-    "CHAPTER 5": {
-      "Random Variables": {
-        "5.1. Random Variables": {},
-        "5.2. Discrete Random Variables": {},
-        "5.3. Expected Value": {},
-        "5.5. Expected Value of Sums of Random Variables": {},
-        "5.6. Expectation of a Function of a Random Variable": {},
-        "5.7. Variance": {}
+    "Chapter 9. Normal approximations to the binomial": {
+      "9.1. The normal approximates Binomial": {}
+    },
+    "Chapter 10. Some continuous distributions": {
+      "10.1. Exponential Random Variables": {},
+      "10.2. Other Continuous Distributions": {},
+      "10.3. The distribution function of a Random variable": {
+        "Example3": {},
+        "PROPOSITION 15. Suppose g : R -> R is a strictly increasing function, then the inverse g^-1 exists and g(x) <= y implies x <= g^-1(y).": {},
+        "Multivariate distributions": {}
       }
     },
-    "CHAPTER 6": {
-      "Some Discrete Distributions": {
-        "6.1. Bernouli and Binomial Random Variables": {
-          "• Bernoulli Distribution": {},
-          "• Binomial Distribution:": {},
-          "• Properties of the Binomial": {}
-        },
-        "6.2. The Poisson Distribution": {},
-        "6.3. Other Discrete Distributions": {
-          "• Uniform Distribution:": {},
-          "- Geometric Distribution:": {}
-        }
+    "Chapter 11. Multivariate distributions": {
+      "11.1. Joint distribution functions": {
+        "Example2:": {}
+      },
+      "11.2. Independent Random Variables": {},
+      "11.3. Sums of independent Random Variables(*)": {},
+      "11.4. Conditional Distributions- Discrete(*)": {},
+      "11.5. Conditional Distributions- Continuous(*)": {},
+      "11.6. Joint PDF of functions": {}
+    },
+    "Chapter 12. Expectations": {
+      "12.1. Expectation of Sums of R.V.": {},
+      "12.2. Covariance and Correlations.": {}
+    },
+    "Chapter 13. Moment generating functions": {
+      "13.1. Moment Generating Functions": {
+        "Example3": {},
+        "Example4": {},
+        "Example5": {},
+        "Limit Laws": {}
       }
     },
-    "CHAPTER 7": {
-      "Continuous Random Variables": {
-        "7.1. Intro to continuous R.V": {},
-        "7.2. Expectation and Variance": {},
-        "7.3. The uniform Random Variable": {},
-        "7.4. More practice": {}
-      }
-    },
-    "CHAPTER 8": {
-      "Normal Distributions": {}
-    },
-    "CHAPTER 9": {
-      "Normal approximations to the binomial": {}
-    },
-    "CHAPTER 10": {
-      "Some continuous distributions": {
-        "10.1. Exponential Random Variables": {},
-        "10.2. Other Continuous Distributions": {
-          "• Gamma Distribution:": {},
-          "• Weibull Distribution:": {},
-          "• Cauchy Distribution:": {}
-        },
-        "10.3. The distribution function of a Random variable": {}
-      }
-    },
-    "CHAPTER 11": {
-      "Multivariate distributions": {
-        "11.1. Joint distribution functions": {},
-        "11.2. Independent Random Variables": {},
-        "11.4. Conditional Distributions- Discrete(★)": {},
-        "11.6. Joint PDF of functions": {}
-      }
-    },
-    "CHAPTER 12": {},
-    "CHAPTER 13": {
-      "Moment generating functions": {}
-    },
-    "CHAPTER 14": {
-      "Limit Laws": {}
+    "Chapter 14. Limit Laws": {
+      "14.1. The Central Limit Theorem": {}
     }
   }
 }

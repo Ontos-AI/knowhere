@@ -1,146 +1,306 @@
 {
   "version": "2.0",
-  "job_id": "job_72b1dbaf6bcf",
-  "data_id": null,
-  "source_file_name": "transformers-tutorial.pdf",
-  "processing_date": "2026-06-16T09:42:54.208009Z",
+  "job_id": "job_0ad9b3c443ad",
+  "data_id": "demo-stem-transformers-tutorial",
+  "source_file_name": "Transformers Tutorial.pdf",
+  "processing_date": "2026-08-19T04:32:40.863212Z",
   "processing": {
     "page_count": 187,
     "billing_status": "charged",
     "cost": {
-      "micro_dollars": 280500,
-      "credits": 0.2805
+      "micro_dollars": 2805000,
+      "credits": 2.805
+    },
+    "cost_estimate": {
+      "currency": "USD",
+      "pricing_version": "2026-08-19:874ab8b6c9e4",
+      "total_input_cost": 0.08531702,
+      "total_output_cost": 0.0199465,
+      "total_cost": 0.10526352,
+      "by_model": {
+        "qwen3.5-flash": {
+          "input_tokens": 10438,
+          "output_tokens": 167,
+          "calls": 1,
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "pricing_missing": true
+        },
+        "deepseek-chat": {
+          "input_tokens": 6293,
+          "output_tokens": 1900,
+          "calls": 1,
+          "input_rate_per_1m": 0.14,
+          "output_rate_per_1m": 0.28,
+          "input_cost": 0.00088102,
+          "output_cost": 0.000532,
+          "total_cost": 0.00141302,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.14,
+            "output_per_1m": 0.28,
+            "source": "DeepSeek official pricing",
+            "effective_date": "2026-06-11"
+          }
+        },
+        "qwen3.6-flash": {
+          "input_tokens": 337744,
+          "output_tokens": 12943,
+          "calls": 176,
+          "input_rate_per_1m": 0.25,
+          "output_rate_per_1m": 1.5,
+          "input_cost": 0.084436,
+          "output_cost": 0.0194145,
+          "total_cost": 0.1038505,
+          "pricing": {
+            "currency": "USD",
+            "unit": "per_1m_tokens",
+            "input_per_1m": 0.25,
+            "output_per_1m": 1.5,
+            "source": "Qwen Cloud official pricing, <=256K input tier",
+            "effective_date": "2026-06-11"
+          }
+        }
+      },
+      "by_task": {
+        "document_agent.coarse_profile": {
+          "input_cost": 0.0,
+          "output_cost": 0.0,
+          "total_cost": 0.0,
+          "models": {
+            "qwen3.5-flash": {
+              "input_tokens": 10438,
+              "output_tokens": 167,
+              "calls": 1,
+              "input_cost": 0.0,
+              "output_cost": 0.0,
+              "total_cost": 0.0,
+              "pricing_missing": true
+            }
+          },
+          "missing_pricing_models": [
+            "qwen3.5-flash"
+          ]
+        },
+        "page_memory.hierarchy": {
+          "input_cost": 0.00088102,
+          "output_cost": 0.000532,
+          "total_cost": 0.00141302,
+          "models": {
+            "deepseek-chat": {
+              "input_tokens": 6293,
+              "output_tokens": 1900,
+              "calls": 1,
+              "input_rate_per_1m": 0.14,
+              "output_rate_per_1m": 0.28,
+              "input_cost": 0.00088102,
+              "output_cost": 0.000532,
+              "total_cost": 0.00141302,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.14,
+                "output_per_1m": 0.28,
+                "source": "DeepSeek official pricing",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        },
+        "page_memory.asset_detect": {
+          "input_cost": 0.084436,
+          "output_cost": 0.0194145,
+          "total_cost": 0.1038505,
+          "models": {
+            "qwen3.6-flash": {
+              "input_tokens": 337744,
+              "output_tokens": 12943,
+              "calls": 176,
+              "input_rate_per_1m": 0.25,
+              "output_rate_per_1m": 1.5,
+              "input_cost": 0.084436,
+              "output_cost": 0.0194145,
+              "total_cost": 0.1038505,
+              "pricing": {
+                "currency": "USD",
+                "unit": "per_1m_tokens",
+                "input_per_1m": 0.25,
+                "output_per_1m": 1.5,
+                "source": "Qwen Cloud official pricing, <=256K input tier",
+                "effective_date": "2026-06-11"
+              }
+            }
+          },
+          "missing_pricing_models": []
+        }
+      },
+      "missing_pricing_models": [
+        "qwen3.5-flash"
+      ]
     },
     "timing": {
-      "started_at": "2026-06-16T09:36:24.096559+00:00",
-      "completed_at": "2026-06-16T09:42:54.118018+00:00",
-      "duration_ms": 390021
+      "started_at": "2026-08-19T04:11:25.955084+00:00",
+      "completed_at": "2026-08-19T04:32:40.841734+00:00",
+      "duration_ms": 1274886
     },
     "stages": {
       "timing_ms": {
-        "document.profile": 3495,
-        "pdf.extract.standard": 299462,
-        "toc.detect_range_llm": 1336,
-        "md.detect_toc": 1370,
-        "heading.merge_pre_pass_llm": 3872,
-        "heading.hierarchy_llm_call": 18629,
-        "heading.hierarchy_llm": 18696,
-        "md.predict_headings": 25933,
-        "md.deferred_summaries": 57407,
-        "md.build_dataframe": 93,
-        "pdf.parse_md": 86806,
-        "document.cleanup_unreferenced_images": 3,
-        "document.compress_images": 9,
-        "worker.parse.document": 389783
+        "page_memory.normalize_to_pdf": 0,
+        "page_memory.profile": 36988,
+        "page_memory.skeleton": 0,
+        "page_memory.title_render": 31932,
+        "page_memory.title_detection": 229819,
+        "page_memory.fine_hierarchy": 8929,
+        "page_memory.render": 34426,
+        "page_memory.tag": 165606,
+        "page_memory.assets": 705914,
+        "page_memory.node_summary": 60889,
+        "page_memory.node_rows": 154,
+        "page_memory.node_assembly": 61050,
+        "worker.parse.document": 1274782
       },
       "token_usage": {
-        "prompt_tokens": 12433,
-        "completion_tokens": 3955,
-        "total_tokens": 16388
+        "prompt_tokens": 354475,
+        "completion_tokens": 15010,
+        "total_tokens": 369485,
+        "calls": 178,
+        "by_model": {
+          "qwen3.5-flash": {
+            "prompt_tokens": 10438,
+            "completion_tokens": 167,
+            "total_tokens": 10605,
+            "calls": 1
+          },
+          "deepseek-chat": {
+            "prompt_tokens": 6293,
+            "completion_tokens": 1900,
+            "total_tokens": 8193,
+            "calls": 1
+          },
+          "qwen3.6-flash": {
+            "prompt_tokens": 337744,
+            "completion_tokens": 12943,
+            "total_tokens": 350687,
+            "calls": 176
+          }
+        },
+        "by_task": {
+          "document_agent.coarse_profile": {
+            "prompt_tokens": 10438,
+            "completion_tokens": 167,
+            "total_tokens": 10605,
+            "calls": 1,
+            "models": {
+              "qwen3.5-flash": {
+                "prompt_tokens": 10438,
+                "completion_tokens": 167,
+                "total_tokens": 10605,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.hierarchy": {
+            "prompt_tokens": 6293,
+            "completion_tokens": 1900,
+            "total_tokens": 8193,
+            "calls": 1,
+            "models": {
+              "deepseek-chat": {
+                "prompt_tokens": 6293,
+                "completion_tokens": 1900,
+                "total_tokens": 8193,
+                "calls": 1
+              }
+            }
+          },
+          "page_memory.asset_detect": {
+            "prompt_tokens": 337744,
+            "completion_tokens": 12943,
+            "total_tokens": 350687,
+            "calls": 176,
+            "models": {
+              "qwen3.6-flash": {
+                "prompt_tokens": 337744,
+                "completion_tokens": 12943,
+                "total_tokens": 350687,
+                "calls": 176
+              }
+            }
+          }
+        }
       }
     }
   },
   "statistics": {
-    "total_chunks": 519,
-    "text_chunks": 234,
-    "image_chunks": 244,
-    "table_chunks": 41,
+    "total_chunks": 301,
+    "text_chunks": 0,
+    "image_chunks": 161,
+    "table_chunks": 2,
+    "page_chunks": 138,
     "total_pages": null
   },
   "HIERARCHY": {
-    "INTRODUCTION TO TRANSFORMERS": {
-      "Who am I?": {},
-      "Interests": {},
-      "Academia": {},
+    "Root": {
+      "INTRODUCTION TO TRANSFORMERS": {},
+      "Who am I?": {
+        "Interests": {},
+        "Academia": {},
+        "News": {}
+      },
       "What I hope you will learn": {},
-      "Attention Timeline": {},
+      "Attention Timeline": {
+        "Prehistoric Era": {},
+        "Simple attention mechanisms": {},
+        "Beginning of transformers": {},
+        "Explosion of transformers in NLP": {},
+        "Explosion into other fields": {},
+        "Start of Generative Era": {},
+        "Present Day": {},
+        "Future (?!)": {}
+      },
       "What are transformers?": {},
       "What can we do with transformers?": {},
-      "What can we do with transformers?_2": {},
-      "What can we do with transformers? Classify composites": {},
-      "What can we do with transformers? Classify composites_2": {},
+      "What can we do with transformers? Classify composites": {
+        "Classify composites": {},
+        "Complete composites": {}
+      },
       "What can we do with transformers? Complete composites": {},
-      "What can we do with transformers? Complete composites_2": {
-        "Inputs": {},
-        "Output": {}
-      },
-      "What can we do with transformers? Complete composites_3": {},
-      "What can we do with transformers? Transform composites": {
-        "Inputs": {
-          "Input": {},
-          "Translation Model": {},
-          "Output": {},
-          "Output_2": {}
-        }
-      },
-      "What can we do with transformers? Transform composites_2": {
-        "Inputs": {
-          "Input": {},
-          "Summarization Model": {},
-          "Output": {},
-          "Output_2": {}
-        }
-      },
-      "What can we do with transformers? Transform composites_3": {},
-      "What can we do with transformers? Transform composites_4": {
-        "Inputs": {
-          "Input": {},
-          "Output": {}
-        }
-      },
-      "What can we do with transformers?_3": {},
+      "What can we do with transformers? Transform composites": {},
       "How to classify composites with transformers?": {},
       "Representations matter": {},
       "Representation learning": {},
-      "How can be build a representation for composites?": {
-        "Embeddings": {}
-      },
+      "How can we build a “good” semantic representation for composites? Encoders": {},
+      "How can be build a representation for composites?": {},
+      "Embeddings": {},
+      "Word embeddings": {},
       "How can we build a representation for composites?": {},
       "What are “context-aware” embeddings": {},
       "How do transformer layers deal with context?": {},
-      "How do transformer layers deal with context? Attention": {},
       "Text classification with transformers": {},
       "Text classification with transformers using BERT": {},
-      "How do transformer layers deal with context?_2": {
-        "BERT training MLM": {},
-        "BERT training NSP": {}
-      },
-      "Text classification with transformers using BERT_2": {},
+      "BERT training MLM": {},
+      "BERT training NSP": {},
       "Image classification with ViT": {},
-      "What can we do with transformers?_4": {},
       "How to generate composites? Decoders": {},
-      "How to generate composites? Decoders_2": {},
       "What is masked attention?": {},
-      "What is masked attention?_2": {},
-      "How to generate composites? Decoders_3": {},
-      "How are decoders trained? The model is simply trained to predict the next word": {},
+      "How are decoders trained?": {},
       "How are decoders efficiently trained?": {},
-      "What can we do with transformers?_5": {},
-      "Transforming composites. Encoders and decoders together 8) The complete output": {},
-      "Transforming composites. Encoders and decoders together 8) The complete output_2": {},
+      "Transforming composites. Encoders and decoders together": {},
       "Decoders vs. conditional decoders": {},
-      "What can we do with transformers?_6": {},
+      "Transforming composites.": {},
+      "Opening the box. Understanding transformer layers.": {},
       "Transformer layer": {},
-      "Transformer layer_2": {
-        "Algorithm 12.3: Transformer layer": {},
-        "Attention coefficients": {},
-        "How to compute attention weights": {},
-        "Attention via linear transformations": {},
-        "Softmax": {},
-        "Self-Attention": {},
-        "Scaled self-attention in one slide. One attention head": {},
-        "Algorithm 12.1: Scaled dot-product self-attention": {},
-        "Multi head attention": {},
-        "Multi head attention Each attention head learns a specific set of parameters W": {},
-        "Multi head attention_2": {},
-        "Multi-Head Attention": {
-          "1) This is our input sentence\\*": {},
-          "2) We embed each word\\*": {},
-          "4) Calculate attention using the resulting Q∕K∕V matrices": {}
-        },
-        "Multi head attention_3": {}
-      },
-      "Transformer layer_3": {},
+      "Attention coefficients": {},
+      "How to compute attention weights": {},
+      "Attention via linear transformations": {},
+      "Softmax": {},
+      "Self-Attention": {},
+      "Scaled self-attention in one slide. One attention head": {},
+      "Multi head attention": {},
+      "Masked transformer layer. A regular transformer layer but with masked attention.": {},
       "Cross-attention": {},
       "Cross-Attention (e.g. Machine Translation)": {},
       "Cross-attention transformer layer": {},
@@ -154,164 +314,83 @@
       "Direct Preference Optimization (DPO)": {},
       "GPT-4": {},
       "Gemini": {},
-      "Gemini_2": {},
       "Where we are (2024)": {},
-      "The Future (What's Next?)": {},
-      "The Future (What's Missing?)": {},
+      "The Future (What’s Next?)": {},
+      "The Future (What’s Missing?)": {},
       "Questions?": {},
-      "M.EM": {},
-      "Hugging face": {}
-    },
-    "Transformers and LLMs: An Introduction": {
+      "Hugging face": {},
+      "Transformers and LLMs: An Introduction": {},
       "Challenges and Weaknesses": {
         "Challenges of NLP:": {},
-        "Weaknesses of earlier models∕apporoaches:": {}
+        "Weaknesses of earlier models/apporoaches:": {}
       },
-      "NLP Throughout the Years": {
-        "Rule Based NLP Systems": {},
-        "Linguistic Foundations": {},
-        "Word Embeddings": {},
-        "Seq2seq Models": {},
-        "Attention and Transformers": {},
-        "Analogy for Q, K, V": {},
-        "Attention and Transformers_2": {},
-        "Self-Attention": {},
-        "Multi-Head Attention": {
-          "1) This is our input sentence\\*": {},
-          "2) We embed each word\\*": {},
-          "4) Calculate attention using the resulting Q∕K∕V matrices": {}
-        },
-        "Cross-Attention (e.g. Machine Translation)": {},
-        "Transformers vs. RNNs": {},
-        "Large Language Models": {},
-        "Emergent Abilities of Large Language Models": {},
-        "Few-Shot Prompting": {},
-        "Potential Explanations of Emergence": {},
-        "Beyond Scaling": {},
-        "Questions for the Group": {}
+      "NLP Throughout the Years": {},
+      "Rule Based NLP Systems": {},
+      "Linguistic Foundations": {},
+      "Seq2seq Models": {},
+      "Attention and Transformers": {},
+      "Analogy for Q, K, V": {},
+      "Beyond Scaling": {},
+      "Questions for the Group": {},
+      "RLHF, ChatGPT, GPT-4, Gemini": {},
+      "ChatGPT": {},
+      "Major Applications of Transformers": {},
+      "Text and Language": {},
+      "Audio: Speech + Music": {},
+      "Vision: Analyzing Images & Videos": {},
+      "Vision: Generating Images & Video": {},
+      "Robotics, Simulations, Physical Tasks": {},
+      "Playing Games": {},
+      "Biology + Healthcare": {},
+      "Recent Trends and Remaining Weaknesses of LLMs": {},
+      "Requiring Large Amounts of Data, Compute, and Cost": {},
+      "BabyLM: Children vs. LLMs": {},
+      "Minified LLMs and On-Device LLMs": {},
+      "Memory Augmentation & Personalization": {},
+      "Pretraining Data Synthesis & Selection": {},
+      "Microsoft Phi-2 Model": {},
+      "New Knowledge or “Memorizing”?": {},
+      "Continual Learning": {},
+      "Interpretability of LLMs": {},
+      "Model Editing & Mechanistic Interpretability": {},
+      "Model Modularity + Mixture of Experts (MoE)": {},
+      "Self-Improvement / Self-Reflection": {},
+      "Hallucination Problem": {},
+      "Reasoning: Sufficient? Intermediate Guidance Helps...": {},
+      "Chain-of-Thought Reasoning": {
+        "Standard Prompting": {},
+        "Chain-of-Thought Prompting": {}
       },
-      "RLHF, ChatGPT, GPT-4, Gemini": {
-        "Reinforcement Learning with Human Feedback (RLHF)": {},
-        "Direct Preference Optimization (DPO)": {},
-        "ChatGPT": {},
-        "GPT-4": {},
-        "Gemini": {},
-        "Gemini_2": {},
-        "Where we are (2024)": {},
-        "The Future (What's Next?)": {},
-        "The Future (What's Missing?)": {}
-      },
-      "Major Applications of Transformers": {
-        "Text and Language": {},
-        "Audio: Speech + Music": {},
-        "Vision: Analyzing Images & Videos": {},
-        "Vision: Generating Images & Video": {},
-        "Robotics, Simulations, Physical Tasks": {},
-        "E.g. Voyager, Mobile ALOHA": {},
-        "Playing Games": {},
-        "Biology + Healthcare": {},
-        "E.g. Med-PaLM, AlphaFold": {}
-      },
-      "Recent Trends and Remaining Weaknesses of LLMs": {
-        "Requiring Large Amounts of Data, Compute, and Cost": {},
-        "BabyLM: Children vs. LLMs": {},
-        "BabyLM: Children vs. LLMs_2": {},
-        "Minified LLMs and On-Device LLMs": {},
-        "Memory Augmentation & Personalization": {},
-        "Memory Augmentation & Personalization_2": {},
-        "Pretraining Data Synthesis & Selection": {},
-        "Microsoft Phi-2 Model": {},
-        "New Knowledge or “Memorizing”?": {},
-        "Continual Learning": {},
-        "Interpretability of LLMs": {},
-        "Model Editing & Mechanistic Interpretability": {
-          "(e) Impact of restoring state after corrupted input": {},
-          "(f) Impact of restoring MLP after corrupted input": {},
-          "(g) Impact of restoring Attn after corrupted input": {}
-        },
-        "Model Modularity + Mixture of Experts (MoE)": {},
-        "Model Modularity + Mixture of Experts (MoE)_2": {},
-        "Self-Improvement ∕ Self-Reflection": {},
-        "Self-Improvement ∕ Self-Reflection_2": {},
-        "Hallucination Problem": {},
-        "Chain-of-Thought Reasoning": {
-          "Standard Prompting": {
-            "Model Input": {},
-            "Model Output": {}
-          },
-          "Chain-of-Thought Prompting": {
-            "Model Input": {},
-            "Model Output": {}
-          },
-          "Improving Chain-of-Thought Reasoning": {},
-          "Chain-of-Thought Reasoning for Smaller Models": {},
-          "Generalizing Chain-of-Thought Reasoning": {},
-          "Tree of Thoughts": {},
-          "Socratic Questioning": {}
-        }
-      },
-      "From Language Models to AI Agents": {
-        "Introduction": {},
-        "Building AI Agents": {
-          "1. Why?": {},
-          "2. How?": {},
-          "3. Ingredients?": {},
-          "4. What can they do?": {}
-        },
-        "AI Agents": {
-          "1. Why?": {},
-          "2. How?": {},
-          "3. Ingredients?": {},
-          "4. What can they do?": {}
-        },
-        "AI Agents_2": {},
-        "The first flight to be fully booked by an AI": {},
-        "AI Agent Passing the Online CA Driving Test": {},
-        "Why human-like AI Agents?": {},
-        "5 levels of Autonomy": {},
-        "Computer Interactions": {
-          "Agent Computer Interaction": {},
-          "API": {},
-          "Direct interaction": {},
-          "Agent Action API: An universal API for computer interaction": {},
-          "LANGCHAIN EXAMPLE": {}
-        },
-        "Memory & Personalization": {
-          "AI Models as Neural Compute Unit": {},
-          "AI Models as Neural Compute Unit_2": {},
-          "Long-term Memory": {},
-          "Personalization": {},
-          "Challenges": {}
-        },
-        "Agent-to-Agent Communication": {
-          "Multi Agent Autonomous AI systems": {},
-          "Why Multi-agent Systems": {},
-          "Agent to Agent Communication": {},
-          "Agent to Agent Communication_2": {},
-          "Agent to Agent Communication_3": {},
-          "Agent to Agent Communication_4": {},
-          "Agent to Agent Communication_5": {},
-          "Agent to Agent Communication_6": {},
-          "Agent to Agent Communication_7": {},
-          "Agent to Agent Communication_8": {},
-          "Agent to Agent Communication_9": {},
-          "Agent to Agent Communication_10": {}
-        },
-        "Future Directions": {
-          "Key Issues with Autonomous Agents": {
-            "4. Real world-deployment & Observability": {},
-            "1. Reliability": {},
-            "2. Looping & Plan Divergence": {},
-            "3. Testing & Benchmarking": {},
-            "a. How do we trust a fully autonomous AI system": {},
-            "b. How do we build in human overrides": {}
-          },
-          "Plan Divergence": {}
-        },
-        "Karpathy - LLM OS": {},
-        "Building Generalized AI Systems": {},
-        "Future needs for AI agents": {}
-      }
+      "Improving Chain-of-Thought Reasoning": {},
+      "Chain-of-Thought Reasoning for Smaller Models": {},
+      "Generalizing Chain-of-Thought Reasoning": {},
+      "Tree of Thoughts": {},
+      "Socratic Questioning": {},
+      "From Language Models to AI Agents": {},
+      "Introduction": {},
+      "Building AI Agents": {},
+      "AI Agents": {},
+      "The first flight to be fully booked by an AI": {},
+      "AI Agent Passing the Online CA Driving Test": {},
+      "Why human-like AI Agents?": {},
+      "5 levels of Autonomy": {},
+      "Computer Interactions": {},
+      "Agent Computer Interaction": {},
+      "Agent Action API: An universal API for computer interaction": {},
+      "Memory & Personalization": {},
+      "AI Models as Neural Compute Unit": {},
+      "Long-term Memory": {},
+      "Personalization": {},
+      "Challenges": {},
+      "Agent-to-Agent Communication": {},
+      "Multi Agent Autonomous AI systems": {},
+      "Why Multi-agent Systems": {},
+      "Future Directions": {},
+      "Key Issues with Autonomous Agents": {},
+      "Plan Divergence": {},
+      "Karpathy - LLM OS": {},
+      "Building Generalized AI Systems": {},
+      "Future needs for AI agents": {}
     }
   }
 }

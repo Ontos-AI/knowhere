@@ -1,4 +1,4 @@
-"""Shared page rendering helpers for document-agent visual reasoning."""
+"""Shared page rendering helpers for document profile visual reasoning."""
 
 from __future__ import annotations
 
@@ -16,18 +16,25 @@ from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
 
 
 _DEBUG_VISUAL_DIRS = {
+    "coarse_profile_pages",
+    "calibration_verify",
+    "calibration_scan",
+    "toc_pages",
+    "ocr_pages",
+    "inspect_pages",
+    "profile_visuals",
+    # Legacy artifact dirs from older runs; keep listed so purge still cleans them.
+    "agent_visuals",
     "planner_pages",
     "page_locate_pages",
-    "toc_pages",
     "verify_pages",
-    "agent_visuals",
-    "ocr_pages",
+    "calibration_inspect",
 }
 _PAGE_MEMORY_VISUAL_DIRS = {"pages", "asset_annotate"}
 
 
 def visual_debug_enabled() -> bool:
-    return os.environ.get("DOC_AGENT_KEEP_PAGE_VISUALS", "false").strip().lower() in {
+    return os.environ.get("DOC_PROFILE_KEEP_PAGE_VISUALS", "false").strip().lower() in {
         "1",
         "true",
         "yes",
@@ -82,7 +89,7 @@ def _render_pages_worker(
     queue.put({"ok": True, "results": results})
 
 
-def visual_output_dir(ctx: ToolContext, folder_name: str = "agent_visuals") -> str:
+def visual_output_dir(ctx: ToolContext, folder_name: str = "profile_visuals") -> str:
     output_dir = str(
         Path(ctx.output_dir or os.path.expanduser("~/.knowhere/_debug_profile"))
         / folder_name
@@ -95,7 +102,7 @@ def render_pages(
     ctx: ToolContext,
     pages: list[int],
     *,
-    folder_name: str = "agent_visuals",
+    folder_name: str = "profile_visuals",
     prefix: str = "visual",
     dpi: int | None = None,
     timeout: int = 120,
@@ -107,7 +114,7 @@ def render_pages(
     if not bounded_pages:
         return []
     output_dir = visual_output_dir(ctx, folder_name=folder_name)
-    effective_dpi = dpi or int(ctx.settings.get("agent_png_dpi", "144"))
+    effective_dpi = dpi or int(ctx.settings.get("profile_png_dpi", "144"))
     result = run_in_child_process(
         _render_pages_worker,
         ctx.pdf_path,

@@ -26,7 +26,8 @@ def parse_pdfs(
     s3_key=None,
     job_id=None,
 ):
-    # Deprecated: prefer page_memory track for PDF processing.
+    # Chunk-track PDF parser (API v1 / non-page_memory). Prefer page_memory for
+    # v2 .pdf/.pptx (parse_track="page_memory").
     base_llm_paras.update({"doc_name": filename})
 
     # ── Atlas routing: bypass MinerU entirely ──
@@ -94,11 +95,11 @@ def _parse_pdf_via_shards(
     """Handle PDFs via the unified shard-first hierarchy pipeline.
 
     Pipeline:
-    1. DOC_AGENT → shard plan + TOC
-    2. bin_pack → merged shards
+    1. PROFILE → shard plan + TOC
+    2. map_agent_shards → 1:1 MinerU shards
     3. split_pdf (exclude TOC pages)
     4. MinerU per shard (parallel)
-    5. **Per-shard heading prediction** (parallel)  ← NEW
+    5. **Per-shard heading prediction** (parallel)
     6. Merge lines_with_heading + images
     7. parse_md Phase B (skip TOC detection + heading prediction)
     """
@@ -114,13 +115,17 @@ def _parse_pdf_via_shards(
         merge_shard_lines,
     )
     from app.services.document_parser.formats.pdf.shard_splitter import (
-        bin_pack_shards,
+        map_agent_shards,
         split_pdf,
     )
-    from app.services.document_agent.tools.propose_shard_plan import split_toc_for_shard
+    from shared.services.ai.token_tracking import (
+        bind_token_tracker,
+        get_current_token_tracker_root_id,
+    )
 
     work_dir: str | None = None
     temp_shard_s3_keys: list[str] = []
+    token_tracker_root_id = get_current_token_tracker_root_id()
 
     try:
         # 1. Reuse the entry DOC_PROFILE anatomy map (shard plan + TOC info).
@@ -136,24 +141,19 @@ def _parse_pdf_via_shards(
 
         agent_shards = anatomy.shard_plan.shards
 
-        # 2. Extract TOC info from anatomy for page exclusion and heading constraint
+        # 2. TOC pages to exclude from physical shard PDFs.
         toc_pages: set[int] = set()
-        toc_hierarchies = anatomy.toc_hierarchies
         if anatomy.toc_result and anatomy.toc_result.toc_pages:
             toc_pages = set(anatomy.toc_result.toc_pages)
             logger.info(
-                f"📌 DOC_AGENT TOC detected: {len(toc_pages)} pages to exclude "
-                f"({sorted(toc_pages)}), "
-                f"{len(toc_hierarchies) if toc_hierarchies else 0} hierarchy regions"
+                f"📌 PROFILE TOC detected: {len(toc_pages)} pages to exclude "
+                f"({sorted(toc_pages)})"
             )
 
-        # 3. Bin-pack agent shards to maximize MinerU page limit
-        merged_shards = bin_pack_shards(
-            agent_shards,
-            max_pages=settings.MAX_PDF_PAGE_LIMIT,
-        )
+        # 3. Map PROFILE agent shards 1:1 onto MinerU shard jobs
+        merged_shards = map_agent_shards(agent_shards)
         logger.info(
-            f"📦 Bin-packed {len(agent_shards)} agent shards → "
+            f"📦 Mapped {len(agent_shards)} agent shards → "
             f"{len(merged_shards)} MinerU shards"
         )
         for ms in merged_shards:
@@ -262,14 +262,8 @@ def _parse_pdf_via_shards(
             md_lines = merge_html_tables(md_lines)
 
             is_first_shard = shard_idx == 0
-            shard = merged_shards[shard_idx]
-            shard_toc = (
-                toc_hierarchies if is_first_shard
-                else split_toc_for_shard(
-                    toc_hierarchies, shard.page_start, shard.page_end,
-                    offset_override=getattr(anatomy, "toc_page_offset", None),
-                )
-            )
+            agent_shard = agent_shards[shard_idx]
+            shard_toc = getattr(agent_shard, "toc_hierarchies", None)
 
             lines_with_heading = eval_md_headings(
                 md_lines,
@@ -297,6 +291,13 @@ def _parse_pdf_via_shards(
                 heading_count=heading_count,
             )
 
+        def _predict_shard_headings_with_tracking(
+            shard_idx: int,
+            shard_out_dir: str,
+        ) -> ShardHeadingResult:
+            with bind_token_tracker(token_tracker_root_id):
+                return _predict_shard_headings(shard_idx, shard_out_dir)
+
         shard_heading_results: list[ShardHeadingResult | None] = [None] * len(
             shard_output_dirs
         )
@@ -306,7 +307,9 @@ def _parse_pdf_via_shards(
         ):
             with ThreadPoolExecutor(max_workers=concurrency) as executor:
                 futures = {
-                    executor.submit(_predict_shard_headings, i, shard_dir): i
+                    executor.submit(
+                        _predict_shard_headings_with_tracking, i, shard_dir
+                    ): i
                     for i, shard_dir in enumerate(shard_output_dirs)
                     if shard_dir is not None
                 }

@@ -55,7 +55,6 @@ def tag_pages(
     *,
     pages: list[PageRenderResult],
     plans: list[PagePlan],
-    budget: Any | None = None,
     vlm_model: str | None = None,
     max_concurrent: int | None = None,
 ) -> list[PageTagResult]:
@@ -67,8 +66,6 @@ def tag_pages(
         Rendered page results (from ``page_renderer``).
     plans:
         Processing plans (from ``page_plan``).
-    budget:
-        Deprecated, ignored. Kept for call-site compatibility.
     vlm_model:
         VLM model name; falls back to ``$IMAGE_MODEL``.
     max_concurrent:
@@ -181,7 +178,6 @@ def tag_page_titles(
     pages: list[PageRenderResult],
     tag_results: list[PageTagResult],
     fat_leaf_pages: set[int],
-    budget: Any | None = None,
     vlm_model: str | None = None,
     scan_direction: str = "top_to_bottom_left_to_right",
     max_concurrent: int | None = None,
@@ -200,8 +196,6 @@ def tag_page_titles(
     fat_leaf_pages:
         Set of page indices belonging to fat-leaf TOC sections
         (those with more than the configured fine-min-page threshold).
-    budget:
-        Deprecated, ignored. Kept for call-site compatibility.
     vlm_model:
         VLM model name; falls back to ``$IMAGE_MODEL``.
     scan_direction:

@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 # ruff: noqa: E402
-"""Stage 2: Calibration over Stage-1 TOC ``doc_profile.json``.
+"""Stage 2: Production ``run_toc_anchoring`` over Stage-1 TOC.
 
-Reads Stage-1 output (TOC hierarchies + optional ``link.physical_page``),
-runs calibration (Agent Phase-1 + Phase-2 completion), and writes
-``skeleton_anchor`` / ``toc_page_offset`` back onto ``doc_profile.json``.
+Same PROFILE anchoring path as production PAGE/TEXT:
+
+  select primary/pending → calibrate (Agent Phase-1 + Phase-2) →
+  classify contained/parallel → graft contained → write skeleton_*
+
+Also resolves coarse skeletons (C4 resolve-only) into pipeline state so
+Stage 3 can resume without re-anchoring. No fine hierarchy.
 
 Requires Stage 0 → Stage 1 first:
   uv run python scripts/page_memory/debug_pm_stage0_bootstrap.py --file ...
@@ -13,16 +17,14 @@ Requires Stage 0 → Stage 1 first:
 Usage:
   cd apps/worker
   uv run python scripts/page_memory/debug_pm_stage2_calibration.py --file /path/to/doc.pdf
-  uv run python scripts/page_memory/debug_pm_stage2_calibration.py --file /path/to/doc.pdf --no-links
 """
 
 from __future__ import annotations
 
-import json
-import os
 import sys
 import time
 from pathlib import Path as _Path
+from typing import Any
 
 sys.path.insert(0, str(_Path(__file__).resolve().parent))
 
@@ -30,47 +32,69 @@ from loguru import logger
 
 from _debug_pm_shared import (
     TokenCostTracker,
+    _build_debug_coordinator,
+    _serialize_skeletons,
     base_argparser,
     load_anatomy_cache,
-    resolve_anatomy_cache_path,
+    load_stage0_into_coordinator,
+    page_text_cache_path,
     pipeline_state_path,
     record_stage,
     require_file,
+    resolve_anatomy_cache_path,
     resolve_paths,
+    stage0_state_path,
     stop_with_trace,
     update_pipeline_state,
     write_debug_json,
 )
 
 
+def _pending_summary(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for record in records:
+        toc = record.get("toc") if isinstance(record, dict) else None
+        rows.append(
+            {
+                "toc_range": (toc or {}).get("toc_range") if isinstance(toc, dict) else None,
+                "relationship": record.get("relationship"),
+                "grafted": bool(record.get("grafted")),
+                "graft_events": len(list(record.get("graft") or [])),
+                "has_nodes": bool(record.get("nodes")),
+            }
+        )
+    return rows
+
+
 def main() -> int:
-    parser = base_argparser("Stage 2: Calibration SubAgent")
-    parser.add_argument(
-        "--no-links",
-        action="store_true",
-        help="Strip link.physical_page from TOC entries before the agent runs",
-    )
-    parser.add_argument(
-        "--max-rounds",
-        type=int,
-        default=16,
-        help="Max ReAct rounds per TOC region",
+    parser = base_argparser(
+        "Stage 2: Production run_toc_anchoring (calibrate + classify + graft)"
     )
     args = parser.parse_args()
 
-    from app.services.document_agent.agents.calibration import (
-        run_calibration_for_all_regions,
-    )
-    from app.services.document_agent.pdf_text import read_page_texts
     from app.services.document_agent.persist import DOC_PROFILE_FILENAME
+    from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
+    from app.services.document_agent.validators import single_shard_plan
+    from app.services.page_memory.skeleton_extractor import extract_section_skeletons
+    from shared.core.config import settings
 
     pdf_path, filename, out_dir = resolve_paths(args)
     anatomy_cache = resolve_anatomy_cache_path(out_dir)
     require_file(
+        stage0_state_path(out_dir),
+        hint=(
+            "Run Stage 0 first:\n"
+            "  uv run python scripts/page_memory/debug_pm_stage0_bootstrap.py --file ..."
+        ),
+    )
+    require_file(
+        page_text_cache_path(out_dir),
+        hint="Stage-0 page_full_text_cache.json missing; re-run Stage 0",
+    )
+    require_file(
         anatomy_cache,
         hint=(
-            "Run Stage 0 then Stage 1 first:\n"
-            "  uv run python scripts/page_memory/debug_pm_stage0_bootstrap.py --file ...\n"
+            "Run Stage 1 first:\n"
             "  uv run python scripts/page_memory/debug_pm_stage1_hierarchy.py --file ..."
         ),
     )
@@ -80,66 +104,65 @@ def main() -> int:
     hierarchies = list(getattr(anatomy, "toc_hierarchies", None) or [])
 
     logger.info("█" * 70)
-    logger.info(f"  STAGE 2: CALIBRATION SUBAGENT — {filename}")
+    logger.info(f"  STAGE 2: run_toc_anchoring (production) — {filename}")
     logger.info(f"  OUTPUT: {out_dir}")
-    logger.info(f"  no_links={bool(args.no_links)} regions={len(hierarchies)}")
+    logger.info("  regions={}", len(hierarchies))
     logger.info("█" * 70)
 
     t_start = time.time()
     trace_stages: list[dict] = []
     token_cost_tracker = TokenCostTracker()
 
-    # Production null-page locate needs page texts (same as C4).
-    page_texts = read_page_texts(pdf_path, list(range(1, page_count + 1)), timeout=300)
-    body_pages = sorted(page_texts.keys())
-    logger.info(
-        "   read {} pages, {} non-empty",
-        len(page_texts),
-        sum(1 for text in page_texts.values() if str(text).strip()),
+    previous_image_model = settings.IMAGE_MODEL
+    try:
+        coordinator = _build_debug_coordinator(
+            pdf_path=pdf_path,
+            job_id=filename,
+            out_dir=out_dir,
+            model=args.model,
+            settings_extra={
+                # Stage-1 already extracted TOC; Stage-2 only anchors.
+                "skip_toc_anchoring": False,
+            },
+        )
+        load_stage0_into_coordinator(coordinator, out_dir)
+        bb = coordinator.blackboard
+        bb.toc_result = anatomy.toc_result
+        bb.toc_hierarchies = hierarchies
+        bb.shard_plan = anatomy.shard_plan or single_shard_plan(page_count)
+        bb.skeleton_anchor = None
+        bb.skeleton_nodes = None
+        bb.pending_skeleton_anchors = []
+
+        run_toc_anchoring(coordinator.ctx)
+
+        # Persist the same PROFILE fields production anatomy carries.
+        from app.services.document_agent.persist import build_anatomy_map
+
+        bb.shard_plan = bb.shard_plan or single_shard_plan(page_count)
+        anchored = build_anatomy_map(coordinator.ctx)
+        profile_path = out_dir / DOC_PROFILE_FILENAME
+        write_debug_json(profile_path, anchored.to_dict())
+        try:
+            (out_dir / "_doc_agent" / "anatomy_map.json").unlink()
+        except FileNotFoundError:
+            pass
+
+        page_texts = dict(bb.page_full_text_cache or {})
+        skeletons = extract_section_skeletons(
+            anatomy=anchored,
+            filename=filename,
+            page_texts=page_texts,
+        )
+    finally:
+        if args.model:
+            settings.IMAGE_MODEL = previous_image_model
+
+    pending_records = list(
+        getattr(coordinator.blackboard, "pending_skeleton_anchors", None) or []
     )
-
-    vlm_model = args.vlm_model or os.environ.get("IMAGE_MODEL") or ""
-    planner_model = (
-        args.model
-        or os.environ.get("HIERARCHY_LLM_MODEL")
-        or os.environ.get("NORMOL_MODEL")
-        or vlm_model
-    )
-
-    doc_agent_dir = out_dir / "_doc_agent"
-    doc_agent_dir.mkdir(parents=True, exist_ok=True)
-
-    calibration = run_calibration_for_all_regions(
-        pdf_path=pdf_path,
-        page_count=page_count,
-        toc_hierarchies=hierarchies,
-        output_dir=str(doc_agent_dir),
-        vlm_model=vlm_model,
-        planner_model=planner_model,
-        no_links=bool(args.no_links),
-        max_rounds=max(1, int(args.max_rounds)),
-        page_texts=page_texts,
-        body_pages=body_pages,
-    )
-
-    # Production-compatible core fields.
-    skeleton_anchor = {
-        "offset": calibration.get("offset"),
-        "offset_status": calibration.get("offset_status"),
-        "match_overrides": calibration.get("match_overrides") or {},
-        "null_page_report": calibration.get("null_page_report") or [],
-        "bulk_count": calibration.get("bulk_count") or 0,
-        "pruned_count": calibration.get("pruned_count") or 0,
-        "locate_agent": calibration.get("locate_agent") or "offset_only",
-    }
-
-    profile_path = out_dir / DOC_PROFILE_FILENAME
-    payload = json.loads(profile_path.read_text(encoding="utf-8"))
-    payload["skeleton_anchor"] = skeleton_anchor
-    payload["calibration"] = calibration
-    if calibration.get("offset") is not None:
-        payload["toc_page_offset"] = calibration.get("offset")
-    write_debug_json(profile_path, payload)
+    skeleton_anchor = getattr(coordinator.blackboard, "skeleton_anchor", None) or {}
+    pending_summary = _pending_summary(pending_records)
 
     state_path = pipeline_state_path(out_dir)
     update_pipeline_state(
@@ -148,36 +171,49 @@ def main() -> int:
         document={
             "source_file_name": filename,
             "page_count": page_count,
-            "anatomy_path": str(anatomy_cache),
+            "anatomy_path": str(profile_path),
         },
-        payload={"skeleton_anchor": skeleton_anchor, "calibration": calibration},
+        payload={
+            "skeleton_anchor": skeleton_anchor,
+            "skeleton_nodes": list(
+                getattr(coordinator.blackboard, "skeleton_nodes", None) or []
+            ),
+            "pending_skeleton_anchors": pending_records,
+            "pending_summary": pending_summary,
+            "skeletons": _serialize_skeletons(skeletons),
+        },
     )
 
     record_stage(
         trace_stages,
-        "calibration",
+        "toc_anchoring",
         page_info={"page_count": page_count},
         variables={
-            "status": calibration.get("status"),
-            "failure_kind": calibration.get("failure_kind"),
-            "offset": calibration.get("offset"),
-            "offset_status": calibration.get("offset_status"),
-            "bulk_count": calibration.get("bulk_count"),
-            "locate_agent": calibration.get("locate_agent"),
-            "regime_count": len(calibration.get("regimes") or []),
-            "tool_calls": calibration.get("tool_calls"),
-            "no_links": bool(args.no_links),
+            "offset": skeleton_anchor.get("offset")
+            if isinstance(skeleton_anchor, dict)
+            else None,
+            "offset_status": skeleton_anchor.get("offset_status")
+            if isinstance(skeleton_anchor, dict)
+            else None,
+            "bulk_count": skeleton_anchor.get("bulk_count")
+            if isinstance(skeleton_anchor, dict)
+            else None,
+            "locate_method": skeleton_anchor.get("locate_method")
+            if isinstance(skeleton_anchor, dict)
+            else None,
+            "skeleton_count": len(skeletons),
+            "pending": pending_summary,
         },
     )
-    token_cost_tracker.snapshot_stage("calibration")
+    token_cost_tracker.snapshot_stage("toc_anchoring")
 
     elapsed = time.time() - t_start
     logger.info(
-        "✅ Stage 2 done status={} offset={} bulk={} locate={} in {:.1f}s → {}",
-        calibration.get("status"),
-        calibration.get("offset"),
-        calibration.get("bulk_count"),
-        calibration.get("locate_agent"),
+        "✅ Stage 2 done offset={} bulk={} skeletons={} pending={} in {:.1f}s → {}",
+        skeleton_anchor.get("offset") if isinstance(skeleton_anchor, dict) else None,
+        skeleton_anchor.get("bulk_count") if isinstance(skeleton_anchor, dict) else None,
+        len(skeletons),
+        pending_summary,
         elapsed,
         profile_path,
     )
@@ -190,6 +226,7 @@ def main() -> int:
         pipeline_stage=2,
         elapsed_s=elapsed,
         token_cost_tracker=token_cost_tracker,
+        extra_summary={"pending": pending_summary, "skeleton_count": len(skeletons)},
     )
 
 

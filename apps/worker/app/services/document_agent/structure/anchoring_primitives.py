@@ -1,5 +1,5 @@
 """Shared hierarchy anchoring: Phase-2 bulk/bisect/null-page + SkeletonAnchor.
-Phase-1 offset discovery lives in ``document_agent.agents.calibration``.
+Phase-1 offset discovery lives in ``document_agent.calibration``.
 ``anchor_hierarchy`` composes Phase-1 + Phase-2 for production callers.
 """
 
@@ -17,10 +17,21 @@ from app.services.document_agent.structure.hierarchy_locator import (
     last_leaf_start_under,
     locate_title_compact_strict,
 )
-from app.services.document_agent.structure.page_locate_agent import (
+from app.services.document_agent.structure.section_page_verify import (
     verify_section_page_choice,
 )
 from loguru import logger
+
+
+def _first_sibling_null_parent_scan_start(right: int) -> int:
+    """Left edge for first-at-level null parents: at most one 2+4+6+10 budget.
+
+    Does not inherit a wider parent/body scope. Floors at document page 1.
+    """
+    from app.services.document_agent.calibration.scan import DEFAULT_WINDOW_SCHEDULE
+
+    budget = sum(DEFAULT_WINDOW_SCHEDULE)
+    return max(1, int(right) - budget + 1)
 
 
 def prune_out_of_scope_nodes(
@@ -144,9 +155,7 @@ def toc_range_end(hierarchy: dict[str, Any]) -> int | None:
         return None
 
 
-# ── Null-page parent locate (compact-strict + RTL visual) ───────────────────
-
-_NULL_PARENT_VISUAL_CONFIDENCE = 0.6
+# ── Null-page parent locate (sibling window / first-sibling scan) ───────────
 
 
 def locate_null_page_parent_overrides(
@@ -159,9 +168,13 @@ def locate_null_page_parent_overrides(
 ) -> tuple[dict[tuple[str, ...], TitleMatch], list[dict[str, Any]]]:
     """Locate TOC parents with ``printed_page=None`` into ``match_overrides``.
 
-    Window for parent P: ``[last leaf start under previous same-level sibling,
-    first leaf start under P]``. Text path is compact→strict unique page; on
-    miss/ambiguity, scan right→left with ``verify_section_page_choice``.
+    Window for parent P with a previous same-level sibling: ``[last leaf under
+    that sibling, first leaf under P]``; text then RTL visual verify.
+
+    First-at-level parents (no left sibling) do **not** inherit a wider parent
+    or body scope. Left edge is one Phase-1 ``2+4+6+10`` budget before the first
+    child (floor page 1). Text runs in that window; on miss, reuse
+    ``scan_title_forward`` (same schedule, early exit). Miss → unresolved.
 
     Returns ``(overrides, report)`` where *report* lists every null-page parent
     attempt (for debug / LLM-call accounting).
@@ -186,14 +199,6 @@ def locate_null_page_parent_overrides(
                 and node.printed_page is None
                 and path_titles not in out
             ):
-                if index > 0:
-                    left = last_leaf_start_under(
-                        sibling_nodes[index - 1], parent_titles, out
-                    )
-                    if left is None:
-                        left = scope_start
-                else:
-                    left = scope_start
                 right = first_leaf_start_under(node, parent_titles, out)
                 entry: dict[str, Any] = {
                     "path_titles": list(path_titles),
@@ -205,58 +210,56 @@ def locate_null_page_parent_overrides(
                     "accept": None,
                     "visual_verify_calls": 0,
                 }
-                if right is None or right < left:
+                if right is None:
                     report.append(entry)
                     logger.info(
                         "[structure_anchoring] null-page parent skipped: "
-                        "title={!r} reason=no_located_first_child left={}",
+                        "title={!r} reason=no_located_first_child",
                         node.title,
-                        left,
                     )
-                else:
-                    entry["window"] = [left, right]
-                    scope_pages = [
-                        page for page in body_pages if left <= page <= right
-                    ]
-                    match = locate_title_compact_strict(
-                        node.title,
-                        scope_pages=scope_pages,
-                        page_texts=page_texts,
+                elif index > 0:
+                    left = last_leaf_start_under(
+                        sibling_nodes[index - 1], parent_titles, out
                     )
-                    visual_calls = 0
-                    if match is None and ctx is not None:
-                        match, visual_calls = _visual_rtl_locate_parent(
+                    if left is None:
+                        left = scope_start
+                    if right < left:
+                        report.append(entry)
+                        logger.info(
+                            "[structure_anchoring] null-page parent skipped: "
+                            "title={!r} reason=no_located_first_child left={}",
+                            node.title,
+                            left,
+                        )
+                    else:
+                        _resolve_null_parent_with_sibling_window(
+                            path_titles=path_titles,
                             title=node.title,
                             left=left,
                             right=right,
+                            body_pages=body_pages,
                             body_set=body_set,
+                            page_texts=page_texts,
                             ctx=ctx,
+                            out=out,
+                            entry=entry,
+                            report=report,
                         )
-                    entry["visual_verify_calls"] = visual_calls
-                    if match is not None and match.page in body_set:
-                        out[path_titles] = match
-                        entry["result"] = str(match.evidence.get("accept") or match.source)
-                        entry["page"] = match.page
-                        entry["accept"] = match.evidence.get("accept")
-                        logger.info(
-                            "[structure_anchoring] null-page parent located: "
-                            "title={!r} page={} window={} accept={} visual_calls={}",
-                            node.title,
-                            match.page,
-                            [left, right],
-                            match.evidence.get("accept"),
-                            visual_calls,
-                        )
-                    else:
-                        entry["result"] = "unresolved"
-                        logger.info(
-                            "[structure_anchoring] null-page parent unresolved: "
-                            "title={!r} window={} visual_calls={}",
-                            node.title,
-                            [left, right],
-                            visual_calls,
-                        )
-                    report.append(entry)
+                else:
+                    left = _first_sibling_null_parent_scan_start(right)
+                    _resolve_null_parent_first_sibling(
+                        path_titles=path_titles,
+                        title=node.title,
+                        left=left,
+                        right=right,
+                        body_pages=body_pages,
+                        body_set=body_set,
+                        page_texts=page_texts,
+                        ctx=ctx,
+                        out=out,
+                        entry=entry,
+                        report=report,
+                    )
             if node.children:
                 child_scope_start = (
                     out[path_titles].page if path_titles in out else scope_start
@@ -275,6 +278,152 @@ def locate_null_page_parent_overrides(
     return out, report
 
 
+def _record_null_parent_outcome(
+    *,
+    path_titles: tuple[str, ...],
+    title: str,
+    left: int,
+    right: int,
+    match: TitleMatch | None,
+    visual_calls: int,
+    body_set: set[int],
+    out: dict[tuple[str, ...], TitleMatch],
+    entry: dict[str, Any],
+    report: list[dict[str, Any]],
+) -> None:
+    entry["window"] = [left, right]
+    entry["visual_verify_calls"] = visual_calls
+    if match is not None and match.page in body_set:
+        out[path_titles] = match
+        entry["result"] = str(match.evidence.get("accept") or match.source)
+        entry["page"] = match.page
+        entry["accept"] = match.evidence.get("accept")
+        logger.info(
+            "[structure_anchoring] null-page parent located: "
+            "title={!r} page={} window={} accept={} visual_calls={}",
+            title,
+            match.page,
+            [left, right],
+            match.evidence.get("accept"),
+            visual_calls,
+        )
+    else:
+        entry["result"] = "unresolved"
+        logger.info(
+            "[structure_anchoring] null-page parent unresolved: "
+            "title={!r} window={} visual_calls={}",
+            title,
+            [left, right],
+            visual_calls,
+        )
+    report.append(entry)
+
+
+def _resolve_null_parent_with_sibling_window(
+    *,
+    path_titles: tuple[str, ...],
+    title: str,
+    left: int,
+    right: int,
+    body_pages: list[int],
+    body_set: set[int],
+    page_texts: dict[int, str],
+    ctx: ToolContext | None,
+    out: dict[tuple[str, ...], TitleMatch],
+    entry: dict[str, Any],
+    report: list[dict[str, Any]],
+) -> None:
+    scope_pages = [page for page in body_pages if left <= page <= right]
+    match = locate_title_compact_strict(
+        title,
+        scope_pages=scope_pages,
+        page_texts=page_texts,
+    )
+    visual_calls = 0
+    if match is None and ctx is not None:
+        match, visual_calls = _visual_rtl_locate_parent(
+            title=title,
+            left=left,
+            right=right,
+            body_set=body_set,
+            ctx=ctx,
+        )
+    _record_null_parent_outcome(
+        path_titles=path_titles,
+        title=title,
+        left=left,
+        right=right,
+        match=match,
+        visual_calls=visual_calls,
+        body_set=body_set,
+        out=out,
+        entry=entry,
+        report=report,
+    )
+
+
+def _resolve_null_parent_first_sibling(
+    *,
+    path_titles: tuple[str, ...],
+    title: str,
+    left: int,
+    right: int,
+    body_pages: list[int],
+    body_set: set[int],
+    page_texts: dict[int, str],
+    ctx: ToolContext | None,
+    out: dict[tuple[str, ...], TitleMatch],
+    entry: dict[str, Any],
+    report: list[dict[str, Any]],
+) -> None:
+    """First-at-level null parent: capped text window, then ``scan_title_forward``."""
+    from app.services.document_agent.calibration.scan import (
+        DEFAULT_WINDOW_SCHEDULE,
+        scan_title_forward,
+    )
+
+    scope_pages = [page for page in body_pages if left <= page <= right]
+    match = locate_title_compact_strict(
+        title,
+        scope_pages=scope_pages,
+        page_texts=page_texts,
+    )
+    visual_calls = 0
+    if match is None and ctx is not None:
+        scan = scan_title_forward(
+            ctx=ctx,
+            title=title,
+            start_page=left,
+            page_count=right,
+            window_schedule=DEFAULT_WINDOW_SCHEDULE,
+        )
+        visual_calls = len(scan.scanned_pages)
+        if scan.found and scan.found_page is not None:
+            match = TitleMatch(
+                page=int(scan.found_page),
+                source="inspect_vlm",
+                matched_line="",
+                candidates=[int(scan.found_page)],
+                evidence={
+                    "accept": "scan_forward",
+                    "null_page_parent_probe": True,
+                    "scanned_pages": list(scan.scanned_pages),
+                },
+            )
+    _record_null_parent_outcome(
+        path_titles=path_titles,
+        title=title,
+        left=left,
+        right=right,
+        match=match,
+        visual_calls=visual_calls,
+        body_set=body_set,
+        out=out,
+        entry=entry,
+        report=report,
+    )
+
+
 def _visual_rtl_locate_parent(
     *,
     title: str,
@@ -290,10 +439,8 @@ def _visual_rtl_locate_parent(
             continue
         candidate = TitleMatch(
             page=page,
-            confidence=0.4,
-            source="agent_heuristic",
+            source="inspect_vlm",
             matched_line="",
-            score=0.4,
             candidates=[page],
             evidence={"null_page_parent_probe": True},
         )
@@ -305,33 +452,13 @@ def _visual_rtl_locate_parent(
             candidate_page_cap=1,
         )
         selected = result.get("selected_page")
-        confidence = float(result.get("confidence") or 0.0)
-        if selected != page or confidence < _NULL_PARENT_VISUAL_CONFIDENCE:
+        if selected != page:
             continue
-        if result.get("source") == "agent_vlm":
-            return (
-                TitleMatch(
-                    page=page,
-                    confidence=confidence,
-                    source="agent_vlm",
-                    matched_line="",
-                    score=confidence,
-                    candidates=[page],
-                    evidence={
-                        "accept": "visual_rtl",
-                        "reason": result.get("reason", ""),
-                        "visual_verify_calls": visual_calls,
-                    },
-                ),
-                visual_calls,
-            )
         return (
             TitleMatch(
                 page=page,
-                confidence=confidence,
-                source="agent_heuristic",
+                source="inspect_vlm",
                 matched_line="",
-                score=confidence,
                 candidates=[page],
                 evidence={
                     "accept": "visual_rtl",
@@ -346,9 +473,7 @@ def _visual_rtl_locate_parent(
 
 # ── Offset-guided bulk anchoring with recursive recalibrate (Phase-2) ───────
 
-_TAIL_VERIFY_CONFIDENCE_THRESHOLD = 0.6
 _MAX_RECALIBRATE_DEPTH = 5
-_MAX_RECALIBRATE_DELTA = 5
 
 
 def _verify_offset_tail(
@@ -396,10 +521,8 @@ def _verify_offset_tail(
 
     candidate = TitleMatch(
         page=expected_page,
-        confidence=0.4,
-        source="agent_heuristic",
+        source="inspect_vlm",
         matched_line="",
-        score=0.4,
         candidates=[expected_page],
         evidence={"tail_verify_probe": True},
     )
@@ -409,16 +532,12 @@ def _verify_offset_tail(
         candidate_matches=[candidate],
         candidate_page_cap=1,
     )
-    confirmed = (
-        result.get("selected_page") == expected_page
-        and result.get("confidence", 0) >= _TAIL_VERIFY_CONFIDENCE_THRESHOLD
-    )
+    confirmed = result.get("selected_page") == expected_page
     logger.info(
-        "[structure_anchoring] tail verify: title={!r} expected_page={} confirmed={} confidence={}",
+        "[structure_anchoring] tail verify: title={!r} expected_page={} confirmed={}",
         node.title,
         expected_page,
         confirmed,
-        result.get("confidence", 0),
     )
     return confirmed
 
@@ -435,10 +554,8 @@ def _vlm_confirm_single_page(
         return False
     candidate = TitleMatch(
         page=expected_page,
-        confidence=0.4,
-        source="agent_heuristic",
+        source="inspect_vlm",
         matched_line="",
-        score=0.4,
         candidates=[expected_page],
         evidence={"bisect_probe": True},
     )
@@ -448,10 +565,8 @@ def _vlm_confirm_single_page(
         candidate_matches=[candidate],
         candidate_page_cap=1,
     )
-    return (
-        result.get("selected_page") == expected_page
-        and result.get("confidence", 0) >= _TAIL_VERIFY_CONFIDENCE_THRESHOLD
-    )
+    return result.get("selected_page") == expected_page
+
 
 
 def _bisect_offset_breakpoint(
@@ -461,10 +576,17 @@ def _bisect_offset_breakpoint(
     ctx: ToolContext,
     page_count: int,
 ) -> int:
-    """Binary search for the last leaf index where offset is valid. O(log n) VLM calls."""
+    """Return the last leaf index where ``offset`` holds, or ``-1`` if none do.
+
+    Does not assume the first leaf is valid: every candidate index is confirmed
+    (or rejected) before it can become the breakpoint. O(log n) VLM calls.
+    """
+    if not leaves:
+        return -1
     lo, hi = 0, len(leaves) - 1
-    while lo < hi:
-        mid = (lo + hi + 1) // 2
+    last_valid = -1
+    while lo <= hi:
+        mid = (lo + hi) // 2
         _, node = leaves[mid]
         if node.printed_page is None:
             hi = mid - 1
@@ -473,15 +595,16 @@ def _bisect_offset_breakpoint(
         if _vlm_confirm_single_page(
             ctx=ctx, title=node.title, expected_page=expected, page_count=page_count
         ):
-            lo = mid
+            last_valid = mid
+            lo = mid + 1
         else:
             hi = mid - 1
     logger.info(
         "[structure_anchoring] bisect breakpoint: last_valid_index={} / total={}",
-        lo,
+        last_valid,
         len(leaves),
     )
-    return lo
+    return last_valid
 
 
 def bulk_offset_matches(
@@ -496,18 +619,85 @@ def bulk_offset_matches(
         page = node.printed_page + offset
         matches[path_titles] = TitleMatch(
             page=page,
-            confidence=0.88,
-            source="agent_vlm",
+            source="bulk_offset",
             matched_line="",
-            score=0.88,
             candidates=[page],
             evidence={
-                "bulk_offset": True,
                 "offset": offset,
                 "printed_page": node.printed_page,
             },
         )
     return matches
+
+
+def _iter_printed_page_parents(
+    nodes: list[TitleNode],
+    *,
+    parent_titles: tuple[str, ...] = (),
+) -> list[tuple[tuple[str, ...], TitleNode]]:
+    """DFS non-leaf nodes that print their own page in the TOC."""
+    parents: list[tuple[tuple[str, ...], TitleNode]] = []
+    for node in nodes:
+        path_titles = (*parent_titles, node.title)
+        if not node.children:
+            continue
+        if node.printed_page is not None:
+            parents.append((path_titles, node))
+        parents.extend(
+            _iter_printed_page_parents(node.children, parent_titles=path_titles)
+        )
+    return parents
+
+
+def _descendant_regime_offset(
+    node: TitleNode,
+    path_titles: tuple[str, ...],
+    matches: dict[tuple[str, ...], TitleMatch],
+) -> int | None:
+    """Offset of the parent's first anchored descendant leaf, i.e. its regime."""
+    for leaf_path, _leaf in iter_leaf_title_nodes(
+        node.children, parent_titles=path_titles
+    ):
+        match = matches.get(leaf_path)
+        if match is None:
+            continue
+        offset = match.evidence.get("offset")
+        if offset is not None:
+            return int(offset)
+    return None
+
+
+def backfill_parent_offset_matches(
+    *,
+    nodes: list[TitleNode],
+    matches: dict[tuple[str, ...], TitleMatch],
+    page_count: int,
+) -> dict[tuple[str, ...], TitleMatch]:
+    """Anchor TOC parents that print a page, reusing their descendant's offset.
+
+    Bulk anchoring consumes leaves only, so a TOC whose section headings carry
+    printed pages leaves every parent without a physical page. The parent shares
+    the calibration regime of its first anchored descendant, so ``printed_page +
+    that regime's offset`` is the parent's physical page.
+    """
+    by_offset: dict[int, list[tuple[tuple[str, ...], TitleNode]]] = {}
+    for path_titles, node in _iter_printed_page_parents(nodes):
+        if path_titles in matches:
+            continue
+        offset = _descendant_regime_offset(node, path_titles, matches)
+        if offset is None:
+            continue
+        by_offset.setdefault(offset, []).append((path_titles, node))
+
+    out: dict[tuple[str, ...], TitleMatch] = {}
+    for offset, group in by_offset.items():
+        for path_titles, match in bulk_offset_matches(group, offset).items():
+            if 1 <= match.page <= page_count:
+                out[path_titles] = replace(
+                    match,
+                    evidence={**match.evidence, "parent_backfill": True},
+                )
+    return out
 
 
 def _recalibrate_after_breakpoint(
@@ -517,29 +707,59 @@ def _recalibrate_after_breakpoint(
     ctx: ToolContext,
     page_count: int,
 ) -> int | None:
-    """Probe offsets old_offset+1, +2, ... to find new offset after breakpoint.
+    """Re-find offset for the first remaining leaf after a breakpoint.
 
-    Monotonicity guarantees new offset > old offset, so search space is tiny.
+    Same mechanic as Phase-1: forward ``inspect.pages`` scan until the title
+    START is found. Monotonicity says the physical page is strictly after the
+    failed ``printed + old_offset`` slot, so the scan cursor starts there.
     """
     entry_printed_page = entry_node.printed_page
     if entry_printed_page is None:
         return None
-    for delta in range(1, _MAX_RECALIBRATE_DELTA + 1):
-        new_offset = old_offset + delta
-        if _vlm_confirm_single_page(
-            ctx=ctx,
-            title=entry_node.title,
-            expected_page=entry_printed_page + new_offset,
-            page_count=page_count,
-        ):
-            logger.info(
-                "[structure_anchoring] recalibrate: title={!r} new_offset={} (delta=+{})",
-                entry_node.title,
-                new_offset,
-                delta,
-            )
-            return new_offset
-    return None
+
+    # Lazy import: scan → inspect_pages → tools must not load at module import.
+    from app.services.document_agent.calibration.scan import scan_title_forward
+
+    start_page = entry_printed_page + old_offset + 1
+    if start_page > page_count:
+        return None
+
+    scan = scan_title_forward(
+        ctx=ctx,
+        title=entry_node.title,
+        start_page=start_page,
+        page_count=page_count,
+    )
+    if not scan.found or scan.found_page is None:
+        logger.info(
+            "[structure_anchoring] recalibrate miss: title={!r} start={} scanned={}",
+            entry_node.title,
+            start_page,
+            scan.scanned_pages,
+        )
+        return None
+
+    new_offset = int(scan.found_page) - entry_printed_page
+    if new_offset <= old_offset:
+        logger.info(
+            "[structure_anchoring] recalibrate rejected non-monotonic offset: "
+            "title={!r} old={} new={} found_page={}",
+            entry_node.title,
+            old_offset,
+            new_offset,
+            scan.found_page,
+        )
+        return None
+
+    logger.info(
+        "[structure_anchoring] recalibrate: title={!r} new_offset={} "
+        "(delta=+{}, found_page={})",
+        entry_node.title,
+        new_offset,
+        new_offset - old_offset,
+        scan.found_page,
+    )
+    return new_offset
 
 
 def offset_guided_anchoring(
@@ -555,13 +775,14 @@ def offset_guided_anchoring(
     Strategy:
       1. Tail verify last leaf with current offset
       2. If pass → bulk apply all leaves (Theorem 1)
-      3. If fail → binary search for breakpoint
-      4. Bulk apply leaves before breakpoint
-      5. Recalibrate: probe remaining[0] with offset+1, +2, ... (monotonicity)
+      3. If fail → binary search for last valid index (``-1`` if none)
+      4. Bulk apply only verified prefix (empty when breakpoint is ``-1``)
+      5. Recalibrate remaining[0] via Phase-1 forward scan from printed+old+1
       6. Recurse on remaining segment with new offset
-      7. If recalibrate fails → return partial (caller falls back for remainder)
+      7. If recalibrate fails → keep prefix only (caller prunes the rest)
 
-    Returns match_overrides for all anchored leaves, or None for full fallback.
+    Returns match_overrides for anchored leaves (including Phase-1 seeds), or
+    None when nothing was anchored.
     """
     leaves = [
         (path, node)
@@ -617,13 +838,15 @@ def _anchor_segment_recursive(
         matches.update(bulk)
         return
 
-    bp = _bisect_offset_breakpoint(leaves=leaves, offset=offset, ctx=ctx, page_count=page_count)
-    confirmed_leaves = leaves[: bp + 1]
+    bp = _bisect_offset_breakpoint(
+        leaves=leaves, offset=offset, ctx=ctx, page_count=page_count
+    )
+    # bp == -1 → no leaf confirmed under this offset; do not invent a prefix.
+    confirmed_leaves = leaves[: bp + 1] if bp >= 0 else []
     if confirmed_leaves:
-        bulk = bulk_offset_matches(confirmed_leaves, offset)
-        matches.update(bulk)
+        matches.update(bulk_offset_matches(confirmed_leaves, offset))
 
-    remaining = leaves[bp + 1:]
+    remaining = leaves[bp + 1 :] if bp >= 0 else list(leaves)
     if not remaining:
         return
 
@@ -655,16 +878,15 @@ class SkeletonAnchor:
     null_page_report: list[dict[str, Any]]
     bulk_count: int
     pruned_count: int = 0
-    locate_agent: str = "offset_only"
+    locate_method: str = "offset_only"
+    source: str = ""
 
 
 def serialize_title_match(match: TitleMatch) -> dict[str, Any]:
     return {
         "page": match.page,
-        "confidence": match.confidence,
         "source": match.source,
         "matched_line": match.matched_line,
-        "score": match.score,
         "candidates": list(match.candidates),
         "evidence": dict(match.evidence or {}),
     }
@@ -683,17 +905,16 @@ def serialize_skeleton_anchor(anchor: SkeletonAnchor) -> dict[str, Any]:
         "null_page_report": list(anchor.null_page_report or []),
         "bulk_count": int(anchor.bulk_count or 0),
         "pruned_count": int(anchor.pruned_count or 0),
-        "locate_agent": anchor.locate_agent,
+        "locate_method": anchor.locate_method,
+        "source": anchor.source,
     }
 
 
 def deserialize_title_match(data: dict[str, Any]) -> TitleMatch:
     return TitleMatch(
         page=int(data["page"]),
-        confidence=float(data.get("confidence") or 0.0),
-        source=data.get("source") or "agent_vlm",  # type: ignore[arg-type]
+        source=str(data.get("source") or "bulk_offset"),  # type: ignore[arg-type]
         matched_line=str(data.get("matched_line") or ""),
-        score=float(data.get("score") or 0.0),
         candidates=[int(p) for p in (data.get("candidates") or [])],
         evidence=dict(data.get("evidence") or {}),
     )
@@ -706,7 +927,6 @@ def serialize_title_node(node: TitleNode) -> dict[str, Any]:
         "printed_page": node.printed_page,
         "printed_label": node.printed_label,
         "page_kind": node.page_kind,
-        "physical_page_hint": node.physical_page_hint,
         "children": [serialize_title_node(child) for child in node.children],
     }
 
@@ -719,7 +939,6 @@ def deserialize_title_node(data: dict[str, Any]) -> TitleNode:
         if isinstance(child, dict)
     ]
     printed_page = data.get("printed_page")
-    physical_page_hint = data.get("physical_page_hint")
     return TitleNode(
         title=str(data.get("title") or ""),
         level=int(data.get("level") or 1),
@@ -730,9 +949,6 @@ def deserialize_title_node(data: dict[str, Any]) -> TitleNode:
         page_kind=data.get("page_kind")
         if isinstance(data.get("page_kind"), str)
         else None,
-        physical_page_hint=(
-            None if physical_page_hint is None else int(physical_page_hint)
-        ),
         children=children,
     )
 
@@ -759,7 +975,8 @@ def deserialize_skeleton_anchor(data: dict[str, Any]) -> SkeletonAnchor:
         null_page_report=list(data.get("null_page_report") or []),
         bulk_count=int(data.get("bulk_count") or 0),
         pruned_count=int(data.get("pruned_count") or 0),
-        locate_agent=str(data.get("locate_agent") or "offset_only"),
+        locate_method=str(data.get("locate_method") or "offset_only"),
+        source=str(data.get("source") or ""),
     )
 
 
@@ -775,7 +992,7 @@ def anchor_hierarchy_from_offset(
 ) -> tuple[list[TitleNode], SkeletonAnchor]:
     """Production prune → bulk → null-page given a precomputed offset.
 
-    Phase-2 entry after Agent ``calibrate_offset`` (Phase-1).
+    Phase-2 entry after ``calibrate_offset`` (Phase-1).
     """
     seed_overrides = dict(calibration_overrides or {})
     pruned_count = 0
@@ -797,11 +1014,11 @@ def anchor_hierarchy_from_offset(
 
     if offset_matches is not None:
         match_overrides = offset_matches
-        locate_agent = "offset_guided_bulk"
+        locate_method = "offset_guided_bulk"
         bulk_count = len(offset_matches)
     else:
         match_overrides = seed_overrides
-        locate_agent = "offset_only"
+        locate_method = "offset_only"
         bulk_count = 0
 
     working, unanchored_removed = prune_unanchored_toc_leaves(
@@ -829,5 +1046,5 @@ def anchor_hierarchy_from_offset(
         null_page_report=null_page_report,
         bulk_count=bulk_count,
         pruned_count=pruned_count,
-        locate_agent=locate_agent,
+        locate_method=locate_method,
     )

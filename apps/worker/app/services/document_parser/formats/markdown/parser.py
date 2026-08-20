@@ -279,7 +279,7 @@ def parse_md(
         )
 
         if toc_hierarchies is not None:
-            # Pre-detected TOC from upstream (e.g. DOC_AGENT VLM-based extraction).
+            # Pre-detected TOC from upstream (e.g. PROFILE VLM-based extraction).
             # Skip row-based detection entirely — TOC pages have already been
             # physically stripped from the PDF, so no TOC rows exist in md_lines.
             logger.info(

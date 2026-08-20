@@ -2,18 +2,27 @@
   "version": "1.0",
   "file_name": "TSLA-Q4-2025-Update.pdf",
   "stats": {
-    "total_chunks": 70,
-    "text_chunks": 36,
-    "image_chunks": 19,
-    "table_chunks": 15,
-    "max_depth": 3
+    "total_chunks": 71,
+    "text_chunks": 0,
+    "image_chunks": 18,
+    "table_chunks": 16,
+    "page_chunks": 37,
+    "max_depth": 2
   },
   "sections": [
+    {
+      "title": "Q4 and FY 2025 Update",
+      "path": "TSLA-Q4-2025-Update.pdf/Q4 and FY 2025 Update",
+      "level": 1,
+      "summary": "This section serves as the title page and table of contents for the 'Q4 and FY 2025 Update' presentation. It outlines the document's structure, listing key sections such as Highlights, Financial Summary, Operational Summary, Manufacturing & Hardware, AI & Software, Services, Outlook, and Key Metrics, along with their corresponding page numbers.",
+      "chunk_count": 2,
+      "children": []
+    },
     {
       "title": "HIGHLIGHTS",
       "path": "TSLA-Q4-2025-Update.pdf/HIGHLIGHTS",
       "level": 1,
-      "summary": "[tables/table-0 Tesla 2025 Results.html]",
+      "summary": "The 'HIGHLIGHTS' section outlines key financial and operational achievements for 2025. Under Profitability, it lists GAAP operating income of $4.4B, net income of $3.8B, and non-GAAP net income of $5.9B. The Cash section details an operating cash flow of $14.7B, free cash flow of $6.2B, and a total cash and investments balance of $44.1B. Operational highlights include the removal of safety monitors from Robotaxis in Austin, record energy storage deployments, and record vehicle deliveries in APAC.",
       "chunk_count": 1,
       "children": []
     },
@@ -21,102 +30,144 @@
       "title": "SUMMARY",
       "path": "TSLA-Q4-2025-Update.pdf/SUMMARY",
       "level": 1,
-      "summary": "The document presents unaudited financial and operational summaries for a company, covering quarterly data from Q4 2024 through Q4 2025 and annual data from 2021 to 2025. Key notes indicate significant accounting changes effective Q1 2025: Adjusted EBITDA and Net income attributable to common stockholders are now presented net of digital assets gains and losses, with all prior periods adjusted accordingly. Additionally, Capital expenditures now include purchases of energy generation and storage systems, requiring restatement of previous periods. The content references multiple tables detailing these metrics but does not display the specific numerical values.",
-      "chunk_count": 13,
+      "summary": "The 'SUMMARY' section outlines Tesla's strategic transition in 2025 from a hardware-centric business to a physical AI company. Key achievements include advancing Full Self-Driving (FSD) technology, launching the Robotaxi service, and initiating production lines for Cybercab and Optimus robots. The text details the company's system-level approach to autonomous vehicles and humanoid robots, emphasizing vertical integration and cost optimization. It also highlights the refresh of the vehicle lineup with the new Model Y and the evolution of energy offerings. Looking ahead to 2026, the summary notes plans to invest in infrastructure for clean energy and transport, including the ramp-up of six new production lines across various manufacturing sectors.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "FINANCIAL SUMMARY",
+      "path": "TSLA-Q4-2025-Update.pdf/FINANCIAL SUMMARY",
+      "level": 1,
+      "summary": "The section titled 'FINANCIAL SUMMARY' presents two comprehensive tables of unaudited financial data. The first table details quarterly performance metrics for the fiscal year 2024 and 2025 (Q4-2024 through Q4-2025), while the second table provides annual historical data from 2021 to 2025. Both tables report figures in millions of dollars, excluding percentages and per share data. Key metrics tracked include revenue breakdowns by segment (automotive, energy generation/storage, services), total revenues, gross profit, operating expenses, income from operations, adjusted EBITDA, net income (GAAP and non-GAAP), earnings per share (EPS), and cash flow indicators such as capital expenditures and free cash flow.",
+      "chunk_count": 2,
+      "children": []
+    },
+    {
+      "title": "OPERATIONAL SUMMARY",
+      "path": "TSLA-Q4-2025-Update.pdf/OPERATIONAL SUMMARY",
+      "level": 1,
+      "summary": "The 'OPERATIONAL SUMMARY' section presents two tables detailing Tesla's operational metrics. The first table provides quarterly data from Q4 2024 through Q4 2025, while the second table offers annual historical data from 2021 to 2025. Key metrics tracked include vehicle production (broken down by Model 3/Y and other models), deliveries (including total, subject to operating lease accounting, and cumulative all-time figures), Active FSD Subscriptions, end-of-period operating lease counts, global vehicle inventory days of supply, storage deployed in GWh, Tesla locations, and Supercharger infrastructure (stations and connectors).",
+      "chunk_count": 2,
+      "children": []
+    },
+    {
+      "title": "MANUFACTURING & HARDWARE",
+      "path": "TSLA-Q4-2025-Update.pdf/MANUFACTURING & HARDWARE",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 3,
       "children": [
         {
           "title": "Automotive",
-          "path": "TSLA-Q4-2025-Update.pdf/SUMMARY/Automotive",
+          "path": "TSLA-Q4-2025-Update.pdf/MANUFACTURING & HARDWARE/Automotive",
           "level": 2,
-          "summary": "While automotive sales declined sequentially, gross margin (even when excluding the impact of regulatory credits) improved. The APAC region continued to show strength across multiple markets and set a record for deliveries in the quarter. We continued the rollout of Model Y variants across markets in Q4, including the standard and performance versions. Preparations continue in North America for the production ramps of Tesla Semi and Cybercab, both commencing 1H26, and production of the next-generation Roadster.",
+          "summary": "The section discusses automotive sales performance, noting a sequential decline but an improvement in gross margin and strong results in the APAC region. It details the rollout of Model Y variants and preparations for future production ramps of Tesla Semi, Cybercab, and the next-generation Roadster. The accompanying table outlines installed annual manufacturing capacity across various regions (California, Shanghai, Berlin, Texas, Nevada) for products including Model 3, Model Y, Model S, Model X, Cybertruck, Cybercab, and Tesla Semi.",
           "chunk_count": 1,
           "children": []
         },
         {
           "title": "Energy generation and storage",
-          "path": "TSLA-Q4-2025-Update.pdf/SUMMARY/Energy generation and storage",
+          "path": "TSLA-Q4-2025-Update.pdf/MANUFACTURING & HARDWARE/Energy generation and storage",
           "level": 2,
-          "summary": "We achieved our highest quarterly energy storage deployments, driven by record Megapack deployments. Total gross profit rose, both sequentially and year-over-year, to a record \\$1.1 billion, marking the fifth consecutive record quarter. We plan to begin Megapack 3 and Megablock production at Megafactory Houston in 2026. In 2025, our global Powerwall network supported more than 89,000 Virtual Power Plant events across over 1 million installed units, allowing homeowners to save over \\$1 billion in electricity bills as Virtual Power Plant participation continues to scale rapidly.",
+          "summary": "The section details record quarterly energy storage deployments driven by Megapack, resulting in a record gross profit of $1.1 billion. It outlines plans to begin production of Megapack 3 and Megablock at the Megafactory Houston in 2026. Additionally, it notes that the global Powerwall network supported over 89,000 Virtual Power Plant events across more than 1 million units in 2025. The accompanying table lists installed annual manufacturing capacity for Energy Generation and Storage products (Megapack, Powerwall) across regions including California, Nevada, Shanghai, and Texas.",
           "chunk_count": 1,
           "children": []
         },
         {
           "title": "Robotics",
-          "path": "TSLA-Q4-2025-Update.pdf/SUMMARY/Robotics",
+          "path": "TSLA-Q4-2025-Update.pdf/MANUFACTURING & HARDWARE/Robotics",
           "level": 2,
-          "summary": "We made further progress on the Optimus program in 2025. In Q1 of this year, we plan to unveil the Gen 3 version of Optimus, which will include major upgrades from version 2.5, including our latest hand design. The Gen 3 is our first design meant for mass production. Preparations are underway for the first production line, including supply chain readiness, with start of production planned before the end of 2026 and eventual planned capacity of 1 million robots per year. Installed Annual Manufacturing Capacity [tables/table-5 Tesla Production.html] Installed capacity ≠ current production rate and there may be limitations discovered as production rates approach capacity. Production rates depend on a variety of factors, including equipment uptime, component supply, downtime related to factory upgrades, regulatory considerations and other factors. Construction includes factory and infrastructure buildout as well as tool installation.",
+          "summary": "The Robotics section details progress on the Optimus program in 2025, specifically the unveiling of the Gen 3 version with major upgrades and a new hand design intended for mass production. It outlines plans to start production before the end of 2026 with an eventual capacity of 1 million robots per year. The accompanying table indicates that the Optimus robot is currently under construction in California.",
           "chunk_count": 1,
           "children": []
-        },
+        }
+      ]
+    },
+    {
+      "title": "SUPPORTING INFRASTRUCTURE",
+      "path": "TSLA-Q4-2025-Update.pdf/SUPPORTING INFRASTRUCTURE",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 6,
+      "children": [
         {
           "title": "AI Training Compute",
-          "path": "TSLA-Q4-2025-Update.pdf/SUMMARY/AI Training Compute",
+          "path": "TSLA-Q4-2025-Update.pdf/SUPPORTING INFRASTRUCTURE/AI Training Compute",
           "level": 2,
-          "summary": "We are currently building Cortex 2 at Gigafactory Texas to further increase our AI training compute capacity. In the first half of 2026, we plan to more than double the size of onsite compute in Texas (in terms of H100 equivalents). We aim to maximize capital efficiency by scaling training compute judiciously, including when the training backlog gets too long or in anticipation of greater demand from our engineers to support our AI-related offerings.",
+          "summary": "The section details the construction of Cortex 2 at Gigafactory Texas to increase AI training compute capacity, with plans to more than double onsite compute in terms of H100 equivalents by the first half of 2026. The accompanying table outlines installed annual capacity for AI Training Compute, listing 'Cortex 1' in Texas as having over 100k H100e capacity in production and 'Cortex 2' under construction.",
           "chunk_count": 1,
           "children": []
         },
         {
           "title": "Battery",
-          "path": "TSLA-Q4-2025-Update.pdf/SUMMARY/Battery",
+          "path": "TSLA-Q4-2025-Update.pdf/SUPPORTING INFRASTRUCTURE/Battery",
           "level": 2,
-          "summary": "Our lithium refinery commenced pilot production and is the first spodumene to lithium hydroxide refinery in North America, leveraging a simpler, cheaper and more environmentally friendly process. This refinery enables us to domestically produce critical minerals in support of energy storage, battery manufacturing and ultimately for EV growth. We have begun to produce battery packs for certain Model Ys with our 4680 cells, unlocking an additional vector of supply to help navigate increasingly complex supply chain challenges caused by trade barriers and tariff risks. We now produce dry-electrode for 4680 cells with both anode and cathode made in Austin. We expect both domestic cathode material in Texas and LFP lines in Nevada to begin production in 2026.",
+          "summary": "The section details the company's battery manufacturing progress, including the commencement of pilot production at its lithium refinery in North America (the first spodumene-to-lithium hydroxide facility). It also covers the production of 4680 cells and battery packs for Model Ys using dry-electrode technology made in Austin. The text notes expectations for domestic cathode material production in Texas and LFP lines in Nevada to begin in 2026.",
           "chunk_count": 1,
           "children": []
         },
         {
           "title": "Other Supporting Infrastructure",
-          "path": "TSLA-Q4-2025-Update.pdf/SUMMARY/Other Supporting Infrastructure",
+          "path": "TSLA-Q4-2025-Update.pdf/SUPPORTING INFRASTRUCTURE/Other Supporting Infrastructure",
           "level": 2,
-          "summary": "We continue to efficiently utilize our existing physical footprint in North America, with targeted augmentation to support the rollout of Robotaxi. While in the short-term, operational workstreams such as charging, cleaning and maintenance can be managed through our existing charging network, service centers and sales and delivery locations, we will have to add more capacity as the service expands. We added over 3,800 net new Supercharging stalls, growing the network 19% year-over-year. Installed Annual Capacity [tables/table-6 Facility Status.html] Installed capacity ≠ current production rate and there may be limitations discovered as production rates approach capacity. Production rates depend on a variety of factors, including equipment uptime, component supply, downtime related to factory upgrades, regulatory considerations and other factors. Construction includes factory and infrastructure buildout as well as tool installation. ## Other Supporting Infrastructure Tesla AI Training Capacity Ramp (H100 equivalent GPUs)0 [images/image-1-Capacity Growth Projection.jpg] Tesla AI Training Capacity Ramp (H100 equivalent GPUs)",
+          "summary": "This section outlines the company's strategy for supporting infrastructure, focusing on the efficient utilization of its North American physical footprint to support the Robotaxi rollout. It details plans to augment existing charging networks, service centers, and sales locations as demand grows, specifically noting the addition of over 3,800 new Supercharging stalls.",
           "chunk_count": 1,
           "children": []
         },
         {
           "title": "AI Software",
-          "path": "TSLA-Q4-2025-Update.pdf/SUMMARY/AI Software",
+          "path": "TSLA-Q4-2025-Update.pdf/SUPPORTING INFRASTRUCTURE/AI Software",
           "level": 2,
-          "summary": "We continue to enhance FSD (Supervised) $^{1}$ via our end-to-end foundation model trained on both customer and Robotaxi real-world data with our latest version, v14. FSD (Supervised) $^{1}$ increasingly provides safety and convenience functionality that can relieve drivers of many tedious and potentially dangerous aspects of road travel, including giving access to personal transport for those who otherwise have difficulty driving. V14 offers unparalleled driver assistance to safely drive to the customer's destination, find a free parking spot and park at that location. Our global fleet can collect the equivalent of over 500 years of continuous driving data per day $^{2}$ , allowing us to safely deploy and scale capabilities that can handle the long and fat tail of corner cases across diverse geographies and driving environments.",
+          "summary": "The section details the enhancement of FSD (Supervised) version v14, an end-to-end foundation model trained on customer and Robotaxi data. It highlights safety features like autonomous parking and accessibility for those with difficulty driving. The text also mentions the global fleet's ability to collect over 500 years of continuous driving data daily to handle corner cases.",
           "chunk_count": 1,
           "children": []
         },
         {
           "title": "AI Inference Compute",
-          "path": "TSLA-Q4-2025-Update.pdf/SUMMARY/AI Inference Compute",
+          "path": "TSLA-Q4-2025-Update.pdf/SUPPORTING INFRASTRUCTURE/AI Inference Compute",
           "level": 2,
-          "summary": "Development of our in-house, custom designed AI5 and AI6 inference chips for autonomy progressed during the quarter, with production planned for 2027 and 2028, respectively. We are targeting a 50x improvement in performance for AI5 relative to AI4 thanks to 10x raw compute, 9x memory capacity and 5x hardened block quantization and softmax function (the latter enabling efficient low-precision computing without sacrificing model accuracy).",
+          "summary": "The section details the development of in-house AI5 and AI6 inference chips for autonomy, with production planned for 2027 and 2028. It highlights a targeted 50x performance improvement for the AI5 chip over the AI4, driven by a 10x increase in raw compute, 9x memory capacity, and 5x hardened block quantization and softmax function.",
           "chunk_count": 1,
           "children": []
         },
         {
           "title": "Automotive and Other Software",
-          "path": "TSLA-Q4-2025-Update.pdf/SUMMARY/Automotive and Other Software",
+          "path": "TSLA-Q4-2025-Update.pdf/SUPPORTING INFRASTRUCTURE/Automotive and Other Software",
           "level": 2,
-          "summary": "The Robotaxi iOS app has removed its waitlist in served areas and now includes features like Grok navigation, Tesla Photobooth, Supercharger maps, automatic HOV routing, phone left-behind chimes, and a SpaceX game. FSD (Supervised) v14 uses an end-to-end foundation model trained on vast real-world data to assist drivers with navigation, parking, and safety, though active supervision remains required. The company is developing custom AI5 and AI6 inference chips for 2027 and 2028, targeting significant performance improvements over previous generations to handle complex driving scenarios globally.",
+          "summary": "This section details recent software updates and features for Tesla vehicles, including the removal of waitlists for the Robotaxi iOS app. It highlights over-the-air enhancements such as Grok AI companion support for navigation commands, Tesla Photobooth for in-car photography, Supercharger Site Maps with live availability, Automatic HOV Lane Routing based on camera occupancy detection, a Phone Left Behind Chime, and the SpaceX ISS Docking Simulator Game.",
           "chunk_count": 1,
           "children": []
-        },
+        }
+      ]
+    },
+    {
+      "title": "SERVICES",
+      "path": "TSLA-Q4-2025-Update.pdf/SERVICES",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 3,
+      "children": [
         {
           "title": "Robotaxi",
-          "path": "TSLA-Q4-2025-Update.pdf/SUMMARY/Robotaxi",
+          "path": "TSLA-Q4-2025-Update.pdf/SERVICES/Robotaxi",
           "level": 2,
-          "summary": "We began testing driverless Robotaxis in Austin in December and began removing the safety monitor from customer rides in January on a limited basis, which will unlock further expansion of our Robotaxi fleet and coverage area in the Austin-metro. Our Bay Area ride-hailing service began serving the San Jose Airport in October, with plans to expand to other major airports in the Bay Area upon receiving required permitting.",
+          "summary": "The section details the progress of driverless Robotaxi services, including testing in Austin starting in December and removing safety monitors in January. It also mentions the launch of Bay Area ride-hailing service at San Jose Airport in October. The section includes a chart showing cumulative paid Robotaxi miles projected through December 2025 and a table outlining planned coverage for various US states (California, Texas, Arizona, Florida, Nevada) with specific metro areas and expected status or launch dates.",
           "chunk_count": 1,
           "children": []
         },
         {
-          "title": "FSD (Supervised) $^{1}$",
-          "path": "TSLA-Q4-2025-Update.pdf/SUMMARY/FSD (Supervised) $^{1}$",
+          "title": "FSD (Supervised)",
+          "path": "TSLA-Q4-2025-Update.pdf/SERVICES/FSD (Supervised)",
           "level": 2,
-          "summary": "We launched FSD (Supervised) $^{1}$ in South Korea, where customers drove over 1 million kilometers using the software in just one month. While we continue to pursue regulatory approval in China and Europe, we began offering ride-along experiences to consumers in Italy, Germany, France and Switzerland. Monthly subscriptions to FSD (Supervised) $^{1}$ continued to grow sequentially and more than doubled in 2025. Starting this quarter, we are transitioning access to FSD (Supervised) $^{1}$ to monthly subscriptions only as we begin to sunset the up-front payment option.",
+          "summary": "The section details the launch and growth of FSD (Supervised) in South Korea, where customers drove over 1 million kilometers in one month. It mentions ongoing regulatory pursuits in China and Europe and ride-along experiences in Italy, Germany, France, and Switzerland. Additionally, it notes that monthly subscriptions for the service more than doubled in 2025 and that access is transitioning to a monthly subscription model only.",
           "chunk_count": 1,
           "children": []
         },
         {
           "title": "Automotive Services",
-          "path": "TSLA-Q4-2025-Update.pdf/SUMMARY/Automotive Services",
+          "path": "TSLA-Q4-2025-Update.pdf/SERVICES/Automotive Services",
           "level": 2,
-          "summary": "Services and Other gross profit of approximately \\$300 million was partly driven by Part Sales and Supercharging. We now offer Tesla Insurance in Florida, as we continue to expand our insurance product to new states. In certain states, customers receive a discount on their insurance premiums when using FSD (Supervised) $^{1}$ . The more you drive with FSD (Supervised) $^{1}$ enabled, the bigger the discount is on your insurance premium – helping, in certain cases, to completely offset the monthly subscription cost for FSD (Supervised) $^{1}$ . ## FSD (Supervised) $^{1}$ Cumulative Paid Robotaxi Miles0 [images/image-4-Growth Trend 2025.jpg] Cumulative Paid Robotaxi Miles [tables/table-7 Autonomous Driving Status.html] Planned Robotaxi Coverage",
+          "summary": "The section details the performance of 'Services and Other' gross profit, which was approximately $300 million, driven by Part Sales and Supercharging. It highlights the expansion of Tesla Insurance to Florida and explains a discount program where customers using FSD (Supervised) receive reduced insurance premiums.",
           "chunk_count": 1,
           "children": []
         }
@@ -126,7 +177,7 @@
       "title": "OTHER UPDATES",
       "path": "TSLA-Q4-2025-Update.pdf/OTHER UPDATES",
       "level": 1,
-      "summary": "On January 16, 2026, Tesla entered into an agreement to invest approximately \\$2 billion to acquire shares of Series E Preferred Stock of xAI as part of their recent publicly-disclosed financing round. Tesla’s investment was made on market terms consistent with those previously agreed to by other investors in the financing round. As set forth in Master Plan Part IV, Tesla is building products and services that bring AI into the physical world. Meanwhile, xAI is developing leading digital AI products and services, such as its large language model (Grok). In that context, and as part of Tesla's broader strategy under Master Plan Part IV, Tesla and xAI also entered into a framework agreement in connection with the investment. Among other things, the framework agreement builds upon the existing relationship between Tesla and xAI by providing a framework for evaluating potential AI collaborations between the companies. Together, the investment and the related framework agreement are intended to enhance Tesla's ability to develop and deploy AI products and services into the physical world at scale. This investment is subject to customary regulatory conditions with the expectation to close in Q1'2026.",
+      "summary": "This page details an agreement reached on January 16, 2026, where Tesla invested approximately $2 billion to acquire Series E Preferred Stock of xAI. The text explains that this investment is part of Tesla's Master Plan Part IV and includes a framework agreement to evaluate potential AI collaborations between the two companies. The transaction is subject to regulatory conditions with an expected closing in Q1'2026.",
       "chunk_count": 1,
       "children": []
     },
@@ -135,13 +186,13 @@
       "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK",
       "level": 1,
       "summary": "",
-      "chunk_count": 16,
+      "chunk_count": 4,
       "children": [
         {
           "title": "Volume",
           "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/Volume",
           "level": 2,
-          "summary": "We are focused on maximum capacity utilization at our factories. Deliveries and deployments will be impacted by aggregate demand for our products, supply chain readiness and allocation decisions between sale to customers or use for our owned and operated fleet.",
+          "summary": "The section outlines the company's focus on maximizing factory capacity utilization. It notes that deliveries and deployments depend on aggregate demand, supply chain readiness, and allocation decisions between customer sales and use in the company's own fleet.",
           "chunk_count": 1,
           "children": []
         },
@@ -149,7 +200,7 @@
           "title": "Cash",
           "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/Cash",
           "level": 2,
-          "summary": "We will manage the businesses such that we ensure a strong balance sheet, maintaining sufficient liquidity to fund our product roadmap, long-term capacity expansion plans – including further vertical integration – and other expenses.",
+          "summary": "The section outlines the company's strategy to maintain a strong balance sheet and sufficient liquidity. This financial management approach is intended to fund the product roadmap, long-term capacity expansion plans (including vertical integration), and other expenses.",
           "chunk_count": 1,
           "children": []
         },
@@ -157,7 +208,7 @@
           "title": "Profit",
           "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/Profit",
           "level": 2,
-          "summary": "While we continue to execute on innovations to reduce the cost of manufacturing and operations, over time, we expect our hardware-related profits to be accompanied by an acceleration of AI, software and fleet-based profits.",
+          "summary": "The section outlines the company's strategy to reduce manufacturing and operational costs through innovation. It states that over time, hardware-related profits are expected to be supplemented by an acceleration of profits from AI, software, and fleet-based services.",
           "chunk_count": 1,
           "children": []
         },
@@ -165,99 +216,66 @@
           "title": "Product",
           "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/Product",
           "level": 2,
-          "summary": "We continue to evolve and augment our product lineup with a focus on cost, scale and future monetization opportunities via services powered by our AI software. We remain focused on growing our sales volumes through a differentiated and efficiently managed product portfolio, which includes leveraging and optimizing our existing production capacity before building new factories and production lines. Cybercab, Tesla Semi and Megapack 3 are on schedule for volume production starting in 2026. First generation production lines for Optimus are being installed in anticipation of volume production. PHOTOS & CHARTS",
-          "chunk_count": 8,
-          "children": [
-            {
-              "title": "MODEL Y - 2025 BEST IN CLASS EURO NCAP $^{(1)}$ SMALL SUV",
-              "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/Product/MODEL Y - 2025 BEST IN CLASS EURO NCAP $^{(1)}$ SMALL SUV",
-              "level": 3,
-              "summary": "Cybercab, Tesla Semi and Megapack 3 are on schedule for volume production starting in 2026. First generation production lines for Optimus are being installed in anticipation of volume production. <!-- page 16 -->0 [images/image-5-Tesla Model Y Driving.jpg]",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "MODEL 3 - 2025 BEST IN CLASS EURO NCAP $^{(1)}$ LARGE FAMILY CAR",
-              "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/Product/MODEL 3 - 2025 BEST IN CLASS EURO NCAP $^{(1)}$ LARGE FAMILY CAR",
-              "level": 3,
-              "summary": "<!-- page 15 --> <!-- page 17 -->0 [images/image-6-Red Tesla on Coastal Road.jpg]",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "FSD (SUPERVISED) $^{1}$ – V14 OFFERS UNPARALLELED DRIVER ASSISTANCE",
-              "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/Product/FSD (SUPERVISED) $^{1}$ – V14 OFFERS UNPARALLELED DRIVER ASSISTANCE",
-              "level": 3,
-              "summary": "<!-- page 16 --> <!-- page 18 -->0 [images/image-7-Tesla Interior Interface.jpg]",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "DRIVERLESS ROBOTAXI - TESTING IN AUSTIN",
-              "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/Product/DRIVERLESS ROBOTAXI - TESTING IN AUSTIN",
-              "level": 3,
-              "summary": "<!-- page 17 --> <!-- page 19 -->0 [images/image-8-Tesla Interior.jpg]",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "CYBERCAB - COLD WEATHER TESTING IN ALASKA",
-              "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/Product/CYBERCAB - COLD WEATHER TESTING IN ALASKA",
-              "level": 3,
-              "summary": "<!-- page 18 --> <!-- page 35 -->0 [images/image-9-Tesla Cybertruck in Snow.jpg] ### DRIVERLESS ROBOTAXI - TESTING IN AUSTIN <!-- page 35 -->0 [images/image-10-Tesla Semi Trucks.jpg] TESLA SEMI - MEGACHARGER NETWORK PLANNED SITES FOR 2026 ### CYBERCAB - COLD WEATHER TESTING IN ALASKA <!-- page 22 -->0 [images/image-11-US Lightning Map.jpg]",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "GIGAFACTORY SHANGHAI - 9 MILLIONTH VEHICLE PRODUCED (GLOBALLY)",
-              "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/Product/GIGAFACTORY SHANGHAI - 9 MILLIONTH VEHICLE PRODUCED (GLOBALLY)",
-              "level": 3,
-              "summary": "<!-- page 35 --> <!-- page 23 -->0 [images/image-12-Tesla Factory Milestone.jpg]",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "GIGAFACTORY NEVADA - 6 MILLIONTH DRIVE UNIT PRODUCED",
-              "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/Product/GIGAFACTORY NEVADA - 6 MILLIONTH DRIVE UNIT PRODUCED",
-              "level": 3,
-              "summary": "<!-- page 22 --> <!-- page 25 -->0 [images/image-13-Tesla Factory Milestone.jpg] ### GIGAFACTORY SHANGHAI - 9 MILLIONTH VEHICLE PRODUCED (GLOBALLY) <!-- page 25 -->0 [images/image-14-Vehicle Delivery Trends.jpg] <!-- page 23 --> <!-- page 25 -->0 [images/image-15-Quarterly Cash Flow.jpg] <!-- page 23 --> <!-- page 25 -->0 [images/image-16-Financial Performance Chart.jpg]",
-              "chunk_count": 1,
-              "children": []
-            }
-          ]
+          "summary": "The section outlines the company's strategy to evolve its product lineup with a focus on cost, scale, and monetization via AI software. It emphasizes growing sales volumes by optimizing existing production capacity before building new facilities. Additionally, it provides specific timelines for volume production: Cybercab, Tesla Semi, and Megapack 3 are scheduled to start in 2026, while first-generation production lines for Optimus are currently being installed.",
+          "chunk_count": 1,
+          "children": []
+        }
+      ]
+    },
+    {
+      "title": "PHOTOS & CHARTS",
+      "path": "TSLA-Q4-2025-Update.pdf/PHOTOS & CHARTS",
+      "level": 1,
+      "summary": "This section presents a series of images highlighting Tesla's vehicle safety ratings and autonomous driving capabilities. It features the Model Y, recognized as the 2025 best-in-class small SUV by Euro NCAP, and the Model 3, recognized as the 2025 best-in-class large family car by Euro NCAP. The section also showcases Tesla's Full Self-Driving (Supervised) V14 software, which offers driver assistance, and documents the testing phase of the Driverless Robotaxi in Austin.",
+      "chunk_count": 7,
+      "children": []
+    },
+    {
+      "title": "TESLA SEMI - MEGACHARGER NETWORK PLANNED SITES FOR 2026",
+      "path": "TSLA-Q4-2025-Update.pdf/TESLA SEMI - MEGACHARGER NETWORK PLANNED SITES FOR 2026",
+      "level": 1,
+      "summary": "The section displays a map of the United States illustrating the planned locations for Tesla Semi Megacharger network sites in 2026. Red markers indicate the specific cities and regions where these charging stations are scheduled to be built.",
+      "chunk_count": 3,
+      "children": []
+    },
+    {
+      "title": "KEY METRICS QUARTERLY",
+      "path": "TSLA-Q4-2025-Update.pdf/KEY METRICS QUARTERLY",
+      "level": 1,
+      "summary": "This page displays quarterly key metrics for a company, presented as three bar charts covering the period from 1Q-2023 to 4Q-2025. The first chart shows Vehicle Deliveries in millions of units, while the second and third charts display financial performance including Operating Cash Flow, Free Cash Flow, Net Income, and Adjusted EBITDA in billions of dollars. The data is marked as Unaudited.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "KEY METRICS TRAILING 12 MONTHS (TTM)",
+      "path": "TSLA-Q4-2025-Update.pdf/KEY METRICS TRAILING 12 MONTHS (TTM)",
+      "level": 1,
+      "summary": "The page displays a set of three bar charts titled 'KEY METRICS TRAILING 12 MONTHS (TTM)' showing financial and operational data from Q1 2023 through Q4 2025. The first chart tracks Vehicle Deliveries in millions of units, the second compares Operating Cash Flow and Free Cash Flow in billions of dollars, and the third contrasts Net Income with Adjusted EBITDA, also in billions.",
+      "chunk_count": 1,
+      "children": []
+    },
+    {
+      "title": "KEY METRICS YEAR-OVER-YEAR FINANCIAL SUMMARY",
+      "path": "TSLA-Q4-2025-Update.pdf/KEY METRICS YEAR-OVER-YEAR FINANCIAL SUMMARY",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 2,
+      "children": [
+        {
+          "title": "Revenue",
+          "path": "TSLA-Q4-2025-Update.pdf/KEY METRICS YEAR-OVER-YEAR FINANCIAL SUMMARY/Revenue",
+          "level": 2,
+          "summary": "The section details that total quarterly revenue decreased 3% year-over-year to $24.9 billion. It lists the factors impacting this change, including decreases in vehicle deliveries and regulatory credit revenue, offset by growth in Energy Generation and Storage, Services and Other, positive foreign exchange impact, and higher average selling prices.",
+          "chunk_count": 1,
+          "children": []
         },
         {
-          "title": "KEY METRICS TRAILING 12 MONTHS (TTM) (Unaudited)",
-          "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/KEY METRICS TRAILING 12 MONTHS (TTM) (Unaudited)",
+          "title": "Profitability",
+          "path": "TSLA-Q4-2025-Update.pdf/KEY METRICS YEAR-OVER-YEAR FINANCIAL SUMMARY/Profitability",
           "level": 2,
-          "summary": "<!-- page 25 --> <!-- page 26 -->0 [images/image-17-Projected Vehicle Deliveries.jpg] <!-- page 25 --> <!-- page 26 -->0 [images/image-18-Cash Flow Trends.jpg] <!-- page 25 --> <!-- page 26 -->0 [images/image-19-Financial Performance Forecast.jpg]",
-          "chunk_count": 4,
-          "children": [
-            {
-              "title": "Revenue",
-              "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/KEY METRICS TRAILING 12 MONTHS (TTM) (Unaudited)/Revenue",
-              "level": 3,
-              "summary": "Total quarterly revenue decreased 3% YoY to \\$24.9B. YoY, revenue was impacted by the following items $^{(1)}$ : - decrease in vehicle deliveries - lower regulatory credit revenue + growth in Energy Generation and Storage + growth in Services and Other + positive FX impact of \\$0.3B $^{1}$ \\+ growth in other automotive ancillary sales, partly driven by an increase in FSD subscriptions \\+ higher vehicle average selling price (ASP) (excl. FX impact $^{1}$ ), inclusive of mix impact",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "Profitability",
-              "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/KEY METRICS TRAILING 12 MONTHS (TTM) (Unaudited)/Profitability",
-              "level": 3,
-              "summary": "Our quarterly operating income decreased 11% YoY to \\$1.4B, resulting in a 5.7% operating margin. YoY, operating income was primarily impacted by the following items $^{(1)}$ : - increase in SBC and Restructuring and Other charges - increase in operating expenses (excl. SBC and Restructuring and Other) driven by AI and other R&D projects and SG&A - higher average cost per vehicle due to lower fixed cost absorption for certain models and an increase in tariffs - decrease in vehicle deliveries - lower regulatory credit revenue + higher vehicle average gross profit due to mix and pricing impacts + growth in Energy Generation and Storage gross profit + growth in Services and Other gross profit + growth in other automotive ancillary sales, partly driven by an increase in FSD subscriptions",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "Cash",
-              "path": "TSLA-Q4-2025-Update.pdf/OUTLOOK/KEY METRICS TRAILING 12 MONTHS (TTM) (Unaudited)/Cash",
-              "level": 3,
-              "summary": "Quarter-end cash, cash equivalents and investments was \\$44.1B. The sequential increase of \\$2.4B was primarily the result of positive free cash flow.",
-              "chunk_count": 1,
-              "children": []
-            }
-          ]
+          "summary": "The Profitability section details a 11% year-over-year decrease in quarterly operating income to $1.4 billion, resulting in a 5.7% operating margin. The decline was primarily driven by increased SBC and restructuring charges, higher operating expenses related to AI and R&D projects, and an increase in average cost per vehicle due to lower fixed cost absorption and tariffs. These negative factors were partially offset by growth in gross profit from Energy Generation and Storage, Services and Other, and other automotive ancillary sales.",
+          "chunk_count": 1,
+          "children": []
         }
       ]
     },
@@ -265,182 +283,223 @@
       "title": "FINANCIAL STATEMENTS",
       "path": "TSLA-Q4-2025-Update.pdf/FINANCIAL STATEMENTS",
       "level": 1,
-      "summary": "STATEMENT OF OPERATIONS (Unaudited) [tables/table-8 Q4 2024-Q4 2025 Rev.html] BALANCE SHEET (Unaudited) [tables/table-9 Balance Sheet 2024-25.html] STATEMENT OF CASH FLOWS (Unaudited) [tables/table-10 Cash Flow Q4-25.html] RECONCILIATION OF GAAP TO NON-GAAP FINANCIAL INFORMATION (Unaudited) [tables/table-11 Q4 2024-Q4 2025.html] RECONCILIATION OF GAAP TO NON-GAAP FINANCIAL INFORMATION (Unaudited) [tables/table-12 Financial Metrics 2021-25.html] RECONCILIATION OF GAAP TO NON-GAAP FINANCIAL INFORMATION (Unaudited) [tables/table-13 Financial Data 2022-25.html] [tables/table-14 Financial Metrics 2023-25.html] TTM = Trailing twelve months (1) Beginning in Q1'25, Capital expenditures is presented inclusive of purchases of energy generation and storage systems and all prior periods have been adjusted. (2) As a result of the adoption of the new crypto assets standard, the previously reported quarterly periods in 2024 have been recast. (3) Beginning in Q1'25, Adjusted EBITDA (non-GAAP) is presented net of digital assets gains and losses and all prior periods have been adjusted.",
+      "summary": "This page serves as a section divider or title page for the financial statements. It features a minimalist black background with the text 'FINANCIAL STATEMENTS' centered in white capital letters. The Tesla logo is visible in the bottom right corner.",
       "chunk_count": 1,
       "children": []
     },
     {
-      "title": "WEBCAST INFORMATION",
-      "path": "TSLA-Q4-2025-Update.pdf/WEBCAST INFORMATION",
+      "title": "STATEMENT OF OPERATIONS",
+      "path": "TSLA-Q4-2025-Update.pdf/STATEMENT OF OPERATIONS",
       "level": 1,
-      "summary": "Tesla will provide a live webcast of its fourth quarter 2025 financial results conference call beginning at 4:30 p.m. CT on January 28, 2026 at ir.tesla.com. This webcast will also be available for replay for approximately one year thereafter.",
+      "summary": "The page displays an Unaudited Statement of Operations for a company, detailing financial performance across five quarters from Q4-2024 to Q4-2025. The table is structured into sections covering Revenues (Automotive sales, Energy generation, Services), Cost of Revenues, Operating Expenses, and Net Income. Key columns include Total revenues, Gross profit, Income from operations, and Net income attributable to common stockholders, with figures presented in millions of USD.",
       "chunk_count": 1,
       "children": []
     },
     {
-      "title": "CERTAIN TERMS",
-      "path": "TSLA-Q4-2025-Update.pdf/CERTAIN TERMS",
+      "title": "BALANCE SHEET",
+      "path": "TSLA-Q4-2025-Update.pdf/BALANCE SHEET",
       "level": 1,
-      "summary": "This passage defines key financial and operational terms used in a specific update. It clarifies that vehicle deliveries refer to units transferred to end customers with completed paperwork, while energy product deployment includes installed customer units and equipment sales. The text details non-GAAP measures: 'Net income attributable to common stockholders' adjusts for stock-based compensation, digital asset gains/losses, and valuation allowances; 'Adjusted EBITDA' excludes interest, taxes, depreciation, amortization, impairment, stock-based compensation, and digital asset impacts. 'Free cash flow' is defined as operating cash flow minus capital expenditures. Operational metrics include 'Average cost per vehicle' (automotive sales cost divided by new deliveries excluding leases), 'Days sales outstanding' (average receivables divided by revenue times days in period), 'Days payable outstanding' (average payables divided by cost of revenues times days in period), and 'Days of supply' (ending inventory divided by deliveries using trading days). Finally, constant currency impacts are calculated by comparing actuals against results converted to USD using prior period average exchange rates.",
+      "summary": "The page displays an Unaudited Balance Sheet for a company, presenting financial data in millions of USD across five quarterly periods from December 31, 2024, to December 31, 2025. The table details Assets (including current assets like cash and inventory, and non-current assets such as property and digital assets), Liabilities (current and long-term debt, accounts payable), and Equity. Key totals show Total Assets increasing from 122,070 million to 137,806 million over the period.",
       "chunk_count": 1,
       "children": []
     },
     {
-      "title": "NON-GAAP FINANCIAL INFORMATION",
-      "path": "TSLA-Q4-2025-Update.pdf/NON-GAAP FINANCIAL INFORMATION",
+      "title": "STATEMENT OF CASH FLOWS",
+      "path": "TSLA-Q4-2025-Update.pdf/STATEMENT OF CASH FLOWS",
       "level": 1,
-      "summary": "Tesla presents consolidated financial information under both GAAP and non-GAAP standards to supplement its results. Key non-GAAP measures include net income attributable to common stockholders, diluted per share figures, Adjusted EBITDA margin, automotive gross margin, and free cash flow. These metrics aid internal management comparisons with historical performance and other companies, supporting operating, budgeting, and planning activities. Management believes these non-GAAP figures provide investors with a clearer view of Tesla's financial condition and operational results by reflecting the metrics used to run the business. However, since non-GAAP data is not prepared under comprehensive accounting rules, it should be read alongside U.S. GAAP information for a complete understanding of Tesla's performance. A reconciliation between GAAP and non-GAAP data is provided elsewhere.",
+      "summary": "The page displays an Unaudited Statement of Cash Flows, presenting financial data in millions of USD across five quarters from Q4-2024 to Q4-2025. The table details cash flows categorized into operating activities (including net income and adjustments like depreciation), investing activities (such as capital expenditures and investment purchases), and financing activities (including debt activities and vehicle financing). It concludes with the net increase or decrease in cash and the ending cash balance for each period.",
       "chunk_count": 1,
       "children": []
     },
     {
-      "title": "FORWARD-LOOKING STATEMENTS",
-      "path": "TSLA-Q4-2025-Update.pdf/FORWARD-LOOKING STATEMENTS",
+      "title": "RECONCILIATION OF GAAP TO NON-GAAP FINANCIAL INFORMATION",
+      "path": "TSLA-Q4-2025-Update.pdf/RECONCILIATION OF GAAP TO NON-GAAP FINANCIAL INFORMATION",
       "level": 1,
-      "summary": "This passage from Tesla outlines that various statements in the update, particularly regarding future outlooks, product development, production capacity, financial metrics, and facility expansions, constitute forward-looking statements under the Private Securities Litigation Reform Act of 1995. These statements reflect management's current expectations based on assumptions and are subject to risks and uncertainties, meaning actual results may differ materially. The text lists numerous specific risk factors that could impact outcomes, including manufacturing delays, supply chain challenges, regulatory hurdles, competition, product performance issues, employee retention, and foreign exchange fluctuations. Tesla advises investors to consult SEC filings, specifically the Form 10-K filed on January 30, 2025, for detailed risk disclosures. The company explicitly disclaims any obligation to update these forward-looking statements due to new information or future events.",
-      "chunk_count": 1,
+      "summary": "The section titled 'RECONCILIATION OF GAAP TO NON-GAAP FINANCIAL INFORMATION' presents a series of financial tables detailing the reconciliation between Generally Accepted Accounting Principles (GAAP) and non-GAAP metrics. The data is provided in millions of USD, with per-share data where applicable, covering quarterly periods from Q2 2022 through Q4 2025 and annual periods from 2021 to 2025. Key metrics reconciled include Net Income attributable to common stockholders, Earnings Per Share (EPS), Adjusted EBITDA, Free Cash Flow, and Automotive Gross Margin. The tables show adjustments for items such as stock-based compensation, digital assets gains/losses, interest expense, taxes, and regulatory credit revenue.",
+      "chunk_count": 3,
       "children": []
+    },
+    {
+      "title": "ADDITIONAL INFORMATION",
+      "path": "TSLA-Q4-2025-Update.pdf/ADDITIONAL INFORMATION",
+      "level": 1,
+      "summary": "",
+      "chunk_count": 5,
+      "children": [
+        {
+          "title": "WEBCAST INFORMATION",
+          "path": "TSLA-Q4-2025-Update.pdf/ADDITIONAL INFORMATION/WEBCAST INFORMATION",
+          "level": 2,
+          "summary": "The section provides details regarding a live webcast of Tesla's fourth quarter 2025 financial results conference call. It specifies the start time as 4:30 p.m. CT on January 28, 2026, and notes that the event will be available at ir.tesla.com. Additionally, it mentions that a replay of the webcast will be accessible for approximately one year.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "CERTAIN TERMS",
+          "path": "TSLA-Q4-2025-Update.pdf/ADDITIONAL INFORMATION/CERTAIN TERMS",
+          "level": 2,
+          "summary": "This section defines specific terms used in the document, including vehicle deliveries, energy product deployment volume, Net income attributable to common stockholders (non-GAAP), Adjusted EBITDA (non-GAAP), Free cash flow, Average cost per vehicle, Days sales outstanding, Days payable outstanding, and Days of supply.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "NON-GAAP FINANCIAL INFORMATION",
+          "path": "TSLA-Q4-2025-Update.pdf/ADDITIONAL INFORMATION/NON-GAAP FINANCIAL INFORMATION",
+          "level": 2,
+          "summary": "This section explains that Tesla presents consolidated financial information on both a GAAP and non-GAAP basis. It lists specific non-GAAP measures used by management, including non-GAAP net income (loss), Adjusted EBITDA, Adjusted EBITDA margin, non-GAAP automotive gross margin, and free cash flow. The text states these metrics are used for internal planning and to help investors understand the company's performance, noting that they should be read in conjunction with U.S. GAAP financial information.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "FORWARD-LOOKING STATEMENTS",
+          "path": "TSLA-Q4-2025-Update.pdf/ADDITIONAL INFORMATION/FORWARD-LOOKING STATEMENTS",
+          "level": 2,
+          "summary": "This section contains a legal disclaimer regarding forward-looking statements made by Tesla. It defines these statements as those related to future expectations, strategies, and performance metrics (such as production, demand, and profitability) which are based on assumptions and involve risks and uncertainties. The text lists numerous potential factors that could cause actual results to differ materially from these projections, including manufacturing delays, supply chain issues, regulatory changes, competition, and product safety. It references the Private Securities Litigation Reform Act of 1995 and directs readers to SEC filings for more detailed risk information.",
+          "chunk_count": 2,
+          "children": []
+        }
+      ]
     }
   ],
   "resources": {
     "images": [
       {
-        "path": "images/image-1-Capacity Growth Projection.jpg",
-        "summary": "image-1 The chart illustrates a steady increase in existing capacity from mid-2021 through late 2025, characterized by gradual step-wise growth. A significant surge is projected for the future planned capacity starting in early 2026, reaching levels well above the current trajectory."
+        "path": "images/image_page_9_figure_2.png",
+        "summary": "Tesla AI Training Capacity Ramp (H100 equivalent GPUs) [images/image_page_9_figure_2.png]"
       },
       {
-        "path": "images/image-2-FSD Mileage Growth.jpg",
-        "summary": "image-2 The chart illustrates the projected accumulation of miles driven on Full Self-Driving software over time. It distinguishes between two versions: an older version (V11 and before) represented by a blue area, and a newer version (V12 and beyond) shown in red. While mileage for the older version remains relatively flat, the newer version shows exponential growth starting around early 2024, eventually dominating the total distance traveled by late 2025."
+        "path": "images/image_page_10_figure_1.png",
+        "summary": "Cumulative Miles Driven with FSD (Supervised) (billions) [images/image_page_10_figure_1.png]"
       },
       {
-        "path": "images/image-3-Tesla Silicon Optimization.jpg",
-        "summary": "image-3 The image displays a high-performance computing chip alongside key performance metrics. It highlights significant improvements in hardened block quantization, memory capacity, and raw compute power compared to previous generations. The overall total improvement is presented as a substantial increase over the AI4 architecture."
+        "path": "images/image_page_10_figure_2.png",
+        "summary": "Targeting Step-Function Improvement for our Next-Generation Inference Chip, AI5 [images/image_page_10_figure_2.png]"
       },
       {
-        "path": "images/image-4-Growth Trend 2025.jpg",
-        "summary": "image-4 The chart illustrates a steady increase in values over time, starting from June 2025 and extending through December 2025. The data shows minimal growth initially, followed by a significant upward trajectory beginning around August, reaching its peak at the end of the year."
+        "path": "images/image_page_11_figure_1.png",
+        "summary": "Cumulative Paid Robotaxi Miles [images/image_page_11_figure_1.png]"
       },
       {
-        "path": "images/image-5-Tesla Model Y Driving.jpg",
-        "summary": "image-5 A sleek silver electric SUV travels along a winding highway through a scenic landscape. The vehicle is captured in motion with blurred surroundings, emphasizing speed against a backdrop of rolling hills and distant mountains under a bright sky."
+        "path": "images/image_page_15_figure_1.png",
+        "summary": "MODEL Y - 2025 BEST IN CLASS EURO NCAP SMALL SUV [images/image_page_15_figure_1.png]"
       },
       {
-        "path": "images/image-6-Red Tesla on Coastal Road.jpg",
-        "summary": "image-6 A red electric sedan drives along a winding asphalt road carved into a steep, rocky mountainside. The vehicle is captured in motion with a blurred background, emphasizing speed as it navigates the curve. To the right of the road lies a calm body of blue water, while the left side features a rugged cliff face covered in sparse green vegetation under a clear sky."
+        "path": "images/image_page_16_figure_1.png",
+        "summary": "MODEL 3 - 2025 BEST IN CLASS EURO NCAP LARGE FAMILY CAR [images/image_page_16_figure_1.png]"
       },
       {
-        "path": "images/image-7-Tesla Interior Interface.jpg",
-        "summary": "image-7 The image displays the interior of a Tesla vehicle, focusing on the driver's perspective. A person is interacting with the large central touchscreen display, which shows navigation maps and vehicle controls. The steering wheel features the Tesla logo, and ambient lighting accents are visible along the dashboard. Through the windshield, a modern stone building is seen outside."
+        "path": "images/image_page_17_figure_1.png",
+        "summary": "[images/image_page_17_figure_1.png]"
       },
       {
-        "path": "images/image-8-Tesla Interior.jpg",
-        "summary": "image-8 The image displays the driver's perspective inside a Tesla vehicle, featuring a minimalist dashboard with a large central touchscreen. The steering wheel is visible on the left side, and the car appears to be in motion on a city street during daylight hours."
+        "path": "images/image_page_18_figure_1.png",
+        "summary": "DRIVERLESS ROBOTAXI - TESTING IN AUSTIN [images/image_page_18_figure_1.png]"
       },
       {
-        "path": "images/image-9-Tesla Cybertruck in Snow.jpg",
-        "summary": "image-9 A futuristic electric pickup truck is shown driving on a frozen, snow-covered surface. The vehicle features its signature angular design and metallic finish, with snow clinging to the rear bumper and wheel wells. It is set against a backdrop of distant mountains under a twilight sky."
+        "path": "images/image_page_19_figure_1.png",
+        "summary": "CYBERCAB – COLD WEATHER TESTING IN ALASKA [images/image_page_19_figure_1.png]"
       },
       {
-        "path": "images/image-10-Tesla Semi Trucks.jpg",
-        "summary": "image-10 Two white electric semi-trucks are parked side-by-side in an outdoor lot. The vehicles feature a futuristic, aerodynamic design with large windshields and distinctive horizontal headlights. They are positioned against a backdrop of industrial buildings and hills under a cloudy sky."
+        "path": "images/image_page_20_figure_1.png",
+        "summary": "TESLA SEMI - PRODUCTION BEGINNING IN 2026 [images/image_page_20_figure_1.png]"
       },
       {
-        "path": "images/image-11-US Lightning Map.jpg",
-        "summary": "image-11 A map of the United States displays numerous red markers with lightning symbols. These indicators are concentrated heavily along the West Coast, particularly in California, and throughout Texas. Additional clusters appear in the Southeast near Atlanta and scattered locations in the Midwest and Northeast."
+        "path": "images/image_page_21_figure_1.png",
+        "summary": "TESLA SEMI - MEGACHARGER NETWORK PLANNED SITES FOR 2026 [images/image_page_21_figure_1.png]"
       },
       {
-        "path": "images/image-12-Tesla Factory Milestone.jpg",
-        "summary": "image-12 Factory workers and staff gather for a group photo on an automotive assembly line to celebrate the production of the 900th vehicle. A white car is positioned centrally in front of the crowd, while employees hold silver balloons displaying the number \"900\" to mark this significant manufacturing achievement."
+        "path": "images/image_page_22_figure_1.png",
+        "summary": "GIGAFACTORY SHANGHAI – 9 MILLIONTH VEHICLE PRODUCED (GLOBALLY) [images/image_page_22_figure_1.png]"
       },
       {
-        "path": "images/image-13-Tesla Factory Milestone.jpg",
-        "summary": "image-13 A large group of factory workers gathers inside a manufacturing facility to celebrate a significant achievement. Several employees in the front row hold up oversized gold balloons that spell out \"600,000,\" marking a major production milestone for the company. The background reveals an industrial setting filled with machinery and assembly lines."
+        "path": "images/image_page_23_figure_1.png",
+        "summary": "GIGAFACTORY NEVADA - 6 MILLIONTH DRIVE UNIT PRODUCED [images/image_page_23_figure_1.png]"
       },
       {
-        "path": "images/image-14-Vehicle Delivery Trends.jpg",
-        "summary": "image-14 A bar chart displays quarterly vehicle delivery volumes in millions of units spanning from the first quarter of 2023 through the fourth quarter of 2025. The data illustrates fluctuating delivery figures across the timeline, with values generally ranging between approximately 0.3 and 0.5 million units per quarter."
+        "path": "images/image_page_24_figure_1.png",
+        "summary": "KEY METRICS QUARTERLY [images/image_page_24_figure_1.png]"
       },
       {
-        "path": "images/image-15-Quarterly Cash Flow.jpg",
-        "summary": "image-15 The chart compares operating cash flow and free cash flow across multiple quarters from 2023 through 2025. Blue bars represent operating cash flow, while red bars indicate free cash flow. Operating cash flow remains consistently positive throughout the period, whereas free cash flow fluctuates significantly, including a notable negative value in early 2024."
+        "path": "images/image_page_25_figure_1.png",
+        "summary": "Vehicle Deliveries (millions of units) [images/image_page_25_figure_1.png]"
       },
       {
-        "path": "images/image-16-Financial Performance Chart.jpg",
-        "summary": "image-16 This bar chart compares Net Income and Adjusted EBITDA across quarterly periods from 2023 through 2025. The blue bars represent Net Income while the red bars indicate Adjusted EBITDA, with values measured in billions of dollars. A significant spike in Net Income is visible during the fourth quarter of 2023, whereas Adjusted EBITDA remains consistently higher than Net Income throughout most of the timeline."
+        "path": "images/image_page_25_figure_2.png",
+        "summary": "Operating Cash Flow ($B) and Free Cash Flow ($B) [images/image_page_25_figure_2.png]"
       },
       {
-        "path": "images/image-17-Projected Vehicle Deliveries.jpg",
-        "summary": "image-17 The bar chart illustrates a forecast of vehicle deliveries in millions of units spanning from the first quarter of 2023 through the fourth quarter of 2025. The data indicates an upward trend starting in early 2023, reaching a peak around late 2023 and continuing at high levels throughout 2024 before showing a slight decline toward the end of the projection period in 2025."
+        "path": "images/image_page_25_figure_3.png",
+        "summary": "Net Income ($B) and Adjusted EBITDA ($B) [images/image_page_25_figure_3.png]"
       },
       {
-        "path": "images/image-18-Cash Flow Trends.jpg",
-        "summary": "image-18 The chart compares operating and free cash flow across multiple quarters from 2023 through 2025. Operating cash flow is consistently higher than free cash flow throughout the timeline, with both metrics showing significant fluctuations over time."
-      },
-      {
-        "path": "images/image-19-Financial Performance Forecast.jpg",
-        "summary": "image-19 The chart displays a comparison of Net Income and Adjusted EBITDA over a multi-year period. It features paired bars for each quarter, showing that while earnings fluctuate, the adjusted metric remains consistently higher than net income throughout the timeline."
+        "path": "images/image_page_35_figure_1.png",
+        "summary": "[images/image_page_35_figure_1.png]"
       }
     ],
     "tables": [
       {
-        "path": "tables/table-0 Tesla 2025 Results.html",
-        "summary": "table-1 Tesla reported strong 2025 financials with $4.4B operating income and expanded AI initiatives including Robotaxi and Optimus."
+        "path": "tables/table_page_2_1.html",
+        "summary": "tables/table_page_2_1.html"
       },
       {
-        "path": "tables/table-1 Q4 2025 Financials.html",
-        "summary": "table-2 Table shows Tesla's quarterly financials through Q4 2025, including revenues, gross profit, operating income, and free cash flow in millions of dollars."
+        "path": "tables/table_page_4_1.html",
+        "summary": "tables/table_page_4_1.html"
       },
       {
-        "path": "tables/table-2 Financial Data 2021-25.html",
-        "summary": "table-3 Table shows financial metrics from 2021 to 2025, including revenues, gross profit, operating income, and free cash flow in millions of dollars."
+        "path": "tables/table_page_5_1.html",
+        "summary": "tables/table_page_5_1.html"
       },
       {
-        "path": "tables/table-3 Tesla Q4-2025 Data.html",
-        "summary": "table-4 Table shows Tesla's quarterly production, deliveries, and inventory from Q4 2024 to Q4 2025. Total deliveries dropped 16% YoY in Q4 2025."
+        "path": "tables/table_page_6_1.html",
+        "summary": "tables/table_page_6_1.html"
       },
       {
-        "path": "tables/table-4 Tesla 2021-2025 Data.html",
-        "summary": "table-5 Table shows Tesla's production, deliveries, and infrastructure metrics from 2021 to 2025. Total production and deliveries peaked in 2023 then declined by 2025."
+        "path": "tables/table_page_7_1.html",
+        "summary": "tables/table_page_7_1.html"
       },
       {
-        "path": "tables/table-5 Tesla Production.html",
-        "summary": "table-6 Tesla operates global facilities in California, Shanghai, Berlin, Texas, and Nevada for Model 3/Y, S/X, Cybertruck, Semi, Megapack, Powerwall, and Optimus."
+        "path": "tables/table_page_8_1.html",
+        "summary": "tables/table_page_8_1.html"
       },
       {
-        "path": "tables/table-6 Facility Status.html",
-        "summary": "table-7 Table lists AI training and battery manufacturing facilities. Texas hosts Cortex 1 (production) and Cortex 2 (construction). Nevada and Texas have LFP, 4680, cathode materials, and lithium refining plants in various stages."
+        "path": "tables/table_page_11_2.html",
+        "summary": "tables/table_page_11_2.html"
       },
       {
-        "path": "tables/table-7 Autonomous Driving Status.html",
-        "summary": "table-8 Table lists US states and metro areas with autonomous driving status. California SF Bay Area has safety drivers. Texas Austin is ramping unsupervised. Other locations like Dallas, Houston, Phoenix, Miami, Orlando, Tampa, and Las Vegas are scheduled for 1H 2026."
+        "path": "tables/table_page_28_1.html",
+        "summary": "tables/table_page_28_1.html"
       },
       {
-        "path": "tables/table-8 Q4 2024-Q4 2025 Rev.html",
-        "summary": "table-9 Financial table showing quarterly revenues, costs, and net income from Q4 2024 to Q4 2025 in millions USD."
+        "path": "tables/table_page_29_1.html",
+        "summary": "tables/table_page_29_1.html"
       },
       {
-        "path": "tables/table-9 Balance Sheet 2024-25.html",
-        "summary": "table-10 Financial table showing assets, liabilities, and equity from Dec 2024 to Dec 2025. Total assets grew from 122B to 138B USD."
+        "path": "tables/table_page_30_1.html",
+        "summary": "tables/table_page_30_1.html"
       },
       {
-        "path": "tables/table-10 Cash Flow Q4-25.html",
-        "summary": "table-11 Table shows quarterly cash flows from operating, investing, and financing activities in millions USD for Q4 2024 to Q4 2025."
+        "path": "tables/table_page_31_1.html",
+        "summary": "tables/table_page_31_1.html"
       },
       {
-        "path": "tables/table-11 Q4 2024-Q4 2025.html",
-        "summary": "table-12 Financial table showing GAAP and non-GAAP metrics for quarters Q4-2024 through Q4-2025, including net income, EPS, adjusted EBITDA, and automotive margins."
+        "path": "tables/table_page_32_1.html",
+        "summary": "tables/table_page_32_1.html"
       },
       {
-        "path": "tables/table-12 Financial Metrics 2021-25.html",
-        "summary": "table-13 Table shows financial data from 2021 to 2025 including GAAP and non-GAAP net income, EPS, adjusted EBITDA, and margins."
+        "path": "tables/table_page_33_1.html",
+        "summary": "tables/table_page_33_1.html"
       },
       {
-        "path": "tables/table-13 Financial Data 2022-25.html",
-        "summary": "table-14 Table shows quarterly financials from 2Q-2022 to 4Q-2025 in millions USD, including operating cash flow, capex, free cash flow, net income, and adjusted EBITDA."
+        "path": "tables/table_page_33_2.html",
+        "summary": "tables/table_page_33_2.html"
       },
       {
-        "path": "tables/table-14 Financial Metrics 2023-25.html",
-        "summary": "table-15 Table shows quarterly financial data from 1Q 2023 to 4Q 2025, including operating cash flow, capital expenditures, free cash flow, net income, and adjusted EBITDA in millions of USD."
+        "path": "tables/table_page_33_3.html",
+        "summary": "tables/table_page_33_3.html"
+      },
+      {
+        "path": "tables/table_page_33_4.html",
+        "summary": "tables/table_page_33_4.html"
       }
     ]
   }

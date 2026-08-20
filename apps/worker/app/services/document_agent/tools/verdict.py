@@ -1,11 +1,11 @@
-"""Agent verdict tool."""
+"""Profile verdict tool."""
 
 from __future__ import annotations
 
 import time
 from typing import Any
 
-from app.services.document_agent.manifest import AgentVerdict, ToolContext, ToolResult
+from app.services.document_agent.manifest import ProfileVerdict, ToolContext, ToolResult
 from app.services.document_agent.registry import has_shard_plan, register_tool
 
 
@@ -27,7 +27,7 @@ def verdict(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     status = str(args.get("status") or "abort")
     if status not in {"success", "abort"}:
         status = "abort"
-    ctx.blackboard.verdict = AgentVerdict(
+    ctx.blackboard.verdict = ProfileVerdict(
         status=status,  # type: ignore[arg-type]
         rationale=str(args.get("rationale") or ""),
     )

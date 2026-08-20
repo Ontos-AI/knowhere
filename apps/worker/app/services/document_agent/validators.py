@@ -53,7 +53,6 @@ def single_shard_plan(page_count: int) -> ShardPlan:
                 page_offset=0,
                 anchor_type="forced_max_size",
                 anchor_evidence="document within shard threshold",
-                confidence=1.0,
             )
         ],
     )
@@ -74,13 +73,6 @@ def validate_anatomy_map(
         errors.append("page_features do not cover every page")
     if label_pages != expected_pages:
         errors.append("page_labels do not cover every page")
-    toc_pages = set(anatomy.toc_result.toc_pages)
-    if anatomy.h1_result:
-        for candidate in anatomy.h1_result.h1_candidates:
-            if candidate.page in toc_pages:
-                errors.append(f"h1 candidate points to toc page {candidate.page}")
-            if candidate.page < 1 or candidate.page > page_count:
-                errors.append(f"h1 candidate page {candidate.page} out of range")
     shard_report = validate_shard_plan(
         anatomy.shard_plan,
         page_count=page_count,

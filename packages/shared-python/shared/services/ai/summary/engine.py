@@ -257,6 +257,10 @@ def summarize(
     max_keywords: int = 5,
     model: str | None = None,
     usage_task: str | None = None,
+    # TODO(parse-budget-cleanup): no live caller passes a non-None budget after
+    # PROFILE BudgetTracker removal. Drop budget/budget_pool/budget_stage once
+    # remaining formats stop needing this duck-typed hook, or redirect any
+    # future limit to token_tracking instead.
     budget: Any | None = None,
     budget_pool: str = "visual",
     budget_stage: str | None = None,
@@ -276,7 +280,8 @@ def summarize(
         Page or asset image(s). Required for ``page``/``asset`` modes that render
         from an image; ignored for plain ``text``.
     budget:
-        Optional ``BudgetTracker``. Visual calls reserve from ``budget_stage``.
+        Optional external reservation ledger. Visual calls reserve from
+        ``budget_stage``.
     prompt_task / prompt_paras:
         Override the prompt used for the image-based page path. Lets a bounded
         node summary (``page-memory-node-summary`` with ``node_title`` /

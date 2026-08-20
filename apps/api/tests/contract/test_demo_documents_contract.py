@@ -58,7 +58,11 @@ class FakeResultStorage:
         if not artifact_ref:
             return None
         normalized = str(artifact_ref).strip().replace("\\", "/").lstrip("/")
-        if normalized.startswith("images/") or normalized.startswith("tables/"):
+        if (
+            normalized.startswith("images/")
+            or normalized.startswith("tables/")
+            or normalized.startswith("page_citation_assets/")
+        ):
             return normalized
         return None
 
@@ -121,12 +125,11 @@ def test_should_preserve_filename_rooted_sections_when_publishing_demo_chunks() 
     publication_paths = {
         str(chunk.get("path") or "")
         for chunk in publication_chunks
-        if chunk.get("type") == "text"
+        if chunk.get("type") == "page"
     }
 
-    assert source.title in publication_paths
-    assert f"{source.title}/NVIDIA Corp. (NVDA)" in publication_paths
-    assert f"{source.title}/MANAGEMENT DISCUSSION SECTION" in publication_paths
+    assert f"{source.title}/Root/MANAGEMENT DISCUSSION SECTION" in publication_paths
+    assert f"{source.title}/Root/QUESTION AND ANSWER SECTION" in publication_paths
 
 
 @pytest.mark.asyncio
@@ -157,7 +160,7 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     assert SPACEX_DEMO_SOURCE_ID in sources_by_id
     assert source["demo_source_id"] == DEMO_SOURCE_ID
     assert source["canonical_document_id"] == "demo-doc-tsla-q4-2025"
-    assert source["chunk_count"] == 70
+    assert source["chunk_count"] == 71
     assert source["original_file"]["can_download"] is False
     assert citation["canonical_document_id"] == "demo-doc-tsla-q4-2025"
     assert citation["canonical_chunk_id"].startswith(f"{DEMO_SOURCE_ID}:")
@@ -165,7 +168,7 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
         "financial-spacex-s1"
     )
     assert spacex_source["canonical_document_id"] == "demo-doc-spacex-s1"
-    assert spacex_source["chunk_count"] == 922
+    assert spacex_source["chunk_count"] == 633
     assert spacex_citations[0]["canonical_chunk_id"].startswith(
         f"{SPACEX_DEMO_SOURCE_ID}:"
     )
@@ -177,21 +180,21 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
     assert library_sources_by_id["financial-spacex-s1"]["demo_source_id"] == (
         SPACEX_DEMO_SOURCE_ID
     )
-    assert library_sources_by_id["financial-spacex-s1"]["chunk_count"] == 922
+    assert library_sources_by_id["financial-spacex-s1"]["chunk_count"] == 633
     assert library_sources_by_id["stem-statistical-learning"]["status"] == "ready"
     assert library_sources_by_id["stem-statistical-learning"]["demo_source_id"] == (
         "demo-stem-statistical-learning"
     )
-    assert library_sources_by_id["stem-statistical-learning"]["chunk_count"] == 71
+    assert library_sources_by_id["stem-statistical-learning"]["chunk_count"] == 45
     research_demo_sources = {
         "research-attention-is-all-you-need": (
             "demo-research-attention-is-all-you-need",
-            16,
+            34,
         ),
-        "research-rag-survey": ("demo-research-rag-survey", 37),
-        "research-rag-realized": ("demo-research-rag-realized", 41),
-        "research-toolformer": ("demo-research-toolformer", 27),
-        "research-ai-agents-overview": ("demo-research-ai-agents-overview", 33),
+        "research-rag-survey": ("demo-research-rag-survey", 35),
+        "research-rag-realized": ("demo-research-rag-realized", 59),
+        "research-toolformer": ("demo-research-toolformer", 41),
+        "research-ai-agents-overview": ("demo-research-ai-agents-overview", 58),
     }
     for library_source_id, (
         expected_demo_source_id,
@@ -218,19 +221,19 @@ async def test_should_return_demo_catalog_with_resolvable_canonical_citations(
         == "demo-financial-micron-report-530bd7ed"
     )
     assert (
-        library_sources_by_id["financial-micron-report-530bd7ed"]["chunk_count"] == 82
+        library_sources_by_id["financial-micron-report-530bd7ed"]["chunk_count"] == 77
     )
     assert (
         library_sources_by_id["financial-micron-report-9c0becf5"]["demo_source_id"]
         == "demo-financial-micron-report-9c0becf5"
     )
     assert (
-        library_sources_by_id["financial-micron-report-9c0becf5"]["chunk_count"] == 87
+        library_sources_by_id["financial-micron-report-9c0becf5"]["chunk_count"] == 82
     )
     assert library_sources_by_id["stem-transformers-tutorial"]["demo_source_id"] == (
         "demo-stem-transformers-tutorial"
     )
-    assert library_sources_by_id["stem-transformers-tutorial"]["chunk_count"] == 519
+    assert library_sources_by_id["stem-transformers-tutorial"]["chunk_count"] == 301
     assert library_sources_by_id["stem-information-theory"]["status"] == "planned"
 
     async with api_client_factory() as api_client:
@@ -386,7 +389,7 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
         "status": "active",
         "source_file_name": "TSLA-Q4-2025-Update.pdf",
     }
-    assert len(chunk_rows) == 70
+    assert len(chunk_rows) == 71
     assert len(job_rows) == 1
     job_row = job_rows[0]
     assert job_row["status"] == "done"
@@ -413,6 +416,9 @@ async def test_should_materialize_demo_source_without_parse_or_credit_charge(
     uploaded_files = fake_result_storage.raw_files_by_job_id[str(job_row["job_id"])]
     assert any(file_path.startswith("images/") for file_path in uploaded_files)
     assert any(file_path.startswith("tables/") for file_path in uploaded_files)
+    assert any(
+        file_path.startswith("page_citation_assets/") for file_path in uploaded_files
+    )
 
 
 @pytest.mark.asyncio

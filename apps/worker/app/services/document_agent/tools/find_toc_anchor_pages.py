@@ -17,8 +17,7 @@ from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
 from loguru import logger
 
 # CJK and English TOC keywords used for first-pass anchor detection.
-TOC_KEYWORDS = {"目录", "目次", "contents", "tableofcontents"}
-TOC_CROSS_LINE_WINDOW = 6
+TOC_KEYWORDS = frozenset({"目录", "目次", "contents", "tableofcontents"})
 
 # If a TOC keyword fingerprint appears on more than this fraction of total
 # pages, it is treated as a recurring navigation element (header/footer link)
@@ -28,6 +27,10 @@ RECURRING_ELEMENT_THRESHOLD = 0.30
 # Hard cap on the number of candidate anchor pages sent to VLM.  A real
 # document never has more than ~30 TOC start pages.
 MAX_ANCHOR_CANDIDATES = 30
+
+# Upper bound on consecutive lines joined when repairing a keyword split by
+# newlines (e.g. 目\\n录). Derived from the longest keyword character length.
+_MAX_KEYWORD_SPLIT_LINES = max(len(keyword) for keyword in TOC_KEYWORDS)
 
 
 def _normalize_for_toc(text: str) -> str:
@@ -39,62 +42,49 @@ def _meaningful_text_lines(text: str) -> list[str]:
     return [" ".join(line.split()) for line in text.splitlines() if line.split()]
 
 
-def _match_toc_keyword(normalized_text: str) -> str | None:
-    for keyword in sorted(TOC_KEYWORDS, key=len, reverse=True):
-        if keyword in normalized_text:
-            return keyword
-    return None
-
-
-def _find_toc_text_matches(
+def _merge_keyword_split_lines(
     lines: list[str],
-    *,
-    cross_line_window: int,
-) -> list[dict[str, Any]]:
-    matches: list[dict[str, Any]] = []
-    direct_hit_lines: set[int] = set()
-    for line_idx, raw_line in enumerate(lines):
-        keyword = _match_toc_keyword(_normalize_for_toc(raw_line))
-        if keyword is None:
+) -> list[tuple[str, int, int]]:
+    """Merge consecutive lines that together exactly equal one TOC keyword.
+
+    Only repairs newlines inside known keywords (e.g. 目+录, Table of+Contents).
+    Does not join arbitrary page text windows.
+    """
+    merged: list[tuple[str, int, int]] = []
+    index = 0
+    while index < len(lines):
+        joined: tuple[str, int, int] | None = None
+        upper = min(_MAX_KEYWORD_SPLIT_LINES, len(lines) - index)
+        for part_count in range(upper, 1, -1):
+            parts = [lines[index + offset].strip() for offset in range(part_count)]
+            if _normalize_for_toc("".join(parts)) not in TOC_KEYWORDS:
+                continue
+            joined = ("".join(parts), index, index + part_count - 1)
+            break
+        if joined is not None:
+            merged.append(joined)
+            index = joined[2] + 1
             continue
-        direct_hit_lines.add(line_idx)
+        merged.append((lines[index], index, index))
+        index += 1
+    return merged
+
+
+def _find_toc_text_matches(lines: list[str]) -> list[dict[str, Any]]:
+    """Match TOC keywords only as whole lines after keyword-split repair."""
+    matches: list[dict[str, Any]] = []
+    for raw_line, start_idx, end_idx in _merge_keyword_split_lines(lines):
+        keyword = _normalize_for_toc(raw_line)
+        if keyword not in TOC_KEYWORDS:
+            continue
         matches.append(
             {
                 "raw_line": raw_line.strip(),
-                "line_index": line_idx,
-                "line_end_index": line_idx,
+                "line_index": start_idx,
+                "line_end_index": end_idx,
                 "match_kind": f"keyword:{keyword}",
             }
         )
-
-    if matches:
-        return matches
-
-    # TODO: Add second-layer table-of-contents shape scoring if first-pass
-    # keywords produce too many candidates.  Keep this layer as pure anchor
-    # discovery; VLM confirmation remains the semantic judge.
-    window = max(cross_line_window, 1)
-    for start_idx in range(len(lines)):
-        joined_parts: list[str] = []
-        end_limit = min(len(lines), start_idx + window)
-        for end_idx in range(start_idx, end_limit):
-            if end_idx in direct_hit_lines:
-                continue
-            joined_parts.append(lines[end_idx].strip())
-            if end_idx == start_idx:
-                continue
-            keyword = _match_toc_keyword(_normalize_for_toc("".join(joined_parts)))
-            if keyword is None:
-                continue
-            matches.append(
-                {
-                    "raw_line": " / ".join(joined_parts),
-                    "line_index": start_idx,
-                    "line_end_index": end_idx,
-                    "match_kind": f"cross_line:{keyword}",
-                }
-            )
-            return matches
     return matches
 
 
@@ -102,16 +92,12 @@ def _scan_toc_from_page_texts(
     page_texts: dict[int, str],
     *,
     page_count: int,
-    cross_line_window: int,
 ) -> list[dict[str, Any]]:
     matches: list[dict[str, Any]] = []
     for page_num in range(1, page_count + 1):
         text = page_texts.get(page_num, "")
         lines = _meaningful_text_lines(text)
-        for match in _find_toc_text_matches(
-            lines,
-            cross_line_window=cross_line_window,
-        ):
+        for match in _find_toc_text_matches(lines):
             matches.append({"page": page_num, **match})
     return matches
 
@@ -206,7 +192,7 @@ def _filter_recurring_elements(
 @register_tool(
     name="find.toc_anchor_pages",
     description=(
-        "Scan full PDF page text for TOC keywords, filter recurring "
+        "Scan full PDF page text for whole-line TOC keywords, filter recurring "
         "navigation elements, then render candidate PNGs for VLM confirmation."
     ),
     preconditions=(has_page_labels, has_page_full_text),
@@ -215,13 +201,9 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
     start = time.monotonic()
     total_pages = ctx.blackboard.page_count
 
-    cross_line_window = int(
-        ctx.settings.get("toc_cross_line_window", TOC_CROSS_LINE_WINDOW)
-    )
     keyword_matches = _scan_toc_from_page_texts(
         ctx.blackboard.page_full_text_cache,
         page_count=total_pages,
-        cross_line_window=cross_line_window,
     )
     raw_hit_pages = {int(match["page"]) for match in keyword_matches}
 

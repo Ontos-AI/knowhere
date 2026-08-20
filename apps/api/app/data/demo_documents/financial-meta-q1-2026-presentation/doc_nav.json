@@ -2,141 +2,174 @@
   "version": "1.0",
   "file_name": "Meta Q1 2026 Earnings Presentation.pdf",
   "stats": {
-    "total_chunks": 55,
-    "text_chunks": 16,
-    "image_chunks": 18,
-    "table_chunks": 21,
-    "max_depth": 3
+    "total_chunks": 32,
+    "text_chunks": 0,
+    "image_chunks": 10,
+    "table_chunks": 4,
+    "page_chunks": 18,
+    "max_depth": 4
   },
   "sections": [
     {
-      "title": "Meta Earnings Presentation Q1 2026",
-      "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026",
+      "title": "Root",
+      "path": "Meta Q1 2026 Earnings Presentation.pdf/Root",
       "level": 1,
       "summary": "",
-      "chunk_count": 12,
+      "chunk_count": 19,
       "children": [
         {
-          "title": "Advertising Revenue by User Geography",
-          "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Advertising Revenue by User Geography",
+          "title": "Meta Earnings Presentation",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Meta Earnings Presentation",
           "level": 2,
-          "summary": "In Millions # Meta Earnings Presentation Q1 2026 <details>0 [images/image-1-Revenue Forecast by Region.jpg] <details> <summary>stacked bar chart</summary> [tables/table-0 Revenue by Region.html] </details> Our revenue by user geography is geographically apportioned based on our estimation of the geographic location of our users when they perform a revenue-generating activity. This allocation differs from our revenue disaggregated by geography disclosure in our condensed consolidated financial statements where revenue is geographically apportioned based on the addresses of our customers.",
+          "summary": "The image displays the title slide for Meta's Q1 2026 Earnings Presentation, featuring the company name and a link to their investor relations website.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Q1 2026",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Q1 2026",
+          "level": 2,
+          "summary": "This section is the title slide for Meta's Q1 2026 Earnings Presentation, indicating the start of a financial report for that quarter.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Advertising Revenue by User Geography",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Advertising Revenue by User Geography",
+          "level": 2,
+          "summary": "The page displays a stacked bar chart titled 'Advertising Revenue by User Geography' from Meta, showing revenue in millions across nine quarters from Q1'24 to Q1'26. The data is segmented into four geographic regions: US & Canada, Europe, Asia-Pacific, and Rest of World. Key standout values include the highest total revenue of $58,137 million in Q4'25 and the lowest of $35,635 million in Q1'24.",
           "chunk_count": 1,
           "children": []
         },
         {
           "title": "Revenue by User Geography",
-          "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Revenue by User Geography",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Revenue by User Geography",
           "level": 2,
-          "summary": "In Millions </details> <details>0 [images/image-2-Revenue Breakdown by Region and Quarter.jpg] <details> <summary>stacked bar chart</summary> [tables/table-1 Quarterly Revenue.html] </details> Our revenue by user geography is geographically apportioned based on our estimation of the geographic location of our users when they perform a revenue-generating activity. This allocation differs from our revenue disaggregated by geography disclosure in our condensed consolidated financial statements where revenue is geographically apportioned based on the addresses of our customers.",
+          "summary": "The page displays a stacked bar chart titled 'Revenue by User Geography' from Meta, showing financial data in millions. The chart covers nine quarters from Q1'24 to Q1'26 and breaks down total revenue into four geographic segments: US & Canada, Europe, Asia-Pacific, and Rest of World. Key standout values include the highest total revenue of $59,893 million in Q4'25 and the lowest of $36,455 million in Q1'24.",
           "chunk_count": 1,
           "children": []
         },
         {
           "title": "Segment Results",
-          "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Segment Results",
           "level": 2,
-          "summary": "In Millions, Except Percentages [tables/table-2 Meta Revenue Data.html] We report our financial results based on two reportable segments: Family of Apps (FoA) and Reality Labs (RL). FoA includes Facebook, Instagram, Messenger, WhatsApp, and other services. RL includes our virtual and augmented reality related consumer hardware, software, and content.",
-          "chunk_count": 9,
+          "summary": "This page displays Meta's financial Segment Results in a table format, covering quarterly data from Q1'24 through Q1'26. The top section details revenue breakdowns for Advertising, Other, Family of Apps Revenue, and Reality Labs Revenue, culminating in Total Revenue. The bottom section outlines operating income metrics, including Family of Apps Operating Income, Reality Labs Operating Loss, Total Income from Operations, and Operating Margin percentages.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Expenses as a Percentage of Revenue",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Expenses as a Percentage of Revenue",
+          "level": 2,
+          "summary": "The page displays a stacked bar chart titled 'Expenses as a Percentage of Revenue' for Meta, covering the period from Q1 2024 to Q1 2026. The chart breaks down expenses into four categories: Cost of Revenue, Research & Development, Marketing & Sales, and General & Administrative. Key standout values include R&D expenses peaking at 31% in Q1 2026 and G&A expenses dropping significantly to 2% in Q4 2024.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Effective Tax Rate",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Effective Tax Rate",
+          "level": 2,
+          "summary": "This page displays a financial table titled 'Effective Tax Rate' for Meta, covering quarterly data from Q1 2024 through Q1 2026. The table presents three key metrics: 'Income before income taxes', 'Provision (benefit) for income taxes', and the resulting 'Effective Tax Rate'. Notable figures include an effective tax rate of 87% in Q3 2025 and a negative rate of (23)% in Q1 2026. Footnotes explain that these anomalies are due to one-time charges related to the 'One Big Beautiful Bill Act' and benefits from U.S. Corporate Alternative Minimum Tax transitional relief.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Net Income",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Net Income",
+          "level": 2,
+          "summary": "The page displays a bar chart titled 'Net Income' for Meta, showing financial data in millions of dollars across nine quarters from Q1 2024 to Q1 2026. The chart highlights significant fluctuations, including a sharp dip in Q3 2025 and a peak in Q1 2026. Footnotes explain that the Q3 2025 low was due to a one-time tax charge related to the 'One Big Beautiful Bill Act', while the Q1 2026 high included a tax benefit under Treasury Notice 2026-7.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Diluted Earnings Per Share",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Diluted Earnings Per Share",
+          "level": 2,
+          "summary": "The page displays a bar chart titled 'Diluted Earnings Per Share' for Meta, covering the period from Q1 2024 to Q1 2026. The chart illustrates quarterly earnings per share (EPS), showing values ranging from $1.05 in Q3 2025 to a high of $10.44 in Q1 2026. Footnotes explain that the Q3 2025 figure includes a one-time tax charge related to the 'One Big Beautiful Bill Act', while the Q1 2026 figure includes a tax benefit under Treasury Notice 2026-7.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Capital Expenditures",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Capital Expenditures",
+          "level": 2,
+          "summary": "The page displays a bar chart titled 'Capital Expenditures' for the company Meta, with values presented in millions. The chart compares quarterly expenditures for Q1'25 ($13,692) and Q1'26 ($19,840) against annual projections for 2024 ($39,225) and 2025 ($72,215). A footnote clarifies that these figures relate to purchases of property, equipment, and principal payments on finance leases.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Family Daily Active People (DAP)",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Family Daily Active People (DAP)",
+          "level": 2,
+          "summary": "The page displays a bar chart titled 'Family Daily Active People (DAP)' showing data in billions from Q1'24 to Q1'26. The chart illustrates a steady growth trend, peaking at 3.58 billion in Q4'25 before a slight decline to 3.56 billion in Q1'26. Footnotes explain that the Q1'26 decline was due to internet disruptions in Iran and restrictions on WhatsApp in Russia. Additional text defines DAP as users of Facebook, Instagram, Messenger, or WhatsApp and details the methodology for counting unique individuals across these platforms.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Family Average Revenue per Person (ARPP)",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Family Average Revenue per Person (ARPP)",
+          "level": 2,
+          "summary": "The page displays a bar chart titled 'Family Average Revenue per Person (ARPP)' from Meta, illustrating revenue trends across nine quarters from Q1'24 to Q1'26. The chart shows fluctuating values, with the highest point at $16.56 in Q4'25 and the lowest at $11.20 in Q1'24. A footnote defines ARPP as FoA revenue divided by the average number of DAP during a quarter.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Ad Impressions Delivered YoY Percentage Change",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Ad Impressions Delivered YoY Percentage Change",
+          "level": 2,
+          "summary": "This page displays a series of bar charts titled 'Ad Impressions Delivered YoY Percentage Change' from Meta. The data is segmented by five geographic regions: Worldwide, US & Canada, Europe, Asia-Pacific, and Rest of World. Each chart illustrates the year-over-year percentage growth in ad impressions across five quarters, ranging from Q1'25 to Q1'26.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Average Price Per Ad YoY Percentage Change",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Average Price Per Ad YoY Percentage Change",
+          "level": 2,
+          "summary": "The page displays five bar charts illustrating the Year-over-Year (YoY) Percentage Change in Average Price Per Ad for Meta across different geographic regions: Worldwide, US & Canada, Europe, Asia-Pacific, and Rest of World. The data covers quarterly periods from Q1'25 through Q1'26. Standout values include a 20% increase in the Rest of World region during Q3'25 and a negative growth of (2)% in the Asia-Pacific region during Q4'25.",
+          "chunk_count": 1,
+          "children": []
+        },
+        {
+          "title": "Appendix",
+          "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Appendix",
+          "level": 2,
+          "summary": "This page serves as a section header for an appendix, indicated by the large text 'Appendix' on the left side. The bottom right corner features the logo of the organization Meta.",
+          "chunk_count": 5,
           "children": [
             {
-              "title": "Expenses as a Percentage of Revenue",
-              "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Expenses as a Percentage of Revenue",
+              "title": "Free Cash Flow Reconciliation",
+              "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Appendix/Free Cash Flow Reconciliation",
               "level": 3,
-              "summary": "## Segment Results <details>0 [images/image-3-Quarterly Percentage Breakdown.jpg] <details> <summary>stacked bar chart</summary> [tables/table-3 Segment Margins.html] </details> General & Administrative Marketing & Sales Research & Development Cost of Revenue",
+              "summary": "The page displays a financial table titled 'Free Cash Flow Reconciliation' for Meta, with values presented in millions. The table details the calculation of Free Cash Flow (FCF) by starting with net cash provided by operating activities and subtracting purchases of property and equipment as well as principal payments on finance leases. It covers quarterly data from Q1'24 through Q1'26, showing a trend where FCF fluctuates between approximately $8.5 billion and $15.5 billion over the period.",
               "chunk_count": 1,
               "children": []
             },
             {
-              "title": "Effective Tax Rate",
-              "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Effective Tax Rate",
+              "title": "Limitations of Key Metrics and Other Data",
+              "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Appendix/Limitations of Key Metrics and Other Data",
               "level": 3,
-              "summary": "The passage discusses the impact of one-time tax items on reported net income and effective tax rates. In Q3 2025, a $15.93 billion non-cash income tax charge related to the One Big Beautiful Bill Act increased the effective tax rate to 87%; excluding it, the rate would have been 14% and net income would have been $18.64 billion. In Q1 2026, an $8.03 billion tax benefit from U.S. Corporate Alternative Minimum Tax transitional relief reduced the effective tax rate; excluding it, the rate would have been 14% and net income would have been $18.74 billion. A bar chart showing effective tax rates by quarter is referenced.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "Diluted Earnings Per Share",
-              "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Diluted Earnings Per Share",
-              "level": 3,
-              "summary": "</details> <details>0 [images/image-5-Quarterly Financial Growth.jpg] <details> <summary>bar chart</summary> [tables/table-6 Quarterly Values.html] </details> (1) Net income includes a one-time, non-cash income tax charge to provision for income taxes of \\$15.93 billion accrued in the third quarter of 2025, related to the implementation of the One Big Beautiful Bill Act. Excluding this one-time tax charge, our third quarter 2025 diluted earnings per share would have increased by \\$6.20 to \\$7.25 compared to the reported diluted EPS of \\$1.05. (2) Net income includes an income tax benefit of \\$8.03 billion in the first quarter of 2026 related to the U.S. Corporate Alternative Minimum Tax transitional relief under Treasury Notice 2026-7. Excluding this tax benefit, diluted EPS would have been \\$7.31, lower by \\$3.13, compared to the reported diluted EPS of \\$10.44.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "Capital Expenditures",
-              "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Capital Expenditures",
-              "level": 3,
-              "summary": "In Millions </details> <details>0 [images/image-6-Financial Growth Projection.jpg] <details> <summary>bar chart</summary> [tables/table-7 Financial Data.html] </details> Capital expenditures for periods presented were related to purchases of property and equipment and principal payments on finance leases.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "Family Daily Active People (DAP)",
-              "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Family Daily Active People (DAP)",
-              "level": 3,
-              "summary": "The passage discusses a slight quarter-over-quarter decline in Daily Active People (DAP) in Q1 2026, attributed to internet disruptions in Iran and a restriction on WhatsApp access in Russia. DAP is defined as registered and logged-in users of Facebook, Instagram, Messenger, and/or WhatsApp who visit at least one of these products daily. The calculation involves complex techniques and machine learning models to estimate unique individuals, with inherent margin of error.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "Family Average Revenue per Person (ARPP)",
-              "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Family Average Revenue per Person (ARPP)",
-              "level": 3,
-              "summary": "</details> <details>0 [images/image-8-Quarterly Financial Data.jpg] <details> <summary>bar chart</summary> [tables/table-9 Quarterly Values.html] </details> We define average revenue per person (ARPP) as our FoA revenue during a given quarter, divided by the average of the number of DAP at the beginning and end of the quarter.",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "Ad Impressions Delivered YoY Percentage Change",
-              "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Ad Impressions Delivered YoY Percentage Change",
-              "level": 3,
-              "summary": "</details> <details>0 [images/image-9-Quarterly Growth Trend.jpg] <details> <summary>bar chart</summary> [tables/table-10 Quarterly Values.html] </details> Worldwide </details> <details>0 [images/image-10-Quarterly Percentage Growth.jpg] <details> <summary>bar chart</summary> [tables/table-11 Quarterly Values.html] </details> US & Canada </details> <details>0 [images/image-11-Quarterly Growth Trend.jpg] <details> <summary>bar chart</summary> [tables/table-12 Quarterly Values.html] </details> Europe </details> <details>0 [images/image-12-Quarterly Growth Trend.jpg] <details> <summary>bar chart</summary> [tables/table-13 Quarterly Values.html] </details> Asia-Pacific </details> <details>0 [images/image-13-Growth Trend 2025-2026.jpg] <details> <summary>bar chart</summary> [tables/table-14 Quarterly Values.html] </details> Rest of World",
-              "chunk_count": 1,
-              "children": []
-            },
-            {
-              "title": "Average Price Per Ad YoY Percentage Change",
-              "path": "Earnings-Presentation-Q1-2026.pdf/Meta Earnings Presentation Q1 2026/Segment Results/Average Price Per Ad YoY Percentage Change",
-              "level": 3,
-              "summary": "</details> <details>0 [images/image-14-Quarterly Percentage Data (2025-2026).jpg] <details> <summary>bar chart</summary> [tables/table-15 Quarterly Values.html] </details> Worldwide </details> <details>0 [images/image-15-Quarterly Percentage Data (2025-2026).jpg] <details> <summary>bar chart</summary> [tables/table-16 Quarterly Values.html] </details> US & Canada </details> <details>0 [images/image-16-Quarterly Percentage Trends.jpg] <details> <summary>bar chart</summary> [tables/table-17 Quarterly Values.html] </details> Europe </details> <details>0 [images/image-17-Quarterly Growth Trend.jpg] <details> <summary>bar chart</summary> [tables/table-18 Quarterly Values.html] </details> Asia-Pacific </details> <details>0 [images/image-18-Quarterly Percentage Data (2025-2026).jpg] <details> <summary>bar chart</summary> [tables/table-19 Quarterly Values.html] </details> Rest of World",
-              "chunk_count": 1,
-              "children": []
+              "summary": "",
+              "chunk_count": 3,
+              "children": [
+                {
+                  "title": "Family Metrics",
+                  "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Appendix/Limitations of Key Metrics and Other Data/Family Metrics",
+                  "level": 4,
+                  "summary": "This page, titled 'Limitations of Key Metrics and Other Data' from Meta, details the methodology and inherent challenges in calculating 'Family metrics,' which include Daily Active People (DAP) and Average Revenue Per Person (ARPP). It explains that these figures are estimates based on internal data for users across Facebook, Instagram, Messenger, and WhatsApp. The text highlights that due to complex attribution techniques and statistical variances, there is an estimated error margin of approximately 3% for worldwide DAP.",
+                  "chunk_count": 1,
+                  "children": []
+                },
+                {
+                  "title": "User Geography",
+                  "path": "Meta Q1 2026 Earnings Presentation.pdf/Root/Appendix/Limitations of Key Metrics and Other Data/User Geography",
+                  "level": 4,
+                  "summary": "This section explains that estimates for revenue by user location and ad impressions are affected by data limitations in measuring user geography. It states that user location is estimated based on factors like IP address and self-disclosed location, which may not always reflect the actual location (e.g., due to proxy servers).",
+                  "chunk_count": 2,
+                  "children": []
+                }
+              ]
             }
           ]
-        }
-      ]
-    },
-    {
-      "title": "Appendix",
-      "path": "Earnings-Presentation-Q1-2026.pdf/Appendix",
-      "level": 1,
-      "summary": "",
-      "chunk_count": 4,
-      "children": [
-        {
-          "title": "Free Cash Flow Reconciliation",
-          "path": "Earnings-Presentation-Q1-2026.pdf/Appendix/Free Cash Flow Reconciliation",
-          "level": 2,
-          "summary": "In Millions [tables/table-20 Free Cash Flow.html] Free cash flow (FCF) is a non-GAAP financial measure that has limitations as an analytical tool, and you should not consider it in isolation or as a substitute for analysis of other GAAP financial measures, such as net cash provided by operating activities. FCF is not intended to represent our residual cash flow available for discretionary expenses. Some of the limitations of FCF are: (i) FCF does not reflect our future contractual commitments, and (ii) other companies in our industry present similarly titled measures differently than we do, limiting their usefulness as comparative measures.",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Limitations of Key Metrics and Other Data",
-          "path": "Earnings-Presentation-Q1-2026.pdf/Appendix/Limitations of Key Metrics and Other Data",
-          "level": 2,
-          "summary": "The text describes how Family Metrics, including daily active people (DAP) and average revenue per person (ARPP), are calculated using internal data from Facebook, Instagram, Messenger, and WhatsApp. It highlights challenges in measuring unique users across multiple products, reliance on complex algorithms and machine learning to attribute accounts to individuals, and inherent statistical uncertainties. The estimated error margin is about 3% of worldwide DAP, but actual numbers may vary significantly.",
-          "chunk_count": 1,
-          "children": []
-        },
-        {
-          "title": "Limitations of Key Metrics and Other Data_2",
-          "path": "Earnings-Presentation-Q1-2026.pdf/Appendix/Limitations of Key Metrics and Other Data_2",
-          "level": 2,
-          "summary": "The passage describes the methodology for estimating Daily Active People (DAP) using machine learning models, data signals, and user surveys. It highlights challenges like limited data for encrypted products (e.g., WhatsApp) and reliance on IP addresses and device info. It also covers the estimation of violating accounts (bots/spam), which is difficult at scale, and notes a methodology update in Q4 2025 that increased the estimated percentage of violating accounts to less than 5%. Additionally, it discusses limitations in measuring user geography due to factors like proxy servers.",
-          "chunk_count": 1,
-          "children": []
         }
       ]
     }
@@ -144,162 +177,62 @@
   "resources": {
     "images": [
       {
-        "path": "images/image-1-Revenue Forecast by Region.jpg",
-        "summary": "image-1 Q1'24: $35,635 (US & Canada: $15,451; Europe: $8,327; Asia-Pacific: $7,338; Rest of World: $4,519) Q2'24: $38,329 (US & Canada: $16,593; Europe: $9,135; Asia-Pacific: $7,721; Rest of World: $4,880) Q3'24: $39,885 (US & Canada: $17,389; Europe: $9,358; Asia-Pacific: $8,050; Rest of World: $5,088) Q4'24: $46,783 (US & Canada: $20,982; Europe: $11,154; Asia-Pacific: $9,012; Rest of World: $5,635) Q1'25:"
+        "path": "images/image_page_2_figure_1.png",
+        "summary": "Advertising Revenue by User Geography [images/image_page_2_figure_1.png]"
       },
       {
-        "path": "images/image-2-Revenue Breakdown by Region and Quarter.jpg",
-        "summary": "image-2 Chart Title: Not visible (Stacked Bar Chart) Time Range: Q1'24 to Q1'26 Legend Categories: - US & Canada (Darkest Blue) - Europe (Medium Blue-Grey) - Asia-Pacific (Lighter Blue-Grey) - Rest of World (Lightest Grey) Data Points (Total Revenue per Quarter): - Q1'24: $36,455 - Q2'24: $39,071 - Q3'24: $40,589 - Q4'24: $48,385 - Q1'25: $42,314 - Q2'25: $47,516 - Q3'25: $51,242 - Q4'25: $59,893 - Q1'26: $56,311 Detailed Breakdown by Category (Bottom to Top): Q1'24:"
+        "path": "images/image_page_3_figure_1.png",
+        "summary": "Revenue by User Geography [images/image_page_3_figure_1.png]"
       },
       {
-        "path": "images/image-3-Quarterly Percentage Breakdown.jpg",
-        "summary": "image-3 Q1'24: 18%, 27%, 7%, 9% Q2'24: 19%, 27%, 7%, 9% Q3'24: 18%, 28%, 7%, 5% Q4'24: 18%, 25%, 7%, 2% Q1'25: 18%, 29%, 7%, 5% Q2'25: 18%, 27%, 6%, 6% Q3'25: 18%, 30%, 6%, 7% Q4'25: 18%, 29%, 6%, 6% Q1'26: 18%, 31%, 5%, 5%"
+        "path": "images/image_page_5_figure_1.png",
+        "summary": "Expenses as a Percentage of Revenue [images/image_page_5_figure_1.png]"
       },
       {
-        "path": "images/image-4-Quarterly Financial Performance.jpg",
-        "summary": "image-4 - Q1'24: $12,369 - Q2'24: $13,465 - Q3'24: $15,688 - Q4'24: $20,838 - Q1'25: $16,644 - Q2'25: $18,337 - Q3'25 (1): $2,709 - Q4'25: $22,768 - Q1'26 (2): $26,773"
+        "path": "images/image_page_7_figure_1.png",
+        "summary": "Net Income [images/image_page_7_figure_1.png]"
       },
       {
-        "path": "images/image-5-Quarterly Financial Growth.jpg",
-        "summary": "image-5 Chart Title: Quarterly Performance (Q1'24 - Q1'26) Data Points by Quarter: - Q1'24: $4.71 - Q2'24: $5.16 - Q3'24: $6.03 - Q4'24: $8.02 - Q1'25: $6.43 - Q2'25: $7.14 - Q3'25: $1.05 (marked with footnote 1) - Q4'25: $8.88 - Q1'26: $10.44 (marked with footnote 2) Key Trends: - Steady growth from Q1'24 to Q4'24 ($4.71 to $8.02). - A dip in Q1'25 followed by recovery in Q2'25. - Significant drop in Q3'25 ($1.05), the lowest value on the chart. - Strong"
+        "path": "images/image_page_8_figure_1.png",
+        "summary": "Diluted Earnings Per Share [images/image_page_8_figure_1.png]"
       },
       {
-        "path": "images/image-6-Financial Growth Projection.jpg",
-        "summary": "image-6 Quarterly Data: - Q1'25: $13,692 - Q1'26: $19,840 Annual Data: - 2024: $39,225 - 2025: $72,215"
+        "path": "images/image_page_9_figure_1.png",
+        "summary": "Capital Expenditures [images/image_page_9_figure_1.png]"
       },
       {
-        "path": "images/image-7-Quarterly Data Trend.jpg",
-        "summary": "image-7 Q1'24: 3.24 Q2'24: 3.27 Q3'24: 3.29 Q4'24: 3.35 Q1'25: 3.43 Q2'25: 3.48 Q3'25: 3.54 Q4'25: 3.58 Q1'26: 3.56"
+        "path": "images/image_page_10_figure_1.png",
+        "summary": "Family Daily Active People (DAP) [images/image_page_10_figure_1.png]"
       },
       {
-        "path": "images/image-8-Quarterly Financial Data.jpg",
-        "summary": "image-8 Q1'24: $11.20 Q2'24: $11.89 Q3'24: $12.29 Q4'24: $14.25 Q1'25: $12.36 Q2'25: $13.65 Q3'25: $14.46 Q4'25: $16.56 Q1'26: $15.66"
+        "path": "images/image_page_11_figure_1.png",
+        "summary": "Family Average Revenue per Person (ARPP) [images/image_page_11_figure_1.png]"
       },
       {
-        "path": "images/image-9-Quarterly Growth Trend.jpg",
-        "summary": "image-9 Q1'25: 5% Q2'25: 11% Q3'25: 14% Q4'25: 18% Q1'26: 19%"
+        "path": "images/image_page_12_figure_1.png",
+        "summary": "Ad Impressions Delivered YoY Percentage Change [images/image_page_12_figure_1.png]"
       },
       {
-        "path": "images/image-10-Quarterly Percentage Growth.jpg",
-        "summary": "image-10 Q1'25: 4% Q2'25: 9% Q3'25: 8% Q4'25: 13% Q1'26: 13%"
-      },
-      {
-        "path": "images/image-11-Quarterly Growth Trend.jpg",
-        "summary": "image-11 Chart Title: Quarterly Growth Trend (implied) X-Axis Labels: Q1'25, Q2'25, Q3'25, Q4'25, Q1'26 Data Points: - Q1'25: 5% - Q2'25: 6% - Q3'25: 9% - Q4'25: 13% - Q1'26: 17% Trend: Consistent upward growth over the five quarters."
-      },
-      {
-        "path": "images/image-12-Quarterly Growth Trend.jpg",
-        "summary": "image-12 - Q1'25: 9% - Q2'25: 16% - Q3'25: 23% - Q4'25: 24% - Q1'26: 23%"
-      },
-      {
-        "path": "images/image-13-Growth Trend 2025-2026.jpg",
-        "summary": "image-13 Chart Type: Vertical Bar Chart X-Axis Categories (Time Periods): Q1'25, Q2'25, Q3'25, Q4'25, Q1'26 Data Values: - Q1'25: 1% - Q2'25: 7% - Q3'25: 9% - Q4'25: 14% - Q1'26: 17% Trend: Consistent upward growth over the five quarters."
-      },
-      {
-        "path": "images/image-14-Quarterly Percentage Data (2025-2026).jpg",
-        "summary": "image-14 Chart Title: Not visible Data Points by Quarter: - Q1'25: 10% - Q2'25: 9% - Q3'25: 10% - Q4'25: 6% - Q1'26: 12%"
-      },
-      {
-        "path": "images/image-15-Quarterly Percentage Data (2025-2026).jpg",
-        "summary": "image-15 Chart Title: Not visible Data Points by Quarter: - Q1'25: 14% - Q2'25: 11% - Q3'25: 13% - Q4'25: 9% - Q1'26: 14% Key Trends: - Lowest value recorded in Q4'25 at 9%. - Highest values observed in Q1'25 and Q1'26 at 14%."
-      },
-      {
-        "path": "images/image-16-Quarterly Percentage Trends.jpg",
-        "summary": "image-16 Chart Title: Not visible X-Axis Labels (Time Periods): Q1'25, Q2'25, Q3'25, Q4'25, Q1'26 Data Points: - Q1'25: 9% - Q2'25: 17% - Q3'25: 19% - Q4'25: 12% - Q1'26: 19%"
-      },
-      {
-        "path": "images/image-17-Quarterly Growth Trend.jpg",
-        "summary": "image-17 Q1'25: 3% Q2'25: 2% Q3'25: 1% Q4'25: (2)% Q1'26: 5%"
-      },
-      {
-        "path": "images/image-18-Quarterly Percentage Data (2025-2026).jpg",
-        "summary": "image-18 Chart Title: Not visible X-Axis Labels: Q1'25, Q2'25, Q3'25, Q4'25, Q1'26 Data Points: - Q1'25: 17% - Q2'25: 15% - Q3'25: 20% - Q4'25: 15% - Q1'26: 18%"
+        "path": "images/image_page_13_figure_1.png",
+        "summary": "Average Price Per Ad YoY Percentage Change [images/image_page_13_figure_1.png]"
       }
     ],
     "tables": [
       {
-        "path": "tables/table-0 Revenue by Region.html",
-        "summary": "table-1 The table shows quarterly revenue data for US & Canada, Europe, Asia-Pacific, and Rest of World from Q1'24 to Q1'26, with totals."
+        "path": "tables/table_page_4_1.html",
+        "summary": "tables/table_page_4_1.html"
       },
       {
-        "path": "tables/table-1 Quarterly Revenue.html",
-        "summary": "table-2 The table shows quarterly revenue from Q1'24 to Q1'26 across US & Canada, Europe, Asia-Pacific, and Rest of World, with totals increasing over time."
+        "path": "tables/table_page_4_2.html",
+        "summary": "tables/table_page_4_2.html"
       },
       {
-        "path": "tables/table-2 Meta Revenue Data.html",
-        "summary": "table-3 The table shows Meta's quarterly revenue from Q1'24 to Q1'26, including Advertising, Other, Family of Apps, Reality Labs, and total revenue, along with operating income and margins."
+        "path": "tables/table_page_6_1.html",
+        "summary": "tables/table_page_6_1.html"
       },
       {
-        "path": "tables/table-3 Segment Margins.html",
-        "summary": "table-4 The table shows quarterly margins for bottom and top segments from Q1'24 to Q1'26. Bottom segment stays at 18-19%, while top segment fluctuates between 25-31%."
-      },
-      {
-        "path": "tables/table-4 Quarterly Tax Data.html",
-        "summary": "table-5 The table shows quarterly income before taxes, provision for income taxes, and effective tax rates from Q1'24 to Q1'26, with notable spikes in Q3'25 and negative rate in Q1'26."
-      },
-      {
-        "path": "tables/table-5 Quarterly Values.html",
-        "summary": "table-6 The table shows quarterly values from Q1'24 to Q1'26, with figures ranging from $2,709 to $26,773, peaking in Q1'26."
-      },
-      {
-        "path": "tables/table-6 Quarterly Values.html",
-        "summary": "table-7 The table shows quarterly values from Q1'24 to Q1'26, with figures ranging from $1.05 to $10.44, indicating an overall upward trend."
-      },
-      {
-        "path": "tables/table-7 Financial Data.html",
-        "summary": "table-8 The table shows financial values across different periods: Quarterly $13,692, Q1'26 $19,840, 2024 $39,225, and Annual $72,215."
-      },
-      {
-        "path": "tables/table-8 Quarterly Values.html",
-        "summary": "table-9 The table shows quarterly values from Q1'24 to Q1'26, increasing from 3.24 to 3.58, with a slight dip to 3.56 in Q1'26."
-      },
-      {
-        "path": "tables/table-9 Quarterly Values.html",
-        "summary": "table-10 The table shows quarterly values from Q1'24 to Q1'26, starting at $11.20 and ending at $15.66, with a peak of $16.56 in Q4'25."
-      },
-      {
-        "path": "tables/table-10 Quarterly Values.html",
-        "summary": "table-11 The table shows quarterly percentage values from Q1'25 (5%) to Q1'26 (19%), with a steady increase over five quarters."
-      },
-      {
-        "path": "tables/table-11 Quarterly Values.html",
-        "summary": "table-12 The table shows quarterly percentage values from Q1'25 to Q1'26, starting at 4%, rising to 9%, 8%, 13%, and ending at 13%."
-      },
-      {
-        "path": "tables/table-12 Quarterly Values.html",
-        "summary": "table-13 The table shows quarterly percentage values from Q1'25 (5%) to Q1'26 (17%), with a steady increase over five quarters."
-      },
-      {
-        "path": "tables/table-13 Quarterly Values.html",
-        "summary": "table-14 The table shows quarterly percentage values from Q1'25 to Q1'26, starting at 9% and rising to a peak of 24% in Q4'25, then slightly decreasing to 23% in Q1'26."
-      },
-      {
-        "path": "tables/table-14 Quarterly Values.html",
-        "summary": "table-15 The table shows quarterly percentage values from Q1'25 (1%) to Q1'26 (17%), with a steady increase over five quarters."
-      },
-      {
-        "path": "tables/table-15 Quarterly Values.html",
-        "summary": "table-16 The table shows quarterly percentage values from Q1'25 to Q1'26, ranging from 6% to 12%, with Q4'25 having the lowest value."
-      },
-      {
-        "path": "tables/table-16 Quarterly Values.html",
-        "summary": "table-17 The table shows quarterly percentage values from Q1'25 to Q1'26, with values ranging from 9% to 14%."
-      },
-      {
-        "path": "tables/table-17 Quarterly Values.html",
-        "summary": "table-18 The table shows quarterly percentage values from Q1'25 to Q1'26, ranging from 9% to 19%, with the highest in Q3'25 and Q1'26."
-      },
-      {
-        "path": "tables/table-18 Quarterly Values.html",
-        "summary": "table-19 The table shows quarterly percentage values from Q1'25 to Q1'26, starting at 3%, decreasing to -2% in Q4'25, then rising to 5%."
-      },
-      {
-        "path": "tables/table-19 Quarterly Values.html",
-        "summary": "table-20 The table shows quarterly percentage values from Q1'25 to Q1'26, ranging from 15% to 20%, with Q3'25 having the highest value at 20%."
-      },
-      {
-        "path": "tables/table-20 Free Cash Flow.html",
-        "summary": "table-21 The table shows net cash from operations, property purchases, finance lease payments, and free cash flow from Q1 2024 to Q1 2026, with free cash flow ranging from $8.5B to $15.5B."
+        "path": "tables/table_page_15_1.html",
+        "summary": "tables/table_page_15_1.html"
       }
     ]
   }

@@ -1,4 +1,4 @@
-"""Deterministic bootstrap steps for the document profile agent."""
+"""Deterministic bootstrap steps for the document profile workflow."""
 
 from app.services.document_agent.bootstrap.aggregate_stats import aggregate_doc_stats
 from app.services.document_agent.bootstrap.classify import classify_page_kinds

@@ -114,7 +114,7 @@ class ParseRunRecorder:
                 self._profile_plan_row.doc_profile = doc_profile
             self._db.flush()
         except Exception as exc:
-            logger.debug(f"parse agent doc profile persist failed: {exc}")
+            logger.debug(f"document profile persist failed: {exc}")
             try:
                 if self._profile_plan_row is not None:
                     self._db.expunge(self._profile_plan_row)
@@ -140,7 +140,7 @@ class ParseRunRecorder:
                 "toc_pages": list(toc_result.toc_pages),
                 "hierarchies": self._anatomy.toc_hierarchies,
                 "evidence": [item.to_dict() for item in toc_result.evidence],
-                "source": "pdf_vlm" if toc_result.method != "none" else "none",
+                "source": toc_result.profile_source,
                 "method": toc_result.method,
                 "notes": toc_result.notes,
                 "attempted": bool(
@@ -206,7 +206,7 @@ class ParseRunRecorder:
                 encoding="utf-8",
             )
         except Exception as exc:
-            logger.debug(f"parse agent trace json write failed: {exc}")
+            logger.debug(f"document profile trace json write failed: {exc}")
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -270,7 +270,7 @@ class ParseRunRecorder:
                     self._profile_plan_row.global_signals = self._anatomy.global_signals
             self._db.flush()
         except Exception as exc:
-            logger.debug(f"parse agent trace flush failed: {exc}")
+            logger.debug(f"document profile trace flush failed: {exc}")
             try:
                 self._db.rollback()
             except Exception:
