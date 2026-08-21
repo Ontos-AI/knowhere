@@ -10,6 +10,7 @@ from typing import Any
 
 from app.services.document_agent.manifest import TocAnchorPage, ToolContext, ToolResult
 from app.services.document_agent.registry import has_page_full_text, has_page_labels, register_tool
+from app.services.document_parser.structure.body_boundary import normalize_match_text
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
     worker,
@@ -17,7 +18,7 @@ from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
 from loguru import logger
 
 # CJK and English TOC keywords used for first-pass anchor detection.
-TOC_KEYWORDS = frozenset({"目录", "目次", "contents", "tableofcontents"})
+TOC_KEYWORDS = frozenset({"目录", "目次", "contents", "table of contents"})
 
 # If a TOC keyword fingerprint appears on more than this fraction of total
 # pages, it is treated as a recurring navigation element (header/footer link)
@@ -33,9 +34,19 @@ MAX_ANCHOR_CANDIDATES = 30
 _MAX_KEYWORD_SPLIT_LINES = max(len(keyword) for keyword in TOC_KEYWORDS)
 
 
-def _normalize_for_toc(text: str) -> str:
-    """Collapse whitespace for keyword matching."""
-    return text.replace(" ", "").replace("\u3000", "").lower()
+def _match_toc_keyword_parts(parts: list[str]) -> str | None:
+    candidates = {normalize_match_text(parts[0])} if parts else set()
+    for part in parts[1:]:
+        next_candidates: set[str] = set()
+        for prefix in candidates:
+            for separator in ("", " "):
+                candidate = normalize_match_text(f"{prefix}{separator}{part}")
+                if any(keyword.startswith(candidate) for keyword in TOC_KEYWORDS):
+                    next_candidates.add(candidate)
+        candidates = next_candidates
+        if not candidates:
+            return None
+    return next((candidate for candidate in candidates if candidate in TOC_KEYWORDS), None)
 
 
 def _meaningful_text_lines(text: str) -> list[str]:
@@ -57,9 +68,10 @@ def _merge_keyword_split_lines(
         upper = min(_MAX_KEYWORD_SPLIT_LINES, len(lines) - index)
         for part_count in range(upper, 1, -1):
             parts = [lines[index + offset].strip() for offset in range(part_count)]
-            if _normalize_for_toc("".join(parts)) not in TOC_KEYWORDS:
+            keyword = _match_toc_keyword_parts(parts)
+            if keyword is None:
                 continue
-            joined = ("".join(parts), index, index + part_count - 1)
+            joined = (keyword, index, index + part_count - 1)
             break
         if joined is not None:
             merged.append(joined)
@@ -74,7 +86,7 @@ def _find_toc_text_matches(lines: list[str]) -> list[dict[str, Any]]:
     """Match TOC keywords only as whole lines after keyword-split repair."""
     matches: list[dict[str, Any]] = []
     for raw_line, start_idx, end_idx in _merge_keyword_split_lines(lines):
-        keyword = _normalize_for_toc(raw_line)
+        keyword = normalize_match_text(raw_line)
         if keyword not in TOC_KEYWORDS:
             continue
         matches.append(

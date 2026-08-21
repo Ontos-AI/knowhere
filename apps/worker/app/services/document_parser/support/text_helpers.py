@@ -8,14 +8,6 @@ _CN_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
 EN_START_LIMIT = 15
 CN_RATIO_THRESHOLD = 0.3
 
-
-def normalize_md(text: str) -> str:
-    """Normalize markdown string for comparison."""
-    text = re.sub(r"^\s*#+\s*", "", text)
-    text = re.sub(r"\s+", "", text)
-    return text.lower()
-
-
 def truncate_text(text: str, start_limit: int, end_limit: int) -> str:
     """Truncate text by raw character count, keeping start and end parts."""
     text = str(text)

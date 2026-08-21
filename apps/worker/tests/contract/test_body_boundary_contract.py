@@ -14,6 +14,7 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 from app.services.document_parser.structure.body_boundary import (
     extract_level1_titles,
     find_first_body_boundary,
+    normalize_match_text,
 )
 from app.services.document_parser.structure.layout_parser import (
     _supports_multi_toc_zones,
@@ -38,6 +39,13 @@ def test_extract_level1_titles_reads_toc_with_level_not_toc_tree() -> None:
         ]
     )
     assert titles == ["Overview", "Requirements"]
+
+
+def test_normalize_match_text_uses_cjk_aware_spacing_and_lowercase() -> None:
+    assert normalize_match_text("附录 A OVERVIEW") == "附录a overview"
+    assert normalize_match_text("Public\n  Domain\tManual") == "public domain manual"
+    assert normalize_match_text("目\n录") == "目录"
+    assert normalize_match_text("Chapter 1 概述") == "chapter 1概述"
 
 
 def test_extract_level1_titles_ignores_empty_or_non_list_payloads() -> None:

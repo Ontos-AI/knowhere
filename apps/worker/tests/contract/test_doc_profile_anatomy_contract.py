@@ -100,7 +100,7 @@ def test_toc_anchor_text_scan_whole_line_keyword_and_split_repair() -> None:
 
     assert late_matches[0]["line_index"] == 60
     assert late_matches[0]["match_kind"] == "keyword:目录"
-    assert split_matches[0]["match_kind"] == "keyword:tableofcontents"
+    assert split_matches[0]["match_kind"] == "keyword:table of contents"
     assert split_matches[0]["line_index"] == 0
     assert split_matches[0]["line_end_index"] == 2
     assert false_matches == []

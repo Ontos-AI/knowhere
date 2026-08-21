@@ -2,7 +2,7 @@
 
 Deterministic range assembly from PROFILE ``match_overrides``. Leaf starts
 come only from those overrides. Null-page parents are located upstream via
-compact-strict (cross-line) + optional VLM, then resolved here including
+normalized-strict text matching + optional VLM, then resolved here including
 parent self-only spans for interstitial pages. Parents without an override
 may still inherit start from the earliest located descendant leaf.
 """
@@ -15,7 +15,8 @@ from typing import Any, Literal
 
 from app.services.document_parser.structure.body_boundary import (
     clean_toc_title,
-    normalize_heading_text,
+    normalize_heading_label,
+    normalize_match_text,
 )
 
 TitleMatchSource = Literal[
@@ -133,26 +134,26 @@ class ResolvedHierarchyRange:
     evidence: dict[str, Any] = field(default_factory=dict)
 
 
-def locate_title_compact_strict(
+def locate_title_normalized_strict(
     title: str,
     *,
     scope_pages: list[int],
     page_texts: dict[int, str],
 ) -> TitleMatch | None:
-    """Locate *title* after cross-line compact cleanup; accept only a unique page.
+    """Locate *title* after unified text normalization; accept one unique page.
 
-    Pipeline: compact(page text) → contiguous strict match of compact(title) →
-    accept iff exactly one page in ``scope_pages`` hits. Handles PyMuPDF line
-    splits; does not use token/normalized weak matching.
+    Query and page text both preserve one space between non-CJK words while
+    removing whitespace adjacent to CJK. Accept iff exactly one page in
+    ``scope_pages`` hits.
     """
-    needle = _compact_match_text(clean_toc_title(title) or title)
+    needle = normalize_match_text(clean_toc_title(title) or title)
     if not needle or not scope_pages:
         return None
 
     hit_pages: list[int] = []
     matched_preview = ""
     for page in scope_pages:
-        haystack = _compact_match_text(page_texts.get(page, ""))
+        haystack = normalize_match_text(page_texts.get(page, ""))
         if not haystack or needle not in haystack:
             continue
         hit_pages.append(page)
@@ -169,7 +170,7 @@ def locate_title_compact_strict(
         source="anchored",
         matched_line=matched_preview,
         candidates=[page],
-        evidence={"accept": "compact_strict_unique"},
+        evidence={"accept": "normalized_strict_unique"},
     )
 
 
@@ -403,7 +404,7 @@ def _locate_match_for_node(
     if match is not None:
         return match
     if node.children:
-        # Parent active locate is upstream (compact-strict / visual).
+        # Parent active locate is upstream (normalized-strict / visual).
         return _infer_start_from_descendant_overrides(
             node, parent_titles=path_titles[:-1], match_overrides=match_overrides,
             scope_pages=scope_pages,
@@ -550,10 +551,6 @@ def _allowed_pages_between(start: int, end: int, allowed_pages: set[int]) -> lis
     return [page for page in range(start, end + 1) if page in allowed_pages]
 
 
-def _compact_match_text(text: str) -> str:
-    return re.sub(r"\s+", "", normalize_heading_text(text)).casefold()
-
-
 def _extract_flat_entries(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return [
@@ -617,8 +614,8 @@ def _entries_to_tree(entries: list[dict[str, Any]]) -> list[TitleNode]:
 
     for entry in entries:
         # Keep original TOC heading (incl. numbering). Prefix stripping belongs
-        # only in text/compact match helpers used for null-page parents.
-        title = normalize_heading_text(str(entry.get("heading") or ""))
+        # only in normalized text-match helpers used for null-page parents.
+        title = normalize_heading_label(str(entry.get("heading") or ""))
         level = _safe_int(entry.get("level")) or 1
         if not title or len(title) < 2:
             continue

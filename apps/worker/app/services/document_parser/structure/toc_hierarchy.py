@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pandas as pd
+from app.services.document_parser.structure.body_boundary import normalize_match_text
 from app.services.document_parser.structure.layout_parser import hiearchy_llm
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.document_parser.tables.table_text_parser import df2md
-from app.services.document_parser.support.text_helpers import normalize_md
 from loguru import logger
 from pandas import Index
 
@@ -109,14 +109,14 @@ def build_toc_hierarchy_payload(
 def eval_toc_levels(
     toc_lines: list[str], model_name: str | None = None, max_depth: int = 6
 ) -> tuple[str, dict]:
-    toc_title_keywords = {"目录", "目次", "tableofcontents", "contents"}
+    toc_title_keywords = {"目录", "目次", "table of contents", "contents"}
     valid_data = []
 
     for index, line in enumerate(toc_lines):
         heading = line.strip()
         if not heading:
             continue
-        if normalize_md(heading) in toc_title_keywords:
+        if normalize_match_text(heading.lstrip("#").strip()) in toc_title_keywords:
             logger.debug(
                 f"eval_toc_levels: skipping TOC keyword title line id={index}: {heading[:60]}"
             )

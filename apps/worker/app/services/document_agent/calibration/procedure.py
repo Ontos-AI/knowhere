@@ -142,7 +142,7 @@ def _entry_titles_for_regime(
 ) -> set[str] | None:
     """Titles belonging to this regime; None means fall back to page_kind match."""
     from app.services.document_parser.structure.body_boundary import (
-        normalize_heading_text,
+        normalize_heading_label,
     )
 
     kind = normalize_kind(regime.kind)
@@ -160,7 +160,7 @@ def _entry_titles_for_regime(
         if idx < 0 or idx >= len(entries):
             continue
         heading = entries[idx].get("heading")
-        title = normalize_heading_text(str(heading or ""))
+        title = normalize_heading_label(str(heading or ""))
         if title:
             titles.add(title)
     return titles or None
@@ -445,10 +445,10 @@ def _annotate_regimes_from_anchor(
                 continue
             heading = str(entries[idx].get("heading") or "")
             from app.services.document_parser.structure.body_boundary import (
-                normalize_heading_text,
+                normalize_heading_label,
             )
 
-            title = normalize_heading_text(heading)
+            title = normalize_heading_label(heading)
             path = path_by_title.get(title)
             if path is not None and path in (anchor.match_overrides or {}):
                 ok_indices.append(idx)

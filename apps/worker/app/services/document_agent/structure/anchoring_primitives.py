@@ -15,7 +15,7 @@ from app.services.document_agent.structure.hierarchy_locator import (
     first_leaf_start_under,
     iter_leaf_title_nodes,
     last_leaf_start_under,
-    locate_title_compact_strict,
+    locate_title_normalized_strict,
 )
 from app.services.document_agent.structure.section_page_verify import (
     verify_section_page_choice,
@@ -334,7 +334,7 @@ def _resolve_null_parent_with_sibling_window(
     report: list[dict[str, Any]],
 ) -> None:
     scope_pages = [page for page in body_pages if left <= page <= right]
-    match = locate_title_compact_strict(
+    match = locate_title_normalized_strict(
         title,
         scope_pages=scope_pages,
         page_texts=page_texts,
@@ -383,7 +383,7 @@ def _resolve_null_parent_first_sibling(
     )
 
     scope_pages = [page for page in body_pages if left <= page <= right]
-    match = locate_title_compact_strict(
+    match = locate_title_normalized_strict(
         title,
         scope_pages=scope_pages,
         page_texts=page_texts,

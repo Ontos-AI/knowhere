@@ -9,10 +9,7 @@ from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
     worker,
 )
-
-
-def normalize_spaces(text: str) -> str:
-    return " ".join((text or "").split())
+from app.services.document_parser.structure.body_boundary import normalize_heading_label
 
 
 @worker
@@ -54,7 +51,8 @@ def read_page_texts(
 
 
 def meaningful_lines(text: str) -> list[str]:
-    return [normalize_spaces(line) for line in text.splitlines() if normalize_spaces(line)]
+    lines = [normalize_heading_label(line) for line in text.splitlines()]
+    return [line for line in lines if line]
 
 
 def top_lines(text: str, *, max_lines: int = 20) -> list[str]:

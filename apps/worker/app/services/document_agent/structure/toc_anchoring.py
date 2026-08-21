@@ -25,8 +25,8 @@ from app.services.document_agent.structure.hierarchy_locator import (
     collapse_intermediate_single_child_chains,
     extract_toc_nodes,
     iter_leaf_title_nodes,
-    normalize_heading_text,
 )
+from app.services.document_parser.structure.body_boundary import normalize_heading_label
 
 _LOG_PREFIX = "[profile.toc_anchoring]"
 PENDING_TOC_CALIBRATION_CONCURRENCY = 10
@@ -253,7 +253,7 @@ def outline_physical_overrides(
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
-            title = normalize_heading_text(str(entry.get("heading") or ""))
+            title = normalize_heading_label(str(entry.get("heading") or ""))
             if not title or len(title) < 2:
                 continue
             try:

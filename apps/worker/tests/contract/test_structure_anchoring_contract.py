@@ -93,7 +93,7 @@ def test_null_page_parent_skipped_without_right_anchor() -> None:
     assert report[0]["result"] == "skipped_no_right"
 
 
-def test_null_page_parent_located_via_compact_text() -> None:
+def test_null_page_parent_located_via_normalized_text() -> None:
     child = TitleNode(title="1.1 Detail", level=2, printed_page=5, children=[])
     parent = TitleNode(
         title="1 Overview",
@@ -122,6 +122,23 @@ def test_null_page_parent_located_via_compact_text() -> None:
     assert report[0]["result"] != "unresolved"
     assert report[0]["page"] == 5
     assert report[0]["window"] == [1, 5]
+
+
+def test_normalized_title_match_preserves_english_word_boundary() -> None:
+    from app.services.document_agent.structure.hierarchy_locator import (
+        locate_title_normalized_strict,
+    )
+
+    match = locate_title_normalized_strict(
+        "附录 A OVERVIEW",
+        scope_pages=[7],
+        page_texts={7: "附录\nA   OVERVIEW"},
+    )
+
+    assert match is not None
+    assert match.page == 7
+    assert match.matched_line == "附录a overview"
+    assert match.evidence["accept"] == "normalized_strict_unique"
 
 
 def test_first_sibling_null_parent_uses_scan_forward_not_wide_rtl() -> None:

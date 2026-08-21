@@ -12,8 +12,9 @@ import re
 
 import gevent
 import pandas as pd
+from app.services.document_parser.structure.body_boundary import normalize_match_text
 from app.services.document_parser.structure.toc_hierarchy import eval_toc_levels
-from app.services.document_parser.support.text_helpers import normalize_md, truncate_text_by_tokens
+from app.services.document_parser.support.text_helpers import truncate_text_by_tokens
 from app.services.document_parser.support.stage_profiler import stage_timer
 from app.services.document_parser.tables.table_text_parser import df2md
 from gevent.pool import Pool as GeventPool
@@ -111,12 +112,12 @@ def detect_toc_candidates(md_lines: list, limit_: int = 100) -> tuple:
         - area_ranges: List[(start_idx, end_idx)] - full raw md_lines ranges for later filtering
     """
 
-    toc_keywords = {"目录", "目次", "tableofcontents", "contents"}
+    toc_keywords = {"目录", "目次", "table of contents", "contents"}
 
     # Step 1: find all TOC keywords
     start_indices = []
     for i, line in enumerate(md_lines):
-        if normalize_md(line) in toc_keywords:
+        if normalize_match_text(line.lstrip("#").strip()) in toc_keywords:
             start_indices.append(i)
 
     # Step 2: if no TOC keywords found, use the first line as the candidate area
