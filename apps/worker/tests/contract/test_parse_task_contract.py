@@ -1029,7 +1029,14 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
             paths.append(str(shard_path))
         return paths, None
 
-    def _fake_parse_via_full(shard_pdf, shard_filename, shard_out, s3_key=None):
+    def _fake_parse_via_full(
+        shard_pdf,
+        shard_filename,
+        shard_out,
+        s3_key=None,
+        job_id=None,
+        mineru_raw_suffix="",
+    ):
         parse_s3_keys.append(s3_key)
         shard_index = 0 if "shard0" in shard_filename else 1
         lines_by_shard = {

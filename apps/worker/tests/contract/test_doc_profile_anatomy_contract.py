@@ -1176,7 +1176,7 @@ def test_pdf_standard_single_pass_skips_markdown_toc_detection(
     output_dir.mkdir()
     calls: dict[str, object] = {}
 
-    def fake_parse_via_full(_pdf_path, _filename, out_dir, s3_key=None):
+    def fake_parse_via_full(_pdf_path, _filename, out_dir, s3_key=None, job_id=None, mineru_raw_suffix=""):
         calls["s3_key"] = s3_key
         Path(out_dir, "full.md").write_text("Contents\nBody\n", encoding="utf-8")
 
@@ -1212,7 +1212,7 @@ def test_pdf_shard_pipeline_accepts_single_shard_fast_path(
     output_dir.mkdir()
     calls: list[str] = []
 
-    def fake_parse_via_full(pdf_path, filename, out_dir, s3_key=None):
+    def fake_parse_via_full(pdf_path, filename, out_dir, s3_key=None, job_id=None, mineru_raw_suffix=""):
         calls.append(f"parse:{filename}:{s3_key}")
         Path(out_dir, "full.md").write_text("1. Introduction\nBody\n", encoding="utf-8")
 
@@ -1287,7 +1287,7 @@ def test_pdf_shard_pipeline_does_not_use_markdown_toc_detector(
     output_dir.mkdir()
     heading_contexts: list[object] = []
 
-    def fake_parse_via_full(_pdf_path, _filename, out_dir, s3_key=None):
+    def fake_parse_via_full(_pdf_path, _filename, out_dir, s3_key=None, job_id=None, mineru_raw_suffix=""):
         Path(out_dir, "full.md").write_text(
             "Contents\n1 Introduction .... 2\n1 Introduction\nBody\n",
             encoding="utf-8",
