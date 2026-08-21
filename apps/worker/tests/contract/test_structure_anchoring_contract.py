@@ -74,14 +74,19 @@ def test_prune_out_of_scope_nodes_removes_overflow_leaves() -> None:
     assert [n.title for n in pruned] == ["A"]
 
 
-def test_null_page_parent_skipped_without_right_anchor() -> None:
+def test_null_page_nodes_unresolved_without_ctx() -> None:
+    """No ctx → no LLM/VLM and no text-unique fallback."""
+    from app.services.document_agent.structure.null_page_react import (
+        locate_null_page_node_overrides,
+    )
+
     parent = TitleNode(
         title="Chapter",
         level=1,
         printed_page=None,
         children=[TitleNode(title="Orphan", level=2, printed_page=None, children=[])],
     )
-    overrides, report = anchoring.locate_null_page_parent_overrides(
+    overrides, report = locate_null_page_node_overrides(
         nodes=[parent],
         match_overrides={},
         page_texts={1: "Chapter\nHello"},
@@ -89,39 +94,100 @@ def test_null_page_parent_skipped_without_right_anchor() -> None:
         ctx=None,
     )
     assert overrides == {}
-    assert len(report) == 1
-    assert report[0]["result"] == "skipped_no_right"
+    assert len(report) == 2
+    assert {row["result"] for row in report} == {"unresolved_no_ctx"}
 
 
-def test_null_page_parent_located_via_normalized_text() -> None:
-    child = TitleNode(title="1.1 Detail", level=2, printed_page=5, children=[])
-    parent = TitleNode(
-        title="1 Overview",
-        level=1,
-        printed_page=None,
-        children=[child],
-    )
-    leaf_match = anchoring.bulk_offset_matches(
-        [(("1 Overview", "1.1 Detail"), child)],
+def test_null_page_leaf_kept_by_pre_react_prune() -> None:
+    """Printed unanchored leaves drop; null-page leaves survive until ReAct."""
+    nodes = [
+        _leaf("PrintedOk", 1),
+        _leaf("PrintedMiss", 10),
+        TitleNode(title="NullLeaf", level=1, printed_page=None, children=[]),
+    ]
+    overrides = anchoring.bulk_offset_matches(
+        [(("PrintedOk",), nodes[0])],
         offset=0,
     )
-    page_texts = {
-        4: "noise",
-        5: "1 Overview\n1.1 Detail\nbody",
-        6: "more",
-    }
-    overrides, report = anchoring.locate_null_page_parent_overrides(
-        nodes=[parent],
-        match_overrides=leaf_match,
-        page_texts=page_texts,
-        body_pages=[4, 5, 6],
-        ctx=None,
+    kept, removed = anchoring.prune_unanchored_toc_leaves(
+        nodes,
+        match_overrides=overrides,
+        keep_null_page_nodes=True,
     )
-    assert ("1 Overview",) in overrides
-    assert overrides[("1 Overview",)].page == 5
-    assert report[0]["result"] != "unresolved"
-    assert report[0]["page"] == 5
-    assert report[0]["window"] == [1, 5]
+    assert removed == 1
+    assert [n.title for n in kept] == ["PrintedOk", "NullLeaf"]
+
+
+def test_null_page_react_skips_later_siblings_after_failure() -> None:
+    from app.services.document_agent.structure import null_page_react as npr
+    from app.services.document_agent.structure.null_page_react import (
+        locate_null_page_node_overrides,
+    )
+
+    nodes = [
+        TitleNode(title="A", level=1, printed_page=None, children=[]),
+        TitleNode(title="B", level=1, printed_page=None, children=[]),
+    ]
+    ctx = _ctx()
+
+    def fail_a(**kwargs: Any) -> tuple[TitleMatch | None, list[dict[str, Any]], int, str]:
+        assert kwargs["title"] == "A"
+        return None, [{"loop": 1, "observation": "react_give_up"}], 0, "react_give_up"
+
+    with patch.object(npr, "_locate_with_react", side_effect=fail_a):
+        overrides, report = locate_null_page_node_overrides(
+            nodes=nodes,
+            match_overrides={},
+            page_texts={},
+            body_pages=[1, 2, 3, 4, 5],
+            ctx=ctx,
+        )
+
+    assert overrides == {}
+    assert report[0]["result"] == "react_give_up"
+    assert report[1]["result"] == "skipped_after_sibling_failure"
+
+
+def test_null_page_react_hit_writes_override() -> None:
+    from app.services.document_agent.structure import null_page_react as npr
+    from app.services.document_agent.structure.null_page_react import (
+        locate_null_page_node_overrides,
+    )
+
+    leaf = TitleNode(title="Appendix B", level=1, printed_page=None, children=[])
+    ctx = _ctx()
+    match = TitleMatch(
+        page=12,
+        source="react_normalized_grep_vlm",
+        matched_line="Appendix B",
+        candidates=[12],
+        evidence={
+            "accept": "react_normalized_grep_vlm",
+            "null_page_react": True,
+            "normalized_query": "appendix b",
+        },
+    )
+
+    def fake_react(**kwargs: Any) -> tuple[TitleMatch | None, list[dict[str, Any]], int, str]:
+        assert kwargs["left"] == 1
+        assert kwargs["right"] == 20
+        return match, [{"loop": 1, "observation": "section_start_confirmed"}], 1, (
+            "react_normalized_grep_vlm"
+        )
+
+    with patch.object(npr, "_locate_with_react", side_effect=fake_react):
+        overrides, report = locate_null_page_node_overrides(
+            nodes=[leaf],
+            match_overrides={},
+            page_texts={},
+            body_pages=list(range(1, 21)),
+            ctx=ctx,
+        )
+
+    assert overrides[("Appendix B",)].page == 12
+    assert overrides[("Appendix B",)].source == "react_normalized_grep_vlm"
+    assert report[0]["page"] == 12
+    assert report[0]["result"] == "react_normalized_grep_vlm"
 
 
 def test_normalized_title_match_preserves_english_word_boundary() -> None:
@@ -139,133 +205,6 @@ def test_normalized_title_match_preserves_english_word_boundary() -> None:
     assert match.page == 7
     assert match.matched_line == "附录a overview"
     assert match.evidence["accept"] == "normalized_strict_unique"
-
-
-def test_first_sibling_null_parent_uses_scan_forward_not_wide_rtl() -> None:
-    """No left sibling: miss text → ``scan_title_forward`` within 2+4+6+10 budget."""
-    child = TitleNode(title="22.1 Intro", level=2, printed_page=278, children=[])
-    parent = TitleNode(
-        title="Chapter 22",
-        level=1,
-        printed_page=None,
-        children=[child],
-    )
-    leaf_match = {
-        ("Chapter 22", "22.1 Intro"): TitleMatch(
-            page=278,
-            source="test",
-            matched_line="",
-            candidates=[278],
-            evidence={},
-        )
-    }
-    body_pages = list(range(1, 301))
-    page_texts = {page: "noise" for page in body_pages}
-    ctx = _ctx()
-
-    scanned_starts: list[int] = []
-
-    def fake_scan(**kwargs: Any) -> Any:
-        from app.services.document_agent.calibration.scan import TitleScanResult
-
-        scanned_starts.append(int(kwargs["start_page"]))
-        assert int(kwargs["page_count"]) == 278
-        assert int(kwargs["start_page"]) == anchoring._first_sibling_null_parent_scan_start(
-            278
-        )
-        return TitleScanResult(
-            title=str(kwargs["title"]),
-            found=True,
-            found_page=270,
-            scanned_pages=list(range(int(kwargs["start_page"]), 271)),
-            next_start=271,
-        )
-
-    with patch(
-        "app.services.document_agent.calibration.scan.scan_title_forward",
-        side_effect=fake_scan,
-    ):
-        with patch.object(anchoring, "_visual_rtl_locate_parent") as rtl:
-            overrides, report = anchoring.locate_null_page_parent_overrides(
-                nodes=[parent],
-                match_overrides=leaf_match,
-                page_texts=page_texts,
-                body_pages=body_pages,
-                ctx=ctx,
-            )
-            rtl.assert_not_called()
-
-    assert scanned_starts == [anchoring._first_sibling_null_parent_scan_start(278)]
-    assert overrides[("Chapter 22",)].page == 270
-    assert report[0]["accept"] == "scan_forward"
-    assert report[0]["window"] == [
-        anchoring._first_sibling_null_parent_scan_start(278),
-        278,
-    ]
-
-
-def test_null_page_parent_with_left_sibling_still_uses_rtl() -> None:
-    left_child = TitleNode(title="A.1", level=2, printed_page=10, children=[])
-    left = TitleNode(title="A", level=1, printed_page=10, children=[left_child])
-    right_child = TitleNode(title="B.1", level=2, printed_page=50, children=[])
-    right = TitleNode(title="B", level=1, printed_page=None, children=[right_child])
-    overrides_in = {
-        ("A",): TitleMatch(
-            page=10,
-            source="test",
-            matched_line="",
-            candidates=[10],
-            evidence={},
-        ),
-        ("A", "A.1"): TitleMatch(
-            page=10,
-            source="test",
-            matched_line="",
-            candidates=[10],
-            evidence={},
-        ),
-        ("B", "B.1"): TitleMatch(
-            page=50,
-            source="test",
-            matched_line="",
-            candidates=[50],
-            evidence={},
-        ),
-    }
-    page_texts = {p: "noise" for p in range(1, 61)}
-    ctx = _ctx()
-
-    def fake_rtl(**kwargs: Any) -> tuple[TitleMatch, int]:
-        assert kwargs["left"] == 10
-        assert kwargs["right"] == 50
-        return (
-            TitleMatch(
-                page=40,
-                source="inspect_vlm",
-                matched_line="",
-                candidates=[40],
-                evidence={"accept": "visual_rtl"},
-            ),
-            3,
-        )
-
-    with patch(
-        "app.services.document_agent.calibration.scan.scan_title_forward"
-    ) as scan:
-        with patch.object(
-            anchoring, "_visual_rtl_locate_parent", side_effect=fake_rtl
-        ):
-            overrides, report = anchoring.locate_null_page_parent_overrides(
-                nodes=[left, right],
-                match_overrides=overrides_in,
-                page_texts=page_texts,
-                body_pages=list(range(1, 61)),
-                ctx=ctx,
-            )
-        scan.assert_not_called()
-
-    assert overrides[("B",)].page == 40
-    assert report[0]["accept"] == "visual_rtl"
 
 
 def test_phase2_bulk_via_mocked_offset() -> None:

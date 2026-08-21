@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services.document_agent.manifest import TocAnchorPage, ToolContext, ToolResult
+from app.services.document_agent.pdf_text import page_content_map
 from app.services.document_agent.registry import has_page_full_text, has_page_labels, register_tool
 from app.services.document_parser.structure.body_boundary import normalize_match_text
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
@@ -214,7 +215,7 @@ def find_toc_anchor_pages(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult
     total_pages = ctx.blackboard.page_count
 
     keyword_matches = _scan_toc_from_page_texts(
-        ctx.blackboard.page_full_text_cache,
+        page_content_map(ctx.blackboard.page_full_text_cache),
         page_count=total_pages,
     )
     raw_hit_pages = {int(match["page"]) for match in keyword_matches}

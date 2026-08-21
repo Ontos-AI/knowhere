@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from app.services.document_agent.manifest import ToolContext, ToolResult
+from app.services.document_agent.pdf_text import page_content_map
 from app.services.document_agent.registry import (
     has_page_features,
     has_page_full_text,
@@ -20,7 +21,9 @@ from app.services.document_parser.structure.body_boundary import normalize_match
     name="grep.text",
     description=(
         "Search normalized PDF text for a substring or regex. Whitespace is "
-        "collapsed with CJK-aware spacing and matching is case-insensitive."
+        "collapsed with CJK-aware spacing and matching is case-insensitive. "
+        "Uses page_text_search_view when set (after text.strip_*), else each "
+        "page's stored content field."
     ),
     parameters={
         "type": "object",
@@ -60,13 +63,18 @@ def grep_text(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     pattern = re.compile(
         normalized_query if use_regex else re.escape(normalized_query)
     )
+    view = ctx.blackboard.page_text_search_view
+    if view is None:
+        texts = page_content_map(ctx.blackboard.page_full_text_cache)
+    else:
+        texts = {int(page): str(text) for page, text in view.items()}
     results: list[dict[str, Any]] = []
     hit_count = 0
     hit_pages: list[int] = []
-    for page, text in sorted(ctx.blackboard.page_full_text_cache.items()):
+    for page, text in sorted(texts.items()):
         if page < start_page or (end_page and page > end_page):
             continue
-        normalized_text = normalize_match_text(text)
+        normalized_text = normalize_match_text(str(text or ""))
         page_hit = False
         for match in pattern.finditer(normalized_text):
             hit_count += 1

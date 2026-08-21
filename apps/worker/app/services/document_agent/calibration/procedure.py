@@ -4,7 +4,7 @@ After Phase-1 returns candidate regime offsets, this module:
 1. Builds TitleNodes the same way production does
 2. Runs Phase-2 **per regime** (prune → bulk/bisect → recalibrate)
 3. Merges physical-page ``match_overrides`` across regimes
-4. Runs null-page parent locate once on the combined tree
+4. Runs null-page ReAct locate once on the combined tree, then final prune
 
 Returns production ``SkeletonAnchor`` plus regime diagnostics for debug payloads.
 """
@@ -34,9 +34,11 @@ from app.services.document_agent.structure.hierarchy_locator import (
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
     backfill_parent_offset_matches,
-    locate_null_page_parent_overrides,
     prune_unanchored_toc_leaves,
     serialize_skeleton_anchor,
+)
+from app.services.document_agent.structure.null_page_react import (
+    locate_null_page_node_overrides,
 )
 from app.services.document_agent.structure import anchoring_primitives as _anchoring
 
@@ -350,9 +352,11 @@ def anchor_hierarchy_from_regimes(
                 len(regime_seed),
             )
 
-    # Failed suffix / never-confirmed printed leaves → drop from TOC tree.
+    # Failed printed-page leaves → drop; keep null-page nodes for ReAct.
     working, unanchored_removed = prune_unanchored_toc_leaves(
-        working, match_overrides=merged
+        working,
+        match_overrides=merged,
+        keep_null_page_nodes=True,
     )
     total_pruned += unanchored_removed
     if working:
@@ -379,13 +383,31 @@ def anchor_hierarchy_from_regimes(
             len(parent_matches),
         )
 
-    match_overrides, null_page_report = locate_null_page_parent_overrides(
+    match_overrides, null_page_report = locate_null_page_node_overrides(
         nodes=working,
         match_overrides=merged,
         page_texts=page_texts,
         body_pages=body_pages,
         ctx=ctx,
     )
+
+    # Drop still-unanchored null-page nodes (avoid sticky inherited ranges).
+    working, failed_null_removed = prune_unanchored_toc_leaves(
+        working,
+        match_overrides=match_overrides,
+        keep_null_page_nodes=False,
+    )
+    total_pruned += failed_null_removed
+    if working:
+        surviving_paths = {
+            path
+            for path, _node in _iter_all_title_nodes(working)
+        }
+        match_overrides = {
+            path: match
+            for path, match in match_overrides.items()
+            if path in surviving_paths
+        }
 
     primary = pick_primary_offset(result)
     if primary is None and usable_regimes:

@@ -9,6 +9,7 @@ from typing import Any
 from loguru import logger
 
 from app.services.document_agent.manifest import ToolContext
+from app.services.document_agent.pdf_text import page_content_map
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
     anchor_hierarchy_from_offset,
@@ -48,7 +49,7 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
     if page_count <= 0:
         return
 
-    page_texts = dict(ctx.blackboard.page_full_text_cache)
+    page_texts = page_content_map(ctx.blackboard.page_full_text_cache)
     if not page_texts:
         raise ValueError(
             "page_full_text_cache missing; run text scan before TOC anchoring"

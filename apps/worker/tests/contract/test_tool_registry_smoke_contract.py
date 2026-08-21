@@ -27,6 +27,8 @@ def test_probe_and_inspect_registered() -> None:
         "inspect.pages",
         "ocr.pages",
         "grep.text",
+        "text.strip_header",
+        "text.strip_footer",
     ):
         assert REGISTRY.get(name) is not None, name
 
@@ -60,6 +62,43 @@ def test_grep_text_normalizes_query_and_corpus_by_default() -> None:
     assert result.payload["normalized_query"] == "附录a overview"
     assert result.payload["hit_page_count"] == 1
     assert result.payload["hit_pages"] == [2]
+
+
+def test_strip_footer_updates_search_view_for_grep() -> None:
+    from app.services.document_agent.pdf_text import PageTextBands
+    from app.services.document_agent.tools.text_strip_margins import strip_footer
+
+    blackboard = ProfileBlackboard(page_count=1)
+    blackboard.page_full_text_cache = {
+        1: PageTextBands(
+            content="Section Start\nPublic Domain Manual",
+            header="",
+            footer="Public Domain Manual",
+        )
+    }
+    ctx = ToolContext(
+        pdf_path="/tmp/doc.pdf",
+        job_id="strip-footer",
+        blackboard=blackboard,
+        trace=None,
+        settings={},
+    )
+
+    before = grep_text(ctx, {"query": "Public Domain Manual", "start_page": 1, "end_page": 1})
+    assert before.status == "ok"
+    assert before.payload["hit_count"] == 1
+
+    strip = strip_footer(ctx, {"start_page": 1, "end_page": 1})
+    assert strip.status == "ok"
+    assert strip.payload["pages_updated"] == 1
+    assert ctx.blackboard.page_text_search_view[1] == "Section Start\n"
+
+    after = grep_text(ctx, {"query": "Public Domain Manual", "start_page": 1, "end_page": 1})
+    assert after.status == "ok"
+    assert after.payload["hit_count"] == 0
+
+    # Stored cache must remain untouched.
+    assert blackboard.page_full_text_cache[1].content == "Section Start\nPublic Domain Manual"
 
 
 def test_openai_specs_removed() -> None:

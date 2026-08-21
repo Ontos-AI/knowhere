@@ -462,8 +462,10 @@ def persist_stage0_state(out_dir: Path, coordinator) -> Path:
     doc_agent_dir = out_dir / "_doc_agent"
     doc_agent_dir.mkdir(parents=True, exist_ok=True)
 
+    from app.services.document_agent.pdf_text import PageTextBands
+
     texts = {
-        str(page): text
+        str(page): PageTextBands.from_any(text).to_dict()
         for page, text in dict(coordinator.blackboard.page_full_text_cache or {}).items()
     }
     write_debug_json(page_text_cache_path(out_dir), texts)
@@ -505,7 +507,9 @@ def load_stage0_into_coordinator(coordinator, out_dir: Path) -> None:
         hint="Stage-0 page_full_text_cache.json missing; re-run Stage 0",
     )
     raw_texts = json.loads(text_path.read_text(encoding="utf-8"))
-    page_texts = {int(page): str(text) for page, text in dict(raw_texts or {}).items()}
+    from app.services.document_agent.pdf_text import page_bands_map
+
+    page_texts = page_bands_map(raw_texts)
 
     bb = coordinator.blackboard
     bb.page_count = int(state.get("page_count") or 0)
@@ -515,6 +519,7 @@ def load_stage0_into_coordinator(coordinator, out_dir: Path) -> None:
     bb.doc_stats = dict(state.get("doc_stats") or {})
     bb.global_signals = dict(state.get("global_signals") or {})
     bb.page_full_text_cache = page_texts
+    bb.page_text_search_view = None
     # Stage-1 owns TOC + assets from here.
     bb.toc_result = None
     bb.toc_hierarchies = None

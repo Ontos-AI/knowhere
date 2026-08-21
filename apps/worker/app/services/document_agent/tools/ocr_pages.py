@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 from app.services.document_agent.manifest import ToolContext, ToolResult
+from app.services.document_agent.pdf_text import PageTextBands
 from app.services.document_agent.registry import has_page_features, register_tool
 from app.services.document_agent.visual import render_pages
 
@@ -73,6 +74,7 @@ def ocr_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
 
     engine = RapidOCR()
     page_texts: dict[int, str] = {}
+    page_bands: dict[int, PageTextBands] = {}
     page_lines: dict[int, list[dict[str, Any]]] = {}
     for page in pages:
         image_path = png_by_page.get(page)
@@ -89,11 +91,15 @@ def ocr_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
                     }
                 )
         page_lines[page] = lines
-        page_texts[page] = "\n".join(line["text"] for line in lines if line["text"])
+        content = "\n".join(line["text"] for line in lines if line["text"])
+        page_texts[page] = content
+        # OCR has no reliable Y bands; content only, empty header/footer.
+        page_bands[page] = PageTextBands(content=content)
 
     cache = dict(ctx.blackboard.page_full_text_cache)
-    cache.update(page_texts)
+    cache.update(page_bands)
     ctx.blackboard.page_full_text_cache = cache
+    ctx.blackboard.page_text_search_view = None
     return ToolResult(
         status="ok",
         payload={"page_texts": page_texts, "page_lines": page_lines},

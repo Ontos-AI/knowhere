@@ -148,7 +148,9 @@ def main() -> int:
         except FileNotFoundError:
             pass
 
-        page_texts = dict(bb.page_full_text_cache or {})
+        from app.services.document_agent.pdf_text import page_content_map
+
+        page_texts = page_content_map(bb.page_full_text_cache or {})
         skeletons = extract_section_skeletons(
             anatomy=anchored,
             filename=filename,

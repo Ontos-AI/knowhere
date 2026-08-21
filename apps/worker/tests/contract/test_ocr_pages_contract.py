@@ -72,5 +72,8 @@ def test_ocr_pages_writes_joined_text_to_blackboard() -> None:
         result = ocr_pages(ctx, {"pages": [1]})
 
     assert result.status == "ok"
-    assert ctx.blackboard.page_full_text_cache[1] == "Hello"
+    bands = ctx.blackboard.page_full_text_cache[1]
+    assert getattr(bands, "content", None) == "Hello"
+    assert getattr(bands, "header", None) == ""
+    assert getattr(bands, "footer", None) == ""
     assert result.payload["page_lines"][1][0]["text"] == "Hello"

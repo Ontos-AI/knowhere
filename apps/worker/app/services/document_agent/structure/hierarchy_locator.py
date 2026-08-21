@@ -1,10 +1,10 @@
 """Locate hierarchy titles on PDF pages and resolve page ranges.
 
 Deterministic range assembly from PROFILE ``match_overrides``. Leaf starts
-come only from those overrides. Null-page parents are located upstream via
-normalized-strict text matching + optional VLM, then resolved here including
-parent self-only spans for interstitial pages. Parents without an override
-may still inherit start from the earliest located descendant leaf.
+come only from those overrides. Null-page parents and leaves are located
+upstream via bounded grep ReAct + VLM (``null_page_react``), then resolved
+here including parent self-only spans for interstitial pages. Parents without
+an override may still inherit start from the earliest located descendant leaf.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ TitleMatchSource = Literal[
     "inspect_vlm",
     "inferred_descendant",
     "pdf_outline",
+    "react_normalized_grep_vlm",
 ]
 
 
@@ -404,7 +405,7 @@ def _locate_match_for_node(
     if match is not None:
         return match
     if node.children:
-        # Parent active locate is upstream (normalized-strict / visual).
+        # Parent active locate is upstream (null_page_react / backfill).
         return _infer_start_from_descendant_overrides(
             node, parent_titles=path_titles[:-1], match_overrides=match_overrides,
             scope_pages=scope_pages,
