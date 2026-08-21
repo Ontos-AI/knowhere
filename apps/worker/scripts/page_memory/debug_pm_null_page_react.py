@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # ruff: noqa: E402
-"""Debug: run production Stage-2 TOC anchoring and dump null_page_report.
+"""Debug: dump production null-page locate report via Stage-2 anchoring.
 
-Uses the live prune + ``locate_null_page_node_overrides`` path (no patches).
+Uses the live leaf ReAct + parent window locator path (no patches).
 
 Usage:
   cd apps/worker
-  uv run python scripts/page_memory/tmp_probe_null_page_leaves.py \\
+  uv run python scripts/page_memory/debug_pm_null_page_react.py \\
     --file "/path/to/doc.pdf"
 """
 
@@ -41,7 +41,7 @@ from app.services.document_agent.tools.extract_toc_with_boundaries import (
 
 def main() -> int:
     parser = base_argparser(
-        "Debug: production null-page ReAct via run_toc_anchoring (Stage 2)"
+        "Debug: production null-page locate via run_toc_anchoring (Stage 2)"
     )
     args = parser.parse_args()
 
@@ -60,7 +60,7 @@ def main() -> int:
     hierarchies = list(getattr(anatomy, "toc_hierarchies", None) or [])
 
     logger.info("█" * 70)
-    logger.info("  Production null-page ReAct dump — {}", filename)
+    logger.info("  Production null-page locate dump — {}", filename)
     logger.info("  OUTPUT: {}", out_dir)
     logger.info("█" * 70)
 
@@ -108,7 +108,8 @@ def main() -> int:
         payload = {
             "policy": {
                 "prune_pre": "keep_null_page_nodes=True",
-                "probe": "null_page_react.locate_null_page_node_overrides",
+                "leaf_probe": "null_page_react.locate_null_page_node_overrides",
+                "parent_probe": "anchoring_primitives.locate_null_page_parent_overrides",
                 "prune_post": "keep_null_page_nodes=False (drop unresolved)",
                 "react_budget": react_budget(),
                 "boundary_step_pages": BOUNDARY_STEP_PAGES,
@@ -122,7 +123,7 @@ def main() -> int:
             "elapsed_s": round(time.time() - t0, 2),
         }
 
-        out_path = out_dir / "_doc_agent" / "tmp_null_page_leaf_probe.json"
+        out_path = out_dir / "_doc_agent" / "null_page_react_report.json"
         write_debug_json(out_path, payload)
         logger.info("wrote {}", out_path)
         logger.info(

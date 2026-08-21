@@ -1,10 +1,11 @@
 """Locate hierarchy titles on PDF pages and resolve page ranges.
 
 Deterministic range assembly from PROFILE ``match_overrides``. Leaf starts
-come only from those overrides. Null-page parents and leaves are located
-upstream via bounded grep ReAct + VLM (``null_page_react``), then resolved
-here including parent self-only spans for interstitial pages. Parents without
-an override may still inherit start from the earliest located descendant leaf.
+come only from those overrides. Null-page leaves are located upstream via
+bounded grep ReAct + VLM; null-page parents use their sibling/first-child
+window. They are then resolved here, including parent self-only spans for
+interstitial pages. Parents without an override may still inherit start from
+the earliest located descendant leaf.
 """
 
 from __future__ import annotations

@@ -1,9 +1,9 @@
-"""Bounded ReAct locate for TOC nodes with ``printed_page=None``.
+"""Bounded ReAct locate for TOC leaves with ``printed_page=None``.
 
-After Phase-2 printed-page bulk/bisect, null-page parents and leaves share one
-serial probe: text LLM plans a ``grep.text`` query inside a sibling window,
-then ``inspect.pages`` confirms the physical section start one hit page at a
-time. Loop / hit / visual budgets equal ``BOUNDARY_STEP_PAGES``.
+After Phase-2 printed-page bulk/bisect, null-page leaves use a serial probe:
+text LLM plans a ``grep.text`` query inside a sibling window, then
+``inspect.pages`` confirms the physical section start one hit page at a time.
+Loop / hit / visual budgets equal ``BOUNDARY_STEP_PAGES``.
 
 No offset seed, no fixed page-count cap, and no fallback to normalized-strict
 unique hit / RTL / ``scan_title_forward``.
@@ -564,23 +564,72 @@ def locate_null_page_node_overrides(
     *,
     nodes: list[TitleNode],
     match_overrides: dict[tuple[str, ...], TitleMatch],
-    page_texts: dict[int, str],
     body_pages: list[int],
     ctx: ToolContext | None,
 ) -> tuple[dict[tuple[str, ...], TitleMatch], list[dict[str, Any]]]:
-    """Locate null-page parents and leaves with normalized grep ReAct + VLM.
+    """Locate null-page leaves with normalized grep ReAct + VLM.
 
-    ``page_texts`` is accepted for call-site stability; grep reads
-    ``ctx.blackboard.page_full_text_cache`` instead. When ``ctx`` is None, every
-    null-page node is recorded as unresolved (no text-unique fallback).
+    Grep reads ``ctx.blackboard.page_full_text_cache``. When ``ctx`` is None,
+    every null-page leaf is recorded as unresolved (no text-unique fallback).
     """
-    del page_texts  # grep uses blackboard cache via ctx
-
     if not nodes or not body_pages:
         return dict(match_overrides), []
 
     out = dict(match_overrides)
     report: list[dict[str, Any]] = []
+
+    def _skip_entry(
+        *,
+        node: TitleNode,
+        path: tuple[str, ...],
+        result: str,
+        failed_sibling: str | None = None,
+    ) -> dict[str, Any]:
+        entry: dict[str, Any] = {
+            "path_titles": list(path),
+            "title": node.title,
+            "kind": "leaf",
+            "printed_page": None,
+            "search_scope": None,
+            "result": result,
+            "page": None,
+            "accept": None,
+            "visual_verify_calls": 0,
+            "react_attempts": [],
+        }
+        if failed_sibling is not None:
+            entry["failed_sibling"] = failed_sibling
+        return entry
+
+    def _record_skipped_null_leaves(
+        node: TitleNode,
+        parent_titles: tuple[str, ...],
+        *,
+        result: str,
+        failed_sibling: str | None = None,
+    ) -> None:
+        for child in node.children:
+            path = (*parent_titles, child.title)
+            if (
+                not child.children
+                and child.printed_page is None
+                and path not in out
+            ):
+                report.append(
+                    _skip_entry(
+                        node=child,
+                        path=path,
+                        result=result,
+                        failed_sibling=failed_sibling,
+                    )
+                )
+            if child.children:
+                _record_skipped_null_leaves(
+                    child,
+                    path,
+                    result=result,
+                    failed_sibling=failed_sibling,
+                )
 
     def _skip_rest(
         sibling_nodes: list[TitleNode],
@@ -590,22 +639,24 @@ def locate_null_page_node_overrides(
     ) -> None:
         for later in sibling_nodes[start_index:]:
             path = (*parent_titles, later.title)
-            if later.printed_page is not None or path in out:
-                continue
-            report.append(
-                {
-                    "path_titles": list(path),
-                    "title": later.title,
-                    "kind": "leaf" if not later.children else "parent",
-                    "printed_page": None,
-                    "search_scope": None,
-                    "result": "skipped_after_sibling_failure",
-                    "page": None,
-                    "accept": None,
-                    "visual_verify_calls": 0,
-                    "react_attempts": [],
-                    "failed_sibling": failed_title,
-                }
+            if (
+                not later.children
+                and later.printed_page is None
+                and path not in out
+            ):
+                report.append(
+                    _skip_entry(
+                        node=later,
+                        path=path,
+                        result="skipped_after_sibling_failure",
+                        failed_sibling=failed_title,
+                    )
+                )
+            _record_skipped_null_leaves(
+                later,
+                path,
+                result="skipped_after_sibling_failure",
+                failed_sibling=failed_title,
             )
 
     def _record_unresolved_no_ctx(
@@ -614,12 +665,16 @@ def locate_null_page_node_overrides(
     ) -> None:
         for node in sibling_nodes:
             path = (*parent_titles, node.title)
-            if node.printed_page is None and path not in out:
+            if (
+                not node.children
+                and node.printed_page is None
+                and path not in out
+            ):
                 report.append(
                     {
                         "path_titles": list(path),
                         "title": node.title,
-                        "kind": "leaf" if not node.children else "parent",
+                        "kind": "leaf",
                         "printed_page": None,
                         "search_scope": None,
                         "result": "unresolved_no_ctx",
@@ -635,7 +690,7 @@ def locate_null_page_node_overrides(
     if ctx is None:
         _record_unresolved_no_ctx(nodes, ())
         logger.info(
-            "[null_page_react] ctx is None: {} null-page node(s) unresolved "
+            "[null_page_react] ctx is None: {} null-page leaf/leaves unresolved "
             "(no LLM/VLM probe)",
             len(report),
         )
@@ -665,13 +720,16 @@ def locate_null_page_node_overrides(
             if path_titles in out:
                 cursor = max(cursor, int(out[path_titles].page))
 
-            needs_probe = node.printed_page is None and path_titles not in out
+            needs_probe = (
+                not node.children
+                and node.printed_page is None
+                and path_titles not in out
+            )
             if needs_probe:
-                is_leaf = not node.children
                 entry: dict[str, Any] = {
                     "path_titles": list(path_titles),
                     "title": node.title,
-                    "kind": "leaf" if is_leaf else "parent",
+                    "kind": "leaf",
                     "printed_page": None,
                     "search_scope": None,
                     "result": "unresolved",
@@ -757,6 +815,7 @@ def locate_null_page_node_overrides(
                 "react_loop_limit",
                 "planner_error",
                 "unresolved",
+                "unresolved_no_ctx",
                 "skipped_bad_window",
             }
         ),

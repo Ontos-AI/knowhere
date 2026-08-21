@@ -4,7 +4,7 @@ After Phase-1 returns candidate regime offsets, this module:
 1. Builds TitleNodes the same way production does
 2. Runs Phase-2 **per regime** (prune → bulk/bisect → recalibrate)
 3. Merges physical-page ``match_overrides`` across regimes
-4. Runs null-page ReAct locate once on the combined tree, then final prune
+4. Locates null-page leaves, then null-page parents, then final prune
 
 Returns production ``SkeletonAnchor`` plus regime diagnostics for debug payloads.
 """
@@ -34,6 +34,7 @@ from app.services.document_agent.structure.hierarchy_locator import (
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
     backfill_parent_offset_matches,
+    locate_null_page_parent_overrides,
     prune_unanchored_toc_leaves,
     serialize_skeleton_anchor,
 )
@@ -383,13 +384,20 @@ def anchor_hierarchy_from_regimes(
             len(parent_matches),
         )
 
-    match_overrides, null_page_report = locate_null_page_node_overrides(
+    match_overrides, leaf_report = locate_null_page_node_overrides(
         nodes=working,
         match_overrides=merged,
+        body_pages=body_pages,
+        ctx=ctx,
+    )
+    match_overrides, parent_report = locate_null_page_parent_overrides(
+        nodes=working,
+        match_overrides=match_overrides,
         page_texts=page_texts,
         body_pages=body_pages,
         ctx=ctx,
     )
+    null_page_report = [*leaf_report, *parent_report]
 
     # Drop still-unanchored null-page nodes (avoid sticky inherited ranges).
     working, failed_null_removed = prune_unanchored_toc_leaves(
