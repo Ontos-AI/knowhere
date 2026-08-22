@@ -21,6 +21,7 @@ from typing import Any
 
 from loguru import logger
 
+from app.services.document_parser.structure.body_boundary import normalize_match_text
 from app.services.page_memory.page_tagger import PageTagResult
 from app.services.page_memory.skeleton_extractor import SectionSkeleton
 from app.services.page_memory._utils import page_scope_info, sort_skeletons
@@ -461,7 +462,7 @@ def _exclusive_end(skeletons: list[SectionSkeleton], index: int) -> int:
 
 
 def _title_key(title: str | None) -> str:
-    normalized = re.sub(r"\s+", "", str(title or "")).casefold()
+    normalized = normalize_match_text(str(title or ""))
     normalized = re.sub(r"[^\w\u4e00-\u9fff]+", "", normalized)
     return normalized
 

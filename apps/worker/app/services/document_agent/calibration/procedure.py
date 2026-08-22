@@ -4,7 +4,7 @@ After Phase-1 returns candidate regime offsets, this module:
 1. Builds TitleNodes the same way production does
 2. Runs Phase-2 **per regime** (prune → bulk/bisect → recalibrate)
 3. Merges physical-page ``match_overrides`` across regimes
-4. Runs null-page parent locate once on the combined tree
+4. Backfills printed-page nodes, runs unified null-page ReAct, then final prune
 
 Returns production ``SkeletonAnchor`` plus regime diagnostics for debug payloads.
 """
@@ -33,8 +33,7 @@ from app.services.document_agent.structure.hierarchy_locator import (
 )
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
-    backfill_parent_offset_matches,
-    locate_null_page_parent_overrides,
+    apply_null_page_locates_and_prune,
     prune_unanchored_toc_leaves,
     serialize_skeleton_anchor,
 )
@@ -142,7 +141,7 @@ def _entry_titles_for_regime(
 ) -> set[str] | None:
     """Titles belonging to this regime; None means fall back to page_kind match."""
     from app.services.document_parser.structure.body_boundary import (
-        normalize_heading_text,
+        normalize_heading_label,
     )
 
     kind = normalize_kind(regime.kind)
@@ -160,7 +159,7 @@ def _entry_titles_for_regime(
         if idx < 0 or idx >= len(entries):
             continue
         heading = entries[idx].get("heading")
-        title = normalize_heading_text(str(heading or ""))
+        title = normalize_heading_label(str(heading or ""))
         if title:
             titles.add(title)
     return titles or None
@@ -350,9 +349,17 @@ def anchor_hierarchy_from_regimes(
                 len(regime_seed),
             )
 
-    # Failed suffix / never-confirmed printed leaves → drop from TOC tree.
+    # Capture parent identity before prune so empty shells retain ``kind=parent``.
+    structural_parent_paths = {
+        path
+        for path, node in _iter_all_title_nodes(working)
+        if node.children
+    }
+    # Failed printed-page leaves → drop; keep null-page nodes for ReAct.
     working, unanchored_removed = prune_unanchored_toc_leaves(
-        working, match_overrides=merged
+        working,
+        match_overrides=merged,
+        keep_null_page_nodes=True,
     )
     total_pruned += unanchored_removed
     if working:
@@ -366,26 +373,24 @@ def anchor_hierarchy_from_regimes(
             if path in surviving_paths
         }
 
-    parent_matches = backfill_parent_offset_matches(
-        nodes=working,
-        matches=merged,
-        page_count=page_count,
-    )
-    if parent_matches:
-        merged.update(parent_matches)
-        logger.info(
-            "[calibration.phase2] parent backfill: {} printed-page TOC parents "
-            "anchored from descendant offset",
-            len(parent_matches),
-        )
-
-    match_overrides, null_page_report = locate_null_page_parent_overrides(
+    (
+        working,
+        match_overrides,
+        null_page_report,
+        failed_null_removed,
+        pre_react_override_count,
+    ) = apply_null_page_locates_and_prune(
         nodes=working,
         match_overrides=merged,
-        page_texts=page_texts,
         body_pages=body_pages,
+        page_count=page_count,
         ctx=ctx,
+        structural_parent_paths=structural_parent_paths,
     )
+    total_pruned += failed_null_removed
+
+    # Freeze bulk after printed backfill and before ReAct (ReAct hits stay out).
+    bulk_count = pre_react_override_count if regime_bulk > 0 else 0
 
     primary = pick_primary_offset(result)
     if primary is None and usable_regimes:
@@ -401,7 +406,6 @@ def anchor_hierarchy_from_regimes(
         if match_overrides and (regime_bulk > 0 or seed)
         else "offset_only"
     )
-    bulk_count = len(match_overrides)
 
     return working, SkeletonAnchor(
         offset=primary,
@@ -445,10 +449,10 @@ def _annotate_regimes_from_anchor(
                 continue
             heading = str(entries[idx].get("heading") or "")
             from app.services.document_parser.structure.body_boundary import (
-                normalize_heading_text,
+                normalize_heading_label,
             )
 
-            title = normalize_heading_text(heading)
+            title = normalize_heading_label(heading)
             path = path_by_title.get(title)
             if path is not None and path in (anchor.match_overrides or {}):
                 ok_indices.append(idx)
