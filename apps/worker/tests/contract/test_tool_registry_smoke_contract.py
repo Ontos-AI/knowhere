@@ -98,7 +98,10 @@ def test_grep_text_whole_line_rejects_body_substring_and_dedupes_pages() -> None
 
 
 def test_strip_footer_updates_search_view_for_grep() -> None:
+    # Import inside the test so PageTextBands / grep_text share one module
+    # identity after worker_contract_environment clears app.* mid-suite.
     from app.services.document_agent.pdf_text import PageTextBands
+    from app.services.document_agent.tools.grep_text import grep_text as grep_text_fn
     from app.services.document_agent.tools.text_strip_margins import strip_footer
 
     blackboard = ProfileBlackboard(page_count=1)
@@ -117,7 +120,9 @@ def test_strip_footer_updates_search_view_for_grep() -> None:
         settings={},
     )
 
-    before = grep_text(ctx, {"query": "Public Domain Manual", "start_page": 1, "end_page": 1})
+    before = grep_text_fn(
+        ctx, {"query": "Public Domain Manual", "start_page": 1, "end_page": 1}
+    )
     assert before.status == "ok"
     assert before.payload["hit_count"] == 1
 
@@ -126,7 +131,9 @@ def test_strip_footer_updates_search_view_for_grep() -> None:
     assert strip.payload["pages_updated"] == 1
     assert ctx.blackboard.page_text_search_view[1] == "Section Start\n"
 
-    after = grep_text(ctx, {"query": "Public Domain Manual", "start_page": 1, "end_page": 1})
+    after = grep_text_fn(
+        ctx, {"query": "Public Domain Manual", "start_page": 1, "end_page": 1}
+    )
     assert after.status == "ok"
     assert after.payload["hit_count"] == 0
 
