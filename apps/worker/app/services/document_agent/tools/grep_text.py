@@ -100,15 +100,6 @@ def grep_text(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         "hit_pages": hit_pages,
         "results": results,
     }
-    ctx.blackboard.global_signals.setdefault("grep_history", []).append(
-        {
-            "query": query,
-            "normalized_query": normalized_query,
-            "hit_count": hit_count,
-            "hit_page_count": len(hit_pages),
-            "sample_pages": hit_pages[:10],
-        }
-    )
     return ToolResult(
         status="ok",
         payload=summary,

@@ -97,8 +97,12 @@ def prune_unanchored_toc_leaves(
 
     Implements Phase-2 ``suffix = no TOC``: after bulk/bisect/recalibrate, any
     leaf that was not successfully anchored is dropped from the coarse tree
-    instead of sticky ``inherited_unlocated`` ranges. Childless parents are
-    removed unless they themselves have an override.
+    instead of sticky ``inherited_unlocated`` ranges.
+
+    Parents that still have at least one surviving child after recursive prune
+    are kept even without their own override, so later descendant-based infer
+    can use the subtree. Childless parents are removed unless they themselves
+    have an override.
 
     When ``keep_null_page_nodes`` is True (pre null-page ReAct), nodes with
     ``printed_page is None`` are retained so they can be probed. Call again with
@@ -217,6 +221,7 @@ def locate_null_page_parent_overrides(
                 entry: dict[str, Any] = {
                     "path_titles": list(path_titles),
                     "title": node.title,
+                    "kind": "parent",
                     "printed_page": None,
                     "window": None,
                     "result": "skipped_no_right",
@@ -1022,6 +1027,54 @@ def _filter_overrides_to_tree(
     }
 
 
+def apply_null_page_locates_and_prune(
+    *,
+    nodes: list[TitleNode],
+    match_overrides: dict[tuple[str, ...], TitleMatch],
+    body_pages: list[int],
+    page_texts: dict[int, str],
+    ctx: ToolContext | None,
+    structural_parent_paths: set[tuple[str, ...]],
+) -> tuple[
+    list[TitleNode],
+    dict[tuple[str, ...], TitleMatch],
+    list[dict[str, Any]],
+    int,
+]:
+    """Shared Phase-2 tail: leaf ReAct → null-page parent locate → final prune.
+
+    Callers collect ``structural_parent_paths`` and run ``prune(..., keep_null=True)``
+    before this helper. Regimes also runs printed-page parent backfill before
+    calling; the offset path intentionally does not (known asymmetry).
+    """
+    working = nodes
+    overrides = dict(match_overrides)
+
+    overrides, leaf_report = locate_null_page_node_overrides(
+        nodes=working,
+        match_overrides=overrides,
+        body_pages=body_pages,
+        ctx=ctx,
+        structural_parent_paths=structural_parent_paths,
+    )
+    overrides, parent_report = locate_null_page_parent_overrides(
+        nodes=working,
+        match_overrides=overrides,
+        page_texts=page_texts,
+        body_pages=body_pages,
+        ctx=ctx,
+    )
+    null_page_report = [*leaf_report, *parent_report]
+
+    working, failed_null_removed = prune_unanchored_toc_leaves(
+        working,
+        match_overrides=overrides,
+        keep_null_page_nodes=False,
+    )
+    overrides = _filter_overrides_to_tree(working, overrides)
+    return working, overrides, null_page_report, failed_null_removed
+
+
 def anchor_hierarchy_from_offset(
     *,
     nodes: list[TitleNode],
@@ -1063,6 +1116,13 @@ def anchor_hierarchy_from_offset(
         locate_method = "offset_only"
         bulk_count = 0
 
+    # Capture parents before prune: empty shells after keep_null prune must
+    # not enter leaf ReAct (H1).
+    structural_parent_paths = {
+        path
+        for path, node in _iter_all_title_nodes(working)
+        if node.children
+    }
     working, unanchored_removed = prune_unanchored_toc_leaves(
         working,
         match_overrides=match_overrides,
@@ -1071,28 +1131,18 @@ def anchor_hierarchy_from_offset(
     pruned_count += unanchored_removed
     match_overrides = _filter_overrides_to_tree(working, match_overrides)
 
-    match_overrides, leaf_report = locate_null_page_node_overrides(
-        nodes=working,
-        match_overrides=match_overrides,
-        body_pages=body_pages,
-        ctx=ctx,
-    )
-    match_overrides, parent_report = locate_null_page_parent_overrides(
-        nodes=working,
-        match_overrides=match_overrides,
-        page_texts=page_texts,
-        body_pages=body_pages,
-        ctx=ctx,
-    )
-    null_page_report = [*leaf_report, *parent_report]
-
-    working, failed_null_removed = prune_unanchored_toc_leaves(
-        working,
-        match_overrides=match_overrides,
-        keep_null_page_nodes=False,
+    # Offset path does not run printed-page parent backfill (regimes does).
+    working, match_overrides, null_page_report, failed_null_removed = (
+        apply_null_page_locates_and_prune(
+            nodes=working,
+            match_overrides=match_overrides,
+            body_pages=body_pages,
+            page_texts=page_texts,
+            ctx=ctx,
+            structural_parent_paths=structural_parent_paths,
+        )
     )
     pruned_count += failed_null_removed
-    match_overrides = _filter_overrides_to_tree(working, match_overrides)
 
     if offset_hint is None:
         offset_status = "failed" if ctx is not None else "skipped"

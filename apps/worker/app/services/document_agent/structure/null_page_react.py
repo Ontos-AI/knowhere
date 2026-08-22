@@ -2,8 +2,15 @@
 
 After Phase-2 printed-page bulk/bisect, null-page leaves use a serial probe:
 text LLM plans a ``grep.text`` query inside a sibling window, then
-``inspect.pages`` confirms the physical section start one hit page at a time.
-Loop / hit / visual budgets equal ``BOUNDARY_STEP_PAGES``.
+``inspect.pages`` confirms only the first hit page (binary section-start check).
+Later hits from the same grep are discarded; a reject advances to the next
+planner turn.
+
+Budget (``REACT_PLANNER_GREP_BUDGET``):
+- Seed full-title grep is free (does not consume the budget).
+- Planner-chosen greps: at most ``REACT_PLANNER_GREP_BUDGET`` times.
+- strip_header / strip_footer each auto re-grep the last query once for free.
+- Planner turn cap = budget + 2 (room for the two strip actions).
 
 No offset seed, no fixed page-count cap, and no fallback to normalized-strict
 unique hit / RTL / ``scan_title_forward``.
@@ -24,23 +31,26 @@ from app.services.document_agent.structure.hierarchy_locator import (
     last_leaf_start_under,
 )
 
-_HISTORY_SAMPLE_PAGES = 3
+# Planner grep rounds after the free seed full-title probe. Not a page count.
+REACT_PLANNER_GREP_BUDGET = 5
 
 
 def react_budget() -> int:
-    """Loop / hit / visual budget; same constant as TOC ``BOUNDARY_STEP_PAGES``."""
-    from app.services.document_agent.tools.extract_toc_with_boundaries import (
-        BOUNDARY_STEP_PAGES,
-    )
+    """Planner grep-loop budget (and shared visual-confirm cap).
 
-    return int(BOUNDARY_STEP_PAGES)
+    Seed full-title grep does not consume this. Strip auto re-greps do not
+    consume it. Value is ``REACT_PLANNER_GREP_BUDGET``, independent of TOC
+    page-window constants.
+    """
+    return int(REACT_PLANNER_GREP_BUDGET)
 
 _REACT_INSTRUCTIONS = """\
 You are the search planner in a small ReAct loop. Propose the next action to
 find the physical START page of a section. Grep collapses whitespace/newlines
 to one space between non-CJK words, removes whitespace adjacent to CJK, and
-matches case-insensitively. A separate visual check confirms candidates one
-page at a time.
+matches case-insensitively. After each grep, a visual check confirms only the
+first hit page (binary section-start). Later hits are discarded; a reject
+means try a different query next.
 
 The system already grepped the full TOC title once before this loop (see
 previous_attempts). Do not repeat that exact full-title query.
@@ -72,20 +82,21 @@ path). Pattern-level only — do not invent document-specific titles:
 
 Reflection rules (mandatory):
 - Read previous_attempts. Reflect on hit_count and observation before answering.
-- If the last observation is no_normalized_hits, too_many_hits, visual_rejected,
-  or duplicate_normalized_query, you MUST change the query when choosing grep.
-  Emitting the same grep query again (same text after whitespace/case
-  normalization) is invalid for planner-chosen greps.
-- too_many_hits means hit_count exceeded the visual budget. Prefer
-  strip_header or strip_footer when hits look scattered by running
-  headers/footers. Each strip automatically re-greps the last query once
-  (same action; do not spend a planner turn to repeat that query). Otherwise
-  go to the next step in the ordered strategy (narrower / different query).
+- If the last observation is no_normalized_hits, visual_rejected,
+  empty_normalized_query, grep_tool_error, or duplicate_normalized_query, you
+  MUST change the query when choosing grep. Emitting the same grep query again
+  (same text after whitespace/case normalization) is invalid for planner-chosen
+  greps.
+- Prefer strip_header or strip_footer when hits look scattered by running
+  headers/footers. Each strip automatically re-greps the last query once for
+  free (same action; do not spend a planner turn to repeat that query).
+  Otherwise go to the next step in the ordered strategy (narrower / different
+  query).
 - strip_header / strip_footer only update a temporary search view; they do not
   change stored page text. They do NOT consume react_budget. Call each at most
   once per locate.
-- Planner greps consume react_budget (grep_loops_remaining). Strip auto-retries
-  never consume it.
+- Planner greps consume react_budget (grep_loops_remaining). The automatic
+  full-title seed grep is free and does not consume it.
 - no_normalized_hits / visual_rejected: advance to the next ordered strategy
   step rather than repeating the same query.
 """
@@ -97,7 +108,6 @@ def _react_history_item(item: dict[str, Any]) -> dict[str, Any]:
         "query": item.get("query"),
         "normalized_query": item.get("normalized_query"),
         "hit_count": int(item.get("hit_count") or len(hit_pages)),
-        "sample_pages": hit_pages[:_HISTORY_SAMPLE_PAGES],
         "observation": item.get("observation"),
         "visual_selected_page": item.get("visual_selected_page"),
         "visual_reason": item.get("visual_reason"),
@@ -133,23 +143,65 @@ def _normalized_grep(
     query: str,
     left: int,
     right: int,
-) -> tuple[str, list[int], int]:
+    body_pages: list[int],
+) -> tuple[str, str, list[int], int]:
+    """Grep only ``body_pages ∩ [left, right]``.
+
+    Returns ``(status, needle_or_error, hit_pages, match_count)``.
+    ``status`` is ``"ok"`` or ``"error"``; on error the second field is a short
+    error summary (not a normalized needle).
+    """
+    from app.services.document_agent.pdf_text import page_content_map
     from app.services.document_agent.tools.grep_text import grep_text
 
-    result = grep_text(
-        ctx,
-        {
-            "query": query,
-            "start_page": left,
-            "end_page": right,
-        },
-    )
+    scope_pages = [page for page in body_pages if left <= page <= right]
+    if not scope_pages:
+        return "ok", "", [], 0
+
+    body_set = set(scope_pages)
+    view = ctx.blackboard.page_text_search_view
+    if view is not None:
+        texts = {
+            int(page): str(view[page])
+            for page in scope_pages
+            if page in view
+        }
+    else:
+        full = page_content_map(ctx.blackboard.page_full_text_cache)
+        texts = {
+            int(page): str(full[page])
+            for page in scope_pages
+            if page in full
+        }
+    if not texts:
+        return "ok", "", [], 0
+
+    prev_view = ctx.blackboard.page_text_search_view
+    ctx.blackboard.page_text_search_view = texts
+    try:
+        result = grep_text(
+            ctx,
+            {
+                "query": query,
+                "start_page": min(texts),
+                "end_page": max(texts),
+            },
+        )
+    finally:
+        ctx.blackboard.page_text_search_view = prev_view
+
     if result.status != "ok":
-        return "", [], 0
+        return "error", str(result.error or "grep.text failed"), [], 0
     payload = result.payload or {}
+    hit_pages = [
+        int(page)
+        for page in (payload.get("hit_pages") or [])
+        if int(page) in body_set
+    ]
     return (
+        "ok",
         str(payload.get("normalized_query") or ""),
-        [int(page) for page in (payload.get("hit_pages") or [])],
+        hit_pages,
         int(payload.get("hit_count") or 0),
     )
 
@@ -174,9 +226,10 @@ def _propose_react_query(
         "visual_budget": budget,
         "previous_attempts": [_react_history_item(item) for item in attempts],
         "note": (
-            "Full TOC title was already grepped automatically before this loop. "
-            "Planner greps consume react_budget. strip_header/strip_footer are "
-            "free and each auto-retries the last grep query once."
+            "Full TOC title was already grepped automatically before this loop "
+            "(free; does not consume react_budget). Planner greps consume "
+            "react_budget. strip_header/strip_footer are free and each "
+            "auto-retries the last grep query once for free."
         ),
     }
     prompt = (
@@ -279,6 +332,7 @@ def _locate_with_react(
     title: str,
     left: int,
     right: int,
+    body_pages: list[int],
     ctx: ToolContext,
 ) -> tuple[TitleMatch | None, list[dict[str, Any]], int, str]:
     budget = react_budget()
@@ -290,11 +344,12 @@ def _locate_with_react(
     last_grep_query: str | None = None
     # Each locate starts from stored content (no cross-node strip leakage).
     ctx.blackboard.page_text_search_view = None
-    # Automatic full-title grep is free (no planner). Planner greps consume
-    # budget. strip_* (+ auto same-query re-grep) is free.
+    # Seed full-title grep is free. Planner greps consume budget (≤ budget).
+    # strip_* each auto re-greps last query once for free.
+    # +2 planner turns: room for strip_header and strip_footer actions.
     grep_loops_used = 0
     planner_turn = 0
-    max_planner_turns = budget + 2 + budget
+    max_planner_turns = budget + 2
 
     def _visual_confirm(
         *,
@@ -302,67 +357,55 @@ def _locate_with_react(
         hit_pages: list[int],
         attempt: dict[str, Any],
     ) -> TitleMatch | None:
+        """Confirm only the first hit page; discard the rest of this grep."""
         nonlocal visual_calls, visual_remaining
         if visual_remaining <= 0:
             attempt["observation"] = "visual_budget_exhausted"
             attempts.append(attempt)
             return None
 
-        checked: list[dict[str, Any]] = []
-        selected: int | None = None
-        last_reason = ""
-        for page in hit_pages:
-            if visual_remaining <= 0:
-                break
-            visual_remaining -= 1
-            visual_calls += 1
-            ok, reason, tokens = _verify_section_beginning_page(
-                ctx=ctx,
-                title=title,
-                page=page,
-                query=query,
-            )
-            checked.append(
-                {
-                    "page": page,
-                    "confirmed": ok,
-                    "reason": reason,
-                    "tokens_used": tokens,
-                }
-            )
-            last_reason = reason
-            if ok:
-                selected = page
-                break
-
+        page = int(hit_pages[0])
+        visual_remaining -= 1
+        visual_calls += 1
+        ok, reason, tokens = _verify_section_beginning_page(
+            ctx=ctx,
+            title=title,
+            page=page,
+            query=query,
+        )
+        checked = [
+            {
+                "page": page,
+                "confirmed": ok,
+                "reason": reason,
+                "tokens_used": tokens,
+            }
+        ]
         attempt["visual_pages_checked"] = checked
-        attempt["visual_selected_page"] = selected
-        attempt["visual_reason"] = last_reason
+        attempt["visual_selected_page"] = page if ok else None
+        attempt["visual_reason"] = reason
         attempt["visual_budget_remaining_after"] = visual_remaining
-        if selected is not None:
+        if ok:
             attempt["observation"] = "section_start_confirmed"
             attempts.append(attempt)
             return TitleMatch(
-                page=int(selected),
+                page=page,
                 source="react_normalized_grep_vlm",
                 matched_line=query,
-                candidates=hit_pages,
+                candidates=[page],
                 evidence={
                     "accept": "react_normalized_grep_vlm",
                     "null_page_react": True,
                     "loop": grep_loops_used,
                     "normalized_query": attempt.get("normalized_query"),
-                    "visual_reason": last_reason,
-                    "visual_pages_checked": [item["page"] for item in checked],
+                    "visual_reason": reason,
+                    "visual_pages_checked": [page],
                     "post_strip": attempt.get("post_strip"),
                     "seed_full_title": attempt.get("seed_full_title"),
                 },
             )
 
-        if visual_remaining <= 0 and len(checked) < len(hit_pages):
-            attempt["observation"] = "visual_budget_exhausted"
-        else:
-            attempt["observation"] = "visual_rejected"
+        attempt["observation"] = "visual_rejected"
         attempts.append(attempt)
         return None
 
@@ -379,13 +422,15 @@ def _locate_with_react(
         """Grep + classify. Appends to attempts; returns match on visual confirm."""
         nonlocal grep_loops_used, last_grep_query
 
-        needle, hit_pages, match_count = _normalized_grep(
+        status, needle_or_error, hit_pages, match_count = _normalized_grep(
             ctx=ctx,
             query=query,
             left=left,
             right=right,
+            body_pages=body_pages,
         )
-        if consume_budget and needle and needle not in attempted_needles:
+        needle = needle_or_error if status == "ok" else ""
+        if consume_budget and status == "ok" and needle and needle not in attempted_needles:
             grep_loops_used += 1
         attempt: dict[str, Any] = {
             "loop": planner_turn_index,
@@ -404,7 +449,18 @@ def _locate_with_react(
         if seed_full_title:
             attempt["seed_full_title"] = True
 
-        if not needle or (needle in attempted_needles and not allow_duplicate):
+        if status != "ok":
+            attempt["observation"] = "grep_tool_error"
+            attempt["error"] = needle_or_error
+            attempts.append(attempt)
+            return None
+
+        if not needle:
+            attempt["observation"] = "empty_normalized_query"
+            attempts.append(attempt)
+            return None
+
+        if needle in attempted_needles and not allow_duplicate:
             attempt["observation"] = "duplicate_normalized_query"
             attempts.append(attempt)
             return None
@@ -419,74 +475,48 @@ def _locate_with_react(
             attempts.append(attempt)
             return None
 
-        if len(hit_pages) > budget:
-            attempt["observation"] = (
-                "post_strip_too_many_hits" if post_strip else "too_many_hits"
-            )
-            attempts.append(attempt)
-            return None
-
         return _visual_confirm(query=query, hit_pages=hit_pages, attempt=attempt)
 
-    # Free automatic probe: full TOC title (no planner, no react_budget).
-    seed_match = _apply_grep_result(
-        query=title,
-        planner_turn_index=0,
-        consume_budget=False,
-        allow_duplicate=False,
-        post_strip=None,
-        planner_meta={},
-        seed_full_title=True,
-    )
-    if seed_match is not None:
-        return seed_match, attempts, visual_calls, "react_normalized_grep_vlm"
-
-    while grep_loops_used < budget and planner_turn < max_planner_turns:
-        planner_turn += 1
-        proposal, planner_meta = _propose_react_query(
-            title=title,
-            parent_titles=path_titles[:-1],
-            left=left,
-            right=right,
-            attempts=attempts,
-            budget=budget,
-            grep_loops_used=grep_loops_used,
+    try:
+        # Free automatic probe: full TOC title (no planner, no react_budget).
+        seed_match = _apply_grep_result(
+            query=title,
+            planner_turn_index=0,
+            consume_budget=False,
+            allow_duplicate=False,
+            post_strip=None,
+            planner_meta={},
+            seed_full_title=True,
         )
-        if proposal is None:
-            attempts.append(
-                {
-                    "loop": planner_turn,
-                    "grep_loop": grep_loops_used,
-                    "action": "planner_error",
-                    "hit_count": 0,
-                    "hit_pages": [],
-                    **planner_meta,
-                }
-            )
-            continue
+        if seed_match is not None:
+            return seed_match, attempts, visual_calls, "react_normalized_grep_vlm"
 
-        action = proposal["action"]
-        if action == "give_up":
-            attempts.append(
-                {
-                    "loop": planner_turn,
-                    "grep_loop": grep_loops_used,
-                    **proposal,
-                    "hit_count": 0,
-                    "hit_pages": [],
-                    **planner_meta,
-                }
+        while grep_loops_used < budget and planner_turn < max_planner_turns:
+            planner_turn += 1
+            proposal, planner_meta = _propose_react_query(
+                title=title,
+                parent_titles=path_titles[:-1],
+                left=left,
+                right=right,
+                attempts=attempts,
+                budget=budget,
+                grep_loops_used=grep_loops_used,
             )
-            return None, attempts, visual_calls, "react_give_up"
+            if proposal is None:
+                attempts.append(
+                    {
+                        "loop": planner_turn,
+                        "grep_loop": grep_loops_used,
+                        "action": "planner_error",
+                        "hit_count": 0,
+                        "hit_pages": [],
+                        **planner_meta,
+                    }
+                )
+                continue
 
-        if action in {"strip_header", "strip_footer"}:
-            from app.services.document_agent.tools.text_strip_margins import (
-                strip_footer,
-                strip_header,
-            )
-
-            which = "header" if action == "strip_header" else "footer"
-            if which in stripped:
+            action = proposal["action"]
+            if action == "give_up":
                 attempts.append(
                     {
                         "loop": planner_turn,
@@ -494,70 +524,95 @@ def _locate_with_react(
                         **proposal,
                         "hit_count": 0,
                         "hit_pages": [],
-                        "observation": f"duplicate_strip_{which}",
                         **planner_meta,
                     }
                 )
-                continue
-            strip_fn = strip_header if which == "header" else strip_footer
-            strip_result = strip_fn(
-                ctx,
-                {"start_page": left, "end_page": right},
-            )
-            stripped.add(which)
-            payload = strip_result.payload or {}
-            strip_ok = strip_result.status == "ok"
-            attempts.append(
-                {
-                    "loop": planner_turn,
-                    "grep_loop": grep_loops_used,
-                    **proposal,
-                    "hit_count": 0,
-                    "hit_pages": [],
-                    "observation": (
-                        f"stripped_{which}" if strip_ok else f"strip_{which}_failed"
-                    ),
-                    "pages_updated": int(payload.get("pages_updated") or 0),
-                    "strip_error": strip_result.error,
-                    **planner_meta,
-                }
-            )
-            if not strip_ok or not last_grep_query:
+                return None, attempts, visual_calls, "react_give_up"
+
+            if action in {"strip_header", "strip_footer"}:
+                from app.services.document_agent.tools.text_strip_margins import (
+                    strip_footer,
+                    strip_header,
+                )
+
+                which = "header" if action == "strip_header" else "footer"
+                if which in stripped:
+                    attempts.append(
+                        {
+                            "loop": planner_turn,
+                            "grep_loop": grep_loops_used,
+                            **proposal,
+                            "hit_count": 0,
+                            "hit_pages": [],
+                            "observation": f"duplicate_strip_{which}",
+                            **planner_meta,
+                        }
+                    )
+                    continue
+                strip_fn = strip_header if which == "header" else strip_footer
+                strip_result = strip_fn(
+                    ctx,
+                    {"start_page": left, "end_page": right},
+                )
+                stripped.add(which)
+                payload = strip_result.payload or {}
+                strip_ok = strip_result.status == "ok"
+                attempts.append(
+                    {
+                        "loop": planner_turn,
+                        "grep_loop": grep_loops_used,
+                        **proposal,
+                        "hit_count": 0,
+                        "hit_pages": [],
+                        "observation": (
+                            f"stripped_{which}"
+                            if strip_ok
+                            else f"strip_{which}_failed"
+                        ),
+                        "pages_updated": int(payload.get("pages_updated") or 0),
+                        "strip_error": strip_result.error,
+                        **planner_meta,
+                    }
+                )
+                if not strip_ok or not last_grep_query:
+                    continue
+
+                # Same action: auto re-grep last query on stripped view (no budget).
+                from app.services.document_parser.structure.body_boundary import (
+                    normalize_match_text,
+                )
+
+                prior_needle = normalize_match_text(last_grep_query)
+                if prior_needle:
+                    attempted_needles.discard(prior_needle)
+                match = _apply_grep_result(
+                    query=last_grep_query,
+                    planner_turn_index=planner_turn,
+                    consume_budget=False,
+                    allow_duplicate=True,
+                    post_strip=which,
+                    planner_meta={},
+                )
+                if match is not None:
+                    return match, attempts, visual_calls, "react_normalized_grep_vlm"
                 continue
 
-            # Same action: auto re-grep last query on stripped view (no budget).
-            from app.services.document_parser.structure.body_boundary import (
-                normalize_match_text,
-            )
-
-            prior_needle = normalize_match_text(last_grep_query)
-            if prior_needle:
-                attempted_needles.discard(prior_needle)
+            query = proposal["query"]
             match = _apply_grep_result(
-                query=last_grep_query,
+                query=query,
                 planner_turn_index=planner_turn,
-                consume_budget=False,
-                allow_duplicate=True,
-                post_strip=which,
-                planner_meta={},
+                consume_budget=True,
+                allow_duplicate=False,
+                post_strip=None,
+                planner_meta=planner_meta,
             )
             if match is not None:
                 return match, attempts, visual_calls, "react_normalized_grep_vlm"
-            continue
 
-        query = proposal["query"]
-        match = _apply_grep_result(
-            query=query,
-            planner_turn_index=planner_turn,
-            consume_budget=True,
-            allow_duplicate=False,
-            post_strip=None,
-            planner_meta=planner_meta,
-        )
-        if match is not None:
-            return match, attempts, visual_calls, "react_normalized_grep_vlm"
-
-    return None, attempts, visual_calls, "react_loop_limit"
+        return None, attempts, visual_calls, "react_loop_limit"
+    finally:
+        # Do not leak strip view across nodes / locate paths.
+        ctx.blackboard.page_text_search_view = None
 
 
 def locate_null_page_node_overrides(
@@ -566,15 +621,21 @@ def locate_null_page_node_overrides(
     match_overrides: dict[tuple[str, ...], TitleMatch],
     body_pages: list[int],
     ctx: ToolContext | None,
+    structural_parent_paths: set[tuple[str, ...]] | None = None,
 ) -> tuple[dict[tuple[str, ...], TitleMatch], list[dict[str, Any]]]:
     """Locate null-page leaves with normalized grep ReAct + VLM.
 
     Grep reads ``ctx.blackboard.page_full_text_cache``. When ``ctx`` is None,
     every null-page leaf is recorded as unresolved (no text-unique fallback).
+
+    ``structural_parent_paths`` are paths that had children *before*
+    ``prune(keep_null=True)``. Empty-shell parents after prune must not be
+    leaf-probed; they go to parent locate instead.
     """
     if not nodes or not body_pages:
         return dict(match_overrides), []
 
+    parent_paths = structural_parent_paths or set()
     out = dict(match_overrides)
     report: list[dict[str, Any]] = []
 
@@ -601,64 +662,6 @@ def locate_null_page_node_overrides(
             entry["failed_sibling"] = failed_sibling
         return entry
 
-    def _record_skipped_null_leaves(
-        node: TitleNode,
-        parent_titles: tuple[str, ...],
-        *,
-        result: str,
-        failed_sibling: str | None = None,
-    ) -> None:
-        for child in node.children:
-            path = (*parent_titles, child.title)
-            if (
-                not child.children
-                and child.printed_page is None
-                and path not in out
-            ):
-                report.append(
-                    _skip_entry(
-                        node=child,
-                        path=path,
-                        result=result,
-                        failed_sibling=failed_sibling,
-                    )
-                )
-            if child.children:
-                _record_skipped_null_leaves(
-                    child,
-                    path,
-                    result=result,
-                    failed_sibling=failed_sibling,
-                )
-
-    def _skip_rest(
-        sibling_nodes: list[TitleNode],
-        start_index: int,
-        parent_titles: tuple[str, ...],
-        failed_title: str,
-    ) -> None:
-        for later in sibling_nodes[start_index:]:
-            path = (*parent_titles, later.title)
-            if (
-                not later.children
-                and later.printed_page is None
-                and path not in out
-            ):
-                report.append(
-                    _skip_entry(
-                        node=later,
-                        path=path,
-                        result="skipped_after_sibling_failure",
-                        failed_sibling=failed_title,
-                    )
-                )
-            _record_skipped_null_leaves(
-                later,
-                path,
-                result="skipped_after_sibling_failure",
-                failed_sibling=failed_title,
-            )
-
     def _record_unresolved_no_ctx(
         sibling_nodes: list[TitleNode],
         parent_titles: tuple[str, ...],
@@ -667,6 +670,7 @@ def locate_null_page_node_overrides(
             path = (*parent_titles, node.title)
             if (
                 not node.children
+                and path not in parent_paths
                 and node.printed_page is None
                 and path not in out
             ):
@@ -703,6 +707,9 @@ def locate_null_page_node_overrides(
         scope_end: int,
     ) -> None:
         cursor = int(scope_start)
+        # A failed leaf only invalidates the serial cursor for later leaves at
+        # this level. Later parents keep their own walk (fresh flag).
+        failed_sibling: str | None = None
         for index, node in enumerate(sibling_nodes):
             path_titles = (*parent_titles, node.title)
             next_bound = _next_located_bound(
@@ -722,10 +729,22 @@ def locate_null_page_node_overrides(
 
             needs_probe = (
                 not node.children
+                and path_titles not in parent_paths
                 and node.printed_page is None
                 and path_titles not in out
             )
             if needs_probe:
+                if failed_sibling is not None:
+                    report.append(
+                        _skip_entry(
+                            node=node,
+                            path=path_titles,
+                            result="skipped_after_sibling_failure",
+                            failed_sibling=failed_sibling,
+                        )
+                    )
+                    continue
+
                 entry: dict[str, Any] = {
                     "path_titles": list(path_titles),
                     "title": node.title,
@@ -741,21 +760,28 @@ def locate_null_page_node_overrides(
 
                 left = int(cursor)
                 right = int(node_scope_end)
+                entry["search_scope"] = [left, right]
+                scope_pages = [
+                    page for page in body_pages if left <= page <= right
+                ]
                 if right < left:
                     entry["result"] = "skipped_bad_window"
-                    entry["search_scope"] = [left, right]
                     report.append(entry)
-                    _skip_rest(
-                        sibling_nodes, index + 1, parent_titles, node.title
-                    )
-                    return
+                    failed_sibling = node.title
+                    continue
 
-                entry["search_scope"] = [left, right]
+                if not scope_pages:
+                    entry["result"] = "no_scope_pages"
+                    report.append(entry)
+                    failed_sibling = node.title
+                    continue
+
                 match, attempts, visual_calls, result = _locate_with_react(
                     path_titles=path_titles,
                     title=node.title,
                     left=left,
                     right=right,
+                    body_pages=body_pages,
                     ctx=ctx,
                 )
                 entry["react_attempts"] = attempts
@@ -768,12 +794,11 @@ def locate_null_page_node_overrides(
                 report.append(entry)
 
                 if entry.get("page") is None:
-                    _skip_rest(
-                        sibling_nodes, index + 1, parent_titles, node.title
-                    )
-                    return
+                    failed_sibling = node.title
+                    continue
 
                 cursor = int(entry["page"])
+                continue
 
             if node.children:
                 child_scope_start = (
@@ -817,6 +842,7 @@ def locate_null_page_node_overrides(
                 "unresolved",
                 "unresolved_no_ctx",
                 "skipped_bad_window",
+                "no_scope_pages",
             }
         ),
         skipped,

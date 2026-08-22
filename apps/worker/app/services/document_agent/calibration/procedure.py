@@ -33,13 +33,10 @@ from app.services.document_agent.structure.hierarchy_locator import (
 )
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
+    apply_null_page_locates_and_prune,
     backfill_parent_offset_matches,
-    locate_null_page_parent_overrides,
     prune_unanchored_toc_leaves,
     serialize_skeleton_anchor,
-)
-from app.services.document_agent.structure.null_page_react import (
-    locate_null_page_node_overrides,
 )
 from app.services.document_agent.structure import anchoring_primitives as _anchoring
 
@@ -353,6 +350,13 @@ def anchor_hierarchy_from_regimes(
                 len(regime_seed),
             )
 
+    # Capture parents before prune: empty shells after keep_null prune must
+    # not enter leaf ReAct (H1).
+    structural_parent_paths = {
+        path
+        for path, node in _iter_all_title_nodes(working)
+        if node.children
+    }
     # Failed printed-page leaves → drop; keep null-page nodes for ReAct.
     working, unanchored_removed = prune_unanchored_toc_leaves(
         working,
@@ -384,38 +388,21 @@ def anchor_hierarchy_from_regimes(
             len(parent_matches),
         )
 
-    match_overrides, leaf_report = locate_null_page_node_overrides(
-        nodes=working,
-        match_overrides=merged,
-        body_pages=body_pages,
-        ctx=ctx,
-    )
-    match_overrides, parent_report = locate_null_page_parent_overrides(
-        nodes=working,
-        match_overrides=match_overrides,
-        page_texts=page_texts,
-        body_pages=body_pages,
-        ctx=ctx,
-    )
-    null_page_report = [*leaf_report, *parent_report]
+    # H4: freeze bulk before null-page leaf/parent ReAct (same as offset path:
+    # offset_guided → len(overrides then); else 0). Never recount after ReAct.
+    bulk_count = len(merged) if regime_bulk > 0 else 0
 
-    # Drop still-unanchored null-page nodes (avoid sticky inherited ranges).
-    working, failed_null_removed = prune_unanchored_toc_leaves(
-        working,
-        match_overrides=match_overrides,
-        keep_null_page_nodes=False,
+    working, match_overrides, null_page_report, failed_null_removed = (
+        apply_null_page_locates_and_prune(
+            nodes=working,
+            match_overrides=merged,
+            body_pages=body_pages,
+            page_texts=page_texts,
+            ctx=ctx,
+            structural_parent_paths=structural_parent_paths,
+        )
     )
     total_pruned += failed_null_removed
-    if working:
-        surviving_paths = {
-            path
-            for path, _node in _iter_all_title_nodes(working)
-        }
-        match_overrides = {
-            path: match
-            for path, match in match_overrides.items()
-            if path in surviving_paths
-        }
 
     primary = pick_primary_offset(result)
     if primary is None and usable_regimes:
@@ -431,7 +418,6 @@ def anchor_hierarchy_from_regimes(
         if match_overrides and (regime_bulk > 0 or seed)
         else "offset_only"
     )
-    bulk_count = len(match_overrides)
 
     return working, SkeletonAnchor(
         offset=primary,

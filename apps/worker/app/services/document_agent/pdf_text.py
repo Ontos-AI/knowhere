@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import gc
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
@@ -72,20 +72,47 @@ def page_bands_map(raw: Any) -> dict[int, PageTextBands]:
     return {int(page): PageTextBands.from_any(value) for page, value in raw.items()}
 
 
-def strip_margin_text(content: str, margin: str) -> str:
-    """Remove one margin extract from full content (homologous span join).
+def strip_margin_text(
+    content: str,
+    margin: str,
+    *,
+    edge: Literal["header", "footer"],
+) -> str:
+    """Remove a header/footer band extract from page content for search view.
 
-    Tries the full margin blob first, then each non-empty line once, so
-    non-contiguous edge lines still drop when they appear as content lines.
+    Header is removed only from the content prefix; footer only from the
+    content suffix. Never uses a whole-string first-occurrence replace (that
+    can delete a same-looking body span). Falls back to edge-aligned line
+    fragments when the full margin blob is not contiguous at that edge.
     """
     if not content or not margin:
         return content
-    if margin in content:
-        return content.replace(margin, "", 1)
+
+    if edge == "header":
+        if content.startswith(margin):
+            return content[len(margin) :]
+        out = content
+        for frag in margin.split("\n"):
+            if not frag:
+                continue
+            if out.startswith(frag + "\n"):
+                out = out[len(frag) + 1 :]
+            elif out.startswith(frag):
+                out = out[len(frag) :]
+            else:
+                break
+        return out
+
+    if content.endswith(margin):
+        return content[: -len(margin)]
     out = content
-    for frag in margin.split("\n"):
-        if frag and frag in out:
-            out = out.replace(frag, "", 1)
+    for frag in reversed([part for part in margin.split("\n") if part]):
+        if out.endswith("\n" + frag):
+            out = out[: -(len(frag) + 1)]
+        elif out.endswith(frag):
+            out = out[: -len(frag)]
+        else:
+            break
     return out
 
 

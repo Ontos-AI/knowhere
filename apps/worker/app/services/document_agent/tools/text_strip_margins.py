@@ -54,7 +54,7 @@ def _apply_strip(
             continue
         margin = record.header if which == "header" else record.footer
         before = view.get(page, record.content)
-        after = strip_margin_text(before, margin)
+        after = strip_margin_text(before, margin, edge=which)
         view[page] = after
         if after != before:
             pages_updated += 1

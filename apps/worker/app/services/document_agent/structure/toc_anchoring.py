@@ -25,12 +25,27 @@ from app.services.document_agent.structure.hierarchy_locator import (
     TitleNode,
     collapse_intermediate_single_child_chains,
     extract_toc_nodes,
-    iter_leaf_title_nodes,
 )
 from app.services.document_parser.structure.body_boundary import normalize_heading_label
 
 _LOG_PREFIX = "[profile.toc_anchoring]"
 PENDING_TOC_CALIBRATION_CONCURRENCY = 10
+
+
+def fork_ctx_for_pending(ctx: ToolContext) -> ToolContext:
+    """Shallow-fork ctx for one pending TOC job.
+
+    Shares ``page_full_text_cache`` and other blackboard fields by reference;
+    isolates ``page_text_search_view`` so concurrent strip/grep cannot race.
+    """
+    return ToolContext(
+        pdf_path=ctx.pdf_path,
+        job_id=ctx.job_id,
+        blackboard=replace(ctx.blackboard, page_text_search_view=None),
+        trace=ctx.trace,
+        output_dir=ctx.output_dir,
+        settings=ctx.settings,
+    )
 
 
 def run_toc_anchoring(ctx: ToolContext) -> None:
@@ -510,19 +525,6 @@ def _calibrate_one_pending_toc(
             pending_toc.get("toc_range"),
         )
         return None
-    if not any(
-        node.printed_page is not None
-        for _path, node in iter_leaf_title_nodes(nodes)
-    ):
-        logger.info(
-            "{} pending TOC toc_range={}: no printed pages, unresolvable",
-            _LOG_PREFIX,
-            pending_toc.get("toc_range"),
-        )
-        return {
-            "toc": pending_toc,
-            "relationship": "unresolvable",
-        }
     resolve_nodes, skeleton_anchor, _finalized = finalize_calibration_result(
         result=phase1,
         entries=list(pending_toc.get("toc_with_level") or []),
@@ -577,7 +579,7 @@ def _calibrate_pending_tocs(
             index=i,
             pending_toc=pending_toc,
             pending_tocs=pending_tocs,
-            ctx=ctx,
+            ctx=fork_ctx_for_pending(ctx),
             page_texts=page_texts,
             page_count=page_count,
             body_pages=body_pages,

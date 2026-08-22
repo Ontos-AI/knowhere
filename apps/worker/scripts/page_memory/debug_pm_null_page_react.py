@@ -33,9 +33,9 @@ from _debug_pm_shared import (
     write_debug_json,
 )
 
-from app.services.document_agent.structure.null_page_react import react_budget
-from app.services.document_agent.tools.extract_toc_with_boundaries import (
-    BOUNDARY_STEP_PAGES,
+from app.services.document_agent.structure.null_page_react import (
+    REACT_PLANNER_GREP_BUDGET,
+    react_budget,
 )
 
 
@@ -112,7 +112,10 @@ def main() -> int:
                 "parent_probe": "anchoring_primitives.locate_null_page_parent_overrides",
                 "prune_post": "keep_null_page_nodes=False (drop unresolved)",
                 "react_budget": react_budget(),
-                "boundary_step_pages": BOUNDARY_STEP_PAGES,
+                "react_planner_grep_budget": REACT_PLANNER_GREP_BUDGET,
+                "seed_full_title_grep": "free",
+                "strip_auto_regrep": "free",
+                "max_planner_turns": REACT_PLANNER_GREP_BUDGET + 2,
             },
             "offset": anchor.get("offset"),
             "pruned_count": anchor.get("pruned_count"),

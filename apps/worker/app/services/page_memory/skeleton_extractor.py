@@ -34,6 +34,24 @@ from shared.services.chunks.path_segments import (
 )
 
 
+def _null_page_locate_bucket(
+    null_page_report: list[dict[str, Any]],
+    *,
+    kind: str,
+) -> dict[str, Any]:
+    """Summarize leaf or parent null-page locate rows (M2: no mixed bucket)."""
+    rows = [row for row in null_page_report if row.get("kind") == kind]
+    return {
+        "attempted": len(rows),
+        "located": sum(1 for row in rows if row.get("page") is not None),
+        "unresolved": sum(1 for row in rows if row.get("result") == "unresolved"),
+        "visual_verify_calls": sum(
+            int(row.get("visual_verify_calls") or 0) for row in rows
+        ),
+        "entries": rows,
+    }
+
+
 @dataclass(frozen=True)
 class SectionSkeleton:
     section_path: str
@@ -143,17 +161,12 @@ def extract_section_skeletons(
             "reason": "offset_guided_anchoring_skipped_or_empty",
             "pruned_out_of_scope": skeleton_anchor.pruned_count,
         }
-    locate_summary["null_page_parent_locate"] = {
-        "attempted": len(null_page_report),
-        "located": sum(1 for row in null_page_report if row.get("page") is not None),
-        "unresolved": sum(
-            1 for row in null_page_report if row.get("result") == "unresolved"
-        ),
-        "visual_verify_calls": sum(
-            int(row.get("visual_verify_calls") or 0) for row in null_page_report
-        ),
-        "entries": null_page_report,
-    }
+    locate_summary["null_page_leaf_locate"] = _null_page_locate_bucket(
+        null_page_report, kind="leaf"
+    )
+    locate_summary["null_page_parent_locate"] = _null_page_locate_bucket(
+        null_page_report, kind="parent"
+    )
 
     ranges = resolve_hierarchy_page_ranges(
         resolve_nodes,
@@ -332,19 +345,12 @@ def _resolve_pending_tocs(
             "pruned_out_of_scope": skeleton_anchor.pruned_count,
             "toc_relationship": relationship,
         }
-        locate_summary["null_page_parent_locate"] = {
-            "attempted": len(null_page_report),
-            "located": sum(
-                1 for row in null_page_report if row.get("page") is not None
-            ),
-            "unresolved": sum(
-                1 for row in null_page_report if row.get("result") == "unresolved"
-            ),
-            "visual_verify_calls": sum(
-                int(row.get("visual_verify_calls") or 0) for row in null_page_report
-            ),
-            "entries": null_page_report,
-        }
+        locate_summary["null_page_leaf_locate"] = _null_page_locate_bucket(
+            null_page_report, kind="leaf"
+        )
+        locate_summary["null_page_parent_locate"] = _null_page_locate_bucket(
+            null_page_report, kind="parent"
+        )
 
         ranges = resolve_hierarchy_page_ranges(
             resolve_nodes,

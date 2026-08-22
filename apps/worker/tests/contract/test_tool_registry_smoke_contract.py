@@ -101,5 +101,21 @@ def test_strip_footer_updates_search_view_for_grep() -> None:
     assert blackboard.page_full_text_cache[1].content == "Section Start\nPublic Domain Manual"
 
 
+def test_strip_margin_text_edge_aligned_not_first_occurrence() -> None:
+    """M4: footer/header strip only the matching edge, not body duplicates."""
+    from app.services.document_agent.pdf_text import strip_margin_text
+
+    body_and_footer = "Public Domain Manual\nSection body\nPublic Domain Manual"
+    assert (
+        strip_margin_text(body_and_footer, "Public Domain Manual", edge="footer")
+        == "Public Domain Manual\nSection body\n"
+    )
+    body_and_header = "Running Header\nSection body\nRunning Header"
+    assert (
+        strip_margin_text(body_and_header, "Running Header", edge="header")
+        == "\nSection body\nRunning Header"
+    )
+
+
 def test_openai_specs_removed() -> None:
     assert not hasattr(REGISTRY, "openai_specs")
