@@ -4,7 +4,7 @@ After Phase-1 returns candidate regime offsets, this module:
 1. Builds TitleNodes the same way production does
 2. Runs Phase-2 **per regime** (prune → bulk/bisect → recalibrate)
 3. Merges physical-page ``match_overrides`` across regimes
-4. Locates null-page leaves, then null-page parents, then final prune
+4. Backfills printed-page nodes, runs unified null-page ReAct, then final prune
 
 Returns production ``SkeletonAnchor`` plus regime diagnostics for debug payloads.
 """
@@ -34,7 +34,6 @@ from app.services.document_agent.structure.hierarchy_locator import (
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
     apply_null_page_locates_and_prune,
-    backfill_parent_offset_matches,
     prune_unanchored_toc_leaves,
     serialize_skeleton_anchor,
 )
@@ -374,33 +373,24 @@ def anchor_hierarchy_from_regimes(
             if path in surviving_paths
         }
 
-    parent_matches = backfill_parent_offset_matches(
+    (
+        working,
+        match_overrides,
+        null_page_report,
+        failed_null_removed,
+        pre_react_override_count,
+    ) = apply_null_page_locates_and_prune(
         nodes=working,
-        matches=merged,
+        match_overrides=merged,
+        body_pages=body_pages,
         page_count=page_count,
-    )
-    if parent_matches:
-        merged.update(parent_matches)
-        logger.info(
-            "[calibration.phase2] parent backfill: {} printed-page TOC parents "
-            "anchored from descendant offset",
-            len(parent_matches),
-        )
-
-    # Freeze bulk before unified null-page ReAct (same as offset path:
-    # offset_guided → len(overrides then); else 0). Never recount after ReAct.
-    bulk_count = len(merged) if regime_bulk > 0 else 0
-
-    working, match_overrides, null_page_report, failed_null_removed = (
-        apply_null_page_locates_and_prune(
-            nodes=working,
-            match_overrides=merged,
-            body_pages=body_pages,
-            ctx=ctx,
-            structural_parent_paths=structural_parent_paths,
-        )
+        ctx=ctx,
+        structural_parent_paths=structural_parent_paths,
     )
     total_pruned += failed_null_removed
+
+    # Freeze bulk after printed backfill and before ReAct (ReAct hits stay out).
+    bulk_count = pre_react_override_count if regime_bulk > 0 else 0
 
     primary = pick_primary_offset(result)
     if primary is None and usable_regimes:

@@ -131,22 +131,6 @@ class ResolvedHierarchyRange:
     evidence: dict[str, Any] = field(default_factory=dict)
 
 
-def last_leaf_start_under(
-    node: TitleNode,
-    parent_titles: tuple[str, ...],
-    match_overrides: dict[tuple[str, ...], TitleMatch],
-) -> int | None:
-    """Max start page among located leaves under *node*; None if none located."""
-    max_page: int | None = None
-    for leaf_path, _leaf in iter_leaf_title_nodes([node], parent_titles=parent_titles):
-        match = match_overrides.get(leaf_path)
-        if match is None:
-            continue
-        if max_page is None or match.page > max_page:
-            max_page = match.page
-    return max_page
-
-
 def first_leaf_start_under(
     node: TitleNode,
     parent_titles: tuple[str, ...],

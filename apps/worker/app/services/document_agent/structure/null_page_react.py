@@ -18,7 +18,6 @@ from app.services.document_agent.structure.hierarchy_locator import (
     TitleMatch,
     TitleNode,
     first_leaf_start_under,
-    last_leaf_start_under,
 )
 
 # Planner grep rounds after the free seed full-title probe. Not a page count.
@@ -113,20 +112,6 @@ def _next_located_bound(
         if descendant is not None:
             return int(descendant)
     return None
-
-
-def _last_confirmed_start_under(
-    *,
-    node: TitleNode,
-    parent_titles: tuple[str, ...],
-    overrides: dict[tuple[str, ...], TitleMatch],
-) -> int | None:
-    """Return the last confirmed descendant leaf, or the node's own start."""
-    descendant = last_leaf_start_under(node, parent_titles, overrides)
-    if descendant is not None:
-        return int(descendant)
-    own = overrides.get((*parent_titles, node.title))
-    return int(own.page) if own is not None else None
 
 
 def _whole_line_grep(
@@ -608,25 +593,27 @@ def locate_null_page_overrides(
     ctx: ToolContext | None,
     structural_parent_paths: set[tuple[str, ...]] | None = None,
 ) -> tuple[dict[tuple[str, ...], TitleMatch], list[dict[str, Any]]]:
-    """Locate all null-page nodes in parent-first DFS order."""
+    """Locate all null-page nodes in parent-first DFS order.
+
+    Left bound is the max confirmed page among all preorder predecessors
+    (fallback: body start). Right bound is the earliest of the node's first
+    located descendant, the next located sibling/subtree start, and the
+    inherited scope right. No fixed page-window cap on either side.
+    """
     if not nodes or not body_pages:
         return dict(match_overrides), []
 
     out = dict(match_overrides)
     parent_paths = structural_parent_paths or set()
     report: list[dict[str, Any]] = []
-    from app.services.document_agent.calibration.scan import DEFAULT_WINDOW_SCHEDULE
-
-    physical_window_limit = sum(DEFAULT_WINDOW_SCHEDULE)
+    cursor = int(body_pages[0])
 
     def walk(
         sibling_nodes: list[TitleNode],
         parent_titles: tuple[str, ...],
-        scope_left: int,
         scope_right: int,
-        parent_has_printed_page: bool,
     ) -> None:
-        last_confirmed_at_level: int | None = None
+        nonlocal cursor
         for index, node in enumerate(sibling_nodes):
             path_titles = (*parent_titles, node.title)
             next_bound = _next_located_bound(
@@ -650,19 +637,7 @@ def locate_null_page_overrides(
                 if first_descendant is not None
                 else subtree_right
             )
-
-            parent_match = out.get(parent_titles) if parent_titles else None
-            if last_confirmed_at_level is not None:
-                probe_left = max(int(scope_left), last_confirmed_at_level)
-            elif parent_match is not None:
-                probe_left = max(int(scope_left), int(parent_match.page))
-            elif parent_has_printed_page:
-                probe_left = int(scope_left)
-            else:
-                probe_left = max(
-                    int(scope_left),
-                    probe_right - physical_window_limit + 1,
-                )
+            probe_left = cursor
 
             is_parent = bool(node.children) or path_titles in parent_paths
             needs_probe = (
@@ -711,42 +686,21 @@ def locate_null_page_overrides(
                         entry["accept"] = match.evidence.get("accept")
                 report.append(entry)
 
+            own_match = out.get(path_titles)
+            if own_match is not None:
+                cursor = max(cursor, int(own_match.page))
+
             if node.children:
-                own_match = out.get(path_titles)
-                child_left = (
-                    int(own_match.page)
-                    if own_match is not None
-                    else probe_left
-                )
-                walk(
-                    node.children,
-                    path_titles,
-                    child_left,
-                    subtree_right,
-                    node.printed_page is not None,
-                )
+                walk(node.children, path_titles, subtree_right)
 
-            last_under = _last_confirmed_start_under(
-                node=node,
-                parent_titles=parent_titles,
-                overrides=out,
-            )
-            if last_under is not None:
-                last_confirmed_at_level = (
-                    last_under
-                    if last_confirmed_at_level is None
-                    else max(last_confirmed_at_level, last_under)
-                )
-
-    walk(nodes, (), body_pages[0], body_pages[-1], False)
+    walk(nodes, (), body_pages[-1])
     located = sum(1 for row in report if row.get("page") is not None)
     logger.info(
         "[null_page_react] parent-first null-page ReAct: attempted={} "
-        "located={} unresolved={} planner_budget={} physical_window_limit={}",
+        "located={} unresolved={} planner_budget={}",
         len(report),
         located,
         len(report) - located,
         react_budget(),
-        physical_window_limit,
     )
     return out, report

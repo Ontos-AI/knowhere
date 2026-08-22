@@ -699,7 +699,7 @@ def test_null_page_parent_uses_first_descendant_as_right_boundary() -> None:
     assert report[0]["search_scope"] == [4, 5]
 
 
-def test_root_first_null_parent_uses_22_page_left_cap() -> None:
+def test_root_first_null_parent_uses_body_start_as_left() -> None:
     from app.services.document_agent.structure import null_page_react as npr
     from app.services.document_agent.structure.null_page_react import (
         locate_null_page_overrides,
@@ -724,7 +724,7 @@ def test_root_first_null_parent_uses_22_page_left_cap() -> None:
     body_pages = list(range(1, 301))
 
     def probe(**kwargs: Any) -> tuple[TitleMatch, list[dict[str, Any]], int, str]:
-        assert kwargs["left"] == 257
+        assert kwargs["left"] == 1
         assert kwargs["right"] == 278
         return (
             TitleMatch(
@@ -748,15 +748,16 @@ def test_root_first_null_parent_uses_22_page_left_cap() -> None:
         )
 
     assert overrides[("Chapter 22",)].page == 270
-    assert report[0]["search_scope"] == [257, 278]
+    assert report[0]["search_scope"] == [1, 278]
 
 
-def test_null_child_of_unanchored_printed_parent_keeps_inherited_scope() -> None:
+def test_null_child_of_unanchored_printed_parent_uses_preorder_cursor() -> None:
     from app.services.document_agent.structure import null_page_react as npr
     from app.services.document_agent.structure.null_page_react import (
         locate_null_page_overrides,
     )
 
+    prior = TitleNode(title="E11 Utilities", level=1, printed_page=250, children=[])
     parent = TitleNode(
         title="Appendices",
         level=1,
@@ -778,8 +779,16 @@ def test_null_child_of_unanchored_printed_parent_keeps_inherited_scope() -> None
 
     with patch.object(npr, "_locate_with_react", side_effect=probe):
         _overrides, report = locate_null_page_overrides(
-            nodes=[parent],
-            match_overrides={},
+            nodes=[prior, parent],
+            match_overrides={
+                ("E11 Utilities",): TitleMatch(
+                    page=250,
+                    source="bulk_offset",
+                    matched_line="",
+                    candidates=[250],
+                    evidence={"offset": 0, "printed_page": 250},
+                )
+            },
             body_pages=list(range(250, 444)),
             ctx=_ctx(),
         )
@@ -903,7 +912,7 @@ def test_confirmed_null_parent_becomes_child_left_boundary() -> None:
         )
 
     assert scopes == [
-        ("3 Advertising", 283, 304),
+        ("3 Advertising", 280, 304),
         ("3.1 Street Furniture with Advertising", 304, 304),
     ]
     assert overrides[("3 Advertising",)].page == 304
@@ -1159,8 +1168,9 @@ def test_regimes_bulk_count_excludes_null_page_react_hits() -> None:
     def fake_offset(**kwargs: Any) -> dict[tuple[str, ...], TitleMatch]:
         return {("Ch1",): bulk_match}
 
-    def fake_apply(**kwargs: Any) -> tuple[list, dict, list, int]:
+    def fake_apply(**kwargs: Any) -> tuple[list, dict, list, int, int]:
         out = dict(kwargs["match_overrides"])
+        pre_react = len(out)
         out[("NullLeaf",)] = react_match
         return (
             list(kwargs["nodes"]),
@@ -1174,6 +1184,7 @@ def test_regimes_bulk_count_excludes_null_page_react_hits() -> None:
                 }
             ],
             0,
+            pre_react,
         )
 
     with (
@@ -1454,7 +1465,7 @@ def _printed_page_parent(title: str, printed: int, child: TitleNode) -> TitleNod
     return TitleNode(title=title, level=1, printed_page=printed, children=[child])
 
 
-def test_parent_backfill_uses_descendant_regime_offset() -> None:
+def test_printed_backfill_uses_nearest_doc_order_offset() -> None:
     from app.services.document_agent.structure import anchoring_primitives as primitives
 
     early_child = TitleNode(title="A.1", level=2, printed_page=12, children=[])
@@ -1466,7 +1477,7 @@ def test_parent_backfill_uses_descendant_regime_offset() -> None:
         **primitives.bulk_offset_matches([(("Section B", "B.1"), late_child)], 9),
     }
 
-    parents = primitives.backfill_parent_offset_matches(
+    parents = primitives.backfill_printed_offset_matches(
         nodes=[section_a, section_b],
         matches=matches,
         page_count=60,
@@ -1474,11 +1485,11 @@ def test_parent_backfill_uses_descendant_regime_offset() -> None:
 
     assert parents[("Section A",)].page == 15
     assert parents[("Section B",)].page == 49
-    assert parents[("Section A",)].evidence["parent_backfill"] is True
+    assert parents[("Section A",)].evidence["printed_offset_backfill"] is True
 
 
-def test_parent_backfill_ignores_react_located_children_for_offset() -> None:
-    """ReAct leaves have no printed page, so they carry no offset for the parent."""
+def test_printed_backfill_ignores_react_hits_without_offset() -> None:
+    """ReAct leaves carry no offset; nearest offset-bearing neighbor wins."""
     from app.services.document_agent.structure import anchoring_primitives as primitives
 
     react_child = TitleNode(title="Intro", level=2, printed_page=None, children=[])
@@ -1490,7 +1501,6 @@ def test_parent_backfill_ignores_react_located_children_for_offset() -> None:
         children=[react_child, printed_child],
     )
     matches = {
-        # ReAct hit comes first in document order and must not set the offset.
         ("Section A", "Intro"): TitleMatch(
             page=99,
             source="react_line_grep_vlm",
@@ -1503,7 +1513,7 @@ def test_parent_backfill_ignores_react_located_children_for_offset() -> None:
         ),
     }
 
-    parents = primitives.backfill_parent_offset_matches(
+    parents = primitives.backfill_printed_offset_matches(
         nodes=[section],
         matches=matches,
         page_count=200,
@@ -1513,8 +1523,7 @@ def test_parent_backfill_ignores_react_located_children_for_offset() -> None:
     assert parents[("Section A",)].evidence["offset"] == 5
 
 
-def test_parent_backfill_unresolved_when_only_react_children() -> None:
-    """No printed-page descendant → no offset → parent left to its own locate."""
+def test_printed_backfill_unresolved_when_no_offset_bearing_neighbor() -> None:
     from app.services.document_agent.structure import anchoring_primitives as primitives
 
     react_child = TitleNode(title="Intro", level=2, printed_page=None, children=[])
@@ -1529,7 +1538,7 @@ def test_parent_backfill_unresolved_when_only_react_children() -> None:
         )
     }
 
-    parents = primitives.backfill_parent_offset_matches(
+    parents = primitives.backfill_printed_offset_matches(
         nodes=[section],
         matches=matches,
         page_count=200,
@@ -1538,22 +1547,35 @@ def test_parent_backfill_unresolved_when_only_react_children() -> None:
     assert parents == {}
 
 
-def test_parent_backfill_skips_unanchored_and_out_of_range() -> None:
+def test_printed_backfill_uses_preceding_neighbor_and_skips_out_of_range() -> None:
     from app.services.document_agent.structure import anchoring_primitives as primitives
 
-    tail_child = TitleNode(title="Tail.1", level=2, printed_page=96, children=[])
-    ghost_child = TitleNode(title="Ghost.1", level=2, printed_page=11, children=[])
-    tail = _printed_page_parent("Tail", 95, tail_child)
-    ghost = _printed_page_parent("Ghost", 10, ghost_child)
-    matches = primitives.bulk_offset_matches([(("Tail", "Tail.1"), tail_child)], 8)
+    prior_leaf = TitleNode(title="E11", level=1, printed_page=250, children=[])
+    appendices = TitleNode(
+        title="Appendices",
+        level=1,
+        printed_page=261,
+        children=[
+            TitleNode(title="A maps", level=2, printed_page=None, children=[]),
+        ],
+    )
+    tail_child = TitleNode(title="Tail.1", level=2, printed_page=440, children=[])
+    tail = _printed_page_parent("Tail", 439, tail_child)
+    matches = {
+        **primitives.bulk_offset_matches([(("E11",), prior_leaf)], 0),
+        **primitives.bulk_offset_matches([(("Tail", "Tail.1"), tail_child)], 8),
+    }
 
-    parents = primitives.backfill_parent_offset_matches(
-        nodes=[tail, ghost],
+    filled = primitives.backfill_printed_offset_matches(
+        nodes=[prior_leaf, appendices, tail],
         matches=matches,
-        page_count=100,
+        page_count=443,
     )
 
-    assert parents == {}
+    assert filled[("Appendices",)].page == 261
+    assert filled[("Appendices",)].evidence["offset"] == 0
+    # 439 + 8 = 447 exceeds page_count
+    assert ("Tail",) not in filled
 
 
 def test_multi_regime_phase2_merges_physical_overrides() -> None:

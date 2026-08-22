@@ -318,35 +318,46 @@ def bulk_offset_matches(
     return matches
 
 
-def _iter_printed_page_parents(
-    nodes: list[TitleNode],
+def _regime_offset_for_printed_node(
     *,
-    parent_titles: tuple[str, ...] = (),
-) -> list[tuple[tuple[str, ...], TitleNode]]:
-    """DFS non-leaf nodes that print their own page in the TOC."""
-    parents: list[tuple[tuple[str, ...], TitleNode]] = []
-    for node in nodes:
-        path_titles = (*parent_titles, node.title)
-        if not node.children:
-            continue
-        if node.printed_page is not None:
-            parents.append((path_titles, node))
-        parents.extend(
-            _iter_printed_page_parents(node.children, parent_titles=path_titles)
-        )
-    return parents
-
-
-def _descendant_regime_offset(
-    node: TitleNode,
     path_titles: tuple[str, ...],
+    ordered_paths: list[tuple[str, ...]],
     matches: dict[tuple[str, ...], TitleMatch],
 ) -> int | None:
-    """Offset of the parent's first anchored descendant leaf, i.e. its regime."""
-    for leaf_path, _leaf in iter_leaf_title_nodes(
-        node.children, parent_titles=path_titles
-    ):
-        match = matches.get(leaf_path)
+    """Resolve the calibration-segment offset for one printed TOC node.
+
+    Prefer an offset-bearing match under the node (same binary/regime segment as
+    its descendants). If the subtree has none, take the nearest preceding
+    offset-bearing match; if still none, the first subsequent one.
+    """
+    depth = len(path_titles)
+    for path in ordered_paths:
+        if path == path_titles or len(path) <= depth:
+            continue
+        if path[:depth] != path_titles:
+            continue
+        match = matches.get(path)
+        if match is None:
+            continue
+        offset = match.evidence.get("offset")
+        if offset is not None:
+            return int(offset)
+
+    try:
+        index = ordered_paths.index(path_titles)
+    except ValueError:
+        return None
+    for prev in reversed(ordered_paths[:index]):
+        match = matches.get(prev)
+        if match is None:
+            continue
+        offset = match.evidence.get("offset")
+        if offset is not None:
+            return int(offset)
+    for nxt in ordered_paths[index + 1 :]:
+        if len(nxt) > depth and nxt[:depth] == path_titles:
+            continue
+        match = matches.get(nxt)
         if match is None:
             continue
         offset = match.evidence.get("offset")
@@ -355,24 +366,29 @@ def _descendant_regime_offset(
     return None
 
 
-def backfill_parent_offset_matches(
+def backfill_printed_offset_matches(
     *,
     nodes: list[TitleNode],
     matches: dict[tuple[str, ...], TitleMatch],
     page_count: int,
 ) -> dict[tuple[str, ...], TitleMatch]:
-    """Anchor TOC parents that print a page, reusing their descendant's offset.
+    """Blind-write physical pages for every still-unanchored printed TOC node.
 
-    Bulk anchoring consumes leaves only, so a TOC whose section headings carry
-    printed pages leaves every parent without a physical page. The parent shares
-    the calibration regime of its first anchored descendant, so ``printed_page +
-    that regime's offset`` is the parent's physical page.
+    Bulk/bisect only consume printed leaves. After that pass, any remaining node
+    with ``printed_page`` (parent or leaf) reuses its calibration-segment offset:
+    ``printed_page + offset``, clamped to ``1..page_count``.
     """
+    ordered = _iter_all_title_nodes(nodes)
+    ordered_paths = [path for path, _node in ordered]
     by_offset: dict[int, list[tuple[tuple[str, ...], TitleNode]]] = {}
-    for path_titles, node in _iter_printed_page_parents(nodes):
-        if path_titles in matches:
+    for path_titles, node in ordered:
+        if node.printed_page is None or path_titles in matches:
             continue
-        offset = _descendant_regime_offset(node, path_titles, matches)
+        offset = _regime_offset_for_printed_node(
+            path_titles=path_titles,
+            ordered_paths=ordered_paths,
+            matches=matches,
+        )
         if offset is None:
             continue
         by_offset.setdefault(offset, []).append((path_titles, node))
@@ -383,7 +399,7 @@ def backfill_parent_offset_matches(
             if 1 <= match.page <= page_count:
                 out[path_titles] = replace(
                     match,
-                    evidence={**match.evidence, "parent_backfill": True},
+                    evidence={**match.evidence, "printed_offset_backfill": True},
                 )
     return out
 
@@ -701,6 +717,7 @@ def apply_null_page_locates_and_prune(
     nodes: list[TitleNode],
     match_overrides: dict[tuple[str, ...], TitleMatch],
     body_pages: list[int],
+    page_count: int,
     ctx: ToolContext | None,
     structural_parent_paths: set[tuple[str, ...]],
 ) -> tuple[
@@ -708,15 +725,28 @@ def apply_null_page_locates_and_prune(
     dict[tuple[str, ...], TitleMatch],
     list[dict[str, Any]],
     int,
+    int,
 ]:
-    """Shared Phase-2 tail: parent-first null-page ReAct → final prune.
+    """Shared Phase-2 tail: printed backfill → null-page ReAct → final prune.
 
     Callers collect ``structural_parent_paths`` and run ``prune(..., keep_null=True)``
-    before this helper. Regimes also runs printed-page parent backfill before
-    calling; the offset path intentionally does not (known asymmetry).
+    before this helper. Returns ``pre_react_override_count`` so callers can freeze
+    ``bulk_count`` after backfill and before ReAct hits are added.
     """
     working = nodes
     overrides = dict(match_overrides)
+    backfilled = backfill_printed_offset_matches(
+        nodes=working,
+        matches=overrides,
+        page_count=page_count,
+    )
+    if backfilled:
+        overrides.update(backfilled)
+        logger.info(
+            "[structure_anchoring] printed-offset backfill: {} nodes",
+            len(backfilled),
+        )
+    pre_react_override_count = len(overrides)
 
     overrides, null_page_report = locate_null_page_overrides(
         nodes=working,
@@ -732,7 +762,13 @@ def apply_null_page_locates_and_prune(
         keep_null_page_nodes=False,
     )
     overrides = _filter_overrides_to_tree(working, overrides)
-    return working, overrides, null_page_report, failed_null_removed
+    return (
+        working,
+        overrides,
+        null_page_report,
+        failed_null_removed,
+        pre_react_override_count,
+    )
 
 
 def anchor_hierarchy_from_offset(
@@ -770,11 +806,9 @@ def anchor_hierarchy_from_offset(
     if offset_matches is not None:
         match_overrides = offset_matches
         locate_method = "offset_guided_bulk"
-        bulk_count = len(offset_matches)
     else:
         match_overrides = seed_overrides
         locate_method = "offset_only"
-        bulk_count = 0
 
     # Capture parent identity before prune so empty shells retain ``kind=parent``.
     structural_parent_paths = {
@@ -790,17 +824,22 @@ def anchor_hierarchy_from_offset(
     pruned_count += unanchored_removed
     match_overrides = _filter_overrides_to_tree(working, match_overrides)
 
-    # Offset path does not run printed-page parent backfill (regimes does).
-    working, match_overrides, null_page_report, failed_null_removed = (
-        apply_null_page_locates_and_prune(
-            nodes=working,
-            match_overrides=match_overrides,
-            body_pages=body_pages,
-            ctx=ctx,
-            structural_parent_paths=structural_parent_paths,
-        )
+    (
+        working,
+        match_overrides,
+        null_page_report,
+        failed_null_removed,
+        pre_react_override_count,
+    ) = apply_null_page_locates_and_prune(
+        nodes=working,
+        match_overrides=match_overrides,
+        body_pages=body_pages,
+        page_count=page_count,
+        ctx=ctx,
+        structural_parent_paths=structural_parent_paths,
     )
     pruned_count += failed_null_removed
+    bulk_count = pre_react_override_count if offset_matches is not None else 0
 
     if offset_hint is None:
         offset_status = "failed" if ctx is not None else "skipped"

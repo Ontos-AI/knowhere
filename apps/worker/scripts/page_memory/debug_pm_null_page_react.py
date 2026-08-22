@@ -108,8 +108,10 @@ def main() -> int:
         payload = {
             "policy": {
                 "prune_pre": "keep_null_page_nodes=True",
+                "printed_backfill": "anchoring_primitives.backfill_printed_offset_matches",
                 "probe": "null_page_react.locate_null_page_overrides",
                 "traversal": "parent-first DFS",
+                "left_bound": "preorder max confirmed page (body start fallback)",
                 "text_match": "normalized whole-line equality",
                 "visual_windows": [2, 4, 6, 10],
                 "prune_post": "keep_null_page_nodes=False (drop unresolved)",
