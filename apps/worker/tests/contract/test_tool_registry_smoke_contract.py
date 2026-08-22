@@ -64,6 +64,39 @@ def test_grep_text_normalizes_query_and_corpus_by_default() -> None:
     assert result.payload["hit_pages"] == [2]
 
 
+def test_grep_text_whole_line_rejects_body_substring_and_dedupes_pages() -> None:
+    blackboard = ProfileBlackboard(page_count=2)
+    blackboard.page_full_text_cache = {
+        1: (
+            "The street furniture with advertising program continues.\n"
+            "Street Furniture with Advertising\n"
+            "Street Furniture with Advertising"
+        ),
+        2: "No heading here",
+    }
+    ctx = ToolContext(
+        pdf_path="/tmp/doc.pdf",
+        job_id="grep-whole-line",
+        blackboard=blackboard,
+        trace=None,
+        settings={},
+    )
+
+    result = grep_text(
+        ctx,
+        {
+            "query": "Street Furniture with Advertising",
+            "whole_line": True,
+        },
+    )
+
+    assert result.status == "ok"
+    assert result.payload["whole_line"] is True
+    assert result.payload["hit_count"] == 2
+    assert result.payload["hit_page_count"] == 1
+    assert result.payload["hit_pages"] == [1]
+
+
 def test_strip_footer_updates_search_view_for_grep() -> None:
     from app.services.document_agent.pdf_text import PageTextBands
     from app.services.document_agent.tools.text_strip_margins import strip_footer

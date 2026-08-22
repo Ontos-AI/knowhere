@@ -17,6 +17,7 @@ import pytest
 from app.services.document_agent.calibration import scan as scan_module
 from app.services.document_agent.calibration.scan import (
     DEFAULT_WINDOW_SCHEDULE,
+    progressive_page_windows,
     scan_title_forward,
 )
 from app.services.document_agent.manifest import ToolContext, ToolResult
@@ -66,6 +67,14 @@ def patch_inspect(monkeypatch: pytest.MonkeyPatch):
         return fake
 
     return _apply
+
+
+def test_progressive_page_windows_are_non_overlapping_and_clipped() -> None:
+    assert progressive_page_windows(start_page=10, end_page=20) == [
+        [10, 11],
+        [12, 13, 14, 15],
+        [16, 17, 18, 19, 20],
+    ]
 
 
 def test_first_round_opens_the_candidate_page_and_its_successor(patch_inspect) -> None:

@@ -1,11 +1,10 @@
 """Locate hierarchy titles on PDF pages and resolve page ranges.
 
 Deterministic range assembly from PROFILE ``match_overrides``. Leaf starts
-come only from those overrides. Null-page leaves are located upstream via
-bounded grep ReAct + VLM; null-page parents use their sibling/first-child
-window. They are then resolved here, including parent self-only spans for
-interstitial pages. Parents without an override may still inherit start from
-the earliest located descendant leaf.
+come only from those overrides. Every null-page node is located upstream by
+one parent-first whole-line ReAct + VLM path. They are then resolved here,
+including parent self-only spans for interstitial pages. Parents without an
+override may still inherit start from the earliest located descendant leaf.
 """
 
 from __future__ import annotations
@@ -14,11 +13,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from app.services.document_parser.structure.body_boundary import (
-    clean_toc_title,
-    normalize_heading_label,
-    normalize_match_text,
-)
+from app.services.document_parser.structure.body_boundary import normalize_heading_label
 
 TitleMatchSource = Literal[
     "anchored",
@@ -26,7 +21,7 @@ TitleMatchSource = Literal[
     "inspect_vlm",
     "inferred_descendant",
     "pdf_outline",
-    "react_normalized_grep_vlm",
+    "react_line_grep_vlm",
 ]
 
 
@@ -134,46 +129,6 @@ class ResolvedHierarchyRange:
     path_titles: tuple[str, ...]
     match: TitleMatch | None
     evidence: dict[str, Any] = field(default_factory=dict)
-
-
-def locate_title_normalized_strict(
-    title: str,
-    *,
-    scope_pages: list[int],
-    page_texts: dict[int, str],
-) -> TitleMatch | None:
-    """Locate *title* after unified text normalization; accept one unique page.
-
-    Query and page text both preserve one space between non-CJK words while
-    removing whitespace adjacent to CJK. Accept iff exactly one page in
-    ``scope_pages`` hits.
-    """
-    needle = normalize_match_text(clean_toc_title(title) or title)
-    if not needle or not scope_pages:
-        return None
-
-    hit_pages: list[int] = []
-    matched_preview = ""
-    for page in scope_pages:
-        haystack = normalize_match_text(page_texts.get(page, ""))
-        if not haystack or needle not in haystack:
-            continue
-        hit_pages.append(page)
-        if not matched_preview:
-            matched_preview = needle[:160]
-
-    unique_pages = sorted(set(hit_pages))
-    if len(unique_pages) != 1:
-        return None
-
-    page = unique_pages[0]
-    return TitleMatch(
-        page=page,
-        source="anchored",
-        matched_line=matched_preview,
-        candidates=[page],
-        evidence={"accept": "normalized_strict_unique"},
-    )
 
 
 def last_leaf_start_under(

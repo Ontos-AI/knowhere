@@ -350,8 +350,7 @@ def anchor_hierarchy_from_regimes(
                 len(regime_seed),
             )
 
-    # Capture parents before prune: empty shells after keep_null prune must
-    # not enter leaf ReAct (H1).
+    # Capture parent identity before prune so empty shells retain ``kind=parent``.
     structural_parent_paths = {
         path
         for path, node in _iter_all_title_nodes(working)
@@ -388,7 +387,7 @@ def anchor_hierarchy_from_regimes(
             len(parent_matches),
         )
 
-    # H4: freeze bulk before null-page leaf/parent ReAct (same as offset path:
+    # Freeze bulk before unified null-page ReAct (same as offset path:
     # offset_guided → len(overrides then); else 0). Never recount after ReAct.
     bulk_count = len(merged) if regime_bulk > 0 else 0
 
@@ -397,7 +396,6 @@ def anchor_hierarchy_from_regimes(
             nodes=working,
             match_overrides=merged,
             body_pages=body_pages,
-            page_texts=page_texts,
             ctx=ctx,
             structural_parent_paths=structural_parent_paths,
         )

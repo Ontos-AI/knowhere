@@ -25,6 +25,27 @@ from app.services.document_agent.tools.inspect_pages import inspect_pages
 DEFAULT_WINDOW_SCHEDULE: tuple[int, ...] = (2, 4, 6, 10)
 
 
+def progressive_page_windows(
+    *,
+    start_page: int,
+    end_page: int,
+    window_schedule: tuple[int, ...] = DEFAULT_WINDOW_SCHEDULE,
+) -> list[list[int]]:
+    """Return non-overlapping physical-page windows clipped to ``end_page``."""
+    cursor = max(int(start_page), 1)
+    last_page = int(end_page)
+    windows: list[list[int]] = []
+    for size in window_schedule:
+        if cursor > last_page:
+            break
+        pages = list(range(cursor, min(cursor + int(size), last_page + 1)))
+        if not pages:
+            break
+        windows.append(pages)
+        cursor = pages[-1] + 1
+    return windows
+
+
 @dataclass
 class ScanRound:
     pages: list[int]
@@ -76,17 +97,15 @@ def scan_title_forward(
     Each round opens ``window_schedule[i]`` consecutive pages starting at the
     cursor left by the previous round, so no page is inspected twice.
     """
-    cursor = max(int(start_page), 1)
     scanned: list[int] = []
     rounds: list[ScanRound] = []
+    next_start = max(int(start_page), 1)
 
-    for size in window_schedule:
-        if cursor > page_count:
-            break
-        pages = [page for page in range(cursor, cursor + size) if page <= page_count]
-        if not pages:
-            break
-
+    for pages in progressive_page_windows(
+        start_page=start_page,
+        end_page=page_count,
+        window_schedule=window_schedule,
+    ):
         result = inspect_pages(
             ctx,
             {
@@ -99,7 +118,7 @@ def scan_title_forward(
                 "usage_task": "calibration.scan_title_forward",
             },
         )
-        cursor = pages[-1] + 1
+        next_start = pages[-1] + 1
         scanned.extend(pages)
 
         if result.status != "ok":
@@ -128,7 +147,7 @@ def scan_title_forward(
                 found=True,
                 found_page=found_page,
                 scanned_pages=scanned,
-                next_start=cursor if cursor <= page_count else None,
+                next_start=next_start if next_start <= page_count else None,
                 rounds=rounds,
             )
 
@@ -142,6 +161,6 @@ def scan_title_forward(
         found=False,
         found_page=None,
         scanned_pages=scanned,
-        next_start=cursor if cursor <= page_count else None,
+        next_start=next_start if next_start <= page_count else None,
         rounds=rounds,
     )

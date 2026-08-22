@@ -2,7 +2,7 @@
 # ruff: noqa: E402
 """Debug: dump production null-page locate report via Stage-2 anchoring.
 
-Uses the live leaf ReAct + parent window locator path (no patches).
+Uses the live parent-first unified ReAct locator (no patches).
 
 Usage:
   cd apps/worker
@@ -95,7 +95,7 @@ def main() -> int:
                 if isinstance(match, dict)
                 else getattr(match, "source", None)
             )
-            if source != "react_normalized_grep_vlm":
+            if source != "react_line_grep_vlm":
                 continue
             titles = path if isinstance(path, (list, tuple)) else (path,)
             page = (
@@ -108,8 +108,10 @@ def main() -> int:
         payload = {
             "policy": {
                 "prune_pre": "keep_null_page_nodes=True",
-                "leaf_probe": "null_page_react.locate_null_page_node_overrides",
-                "parent_probe": "anchoring_primitives.locate_null_page_parent_overrides",
+                "probe": "null_page_react.locate_null_page_overrides",
+                "traversal": "parent-first DFS",
+                "text_match": "normalized whole-line equality",
+                "visual_windows": [2, 4, 6, 10],
                 "prune_post": "keep_null_page_nodes=False (drop unresolved)",
                 "react_budget": react_budget(),
                 "react_planner_grep_budget": REACT_PLANNER_GREP_BUDGET,
@@ -136,14 +138,13 @@ def main() -> int:
         )
         for row in report:
             logger.info(
-                "  [{}] {} search_scope={} result={} page={} loops={} failed_sibling={}",
+                "  [{}] {} search_scope={} result={} page={} loops={}",
                 row.get("kind"),
                 row.get("path_titles"),
                 row.get("search_scope"),
                 row.get("result"),
                 row.get("page"),
                 len(row.get("react_attempts") or []),
-                row.get("failed_sibling"),
             )
         for hit in react_hits:
             logger.info("  OVERRIDE {} -> p{}", hit["path"], hit["page"])

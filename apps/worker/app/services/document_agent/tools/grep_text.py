@@ -20,16 +20,17 @@ from app.services.document_parser.structure.body_boundary import normalize_match
 @register_tool(
     name="grep.text",
     description=(
-        "Search normalized PDF text for a substring or regex. Whitespace is "
-        "collapsed with CJK-aware spacing and matching is case-insensitive. "
-        "Uses page_text_search_view when set (after text.strip_*), else each "
-        "page's stored content field."
+        "Search normalized PDF text for a substring, regex, or complete line. "
+        "Whitespace is collapsed with CJK-aware spacing and matching is "
+        "case-insensitive. Uses page_text_search_view when set (after "
+        "text.strip_*), else each page's stored content field."
     ),
     parameters={
         "type": "object",
         "properties": {
             "query": {"type": "string"},
             "regex": {"type": "boolean", "default": False},
+            "whole_line": {"type": "boolean", "default": False},
             "max_results": {"type": "integer", "default": 30},
             "context_chars": {"type": "integer", "default": 80},
             "start_page": {"type": "integer"},
@@ -49,6 +50,7 @@ def grep_text(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             latency_ms=int((time.monotonic() - start) * 1000),
         )
     use_regex = bool(args.get("regex", False))
+    whole_line = bool(args.get("whole_line", False))
     max_results = max(1, min(int(args.get("max_results") or 30), 100))
     context_chars = max(20, min(int(args.get("context_chars") or 80), 300))
     start_page = max(1, int(args.get("start_page") or 1))
@@ -74,27 +76,45 @@ def grep_text(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     for page, text in sorted(texts.items()):
         if page < start_page or (end_page and page > end_page):
             continue
-        normalized_text = normalize_match_text(str(text or ""))
         page_hit = False
-        for match in pattern.finditer(normalized_text):
-            hit_count += 1
-            page_hit = True
-            if len(results) >= max_results:
-                continue
-            start_idx = max(match.start() - context_chars, 0)
-            end_idx = min(match.end() + context_chars, len(normalized_text))
-            results.append(
-                {
-                    "page": page,
-                    "char_offset": match.start(),
-                    "snippet": normalized_text[start_idx:end_idx],
-                }
-            )
+        if whole_line:
+            for line_index, line in enumerate(str(text or "").splitlines()):
+                normalized_line = normalize_match_text(line)
+                if not normalized_line or pattern.fullmatch(normalized_line) is None:
+                    continue
+                hit_count += 1
+                page_hit = True
+                if len(results) < max_results:
+                    results.append(
+                        {
+                            "page": page,
+                            "line_index": line_index,
+                            "char_offset": 0,
+                            "snippet": normalized_line,
+                        }
+                    )
+        else:
+            normalized_text = normalize_match_text(str(text or ""))
+            for match in pattern.finditer(normalized_text):
+                hit_count += 1
+                page_hit = True
+                if len(results) >= max_results:
+                    continue
+                start_idx = max(match.start() - context_chars, 0)
+                end_idx = min(match.end() + context_chars, len(normalized_text))
+                results.append(
+                    {
+                        "page": page,
+                        "char_offset": match.start(),
+                        "snippet": normalized_text[start_idx:end_idx],
+                    }
+                )
         if page_hit:
             hit_pages.append(page)
     summary = {
         "query": query,
         "normalized_query": normalized_query,
+        "whole_line": whole_line,
         "hit_count": hit_count,
         "hit_page_count": len(hit_pages),
         "hit_pages": hit_pages,
