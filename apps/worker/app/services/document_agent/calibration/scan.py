@@ -4,20 +4,24 @@ A TOC entry gives a printed page label; the physical page is that candidate or
 some page after it. The scan walks forward from the candidate with a widening
 window, feeding each round's cursor into the next one, so a miss never re-opens
 pages that were already inspected.
+
+Each round still covers ``window_schedule[i]`` pages, but pages are inspected
+one-at-a-time concurrently (never batched into a single VLM call).
 """
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
 
 from app.services.document_agent.calibration.prompts import (
-    SECTION_START_ANSWER_KEYS,
-    build_section_start_question,
+    SECTION_START_PAGE_ANSWER_KEYS,
+    build_section_start_page_question,
     coerce_found,
-    coerce_found_page,
+    coerce_reason,
 )
 from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.tools.inspect_pages import inspect_pages
@@ -47,11 +51,20 @@ def progressive_page_windows(
 
 
 @dataclass
+class PageInspectResult:
+    page: int
+    found: bool
+    reason: str = ""
+    error: str = ""
+
+
+@dataclass
 class ScanRound:
     pages: list[int]
     found: bool
     found_page: int | None = None
     error: str = ""
+    page_results: list[PageInspectResult] = field(default_factory=list)
 
 
 @dataclass
@@ -78,10 +91,76 @@ class TitleScanResult:
                     "found": item.found,
                     "found_page": item.found_page,
                     "error": item.error,
+                    "page_results": [
+                        {
+                            "page": pr.page,
+                            "found": pr.found,
+                            "reason": pr.reason,
+                            "error": pr.error,
+                        }
+                        for pr in item.page_results
+                    ],
                 }
                 for item in self.rounds
             ],
         }
+
+
+def _inspect_one_page(
+    *,
+    ctx: ToolContext,
+    title: str,
+    page: int,
+) -> PageInspectResult:
+    result = inspect_pages(
+        ctx,
+        {
+            "pages": [page],
+            "page_cap": 1,
+            "question": build_section_start_page_question(title),
+            "answer_keys": SECTION_START_PAGE_ANSWER_KEYS,
+            "folder_name": "calibration_scan",
+            "prefix": "scan",
+            "usage_task": "calibration.scan_title_forward",
+        },
+    )
+    if result.status != "ok":
+        return PageInspectResult(
+            page=page, found=False, error=result.error or "inspect.pages failed"
+        )
+    fields = (result.payload or {}).get("fields") or {}
+    return PageInspectResult(
+        page=page,
+        found=coerce_found(fields.get("found")),
+        reason=coerce_reason(fields.get("reason")),
+    )
+
+
+def _inspect_pages_concurrent(
+    *,
+    ctx: ToolContext,
+    title: str,
+    pages: list[int],
+) -> list[PageInspectResult]:
+    """Inspect each page alone; keep page order in the returned list."""
+    if len(pages) == 1:
+        return [_inspect_one_page(ctx=ctx, title=title, page=pages[0])]
+
+    by_page: dict[int, PageInspectResult] = {}
+    with ThreadPoolExecutor(max_workers=len(pages)) as pool:
+        futures = {
+            pool.submit(_inspect_one_page, ctx=ctx, title=title, page=page): page
+            for page in pages
+        }
+        for future in as_completed(futures):
+            page = futures[future]
+            try:
+                by_page[page] = future.result()
+            except Exception as exc:  # noqa: BLE001 — surface as page error
+                by_page[page] = PageInspectResult(
+                    page=page, found=False, error=str(exc)
+                )
+    return [by_page[page] for page in pages]
 
 
 def scan_title_forward(
@@ -94,8 +173,10 @@ def scan_title_forward(
 ) -> TitleScanResult:
     """Scan forward from ``start_page`` until the title is found or rounds run out.
 
-    Each round opens ``window_schedule[i]`` consecutive pages starting at the
-    cursor left by the previous round, so no page is inspected twice.
+    Each round covers ``window_schedule[i]`` consecutive pages starting at the
+    cursor left by the previous round. Pages inside a round are inspected
+    concurrently, one page per VLM call; the earliest true page wins. A page
+    error without a hit is logged and the scan continues to the next window.
     """
     scanned: list[int] = []
     rounds: list[ScanRound] = []
@@ -106,36 +187,21 @@ def scan_title_forward(
         end_page=page_count,
         window_schedule=window_schedule,
     ):
-        result = inspect_pages(
-            ctx,
-            {
-                "pages": pages,
-                "page_cap": len(pages),
-                "question": build_section_start_question(title),
-                "answer_keys": SECTION_START_ANSWER_KEYS,
-                "folder_name": "calibration_scan",
-                "prefix": "scan",
-                "usage_task": "calibration.scan_title_forward",
-            },
-        )
+        page_results = _inspect_pages_concurrent(ctx=ctx, title=title, pages=pages)
         next_start = pages[-1] + 1
         scanned.extend(pages)
 
-        if result.status != "ok":
-            rounds.append(ScanRound(pages=pages, found=False, error=result.error or ""))
-            logger.warning(
-                "[calibration.scan] title={!r} pages={} inspect failed: {}",
-                title,
-                pages,
-                result.error,
+        hits = [pr.page for pr in page_results if pr.found]
+        if hits:
+            found_page = min(hits)
+            rounds.append(
+                ScanRound(
+                    pages=pages,
+                    found=True,
+                    found_page=found_page,
+                    page_results=page_results,
+                )
             )
-            break
-
-        fields = (result.payload or {}).get("fields") or {}
-        found_page = coerce_found_page(fields.get("found_page"), pages=pages)
-        found = coerce_found(fields.get("found")) and found_page is not None
-        rounds.append(ScanRound(pages=pages, found=found, found_page=found_page))
-        if found:
             logger.info(
                 "[calibration.scan] title={!r} found on page={} after {} round(s)",
                 title,
@@ -150,6 +216,25 @@ def scan_title_forward(
                 next_start=next_start if next_start <= page_count else None,
                 rounds=rounds,
             )
+
+        errors = [pr.error for pr in page_results if pr.error]
+        if errors:
+            logger.warning(
+                "[calibration.scan] title={!r} pages={} inspect failed: {}; "
+                "continuing to next window",
+                title,
+                pages,
+                errors[0],
+            )
+        rounds.append(
+            ScanRound(
+                pages=pages,
+                found=False,
+                found_page=None,
+                error=errors[0] if errors else "",
+                page_results=page_results,
+            )
+        )
 
     logger.info(
         "[calibration.scan] title={!r} not found in pages={}",

@@ -167,7 +167,7 @@ def run_calibration_phase1(
             )
             break
 
-    inspect_calls = sum(len(scan.rounds) for scan in scans)
+    inspect_calls = sum(len(scan.scanned_pages) for scan in scans)
     logger.info(
         "[calibration.phase1] region={} regimes={} offsets={} inspect_calls={}",
         region_index,
