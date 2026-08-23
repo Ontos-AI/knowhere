@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+
+import pytest
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
 os.environ.setdefault("TMP_PATH", "/tmp/knowhere-test")
@@ -13,10 +16,45 @@ os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 import app.services.document_agent.tools as _tools  # noqa: F401
 from app.services.document_agent.manifest import ToolContext
+from app.services.document_agent.pdf_text import PageTextBands, strip_margin_text
 from app.services.document_agent.registry import REGISTRY
 from app.services.document_agent.state import ProfileBlackboard
 from app.services.document_agent.tools.grep_text import grep_text
 from app.services.document_agent.tools.inspect_pages import inspect_pages
+from app.services.document_agent.tools.text_strip_margins import strip_footer
+
+
+@pytest.fixture(autouse=True)
+def _rebind_live_tool_imports() -> Iterator[None]:
+    """Rebind after contract fixtures that clear ``app.*`` from ``sys.modules``."""
+    global REGISTRY, ToolContext, ProfileBlackboard
+    global PageTextBands, strip_margin_text, strip_footer, grep_text, inspect_pages
+
+    import app.services.document_agent.tools as _live_tools  # noqa: F401
+    from app.services.document_agent.manifest import ToolContext as live_tool_context
+    from app.services.document_agent.pdf_text import PageTextBands as live_bands
+    from app.services.document_agent.pdf_text import (
+        strip_margin_text as live_strip_margin_text,
+    )
+    from app.services.document_agent.registry import REGISTRY as live_registry
+    from app.services.document_agent.state import ProfileBlackboard as live_blackboard
+    from app.services.document_agent.tools.grep_text import grep_text as live_grep_text
+    from app.services.document_agent.tools.inspect_pages import (
+        inspect_pages as live_inspect_pages,
+    )
+    from app.services.document_agent.tools.text_strip_margins import (
+        strip_footer as live_strip_footer,
+    )
+
+    REGISTRY = live_registry
+    ToolContext = live_tool_context
+    ProfileBlackboard = live_blackboard
+    PageTextBands = live_bands
+    strip_margin_text = live_strip_margin_text
+    strip_footer = live_strip_footer
+    grep_text = live_grep_text
+    inspect_pages = live_inspect_pages
+    yield
 
 
 def test_probe_and_inspect_registered() -> None:
@@ -98,12 +136,6 @@ def test_grep_text_whole_line_rejects_body_substring_and_dedupes_pages() -> None
 
 
 def test_strip_footer_updates_search_view_for_grep() -> None:
-    # Import inside the test so PageTextBands / grep_text share one module
-    # identity after worker_contract_environment clears app.* mid-suite.
-    from app.services.document_agent.pdf_text import PageTextBands
-    from app.services.document_agent.tools.grep_text import grep_text as grep_text_fn
-    from app.services.document_agent.tools.text_strip_margins import strip_footer
-
     blackboard = ProfileBlackboard(page_count=1)
     blackboard.page_full_text_cache = {
         1: PageTextBands(
@@ -120,7 +152,7 @@ def test_strip_footer_updates_search_view_for_grep() -> None:
         settings={},
     )
 
-    before = grep_text_fn(
+    before = grep_text(
         ctx, {"query": "Public Domain Manual", "start_page": 1, "end_page": 1}
     )
     assert before.status == "ok"
@@ -131,7 +163,7 @@ def test_strip_footer_updates_search_view_for_grep() -> None:
     assert strip.payload["pages_updated"] == 1
     assert ctx.blackboard.page_text_search_view[1] == "Section Start\n"
 
-    after = grep_text_fn(
+    after = grep_text(
         ctx, {"query": "Public Domain Manual", "start_page": 1, "end_page": 1}
     )
     assert after.status == "ok"
@@ -143,8 +175,6 @@ def test_strip_footer_updates_search_view_for_grep() -> None:
 
 def test_strip_margin_text_edge_aligned_not_first_occurrence() -> None:
     """M4: footer/header strip only the matching edge, not body duplicates."""
-    from app.services.document_agent.pdf_text import strip_margin_text
-
     body_and_footer = "Public Domain Manual\nSection body\nPublic Domain Manual"
     assert (
         strip_margin_text(body_and_footer, "Public Domain Manual", edge="footer")
