@@ -30,56 +30,34 @@ def react_budget() -> int:
 
 
 _REACT_INSTRUCTIONS = """\
-You are the search planner in a small ReAct loop. Propose the next whole-line
-text query to find the physical START page of a section. Grep normalizes each
-PDF text line independently, collapses whitespace with CJK-aware spacing, and
-matches the complete normalized line case-insensitively. It never accepts a
-substring inside a longer line. Every candidate page, including a unique one,
-must pass visual section-start confirmation.
+Return exactly one strict json object and no other text.
+Fields: action is one of grep, strip_header, strip_footer, give_up; query is a string.
 
-The system already grepped the full TOC title once before this loop (see
-previous_attempts). Do not repeat that exact full-title query.
-
-Return one strict json object with action one of (no other keys):
-{"action":"grep","query":"..."}
-{"action":"strip_header","query":""}
-{"action":"strip_footer","query":""}
-{"action":"give_up","query":""}
-
-Do not include a reason field. Use give_up only when no useful untried query
-or strip remains.
-
-Ordered query strategy after the automatic full-title grep (follow this order;
-skip a step only if already tried or not applicable to the TOC title / parent
-path). Pattern-level only — do not invent document-specific titles:
-1. Remove the leading number / letter / punctuation prefix from the TOC title
-   and grep the remaining title body.
-2. When the parent path indicates appendices/annexes (or the TOC label is a
+Ordered query strategy (follow this order; skip a step only if already tried
+or not applicable to the given title / parent path). Pattern-level only —
+do not invent document-specific titles:
+1. Derive the search line from the given title by removing leading number /
+   letter / punctuation prefixes and trailing metadata qualifiers (document
+   identifiers/codes, revision labels, and similar). Keep the semantic title
+   body. Prefer that body over a metadata-only query when both are present.
+2. When the parent path indicates appendices/annexes (or the title is a
    lettered appendix-style entry): grep the structural form
-   "Appendix <letter>" using the letter taken from the TOC label. Prefer this
+   "Appendix <letter>" using the letter taken from the title. Prefer this
    before inventing other phrases.
 3. Only after the above: try other variants such as "Appendix <letter>" plus
    the title body, a shorter distinctive complete-line title variant, or
    another structural prefix (chapter / part / section / annex) when supported
    by the title or parent path.
-4. Prefer queries specific enough to avoid running headers and passing mentions.
-   Do not guess page numbers.
 
-Reflection rules (mandatory):
-- Read previous_attempts. Reflect on query, hit_page_count, and observation
-  before answering.
+Rules:
+- Prefer queries specific enough to avoid running headers and passing mentions.
+  Do not guess page numbers.
 - If the last observation is no_line_hits, visual_rejected,
   empty_normalized_query, grep_tool_error, or duplicate_normalized_query, you
-  MUST change the query when choosing grep. Emitting the same grep query again
-  after whitespace/case normalization is invalid for planner-chosen greps.
-- Prefer strip_header or strip_footer when candidate pages look like running
-  headers/footers. Each strip automatically re-greps the last query once for
-  free. Otherwise advance to the next ordered query strategy.
-- strip_header / strip_footer only update a temporary search view; they do not
-  change stored page text. They do NOT consume react_budget. Call each at most
-  once per locate.
-- Planner greps consume react_budget. The automatic full-title seed grep and
-  strip auto re-greps are free.
+  must choose a different normalized query when using grep.
+- Use strip_header or strip_footer at most once each when margin text causes
+  false hits; either action re-runs the last query.
+- Use give_up only when no useful untried query or strip action remains.
 """
 
 
@@ -195,7 +173,7 @@ def _propose_react_query(
     grep_loops_used: int,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     state = {
-        "toc_title": title,
+        "title": title,
         "parent_path": list(parent_titles),
         "physical_search_scope": [left, right],
         "grep_loops_remaining": max(0, budget - grep_loops_used),
