@@ -100,7 +100,7 @@ def test_toc_anchor_text_scan_whole_line_keyword_and_split_repair() -> None:
 
     assert late_matches[0]["line_index"] == 60
     assert late_matches[0]["match_kind"] == "keyword:目录"
-    assert split_matches[0]["match_kind"] == "keyword:tableofcontents"
+    assert split_matches[0]["match_kind"] == "keyword:table of contents"
     assert split_matches[0]["line_index"] == 0
     assert split_matches[0]["line_end_index"] == 2
     assert false_matches == []
@@ -618,10 +618,12 @@ def test_run_coarse_runs_coarse_profile_then_text_scan_then_toc(
     assert anatomy.toc_result.toc_pages == [17]
 
 
-def test_run_text_scan_native_uses_read_page_texts(
+def test_run_text_scan_native_uses_read_page_text_bands(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    from app.services.document_agent.pdf_text import PageTextBands
+
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "doc.pdf"),
         job_id="job-scan-native",
@@ -632,21 +634,41 @@ def test_run_text_scan_native_uses_read_page_texts(
         is_scanned=False,
         category="Report",
         routing_category=PdfRoutingCategory.GENERIC.value,
+        header_y=0.06,
+        footer_y=0.95,
     )
 
-    def fake_read(_pdf_path: str, pages: list[int], timeout: int = 300) -> dict[int, str]:
+    def fake_read(
+        _pdf_path: str,
+        pages: list[int],
+        *,
+        header_y: float | None = None,
+        footer_y: float | None = None,
+        timeout: int = 300,
+    ) -> dict[int, PageTextBands]:
         assert pages == [1, 2]
-        return {1: "a", 2: "b"}
+        assert header_y == 0.06
+        assert footer_y == 0.95
+        return {
+            1: PageTextBands(content="a", header="h1", footer="f1"),
+            2: PageTextBands(content="b", header="", footer="f2"),
+        }
 
-    monkeypatch.setattr(coordinator_module, "read_page_texts", fake_read)
+    monkeypatch.setattr(coordinator_module, "read_page_text_bands", fake_read)
     coordinator._run_text_scan()
-    assert coordinator.blackboard.page_full_text_cache == {1: "a", 2: "b"}
+    assert coordinator.blackboard.page_full_text_cache == {
+        1: PageTextBands(content="a", header="h1", footer="f1"),
+        2: PageTextBands(content="b", header="", footer="f2"),
+    }
+    assert coordinator.blackboard.page_text_search_view is None
 
 
 def test_run_text_scan_scanned_dispatches_ocr_pages(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    from app.services.document_agent.pdf_text import PageTextBands
+
     coordinator = ProfileCoordinator(
         pdf_path=str(tmp_path / "doc.pdf"),
         job_id="job-scan-ocr",
@@ -662,12 +684,18 @@ def test_run_text_scan_scanned_dispatches_ocr_pages(
     def fake_dispatch(name: str, ctx, args):
         assert name == "ocr.pages"
         assert args == {"pages": [1, 2]}
-        ctx.blackboard.page_full_text_cache = {1: "ocr-1", 2: "ocr-2"}
+        ctx.blackboard.page_full_text_cache = {
+            1: PageTextBands(content="ocr-1"),
+            2: PageTextBands(content="ocr-2"),
+        }
         return ToolResult(status="ok", payload={})
 
     monkeypatch.setattr(coordinator_module.REGISTRY, "dispatch", fake_dispatch)
     coordinator._run_text_scan()
-    assert coordinator.blackboard.page_full_text_cache == {1: "ocr-1", 2: "ocr-2"}
+    assert coordinator.blackboard.page_full_text_cache == {
+        1: PageTextBands(content="ocr-1"),
+        2: PageTextBands(content="ocr-2"),
+    }
 
 
 def test_anchor_confirmation_failure_requires_one_strict_retry(tmp_path: Path) -> None:

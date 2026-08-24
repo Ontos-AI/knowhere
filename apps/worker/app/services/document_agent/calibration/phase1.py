@@ -64,7 +64,7 @@ def _regime_probes(
 ) -> dict[str, list[_Probe]]:
     """Keep leaf probes from the first distinct printed pages of each kind."""
     from app.services.document_parser.structure.body_boundary import (
-        normalize_heading_text,
+        normalize_heading_label,
     )
 
     probes: dict[str, list[_Probe]] = {}
@@ -82,7 +82,7 @@ def _regime_probes(
             continue
         if printed in seen_printed.get(kind, set()):
             continue
-        title = normalize_heading_text(str(entry.get("heading") or ""))
+        title = normalize_heading_label(str(entry.get("heading") or ""))
         if not title:
             continue
         probes.setdefault(kind, []).append(_Probe(title=title, printed=printed))
@@ -167,7 +167,7 @@ def run_calibration_phase1(
             )
             break
 
-    inspect_calls = sum(len(scan.rounds) for scan in scans)
+    inspect_calls = sum(len(scan.scanned_pages) for scan in scans)
     logger.info(
         "[calibration.phase1] region={} regimes={} offsets={} inspect_calls={}",
         region_index,

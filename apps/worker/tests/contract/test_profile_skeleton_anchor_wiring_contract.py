@@ -307,16 +307,26 @@ def test_profile_classifies_pending_toc_after_finalize() -> None:
     assert records[0]["nodes"][0]["title"] == "App"
 
 
-def test_profile_skips_finalize_for_unresolvable_pending_toc() -> None:
+def test_profile_pending_toc_without_printed_pages_still_finalizes() -> None:
+    """H7a: all-null printed leaves still run finalize; unresolvable only if no span."""
     ctx = _ctx(page_count=30)
     hierarchies = _pending_tocs()
     hierarchies[1]["toc_with_level"] = [{"heading": "App", "level": 1}]
     ctx.blackboard.toc_hierarchies = hierarchies
     ctx.blackboard.toc_result = TocResult(method="vlm_batch", toc_pages=[1, 20, 21])
     ctx.blackboard.page_full_text_cache = {page: "body" for page in range(1, 31)}
+    finalize_calls: list[object] = []
 
-    def _boom(*_args, **_kwargs):
-        raise AssertionError("unresolvable pending TOC must not finalize")
+    def fake_finalize(**kwargs):
+        finalize_calls.append(kwargs)
+        empty = SkeletonAnchor(
+            offset=0,
+            offset_status="ok",
+            match_overrides={},
+            null_page_report=[],
+            bulk_count=0,
+        )
+        return [], empty, True
 
     with (
         patch(
@@ -333,16 +343,41 @@ def test_profile_skips_finalize_for_unresolvable_pending_toc() -> None:
         ),
         patch(
             "app.services.document_agent.calibration.procedure.finalize_calibration_result",
-            side_effect=_boom,
+            side_effect=fake_finalize,
         ),
     ):
         run_toc_anchoring(ctx)
 
+    assert finalize_calls, "H7a: finalize must run even when leaves lack printed pages"
     records = ctx.blackboard.pending_skeleton_anchors
     assert len(records) == 1
     assert records[0]["relationship"] == "unresolvable"
     assert "nodes" not in records[0]
     assert "skeleton_anchor" not in records[0]
+
+
+def test_fork_ctx_for_pending_isolates_search_view() -> None:
+    """H7b: each pending job gets its own page_text_search_view."""
+    from app.services.document_agent.structure.toc_anchoring import fork_ctx_for_pending
+
+    ctx = _ctx(page_count=10)
+    ctx.blackboard.page_full_text_cache = {1: "shared"}
+    ctx.blackboard.page_text_search_view = {1: "parent-stale"}
+
+    job_a = fork_ctx_for_pending(ctx)
+    job_b = fork_ctx_for_pending(ctx)
+
+    assert job_a.blackboard.page_text_search_view is None
+    assert job_b.blackboard.page_text_search_view is None
+    # Shared cache by reference; search views independent.
+    assert job_a.blackboard.page_full_text_cache is ctx.blackboard.page_full_text_cache
+    assert job_b.blackboard.page_full_text_cache is ctx.blackboard.page_full_text_cache
+
+    job_a.blackboard.page_text_search_view = {1: "a-strip"}
+    job_b.blackboard.page_text_search_view = {1: "b-strip"}
+    assert job_a.blackboard.page_text_search_view == {1: "a-strip"}
+    assert job_b.blackboard.page_text_search_view == {1: "b-strip"}
+    assert ctx.blackboard.page_text_search_view == {1: "parent-stale"}
 
 
 def test_c4_uses_persisted_pending_relationship_and_does_not_classify() -> None:

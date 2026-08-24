@@ -518,6 +518,10 @@ class PDFParsingException(KnowhereException):
         )
 
 
+class MinerUTaskFailedException(PDFParsingException):
+    """MinerU accepted a task but later reported a terminal failed state."""
+
+
 class DocxParsingException(KnowhereException):
     """
     DOCX parsing failed (structure issues).

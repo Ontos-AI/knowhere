@@ -16,6 +16,7 @@ from app.services.document_agent.calibration.types import (
     CalibrationResult,
 )
 from app.services.document_agent.manifest import ToolContext
+from app.services.document_agent.pdf_text import page_bands_map
 
 
 def calibrate_offset(
@@ -44,7 +45,7 @@ def calibrate_offset(
     if page_count and not ctx.blackboard.page_count:
         ctx.blackboard.page_count = int(page_count)
     if page_texts and not ctx.blackboard.page_full_text_cache:
-        ctx.blackboard.page_full_text_cache = dict(page_texts)
+        ctx.blackboard.page_full_text_cache = page_bands_map(page_texts)
 
     try:
         phase1 = run_calibration_phase1(

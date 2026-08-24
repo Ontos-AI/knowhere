@@ -20,7 +20,7 @@ from app.services.document_agent.manifest import (
     ToolContext,
     ToolResult,
 )
-from app.services.document_agent.pdf_text import read_page_texts
+from app.services.document_agent.pdf_text import read_page_text_bands
 from app.services.document_agent.persist import build_anatomy_map, persist_anatomy_map
 from app.services.document_agent.coarse_profile import CoarseProfiler
 from app.services.document_agent.registry import REGISTRY
@@ -297,6 +297,7 @@ class ProfileCoordinator:
         pages = list(range(1, page_count + 1))
         if not pages:
             self.blackboard.page_full_text_cache = {}
+            self.blackboard.page_text_search_view = None
             return
         if profile.is_scanned:
             result = REGISTRY.dispatch("ocr.pages", self.ctx, {"pages": pages})
@@ -312,19 +313,30 @@ class ProfileCoordinator:
                 raise RuntimeError(result.error or "ocr.pages failed")
             self.round_index += 1
             return
-        texts = read_page_texts(self.ctx.pdf_path, pages, timeout=300)
-        self.blackboard.page_full_text_cache = texts
+        bands = read_page_text_bands(
+            self.ctx.pdf_path,
+            pages,
+            header_y=profile.header_y,
+            footer_y=profile.footer_y,
+            timeout=300,
+        )
+        self.blackboard.page_full_text_cache = bands
+        self.blackboard.page_text_search_view = None
         self.trace.record_step(
             round_index=self.round_index,
-            actor="scan:read_page_texts",
+            actor="scan:read_page_text_bands",
             action_type="scan",
             result=ToolResult(
                 status="ok",
-                payload={"page_count": len(texts)},
-                output_summary={"page_count": len(texts)},
+                payload={"page_count": len(bands)},
+                output_summary={"page_count": len(bands)},
             ),
-            tool_name="read_page_texts",
-            tool_args={"pages": pages},
+            tool_name="read_page_text_bands",
+            tool_args={
+                "pages": pages,
+                "header_y": profile.header_y,
+                "footer_y": profile.footer_y,
+            },
         )
         self.round_index += 1
 

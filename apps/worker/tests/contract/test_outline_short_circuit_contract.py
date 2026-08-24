@@ -117,7 +117,7 @@ def test_outline_wins_skips_calibrate_and_keeps_confirmed_toc_pages() -> None:
         ),
         patch(
             "app.services.document_agent.structure.anchoring_primitives."
-            "locate_null_page_parent_overrides",
+            "locate_null_page_overrides",
             side_effect=_no_null_parent_locate,
         ),
     ):
@@ -153,7 +153,7 @@ def test_outline_without_toc_pages_adopts_without_judge() -> None:
         ),
         patch(
             "app.services.document_agent.structure.anchoring_primitives."
-            "locate_null_page_parent_overrides",
+            "locate_null_page_overrides",
             side_effect=_no_null_parent_locate,
         ),
     ):

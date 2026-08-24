@@ -12,26 +12,15 @@ from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.structure.hierarchy_locator import (
     TitleMatch,
     TitleNode,
-    first_leaf_start_under,
     iter_leaf_title_nodes,
-    last_leaf_start_under,
-    locate_title_compact_strict,
+)
+from app.services.document_agent.structure.null_page_react import (
+    locate_null_page_overrides,
 )
 from app.services.document_agent.structure.section_page_verify import (
     verify_section_page_choice,
 )
 from loguru import logger
-
-
-def _first_sibling_null_parent_scan_start(right: int) -> int:
-    """Left edge for first-at-level null parents: at most one 2+4+6+10 budget.
-
-    Does not inherit a wider parent/body scope. Floors at document page 1.
-    """
-    from app.services.document_agent.calibration.scan import DEFAULT_WINDOW_SCHEDULE
-
-    budget = sum(DEFAULT_WINDOW_SCHEDULE)
-    return max(1, int(right) - budget + 1)
 
 
 def prune_out_of_scope_nodes(
@@ -88,15 +77,29 @@ def prune_unanchored_toc_leaves(
     nodes: list[TitleNode],
     *,
     match_overrides: dict[tuple[str, ...], TitleMatch],
+    keep_null_page_nodes: bool = False,
 ) -> tuple[list[TitleNode], int]:
-    """Remove TOC leaves that have no physical ``match_overrides`` entry.
+    """Remove TOC nodes that have no physical ``match_overrides`` entry.
 
     Implements Phase-2 ``suffix = no TOC``: after bulk/bisect/recalibrate, any
     leaf that was not successfully anchored is dropped from the coarse tree
-    instead of sticky ``inherited_unlocated`` ranges. Childless parents are
-    removed unless they themselves have an override.
+    instead of sticky ``inherited_unlocated`` ranges.
+
+    Parents that still have at least one surviving child after recursive prune
+    are kept even without their own override, so later descendant-based infer
+    can use the subtree. Childless parents are removed unless they themselves
+    have an override.
+
+    When ``keep_null_page_nodes`` is True (pre null-page ReAct), nodes with
+    ``printed_page is None`` are retained so they can be probed. Call again with
+    the default after locate to drop still-unanchored null-page nodes.
     """
     removed = 0
+
+    def _keep(path: tuple[str, ...], node: TitleNode) -> bool:
+        if path in match_overrides:
+            return True
+        return keep_null_page_nodes and node.printed_page is None
 
     def _prune(
         node: TitleNode, parent_titles: tuple[str, ...]
@@ -111,11 +114,11 @@ def prune_unanchored_toc_leaves(
                     children.append(kept)
             if children:
                 return replace(node, children=children)
-            if path in match_overrides:
+            if _keep(path, node):
                 return replace(node, children=[])
             removed += 1
             return None
-        if path in match_overrides:
+        if _keep(path, node):
             return node
         removed += 1
         return None
@@ -129,8 +132,9 @@ def prune_unanchored_toc_leaves(
     if removed:
         logger.info(
             "[structure_anchoring] pruned {} unanchored TOC nodes "
-            "(suffix / no match_overrides → no TOC)",
+            "(keep_null_page_nodes={} → no TOC)",
             removed,
+            keep_null_page_nodes,
         )
     return out, removed
 
@@ -153,322 +157,6 @@ def toc_range_end(hierarchy: dict[str, Any]) -> int | None:
         return int(toc_range[-1])
     except (TypeError, ValueError):
         return None
-
-
-# ── Null-page parent locate (sibling window / first-sibling scan) ───────────
-
-
-def locate_null_page_parent_overrides(
-    *,
-    nodes: list[TitleNode],
-    match_overrides: dict[tuple[str, ...], TitleMatch],
-    page_texts: dict[int, str],
-    body_pages: list[int],
-    ctx: ToolContext | None,
-) -> tuple[dict[tuple[str, ...], TitleMatch], list[dict[str, Any]]]:
-    """Locate TOC parents with ``printed_page=None`` into ``match_overrides``.
-
-    Window for parent P with a previous same-level sibling: ``[last leaf under
-    that sibling, first leaf under P]``; text then RTL visual verify.
-
-    First-at-level parents (no left sibling) do **not** inherit a wider parent
-    or body scope. Left edge is one Phase-1 ``2+4+6+10`` budget before the first
-    child (floor page 1). Text runs in that window; on miss, reuse
-    ``scan_title_forward`` (same schedule, early exit). Miss → unresolved.
-
-    Returns ``(overrides, report)`` where *report* lists every null-page parent
-    attempt (for debug / LLM-call accounting).
-    """
-    if not nodes or not body_pages:
-        return dict(match_overrides), []
-
-    out = dict(match_overrides)
-    body_set = set(body_pages)
-    parent_scope_start = body_pages[0]
-    report: list[dict[str, Any]] = []
-
-    def walk(
-        sibling_nodes: list[TitleNode],
-        parent_titles: tuple[str, ...],
-        scope_start: int,
-    ) -> None:
-        for index, node in enumerate(sibling_nodes):
-            path_titles = (*parent_titles, node.title)
-            if (
-                node.children
-                and node.printed_page is None
-                and path_titles not in out
-            ):
-                right = first_leaf_start_under(node, parent_titles, out)
-                entry: dict[str, Any] = {
-                    "path_titles": list(path_titles),
-                    "title": node.title,
-                    "printed_page": None,
-                    "window": None,
-                    "result": "skipped_no_right",
-                    "page": None,
-                    "accept": None,
-                    "visual_verify_calls": 0,
-                }
-                if right is None:
-                    report.append(entry)
-                    logger.info(
-                        "[structure_anchoring] null-page parent skipped: "
-                        "title={!r} reason=no_located_first_child",
-                        node.title,
-                    )
-                elif index > 0:
-                    left = last_leaf_start_under(
-                        sibling_nodes[index - 1], parent_titles, out
-                    )
-                    if left is None:
-                        left = scope_start
-                    if right < left:
-                        report.append(entry)
-                        logger.info(
-                            "[structure_anchoring] null-page parent skipped: "
-                            "title={!r} reason=no_located_first_child left={}",
-                            node.title,
-                            left,
-                        )
-                    else:
-                        _resolve_null_parent_with_sibling_window(
-                            path_titles=path_titles,
-                            title=node.title,
-                            left=left,
-                            right=right,
-                            body_pages=body_pages,
-                            body_set=body_set,
-                            page_texts=page_texts,
-                            ctx=ctx,
-                            out=out,
-                            entry=entry,
-                            report=report,
-                        )
-                else:
-                    left = _first_sibling_null_parent_scan_start(right)
-                    _resolve_null_parent_first_sibling(
-                        path_titles=path_titles,
-                        title=node.title,
-                        left=left,
-                        right=right,
-                        body_pages=body_pages,
-                        body_set=body_set,
-                        page_texts=page_texts,
-                        ctx=ctx,
-                        out=out,
-                        entry=entry,
-                        report=report,
-                    )
-            if node.children:
-                child_scope_start = (
-                    out[path_titles].page if path_titles in out else scope_start
-                )
-                walk(node.children, path_titles, child_scope_start)
-
-    walk(nodes, (), parent_scope_start)
-    logger.info(
-        "[structure_anchoring] null-page parent locate summary: "
-        "attempted={} located={} unresolved={} visual_verify_calls={}",
-        len(report),
-        sum(1 for row in report if row.get("page") is not None),
-        sum(1 for row in report if row.get("result") == "unresolved"),
-        sum(int(row.get("visual_verify_calls") or 0) for row in report),
-    )
-    return out, report
-
-
-def _record_null_parent_outcome(
-    *,
-    path_titles: tuple[str, ...],
-    title: str,
-    left: int,
-    right: int,
-    match: TitleMatch | None,
-    visual_calls: int,
-    body_set: set[int],
-    out: dict[tuple[str, ...], TitleMatch],
-    entry: dict[str, Any],
-    report: list[dict[str, Any]],
-) -> None:
-    entry["window"] = [left, right]
-    entry["visual_verify_calls"] = visual_calls
-    if match is not None and match.page in body_set:
-        out[path_titles] = match
-        entry["result"] = str(match.evidence.get("accept") or match.source)
-        entry["page"] = match.page
-        entry["accept"] = match.evidence.get("accept")
-        logger.info(
-            "[structure_anchoring] null-page parent located: "
-            "title={!r} page={} window={} accept={} visual_calls={}",
-            title,
-            match.page,
-            [left, right],
-            match.evidence.get("accept"),
-            visual_calls,
-        )
-    else:
-        entry["result"] = "unresolved"
-        logger.info(
-            "[structure_anchoring] null-page parent unresolved: "
-            "title={!r} window={} visual_calls={}",
-            title,
-            [left, right],
-            visual_calls,
-        )
-    report.append(entry)
-
-
-def _resolve_null_parent_with_sibling_window(
-    *,
-    path_titles: tuple[str, ...],
-    title: str,
-    left: int,
-    right: int,
-    body_pages: list[int],
-    body_set: set[int],
-    page_texts: dict[int, str],
-    ctx: ToolContext | None,
-    out: dict[tuple[str, ...], TitleMatch],
-    entry: dict[str, Any],
-    report: list[dict[str, Any]],
-) -> None:
-    scope_pages = [page for page in body_pages if left <= page <= right]
-    match = locate_title_compact_strict(
-        title,
-        scope_pages=scope_pages,
-        page_texts=page_texts,
-    )
-    visual_calls = 0
-    if match is None and ctx is not None:
-        match, visual_calls = _visual_rtl_locate_parent(
-            title=title,
-            left=left,
-            right=right,
-            body_set=body_set,
-            ctx=ctx,
-        )
-    _record_null_parent_outcome(
-        path_titles=path_titles,
-        title=title,
-        left=left,
-        right=right,
-        match=match,
-        visual_calls=visual_calls,
-        body_set=body_set,
-        out=out,
-        entry=entry,
-        report=report,
-    )
-
-
-def _resolve_null_parent_first_sibling(
-    *,
-    path_titles: tuple[str, ...],
-    title: str,
-    left: int,
-    right: int,
-    body_pages: list[int],
-    body_set: set[int],
-    page_texts: dict[int, str],
-    ctx: ToolContext | None,
-    out: dict[tuple[str, ...], TitleMatch],
-    entry: dict[str, Any],
-    report: list[dict[str, Any]],
-) -> None:
-    """First-at-level null parent: capped text window, then ``scan_title_forward``."""
-    from app.services.document_agent.calibration.scan import (
-        DEFAULT_WINDOW_SCHEDULE,
-        scan_title_forward,
-    )
-
-    scope_pages = [page for page in body_pages if left <= page <= right]
-    match = locate_title_compact_strict(
-        title,
-        scope_pages=scope_pages,
-        page_texts=page_texts,
-    )
-    visual_calls = 0
-    if match is None and ctx is not None:
-        scan = scan_title_forward(
-            ctx=ctx,
-            title=title,
-            start_page=left,
-            page_count=right,
-            window_schedule=DEFAULT_WINDOW_SCHEDULE,
-        )
-        visual_calls = len(scan.scanned_pages)
-        if scan.found and scan.found_page is not None:
-            match = TitleMatch(
-                page=int(scan.found_page),
-                source="inspect_vlm",
-                matched_line="",
-                candidates=[int(scan.found_page)],
-                evidence={
-                    "accept": "scan_forward",
-                    "null_page_parent_probe": True,
-                    "scanned_pages": list(scan.scanned_pages),
-                },
-            )
-    _record_null_parent_outcome(
-        path_titles=path_titles,
-        title=title,
-        left=left,
-        right=right,
-        match=match,
-        visual_calls=visual_calls,
-        body_set=body_set,
-        out=out,
-        entry=entry,
-        report=report,
-    )
-
-
-def _visual_rtl_locate_parent(
-    *,
-    title: str,
-    left: int,
-    right: int,
-    body_set: set[int],
-    ctx: ToolContext,
-) -> tuple[TitleMatch | None, int]:
-    """Confirm parent title from right boundary toward left via VLM verify."""
-    visual_calls = 0
-    for page in range(right, left - 1, -1):
-        if page not in body_set:
-            continue
-        candidate = TitleMatch(
-            page=page,
-            source="inspect_vlm",
-            matched_line="",
-            candidates=[page],
-            evidence={"null_page_parent_probe": True},
-        )
-        visual_calls += 1
-        result = verify_section_page_choice(
-            ctx=ctx,
-            title=title,
-            candidate_matches=[candidate],
-            candidate_page_cap=1,
-        )
-        selected = result.get("selected_page")
-        if selected != page:
-            continue
-        return (
-            TitleMatch(
-                page=page,
-                source="inspect_vlm",
-                matched_line="",
-                candidates=[page],
-                evidence={
-                    "accept": "visual_rtl",
-                    "reason": result.get("reason", ""),
-                    "visual_verify_calls": visual_calls,
-                },
-            ),
-            visual_calls,
-        )
-    return None, visual_calls
 
 
 # ── Offset-guided bulk anchoring with recursive recalibrate (Phase-2) ───────
@@ -630,35 +318,46 @@ def bulk_offset_matches(
     return matches
 
 
-def _iter_printed_page_parents(
-    nodes: list[TitleNode],
+def _regime_offset_for_printed_node(
     *,
-    parent_titles: tuple[str, ...] = (),
-) -> list[tuple[tuple[str, ...], TitleNode]]:
-    """DFS non-leaf nodes that print their own page in the TOC."""
-    parents: list[tuple[tuple[str, ...], TitleNode]] = []
-    for node in nodes:
-        path_titles = (*parent_titles, node.title)
-        if not node.children:
-            continue
-        if node.printed_page is not None:
-            parents.append((path_titles, node))
-        parents.extend(
-            _iter_printed_page_parents(node.children, parent_titles=path_titles)
-        )
-    return parents
-
-
-def _descendant_regime_offset(
-    node: TitleNode,
     path_titles: tuple[str, ...],
+    ordered_paths: list[tuple[str, ...]],
     matches: dict[tuple[str, ...], TitleMatch],
 ) -> int | None:
-    """Offset of the parent's first anchored descendant leaf, i.e. its regime."""
-    for leaf_path, _leaf in iter_leaf_title_nodes(
-        node.children, parent_titles=path_titles
-    ):
-        match = matches.get(leaf_path)
+    """Resolve the calibration-segment offset for one printed TOC node.
+
+    Prefer an offset-bearing match under the node (same binary/regime segment as
+    its descendants). If the subtree has none, take the nearest preceding
+    offset-bearing match; if still none, the first subsequent one.
+    """
+    depth = len(path_titles)
+    for path in ordered_paths:
+        if path == path_titles or len(path) <= depth:
+            continue
+        if path[:depth] != path_titles:
+            continue
+        match = matches.get(path)
+        if match is None:
+            continue
+        offset = match.evidence.get("offset")
+        if offset is not None:
+            return int(offset)
+
+    try:
+        index = ordered_paths.index(path_titles)
+    except ValueError:
+        return None
+    for prev in reversed(ordered_paths[:index]):
+        match = matches.get(prev)
+        if match is None:
+            continue
+        offset = match.evidence.get("offset")
+        if offset is not None:
+            return int(offset)
+    for nxt in ordered_paths[index + 1 :]:
+        if len(nxt) > depth and nxt[:depth] == path_titles:
+            continue
+        match = matches.get(nxt)
         if match is None:
             continue
         offset = match.evidence.get("offset")
@@ -667,24 +366,29 @@ def _descendant_regime_offset(
     return None
 
 
-def backfill_parent_offset_matches(
+def backfill_printed_offset_matches(
     *,
     nodes: list[TitleNode],
     matches: dict[tuple[str, ...], TitleMatch],
     page_count: int,
 ) -> dict[tuple[str, ...], TitleMatch]:
-    """Anchor TOC parents that print a page, reusing their descendant's offset.
+    """Blind-write physical pages for every still-unanchored printed TOC node.
 
-    Bulk anchoring consumes leaves only, so a TOC whose section headings carry
-    printed pages leaves every parent without a physical page. The parent shares
-    the calibration regime of its first anchored descendant, so ``printed_page +
-    that regime's offset`` is the parent's physical page.
+    Bulk/bisect only consume printed leaves. After that pass, any remaining node
+    with ``printed_page`` (parent or leaf) reuses its calibration-segment offset:
+    ``printed_page + offset``, clamped to ``1..page_count``.
     """
+    ordered = _iter_all_title_nodes(nodes)
+    ordered_paths = [path for path, _node in ordered]
     by_offset: dict[int, list[tuple[tuple[str, ...], TitleNode]]] = {}
-    for path_titles, node in _iter_printed_page_parents(nodes):
-        if path_titles in matches:
+    for path_titles, node in ordered:
+        if node.printed_page is None or path_titles in matches:
             continue
-        offset = _descendant_regime_offset(node, path_titles, matches)
+        offset = _regime_offset_for_printed_node(
+            path_titles=path_titles,
+            ordered_paths=ordered_paths,
+            matches=matches,
+        )
         if offset is None:
             continue
         by_offset.setdefault(offset, []).append((path_titles, node))
@@ -695,7 +399,7 @@ def backfill_parent_offset_matches(
             if 1 <= match.page <= page_count:
                 out[path_titles] = replace(
                     match,
-                    evidence={**match.evidence, "parent_backfill": True},
+                    evidence={**match.evidence, "printed_offset_backfill": True},
                 )
     return out
 
@@ -980,6 +684,93 @@ def deserialize_skeleton_anchor(data: dict[str, Any]) -> SkeletonAnchor:
     )
 
 
+def _iter_all_title_nodes(
+    nodes: list[TitleNode],
+    *,
+    parent_titles: tuple[str, ...] = (),
+) -> list[tuple[tuple[str, ...], TitleNode]]:
+    rows: list[tuple[tuple[str, ...], TitleNode]] = []
+    for node in nodes:
+        path = (*parent_titles, node.title)
+        rows.append((path, node))
+        if node.children:
+            rows.extend(_iter_all_title_nodes(node.children, parent_titles=path))
+    return rows
+
+
+def _filter_overrides_to_tree(
+    nodes: list[TitleNode],
+    match_overrides: dict[tuple[str, ...], TitleMatch],
+) -> dict[tuple[str, ...], TitleMatch]:
+    if not nodes:
+        return {}
+    surviving = {path for path, _node in _iter_all_title_nodes(nodes)}
+    return {
+        path: match
+        for path, match in match_overrides.items()
+        if path in surviving
+    }
+
+
+def apply_null_page_locates_and_prune(
+    *,
+    nodes: list[TitleNode],
+    match_overrides: dict[tuple[str, ...], TitleMatch],
+    body_pages: list[int],
+    page_count: int,
+    ctx: ToolContext | None,
+    structural_parent_paths: set[tuple[str, ...]],
+) -> tuple[
+    list[TitleNode],
+    dict[tuple[str, ...], TitleMatch],
+    list[dict[str, Any]],
+    int,
+    int,
+]:
+    """Shared Phase-2 tail: printed backfill → null-page ReAct → final prune.
+
+    Callers collect ``structural_parent_paths`` and run ``prune(..., keep_null=True)``
+    before this helper. Returns ``pre_react_override_count`` so callers can freeze
+    ``bulk_count`` after backfill and before ReAct hits are added.
+    """
+    working = nodes
+    overrides = dict(match_overrides)
+    backfilled = backfill_printed_offset_matches(
+        nodes=working,
+        matches=overrides,
+        page_count=page_count,
+    )
+    if backfilled:
+        overrides.update(backfilled)
+        logger.info(
+            "[structure_anchoring] printed-offset backfill: {} nodes",
+            len(backfilled),
+        )
+    pre_react_override_count = len(overrides)
+
+    overrides, null_page_report = locate_null_page_overrides(
+        nodes=working,
+        match_overrides=overrides,
+        body_pages=body_pages,
+        ctx=ctx,
+        structural_parent_paths=structural_parent_paths,
+    )
+
+    working, failed_null_removed = prune_unanchored_toc_leaves(
+        working,
+        match_overrides=overrides,
+        keep_null_page_nodes=False,
+    )
+    overrides = _filter_overrides_to_tree(working, overrides)
+    return (
+        working,
+        overrides,
+        null_page_report,
+        failed_null_removed,
+        pre_react_override_count,
+    )
+
+
 def anchor_hierarchy_from_offset(
     *,
     nodes: list[TitleNode],
@@ -990,7 +781,7 @@ def anchor_hierarchy_from_offset(
     page_count: int,
     ctx: ToolContext | None,
 ) -> tuple[list[TitleNode], SkeletonAnchor]:
-    """Production prune → bulk → null-page given a precomputed offset.
+    """Production prune → bulk → null-page ReAct → final prune.
 
     Phase-2 entry after ``calibrate_offset`` (Phase-1).
     """
@@ -1015,24 +806,40 @@ def anchor_hierarchy_from_offset(
     if offset_matches is not None:
         match_overrides = offset_matches
         locate_method = "offset_guided_bulk"
-        bulk_count = len(offset_matches)
     else:
         match_overrides = seed_overrides
         locate_method = "offset_only"
-        bulk_count = 0
 
+    # Capture parent identity before prune so empty shells retain ``kind=parent``.
+    structural_parent_paths = {
+        path
+        for path, node in _iter_all_title_nodes(working)
+        if node.children
+    }
     working, unanchored_removed = prune_unanchored_toc_leaves(
-        working, match_overrides=match_overrides
+        working,
+        match_overrides=match_overrides,
+        keep_null_page_nodes=True,
     )
     pruned_count += unanchored_removed
+    match_overrides = _filter_overrides_to_tree(working, match_overrides)
 
-    match_overrides, null_page_report = locate_null_page_parent_overrides(
+    (
+        working,
+        match_overrides,
+        null_page_report,
+        failed_null_removed,
+        pre_react_override_count,
+    ) = apply_null_page_locates_and_prune(
         nodes=working,
         match_overrides=match_overrides,
-        page_texts=page_texts,
         body_pages=body_pages,
+        page_count=page_count,
         ctx=ctx,
+        structural_parent_paths=structural_parent_paths,
     )
+    pruned_count += failed_null_removed
+    bulk_count = pre_react_override_count if offset_matches is not None else 0
 
     if offset_hint is None:
         offset_status = "failed" if ctx is not None else "skipped"

@@ -17,6 +17,7 @@ import pytest
 from app.services.document_agent.calibration import scan as scan_module
 from app.services.document_agent.calibration.scan import (
     DEFAULT_WINDOW_SCHEDULE,
+    progressive_page_windows,
     scan_title_forward,
 )
 from app.services.document_agent.manifest import ToolContext, ToolResult
@@ -53,7 +54,7 @@ class _FakeInspect:
                 "answer": "",
                 "fields": {
                     "found": hit,
-                    "found_page": self.hit_page if hit else None,
+                    "reason": "hit" if hit else "miss",
                 },
             },
         )
@@ -68,6 +69,14 @@ def patch_inspect(monkeypatch: pytest.MonkeyPatch):
     return _apply
 
 
+def test_progressive_page_windows_are_non_overlapping_and_clipped() -> None:
+    assert progressive_page_windows(start_page=10, end_page=20) == [
+        [10, 11],
+        [12, 13, 14, 15],
+        [16, 17, 18, 19, 20],
+    ]
+
+
 def test_first_round_opens_the_candidate_page_and_its_successor(patch_inspect) -> None:
     fake = patch_inspect(_FakeInspect(hit_page=10))
 
@@ -75,7 +84,8 @@ def test_first_round_opens_the_candidate_page_and_its_successor(patch_inspect) -
         ctx=_ctx(), title="Chapter 1", start_page=10, page_count=60
     )
 
-    assert fake.calls == [[10, 11]]
+    assert sorted(fake.calls) == [[10], [11]]
+    assert all(len(call) == 1 for call in fake.calls)
     assert result.found is True
     assert result.found_page == 10
 
@@ -87,12 +97,8 @@ def test_miss_expands_forward_from_the_cursor_without_rescanning(patch_inspect) 
         ctx=_ctx(), title="Chapter 1", start_page=10, page_count=60
     )
 
-    assert fake.calls == [
-        [10, 11],
-        [12, 13, 14, 15],
-        [16, 17, 18, 19, 20, 21],
-        [22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
-    ]
+    assert sorted(fake.calls) == [[page] for page in range(10, 32)]
+    assert all(len(call) == 1 for call in fake.calls)
     assert result.found is False
     assert result.scanned_pages == list(range(10, 32))
     assert len(result.scanned_pages) == len(set(result.scanned_pages))
@@ -106,7 +112,7 @@ def test_scan_stops_at_first_hit(patch_inspect) -> None:
         ctx=_ctx(), title="Chapter 1", start_page=10, page_count=60
     )
 
-    assert fake.calls == [[10, 11], [12, 13, 14, 15]]
+    assert sorted(fake.calls) == [[10], [11], [12], [13], [14], [15]]
     assert result.found_page == 13
     assert result.next_start == 16
 
@@ -118,7 +124,7 @@ def test_scan_covers_at_most_the_window_schedule(patch_inspect) -> None:
         ctx=_ctx(), title="Chapter 1", start_page=10, page_count=60
     )
 
-    assert len(fake.calls) == len(DEFAULT_WINDOW_SCHEDULE)
+    assert len(fake.calls) == sum(DEFAULT_WINDOW_SCHEDULE)
     assert len(result.scanned_pages) == sum(DEFAULT_WINDOW_SCHEDULE)
 
 
@@ -129,11 +135,11 @@ def test_window_is_clipped_at_the_last_page(patch_inspect) -> None:
         ctx=_ctx(page_count=13), title="Appendix", start_page=10, page_count=13
     )
 
-    assert fake.calls == [[10, 11], [12, 13]]
+    assert sorted(fake.calls) == [[10], [11], [12], [13]]
     assert result.next_start is None
 
 
-def test_each_call_lifts_the_page_cap_to_its_own_window(patch_inspect) -> None:
+def test_each_call_is_single_page_with_page_cap_one(patch_inspect) -> None:
     class _Recording(_FakeInspect):
         def __init__(self) -> None:
             super().__init__(hit_page=None)
@@ -147,24 +153,41 @@ def test_each_call_lifts_the_page_cap_to_its_own_window(patch_inspect) -> None:
 
     scan_title_forward(ctx=_ctx(), title="Chapter 1", start_page=10, page_count=60)
 
-    assert fake.caps == list(DEFAULT_WINDOW_SCHEDULE)
+    assert fake.caps == [1] * sum(DEFAULT_WINDOW_SCHEDULE)
+    assert all(len(call) == 1 for call in fake.calls)
 
 
-def test_inspect_error_aborts_the_scan(patch_inspect) -> None:
-    class _Failing(_FakeInspect):
+def test_inspect_error_continues_to_later_windows(patch_inspect) -> None:
+    class _FailThenHit(_FakeInspect):
         def __call__(self, ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-            self.calls.append(list(args.get("pages") or []))
-            return ToolResult(status="error", error="calibration visual budget exhausted")
+            pages = list(args.get("pages") or [])
+            self.calls.append(pages)
+            page = pages[0] if pages else None
+            if page is not None and page <= 11:
+                return ToolResult(
+                    status="error", error="calibration visual budget exhausted"
+                )
+            hit = page == 13
+            return ToolResult(
+                status="ok",
+                payload={
+                    "fields": {
+                        "found": hit,
+                        "reason": "hit" if hit else "miss",
+                    }
+                },
+            )
 
-    fake = patch_inspect(_Failing(hit_page=None))
+    fake = patch_inspect(_FailThenHit(hit_page=None))
 
     result = scan_title_forward(
         ctx=_ctx(), title="Chapter 1", start_page=10, page_count=60
     )
 
-    assert fake.calls == [[10, 11]]
-    assert result.found is False
-    assert result.rounds[-1].error == "calibration visual budget exhausted"
+    assert sorted(fake.calls) == [[10], [11], [12], [13], [14], [15]]
+    assert result.found is True
+    assert result.found_page == 13
+    assert result.rounds[0].error == "calibration visual budget exhausted"
 
 
 def test_string_false_is_not_treated_as_a_hit(patch_inspect) -> None:
@@ -177,7 +200,7 @@ def test_string_false_is_not_treated_as_a_hit(patch_inspect) -> None:
                 payload={
                     "fields": {
                         "found": "false",
-                        "found_page": pages[0] if pages else None,
+                        "reason": "no",
                     }
                 },
             )
@@ -190,24 +213,31 @@ def test_string_false_is_not_treated_as_a_hit(patch_inspect) -> None:
 
     assert result.found is False
     assert result.found_page is None
-    assert len(fake.calls) == len(DEFAULT_WINDOW_SCHEDULE)
+    assert len(fake.calls) == sum(DEFAULT_WINDOW_SCHEDULE)
 
 
-def test_found_page_outside_the_window_is_rejected(patch_inspect) -> None:
-    class _Liar(_FakeInspect):
+def test_earliest_true_page_wins_within_a_round(patch_inspect) -> None:
+    class _MultiHit(_FakeInspect):
         def __call__(self, ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             pages = list(args.get("pages") or [])
             self.calls.append(pages)
+            page = pages[0] if pages else None
+            hit = page in {13, 14}
             return ToolResult(
                 status="ok",
-                payload={"fields": {"found": True, "found_page": 999}},
+                payload={
+                    "fields": {
+                        "found": hit,
+                        "reason": "hit" if hit else "miss",
+                    }
+                },
             )
 
-    patch_inspect(_Liar(hit_page=None))
+    fake = patch_inspect(_MultiHit(hit_page=None))
 
     result = scan_title_forward(
         ctx=_ctx(), title="Chapter 1", start_page=10, page_count=60
     )
 
-    assert result.found is False
-    assert result.found_page is None
+    assert result.found_page == 13
+    assert sorted(fake.calls) == [[10], [11], [12], [13], [14], [15]]

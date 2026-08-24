@@ -1,10 +1,10 @@
 """Locate hierarchy titles on PDF pages and resolve page ranges.
 
 Deterministic range assembly from PROFILE ``match_overrides``. Leaf starts
-come only from those overrides. Null-page parents are located upstream via
-compact-strict (cross-line) + optional VLM, then resolved here including
-parent self-only spans for interstitial pages. Parents without an override
-may still inherit start from the earliest located descendant leaf.
+come only from those overrides. Every null-page node is located upstream by
+one parent-first whole-line ReAct + VLM path. They are then resolved here,
+including parent self-only spans for interstitial pages. Parents without an
+override may still inherit start from the earliest located descendant leaf.
 """
 
 from __future__ import annotations
@@ -13,10 +13,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from app.services.document_parser.structure.body_boundary import (
-    clean_toc_title,
-    normalize_heading_text,
-)
+from app.services.document_parser.structure.body_boundary import normalize_heading_label
 
 TitleMatchSource = Literal[
     "anchored",
@@ -24,6 +21,7 @@ TitleMatchSource = Literal[
     "inspect_vlm",
     "inferred_descendant",
     "pdf_outline",
+    "react_line_grep_vlm",
 ]
 
 
@@ -131,62 +129,6 @@ class ResolvedHierarchyRange:
     path_titles: tuple[str, ...]
     match: TitleMatch | None
     evidence: dict[str, Any] = field(default_factory=dict)
-
-
-def locate_title_compact_strict(
-    title: str,
-    *,
-    scope_pages: list[int],
-    page_texts: dict[int, str],
-) -> TitleMatch | None:
-    """Locate *title* after cross-line compact cleanup; accept only a unique page.
-
-    Pipeline: compact(page text) → contiguous strict match of compact(title) →
-    accept iff exactly one page in ``scope_pages`` hits. Handles PyMuPDF line
-    splits; does not use token/normalized weak matching.
-    """
-    needle = _compact_match_text(clean_toc_title(title) or title)
-    if not needle or not scope_pages:
-        return None
-
-    hit_pages: list[int] = []
-    matched_preview = ""
-    for page in scope_pages:
-        haystack = _compact_match_text(page_texts.get(page, ""))
-        if not haystack or needle not in haystack:
-            continue
-        hit_pages.append(page)
-        if not matched_preview:
-            matched_preview = needle[:160]
-
-    unique_pages = sorted(set(hit_pages))
-    if len(unique_pages) != 1:
-        return None
-
-    page = unique_pages[0]
-    return TitleMatch(
-        page=page,
-        source="anchored",
-        matched_line=matched_preview,
-        candidates=[page],
-        evidence={"accept": "compact_strict_unique"},
-    )
-
-
-def last_leaf_start_under(
-    node: TitleNode,
-    parent_titles: tuple[str, ...],
-    match_overrides: dict[tuple[str, ...], TitleMatch],
-) -> int | None:
-    """Max start page among located leaves under *node*; None if none located."""
-    max_page: int | None = None
-    for leaf_path, _leaf in iter_leaf_title_nodes([node], parent_titles=parent_titles):
-        match = match_overrides.get(leaf_path)
-        if match is None:
-            continue
-        if max_page is None or match.page > max_page:
-            max_page = match.page
-    return max_page
 
 
 def first_leaf_start_under(
@@ -403,7 +345,7 @@ def _locate_match_for_node(
     if match is not None:
         return match
     if node.children:
-        # Parent active locate is upstream (compact-strict / visual).
+        # Parent active locate is upstream (null_page_react / backfill).
         return _infer_start_from_descendant_overrides(
             node, parent_titles=path_titles[:-1], match_overrides=match_overrides,
             scope_pages=scope_pages,
@@ -550,10 +492,6 @@ def _allowed_pages_between(start: int, end: int, allowed_pages: set[int]) -> lis
     return [page for page in range(start, end + 1) if page in allowed_pages]
 
 
-def _compact_match_text(text: str) -> str:
-    return re.sub(r"\s+", "", normalize_heading_text(text)).casefold()
-
-
 def _extract_flat_entries(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return [
@@ -617,8 +555,8 @@ def _entries_to_tree(entries: list[dict[str, Any]]) -> list[TitleNode]:
 
     for entry in entries:
         # Keep original TOC heading (incl. numbering). Prefix stripping belongs
-        # only in text/compact match helpers used for null-page parents.
-        title = normalize_heading_text(str(entry.get("heading") or ""))
+        # only in normalized text-match helpers used for null-page parents.
+        title = normalize_heading_label(str(entry.get("heading") or ""))
         level = _safe_int(entry.get("level")) or 1
         if not title or len(title) < 2:
             continue

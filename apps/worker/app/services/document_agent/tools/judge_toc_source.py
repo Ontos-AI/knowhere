@@ -14,6 +14,7 @@ from typing import Any, cast
 from loguru import logger
 
 from app.services.document_agent.manifest import ToolContext, ToolResult
+from app.services.document_agent.pdf_text import page_content_map
 from app.services.document_agent.registry import has_page_full_text, register_tool
 
 OUTLINE_CHOICE = "outline"
@@ -118,7 +119,7 @@ def judge_toc_source(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             latency_ms=int((time.monotonic() - start) * 1000),
         )
 
-    cache = dict(ctx.blackboard.page_full_text_cache)
+    cache = page_content_map(ctx.blackboard.page_full_text_cache)
     printed_toc = merge_printed_toc_texts([cache.get(page, "") for page in pages])
     if not printed_toc.strip():
         return ToolResult(

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from app.services.document_parser.structure.body_boundary import (
     clean_toc_title,
-    normalize_heading_text,
+    normalize_match_text,
 )
 
 _DEFAULT_DIGEST_TITLE_CHARS = 80
@@ -94,12 +93,8 @@ def build_tree_digest_from_entries(
 
 
 def _title_on_page(title: str, page: int, page_texts: dict[int, str]) -> bool:
-    needle = _compact(clean_toc_title(title) or title)
+    needle = normalize_match_text(clean_toc_title(title) or title)
     if not needle:
         return False
-    haystack = _compact(page_texts.get(page, ""))
+    haystack = normalize_match_text(page_texts.get(page, ""))
     return bool(haystack) and needle in haystack
-
-
-def _compact(text: str) -> str:
-    return re.sub(r"\s+", "", normalize_heading_text(text)).casefold()
