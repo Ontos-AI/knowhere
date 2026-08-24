@@ -16,6 +16,7 @@ from loguru import logger
 
 from shared.core.config import settings
 from shared.core.exceptions.domain_exceptions import (
+    MinerUTaskFailedException,
     MinerUServiceException,
     PDFParsingException,
     TimeoutException,
@@ -183,7 +184,7 @@ def poll_mineru_task(
                         token_id=lease.token_id,
                         error_message=error_message,
                     ).error("MinerU parsing reported failed state")
-                    raise PDFParsingException(
+                    raise MinerUTaskFailedException(
                         user_message="Failed to parse the PDF file",
                         internal_message=f"MinerU failed with state 'failed': {error_message}",
                     )

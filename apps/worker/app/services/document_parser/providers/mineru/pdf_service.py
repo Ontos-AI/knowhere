@@ -18,6 +18,7 @@ from app.services.document_parser.support.parser_log_utils import truncate_log_v
 from shared.core.config import settings
 from shared.core.constants import APIConstants
 from shared.core.exceptions.domain_exceptions import (
+    MinerUTaskFailedException,
     MinerUServiceException,
     StorageServiceException,
     UnavailableException,
@@ -68,6 +69,43 @@ def _log_mineru_url_mode_ingestion_fallback(
         error_type=type(exc).__name__,
         error_message=truncate_log_value(exc),
     ).warning("MinerU URL-mode ingestion setup failed. Falling back to direct upload.")
+
+
+def _log_mineru_url_mode_polling_fallback(
+    s3_key: str,
+    pdf_url: str,
+    batch_id: str,
+    exc: MinerUTaskFailedException,
+) -> None:
+    mineru_logger(
+        "url_mode_polling_fallback",
+        operation="retry_direct_upload_after_parse_failure",
+        source_s3_key=s3_key,
+        source_kind="remote_url" if is_remote(pdf_url) else "local_file",
+        source_path=None if is_remote(pdf_url) else pdf_url,
+        failed_batch_id=batch_id,
+        error_type=type(exc).__name__,
+        error_message=truncate_log_value(exc),
+    ).warning(
+        "MinerU URL-mode polling reported a parse failure. "
+        "Falling back to direct upload."
+    )
+
+
+def _start_direct_upload_task(pdf_url: str, filename: str) -> tuple[str, str]:
+    batch_id, upload_url, token_id = _request_upload_target(pdf_url, filename)
+    _upload_file_to_mineru(pdf_url, filename, upload_url, token_id)
+    return batch_id, token_id
+
+
+def _poll_batch(batch_id: str, token_id: str, output_dir: str) -> None:
+    poll_mineru_task(
+        status_url=f"{settings.MINERU_URL}/extract-results/batch/{batch_id}",
+        task_id=batch_id,
+        output_dir=output_dir,
+        get_status=get_batch_status,
+        preferred_token_id=token_id,
+    )
 
 
 def _inspect_mineru_source_s3_key(s3_key: Optional[str]) -> tuple[Optional[str], bool]:
@@ -394,6 +432,7 @@ def parse_via_full(
 ) -> None:
     batch_id: str | None = None
     token_id: str | None = None
+    used_url_mode = False
     resolved_s3_key = resolve_mineru_source_s3_key(
         s3_key=s3_key,
         local_file_path=None if is_remote(pdf_url) else pdf_url,
@@ -409,6 +448,7 @@ def parse_via_full(
                 "Using S3 URL mode for MinerU ingestion"
             )
             batch_id, token_id = _submit_url_task(presigned_url, filename)
+            used_url_mode = True
         except Exception as exc:
             _log_mineru_url_mode_ingestion_fallback(
                 operation="start_url_mode_ingestion",
@@ -422,18 +462,25 @@ def parse_via_full(
         mineru_logger("ingestion_mode", mode="direct_upload").info(
             "Using direct upload mode for MinerU ingestion"
         )
-        batch_id, upload_url, token_id = _request_upload_target(pdf_url, filename)
-        _upload_file_to_mineru(pdf_url, filename, upload_url, token_id)
+        batch_id, token_id = _start_direct_upload_task(pdf_url, filename)
 
     if batch_id is None or token_id is None:
         raise MinerUServiceException(
             internal_message="MinerU task setup completed without a batch id or token"
         )
 
-    poll_mineru_task(
-        status_url=f"{settings.MINERU_URL}/extract-results/batch/{batch_id}",
-        task_id=batch_id,
-        output_dir=output_dir,
-        get_status=get_batch_status,
-        preferred_token_id=token_id,
-    )
+    try:
+        _poll_batch(batch_id, token_id, output_dir)
+    except MinerUTaskFailedException as exc:
+        if not used_url_mode:
+            raise
+
+        assert resolved_s3_key is not None
+        _log_mineru_url_mode_polling_fallback(
+            s3_key=resolved_s3_key,
+            pdf_url=pdf_url,
+            batch_id=batch_id,
+            exc=exc,
+        )
+        direct_batch_id, direct_token_id = _start_direct_upload_task(pdf_url, filename)
+        _poll_batch(direct_batch_id, direct_token_id, output_dir)
