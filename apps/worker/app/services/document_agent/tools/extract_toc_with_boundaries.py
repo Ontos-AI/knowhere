@@ -20,12 +20,8 @@ from app.services.document_agent.manifest import (
 from app.services.document_agent.registry import register_tool
 from app.services.document_agent.tools.vlm_toc_extractor import (
     BatchPageResult,
-    toc_vlm_max_tokens,
     vlm_entries_to_toc_hierarchies,
 )
-
-# Confirm only returns is_toc_start + brief reason per page (≤ BOUNDARY_STEP_PAGES).
-TOC_ANCHOR_CONFIRM_MAX_TOKENS = 512
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
     worker,
@@ -38,6 +34,8 @@ BOUNDARY_STEP_PAGES = 5
 TOC_VLM_CONCURRENCY = 10
 MAX_BOUNDARY_ROUNDS = 6
 MAX_TOC_PAGES = BOUNDARY_STEP_PAGES * MAX_BOUNDARY_ROUNDS  # 30
+# Confirm only returns is_toc_start + brief reason per page (≤ BOUNDARY_STEP_PAGES).
+TOC_ANCHOR_CONFIRM_MAX_TOKENS = 512
 
 _CONFIRM_PROMPT = (
     "You are a document structure analysis expert. "
