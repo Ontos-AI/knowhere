@@ -43,6 +43,8 @@ QUEUE_POLL_INTERVAL_SECONDS = 0.1
 CHILD_EXIT_GRACE_SECONDS = 5
 POST_RESULT_EXIT_GRACE_SECONDS = 5
 POST_KILL_JOIN_GRACE_SECONDS = 1
+# Child can exit 0 before multiprocessing.Queue's feeder flushes; retry once.
+EMPTY_QUEUE_EXIT_RETRIES = 1
 PROCESS_POOL_SIZE = read_pymupdf_max_concurrent()
 PROCESS_POOL_CONTEXT = multiprocessing.get_context("spawn")
 
@@ -130,7 +132,63 @@ def _close_result_queue(result_queue: MultiprocessingQueue) -> None:
         logger.debug(f"Failed to join PyMuPDF result queue thread: {exc}")
 
 
+def _is_empty_queue_exit(exc: Exception) -> bool:
+    if not isinstance(exc, PDFParsingException):
+        return False
+    if exc.details.get("reason") != "SUBPROCESS_CRASH":
+        return False
+    return "exited with code=0 and no result" in (exc.internal_message or "")
+
+
+def _flush_child_result_queue(queue: object) -> None:
+    """Block until the child's queue feeder has written the payload.
+
+    ``Queue.put()`` returns after buffering on a feeder thread. If the child
+    process exits before that thread flushes, the parent sees exitcode=0 and
+    an empty queue (production CRASH on otherwise-healthy PDFs).
+    """
+    close = getattr(queue, "close", None)
+    if not callable(close):
+        return
+    try:
+        close()
+    except Exception:
+        return
+    join_thread = getattr(queue, "join_thread", None)
+    if not callable(join_thread):
+        return
+    try:
+        join_thread()
+    except Exception as exc:
+        logger.debug(f"Failed to join PyMuPDF child result queue feeder thread: {exc}")
+
+
 def _run_worker_in_spawned_process(
+    worker_fn,
+    args: tuple,
+    timeout: int,
+) -> dict:
+    """Spawn an isolated child, retrying once if the result queue is dropped."""
+    last_empty_exit: PDFParsingException | None = None
+    attempts = 1 + EMPTY_QUEUE_EXIT_RETRIES
+    for attempt in range(1, attempts + 1):
+        try:
+            return _run_worker_in_spawned_process_once(worker_fn, args, timeout)
+        except PDFParsingException as exc:
+            if attempt < attempts and _is_empty_queue_exit(exc):
+                logger.warning(
+                    f"[pymupdf-subprocess] retrying fn={worker_fn.__name__} "
+                    f"after empty-queue exit 0 (attempt {attempt}/{attempts})"
+                )
+                last_empty_exit = exc
+                continue
+            raise
+    if last_empty_exit is not None:
+        raise last_empty_exit
+    raise RuntimeError("pymupdf child retry loop exited without a result")
+
+
+def _run_worker_in_spawned_process_once(
     worker_fn,
     args: tuple,
     timeout: int,
@@ -267,6 +325,8 @@ def worker(fn):
                     "error_msg": str(exc),
                 }
             )
+        finally:
+            _flush_child_result_queue(queue)
 
     return wrapped
 

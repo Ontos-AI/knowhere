@@ -29,6 +29,11 @@ _FIGURE_MIN_AREA = 5000.0
 # Near-full-page sparse stroke frames are treated as borders, not figures.
 _FIGURE_FULLPAGE_AREA_RATIO = 0.92
 _FIGURE_FULLPAGE_MAX_PATHS = 25
+# Skip find_tables + drawing clustering on vector/image-dense pages.
+# Clustering ~1e5 strokes is quadratic in a crowded grid cell and exceeds
+# the 300s probe child timeout (EAS lipoprotein consensus PDF page 2).
+_DENSE_DRAWING_LIMIT = 5000
+_DENSE_IMAGE_LIMIT = 200
 # MuPDF ``page.get_texttrace()`` type matching PDF text rendering mode ``3 Tr``.
 _INVISIBLE_TEXT_TRACE_TYPE = 3
 
@@ -257,6 +262,10 @@ def _figure_bboxes_from_drawings(
     return figures
 
 
+def _is_dense_visual_page(*, image_count: int, drawings_count: int) -> bool:
+    return image_count > _DENSE_IMAGE_LIMIT or drawings_count > _DENSE_DRAWING_LIMIT
+
+
 def _probe_visual_assets(
     page: Any,
     page_area: float,
@@ -295,41 +304,45 @@ def _probe_visual_assets(
             image_area += max(box[2] - box[0], 0.0) * max(box[3] - box[1], 0.0)
             bboxes.append({"kind": "image", "bbox": box})
 
-    table_count = 0
-    try:
-        finder = page.find_tables()
-        tables = getattr(finder, "tables", []) or []
-        table_count = len(tables)
-        for table in tables:
-            raw = getattr(table, "bbox", None)
-            if raw is None:
-                continue
-            box = _clip_bbox(
-                float(raw[0]),
-                float(raw[1]),
-                float(raw[2]),
-                float(raw[3]),
-                clip=page_rect,
-            )
-            if _valid_bbox(box):
-                bboxes.append({"kind": "table", "bbox": box})
-    except Exception:
-        table_count = 0
-
     try:
         drawings = page.get_drawings() or []
     except Exception:
         drawings = []
     drawings_count = len(drawings)
-    bboxes.extend(
-        _figure_bboxes_from_drawings(
-            drawings,
-            page_rect=page_rect,
-            page_area=page_area,
-            header_y=header_y,
-            footer_y=footer_y,
-        )
+    dense_visual = _is_dense_visual_page(
+        image_count=image_count, drawings_count=drawings_count
     )
+
+    table_count = 0
+    if not dense_visual:
+        try:
+            finder = page.find_tables()
+            tables = getattr(finder, "tables", []) or []
+            table_count = len(tables)
+            for table in tables:
+                raw = getattr(table, "bbox", None)
+                if raw is None:
+                    continue
+                box = _clip_bbox(
+                    float(raw[0]),
+                    float(raw[1]),
+                    float(raw[2]),
+                    float(raw[3]),
+                    clip=page_rect,
+                )
+                if _valid_bbox(box):
+                    bboxes.append({"kind": "table", "bbox": box})
+        except Exception:
+            table_count = 0
+        bboxes.extend(
+            _figure_bboxes_from_drawings(
+                drawings,
+                page_rect=page_rect,
+                page_area=page_area,
+                header_y=header_y,
+                footer_y=footer_y,
+            )
+        )
 
     coverage = min(image_area / page_area, 1.0) if page_area > 0 else 0.0
     return {
@@ -338,7 +351,7 @@ def _probe_visual_assets(
         "table_count": table_count,
         "drawings_count": drawings_count,
         # Geometry is only used to derive the gate; do not persist bboxes.
-        "has_asset": bool(bboxes),
+        "has_asset": bool(bboxes) or dense_visual,
     }
 
 
