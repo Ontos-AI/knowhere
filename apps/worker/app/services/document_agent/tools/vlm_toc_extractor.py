@@ -8,8 +8,13 @@ import time
 from dataclasses import dataclass
 from typing import Any, cast
 
-# Shared completion budget for TOC VLM calls (confirm batches + extract batches).
-TOC_VLM_MAX_TOKENS = 8192
+# Completion budget for TOC VLM calls: known pages in the call × per-page cap.
+TOC_VLM_MAX_TOKENS_PER_PAGE = 3000
+
+
+def toc_vlm_max_tokens(page_count: int) -> int:
+    """Return ``max_tokens`` for a TOC VLM call covering ``page_count`` pages."""
+    return max(1, int(page_count)) * TOC_VLM_MAX_TOKENS_PER_PAGE
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +204,7 @@ def vlm_extract_toc_batch(
         messages=cast(Any, [{"role": "user", "content": content_parts}]),
         model=model,
         temperature=0.1,
-        max_tokens=TOC_VLM_MAX_TOKENS,
+        max_tokens=toc_vlm_max_tokens(len(page_pngs)),
         response_format={"type": "json_object"},
         usage_task="document_agent.vlm_toc_batch",
     )
