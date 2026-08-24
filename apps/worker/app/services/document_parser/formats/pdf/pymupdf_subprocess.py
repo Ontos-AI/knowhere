@@ -159,8 +159,8 @@ def _flush_child_result_queue(queue: object) -> None:
         return
     try:
         join_thread()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"Failed to join PyMuPDF child result queue feeder thread: {exc}")
 
 
 def _run_worker_in_spawned_process(
