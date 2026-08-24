@@ -18,7 +18,10 @@ from app.services.document_ingestion.parse_result_package import (
     build_generated_result_package,
 )
 from app.services.document_ingestion.artifact_refs import collect_referenced_artifact_refs
-from app.services.document_ingestion.processing_context import ParseJobContext
+from app.services.document_ingestion.processing_context import (
+    ParseJobContext,
+    persist_job_metadata_updates,
+)
 from loguru import logger
 
 from shared.models.schemas.job_metadata import JobMetadataHelper
@@ -210,8 +213,11 @@ def _record_processing_completion(
     _refresh_processing_stages(job_context)
     if "stages" in job_context.job_metadata:
         processing_timing_updates["stages"] = job_context.job_metadata["stages"]
-    job_context.metadata_service.update_metadata(job_id, processing_timing_updates)
-    job_context.job_metadata.update(processing_timing_updates)
+    persist_job_metadata_updates(
+        job_id=job_id,
+        job_context=job_context,
+        metadata_updates=processing_timing_updates,
+    )
 
 
 def _generate_result_package(
