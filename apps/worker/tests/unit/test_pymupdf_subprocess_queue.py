@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
-    _is_empty_queue_exit,
-    worker,
-)
+import app.services.document_parser.formats.pdf.pymupdf_subprocess as subprocess_mod
 from shared.core.exceptions.domain_exceptions import PDFParsingException
 
 
@@ -26,7 +23,7 @@ class _FakeQueue:
 
 
 def test_worker_decorator_flushes_queue_after_success() -> None:
-    @worker
+    @subprocess_mod.worker
     def _ok(queue: _FakeQueue, value: str) -> None:
         queue.put({"ok": True, "value": value})
 
@@ -39,7 +36,7 @@ def test_worker_decorator_flushes_queue_after_success() -> None:
 
 
 def test_worker_decorator_flushes_queue_after_failure() -> None:
-    @worker
+    @subprocess_mod.worker
     def _boom(queue: _FakeQueue) -> None:
         raise RuntimeError("child failed")
 
@@ -61,7 +58,7 @@ def test_empty_queue_exit_is_retryable() -> None:
             "fn=_probe_assets_worker, pid=2049"
         ),
     )
-    assert _is_empty_queue_exit(exc) is True
+    assert subprocess_mod._is_empty_queue_exit(exc) is True
 
 
 def test_nonzero_crash_is_not_retryable() -> None:
@@ -70,12 +67,10 @@ def test_nonzero_crash_is_not_retryable() -> None:
         reason="SUBPROCESS_CRASH",
         internal_message="pymupdf child exited with code=-9 and no result: fn=x, pid=1",
     )
-    assert _is_empty_queue_exit(exc) is False
+    assert subprocess_mod._is_empty_queue_exit(exc) is False
 
 
 def test_empty_queue_exit_retries_once(monkeypatch: object) -> None:
-    import app.services.document_parser.formats.pdf.pymupdf_subprocess as subprocess_mod
-
     calls = {"n": 0}
     crash = PDFParsingException(
         user_message="Failed to process your document. Please try again.",
