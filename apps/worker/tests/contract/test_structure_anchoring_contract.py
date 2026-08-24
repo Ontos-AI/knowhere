@@ -312,7 +312,7 @@ def test_anchor_offset_collects_structural_parent_paths_before_prune() -> None:
     with patch.object(
         anchoring, "locate_null_page_overrides", side_effect=fake_leaf
     ):
-        _working, _anchor = anchoring.anchor_hierarchy_from_offset(
+        unused_working, _anchor = anchoring.anchor_hierarchy_from_offset(
             nodes=[parent],
             offset_hint=None,
             page_texts={1: "x"},
