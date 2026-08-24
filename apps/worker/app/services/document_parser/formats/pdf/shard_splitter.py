@@ -12,6 +12,9 @@ from loguru import logger
 if TYPE_CHECKING:
     from app.services.document_agent.manifest import Shard
 
+_SOURCE_OBJECT_OUT_OF_RANGE = "source object number out of range"
+_REWRITTEN_SOURCE_NAME = "_rewritten_source.pdf"
+
 
 @dataclass
 class MergedShard:
@@ -46,6 +49,11 @@ def map_agent_shards(
     ]
 
 
+def _is_source_object_out_of_range(exc: BaseException) -> bool:
+    """True only for MuPDF xref copy failure during insert_pdf."""
+    return isinstance(exc, RuntimeError) and _SOURCE_OBJECT_OUT_OF_RANGE in str(exc)
+
+
 def split_pdf(
     pdf_path: str,
     shards: list[MergedShard],
@@ -69,6 +77,36 @@ def split_pdf(
           ``None`` when no pages are excluded.
     """
     doc = pymupdf.open(pdf_path)
+    rewritten_path: str | None = None
+    try:
+        try:
+            return _extract_shards(doc, shards, work_dir, exclude_pages)
+        except RuntimeError as exc:
+            if not _is_source_object_out_of_range(exc):
+                raise
+            rewritten_path = os.path.join(work_dir, _REWRITTEN_SOURCE_NAME)
+            logger.warning(
+                "PDF split hit source object number out of range; "
+                "rewriting a clean copy and retrying once"
+            )
+            doc.save(rewritten_path, garbage=4, deflate=True)
+    finally:
+        doc.close()
+
+    assert rewritten_path is not None
+    rewritten = pymupdf.open(rewritten_path)
+    try:
+        return _extract_shards(rewritten, shards, work_dir, exclude_pages)
+    finally:
+        rewritten.close()
+
+
+def _extract_shards(
+    doc: pymupdf.Document,
+    shards: list[MergedShard],
+    work_dir: str,
+    exclude_pages: set[int] | None,
+) -> tuple[list[str], dict[int, int] | None]:
     paths: list[str] = []
     page_remap: dict[int, int] | None = None
 
@@ -79,10 +117,10 @@ def split_pdf(
             f"{sorted(exclude_pages)}"
         )
 
-    try:
-        global_new_idx = 0  # running counter across all shards
-        for shard in shards:
-            sub_doc = pymupdf.open()
+    global_new_idx = 0  # running counter across all shards
+    for shard in shards:
+        sub_doc = pymupdf.open()
+        try:
             shard_included = 0
             for page_num in range(shard.page_start, shard.page_end + 1):
                 if exclude_pages and page_num in exclude_pages:
@@ -105,15 +143,14 @@ def split_pdf(
                 logger.warning(
                     f"  ⚠️ shard_{shard.shard_index}: all pages excluded, skipping"
                 )
+        finally:
             sub_doc.close()
 
-            excluded_in_shard = shard.page_count - shard_included
-            logger.info(
-                f"  ✂️ shard_{shard.shard_index}: "
-                f"pages {shard.page_start}-{shard.page_end} "
-                f"({shard_included} included"
-                f"{f', {excluded_in_shard} excluded' if excluded_in_shard else ''})"
-            )
-    finally:
-        doc.close()
+        excluded_in_shard = shard.page_count - shard_included
+        logger.info(
+            f"  ✂️ shard_{shard.shard_index}: "
+            f"pages {shard.page_start}-{shard.page_end} "
+            f"({shard_included} included"
+            f"{f', {excluded_in_shard} excluded' if excluded_in_shard else ''})"
+        )
     return paths, page_remap
