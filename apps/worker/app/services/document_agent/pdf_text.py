@@ -190,6 +190,7 @@ def _read_page_texts_worker(queue, pdf_path: str, pages: list[int]) -> None:
     import pymupdf  # type: ignore[import]
 
     texts: dict[int, str] = {}
+    doc = None
     try:
         doc = pymupdf.open(pdf_path)
         for page in pages:
@@ -197,10 +198,11 @@ def _read_page_texts_worker(queue, pdf_path: str, pages: list[int]) -> None:
             if 0 <= idx < doc.page_count:
                 texts[page] = str(doc[idx].get_text() or "")
     finally:
-        try:
-            doc.close()
-        except Exception:
-            pass
+        if doc is not None:
+            try:
+                doc.close()
+            except Exception as exc:
+                print(f"Failed to close PDF document in _read_page_texts_worker: {exc}")
         gc.collect()
     queue.put({"ok": True, "texts": texts})
 
@@ -216,6 +218,7 @@ def _read_page_text_bands_worker(
     import pymupdf  # type: ignore[import]
 
     bands: dict[int, dict[str, str]] = {}
+    doc = None
     try:
         doc = pymupdf.open(pdf_path)
         for page in pages:
@@ -228,10 +231,11 @@ def _read_page_text_bands_worker(
                 )
                 bands[page] = record.to_dict()
     finally:
-        try:
-            doc.close()
-        except Exception:
-            pass
+        if doc is not None:
+            try:
+                doc.close()
+            except Exception as exc:
+                print(f"Failed to close PDF document in _read_page_text_bands_worker: {exc}")
         gc.collect()
     queue.put({"ok": True, "bands": bands})
 
