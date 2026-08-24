@@ -19,10 +19,13 @@ from app.services.document_agent.manifest import (
 )
 from app.services.document_agent.registry import register_tool
 from app.services.document_agent.tools.vlm_toc_extractor import (
-    TOC_VLM_MAX_TOKENS,
     BatchPageResult,
+    toc_vlm_max_tokens,
     vlm_entries_to_toc_hierarchies,
 )
+
+# Confirm only returns is_toc_start + brief reason per page (≤ BOUNDARY_STEP_PAGES).
+TOC_ANCHOR_CONFIRM_MAX_TOKENS = 512
 from app.services.document_parser.formats.pdf.pymupdf_subprocess import (
     run_in_child_process,
     worker,
@@ -183,7 +186,7 @@ def _confirm_anchor_chunk(
             messages=messages,
             model=resolved,
             temperature=0.1,
-            max_tokens=TOC_VLM_MAX_TOKENS,
+            max_tokens=TOC_ANCHOR_CONFIRM_MAX_TOKENS,
             response_format={"type": "json_object"},
             usage_task="document_agent.toc_anchor_confirm",
         )
