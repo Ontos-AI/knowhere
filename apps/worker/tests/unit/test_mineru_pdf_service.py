@@ -279,3 +279,25 @@ def test_url_poll_other_pdf_error_does_not_direct_upload(
     poll_mineru_task.assert_called_once()
     request_upload_target.assert_not_called()
     upload_file.assert_not_called()
+
+
+def test_resolve_reuses_existing_object_without_reupload(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(pdf_service.settings, "MINERU_UPLOAD_MODE_ENABLED", False)
+    storage = Mock()
+    storage.verify_upload_exists.return_value = {"exists": True, "size": 12}
+    monkeypatch.setattr(pdf_service, "JobFileStorage", Mock(return_value=storage))
+    local_pdf = tmp_path / "source.pdf"
+    local_pdf.write_bytes(b"%PDF-1.4")
+    s3_key = "tmp/mineru-shards/job_abc/shard_0.pdf"
+
+    resolved = pdf_service.resolve_mineru_source_s3_key(
+        s3_key,
+        local_file_path=str(local_pdf),
+    )
+
+    assert resolved == s3_key
+    storage.upload_source_file.assert_not_called()
+
