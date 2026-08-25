@@ -46,9 +46,10 @@ def run_visibility_recovery_watchdog() -> None:
         while True:
             try:
                 result: VisibilityRecoveryResult = restore_expired_reservations()
-                logger.bind(**result).info(
-                    "Expired Celery reservation recovery sweep attempted"
-                )
+                if result["status"] == "attempted":
+                    logger.bind(**result).debug(
+                        "Expired Celery reservation recovery sweep attempted"
+                    )
             except Exception:
                 logger.exception("Expired Celery reservation recovery sweep failed")
             finally:
