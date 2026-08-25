@@ -105,7 +105,7 @@ def periodic_task_lock(
     if acquired:
         logger.debug(f"periodic_task_lock: acquired for task='{task_name}', ttl={ttl}s")
     else:
-        logger.info(
+        logger.debug(
             f"periodic_task_lock: task='{task_name}' already running in this "
             "window (duplicate Beat firing) — skipping"
         )
