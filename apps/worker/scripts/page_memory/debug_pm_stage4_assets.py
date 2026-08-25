@@ -64,8 +64,10 @@ def _load_scope_asset_context(
     scope_id: str,
     scope_dir: Path,
     page_count: int,
-    toc_policy: Any,
+    toc_pages: list[int],
 ) -> _ScopeAssetContext | None:
+    from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
+
     fine_hierarchy_path = scope_dir / "fine_hierarchy.json"
     require_file(
         fine_hierarchy_path,
@@ -83,26 +85,20 @@ def _load_scope_asset_context(
     final_pages = (
         [int(page) for page in recorded_pages]
         if isinstance(recorded_pages, list)
-        else toc_policy.filter_processing_pages(
+        else pages_excluding_toc(
             _derive_hierarchy_page_scope(
                 skeletons=active_skeletons,
                 page_count=page_count,
-            )
+            ),
+            toc_pages,
         )
     )
-    recorded_excluded = prior_scope.get("excluded_toc_pages")
-    excluded_toc_pages = (
-        [int(page) for page in recorded_excluded]
-        if isinstance(recorded_excluded, list)
-        else sorted(toc_policy.pure_toc_pages)
-    )
+    final_pages = pages_excluding_toc(final_pages, toc_pages)
     scope_manifest = _scope_manifest(
         scope_id=scope_id,
         skeletons=active_skeletons,
         page_count=page_count,
         strategy="fine:assets",
-        processing_pages=final_pages,
-        excluded_toc_pages=excluded_toc_pages,
     )
     return _ScopeAssetContext(
         scope_id=scope_id,
@@ -135,7 +131,6 @@ def main() -> int:
         page_asset_summary_enabled,
     )
     from app.services.page_memory.page_renderer import render_document_pages
-    from toc_page_policy import TocPagePolicy
     from shared.models.schemas.page_memory_config import PageMemoryConfig
 
     pdf_path, filename, out_dir = resolve_paths(args)
@@ -151,7 +146,8 @@ def main() -> int:
     anatomy = load_anatomy_cache(anatomy_cache, pdf_path, filename)
     page_count = anatomy.page_count
     page_features = anatomy.page_features if anatomy else []
-    toc_policy = TocPagePolicy.from_anatomy(anatomy)
+    toc_result = getattr(anatomy, "toc_result", None)
+    toc_pages = list(getattr(toc_result, "toc_pages", None) or [])
 
     scope_ids = resolve_debug_scope_ids(
         scopes_dir=scopes_dir,
@@ -183,13 +179,16 @@ def main() -> int:
             scope_id=scope_id,
             scope_dir=scopes_dir / scope_id,
             page_count=page_count,
-            toc_policy=toc_policy,
+            toc_pages=toc_pages,
         )
         if context is not None:
             scope_contexts.append(context)
 
-    union_pages = sorted(
-        {page for context in scope_contexts for page in context.pages}
+    from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
+
+    union_pages = pages_excluding_toc(
+        sorted({page for context in scope_contexts for page in context.pages}),
+        toc_pages,
     )
     logger.info(
         "🔬 document C5: {} unique pages across {} scopes",

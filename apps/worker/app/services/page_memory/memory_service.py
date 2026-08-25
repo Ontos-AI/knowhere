@@ -264,6 +264,7 @@ def _build_page_dataframe(
             )
         ]
 
+    from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
     from app.services.page_memory.fine_hierarchy import build_next_title_by_path
 
     next_title_by_path = build_next_title_by_path(skeletons)
@@ -272,9 +273,14 @@ def _build_page_dataframe(
         filename=filename,
         page_count=page_count,
     )
-    coarse_pages_scope = _derive_hierarchy_page_scope(
-        skeletons=skeletons,
-        page_count=page_count,
+    toc_result = getattr(anatomy, "toc_result", None) if anatomy is not None else None
+    toc_pages = list(getattr(toc_result, "toc_pages", None) or [])
+    coarse_pages_scope = pages_excluding_toc(
+        _derive_hierarchy_page_scope(
+            skeletons=skeletons,
+            page_count=page_count,
+        ),
+        toc_pages,
     )
     _record_trace_stage(
         trace_recorder,
@@ -308,6 +314,11 @@ def _build_page_dataframe(
         len(coarse_scopes),
         scope_concurrency,
     )
+    if toc_pages:
+        logger.info(
+            "[page_memory] excluding TOC pages from scope processing: {}",
+            sorted({int(page) for page in toc_pages}),
+        )
     scope_results: list[_ScopeRunResult] = []
     asset_pages_remaining = (
         _resolve_asset_max_pages(page_count, page_memory_config)
@@ -329,6 +340,7 @@ def _build_page_dataframe(
         trace_recorder=trace_recorder,
         page_memory_config=page_memory_config,
         next_title_by_path=next_title_by_path,
+        toc_pages=toc_pages,
     )
 
     if scope_concurrency <= 1 or len(coarse_scopes) <= 1:
@@ -409,9 +421,12 @@ def _build_page_dataframe(
     # Shared per-page lookups for node-granularity assembly.
     raw_text_by_page: dict[int, str] = {}
     image_path_by_page: dict[int, str] = {}
-    final_pages_scope = _derive_hierarchy_page_scope(
-        skeletons=skeletons,
-        page_count=page_count,
+    final_pages_scope = pages_excluding_toc(
+        _derive_hierarchy_page_scope(
+            skeletons=skeletons,
+            page_count=page_count,
+        ),
+        toc_pages,
     )
     for page in final_pages_scope:
         rend = render_map.get(page)
@@ -538,7 +553,9 @@ def _run_hierarchy_scope(
     trace_recorder: Any | None,
     page_memory_config: PageMemoryConfig,
     next_title_by_path: dict[str, str | None] | None = None,
+    toc_pages: list[int] | None = None,
 ) -> _ScopeRunResult:
+    from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
     from app.services.page_memory.fine_hierarchy import (
         compute_fat_leaf_pages,
         refine_fat_leaf_skeletons,
@@ -559,9 +576,12 @@ def _run_hierarchy_scope(
         page_count=page_count,
         strategy=scope.strategy,
     )
-    coarse_pages = _derive_hierarchy_page_scope(
-        skeletons=scope_skeletons,
-        page_count=page_count,
+    coarse_pages = pages_excluding_toc(
+        _derive_hierarchy_page_scope(
+            skeletons=scope_skeletons,
+            page_count=page_count,
+        ),
+        toc_pages,
     )
     logger.info(
         "[page_memory] scope {}/{} {} coarse ranges={}",
@@ -582,7 +602,11 @@ def _run_hierarchy_scope(
     )
 
     fine_min = page_memory_config.fine_min_pages
-    fat_leaf_pages = compute_fat_leaf_pages(scope_skeletons, min_pages=fine_min)
+    fat_leaf_pages = compute_fat_leaf_pages(
+        scope_skeletons,
+        min_pages=fine_min,
+        toc_pages=toc_pages,
+    )
     if fat_leaf_pages:
         title_pages = sorted(fat_leaf_pages)
         with stage_timer("page_memory.title_render", page_count=len(title_pages)):
@@ -656,9 +680,12 @@ def _run_hierarchy_scope(
         },
     )
 
-    final_pages = _derive_hierarchy_page_scope(
-        skeletons=scope_skeletons,
-        page_count=page_count,
+    final_pages = pages_excluding_toc(
+        _derive_hierarchy_page_scope(
+            skeletons=scope_skeletons,
+            page_count=page_count,
+        ),
+        toc_pages,
     )
     final_scope_summary = _summarize_tag_scope(
         skeletons=scope_skeletons,

@@ -1509,10 +1509,17 @@ def build_debug_coarse_scopes(
     page_count: int,
     anatomy: Any | None = None,
 ) -> list[dict[str, Any]]:
+    from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
     from app.services.page_memory._utils import build_hierarchy_scopes
-    from toc_page_policy import TocPagePolicy
 
-    policy = TocPagePolicy.from_anatomy(anatomy)
+    toc_result = getattr(anatomy, "toc_result", None) if anatomy is not None else None
+    toc_pages = list(getattr(toc_result, "toc_pages", None) or [])
+    toc_page_set = set()
+    for raw in toc_pages:
+        try:
+            toc_page_set.add(int(raw))
+        except (TypeError, ValueError):
+            continue
     scopes = build_hierarchy_scopes(
         skeletons=skeletons,
         filename=filename,
@@ -1525,12 +1532,13 @@ def build_debug_coarse_scopes(
             "start_page": scope.start_page,
             "end_page": scope.end_page,
             "strategy": scope.strategy,
-            "processing_pages": policy.filter_processing_pages(
-                list(range(scope.start_page, scope.end_page + 1))
+            "processing_pages": pages_excluding_toc(
+                list(range(scope.start_page, scope.end_page + 1)),
+                toc_pages,
             ),
             "excluded_toc_pages": sorted(
                 page
-                for page in policy.pure_toc_pages
+                for page in toc_page_set
                 if scope.start_page <= page <= scope.end_page
             ),
         }
