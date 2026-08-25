@@ -36,6 +36,10 @@ class JobMetadataBase(BaseModel):
     page_memory_config: Optional[Dict[str, Any]] = Field(
         None, description="Resolved page-memory worker configuration"
     )
+    stages: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Worker processing stages, including token_usage and timing_ms",
+    )
     # result_mode was removed and is no longer supported.
 
     # Source-file fields.

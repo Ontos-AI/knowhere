@@ -19,7 +19,6 @@ from app.services.document_agent.manifest import (
 )
 from app.services.document_agent.registry import register_tool
 from app.services.document_agent.tools.vlm_toc_extractor import (
-    TOC_VLM_MAX_TOKENS,
     BatchPageResult,
     vlm_entries_to_toc_hierarchies,
 )
@@ -35,6 +34,8 @@ BOUNDARY_STEP_PAGES = 5
 TOC_VLM_CONCURRENCY = 10
 MAX_BOUNDARY_ROUNDS = 6
 MAX_TOC_PAGES = BOUNDARY_STEP_PAGES * MAX_BOUNDARY_ROUNDS  # 30
+# Confirm only returns is_toc_start + brief reason per page (≤ BOUNDARY_STEP_PAGES).
+TOC_ANCHOR_CONFIRM_MAX_TOKENS = 512
 
 _CONFIRM_PROMPT = (
     "You are a document structure analysis expert. "
@@ -183,7 +184,7 @@ def _confirm_anchor_chunk(
             messages=messages,
             model=resolved,
             temperature=0.1,
-            max_tokens=TOC_VLM_MAX_TOKENS,
+            max_tokens=TOC_ANCHOR_CONFIRM_MAX_TOKENS,
             response_format={"type": "json_object"},
             usage_task="document_agent.toc_anchor_confirm",
         )

@@ -17,6 +17,7 @@ from app.services.document_ingestion.processing_billing import (
 from app.services.document_ingestion.processing_context import (
     ParseJobContext,
     load_parse_job_context,
+    persist_job_metadata_updates,
 )
 from app.services.document_ingestion.source_preparation import prepare_source_file
 from app.services.document_ingestion.success_finalization import finalize_parse_success
@@ -199,10 +200,21 @@ def _run_parse_job(
             result_storage_factory=get_result_storage,
         )
     finally:
-        job_context.job_metadata["stages"] = {
+        stages = {
             "timing_ms": dict(stage_timing_dict),
             "token_usage": dict(token_usage_dict),
         }
+        job_context.job_metadata["stages"] = stages
+        try:
+            persist_job_metadata_updates(
+                job_id=job_id,
+                job_context=job_context,
+                metadata_updates={"stages": stages},
+            )
+        except Exception as exc:
+            logger.warning(
+                f"Failed to persist processing stages: job_id={job_id}, error={exc}"
+            )
         cleanup_llm_overrides()
         cleanup_token_tracker()
         cleanup_stage_tracker()

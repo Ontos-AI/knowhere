@@ -5,10 +5,15 @@ uses). Each regime takes leaf probes from its first few distinct printed pages
 and scans forward until one is confirmed; that single confirmation fixes the
 regime's candidate offset. Phase-2 owns tail verification and bulk anchoring.
 
-A probe scans from ``max(toc_range end + 1, printed)``: a printed label never
-resolves to a physical page before itself, so the offset a scan can yield is
-structurally non-negative. Scanning below the printed page would let a section
-divider that repeats the heading confirm ahead of the numbered body page.
+A probe scans from ``toc_range end + 1`` (body after the TOC). That can yield a
+negative ``physical - printed`` offset (e.g. journal reprints whose printed
+labels exceed the PDF length). Phase-2 already accepts negative offsets and
+prunes ``printed + offset`` outside ``1..page_count``.
+
+To restore the Sydney anti-false-positive floor (non-negative offset), switch
+``start_page`` back to ``max(region_scan_start, probe.printed)`` below and
+invert ``test_scan_starts_after_toc_so_negative_offset_is_allowed`` to expect
+scan start ``= printed`` and offset ``0``.
 """
 
 from __future__ import annotations
@@ -150,7 +155,10 @@ def run_calibration_phase1(
             scan = scan_title_forward(
                 ctx=ctx,
                 title=probe.title,
-                start_page=max(region_scan_start, probe.printed),
+                # Scan from after TOC. Optional floor (disabled): force
+                # non-negative offset / skip early divider hits — restore with:
+                #   start_page=max(region_scan_start, probe.printed),
+                start_page=region_scan_start,
                 page_count=resolved_page_count,
             )
             scans.append(scan)
