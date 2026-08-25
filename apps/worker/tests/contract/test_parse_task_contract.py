@@ -982,8 +982,18 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
     calls: dict[str, object] = {}
     parse_s3_keys: list[str | None] = []
     deleted_s3_keys: list[str] = []
+    uploaded_s3_keys: list[str] = []
 
     class _FakeJobFileStorage:
+        def upload_source_file(self, local_file_path: str, storage_key: str) -> dict[str, str]:
+            assert Path(local_file_path).exists()
+            uploaded_s3_keys.append(storage_key)
+            return {"etag": "test"}
+
+        def verify_upload_exists(self, storage_key: str) -> dict[str, bool]:
+            assert storage_key in uploaded_s3_keys
+            return {"exists": True}
+
         def delete_upload_file(self, storage_key: str) -> bool:
             deleted_s3_keys.append(storage_key)
             return True
@@ -1100,6 +1110,7 @@ def test_oversized_pdf_happy_path_uses_shard_pipeline_without_external_services(
         "tmp/mineru-shards/job-oversized/shard_1.pdf",
     ]
     assert parse_s3_keys == expected_s3_keys
+    assert uploaded_s3_keys == expected_s3_keys
     assert deleted_s3_keys == expected_s3_keys
     assert not (output_dir / "_shards").exists()
     assert list(df["type"]) == ["PTXT", "PTXT"]

@@ -13,6 +13,7 @@ from app.services.document_parser.support.stage_profiler import stage_timer
 from loguru import logger
 
 from shared.core.config import settings
+from shared.core.exceptions.domain_exceptions import StorageServiceException
 from shared.services.storage.job_file_storage import JobFileStorage
 
 
@@ -98,10 +99,11 @@ def _parse_pdf_via_shards(
     1. PROFILE → shard plan + TOC
     2. map_agent_shards → 1:1 MinerU shards
     3. split_pdf (exclude TOC pages)
-    4. MinerU per shard (parallel)
-    5. **Per-shard heading prediction** (parallel)
-    6. Merge lines_with_heading + images
-    7. parse_md Phase B (skip TOC detection + heading prediction)
+    4. Upload split shards to S3 and confirm HeadObject succeeds
+    5. MinerU per shard (parallel)
+    6. **Per-shard heading prediction** (parallel)
+    7. Merge lines_with_heading + images
+    8. parse_md Phase B (skip TOC detection + heading prediction)
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from dataclasses import dataclass
@@ -200,7 +202,11 @@ def _parse_pdf_via_shards(
                 for shard_index, _shard_pdf_path in enumerate(shard_pdf_paths)
             ]
 
-            # 5. Parse each shard via MinerU (parallel)
+            with stage_timer("pdf.upload_shards", filename=filename):
+                _upload_temp_shard_pdfs(shard_pdf_paths, temp_shard_s3_keys)
+
+            # 5. Parse each shard via MinerU (parallel) only after S3 has the
+            # split objects. URL mode HeadObject then reuses those keys.
             shard_output_dirs = [None] * len(shard_pdf_paths)
 
             def _parse_single_shard(shard_idx, shard_pdf):
@@ -354,6 +360,32 @@ def _parse_pdf_via_shards(
     finally:
         _cleanup_temp_shard_s3_assets(temp_shard_s3_keys)
         _cleanup_local_shard_workspace(work_dir)
+
+
+def _upload_temp_shard_pdfs(
+    shard_pdf_paths: list[str],
+    shard_s3_keys: list[str],
+) -> None:
+    """Upload split shards to S3 and confirm each object exists before MinerU."""
+    storage = JobFileStorage()
+    for shard_index, (shard_path, shard_s3_key) in enumerate(
+        zip(shard_pdf_paths, shard_s3_keys, strict=True)
+    ):
+        logger.info(
+            f"  ☁️ Uploading MinerU shard_{shard_index} to S3 ({shard_s3_key})"
+        )
+        storage.upload_source_file(shard_path, shard_s3_key)
+        existing_file = storage.verify_upload_exists(shard_s3_key)
+        if not existing_file.get("exists"):
+            raise StorageServiceException(
+                internal_message=(
+                    "Temporary MinerU shard was uploaded but is not visible "
+                    f"in S3: {shard_s3_key}"
+                ),
+                operation="verify_source_object",
+            )
+        logger.info(f"  ✅ Uploaded MinerU shard_{shard_index}: {shard_s3_key}")
+
 
 def _build_temp_shard_s3_key(
     *,
