@@ -11,10 +11,7 @@ os.environ.setdefault("S3_ACCESS_KEY_ID", "test")
 os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
-from app.services.document_ingestion.processing_context import (  # noqa: E402
-    ParseJobContext,
-    persist_job_metadata_updates,
-)
+import app.services.document_ingestion.processing_context as processing_context  # noqa: E402
 from app.services.document_ingestion.success_finalization import (  # noqa: E402
     _record_processing_completion,
 )
@@ -31,8 +28,8 @@ class _FakeDbContext:
         return False
 
 
-def _job_context(*, metadata: dict[str, object] | None = None) -> ParseJobContext:
-    return ParseJobContext(
+def _job_context(*, metadata: dict[str, object] | None = None) -> processing_context.ParseJobContext:
+    return processing_context.ParseJobContext(
         job_metadata=metadata or {"namespace": "default"},
         job_user_id="user-1",
         metadata_service=Mock(),
@@ -44,8 +41,6 @@ def _job_context(*, metadata: dict[str, object] | None = None) -> ParseJobContex
 def test_persist_job_metadata_updates_merges_stages_into_job_row(
     monkeypatch: object,
 ) -> None:
-    import app.services.document_ingestion.processing_context as processing_context
-
     job = SimpleNamespace(job_metadata={"namespace": "default", "page_count": 12})
     session = Mock()
     monkeypatch.setattr(
@@ -64,7 +59,7 @@ def test_persist_job_metadata_updates_merges_stages_into_job_row(
         "timing_ms": {"worker.parse.document": 1200},
     }
 
-    persist_job_metadata_updates(
+    processing_context.persist_job_metadata_updates(
         job_id="job_abc",
         job_context=job_context,
         metadata_updates={"stages": stages},
