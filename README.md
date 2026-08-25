@@ -133,10 +133,11 @@ Agents using Knowhere outperform those working from raw documents, Markitdown, U
 - [x] `.pdf` `.docx` `.pptx` `.xlsx` `.csv`
 - [x] `.jpg` `.png`
 - [x] `.md` `.txt` `.json`
+- [x] `.html` `.htm`
 
 **⏳ Coming Soon**
 
-- [ ] `.epub` `.html` `.xml`
+- [ ] `.epub` `.xml`
 - [ ] `.mp4` `.mp3`
 - [ ] `.skills.md`
 
