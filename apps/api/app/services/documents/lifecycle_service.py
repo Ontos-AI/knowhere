@@ -200,6 +200,22 @@ class DocumentService:
             },
         }
 
+    async def list_namespaces(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: str,
+    ) -> dict[str, Any]:
+        rows = await self._repository.list_namespace_counts_for_user(
+            db,
+            user_id=user_id,
+        )
+        namespaces = [
+            {"namespace": namespace, "document_count": count}
+            for namespace, count in rows
+        ]
+        return {"namespaces": namespaces}
+
     async def list_document_chunks(
         self,
         db: AsyncSession,

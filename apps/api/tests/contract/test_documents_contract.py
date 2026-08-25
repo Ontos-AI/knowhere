@@ -1334,3 +1334,66 @@ async def test_should_archive_a_document_via_the_legacy_archive_route(
     assert response_json["archived_at"]
     assert persisted_document["status"] == "archived"
     assert persisted_document["archived_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_should_list_namespaces_with_document_counts_for_the_authenticated_user(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    other_user_id = f"contract-user-{uuid4().hex[:12]}"
+
+    async with developer_api_client_factory() as api_client:
+        await ContractDatabase.insert_user(user_id=other_user_id)
+
+        await _insert_document(document_id=f"doc_{uuid4().hex[:12]}", namespace="alpha")
+        await _insert_document(document_id=f"doc_{uuid4().hex[:12]}", namespace="alpha")
+        await _insert_document(document_id=f"doc_{uuid4().hex[:12]}", namespace="beta")
+        await _insert_document(
+            document_id=f"doc_{uuid4().hex[:12]}",
+            namespace="other-user-ns",
+            user_id=other_user_id,
+        )
+        await _insert_document(
+            document_id=f"doc_{uuid4().hex[:12]}",
+            namespace="archived-ns",
+            status="archived",
+        )
+
+        response = await api_client.get("/api/v1/documents/namespaces")
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    namespaces = cast(list[dict[str, object]], response_json["namespaces"])
+
+    assert namespaces == [
+        {"namespace": "alpha", "document_count": 2},
+        {"namespace": "beta", "document_count": 1},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_should_return_empty_namespace_list_when_user_has_no_documents(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    async with developer_api_client_factory() as api_client:
+        other_user_id = f"contract-user-{uuid4().hex[:12]}"
+        await ContractDatabase.insert_user(user_id=other_user_id)
+        await _insert_document(
+            document_id=f"doc_{uuid4().hex[:12]}",
+            namespace="not-mine",
+            user_id=other_user_id,
+        )
+
+        response = await api_client.get("/api/v1/documents/namespaces")
+
+    assert response.status_code == 200
+
+    response_json = cast(dict[str, object], response.json())
+    namespaces = cast(list[dict[str, object]], response_json["namespaces"])
+
+    assert namespaces == []
