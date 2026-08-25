@@ -27,6 +27,31 @@ class ParseJobContext:
     s3_key: str
 
 
+def persist_job_metadata_updates(
+    *,
+    job_id: str,
+    job_context: ParseJobContext,
+    metadata_updates: dict[str, object],
+) -> None:
+    """Merge metadata into Redis and the durable Job row.
+
+    Redis remains the live working copy during processing. The Job row is
+    the durable record after Redis TTL expires, so token usage and other
+    stage fields must be written here as well.
+    """
+    if not metadata_updates:
+        return
+    with get_sync_db_context() as db:
+        job = _select_job_row_for_update(db, job_id)
+        if job is not None:
+            job.job_metadata = {
+                **dict(job.job_metadata or {}),
+                **metadata_updates,
+            }
+    job_context.metadata_service.update_metadata(job_id, metadata_updates)
+    job_context.job_metadata.update(metadata_updates)
+
+
 def load_parse_job_context(
     job_id: str,
     requested_user_id: str | None,
@@ -111,3 +136,9 @@ def _load_job_row(job_id: str) -> Job | None:
 
 def _select_job_row(db: Session, job_id: str) -> Job | None:
     return db.execute(select(Job).where(Job.job_id == job_id)).scalar_one_or_none()
+
+
+def _select_job_row_for_update(db: Session, job_id: str) -> Job | None:
+    return db.execute(
+        select(Job).where(Job.job_id == job_id).with_for_update()
+    ).scalar_one_or_none()

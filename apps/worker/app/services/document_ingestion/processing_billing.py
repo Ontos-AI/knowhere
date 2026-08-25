@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from app.services.document_ingestion.page_estimator import WorkloadEstimate
-from app.services.document_ingestion.processing_context import ParseJobContext
+from app.services.document_ingestion.processing_context import (
+    ParseJobContext,
+    persist_job_metadata_updates,
+)
 from loguru import logger
 from sqlalchemy import select
 
@@ -145,13 +148,8 @@ def record_processing_start(
         )
     if extra_metadata is not None:
         metadata_updates.update(extra_metadata)
-    with get_sync_db_context() as db:
-        job_result = db.execute(select(Job).where(Job.job_id == job_id).with_for_update())
-        job = job_result.scalar_one_or_none()
-        if job:
-            job.job_metadata = {
-                **dict(job.job_metadata or {}),
-                **metadata_updates,
-            }
-    job_context.metadata_service.update_metadata(job_id, metadata_updates)
-    job_context.job_metadata.update(metadata_updates)
+    persist_job_metadata_updates(
+        job_id=job_id,
+        job_context=job_context,
+        metadata_updates=metadata_updates,
+    )
