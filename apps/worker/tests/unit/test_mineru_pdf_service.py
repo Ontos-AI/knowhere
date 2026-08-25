@@ -17,7 +17,6 @@ from app.services.document_parser.providers.mineru import pdf_service
 from shared.core.exceptions.domain_exceptions import (
     MinerUTaskFailedException,
     PDFParsingException,
-    StorageServiceException,
     TimeoutException,
 )
 
@@ -282,99 +281,17 @@ def test_url_poll_other_pdf_error_does_not_direct_upload(
     upload_file.assert_not_called()
 
 
-_HEAD_OBJECT_FORBIDDEN = StorageServiceException(
-    internal_message=(
-        "Storage file verification failed: S3 check object exists failed: "
-        "An error occurred (403) when calling the HeadObject operation: Forbidden"
-    ),
-    operation="verify_exists",
-)
-
-
-def _configure_source_storage(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    verify_side_effect: object,
-) -> Mock:
-    monkeypatch.setattr(pdf_service.settings, "MINERU_UPLOAD_MODE_ENABLED", False)
-    storage = Mock()
-    storage.verify_upload_exists.side_effect = verify_side_effect
-    storage.upload_source_file.return_value = {"etag": "ok"}
-    monkeypatch.setattr(pdf_service, "JobFileStorage", Mock(return_value=storage))
-    return storage
-
-
-def test_resolve_uploads_local_shard_when_head_object_is_forbidden(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    storage = _configure_source_storage(
-        monkeypatch,
-        verify_side_effect=_HEAD_OBJECT_FORBIDDEN,
-    )
-    local_pdf = tmp_path / "shard_0.pdf"
-    local_pdf.write_bytes(b"%PDF-1.4")
-    s3_key = "tmp/mineru-shards/job_abc/shard_0.pdf"
-
-    resolved = pdf_service.resolve_mineru_source_s3_key(
-        s3_key,
-        local_file_path=str(local_pdf),
-    )
-
-    assert resolved == s3_key
-    storage.upload_source_file.assert_called_once_with(str(local_pdf), s3_key)
-
-
-def test_resolve_skips_url_mode_when_head_forbidden_and_no_local_file(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    storage = _configure_source_storage(
-        monkeypatch,
-        verify_side_effect=_HEAD_OBJECT_FORBIDDEN,
-    )
-
-    resolved = pdf_service.resolve_mineru_source_s3_key(
-        "tmp/mineru-shards/job_abc/shard_0.pdf",
-    )
-
-    assert resolved is None
-    storage.upload_source_file.assert_not_called()
-
-
-def test_resolve_still_falls_back_on_other_verify_errors(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    storage = _configure_source_storage(
-        monkeypatch,
-        verify_side_effect=StorageServiceException(
-            internal_message="S3 check object exists failed: timeout",
-            operation="verify_exists",
-        ),
-    )
-    local_pdf = tmp_path / "shard_0.pdf"
-    local_pdf.write_bytes(b"%PDF-1.4")
-
-    resolved = pdf_service.resolve_mineru_source_s3_key(
-        "tmp/mineru-shards/job_abc/shard_0.pdf",
-        local_file_path=str(local_pdf),
-    )
-
-    assert resolved is None
-    storage.upload_source_file.assert_not_called()
-
-
 def test_resolve_reuses_existing_object_without_reupload(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    storage = _configure_source_storage(
-        monkeypatch,
-        verify_side_effect=[{"exists": True, "size": 12}],
-    )
+    monkeypatch.setattr(pdf_service.settings, "MINERU_UPLOAD_MODE_ENABLED", False)
+    storage = Mock()
+    storage.verify_upload_exists.return_value = {"exists": True, "size": 12}
+    monkeypatch.setattr(pdf_service, "JobFileStorage", Mock(return_value=storage))
     local_pdf = tmp_path / "source.pdf"
     local_pdf.write_bytes(b"%PDF-1.4")
-    s3_key = "uploads/job_abc.pdf"
+    s3_key = "tmp/mineru-shards/job_abc/shard_0.pdf"
 
     resolved = pdf_service.resolve_mineru_source_s3_key(
         s3_key,

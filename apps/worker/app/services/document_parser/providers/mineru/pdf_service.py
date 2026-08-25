@@ -36,21 +36,6 @@ def _should_use_mineru_s3_url_mode(s3_key: Optional[str]) -> bool:
     return not settings.MINERU_UPLOAD_MODE_ENABLED and s3_key is not None
 
 
-def _is_unverified_s3_object(exc: BaseException) -> bool:
-    """True when HeadObject cannot distinguish missing from forbidden.
-
-    Fresh temp shard keys are not uploaded yet. S3 often returns 403 instead
-    of 404 when the caller lacks ListBucket on that prefix. That must not
-    abort URL mode if a local file can still be uploaded.
-    """
-    text = str(exc).lower()
-    return (
-        "403" in str(exc)
-        or "forbidden" in text
-        or "accessdenied" in text.replace(" ", "")
-    )
-
-
 def _log_mineru_url_mode_storage_fallback(
     operation: str,
     s3_key: str,
@@ -132,18 +117,6 @@ def _inspect_mineru_source_s3_key(s3_key: Optional[str]) -> tuple[Optional[str],
     try:
         existing_file = JobFileStorage().verify_upload_exists(s3_key)
     except Exception as exc:
-        if _is_unverified_s3_object(exc):
-            mineru_logger(
-                "url_mode_source_unverified",
-                operation="verify_source_object",
-                source_s3_key=s3_key,
-                error_type=type(exc).__name__,
-                error_message=truncate_log_value(exc),
-            ).info(
-                "S3 source existence could not be verified; "
-                "will upload a local file if one is available"
-            )
-            return None, True
         _log_mineru_url_mode_storage_fallback(
             operation="verify_source_object",
             s3_key=s3_key,
