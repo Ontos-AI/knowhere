@@ -56,7 +56,7 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
     physical overrides (no calibrate VLM). Otherwise keep the extracted TOC tree
     and run the existing VLM calibration path.
 
-    After calibration (primary + pending), each forest runs same-tree monotonic
+    After calibration (primary + pending), each forest runs global paged-leaf
     rehome, then pending forests are classified/grafted. Blackboard writes happen
     only after that sequence.
     """
@@ -122,9 +122,11 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
 
     # scope-local TOC pre-pass: future hook (no-op this period)
     resolve_nodes, skeleton_anchor = _rehome_calibrated_forest(
-        resolve_nodes, skeleton_anchor
+        resolve_nodes,
+        skeleton_anchor,
+        toc_pages=toc_pages,
     )
-    _rehome_pending_records(pending_records)
+    _rehome_pending_records(pending_records, toc_pages=toc_pages)
 
     if pending_records:
         _assign_toc_relationships(
@@ -255,7 +257,9 @@ def _write_outline_skeleton(
     skeleton_anchor = replace(skeleton_anchor, source="pdf_outline")
     # scope-local TOC pre-pass: future hook (no-op this period)
     resolve_nodes, skeleton_anchor = _rehome_calibrated_forest(
-        resolve_nodes, skeleton_anchor
+        resolve_nodes,
+        skeleton_anchor,
+        toc_pages=toc_pages,
     )
     ctx.blackboard.skeleton_anchor = serialize_skeleton_anchor(skeleton_anchor)
     ctx.blackboard.skeleton_nodes = [
@@ -275,16 +279,24 @@ def _write_outline_skeleton(
 def _rehome_calibrated_forest(
     nodes: list[TitleNode],
     skeleton_anchor: SkeletonAnchor,
+    *,
+    toc_pages: list[int] | None = None,
 ) -> tuple[list[TitleNode], SkeletonAnchor]:
     from app.services.document_agent.structure.toc_rehome import rehome_skeleton_forest
 
     rehomed_nodes, rehomed_anchor, _events = rehome_skeleton_forest(
-        nodes, skeleton_anchor
+        nodes,
+        skeleton_anchor,
+        toc_pages=toc_pages,
     )
     return rehomed_nodes, rehomed_anchor
 
 
-def _rehome_pending_records(pending_records: list[dict[str, Any]]) -> None:
+def _rehome_pending_records(
+    pending_records: list[dict[str, Any]],
+    *,
+    toc_pages: list[int] | None = None,
+) -> None:
     from app.services.document_agent.structure.toc_rehome import rehome_skeleton_forest
 
     for record in pending_records:
@@ -302,6 +314,7 @@ def _rehome_pending_records(pending_records: list[dict[str, Any]]) -> None:
         rehomed_nodes, rehomed_anchor, _events = rehome_skeleton_forest(
             nodes,
             deserialize_skeleton_anchor(anchor_raw),
+            toc_pages=toc_pages,
         )
         record["nodes"] = [serialize_title_node(node) for node in rehomed_nodes]
         record["skeleton_anchor"] = serialize_skeleton_anchor(rehomed_anchor)
