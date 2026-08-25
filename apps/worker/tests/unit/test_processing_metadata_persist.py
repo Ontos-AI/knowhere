@@ -12,9 +12,7 @@ os.environ.setdefault("S3_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_TEMP_PATH", "/tmp")
 
 import app.services.document_ingestion.processing_context as processing_context  # noqa: E402
-from app.services.document_ingestion.success_finalization import (  # noqa: E402
-    _record_processing_completion,
-)
+import app.services.document_ingestion.success_finalization as success_finalization  # noqa: E402
 
 
 class _FakeDbContext:
@@ -78,8 +76,6 @@ def test_persist_job_metadata_updates_merges_stages_into_job_row(
 def test_record_processing_completion_persists_token_usage_to_job_row(
     monkeypatch: object,
 ) -> None:
-    import app.services.document_ingestion.success_finalization as success_finalization
-
     persist = Mock()
     monkeypatch.setattr(success_finalization, "persist_job_metadata_updates", persist)
     monkeypatch.setattr(
@@ -97,7 +93,7 @@ def test_record_processing_completion_persists_token_usage_to_job_row(
     job_context = _job_context()
     started = datetime(2026, 8, 24, 10, 0, tzinfo=timezone.utc)
 
-    _record_processing_completion(
+    success_finalization._record_processing_completion(
         job_id="job_abc",
         job_context=job_context,
         processing_started_at=started,
