@@ -49,7 +49,11 @@ _IMAGE_TOKEN_EST = 800
 def _read_image_b64(image_path: str) -> str | None:
     try:
         with open(image_path, "rb") as handle:
-            return base64.b64encode(handle.read()).decode()
+            raw = handle.read()
+        if not raw:
+            logger.warning("[summary] empty image file {}", image_path)
+            return None
+        return base64.b64encode(raw).decode()
     except Exception as exc:
         logger.warning("[summary] failed to read image {}: {}", image_path, exc)
         return None

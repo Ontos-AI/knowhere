@@ -200,6 +200,7 @@ def main() -> int:
         pdf_path=pdf_path,
         page_count=page_count,
         output_dir=str(out_dir),
+        scope_id="c5_assets",
         pages=union_pages,
         page_features=page_features,
         page_texts=page_texts,

@@ -60,10 +60,22 @@ class _FakeInspect:
         )
 
 
+def _fake_render_pages(
+    ctx: ToolContext,
+    pages: list[int],
+    **kwargs: Any,
+) -> list[dict[str, Any]]:
+    return [
+        {"page": int(page), "png_path": f"/tmp/scan_page_{int(page)}.png"}
+        for page in pages
+    ]
+
+
 @pytest.fixture
 def patch_inspect(monkeypatch: pytest.MonkeyPatch):
     def _apply(fake: _FakeInspect) -> _FakeInspect:
         monkeypatch.setattr(scan_module, "inspect_pages", fake)
+        monkeypatch.setattr(scan_module, "render_pages", _fake_render_pages)
         return fake
 
     return _apply
@@ -241,3 +253,51 @@ def test_earliest_true_page_wins_within_a_round(patch_inspect) -> None:
 
     assert result.found_page == 13
     assert sorted(fake.calls) == [[10], [11], [12], [13], [14], [15]]
+
+
+def test_window_renders_once_serially_before_concurrent_vlm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PDF→PNG is one serial batch per window; VLM stays one page per call."""
+    render_calls: list[list[int]] = []
+    inspect_args: list[dict[str, Any]] = []
+
+    def _recording_render(
+        ctx: ToolContext,
+        pages: list[int],
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        render_calls.append(list(pages))
+        return _fake_render_pages(ctx, pages, **kwargs)
+
+    def _capture_inspect(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+        inspect_args.append(dict(args))
+        pages = list(args.get("pages") or [])
+        hit = 10 in pages
+        return ToolResult(
+            status="ok",
+            payload={
+                "pages": pages,
+                "answer": "",
+                "fields": {
+                    "found": hit,
+                    "reason": "hit" if hit else "miss",
+                },
+            },
+        )
+
+    monkeypatch.setattr(scan_module, "inspect_pages", _capture_inspect)
+    monkeypatch.setattr(scan_module, "render_pages", _recording_render)
+
+    result = scan_title_forward(
+        ctx=_ctx(), title="Chapter 1", start_page=10, page_count=60
+    )
+
+    assert result.found_page == 10
+    assert render_calls == [[10, 11]]
+    assert len(inspect_args) == 2
+    assert sorted(args["pages"] for args in inspect_args) == [[10], [11]]
+    for args in inspect_args:
+        assert args["page_cap"] == 1
+        assert len(args["rendered_pages"]) == 1
+        assert args["rendered_pages"][0]["page"] == args["pages"][0]

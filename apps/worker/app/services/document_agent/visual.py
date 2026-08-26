@@ -76,7 +76,13 @@ def _render_pages_worker(
                 page = doc[idx]
                 mat = pymupdf.Matrix(dpi / 72.0, dpi / 72.0)
                 pix = page.get_pixmap(matrix=mat)
-                png_name = f"{prefix}_page_{page_num}.png"
+                # Empty prefix → page_memory style ``page-{n}.png``.
+                # Non-empty keeps legacy ``{prefix}_page_{n}.png`` for PROFILE tools.
+                png_name = (
+                    f"page-{page_num}.png"
+                    if not prefix
+                    else f"{prefix}_page_{page_num}.png"
+                )
                 png_path = os.path.join(output_dir, png_name)
                 pix.save(png_path)
                 results.append({"page": page_num, "png_path": png_path})
