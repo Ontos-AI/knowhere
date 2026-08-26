@@ -215,6 +215,7 @@ def _try_outline_anchoring_route(
         page_texts=page_texts,
         body_pages=body_pages,
         page_count=page_count,
+        toc_pages=toc_pages,
     ):
         return False
 
@@ -235,6 +236,7 @@ def _write_outline_skeleton(
     page_texts: dict[int, str],
     body_pages: list[int],
     page_count: int,
+    toc_pages: list[int] | None = None,
 ) -> bool:
     """Anchor outline rows via physical overrides (no calibrate VLM).
 

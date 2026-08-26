@@ -574,6 +574,10 @@ def main() -> int:
             )
 
     # ── Final trace + cross-stage cost rollup ──
+    from app.services.document_agent.structure.hierarchy_locator import (
+        extract_toc_nodes,
+    )
+
     toc_nodes = (
         extract_toc_nodes(anatomy.toc_hierarchies) if anatomy.toc_hierarchies else []
     )
