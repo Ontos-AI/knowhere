@@ -611,7 +611,10 @@ def main() -> int:
     report_path.write_text(report, encoding="utf-8")
 
     if args.finalize:
-        from shared.services.storage.zip_manifest_schema import ZipManifestBuilder
+        from shared.services.storage.zip_manifest_schema import (
+            ZipManifestBuilder,
+            enrich_manifest_with_token_cost_estimate,
+        )
 
         manifest = ZipManifestBuilder().generate_manifest(
             job_id=filename,
@@ -625,7 +628,11 @@ def main() -> int:
             hierarchy=hierarchy_dict,
         )
         (out_dir / "manifest.json").write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2),
+            json.dumps(
+                enrich_manifest_with_token_cost_estimate(manifest),
+                ensure_ascii=False,
+                indent=2,
+            ),
             encoding="utf-8",
         )
 

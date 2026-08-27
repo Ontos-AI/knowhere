@@ -120,6 +120,10 @@ def _apply_token_usage_to_outputs(
     trace: dict[str, Any],
     usage: dict[str, Any],
 ) -> None:
+    from shared.services.storage.zip_manifest_schema import (
+        enrich_manifest_with_token_cost_estimate,
+    )
+
     trace["token_usage"] = usage
     _write_json(out_dir / "trace.json", trace)
     manifest_path = out_dir / "manifest.json"
@@ -131,7 +135,10 @@ def _apply_token_usage_to_outputs(
     processing = manifest.setdefault("processing", {})
     if isinstance(processing, dict):
         processing["token_usage"] = usage
-        _write_json(manifest_path, manifest)
+        _write_json(
+            manifest_path,
+            enrich_manifest_with_token_cost_estimate(manifest),
+        )
 
 
 # ── Stage 1: Profile + Shard Plan (PDF only) ───────────────────────────────
