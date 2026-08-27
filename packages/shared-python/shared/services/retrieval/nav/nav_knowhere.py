@@ -142,9 +142,11 @@ class ChunkStore(Protocol):
         document_id: str,
         section_id: str,
         extra_chunk_ids: Sequence[str] = (),
-    ) -> List[UnitRow]: ...
+    ) -> List[UnitRow]:
+        raise NotImplementedError
 
-    def close(self) -> None: ...
+    def close(self) -> None:
+        raise NotImplementedError
 
 
 class ReadOnlyChunkStore:
@@ -212,19 +214,25 @@ class ReadOnlyChunkStore:
 
 
 class _SyncCursor(Protocol):
-    def execute(self, query: str, params: Sequence[object]) -> None: ...
+    def execute(self, query: str, params: Sequence[object]) -> None:
+        raise NotImplementedError
 
-    def fetchall(self) -> Sequence[Sequence[object]]: ...
+    def fetchall(self) -> Sequence[Sequence[object]]:
+        raise NotImplementedError
 
-    def close(self) -> None: ...
+    def close(self) -> None:
+        raise NotImplementedError
 
 
 class _SyncConnection(Protocol):
-    def set_session(self, *, readonly: bool, autocommit: bool) -> None: ...
+    def set_session(self, *, readonly: bool, autocommit: bool) -> None:
+        raise NotImplementedError
 
-    def cursor(self) -> _SyncCursor: ...
+    def cursor(self) -> _SyncCursor:
+        raise NotImplementedError
 
-    def close(self) -> None: ...
+    def close(self) -> None:
+        raise NotImplementedError
 
 
 def _unit_from_row(row: Sequence[object]) -> UnitRow:
