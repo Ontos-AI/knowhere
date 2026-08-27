@@ -5,8 +5,10 @@ some page after it. The scan walks forward from the candidate with a widening
 window, feeding each round's cursor into the next one, so a miss never re-opens
 pages that were already inspected.
 
-Each round still covers ``window_schedule[i]`` pages, but pages are inspected
-one-at-a-time concurrently (never batched into a single VLM call).
+Each round still covers ``window_schedule[i]`` pages. PDF→PNG for the whole
+window is rendered in one serial child-process call (same discipline as TOC
+extract: never drive the gevent PyMuPDF pool from a ThreadPool). VLM inspect
+then runs one page per call, concurrently.
 """
 
 from __future__ import annotations
@@ -25,6 +27,11 @@ from app.services.document_agent.calibration.prompts import (
 )
 from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.tools.inspect_pages import inspect_pages
+from app.services.document_agent.visual import render_pages
+from shared.services.ai.token_tracking import (
+    bind_token_tracker,
+    get_current_token_tracker_root_id,
+)
 
 DEFAULT_WINDOW_SCHEDULE: tuple[int, ...] = (2, 4, 6, 10)
 
@@ -111,6 +118,7 @@ def _inspect_one_page(
     ctx: ToolContext,
     title: str,
     page: int,
+    rendered_page: dict[str, Any],
 ) -> PageInspectResult:
     result = inspect_pages(
         ctx,
@@ -122,6 +130,7 @@ def _inspect_one_page(
             "folder_name": "calibration_scan",
             "prefix": "scan",
             "usage_task": "calibration.scan_title_forward",
+            "rendered_pages": [rendered_page],
         },
     )
     if result.status != "ok":
@@ -142,14 +151,63 @@ def _inspect_pages_concurrent(
     title: str,
     pages: list[int],
 ) -> list[PageInspectResult]:
-    """Inspect each page alone; keep page order in the returned list."""
+    """Serial window render, then concurrent single-page VLM inspect."""
+    rendered = render_pages(
+        ctx,
+        pages,
+        folder_name="calibration_scan",
+        prefix="scan",
+        timeout=120,
+    )
+    rendered_by_page = {
+        int(item["page"]): {
+            "page": int(item["page"]),
+            "png_path": str(item["png_path"]),
+        }
+        for item in rendered
+        if item.get("page") is not None and item.get("png_path")
+    }
+    missing = [page for page in pages if page not in rendered_by_page]
+    if missing:
+        return [
+            PageInspectResult(
+                page=page,
+                found=False,
+                error=(
+                    f"render failed for pages={missing}"
+                    if page in missing
+                    else "render incomplete"
+                ),
+            )
+            for page in pages
+        ]
+
     if len(pages) == 1:
-        return [_inspect_one_page(ctx=ctx, title=title, page=pages[0])]
+        page = pages[0]
+        return [
+            _inspect_one_page(
+                ctx=ctx,
+                title=title,
+                page=page,
+                rendered_page=rendered_by_page[page],
+            )
+        ]
+
+    token_tracker_root_id = get_current_token_tracker_root_id()
+
+    def _inspect_one_page_with_tracking(page: int) -> PageInspectResult:
+        with bind_token_tracker(token_tracker_root_id):
+            return _inspect_one_page(
+                ctx=ctx,
+                title=title,
+                page=page,
+                rendered_page=rendered_by_page[page],
+            )
 
     by_page: dict[int, PageInspectResult] = {}
     with ThreadPoolExecutor(max_workers=len(pages)) as pool:
         futures = {
-            pool.submit(_inspect_one_page, ctx=ctx, title=title, page=page): page
+            pool.submit(_inspect_one_page_with_tracking, page): page
             for page in pages
         }
         for future in as_completed(futures):
@@ -174,9 +232,10 @@ def scan_title_forward(
     """Scan forward from ``start_page`` until the title is found or rounds run out.
 
     Each round covers ``window_schedule[i]`` consecutive pages starting at the
-    cursor left by the previous round. Pages inside a round are inspected
-    concurrently, one page per VLM call; the earliest true page wins. A page
-    error without a hit is logged and the scan continues to the next window.
+    cursor left by the previous round. The window is rendered once serially,
+    then each page is inspected via VLM concurrently; the earliest true page
+    wins. A page error without a hit is logged and the scan continues to the
+    next window.
     """
     scanned: list[int] = []
     rounds: list[ScanRound] = []

@@ -107,6 +107,7 @@ def refine_fat_leaf_skeletons(
 def compute_fat_leaf_pages(
     skeletons: list[SectionSkeleton],
     min_pages: int,
+    toc_pages: list[int] | None = None,
 ) -> set[int]:
     """Compute the set of page indices belonging to fat-leaf sections.
 
@@ -116,13 +117,21 @@ def compute_fat_leaf_pages(
     Uses exclusive end boundaries when sibling starts are visible in
     ``skeletons``. For single-leaf scopes the closed ``end_page`` is used,
     which includes the shared boundary page with the next leaf.
+
+    ``toc_pages`` are excluded from both the fat span test and the returned
+    page set (same body-page rule as scope processing).
     """
+    excluded = {int(page) for page in (toc_pages or [])}
     fat_pages: set[int] = set()
     for idx, skel in enumerate(skeletons):
         exclusive_end = _exclusive_end(skeletons, idx)
-        page_span = exclusive_end - skel.start_page + 1
-        if page_span > min_pages:
-            fat_pages.update(range(skel.start_page, exclusive_end + 1))
+        body_pages = [
+            page
+            for page in range(skel.start_page, exclusive_end + 1)
+            if page not in excluded
+        ]
+        if len(body_pages) > min_pages:
+            fat_pages.update(body_pages)
     return fat_pages
 
 

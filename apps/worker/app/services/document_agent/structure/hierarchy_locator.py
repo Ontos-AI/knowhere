@@ -136,11 +136,11 @@ def first_leaf_start_under(
     parent_titles: tuple[str, ...],
     match_overrides: dict[tuple[str, ...], TitleMatch],
 ) -> int | None:
-    """Min start page among located leaves under *node*; None if none located."""
+    """Min start page among structural leaves; rehome attachments do not bound scope."""
     min_page: int | None = None
     for leaf_path, _leaf in iter_leaf_title_nodes([node], parent_titles=parent_titles):
         match = match_overrides.get(leaf_path)
-        if match is None:
+        if match is None or _is_rehome_match(match):
             continue
         if min_page is None or match.page < min_page:
             min_page = match.page
@@ -179,7 +179,12 @@ def resolve_hierarchy_page_ranges(
         match_overrides=match_overrides or {},
         resolved=resolved,
     )
-    return resolved
+    rehome_ranges = _attach_rehome_ranges(
+        nodes,
+        match_overrides=match_overrides or {},
+        structural_ranges=resolved,
+    )
+    return _ranges_in_tree_order(nodes, [*resolved, *rehome_ranges])
 
 
 def coverage_by_path(
@@ -240,10 +245,19 @@ def _resolve_siblings(
     match_overrides: dict[tuple[str, ...], TitleMatch],
     resolved: list[ResolvedHierarchyRange],
 ) -> None:
+    boundary_nodes = [
+        node
+        for node in nodes
+        if not _is_rehome_leaf(
+            node,
+            (*parent_titles, node.title),
+            match_overrides,
+        )
+    ]
     located: list[tuple[TitleNode, int, TitleMatch | None]] = []
     lower_bound = parent_scope.start
 
-    for index, node in enumerate(nodes):
+    for index, node in enumerate(boundary_nodes):
         path_titles = (*parent_titles, node.title)
         pages = _allowed_pages_between(lower_bound, parent_scope.end, allowed_pages)
         match = _locate_match_for_node(
@@ -259,9 +273,9 @@ def _resolve_siblings(
         located.append((node, start_page, match))
         if match is not None:
             lower_bound = start_page
-        elif index + 1 < len(nodes):
+        elif index + 1 < len(boundary_nodes):
             next_match = _find_next_located_sibling(
-                nodes=nodes,
+                nodes=boundary_nodes,
                 start_index=index + 1,
                 lower_bound=lower_bound,
                 parent_end=parent_scope.end,
@@ -334,6 +348,114 @@ def _resolve_siblings(
         )
 
 
+def _is_rehome_match(match: TitleMatch | None) -> bool:
+    if match is None:
+        return False
+    return bool((match.evidence or {}).get("toc_rehome"))
+
+
+def _is_rehome_leaf(
+    node: TitleNode,
+    path_titles: tuple[str, ...],
+    match_overrides: dict[tuple[str, ...], TitleMatch],
+) -> bool:
+    return not node.children and _is_rehome_match(match_overrides.get(path_titles))
+
+
+def _rehome_host_range(
+    *,
+    structural_ranges: list[ResolvedHierarchyRange],
+    physical_page: int,
+) -> ResolvedHierarchyRange:
+    candidates = [
+        item
+        for item in structural_ranges
+        if item.start_page <= physical_page <= item.end_page
+    ]
+    if not candidates:
+        raise ValueError(
+            "rehome leaf has no resolved host scope "
+            f"page={physical_page}"
+        )
+    latest_start = max(item.start_page for item in candidates)
+    return next(
+        item
+        for item in reversed(candidates)
+        if item.start_page == latest_start
+    )
+
+
+def _attach_rehome_ranges(
+    nodes: list[TitleNode],
+    *,
+    match_overrides: dict[tuple[str, ...], TitleMatch],
+    structural_ranges: list[ResolvedHierarchyRange],
+    parent_titles: tuple[str, ...] = (),
+) -> list[ResolvedHierarchyRange]:
+    attached: list[ResolvedHierarchyRange] = []
+    for node in nodes:
+        path_titles = (*parent_titles, node.title)
+        if _is_rehome_leaf(node, path_titles, match_overrides):
+            match = match_overrides.get(path_titles)
+            if match is None:
+                raise ValueError(f"rehome leaf override missing path={path_titles!r}")
+            host_range = _rehome_host_range(
+                structural_ranges=structural_ranges,
+                physical_page=match.page,
+            )
+            attached.append(
+                ResolvedHierarchyRange(
+                    title=node.title,
+                    level=node.level,
+                    start_page=host_range.start_page,
+                    end_page=host_range.end_page,
+                    path_titles=path_titles,
+                    match=match,
+                    evidence={
+                        **_range_evidence(match),
+                        "status": "rehome_attached",
+                        "skeleton_kind": "rehome_attachment",
+                        "scope_host_path": list(host_range.path_titles),
+                    },
+                )
+            )
+            continue
+        if node.children:
+            attached.extend(
+                _attach_rehome_ranges(
+                    node.children,
+                    match_overrides=match_overrides,
+                    structural_ranges=structural_ranges,
+                    parent_titles=path_titles,
+                )
+            )
+    return attached
+
+
+def _ranges_in_tree_order(
+    nodes: list[TitleNode],
+    ranges: list[ResolvedHierarchyRange],
+) -> list[ResolvedHierarchyRange]:
+    order = {
+        path: index
+        for index, (path, _node) in enumerate(_iter_title_nodes(nodes))
+    }
+    return sorted(ranges, key=lambda item: order[item.path_titles])
+
+
+def _iter_title_nodes(
+    nodes: list[TitleNode],
+    *,
+    parent_titles: tuple[str, ...] = (),
+) -> list[tuple[tuple[str, ...], TitleNode]]:
+    items: list[tuple[tuple[str, ...], TitleNode]] = []
+    for node in nodes:
+        path_titles = (*parent_titles, node.title)
+        items.append((path_titles, node))
+        items.extend(_iter_title_nodes(node.children, parent_titles=path_titles))
+    return items
+
+
 def _locate_match_for_node(
     node: TitleNode,
     *,
@@ -391,7 +513,7 @@ def _infer_start_from_descendant_overrides(
     min_match: TitleMatch | None = None
     for leaf_path, _leaf_node in leaves:
         m = match_overrides.get(leaf_path)
-        if m is None:
+        if m is None or _is_rehome_match(m):
             continue
         if m.page not in scope_pages:
             continue

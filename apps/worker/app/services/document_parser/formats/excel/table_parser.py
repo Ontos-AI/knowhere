@@ -325,6 +325,7 @@ def _summarize_excel_table(
             mode="asset",
             text=table_html,
             max_keywords=3,
+            usage_task="parser.excel.table",
         )
         return (
             result.title or None,

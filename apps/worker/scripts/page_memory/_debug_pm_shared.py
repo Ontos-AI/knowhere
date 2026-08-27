@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[4]
 WORKER_ROOT = ROOT / "apps" / "worker"
 sys.path.insert(0, str(WORKER_ROOT))
 sys.path.insert(0, str(ROOT / "packages" / "shared-python"))
+sys.path.insert(0, str(WORKER_ROOT / "scripts"))
 
 from dotenv import load_dotenv
 
@@ -50,10 +51,12 @@ from app.services.page_memory._serialization import (
     serialize_scope_skeletons as _serialize_scope_skeletons,
 )
 from shared.services.ai.token_tracking import (
+    cleanup_token_tracker,
     init_token_tracker,
     get_current_token_tracker,
 )
 from shared.services.ai.token_costing import build_token_cost_estimate
+from _debug_token_ledger import empty_token_usage, merge_token_usage, token_usage_delta, write_stage_ledger
 
 # Re-exported for staged debug scripts. Listing them here marks the imports as
 # intentional so CodeQL does not treat them as unused.
@@ -76,62 +79,17 @@ OUTPUT_ROOT = Path("~/.knowhere/_debug_parse").expanduser()
 # ── Token cost tracker ────────────────────────────────────────────────────────
 
 
-def _usage_delta(prev: dict[str, Any], cur: dict[str, Any]) -> dict[str, Any]:
-    _NUM = ("prompt_tokens", "completion_tokens", "total_tokens", "calls")
-
-    def _sub(a: dict, b: dict) -> dict:
-        return {f: int(b.get(f, 0)) - int(a.get(f, 0)) for f in _NUM}
-
-    def _bucket(pa: dict, pb: dict) -> dict:
-        r: dict[str, Any] = {}
-        for k in set(pa) | set(pb):
-            pk, ck = pa.get(k, {}), pb.get(k, {})
-            if not isinstance(pk, dict) or not isinstance(ck, dict):
-                continue
-            e = {f: v for f, v in _sub(pk, ck).items() if v}
-            pm, cm = pk.get("models", {}), ck.get("models", {})
-            if pm or cm:
-                md = _bucket(pm, cm)
-                if md:
-                    e["models"] = md
-            if e:
-                r[k] = e
-        return r
-
-    d = _sub(prev, cur)
-    for bk in ("by_model", "by_task"):
-        bd = _bucket(prev.get(bk, {}), cur.get(bk, {}))
-        if bd:
-            d[bk] = bd
-    return d
-
-
 class TokenCostTracker:
     """Incremental token usage & cost tracker for debug pipeline stages."""
 
     def __init__(self) -> None:
         self._dict = init_token_tracker()
-        self._root_gid = self._gid()
         self._prev: dict[str, Any] = deepcopy(self._dict)
         self._stages: list[dict[str, Any]] = []
 
-    @staticmethod
-    def _gid() -> int:
-        from shared.services.ai.token_tracking import _current_greenlet_id
-
-        return _current_greenlet_id()
-
-    def register_child_thread(self) -> None:
-        from shared.services.ai.token_tracking import _root_ids, _lock
-
-        gid = self._gid()
-        if gid != self._root_gid:
-            with _lock:
-                _root_ids[gid] = self._root_gid
-
     def snapshot_stage(self, stage: str) -> None:
         cur = deepcopy(get_current_token_tracker() or {})
-        delta = _usage_delta(self._prev, cur)
+        delta = token_usage_delta(self._prev, cur)
         self._stages.append({
             "stage": stage,
             "prompt_tokens": delta.get("prompt_tokens", 0),
@@ -953,20 +911,6 @@ def _stage_usage_snapshot(tracker: TokenCostTracker | None) -> dict[str, Any]:
     }
 
 
-def _merge_token_usage(
-    destination: dict[str, Any],
-    source: dict[str, Any],
-) -> None:
-    """Merge raw production token-tracker snapshots recursively."""
-    for key, value in source.items():
-        if isinstance(value, dict):
-            child = destination.setdefault(str(key), {})
-            if isinstance(child, dict):
-                _merge_token_usage(child, value)
-        elif isinstance(value, int | float) and not isinstance(value, bool):
-            destination[str(key)] = destination.get(str(key), 0) + value
-
-
 def record_stage_cost(
     out_dir: Path,
     *,
@@ -1008,13 +952,7 @@ def record_stage_cost(
     ledger["updated_at"] = updated_at
 
     path = stage_costs_path(out_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_suffix(f"{path.suffix}.tmp")
-    temp_path.write_text(
-        json.dumps(ledger, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    temp_path.replace(path)
+    write_stage_ledger(path, ledger)
     logger.info(
         "   stage cost → {} ({} {:.1f}s / ${:.6f})",
         path,
@@ -1034,14 +972,7 @@ def aggregate_stage_costs(ledger: dict[str, Any]) -> dict[str, Any]:
     by_pipeline_stage: dict[str, Any] = {}
     by_substage: list[dict[str, Any]] = []
     merged_trace_stages: list[dict[str, Any]] = []
-    usage = {
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "total_tokens": 0,
-        "calls": 0,
-        "by_model": {},
-        "by_task": {},
-    }
+    usage = empty_token_usage()
     elapsed_s = 0.0
 
     for stage_key in _COST_STAGE_KEYS:
@@ -1060,7 +991,7 @@ def aggregate_stage_costs(ledger: dict[str, Any]) -> dict[str, Any]:
         raw_usage = row.get("token_usage")
         if isinstance(raw_usage, dict):
             # Numeric top-level fields were already added above.
-            _merge_token_usage(
+            merge_token_usage(
                 usage,
                 {
                     key: value
@@ -1200,38 +1131,41 @@ def stop_with_trace(
     extra_summary: dict[str, Any] | None = None,
 ) -> int:
     """Write TRACE.JSON, optionally recording this pipeline stage's cost ledger."""
-    if pipeline_stage is not None and elapsed_s is not None:
-        record_stage_cost(
-            out_dir,
-            pipeline_stage=pipeline_stage,
-            elapsed_s=elapsed_s,
-            token_cost_tracker=token_cost_tracker,
-            trace_stages=stages,
-            stop_at=stop_at,
+    try:
+        if pipeline_stage is not None and elapsed_s is not None:
+            record_stage_cost(
+                out_dir,
+                pipeline_stage=pipeline_stage,
+                elapsed_s=elapsed_s,
+                token_cost_tracker=token_cost_tracker,
+                trace_stages=stages,
+                stop_at=stop_at,
+            )
+
+        aggregated = aggregate_stage_costs(load_stage_costs(out_dir))
+        merged_stages = aggregated.get("stages") or stages
+        summary: dict[str, Any] = {
+            "page_count": page_count,
+            "scope_id": scope_id,
+            "rows_count": None,
+            "elapsed_s": aggregated.get("elapsed_s"),
+            "completed_pipeline_stages": aggregated.get("completed_pipeline_stages"),
+            "token_cost": aggregated.get("token_cost"),
+        }
+        if extra_summary:
+            summary.update(jsonable(extra_summary))
+
+        write_trace(
+            out_dir=out_dir,
+            stages=merged_stages,
+            final_status=final_status or f"stopped_at_{stop_at}",
+            summary=summary,
         )
-
-    aggregated = aggregate_stage_costs(load_stage_costs(out_dir))
-    merged_stages = aggregated.get("stages") or stages
-    summary: dict[str, Any] = {
-        "page_count": page_count,
-        "scope_id": scope_id,
-        "rows_count": None,
-        "elapsed_s": aggregated.get("elapsed_s"),
-        "completed_pipeline_stages": aggregated.get("completed_pipeline_stages"),
-        "token_cost": aggregated.get("token_cost"),
-    }
-    if extra_summary:
-        summary.update(jsonable(extra_summary))
-
-    write_trace(
-        out_dir=out_dir,
-        stages=merged_stages,
-        final_status=final_status or f"stopped_at_{stop_at}",
-        summary=summary,
-    )
-    remove_nested_doc_agent_trace(out_dir)
-    maybe_purge_debug_visuals(out_dir)
-    return 0
+        remove_nested_doc_agent_trace(out_dir)
+        maybe_purge_debug_visuals(out_dir)
+        return 0
+    finally:
+        cleanup_token_tracker()
 
 
 def remove_nested_doc_agent_trace(out_dir: Path) -> None:
@@ -1509,10 +1443,17 @@ def build_debug_coarse_scopes(
     page_count: int,
     anatomy: Any | None = None,
 ) -> list[dict[str, Any]]:
+    from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
     from app.services.page_memory._utils import build_hierarchy_scopes
-    from toc_page_policy import TocPagePolicy
 
-    policy = TocPagePolicy.from_anatomy(anatomy)
+    toc_result = getattr(anatomy, "toc_result", None) if anatomy is not None else None
+    toc_pages = list(getattr(toc_result, "toc_pages", None) or [])
+    toc_page_set = set()
+    for raw in toc_pages:
+        try:
+            toc_page_set.add(int(raw))
+        except (TypeError, ValueError):
+            continue
     scopes = build_hierarchy_scopes(
         skeletons=skeletons,
         filename=filename,
@@ -1525,12 +1466,13 @@ def build_debug_coarse_scopes(
             "start_page": scope.start_page,
             "end_page": scope.end_page,
             "strategy": scope.strategy,
-            "processing_pages": policy.filter_processing_pages(
-                list(range(scope.start_page, scope.end_page + 1))
+            "processing_pages": pages_excluding_toc(
+                list(range(scope.start_page, scope.end_page + 1)),
+                toc_pages,
             ),
             "excluded_toc_pages": sorted(
                 page
-                for page in policy.pure_toc_pages
+                for page in toc_page_set
                 if scope.start_page <= page <= scope.end_page
             ),
         }

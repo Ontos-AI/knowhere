@@ -104,3 +104,52 @@ def test_record_processing_completion_persists_token_usage_to_job_row(
     assert updates["stages"]["token_usage"]["total_tokens"] == 10
     assert "processing_completed_at" in updates
     assert "processing_duration_ms" in updates
+
+
+def test_run_parse_job_failure_persists_token_usage(monkeypatch: object) -> None:
+    import app.services.document_ingestion.processing_run as processing_run
+
+    persisted: dict[str, object] = {}
+
+    def fake_persist(*, job_id: str, job_context: object, metadata_updates: dict[str, object]) -> None:
+        persisted.update(metadata_updates)
+
+    monkeypatch.setattr(processing_run, "persist_job_metadata_updates", fake_persist)
+    monkeypatch.setattr(
+        processing_run,
+        "init_token_tracker",
+        lambda: {"prompt_tokens": 6, "completion_tokens": 1, "total_tokens": 7, "calls": 1},
+    )
+    monkeypatch.setattr(processing_run, "init_stage_tracker", lambda: {"worker.parse.document": 12})
+    monkeypatch.setattr(processing_run, "init_llm_overrides", lambda *_args: None)
+    monkeypatch.setattr(processing_run, "cleanup_llm_overrides", lambda: None)
+    monkeypatch.setattr(processing_run, "cleanup_token_tracker", lambda: None)
+    monkeypatch.setattr(processing_run, "cleanup_stage_tracker", lambda: None)
+
+    def _boom(**_kwargs: object) -> object:
+        raise RuntimeError("parse failed after LLM work")
+
+    monkeypatch.setattr(processing_run, "prepare_source_file", _boom)
+
+    lifecycle = Mock()
+    job_context = _job_context()
+    try:
+        processing_run._run_parse_job(
+            job_id="job-fail",
+            job_context=job_context,
+            lifecycle_service=lifecycle,
+            task_workspace=SimpleNamespace(
+                input_dir="/tmp",
+                output_dir="/tmp",
+                root_dir="/tmp",
+            ),
+        )
+    except RuntimeError as exc:
+        assert "parse failed after LLM work" in str(exc)
+    else:
+        raise AssertionError("expected parse failure")
+
+    stages = persisted["stages"]
+    assert isinstance(stages, dict)
+    assert stages["token_usage"]["total_tokens"] == 7
+    assert stages["timing_ms"]["worker.parse.document"] == 12

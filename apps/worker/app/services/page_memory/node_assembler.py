@@ -382,6 +382,7 @@ def build_node_rows(
     skeletons: list[SectionSkeleton],
     raw_text_by_page: dict[int, str],
     image_path_by_page: dict[int, str],
+    output_dir: str,
     kind_by_page: dict[int, str],
     tag_by_page: dict[int, PageTagResult],
     filename: str,
@@ -469,6 +470,7 @@ def build_node_rows(
                 "extra_metadata": _build_page_extra_metadata(
                     pages=view.pages,
                     image_path_by_page=image_path_by_page,
+                    output_dir=output_dir,
                 ),
             }
             rows.append(row)
@@ -498,10 +500,12 @@ def _build_page_extra_metadata(
     *,
     pages: list[int],
     image_path_by_page: dict[int, str],
+    output_dir: str,
 ) -> dict[str, Any]:
     page_assets = _build_page_citation_assets(
         pages=pages,
         image_path_by_page=image_path_by_page,
+        output_dir=output_dir,
     )
     if not page_assets:
         return {}
@@ -512,6 +516,7 @@ def _build_page_citation_assets(
     *,
     pages: list[int],
     image_path_by_page: dict[int, str],
+    output_dir: str,
 ) -> list[dict[str, Any]]:
     assets: list[dict[str, Any]] = []
     seen_pages: set[int] = set()
@@ -522,7 +527,11 @@ def _build_page_citation_assets(
         image_path = image_path_by_page.get(page)
         if not image_path or not os.path.exists(image_path):
             continue
-        artifact_ref = _promote_page_citation_asset(page=page, image_path=image_path)
+        artifact_ref = _promote_page_citation_asset(
+            page=page,
+            image_path=image_path,
+            output_dir=output_dir,
+        )
         if not artifact_ref:
             continue
         width, height = _read_image_dimensions(image_path)
@@ -540,10 +549,14 @@ def _build_page_citation_assets(
     return assets
 
 
-def _promote_page_citation_asset(*, page: int, image_path: str) -> str:
+def _promote_page_citation_asset(
+    *,
+    page: int,
+    image_path: str,
+    output_dir: str,
+) -> str:
     source_path = Path(image_path)
-    output_dir = source_path.parent.parent
-    target_dir = output_dir / "page_citation_assets"
+    target_dir = Path(output_dir) / "page_citation_assets"
     target_path = target_dir / f"page-{page}.png"
     artifact_ref = f"page_citation_assets/page-{page}.png"
     try:

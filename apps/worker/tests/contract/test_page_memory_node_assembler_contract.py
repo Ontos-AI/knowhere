@@ -113,6 +113,7 @@ def test_build_node_rows_reuses_tags_without_vlm() -> None:
         skeletons=_same_page_sibling_skeletons(),
         raw_text_by_page={231: "text-231", 232: "text-232"},
         image_path_by_page={},
+        output_dir="/tmp/knowhere-test-node-assembler",
         kind_by_page={},
         tag_by_page={
             231: PageTagResult(page_index=231, summary="s231", keywords=["k1"]),
@@ -161,6 +162,7 @@ def test_build_node_rows_preserves_order_under_summary_concurrency(
         skeletons=_ordered_page_skeletons(),
         raw_text_by_page={1: "text-1", 2: "text-2", 3: "text-3"},
         image_path_by_page={},
+        output_dir="/tmp/knowhere-test-node-assembler",
         kind_by_page={},
         tag_by_page={},
         filename="demo.pdf",
@@ -202,6 +204,7 @@ def test_build_node_rows_unavailable_propagates_from_node_summary(
             skeletons=_ordered_page_skeletons()[:1],
             raw_text_by_page={1: "text-1"},
             image_path_by_page={},
+            output_dir="/tmp/knowhere-test-node-assembler",
             kind_by_page={},
             tag_by_page={},
             filename="demo.pdf",
@@ -212,14 +215,16 @@ def test_build_node_rows_unavailable_propagates_from_node_summary(
 
 
 def test_build_node_rows_attaches_page_citation_assets_for_rendered_pages(tmp_path) -> None:
-    page_image = tmp_path / "pages" / "page-231.png"
-    page_image.parent.mkdir()
+    # Nested scope path matches production pages/{scope_id}/page-{n}.png.
+    page_image = tmp_path / "pages" / "p231-231" / "page-231.png"
+    page_image.parent.mkdir(parents=True)
     Image.new("RGB", (2, 3), color=(255, 255, 255)).save(page_image)
 
     rows = node_assembler.build_node_rows(
         skeletons=_same_page_sibling_skeletons(),
         raw_text_by_page={231: "text-231", 232: "text-232"},
         image_path_by_page={231: str(page_image)},
+        output_dir=str(tmp_path),
         kind_by_page={},
         tag_by_page={
             231: PageTagResult(page_index=231, summary="s231", keywords=["k1"]),
@@ -244,6 +249,8 @@ def test_build_node_rows_attaches_page_citation_assets_for_rendered_pages(tmp_pa
         }
     ]
     assert (tmp_path / "page_citation_assets" / "page-231.png").is_file()
+    # Must not land under the temporary pages/ tree.
+    assert not (tmp_path / "pages" / "page_citation_assets").exists()
 
 
 def test_build_node_rows_keeps_internal_section_body_pages() -> None:
@@ -268,6 +275,7 @@ def test_build_node_rows_keeps_internal_section_body_pages() -> None:
         skeletons=[parent, child],
         raw_text_by_page={233: "parent body", 234: "child body"},
         image_path_by_page={},
+        output_dir="/tmp/knowhere-test-node-assembler",
         kind_by_page={},
         tag_by_page={
             233: PageTagResult(page_index=233, summary="s233", keywords=["parent"]),
@@ -350,6 +358,7 @@ def test_build_node_rows_uses_vlm_node_summary_with_boundary(
         skeletons=_same_page_sibling_skeletons(),
         raw_text_by_page={231: "text-231", 232: "text-232"},
         image_path_by_page={231: str(img), 232: str(img)},
+        output_dir=str(tmp_path),
         kind_by_page={},
         tag_by_page={
             231: PageTagResult(page_index=231, summary="s231", keywords=["k1"]),
@@ -390,6 +399,7 @@ def test_build_node_rows_prepends_asset_rows_and_links_page_nodes() -> None:
         skeletons=_same_page_sibling_skeletons(),
         raw_text_by_page={231: "text-231", 232: "text-232"},
         image_path_by_page={},
+        output_dir="/tmp/knowhere-test-node-assembler",
         kind_by_page={},
         tag_by_page={
             231: PageTagResult(page_index=231, summary="s231", keywords=["k1"]),
