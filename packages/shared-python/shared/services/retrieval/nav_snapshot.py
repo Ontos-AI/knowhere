@@ -36,7 +36,7 @@ class SnapshotSession(Protocol):
     """Minimal database interface required by the snapshot loader."""
 
     async def execute(self, statement: Executable) -> Result[tuple[object, ...]]:
-        ...
+        pass
 
 
 @dataclass(frozen=True)
