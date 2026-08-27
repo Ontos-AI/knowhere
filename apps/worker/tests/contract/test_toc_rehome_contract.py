@@ -16,8 +16,6 @@ from app.services.document_agent.manifest import TocResult, ToolContext
 from app.services.document_agent.state import ProfileBlackboard
 from app.services.document_agent.structure.anchoring_primitives import (
     SkeletonAnchor,
-    serialize_skeleton_anchor,
-    serialize_title_node,
 )
 from app.services.document_agent.structure.hierarchy_locator import (
     TitleMatch,
