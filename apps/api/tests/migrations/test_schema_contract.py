@@ -233,6 +233,28 @@ def test_should_index_document_chunks_in_snapshot_pagination_order(
     )
 
 
+def test_should_index_document_chunks_in_lazy_section_order(
+    migrated_head_engine: Engine,
+) -> None:
+    with migrated_head_engine.begin() as connection:
+        index_definition = connection.execute(
+            text(
+                """
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = current_schema()
+                  AND tablename = 'document_chunks'
+                  AND indexname = 'idx_document_chunks_revision_section_order'
+                """
+            )
+        ).scalar_one()
+
+    assert (
+        "(document_id, job_result_id, section_id, sort_order, chunk_id, id)"
+        in str(index_definition)
+    )
+
+
 def test_should_upgrade_with_a_caller_owned_connection(
     alembic_engine: Engine,
 ) -> None:

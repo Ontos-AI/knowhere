@@ -362,6 +362,9 @@ def compute_corpus_map_and_unit_scores(
         tree_by_doc[doc_id] = (children_map, leaves)
         units_by_doc.append((doc_id, units))
         all_units.extend(units)
+        release = getattr(ts, "release_loaded_units", None)
+        if callable(release):
+            release()
 
     dense_scores = _score_dense_units_by_doc(
         units_by_doc,
