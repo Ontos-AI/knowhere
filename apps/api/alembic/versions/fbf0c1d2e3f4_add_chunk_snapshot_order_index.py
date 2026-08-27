@@ -22,13 +22,22 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_document_chunks_revision_snapshot_order
-        ON document_chunks (document_id, job_result_id, sort_order, chunk_id, id)
-        """
-    )
+    # Index creation must not hold a write lock on document_chunks while the
+    # production corpus is being indexed.  CONCURRENTLY cannot run inside the
+    # transaction Alembic normally opens, so switch to an autocommit block.
+    with op.get_context().autocommit_block():
+        op.execute(
+            """
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS
+                idx_document_chunks_revision_snapshot_order
+            ON document_chunks (document_id, job_result_id, sort_order, chunk_id, id)
+            """
+        )
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS idx_document_chunks_revision_snapshot_order")
+    with op.get_context().autocommit_block():
+        op.execute(
+            "DROP INDEX CONCURRENTLY IF EXISTS "
+            "idx_document_chunks_revision_snapshot_order"
+        )

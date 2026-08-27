@@ -25,8 +25,10 @@ from shared.services.retrieval.search.section_filters import is_excluded_section
 
 
 # Keep each payload query bounded under the API's 30-second statement timeout.
-# Keyset pagination avoids the increasingly expensive OFFSET scans.
-_CHUNK_BATCH_SIZE = 2_000
+# Ten-thousand-row keyset pages avoid OFFSET scans while reducing database
+# round trips for production-shaped corpora. The contract benchmark verifies
+# this page size against the full 2 KiB content and metadata payload.
+_CHUNK_BATCH_SIZE = 10_000
 _REVISION_GROUP_SIZE = 32
 
 

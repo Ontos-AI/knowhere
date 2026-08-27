@@ -31,9 +31,9 @@ def _build_alembic_command_config(*, engine: Engine) -> Config:
 def _upgrade_to_heads(*, engine: Engine) -> None:
     config = _build_alembic_command_config(engine=engine)
 
-    with engine.begin() as connection:
-        config.attributes["connection"] = connection
-        command.upgrade(config, "heads")
+    # Let Alembic create its own connection.  This is required for migrations
+    # that use PostgreSQL autocommit (for example CREATE INDEX CONCURRENTLY).
+    command.upgrade(config, "heads")
 
 
 def _insert_job(

@@ -706,7 +706,7 @@ def _plan_nodes(plan_node: JsonObject) -> list[str]:
     return nodes
 
 
-async def test_large_snapshot_keeps_all_retrieval_inputs_after_sql_optimization(
+async def test_large_snapshot_keeps_all_retrieval_inputs_after_bounded_sql_load(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
@@ -834,6 +834,6 @@ async def test_large_snapshot_keeps_all_retrieval_inputs_after_sql_optimization(
         assert reference["job_id"] == str(legacy_row[10])
 
     print(
-        f"large snapshot benchmark: legacy={legacy_elapsed:.3f}s "
-        f"optimized={optimized_elapsed:.3f}s chunks={_TOTAL_CHUNKS}"
+        f"large snapshot load: legacy={legacy_elapsed:.3f}s "
+        f"bounded={optimized_elapsed:.3f}s chunks={_TOTAL_CHUNKS}"
     )
