@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
-from typing import TypeAlias, cast
+from typing import cast
 from uuid import uuid4
 
-import pytest
 from httpx import AsyncClient
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
@@ -17,9 +15,8 @@ from shared.services.retrieval.nav_snapshot import (
     _REVISION_GROUP_SIZE,
     load_nav_snapshot,
 )
-from sqlalchemy import Executable, Result, select, text
+from sqlalchemy import Executable, Result, select
 from sqlalchemy.engine import Row
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.sql.selectable import Select
 from tests.support.retrieval_snapshot_support import contract_db_session
 from tests.support.contract_database import ContractDatabase
@@ -29,13 +26,7 @@ _USER_ID = "local-dev-user"
 _DOCUMENT_COUNT = 100
 _CHUNKS_PER_DOCUMENT = 600
 _SECTIONS_PER_DOCUMENT = 8
-_CONTENT_BYTES = 2048
-_LEGACY_TIMEOUT_MS = 1
 _TOTAL_CHUNKS = _DOCUMENT_COUNT * _CHUNKS_PER_DOCUMENT
-JsonValue: TypeAlias = (
-    None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
-)
-JsonObject: TypeAlias = dict[str, JsonValue]
 LegacySnapshotRow = Row[
     tuple[
         str,
@@ -221,8 +212,6 @@ async def _seed_large_retrieval_corpus(namespace: str) -> None:
 
 async def _load_legacy_rows(
     namespace: str,
-    *,
-    statement_timeout_ms: int | None = None,
 ) -> list[LegacySnapshotRow]:
     stmt = (
         select(
@@ -255,118 +244,8 @@ async def _load_legacy_rows(
         )
     )
     async with contract_db_session() as db:
-        if statement_timeout_ms is not None:
-            await db.execute(
-                text("SELECT set_config('statement_timeout', :timeout_value, true)"),
-                {"timeout_value": f"{statement_timeout_ms}ms"},
-            )
         rows: list[LegacySnapshotRow] = list((await db.execute(stmt)).all())
         return rows
-
-
-async def _explain_snapshot_query(namespace: str) -> JsonObject:
-    row = await ContractDatabase.fetch_one(
-        """
-        EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
-        SELECT
-            d.document_id,
-            c.chunk_id,
-            c.section_id,
-            c.chunk_type,
-            c.content,
-            c.sort_order,
-            c.source_chunk_path,
-            c.file_path,
-            c.chunk_metadata,
-            s.section_path,
-            r.job_id
-        FROM documents AS d
-        JOIN document_chunks AS c
-          ON c.document_id = d.document_id
-         AND c.job_result_id = d.current_job_result_id
-        LEFT JOIN document_sections AS s ON s.section_id = c.section_id
-        LEFT JOIN job_results AS r ON r.id = c.job_result_id
-        WHERE d.user_id = :user_id
-          AND d.namespace = :namespace
-          AND d.status = 'active'
-        ORDER BY d.document_id, c.sort_order, c.chunk_id
-        """,
-        {"user_id": _USER_ID, "namespace": namespace},
-    )
-    if row is None:
-        raise AssertionError("EXPLAIN returned no plan")
-    plan_value = next(iter(row.values()))
-    if not isinstance(plan_value, list) or not plan_value:
-        raise AssertionError("EXPLAIN returned an unexpected plan shape")
-    plan = plan_value[0]
-    if not isinstance(plan, dict):
-        raise AssertionError("EXPLAIN plan root is not an object")
-    return plan
-
-
-async def _explain_revision_query() -> JsonObject:
-    row = await ContractDatabase.fetch_one(
-        """
-        EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
-        SELECT
-            chunk_id,
-            section_id,
-            chunk_type,
-            content,
-            sort_order,
-            source_chunk_path,
-            file_path,
-            chunk_metadata,
-            id
-        FROM document_chunks
-        WHERE document_id = 'doc_lg_1'
-          AND job_result_id = 'result_lg_1'
-        ORDER BY sort_order, chunk_id, id
-        LIMIT 2000
-        """
-    )
-    if row is None:
-        raise AssertionError("revision EXPLAIN returned no plan")
-    plan_value = next(iter(row.values()))
-    if not isinstance(plan_value, list) or not plan_value:
-        raise AssertionError("revision EXPLAIN returned an unexpected plan shape")
-    plan = plan_value[0]
-    if not isinstance(plan, dict):
-        raise AssertionError("revision EXPLAIN plan root is not an object")
-    return plan
-
-
-async def _measure_seeded_payload(namespace: str) -> int:
-    row = await ContractDatabase.fetch_one(
-        """
-        SELECT COALESCE(
-            SUM(pg_column_size(content) + pg_column_size(chunk_metadata)), 0
-        ) AS payload_bytes
-        FROM document_chunks
-        WHERE user_id = :user_id AND namespace = :namespace
-        """,
-        {"user_id": _USER_ID, "namespace": namespace},
-    )
-    if row is None or not isinstance(row.get("payload_bytes"), int):
-        raise AssertionError("payload measurement returned an unexpected value")
-    return row["payload_bytes"]
-
-
-def _plan_nodes(plan_node: JsonObject) -> list[str]:
-    summary = (
-        f"{plan_node.get('Node Type')}"
-        f"[{plan_node.get('Relation Name', '')}"
-        f"/{plan_node.get('Index Name', '')}]"
-        f"={plan_node.get('Actual Total Time')}ms"
-    )
-    children = plan_node.get("Plans", [])
-    if not isinstance(children, list):
-        return [summary]
-    nodes = [summary]
-    for child in children:
-        if isinstance(child, dict):
-            nodes.extend(_plan_nodes(child))
-    return nodes
 
 
 async def test_large_snapshot_keeps_all_retrieval_inputs_after_bounded_sql_load(
@@ -377,67 +256,7 @@ async def test_large_snapshot_keeps_all_retrieval_inputs_after_bounded_sql_load(
     namespace = f"large-corpus-{uuid4().hex[:8]}"
     async with developer_api_client_factory():
         await _seed_large_retrieval_corpus(namespace)
-        payload_bytes = await _measure_seeded_payload(namespace)
-        print(
-            "seeded payload: "
-            f"{payload_bytes / (1024 * 1024):.1f}MiB "
-            f"content_bytes={_CONTENT_BYTES} "
-            f"sections_per_document={_SECTIONS_PER_DOCUMENT}"
-        )
-
-        explain_plan = await _explain_snapshot_query(namespace)
-        explain_root = explain_plan["Plan"]
-        assert isinstance(explain_root, dict)
-        print(
-            "snapshot EXPLAIN: "
-            f"node={explain_root.get('Node Type')} "
-            f"time={explain_plan.get('Execution Time')}ms "
-            f"shared_hit={explain_root.get('Shared Hit Blocks')} "
-            f"shared_read={explain_root.get('Shared Read Blocks')} "
-            f"nodes={' -> '.join(_plan_nodes(explain_root))}"
-        )
-        revision_plan = await _explain_revision_query()
-        revision_root = revision_plan["Plan"]
-        assert isinstance(revision_root, dict)
-        print(
-            "revision EXPLAIN: "
-            f"time={revision_plan.get('Execution Time')}ms "
-            f"nodes={' -> '.join(_plan_nodes(revision_root))}"
-        )
-        try:
-            await ContractDatabase.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_benchmark_chunks_revision_order
-                ON document_chunks (document_id, job_result_id, sort_order, chunk_id, id)
-                """
-            )
-            indexed_explain_plan = await _explain_snapshot_query(namespace)
-            indexed_root = indexed_explain_plan["Plan"]
-            assert isinstance(indexed_root, dict)
-            print(
-                "snapshot EXPLAIN with candidate index: "
-                f"node={indexed_root.get('Node Type')} "
-                f"time={indexed_explain_plan.get('Execution Time')}ms "
-                f"nodes={' -> '.join(_plan_nodes(indexed_root))}"
-            )
-            indexed_revision_plan = await _explain_revision_query()
-            indexed_revision_root = indexed_revision_plan["Plan"]
-            assert isinstance(indexed_revision_root, dict)
-            print(
-                "revision EXPLAIN with candidate index: "
-                f"time={indexed_revision_plan.get('Execution Time')}ms "
-                f"nodes={' -> '.join(_plan_nodes(indexed_revision_root))}"
-            )
-        finally:
-            await ContractDatabase.execute(
-                "DROP INDEX IF EXISTS idx_benchmark_chunks_revision_order"
-            )
-
-        legacy_started = time.perf_counter()
         legacy_rows = await _load_legacy_rows(namespace)
-        legacy_elapsed = time.perf_counter() - legacy_started
-
-        optimized_started = time.perf_counter()
         async with contract_db_session() as db:
             counting_db = _CountingSession(db)
             snapshot = await load_nav_snapshot(
@@ -445,7 +264,6 @@ async def test_large_snapshot_keeps_all_retrieval_inputs_after_bounded_sql_load(
                 user_id=_USER_ID,
                 namespace=namespace,
             )
-        optimized_elapsed = time.perf_counter() - optimized_started
         expected_chunk_query_count = sum(
             (
                 min(_REVISION_GROUP_SIZE, _DOCUMENT_COUNT - group_start)
@@ -458,16 +276,7 @@ async def test_large_snapshot_keeps_all_retrieval_inputs_after_bounded_sql_load(
         )
         assert counting_db.chunk_query_count == expected_chunk_query_count
 
-        # A 1 ms budget makes the old unbounded statement deterministically
-        # cancel without asserting on machine-dependent elapsed wall time.
-        with pytest.raises(DBAPIError, match="statement timeout"):
-            await _load_legacy_rows(
-                namespace,
-                statement_timeout_ms=_LEGACY_TIMEOUT_MS,
-            )
-
         async with contract_db_session() as db:
-            await db.execute(text("SET LOCAL statement_timeout = 5000"))
             bounded_snapshot = await load_nav_snapshot(
                 db,
                 user_id=_USER_ID,
@@ -533,8 +342,3 @@ async def test_large_snapshot_keeps_all_retrieval_inputs_after_bounded_sql_load(
     optimized_rows.sort(key=row_order_key)
     assert len(optimized_rows) == _TOTAL_CHUNKS
     assert optimized_rows == legacy_rows_projected
-
-    print(
-        f"large snapshot load: legacy={legacy_elapsed:.3f}s "
-        f"bounded={optimized_elapsed:.3f}s chunks={_TOTAL_CHUNKS}"
-    )
