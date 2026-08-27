@@ -379,3 +379,39 @@ def test_agentic_retrieval_trace_schema_matches_orm(migrated_head_engine: Engine
         "workflow_step_id",
         "workflow_plan",
     }.issubset(run_columns)
+
+
+def test_jobs_schema_should_expose_soft_deletion(migrated_head_engine: Engine) -> None:
+    with migrated_head_engine.begin() as connection:
+        job_columns = set(
+            connection.execute(
+                text(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'jobs'
+                    """
+                )
+            )
+            .scalars()
+            .all()
+        )
+        job_indexes = set(
+            connection.execute(
+                text(
+                    """
+                    SELECT indexname
+                    FROM pg_indexes
+                    WHERE tablename = 'jobs'
+                    """
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert "deleted_at" in job_columns
+    assert {
+        "idx_job_user_active_created_at",
+        "idx_job_user_namespace",
+    }.issubset(job_indexes)
