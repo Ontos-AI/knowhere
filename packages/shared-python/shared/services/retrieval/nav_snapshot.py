@@ -27,6 +27,7 @@ from shared.services.retrieval.search.section_filters import is_excluded_section
 # Keep each payload query bounded under the API's 30-second statement timeout.
 # Keyset pagination avoids the increasingly expensive OFFSET scans.
 _CHUNK_BATCH_SIZE = 2_000
+_REVISION_GROUP_SIZE = 32
 
 
 @dataclass(frozen=True)
@@ -219,110 +220,116 @@ async def _load_chunks(
     section_path_by_id: dict[str, str],
     job_id_by_result_id: dict[str, str],
 ) -> tuple[dict[str, list[UnitRow]], dict[str, dict[str, Any]]]:
-    # Captured pairs replace DocumentChunk.document_id == document_id and DocumentChunk.job_result_id == job_result_id.
+    # Captured pairs replace DocumentChunk.document_id == document_id and
+    # DocumentChunk.job_result_id == job_result_id.
     by_doc: dict[str, list[UnitRow]] = {}
     ref_index: dict[str, dict[str, Any]] = {}
-    last_key: tuple[str, str, int, str, str] | None = None
-    while True:
-        stmt = (
-            select(
-                DocumentChunk.document_id,
-                DocumentChunk.job_result_id,
-                DocumentChunk.chunk_id,
-                DocumentChunk.section_id,
-                DocumentChunk.chunk_type,
-                DocumentChunk.content,
-                DocumentChunk.sort_order,
-                DocumentChunk.source_chunk_path,
-                DocumentChunk.file_path,
-                DocumentChunk.chunk_metadata,
-                DocumentChunk.id,
-            )
-            .where(
-                tuple_(DocumentChunk.document_id, DocumentChunk.job_result_id).in_(
-                    document_revisions
+    for group_start in range(0, len(document_revisions), _REVISION_GROUP_SIZE):
+        revision_group = document_revisions[
+            group_start : group_start + _REVISION_GROUP_SIZE
+        ]
+        last_key: tuple[str, str, int, str, str] | None = None
+        while True:
+            stmt = (
+                select(
+                    DocumentChunk.document_id,
+                    DocumentChunk.job_result_id,
+                    DocumentChunk.chunk_id,
+                    DocumentChunk.section_id,
+                    DocumentChunk.chunk_type,
+                    DocumentChunk.content,
+                    DocumentChunk.sort_order,
+                    DocumentChunk.source_chunk_path,
+                    DocumentChunk.file_path,
+                    DocumentChunk.chunk_metadata,
+                    DocumentChunk.id,
                 )
-            )
-            .order_by(
-                DocumentChunk.document_id,
-                DocumentChunk.job_result_id,
-                DocumentChunk.sort_order,
-                DocumentChunk.chunk_id,
-                DocumentChunk.id,
-            )
-            .limit(_CHUNK_BATCH_SIZE)
-        )
-        if last_key is not None:
-            stmt = stmt.where(
-                tuple_(
+                .where(
+                    tuple_(
+                        DocumentChunk.document_id,
+                        DocumentChunk.job_result_id,
+                    ).in_(revision_group)
+                )
+                .order_by(
                     DocumentChunk.document_id,
                     DocumentChunk.job_result_id,
                     DocumentChunk.sort_order,
                     DocumentChunk.chunk_id,
                     DocumentChunk.id,
                 )
-                > tuple_(
-                    literal(last_key[0]),
-                    literal(last_key[1]),
-                    literal(last_key[2]),
-                    literal(last_key[3]),
-                    literal(last_key[4]),
+                .limit(_CHUNK_BATCH_SIZE)
+            )
+            if last_key is not None:
+                stmt = stmt.where(
+                    tuple_(
+                        DocumentChunk.document_id,
+                        DocumentChunk.job_result_id,
+                        DocumentChunk.sort_order,
+                        DocumentChunk.chunk_id,
+                        DocumentChunk.id,
+                    )
+                    > tuple_(
+                        literal(last_key[0]),
+                        literal(last_key[1]),
+                        literal(last_key[2]),
+                        literal(last_key[3]),
+                        literal(last_key[4]),
+                    )
                 )
-            )
 
-        rows = (await db.execute(stmt)).all()
-        if not rows:
-            break
-        for row in rows:
-            document_id = str(row[0])
-            job_result_id = str(row[1])
-            chunk_id = str(row[2] or "").strip()
-            section_id = str(row[3]) if row[3] else None
-            section_path: str | None = (
-                section_path_by_id.get(section_id) if section_id else None
-            )
-            if is_excluded_section(
-                document_id=document_id,
-                section_path=section_path,
-                exclude_sections=exclude_sections,
-            ):
-                continue
-            if section_id and section_id not in section_path_by_id:
-                continue
+            rows = (await db.execute(stmt)).all()
+            if not rows:
+                break
+            for row in rows:
+                document_id = str(row[0])
+                job_result_id = str(row[1])
+                chunk_id = str(row[2] or "").strip()
+                section_id = str(row[3]) if row[3] else None
+                section_path: str | None = (
+                    section_path_by_id.get(section_id) if section_id else None
+                )
+                if is_excluded_section(
+                    document_id=document_id,
+                    section_path=section_path,
+                    exclude_sections=exclude_sections,
+                ):
+                    continue
+                if section_id and section_id not in section_path_by_id:
+                    continue
 
-            unit = UnitRow(
-                chunk_id=chunk_id,
-                section_id=section_id,
-                chunk_type=str(row[4] or "text"),
-                content=str(row[5] or ""),
-                sort_order=int(row[6] or 0),
-                source_chunk_path=str(row[7] or ""),
-                file_path=str(row[8] or ""),
-                metadata=_as_meta(row[9]),
+                unit = UnitRow(
+                    chunk_id=chunk_id,
+                    section_id=section_id,
+                    chunk_type=str(row[4] or "text"),
+                    content=str(row[5] or ""),
+                    sort_order=int(row[6] or 0),
+                    source_chunk_path=str(row[7] or ""),
+                    file_path=str(row[8] or ""),
+                    metadata=_as_meta(row[9]),
+                )
+                by_doc.setdefault(document_id, []).append(unit)
+                if chunk_id:
+                    meta = {
+                        "document_id": document_id,
+                        "section_path": section_path,
+                        "chunk_type": unit.chunk_type,
+                        "file_path": unit.file_path or None,
+                        "job_id": job_id_by_result_id.get(job_result_id),
+                    }
+                    # Bare chunk_id (last-wins) plus doc-scoped key so the same
+                    # chunk_id can appear under multiple documents.
+                    ref_index[chunk_id] = meta
+                    ref_index[f"{document_id}:{chunk_id}"] = meta
+            last_row = rows[-1]
+            last_key = (
+                str(last_row[0]),
+                str(last_row[1]),
+                int(last_row[6] or 0),
+                str(last_row[2] or ""),
+                str(last_row[10]),
             )
-            by_doc.setdefault(document_id, []).append(unit)
-            if chunk_id:
-                meta = {
-                    "document_id": document_id,
-                    "section_path": section_path,
-                    "chunk_type": unit.chunk_type,
-                    "file_path": unit.file_path or None,
-                    "job_id": job_id_by_result_id.get(job_result_id),
-                }
-                # Bare chunk_id (last-wins) plus doc-scoped key so the same
-                # chunk_id can appear under multiple documents.
-                ref_index[chunk_id] = meta
-                ref_index[f"{document_id}:{chunk_id}"] = meta
-        last_row = rows[-1]
-        last_key = (
-            str(last_row[0]),
-            str(last_row[1]),
-            int(last_row[6] or 0),
-            str(last_row[2] or ""),
-            str(last_row[10]),
-        )
-        if len(rows) < _CHUNK_BATCH_SIZE:
-            break
+            if len(rows) < _CHUNK_BATCH_SIZE:
+                break
     return by_doc, ref_index
 
 

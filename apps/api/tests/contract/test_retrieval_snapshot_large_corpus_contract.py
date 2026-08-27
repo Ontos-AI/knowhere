@@ -549,6 +549,8 @@ async def test_snapshot_batches_chunks_across_many_small_documents(
             )
 
     assert len(snapshot.document_ids) == document_count
+    # Twenty-five tiny revisions should fit into one bounded SQL query,
+    # rather than one global query or one query per document.
     assert counting_db.chunk_query_count == 1
 
 
