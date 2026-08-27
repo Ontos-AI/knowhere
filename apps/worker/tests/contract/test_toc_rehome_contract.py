@@ -586,6 +586,13 @@ def test_run_toc_anchoring_single_toc_still_runs_rehome() -> None:
 
 
 def test_run_toc_anchoring_rehome_before_classify_keeps_contained_graft() -> None:
+    """Pending calibrate must succeed without opening pdf_path; graft after rehome.
+
+    Stub the calibration *internals* (same pattern as toc_graft contracts), not
+    ``_calibrate_pending_tocs`` itself. Patching that helper by string path is
+    brittle across the full contract suite and lets the real pending path try to
+    render ``pdf_path`` (``/tmp/rehome.pdf``), then drop the pending record.
+    """
     hierarchies = [
         {
             "toc_range": [1, 1],
@@ -619,26 +626,14 @@ def test_run_toc_anchoring_rehome_before_classify_keeps_contained_graft() -> Non
         )
         return nodes, anchor
 
-    def _fake_pending(**kwargs):
-        return [
-            {
-                "toc": hierarchies[1],
-                "nodes": [
-                    serialize_title_node(
-                        TitleNode(title="Inner", level=1, printed_page=12)
-                    )
-                ],
-                "skeleton_anchor": serialize_skeleton_anchor(
-                    SkeletonAnchor(
-                        offset=0,
-                        offset_status="ok",
-                        match_overrides=_overrides({("Inner",): 12}),
-                        null_page_report=[],
-                        bulk_count=1,
-                    )
-                ),
-            }
-        ]
+    inner = TitleNode(title="Inner", level=1, printed_page=12)
+    inner_anchor = SkeletonAnchor(
+        offset=0,
+        offset_status="ok",
+        match_overrides=_overrides({("Inner",): 12}),
+        null_page_report=[],
+        bulk_count=1,
+    )
 
     with (
         patch(
@@ -646,8 +641,16 @@ def test_run_toc_anchoring_rehome_before_classify_keeps_contained_graft() -> Non
             side_effect=_fake_anchor,
         ),
         patch(
-            "app.services.document_agent.structure.toc_anchoring._calibrate_pending_tocs",
-            side_effect=_fake_pending,
+            "app.services.document_agent.calibration.service.calibrate_offset",
+            return_value=object(),
+        ),
+        patch(
+            "app.services.document_agent.calibration.procedure.pick_primary_offset",
+            return_value=0,
+        ),
+        patch(
+            "app.services.document_agent.calibration.procedure.finalize_calibration_result",
+            return_value=([inner], inner_anchor, True),
         ),
     ):
         run_toc_anchoring(ctx)
