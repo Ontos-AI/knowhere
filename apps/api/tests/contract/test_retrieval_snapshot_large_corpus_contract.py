@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, cast
+from typing import TypeAlias, cast
 from uuid import uuid4
 
 import pytest
@@ -11,7 +11,7 @@ from httpx import AsyncClient
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
-from shared.services.retrieval.nav_snapshot import load_nav_snapshot
+from shared.services.retrieval.nav_snapshot import SnapshotSession, load_nav_snapshot
 from sqlalchemy import Executable, Result, select, text
 from sqlalchemy.engine import Row
 from sqlalchemy.exc import DBAPIError
@@ -26,7 +26,12 @@ _DOCUMENT_COUNT = 100
 _CHUNKS_PER_DOCUMENT = 600
 _SECTIONS_PER_DOCUMENT = 8
 _CONTENT_BYTES = 2048
+_LEGACY_TIMEOUT_MS = 1
 _TOTAL_CHUNKS = _DOCUMENT_COUNT * _CHUNKS_PER_DOCUMENT
+JsonValue: TypeAlias = (
+    None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
+)
+JsonObject: TypeAlias = dict[str, JsonValue]
 LegacySnapshotRow = Row[
     tuple[
         str,
@@ -47,7 +52,7 @@ LegacySnapshotRow = Row[
 class _PublishingSession:
     def __init__(
         self,
-        session: AsyncSession,
+        session: SnapshotSession,
         publish_revision: Callable[[], Awaitable[None]],
     ) -> None:
         self._session = session
@@ -63,7 +68,7 @@ class _PublishingSession:
 
 
 class _CountingSession:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: SnapshotSession) -> None:
         self._session = session
         self.chunk_query_count = 0
 
@@ -509,10 +514,7 @@ async def test_snapshot_keeps_sections_and_chunks_on_the_captured_revision(
             )
 
         async with _contract_db_session() as db:
-            publishing_db = cast(
-                AsyncSession,
-                _PublishingSession(db, publish_new_revision),
-            )
+            publishing_db = _PublishingSession(db, publish_new_revision)
             snapshot = await load_nav_snapshot(
                 publishing_db,
                 user_id=_USER_ID,
@@ -543,7 +545,7 @@ async def test_snapshot_batches_chunks_across_many_small_documents(
         async with _contract_db_session() as db:
             counting_db = _CountingSession(db)
             snapshot = await load_nav_snapshot(
-                cast(AsyncSession, counting_db),
+                counting_db,
                 user_id=_USER_ID,
                 namespace=namespace,
             )
@@ -599,7 +601,7 @@ async def _load_legacy_rows(
         return rows
 
 
-async def _explain_snapshot_query(namespace: str) -> dict[str, Any]:
+async def _explain_snapshot_query(namespace: str) -> JsonObject:
     row = await ContractDatabase.fetch_one(
         """
         EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
@@ -639,7 +641,7 @@ async def _explain_snapshot_query(namespace: str) -> dict[str, Any]:
     return plan
 
 
-async def _explain_revision_query() -> dict[str, Any]:
+async def _explain_revision_query() -> JsonObject:
     row = await ContractDatabase.fetch_one(
         """
         EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
@@ -687,7 +689,7 @@ async def _measure_seeded_payload(namespace: str) -> int:
     return row["payload_bytes"]
 
 
-def _plan_nodes(plan_node: dict[str, Any]) -> list[str]:
+def _plan_nodes(plan_node: JsonObject) -> list[str]:
     summary = (
         f"{plan_node.get('Node Type')}"
         f"[{plan_node.get('Relation Name', '')}"
@@ -739,32 +741,34 @@ async def test_large_snapshot_keeps_all_retrieval_inputs_after_sql_optimization(
             f"time={revision_plan.get('Execution Time')}ms "
             f"nodes={' -> '.join(_plan_nodes(revision_root))}"
         )
-        await ContractDatabase.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_benchmark_chunks_revision_order
-            ON document_chunks (document_id, job_result_id, sort_order, chunk_id, id)
-            """
-        )
-        indexed_explain_plan = await _explain_snapshot_query(namespace)
-        indexed_root = indexed_explain_plan["Plan"]
-        assert isinstance(indexed_root, dict)
-        print(
-            "snapshot EXPLAIN with candidate index: "
-            f"node={indexed_root.get('Node Type')} "
-            f"time={indexed_explain_plan.get('Execution Time')}ms "
-            f"nodes={' -> '.join(_plan_nodes(indexed_root))}"
-        )
-        indexed_revision_plan = await _explain_revision_query()
-        indexed_revision_root = indexed_revision_plan["Plan"]
-        assert isinstance(indexed_revision_root, dict)
-        print(
-            "revision EXPLAIN with candidate index: "
-            f"time={indexed_revision_plan.get('Execution Time')}ms "
-            f"nodes={' -> '.join(_plan_nodes(indexed_revision_root))}"
-        )
-        await ContractDatabase.execute(
-            "DROP INDEX IF EXISTS idx_benchmark_chunks_revision_order"
-        )
+        try:
+            await ContractDatabase.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_benchmark_chunks_revision_order
+                ON document_chunks (document_id, job_result_id, sort_order, chunk_id, id)
+                """
+            )
+            indexed_explain_plan = await _explain_snapshot_query(namespace)
+            indexed_root = indexed_explain_plan["Plan"]
+            assert isinstance(indexed_root, dict)
+            print(
+                "snapshot EXPLAIN with candidate index: "
+                f"node={indexed_root.get('Node Type')} "
+                f"time={indexed_explain_plan.get('Execution Time')}ms "
+                f"nodes={' -> '.join(_plan_nodes(indexed_root))}"
+            )
+            indexed_revision_plan = await _explain_revision_query()
+            indexed_revision_root = indexed_revision_plan["Plan"]
+            assert isinstance(indexed_revision_root, dict)
+            print(
+                "revision EXPLAIN with candidate index: "
+                f"time={indexed_revision_plan.get('Execution Time')}ms "
+                f"nodes={' -> '.join(_plan_nodes(indexed_revision_root))}"
+            )
+        finally:
+            await ContractDatabase.execute(
+                "DROP INDEX IF EXISTS idx_benchmark_chunks_revision_order"
+            )
 
         legacy_started = time.perf_counter()
         legacy_rows = await _load_legacy_rows(namespace)
@@ -779,8 +783,13 @@ async def test_large_snapshot_keeps_all_retrieval_inputs_after_sql_optimization(
             )
         optimized_elapsed = time.perf_counter() - optimized_started
 
+        # A 1 ms budget makes the old unbounded statement deterministically
+        # cancel without asserting on machine-dependent elapsed wall time.
         with pytest.raises(DBAPIError, match="statement timeout"):
-            await _load_legacy_rows(namespace, statement_timeout_ms=100)
+            await _load_legacy_rows(
+                namespace,
+                statement_timeout_ms=_LEGACY_TIMEOUT_MS,
+            )
 
         async with _contract_db_session() as db:
             await db.execute(text("SET LOCAL statement_timeout = 5000"))

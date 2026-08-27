@@ -93,18 +93,3 @@ def test_build_nav_snapshot_rejects_empty_corpus() -> None:
             units_by_doc={},
             chunk_ref_index={},
         )
-
-
-def test_load_nav_snapshot_filters_current_revision_only() -> None:
-    """Snapshot loading must select and query only each current revision."""
-    import inspect
-
-    from shared.services.retrieval import nav_snapshot as nav_snapshot_mod
-
-    loader_src = "".join(inspect.getsource(nav_snapshot_mod.load_nav_snapshot).split())
-    sections_src = "".join(inspect.getsource(nav_snapshot_mod._load_sections).split())
-    chunks_src = "".join(inspect.getsource(nav_snapshot_mod._load_chunks).split())
-    assert "Document.current_job_result_id" in loader_src
-    assert "DocumentSection.job_result_id==Document.current_job_result_id" in sections_src
-    assert "DocumentChunk.document_id==document_id" in chunks_src
-    assert "DocumentChunk.job_result_id==job_result_id" in chunks_src

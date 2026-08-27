@@ -8,10 +8,10 @@ that keeps **DB-original** ``section_path`` / ``job_id`` (never remounted).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
-from sqlalchemy import literal, select, tuple_
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import Executable, literal, select, tuple_
+from sqlalchemy.engine import Result
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
@@ -28,6 +28,13 @@ from shared.services.retrieval.search.section_filters import is_excluded_section
 # Keyset pagination avoids the increasingly expensive OFFSET scans.
 _CHUNK_BATCH_SIZE = 2_000
 _REVISION_GROUP_SIZE = 32
+
+
+class SnapshotSession(Protocol):
+    """Minimal database interface required by the snapshot loader."""
+
+    async def execute(self, statement: Executable) -> Result[tuple[object, ...]]:
+        ...
 
 
 @dataclass(frozen=True)
@@ -71,7 +78,7 @@ def build_nav_snapshot(
 
 
 async def load_nav_snapshot(
-    db: AsyncSession,
+    db: SnapshotSession,
     *,
     user_id: str,
     namespace: str,
@@ -156,7 +163,7 @@ async def load_nav_snapshot(
 
 
 async def _load_sections(
-    db: AsyncSession,
+    db: SnapshotSession,
     *,
     document_revisions: list[tuple[str, str]],
     exclude_sections: list[dict[str, str]],
@@ -213,7 +220,7 @@ async def _load_sections(
 
 
 async def _load_chunks(
-    db: AsyncSession,
+    db: SnapshotSession,
     *,
     document_revisions: list[tuple[str, str]],
     exclude_sections: list[dict[str, str]],
