@@ -199,6 +199,27 @@ def test_should_seed_v2_job_polling_system_limit(
     assert result["description"] == "Job queries - prevent polling"
 
 
+def test_should_index_document_chunks_in_snapshot_pagination_order(
+    migrated_head_engine: Engine,
+) -> None:
+    with migrated_head_engine.begin() as connection:
+        index_definition = connection.execute(
+            text(
+                """
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = current_schema()
+                  AND tablename = 'document_chunks'
+                  AND indexname = 'idx_document_chunks_revision_snapshot_order'
+                """
+            )
+        ).scalar_one()
+
+    assert "(document_id, job_result_id, sort_order, chunk_id, id)" in str(
+        index_definition
+    )
+
+
 def test_api_standalone_mode_should_create_auth_user_table_before_migrations(
     standalone_alembic_engine: Engine,
 ) -> None:

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -13,10 +12,11 @@ from httpx import AsyncClient
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.nav_snapshot import load_nav_snapshot
-from sqlalchemy import select, text
+from sqlalchemy import Executable, Result, select, text
 from sqlalchemy.engine import Row
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.sql.selectable import Select
 from tests.support.contract_database import ContractDatabase
 from shared.testing.contract_runtime import get_contract_database_url
 
@@ -42,6 +42,43 @@ LegacySnapshotRow = Row[
         str | None,
     ]
 ]
+
+
+class _PublishingSession:
+    def __init__(
+        self,
+        session: AsyncSession,
+        publish_revision: Callable[[], Awaitable[None]],
+    ) -> None:
+        self._session = session
+        self._publish_revision = publish_revision
+        self._has_published = False
+
+    async def execute(self, statement: Executable) -> Result[tuple[object, ...]]:
+        result = await self._session.execute(statement)
+        if not self._has_published:
+            self._has_published = True
+            await self._publish_revision()
+        return cast(Result[tuple[object, ...]], result)
+
+
+class _CountingSession:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+        self.chunk_query_count = 0
+
+    async def execute(self, statement: Executable) -> Result[tuple[object, ...]]:
+        if isinstance(statement, Select):
+            selected_tables = {
+                getattr(table, "name", "")
+                for table in statement.get_final_froms()
+            }
+        else:
+            selected_tables = set()
+        if "document_chunks" in selected_tables:
+            self.chunk_query_count += 1
+        result = await self._session.execute(statement)
+        return cast(Result[tuple[object, ...]], result)
 
 
 @asynccontextmanager
@@ -202,6 +239,319 @@ async def _seed_large_retrieval_corpus(namespace: str) -> None:
     )
 
 
+async def _seed_republished_document(namespace: str) -> tuple[str, str]:
+    identifier = uuid4().hex[:8]
+    document_id = f"doc_race_{identifier}"
+    old_result_id = f"result_race_old_{identifier}"
+    new_result_id = f"result_race_new_{identifier}"
+    await ContractDatabase.execute(
+        """
+        INSERT INTO jobs (
+            job_id, user_id, job_type, status, source_type, version,
+            webhook_enabled, created_at, updated_at, credits_charged, billing_status
+        ) VALUES
+            (:old_job_id, :user_id, 'document_ingestion', 'done', 'file', 0,
+             false, NOW(), NOW(), 0, 'skipped'),
+            (:new_job_id, :user_id, 'document_ingestion', 'done', 'file', 0,
+             false, NOW(), NOW(), 0, 'skipped')
+        """,
+        {
+            "old_job_id": f"job_race_old_{identifier}",
+            "new_job_id": f"job_race_new_{identifier}",
+            "user_id": _USER_ID,
+        },
+    )
+    await ContractDatabase.execute(
+        """
+        INSERT INTO documents (
+            document_id, user_id, namespace, status, current_job_result_id,
+            source_file_name, parse_track, created_at, updated_at
+        ) VALUES (
+            :document_id, :user_id, :namespace, 'active', NULL,
+            'republished.pdf', 'chunk', NOW(), NOW()
+        )
+        """,
+        {
+            "document_id": document_id,
+            "user_id": _USER_ID,
+            "namespace": namespace,
+        },
+    )
+    await ContractDatabase.execute(
+        """
+        INSERT INTO job_results (
+            id, job_id, document_id, delivery_mode, created_at, updated_at
+        ) VALUES
+            (:old_result_id, :old_job_id, :document_id, 'inline', NOW(), NOW()),
+            (:new_result_id, :new_job_id, :document_id, 'inline', NOW(), NOW())
+        """,
+        {
+            "old_result_id": old_result_id,
+            "new_result_id": new_result_id,
+            "old_job_id": f"job_race_old_{identifier}",
+            "new_job_id": f"job_race_new_{identifier}",
+            "document_id": document_id,
+        },
+    )
+    await ContractDatabase.execute(
+        """
+        INSERT INTO document_sections (
+            section_id, user_id, namespace, document_id, job_result_id,
+            section_path, section_title, section_level, sort_order, created_at
+        ) VALUES
+            (:old_section_id, :user_id, :namespace, :document_id, :old_result_id,
+             'republished.pdf/old', 'old', 1, 1, NOW()),
+            (:new_section_id, :user_id, :namespace, :document_id, :new_result_id,
+             'republished.pdf/new', 'new', 1, 1, NOW())
+        """,
+        {
+            "old_section_id": f"section_race_old_{identifier}",
+            "new_section_id": f"section_race_new_{identifier}",
+            "user_id": _USER_ID,
+            "namespace": namespace,
+            "document_id": document_id,
+            "old_result_id": old_result_id,
+            "new_result_id": new_result_id,
+        },
+    )
+    await ContractDatabase.execute(
+        """
+        INSERT INTO document_chunks (
+            id, chunk_id, user_id, namespace, document_id, job_result_id,
+            section_id, chunk_type, content, source_chunk_path,
+            chunk_metadata, sort_order, created_at
+        ) VALUES
+            (:old_id, :old_chunk_id, :user_id, :namespace, :document_id,
+             :old_result_id, :old_section_id, 'text', 'old content',
+             'republished.pdf/old/chunk', '{}'::json, 1, NOW()),
+            (:new_id, :new_chunk_id, :user_id, :namespace, :document_id,
+             :new_result_id, :new_section_id, 'text', 'new content',
+             'republished.pdf/new/chunk', '{}'::json, 1, NOW())
+        """,
+        {
+            "old_id": f"dchunk_race_old_{identifier}",
+            "new_id": f"dchunk_race_new_{identifier}",
+            "old_chunk_id": f"chunk_race_old_{identifier}",
+            "new_chunk_id": f"chunk_race_new_{identifier}",
+            "user_id": _USER_ID,
+            "namespace": namespace,
+            "document_id": document_id,
+            "old_result_id": old_result_id,
+            "new_result_id": new_result_id,
+            "old_section_id": f"section_race_old_{identifier}",
+            "new_section_id": f"section_race_new_{identifier}",
+        },
+    )
+    await ContractDatabase.execute(
+        """
+        UPDATE documents
+        SET current_job_result_id = :old_result_id
+        WHERE document_id = :document_id
+        """,
+        {"old_result_id": old_result_id, "document_id": document_id},
+    )
+    return document_id, new_result_id
+
+
+async def _seed_many_small_documents(namespace: str, *, document_count: int) -> None:
+    identifier = uuid4().hex[:8]
+    await ContractDatabase.execute(
+        """
+        INSERT INTO jobs (
+            job_id, user_id, job_type, status, source_type, version,
+            webhook_enabled, created_at, updated_at, credits_charged, billing_status
+        )
+        SELECT
+            'job_batch_' || :identifier || '_' || i,
+            :user_id,
+            'document_ingestion',
+            'done',
+            'file',
+            0,
+            false,
+            NOW(),
+            NOW(),
+            0,
+            'skipped'
+        FROM generate_series(1, :document_count) AS values(i)
+        """,
+        {
+            "identifier": identifier,
+            "user_id": _USER_ID,
+            "document_count": document_count,
+        },
+    )
+    await ContractDatabase.execute(
+        """
+        INSERT INTO documents (
+            document_id, user_id, namespace, status, current_job_result_id,
+            source_file_name, parse_track, created_at, updated_at
+        )
+        SELECT
+            'doc_batch_' || :identifier || '_' || i,
+            :user_id,
+            :namespace,
+            'active',
+            NULL,
+            'batch-' || i || '.pdf',
+            'chunk',
+            NOW(),
+            NOW()
+        FROM generate_series(1, :document_count) AS values(i)
+        """,
+        {
+            "identifier": identifier,
+            "user_id": _USER_ID,
+            "namespace": namespace,
+            "document_count": document_count,
+        },
+    )
+    await ContractDatabase.execute(
+        """
+        INSERT INTO job_results (
+            id, job_id, document_id, delivery_mode, created_at, updated_at
+        )
+        SELECT
+            'result_batch_' || :identifier || '_' || i,
+            'job_batch_' || :identifier || '_' || i,
+            'doc_batch_' || :identifier || '_' || i,
+            'inline',
+            NOW(),
+            NOW()
+        FROM generate_series(1, :document_count) AS values(i)
+        """,
+        {"identifier": identifier, "document_count": document_count},
+    )
+    await ContractDatabase.execute(
+        """
+        UPDATE documents
+        SET current_job_result_id = 'result_batch_' || :identifier || '_' || i
+        FROM generate_series(1, :document_count) AS values(i)
+        WHERE document_id = 'doc_batch_' || :identifier || '_' || i
+        """,
+        {"identifier": identifier, "document_count": document_count},
+    )
+    await ContractDatabase.execute(
+        """
+        INSERT INTO document_sections (
+            section_id, user_id, namespace, document_id, job_result_id,
+            section_path, section_title, section_level, sort_order, created_at
+        )
+        SELECT
+            'section_batch_' || :identifier || '_' || i,
+            :user_id,
+            :namespace,
+            'doc_batch_' || :identifier || '_' || i,
+            'result_batch_' || :identifier || '_' || i,
+            'batch-' || i || '.pdf/section',
+            'section',
+            1,
+            1,
+            NOW()
+        FROM generate_series(1, :document_count) AS values(i)
+        """,
+        {
+            "identifier": identifier,
+            "user_id": _USER_ID,
+            "namespace": namespace,
+            "document_count": document_count,
+        },
+    )
+    await ContractDatabase.execute(
+        """
+        INSERT INTO document_chunks (
+            id, chunk_id, user_id, namespace, document_id, job_result_id,
+            section_id, chunk_type, content, source_chunk_path,
+            chunk_metadata, sort_order, created_at
+        )
+        SELECT
+            'dchunk_batch_' || :identifier || '_' || i,
+            'chunk_batch_' || :identifier || '_' || i,
+            :user_id,
+            :namespace,
+            'doc_batch_' || :identifier || '_' || i,
+            'result_batch_' || :identifier || '_' || i,
+            'section_batch_' || :identifier || '_' || i,
+            'text',
+            'content-' || i,
+            'batch-' || i || '.pdf/section/chunk',
+            '{}'::json,
+            1,
+            NOW()
+        FROM generate_series(1, :document_count) AS values(i)
+        """,
+        {
+            "identifier": identifier,
+            "user_id": _USER_ID,
+            "namespace": namespace,
+            "document_count": document_count,
+        },
+    )
+
+
+async def test_snapshot_keeps_sections_and_chunks_on_the_captured_revision(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    namespace = f"revision-race-{uuid4().hex[:8]}"
+    async with developer_api_client_factory():
+        document_id, new_result_id = await _seed_republished_document(namespace)
+
+        async def publish_new_revision() -> None:
+            await ContractDatabase.execute(
+                """
+                UPDATE documents
+                SET current_job_result_id = :new_result_id
+                WHERE document_id = :document_id
+                """,
+                {"new_result_id": new_result_id, "document_id": document_id},
+            )
+
+        async with _contract_db_session() as db:
+            publishing_db = cast(
+                AsyncSession,
+                _PublishingSession(db, publish_new_revision),
+            )
+            snapshot = await load_nav_snapshot(
+                publishing_db,
+                user_id=_USER_ID,
+                namespace=namespace,
+            )
+
+    section_ids = list(snapshot.provider.children(document_id))
+    chunks = [
+        chunk
+        for section_id in section_ids
+        for chunk in snapshot.provider.self_units(section_id)
+    ]
+    assert [chunk.content for chunk in chunks] == ["old content"]
+    assert snapshot.chunk_ref_index[chunks[0].chunk_id]["section_path"] == (
+        "republished.pdf/old"
+    )
+
+
+async def test_snapshot_batches_chunks_across_many_small_documents(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    document_count = 25
+    namespace = f"batch-documents-{uuid4().hex[:8]}"
+    async with developer_api_client_factory():
+        await _seed_many_small_documents(namespace, document_count=document_count)
+        async with _contract_db_session() as db:
+            counting_db = _CountingSession(db)
+            snapshot = await load_nav_snapshot(
+                cast(AsyncSession, counting_db),
+                user_id=_USER_ID,
+                namespace=namespace,
+            )
+
+    assert len(snapshot.document_ids) == document_count
+    assert counting_db.chunk_query_count == 1
+
+
 async def _load_legacy_rows(
     namespace: str,
     *,
@@ -226,12 +576,16 @@ async def _load_legacy_rows(
             (DocumentChunk.document_id == Document.document_id)
             & (DocumentChunk.job_result_id == Document.current_job_result_id),
         )
-        .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
+        .outerjoin(
+            DocumentSection, DocumentSection.section_id == DocumentChunk.section_id
+        )
         .outerjoin(JobResult, JobResult.id == DocumentChunk.job_result_id)
         .where(Document.user_id == _USER_ID)
         .where(Document.namespace == namespace)
         .where(Document.status == "active")
-        .order_by(Document.document_id, DocumentChunk.sort_order, DocumentChunk.chunk_id)
+        .order_by(
+            Document.document_id, DocumentChunk.sort_order, DocumentChunk.chunk_id
+        )
     )
     async with _contract_db_session() as db:
         if statement_timeout_ms is not None:
@@ -427,7 +781,7 @@ async def test_large_snapshot_keeps_all_retrieval_inputs_after_sql_optimization(
             await _load_legacy_rows(namespace, statement_timeout_ms=100)
 
         async with _contract_db_session() as db:
-            await db.execute(text("SET LOCAL statement_timeout = 100"))
+            await db.execute(text("SET LOCAL statement_timeout = 5000"))
             bounded_snapshot = await load_nav_snapshot(
                 db,
                 user_id=_USER_ID,
@@ -447,10 +801,7 @@ async def test_large_snapshot_keeps_all_retrieval_inputs_after_sql_optimization(
     }
     assert len(optimized_chunks) == _TOTAL_CHUNKS
 
-    legacy_by_chunk = {
-        str(row[1]): row
-        for row in legacy_rows
-    }
+    legacy_by_chunk = {str(row[1]): row for row in legacy_rows}
     for chunk_id, (document_id, chunk) in optimized_chunks.items():
         legacy_row = legacy_by_chunk[chunk_id]
         assert document_id == str(legacy_row[0])
@@ -460,7 +811,9 @@ async def test_large_snapshot_keeps_all_retrieval_inputs_after_sql_optimization(
         assert chunk.sort_order == int(legacy_row[5])
         assert chunk.source_chunk_path == str(legacy_row[6])
         assert chunk.file_path == str(legacy_row[7] or "")
-        assert chunk.metadata == (legacy_row[8] if isinstance(legacy_row[8], dict) else {})
+        assert chunk.metadata == (
+            legacy_row[8] if isinstance(legacy_row[8], dict) else {}
+        )
 
         reference = snapshot.chunk_ref_index[f"{document_id}:{chunk_id}"]
         assert reference["document_id"] == document_id

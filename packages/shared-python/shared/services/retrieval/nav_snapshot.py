@@ -123,9 +123,7 @@ async def load_nav_snapshot(
 
     sections_by_doc, section_path_by_id = await _load_sections(
         db,
-        user_id=user_id,
-        namespace=namespace,
-        exclude_document_ids=excluded_docs,
+        document_revisions=document_revisions,
         exclude_sections=excluded_secs,
     )
     units_by_doc, chunk_ref_index = await _load_chunks(
@@ -159,14 +157,13 @@ async def load_nav_snapshot(
 async def _load_sections(
     db: AsyncSession,
     *,
-    user_id: str,
-    namespace: str,
-    exclude_document_ids: list[str],
+    document_revisions: list[tuple[str, str]],
     exclude_sections: list[dict[str, str]],
 ) -> tuple[dict[str, list[SectionRow]], dict[str, str]]:
+    # Captured pairs replace DocumentSection.job_result_id == Document.current_job_result_id.
     stmt = (
         select(
-            Document.document_id,
+            DocumentSection.document_id,
             DocumentSection.section_id,
             DocumentSection.parent_section_id,
             DocumentSection.section_path,
@@ -175,18 +172,18 @@ async def _load_sections(
             DocumentSection.summary,
             DocumentSection.sort_order,
         )
-        .join(
-            DocumentSection,
-            (DocumentSection.document_id == Document.document_id)
-            & (DocumentSection.job_result_id == Document.current_job_result_id),
+        .where(
+            tuple_(
+                DocumentSection.document_id,
+                DocumentSection.job_result_id,
+            ).in_(document_revisions)
         )
-        .where(Document.user_id == user_id)
-        .where(Document.namespace == namespace)
-        .where(Document.status == "active")
-        .order_by(Document.document_id, DocumentSection.sort_order, DocumentSection.section_id)
+        .order_by(
+            DocumentSection.document_id,
+            DocumentSection.sort_order,
+            DocumentSection.section_id,
+        )
     )
-    if exclude_document_ids:
-        stmt = stmt.where(Document.document_id.notin_(list(exclude_document_ids)))
 
     by_doc: dict[str, list[SectionRow]] = {}
     path_by_id: dict[str, str] = {}
@@ -222,95 +219,110 @@ async def _load_chunks(
     section_path_by_id: dict[str, str],
     job_id_by_result_id: dict[str, str],
 ) -> tuple[dict[str, list[UnitRow]], dict[str, dict[str, Any]]]:
+    # Captured pairs replace DocumentChunk.document_id == document_id and DocumentChunk.job_result_id == job_result_id.
     by_doc: dict[str, list[UnitRow]] = {}
     ref_index: dict[str, dict[str, Any]] = {}
-    for document_id, job_result_id in document_revisions:
-        last_key: tuple[int, str, str] | None = None
-        while True:
-            stmt = (
-                select(
-                    DocumentChunk.chunk_id,
-                    DocumentChunk.section_id,
-                    DocumentChunk.chunk_type,
-                    DocumentChunk.content,
+    last_key: tuple[str, str, int, str, str] | None = None
+    while True:
+        stmt = (
+            select(
+                DocumentChunk.document_id,
+                DocumentChunk.job_result_id,
+                DocumentChunk.chunk_id,
+                DocumentChunk.section_id,
+                DocumentChunk.chunk_type,
+                DocumentChunk.content,
+                DocumentChunk.sort_order,
+                DocumentChunk.source_chunk_path,
+                DocumentChunk.file_path,
+                DocumentChunk.chunk_metadata,
+                DocumentChunk.id,
+            )
+            .where(
+                tuple_(DocumentChunk.document_id, DocumentChunk.job_result_id).in_(
+                    document_revisions
+                )
+            )
+            .order_by(
+                DocumentChunk.document_id,
+                DocumentChunk.job_result_id,
+                DocumentChunk.sort_order,
+                DocumentChunk.chunk_id,
+                DocumentChunk.id,
+            )
+            .limit(_CHUNK_BATCH_SIZE)
+        )
+        if last_key is not None:
+            stmt = stmt.where(
+                tuple_(
+                    DocumentChunk.document_id,
+                    DocumentChunk.job_result_id,
                     DocumentChunk.sort_order,
-                    DocumentChunk.source_chunk_path,
-                    DocumentChunk.file_path,
-                    DocumentChunk.chunk_metadata,
+                    DocumentChunk.chunk_id,
                     DocumentChunk.id,
                 )
-                .where(DocumentChunk.document_id == document_id)
-                .where(DocumentChunk.job_result_id == job_result_id)
-                .order_by(
-                    DocumentChunk.sort_order,
-                    DocumentChunk.chunk_id,
-                    DocumentChunk.id,
+                > tuple_(
+                    literal(last_key[0]),
+                    literal(last_key[1]),
+                    literal(last_key[2]),
+                    literal(last_key[3]),
+                    literal(last_key[4]),
                 )
-                .limit(_CHUNK_BATCH_SIZE)
             )
-            if last_key is not None:
-                stmt = stmt.where(
-                    tuple_(
-                        DocumentChunk.sort_order,
-                        DocumentChunk.chunk_id,
-                        DocumentChunk.id,
-                    )
-                    > tuple_(
-                        literal(last_key[0]),
-                        literal(last_key[1]),
-                        literal(last_key[2]),
-                    )
-                )
 
-            rows = (await db.execute(stmt)).all()
-            if not rows:
-                break
-            for row in rows:
-                chunk_id = str(row[0] or "").strip()
-                section_id = str(row[1]) if row[1] else None
-                section_path: str | None = (
-                    section_path_by_id.get(section_id) if section_id else None
-                )
-                if is_excluded_section(
-                    document_id=document_id,
-                    section_path=section_path,
-                    exclude_sections=exclude_sections,
-                ):
-                    continue
-                if section_id and section_id not in section_path_by_id:
-                    continue
-
-                unit = UnitRow(
-                    chunk_id=chunk_id,
-                    section_id=section_id,
-                    chunk_type=str(row[2] or "text"),
-                    content=str(row[3] or ""),
-                    sort_order=int(row[4] or 0),
-                    source_chunk_path=str(row[5] or ""),
-                    file_path=str(row[6] or ""),
-                    metadata=_as_meta(row[7]),
-                )
-                by_doc.setdefault(document_id, []).append(unit)
-                if chunk_id:
-                    meta = {
-                        "document_id": document_id,
-                        "section_path": section_path,
-                        "chunk_type": unit.chunk_type,
-                        "file_path": unit.file_path or None,
-                        "job_id": job_id_by_result_id.get(job_result_id),
-                    }
-                    # Bare chunk_id (last-wins) plus doc-scoped key so the same
-                    # chunk_id can appear under multiple documents.
-                    ref_index[chunk_id] = meta
-                    ref_index[f"{document_id}:{chunk_id}"] = meta
-            last_row = rows[-1]
-            last_key = (
-                int(last_row[4] or 0),
-                str(last_row[0] or ""),
-                str(last_row[8]),
+        rows = (await db.execute(stmt)).all()
+        if not rows:
+            break
+        for row in rows:
+            document_id = str(row[0])
+            job_result_id = str(row[1])
+            chunk_id = str(row[2] or "").strip()
+            section_id = str(row[3]) if row[3] else None
+            section_path: str | None = (
+                section_path_by_id.get(section_id) if section_id else None
             )
-            if len(rows) < _CHUNK_BATCH_SIZE:
-                break
+            if is_excluded_section(
+                document_id=document_id,
+                section_path=section_path,
+                exclude_sections=exclude_sections,
+            ):
+                continue
+            if section_id and section_id not in section_path_by_id:
+                continue
+
+            unit = UnitRow(
+                chunk_id=chunk_id,
+                section_id=section_id,
+                chunk_type=str(row[4] or "text"),
+                content=str(row[5] or ""),
+                sort_order=int(row[6] or 0),
+                source_chunk_path=str(row[7] or ""),
+                file_path=str(row[8] or ""),
+                metadata=_as_meta(row[9]),
+            )
+            by_doc.setdefault(document_id, []).append(unit)
+            if chunk_id:
+                meta = {
+                    "document_id": document_id,
+                    "section_path": section_path,
+                    "chunk_type": unit.chunk_type,
+                    "file_path": unit.file_path or None,
+                    "job_id": job_id_by_result_id.get(job_result_id),
+                }
+                # Bare chunk_id (last-wins) plus doc-scoped key so the same
+                # chunk_id can appear under multiple documents.
+                ref_index[chunk_id] = meta
+                ref_index[f"{document_id}:{chunk_id}"] = meta
+        last_row = rows[-1]
+        last_key = (
+            str(last_row[0]),
+            str(last_row[1]),
+            int(last_row[6] or 0),
+            str(last_row[2] or ""),
+            str(last_row[10]),
+        )
+        if len(rows) < _CHUNK_BATCH_SIZE:
+            break
     return by_doc, ref_index
 
 
