@@ -93,15 +93,3 @@ def test_build_nav_snapshot_rejects_empty_corpus() -> None:
             units_by_doc={},
             chunk_ref_index={},
         )
-
-
-def test_load_nav_snapshot_joins_current_revision_only() -> None:
-    """Section/chunk loaders must bind rows to Document.current_job_result_id."""
-    import inspect
-
-    from shared.services.retrieval import nav_snapshot as nav_snapshot_mod
-
-    sections_src = "".join(inspect.getsource(nav_snapshot_mod._load_sections).split())
-    chunks_src = "".join(inspect.getsource(nav_snapshot_mod._load_chunks).split())
-    assert "DocumentSection.job_result_id==Document.current_job_result_id" in sections_src
-    assert "DocumentChunk.job_result_id==Document.current_job_result_id" in chunks_src

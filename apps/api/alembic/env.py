@@ -101,6 +101,10 @@ def run_migrations_offline() -> None:
         include_object=include_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        # Keep each migration in its own transaction so migrations that
+        # require an autocommit block (for example CREATE INDEX
+        # CONCURRENTLY) can safely commit only their own predecessor.
+        transaction_per_migration=True,
         # Pass through configured SSL connect args.
         connect_args=ssl_connect_args,
     )
@@ -119,13 +123,25 @@ def run_migrations_online() -> None:
     configured_connection = config.attributes.get("connection")
 
     def run_with_connection(connection: Connection) -> None:
+        caller_owned_transaction = connection.in_transaction()
         if settings.API_STANDALONE_MODE_ENABLED:
             ensure_better_auth_user_table(connection)
+            # The standalone bootstrap query starts SQLAlchemy's implicit
+            # transaction before Alembic begins tracking migration
+            # transactions.  End only that transaction; never commit a
+            # transaction supplied by the caller.
+            if not caller_owned_transaction:
+                connection.commit()
 
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
             include_object=include_object,
+            # Required for migrations that use autocommit_block().
+            transaction_per_migration=True,
+            # Concurrent DDL cannot run inside a transaction owned by the
+            # caller.  Migrations use regular DDL for that compatibility path.
+            knowhere_external_transaction=caller_owned_transaction,
         )
 
         with context.begin_transaction():
@@ -136,7 +152,7 @@ def run_migrations_online() -> None:
         return
 
     if isinstance(configured_connection, Engine):
-        with configured_connection.begin() as connection:
+        with configured_connection.connect() as connection:
             run_with_connection(connection)
         return
 
@@ -149,7 +165,7 @@ def run_migrations_online() -> None:
         connect_args=ssl_connect_args,
     )
 
-    with connectable.begin() as connection:
+    with connectable.connect() as connection:
         run_with_connection(connection)
 
 

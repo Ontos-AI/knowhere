@@ -31,9 +31,22 @@ def _build_alembic_command_config(*, engine: Engine) -> Config:
 def _upgrade_to_heads(*, engine: Engine) -> None:
     config = _build_alembic_command_config(engine=engine)
 
+    # Let Alembic create its own connection.  This is required for migrations
+    # that use PostgreSQL autocommit (for example CREATE INDEX CONCURRENTLY).
+    command.upgrade(config, "heads")
+
+
+def _upgrade_to_heads_with_external_connection(*, engine: Engine) -> None:
+    config = _build_alembic_command_config(engine=engine)
     with engine.begin() as connection:
         config.attributes["connection"] = connection
         command.upgrade(config, "heads")
+
+
+def _upgrade_to_snapshot_parents(*, engine: Engine) -> None:
+    config = _build_alembic_command_config(engine=engine)
+    command.upgrade(config, "f0d85d209e68")
+    command.upgrade(config, "fbe1c2d3e4f5")
 
 
 def _insert_job(
@@ -197,6 +210,73 @@ def test_should_seed_v2_job_polling_system_limit(
     assert result["rpm"] == 200
     assert result["period"] == "minute"
     assert result["description"] == "Job queries - prevent polling"
+
+
+def test_should_index_document_chunks_in_snapshot_pagination_order(
+    migrated_head_engine: Engine,
+) -> None:
+    with migrated_head_engine.begin() as connection:
+        index_definition = connection.execute(
+            text(
+                """
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = current_schema()
+                  AND tablename = 'document_chunks'
+                  AND indexname = 'idx_document_chunks_revision_snapshot_order'
+                """
+            )
+        ).scalar_one()
+
+    assert "(document_id, job_result_id, sort_order, chunk_id, id)" in str(
+        index_definition
+    )
+
+
+def test_should_upgrade_with_a_caller_owned_connection(
+    alembic_engine: Engine,
+) -> None:
+    _upgrade_to_heads_with_external_connection(engine=alembic_engine)
+
+
+def test_standalone_upgrade_should_preserve_a_caller_owned_connection(
+    standalone_alembic_engine: Engine,
+) -> None:
+    _upgrade_to_heads_with_external_connection(engine=standalone_alembic_engine)
+
+
+def test_should_replace_a_same_named_index_with_the_wrong_definition(
+    alembic_engine: Engine,
+) -> None:
+    _upgrade_to_snapshot_parents(engine=alembic_engine)
+    with alembic_engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE INDEX idx_document_chunks_revision_snapshot_order
+                ON document_chunks (document_id)
+                """
+            )
+        )
+
+    _upgrade_to_heads(engine=alembic_engine)
+
+    with alembic_engine.begin() as connection:
+        index_definition = connection.execute(
+            text(
+                """
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = current_schema()
+                  AND tablename = 'document_chunks'
+                  AND indexname = 'idx_document_chunks_revision_snapshot_order'
+                """
+            )
+        ).scalar_one()
+
+    assert "(document_id, job_result_id, sort_order, chunk_id, id)" in str(
+        index_definition
+    )
 
 
 def test_api_standalone_mode_should_create_auth_user_table_before_migrations(
