@@ -210,6 +210,15 @@ class DocumentChunk(Base):
             "chunk_id",
             "id",
         ),
+        Index(
+            "idx_document_chunks_revision_section_order",
+            "document_id",
+            "job_result_id",
+            "section_id",
+            "sort_order",
+            "chunk_id",
+            "id",
+        ),
         Index("idx_document_chunks_section", "section_id"),
         Index(
             "idx_chunk_content_search_tsv",

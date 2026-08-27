@@ -9,13 +9,30 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+import math
+from collections import Counter
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, TypedDict
 
 RRF_K = 60
 CHANNEL_WEIGHT_PATH = 1.0
 CHANNEL_WEIGHT_CONTENT = 2.0
 CHANNEL_WEIGHT_TERM = 1.5
 INTERNAL_RECALL_K_MULTIPLIER = 2
+
+
+class ScoreUnitRow(TypedDict, total=False):
+    """Compact scoring-unit shape shared by eager and streaming scorers."""
+
+    chunk_id: str
+    section_id: str
+    kind: str
+    content: str
+    path_text: str
+    path_search_text: str
+    content_search_text: str
+    term_search_text: str
 
 
 def tokenize_for_retrieval(text: str, *, dedupe: bool = True) -> List[str]:
@@ -68,7 +85,7 @@ def build_term_search_text(content: str, *, path_text: Optional[str] = None) -> 
     return combined
 
 
-def _get_search_tokens(row: dict[str, Any], *, search_field: str) -> List[str]:
+def _get_search_tokens(row: Mapping[str, object], *, search_field: str) -> List[str]:
     return [token for token in str(row.get(search_field) or "").split() if token]
 
 
@@ -590,3 +607,188 @@ def score_rows_hybrid_all(
         row["term_channel_score"] = float(term_channel.get(uid, 0.0) or 0.0)
         out_rows.append(row)
     return out_rows
+
+
+def score_unit_stream_hybrid_all(
+    unit_factory: Callable[[], Iterable[ScoreUnitRow]],
+    query: str,
+) -> Dict[str, float]:
+    """Score replayable units without retaining their payloads.
+
+    This is the corpus scorer used by map-nav. It mirrors the active BM25 and
+    weighted-RRF implementation, but keeps only token statistics, identifiers,
+    and final scores between bounded provider reads.
+    """
+    query_tokens = tokenize_query_for_ranker(query)
+    path_stats = _StreamingBm25Stats.empty()
+    content_stats = _StreamingBm25Stats.empty()
+    units: List[_StreamingUnit] = []
+    query_token_set = set(query_tokens)
+    query_lower = query.lower().strip()
+    for row in unit_factory():
+        unit_id = str(row.get("chunk_id") or "").strip()
+        if not unit_id:
+            continue
+        path_tokens = _get_search_tokens(row, search_field="path_search_text")
+        content_tokens = _get_search_tokens(row, search_field="content_search_text")
+        path_stats.observe(path_tokens)
+        content_stats.observe(content_tokens)
+        path_frequencies = Counter(path_tokens)
+        content_frequencies = Counter(content_tokens)
+        term_score = 0.0
+        if query_lower:
+            haystack = str(row.get("term_search_text") or "").lower()
+            if query_lower in haystack:
+                term_score = 100.0
+            else:
+                hit_count = sum(1 for token in query_tokens if token in haystack)
+                if hit_count > 0:
+                    term_score = float(hit_count)
+        units.append(
+            _StreamingUnit(
+                unit_id=unit_id,
+                path_length=len(path_tokens),
+                content_length=len(content_tokens),
+                path_frequencies={
+                    token: path_frequencies[token]
+                    for token in query_token_set
+                    if path_frequencies[token]
+                },
+                content_frequencies={
+                    token: content_frequencies[token]
+                    for token in query_token_set
+                    if content_frequencies[token]
+                },
+                term_score=term_score,
+            )
+        )
+    path_stats.finalize()
+    content_stats.finalize()
+    path_by_id: Dict[str, float] = {}
+    content_by_id: Dict[str, float] = {}
+    term_by_id: Dict[str, float] = {}
+    unit_ids = list(dict.fromkeys(unit.unit_id for unit in units))
+    for unit in units:
+        path_score = path_stats.score(
+            unit.path_length, unit.path_frequencies, query_tokens
+        )
+        content_score = content_stats.score(
+            unit.content_length, unit.content_frequencies, query_tokens
+        )
+        path_by_id[unit.unit_id] = path_score
+        content_by_id[unit.unit_id] = content_score
+        term_by_id[unit.unit_id] = unit.term_score
+
+    path_rows = [
+        (score, unit_id)
+        for unit_id, score in path_by_id.items()
+        if score > 0.0
+    ]
+    content_rows = [
+        (score, unit_id)
+        for unit_id, score in content_by_id.items()
+        if score > 0.0
+    ]
+    term_rows = [
+        (score, unit_id)
+        for unit_id, score in term_by_id.items()
+        if score > 0.0
+    ]
+
+    path_rows.sort(key=lambda item: (-item[0], item[1]))
+    content_rows.sort(key=lambda item: (-item[0], item[1]))
+    term_rows.sort(key=lambda item: (-item[0], item[1]))
+    path_weight, content_weight, term_weight = map_channel_weights()
+    rrf_k = int(
+        os.environ.get(
+            "NAV_MAP_RRF_K",
+            os.environ.get("NAV_DISCOVERY_RRF_K", str(RRF_K)),
+        ).strip()
+        or RRF_K
+    )
+    fused: Dict[str, float] = {unit_id: 0.0 for unit_id in unit_ids}
+    for rank, (_score, unit_id) in enumerate(path_rows):
+        fused[unit_id] = fused.get(unit_id, 0.0) + path_weight / (rrf_k + rank + 1)
+    for rank, (_score, unit_id) in enumerate(content_rows):
+        fused[unit_id] = fused.get(unit_id, 0.0) + content_weight / (rrf_k + rank + 1)
+    for rank, (_score, unit_id) in enumerate(term_rows):
+        fused[unit_id] = fused.get(unit_id, 0.0) + term_weight / (rrf_k + rank + 1)
+    return {unit_id: round(score, 6) for unit_id, score in fused.items()}
+
+
+@dataclass(frozen=True)
+class _StreamingUnit:
+    unit_id: str
+    path_length: int
+    content_length: int
+    path_frequencies: Mapping[str, int]
+    content_frequencies: Mapping[str, int]
+    term_score: float
+
+
+class _StreamingBm25Stats:
+    """Exact BM25Okapi corpus statistics collected without row retention."""
+
+    def __init__(self) -> None:
+        self.document_count: int = 0
+        self.document_frequency: Counter[str] = Counter()
+        self.total_length: int = 0
+        self.average_length: float = 0.0
+        self.idf_by_token: Dict[str, float] = {}
+
+    @classmethod
+    def empty(cls) -> "_StreamingBm25Stats":
+        return cls()
+
+    def observe(self, tokens: List[str]) -> None:
+        if not tokens:
+            return
+        self.document_count += 1
+        self.total_length += len(tokens)
+        self.document_frequency.update(set(tokens))
+
+    def finalize(self) -> None:
+        self.average_length = (
+            self.total_length / self.document_count if self.document_count else 0.0
+        )
+        idf_by_token: Dict[str, float] = {}
+        idf_sum = 0.0
+        negative_tokens: List[str] = []
+        for token, frequency in self.document_frequency.items():
+            idf = math.log(self.document_count - frequency + 0.5) - math.log(
+                frequency + 0.5
+            )
+            idf_by_token[token] = idf
+            idf_sum += idf
+            if idf < 0.0:
+                negative_tokens.append(token)
+        average_idf = idf_sum / len(idf_by_token) if idf_by_token else 0.0
+        epsilon_floor = 0.25 * average_idf
+        for token in negative_tokens:
+            idf_by_token[token] = epsilon_floor
+        self.idf_by_token = idf_by_token
+
+    def score(
+        self,
+        document_length: int,
+        frequencies: Dict[str, int],
+        query_tokens: List[str],
+    ) -> float:
+        if (
+            not frequencies
+            or not query_tokens
+            or not self.document_count
+            or self.average_length <= 0.0
+        ):
+            return 0.0
+        denominator_base = 1.5 * (
+            1.0 - 0.75 + 0.75 * document_length / self.average_length
+        )
+        score = 0.0
+        for token in query_tokens:
+            frequency = frequencies.get(token, 0)
+            if not frequency:
+                continue
+            idf = self.idf_by_token.get(token, 0.0)
+            score += idf * (frequency * 2.5 / (frequency + denominator_base))
+        return score

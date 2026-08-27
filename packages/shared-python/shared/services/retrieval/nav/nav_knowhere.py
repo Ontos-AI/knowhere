@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Sequence, Set, Tuple
 
 from .nav_address import NavLevel
 from .nav_hierarchy import NodeMeta
@@ -127,7 +127,125 @@ def _connect_to_targets(metadata: Dict[str, Any]) -> List[str]:
 
 
 def knowhere_database_url() -> str:
-    return str(os.environ.get("KNOWHERE_DATABASE_URL") or "").strip() or _DEFAULT_DSN
+    configured = (
+        str(os.environ.get("KNOWHERE_DATABASE_URL") or "").strip()
+        or str(os.environ.get("DATABASE_URL") or "").strip()
+    )
+    if configured:
+        return configured.replace("postgresql+asyncpg", "postgresql+psycopg2")
+    return _DEFAULT_DSN
+
+
+class ChunkStore(Protocol):
+    def load_section_units(
+        self,
+        document_id: str,
+        section_id: str,
+        extra_chunk_ids: Sequence[str] = (),
+    ) -> List[UnitRow]:
+        raise NotImplementedError
+
+    def close(self) -> None:
+        raise NotImplementedError
+
+
+class ReadOnlyChunkStore:
+    """Episode-local, revision-pinned loader for lazy map-nav chunks."""
+
+    def __init__(
+        self,
+        *,
+        dsn: str,
+        revisions: Dict[str, str],
+        excluded_sections: Optional[Iterable[Tuple[str, str]]] = None,
+    ) -> None:
+        self._dsn = str(dsn)
+        self._revisions = dict(revisions)
+        self._excluded_sections = set(excluded_sections or ())
+        self._conn: Optional[_SyncConnection] = None
+
+    def _connection(self) -> "_SyncConnection":
+        if self._conn is None:
+            self._conn = _connect(self._dsn)
+            self._conn.set_session(readonly=True, autocommit=True)
+        return self._conn
+
+    def load_section_units(
+        self,
+        document_id: str,
+        section_id: str,
+        extra_chunk_ids: Sequence[str] = (),
+    ) -> List[UnitRow]:
+        doc_id = str(document_id).strip()
+        sid = str(section_id).strip()
+        job_result_id = self._revisions.get(doc_id)
+        if not doc_id or not sid or not job_result_id or (doc_id, sid) in self._excluded_sections:
+            return []
+        cur = self._connection().cursor()
+        try:
+            ids = [str(chunk_id).strip() for chunk_id in extra_chunk_ids if str(chunk_id).strip()]
+            if ids:
+                cur.execute(
+                    "SELECT chunk_id, section_id, chunk_type, content, sort_order, "
+                    "source_chunk_path, file_path, chunk_metadata "
+                    "FROM document_chunks "
+                    "WHERE document_id = %s AND job_result_id = %s "
+                    "AND (section_id = %s OR chunk_id = ANY(%s)) "
+                    "ORDER BY sort_order, chunk_id, id",
+                    (doc_id, job_result_id, sid, ids),
+                )
+            else:
+                cur.execute(
+                    "SELECT chunk_id, section_id, chunk_type, content, sort_order, "
+                    "source_chunk_path, file_path, chunk_metadata "
+                    "FROM document_chunks "
+                    "WHERE document_id = %s AND job_result_id = %s AND section_id = %s "
+                    "ORDER BY sort_order, chunk_id, id",
+                    (doc_id, job_result_id, sid),
+                )
+            return [_unit_from_row(row) for row in cur.fetchall()]
+        finally:
+            cur.close()
+
+    def close(self) -> None:
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+
+class _SyncCursor(Protocol):
+    def execute(self, query: str, params: Sequence[object]) -> None:
+        raise NotImplementedError
+
+    def fetchall(self) -> Sequence[Sequence[object]]:
+        raise NotImplementedError
+
+    def close(self) -> None:
+        raise NotImplementedError
+
+
+class _SyncConnection(Protocol):
+    def set_session(self, *, readonly: bool, autocommit: bool) -> None:
+        raise NotImplementedError
+
+    def cursor(self) -> _SyncCursor:
+        raise NotImplementedError
+
+    def close(self) -> None:
+        raise NotImplementedError
+
+
+def _unit_from_row(row: Sequence[object]) -> UnitRow:
+    return UnitRow(
+        chunk_id=str(row[0] or ""),
+        section_id=str(row[1]) if row[1] else None,
+        chunk_type=str(row[2] or "text"),
+        content=str(row[3] or ""),
+        sort_order=int(row[4] or 0),
+        source_chunk_path=str(row[5] or ""),
+        file_path=str(row[6] or ""),
+        metadata=_as_meta(row[7]),
+    )
 
 
 class KnowhereProvider:
@@ -139,8 +257,12 @@ class KnowhereProvider:
         doc_id: str,
         sections: Sequence[SectionRow],
         units: Sequence[UnitRow],
+        lazy_loader: Optional[Callable[[str], Sequence[UnitRow]]] = None,
+        known_chunk_ids: Optional[Sequence[str]] = None,
     ) -> None:
         self.doc_id = str(doc_id)
+        self._lazy_loader = lazy_loader
+        self._loaded_sections: Set[str] = set()
         self._sections: Dict[str, SectionRow] = {s.section_id: s for s in sections}
         self._children: Dict[str, List[str]] = {}
         self._roots: List[str] = []
@@ -157,6 +279,12 @@ class KnowhereProvider:
 
         self._units_by_section: Dict[str, List[UnitRow]] = {}
         self._chunk_ids: Set[str] = set()
+        if known_chunk_ids:
+            self._chunk_ids.update(
+                str(chunk_id).strip()
+                for chunk_id in known_chunk_ids
+                if str(chunk_id).strip()
+            )
         for unit in sorted(units, key=lambda u: (u.sort_order, u.chunk_id)):
             sid = unit.section_id
             if not sid or sid not in self._sections:
@@ -165,6 +293,21 @@ class KnowhereProvider:
             if unit.chunk_id:
                 self._chunk_ids.add(unit.chunk_id)
         self._remount_root_assets()
+
+    def _ensure_section_loaded(self, section_id: str) -> None:
+        if self._lazy_loader is None or section_id in self._loaded_sections:
+            return
+        loaded = list(self._lazy_loader(section_id) or ())
+        self._loaded_sections.add(section_id)
+        if not loaded:
+            return
+        current = self._units_by_section.setdefault(section_id, [])
+        known = {unit.chunk_id for unit in current}
+        for unit in loaded:
+            if unit.chunk_id and unit.chunk_id not in known:
+                current.append(unit)
+                known.add(unit.chunk_id)
+        current.sort(key=lambda unit: (unit.sort_order, unit.chunk_id))
 
     def _remount_root_assets(self) -> None:
         """Reattach Root-FK image|table units to host sections via ``connect_to``.
@@ -287,12 +430,23 @@ class KnowhereProvider:
         return "\n".join(self.unit_text(u) for u in units if self.unit_text(u))
 
     def self_units(self, section_id: str) -> List[UnitRow]:
+        self._ensure_section_loaded(section_id)
         return list(self._units_by_section.get(section_id, ()))
 
+    def release_section_units(self, section_id: str) -> None:
+        """Drop one section's loaded payload while keeping its structure."""
+        if self._lazy_loader is None:
+            return
+        sid = str(section_id or "").strip()
+        if not sid:
+            return
+        self._units_by_section.pop(sid, None)
+        self._loaded_sections.discard(sid)
+
     def subtree_units(self, section_id: str) -> List[UnitRow]:
-        out = list(self._units_by_section.get(section_id, ()))
+        out = list(self.self_units(section_id))
         for cid in self.relations(section_id)[1]:
-            out.extend(self._units_by_section.get(cid, ()))
+            out.extend(self.self_units(cid))
         out.sort(key=lambda u: (u.sort_order, u.chunk_id))
         return out
 
@@ -350,8 +504,59 @@ class KnowhereProvider:
     def all_section_ids(self) -> List[str]:
         return list(self._sections)
 
+    def chunk_count(self) -> int:
+        return len(self._chunk_ids)
 
-def _connect(dsn: str):
+
+class LazyKnowhereProvider(KnowhereProvider):
+    """Hierarchy provider that loads full chunk rows only on first access."""
+
+    def __init__(
+        self,
+        *,
+        doc_id: str,
+        sections: Sequence[SectionRow],
+        chunk_store: ChunkStore,
+        known_chunk_ids: Sequence[str],
+        root_asset_ids: Sequence[str] = (),
+        remounted_assets_by_section: Optional[Dict[str, Sequence[str]]] = None,
+    ) -> None:
+        super().__init__(
+            doc_id=doc_id,
+            sections=sections,
+            units=(),
+            lazy_loader=lambda section_id: chunk_store.load_section_units(
+                doc_id,
+                section_id,
+                (remounted_assets_by_section or {}).get(section_id, ()),
+            ),
+            known_chunk_ids=known_chunk_ids,
+        )
+        self._chunk_store = chunk_store
+        self._root_asset_ids = {str(chunk_id) for chunk_id in root_asset_ids}
+
+    def _ensure_section_loaded(self, section_id: str) -> None:
+        super()._ensure_section_loaded(section_id)
+        if (
+            section_id in self._units_by_section
+            and self._root_asset_ids
+            and is_root_section_path(self.section_path(section_id))
+        ):
+            self._units_by_section[section_id] = [
+                unit
+                for unit in self._units_by_section[section_id]
+                if unit.chunk_id not in self._root_asset_ids
+            ]
+
+    def close(self) -> None:
+        self._chunk_store.close()
+
+    def release_loaded_units(self) -> None:
+        self._units_by_section.clear()
+        self._loaded_sections.clear()
+
+
+def _connect(dsn: str) -> _SyncConnection:
     import psycopg2
 
     return psycopg2.connect(dsn)
@@ -499,6 +704,7 @@ class NamespaceKnowhereProvider:
         providers: Sequence[KnowhereProvider],
         *,
         titles: Optional[Dict[str, str]] = None,
+        chunk_owner_by_id: Optional[Dict[str, str]] = None,
     ) -> None:
         self._docs: Dict[str, KnowhereProvider] = {
             p.doc_id: p for p in providers if p.doc_id
@@ -514,13 +720,43 @@ class NamespaceKnowhereProvider:
         for doc_id, provider in self._docs.items():
             for sid in provider.all_section_ids():
                 self._section_owner[sid] = doc_id
-            for sid in provider.all_section_ids():
-                for unit in provider.self_units(sid):
-                    if unit.chunk_id:
-                        self._chunk_owner[unit.chunk_id] = doc_id
+        if chunk_owner_by_id:
+            self._chunk_owner.update(
+                {
+                    str(chunk_id): str(doc_id)
+                    for chunk_id, doc_id in chunk_owner_by_id.items()
+                    if str(chunk_id).strip() and str(doc_id).strip()
+                }
+            )
+        else:
+            for doc_id, provider in self._docs.items():
+                for sid in provider.all_section_ids():
+                    for unit in provider.self_units(sid):
+                        if unit.chunk_id:
+                            self._chunk_owner[unit.chunk_id] = doc_id
 
     def document_ids(self) -> List[str]:
         return list(self._docs)
+
+    def close(self) -> None:
+        for provider in self._docs.values():
+            close = getattr(provider, "close", None)
+            if callable(close):
+                close()
+
+    def release_loaded_units(self) -> None:
+        for provider in self._docs.values():
+            release = getattr(provider, "release_loaded_units", None)
+            if callable(release):
+                release()
+
+    def release_section_units(self, section_id: str) -> None:
+        owner = self._section_owner.get(str(section_id or "").strip())
+        if not owner:
+            return
+        release = getattr(self._docs[owner], "release_section_units", None)
+        if callable(release):
+            release(section_id)
 
     def address_level(self, node_id: str) -> Optional[NavLevel]:
         sid = str(node_id or "").strip()
@@ -562,7 +798,8 @@ class NamespaceKnowhereProvider:
         sid = str(section_id or "").strip()
         if sid in self._docs:
             provider = self._docs[sid]
-            n_chunks = sum(
+            count_fn = getattr(provider, "chunk_count", None)
+            n_chunks = int(count_fn()) if callable(count_fn) else sum(
                 len(provider.self_units(sec)) for sec in provider.all_section_ids()
             )
             return NodeMeta(

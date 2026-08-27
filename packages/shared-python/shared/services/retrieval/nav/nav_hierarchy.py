@@ -231,6 +231,12 @@ class ProviderToolSpace:
         del section_id, query, doc_id, k
         return []
 
+    def release_section_units(self, section_id: str) -> None:
+        """Release one lazy section without discarding the hierarchy."""
+        release = getattr(self._provider, "release_section_units", None)
+        if callable(release):
+            release(section_id)
+
 
 @dataclass
 class InMemoryNode:
