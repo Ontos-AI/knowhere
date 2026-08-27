@@ -55,6 +55,7 @@ class ErrorCode(str, Enum):
     )
     PERMISSION_DENIED = "PERMISSION_DENIED"  # 403 - Caller lacks permission
     NOT_FOUND = "NOT_FOUND"  # 404 - Resource does not exist
+    METHOD_NOT_ALLOWED = "METHOD_NOT_ALLOWED"  # 405 - HTTP method is not supported
     ABORTED = "ABORTED"  # 409 - Concurrency conflict
     ALREADY_EXISTS = "ALREADY_EXISTS"  # 409 - Resource already exists
     RESOURCE_EXHAUSTED = (
@@ -89,6 +90,7 @@ class ErrorCodeMapper:
         ErrorCode.PAYMENT_REQUIRED: 402,
         ErrorCode.PERMISSION_DENIED: 403,
         ErrorCode.NOT_FOUND: 404,
+        ErrorCode.METHOD_NOT_ALLOWED: 405,
         ErrorCode.ABORTED: 409,
         ErrorCode.ALREADY_EXISTS: 409,
         ErrorCode.RESOURCE_EXHAUSTED: 429,
@@ -110,6 +112,7 @@ class ErrorCodeMapper:
         402: ErrorCode.PAYMENT_REQUIRED,
         403: ErrorCode.PERMISSION_DENIED,
         404: ErrorCode.NOT_FOUND,
+        405: ErrorCode.METHOD_NOT_ALLOWED,
         409: ErrorCode.ALREADY_EXISTS,
         422: ErrorCode.INVALID_ARGUMENT,  # Pydantic validation
         429: ErrorCode.RESOURCE_EXHAUSTED,
