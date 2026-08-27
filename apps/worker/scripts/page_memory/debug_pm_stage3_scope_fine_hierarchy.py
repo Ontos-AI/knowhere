@@ -127,8 +127,6 @@ def _run_fine_hierarchy_for_scope(
     )
 
     scope_stages: list[dict[str, Any]] = []
-    if token_cost_tracker is not None:
-        token_cost_tracker.register_child_thread()
 
     skel_path = scope_dir / "skeletons.json"
     require_file(skel_path, hint=f"Stage 3 should have created {skel_path}")

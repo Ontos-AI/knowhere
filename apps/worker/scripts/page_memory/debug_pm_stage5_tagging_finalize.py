@@ -73,15 +73,12 @@ def _run_tagging_for_scope(
     page_features: list[Any],
     toc_pages: list[int],
     args: Any,
-    token_cost_tracker: TokenCostTracker | None = None,
 ) -> ScopeResult:
     """Load Stage-3 combined tags and rehydrate renders for final assembly."""
     from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
     from app.services.page_memory.page_renderer import render_document_pages
 
     scope_stages: list[dict[str, Any]] = []
-    if token_cost_tracker is not None:
-        token_cost_tracker.register_child_thread()
 
     fine_hierarchy_path = scope_dir / "fine_hierarchy.json"
     require_file(fine_hierarchy_path, hint=f"Run Stage 3 to produce {fine_hierarchy_path}")
@@ -329,7 +326,6 @@ def main() -> int:
             page_features=page_features,
             toc_pages=toc_pages,
             args=args,
-            token_cost_tracker=token_cost_tracker,
         )
 
     if args.max_workers > 1 and len(scope_ids) > 1:

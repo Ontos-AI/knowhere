@@ -301,3 +301,40 @@ def test_window_renders_once_serially_before_concurrent_vlm(
         assert args["page_cap"] == 1
         assert len(args["rendered_pages"]) == 1
         assert args["rendered_pages"][0]["page"] == args["pages"][0]
+
+
+def test_concurrent_inspect_records_tokens_on_parse_tracker(
+    patch_inspect,
+) -> None:
+    from shared.services.ai.token_tracking import (
+        cleanup_token_tracker,
+        init_token_tracker,
+        record_tokens,
+    )
+
+    class _RecordingInspect(_FakeInspect):
+        def __call__(self, ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+            record_tokens(
+                {
+                    "prompt_tokens": 3,
+                    "completion_tokens": 1,
+                    "total_tokens": 4,
+                },
+                model="test-vlm",
+                task="calibration.scan_title_forward",
+            )
+            return super().__call__(ctx, args)
+
+    tracker = init_token_tracker()
+    try:
+        patch_inspect(_RecordingInspect(hit_page=10))
+        result = scan_title_forward(
+            ctx=_ctx(), title="Chapter 1", start_page=10, page_count=60
+        )
+        assert result.found_page == 10
+        assert tracker["calls"] == 2
+        assert tracker["total_tokens"] == 8
+        assert tracker["by_task"]["calibration.scan_title_forward"]["total_tokens"] == 8
+        assert tracker["by_model"]["test-vlm"]["total_tokens"] == 8
+    finally:
+        cleanup_token_tracker()

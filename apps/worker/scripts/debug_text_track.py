@@ -29,6 +29,7 @@ import os
 import shutil
 import sys
 import time
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[3]
 WORKER_ROOT = ROOT / "apps" / "worker"
 sys.path.insert(0, str(WORKER_ROOT))
+sys.path.insert(0, str(WORKER_ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "packages" / "shared-python"))
 
 from dotenv import load_dotenv
@@ -47,8 +49,17 @@ os.environ.setdefault("OVERSIZED_PDF_SHARD_ENABLED", "true")
 from loguru import logger
 
 from shared.services.ai.token_tracking import (
-    init_token_tracker,
+    cleanup_token_tracker,
     get_current_token_tracker,
+    init_token_tracker,
+)
+
+from _debug_token_ledger import (
+    aggregate_stage_deltas,
+    empty_token_usage,
+    load_stage_ledger,
+    record_stage_delta,
+    token_usage_delta,
 )
 
 # ── Constants ───────────────────────────────────────────────────────────────
@@ -58,12 +69,69 @@ DEFAULT_SJSYJ_PDF = Path(
 )
 DEFAULT_SPACEX_PDF = Path("/Users/wuchengke/Desktop/temp/test_docs/spacex-s1.pdf")
 OUTPUT_ROOT = Path("~/.knowhere/_debug_parse").expanduser()
+TOKEN_LEDGER_NAME = "token_ledger.json"
+TOKEN_LEDGER_STAGES = ("profile", "mineru", "hierarchy", "full")
 
 
 def _write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     logger.info("   → {}", path)
+
+
+def _load_token_ledger(out_dir: Path) -> dict[str, Any]:
+    return load_stage_ledger(out_dir / TOKEN_LEDGER_NAME)
+
+
+def _record_token_stage(
+    ledger: dict[str, Any],
+    stage: str,
+    *,
+    prev: dict[str, Any],
+    out_dir: Path,
+) -> dict[str, Any]:
+    current = deepcopy(get_current_token_tracker() or {})
+    record_stage_delta(
+        ledger,
+        stage=stage,
+        stage_keys=TOKEN_LEDGER_STAGES,
+        prev=prev,
+        current=current,
+        out_path=out_dir / TOKEN_LEDGER_NAME,
+    )
+    logger.info("   → {}", out_dir / TOKEN_LEDGER_NAME)
+    return current
+
+
+def _aggregate_token_ledger(
+    ledger: dict[str, Any],
+    *,
+    remainder: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return aggregate_stage_deltas(
+        ledger,
+        TOKEN_LEDGER_STAGES,
+        remainder=remainder,
+    )
+
+
+def _apply_token_usage_to_outputs(
+    out_dir: Path,
+    trace: dict[str, Any],
+    usage: dict[str, Any],
+) -> None:
+    trace["token_usage"] = usage
+    _write_json(out_dir / "trace.json", trace)
+    manifest_path = out_dir / "manifest.json"
+    if not manifest_path.exists():
+        return
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        return
+    processing = manifest.setdefault("processing", {})
+    if isinstance(processing, dict):
+        processing["token_usage"] = usage
+        _write_json(manifest_path, manifest)
 
 
 # ── Stage 1: Profile + Shard Plan (PDF only) ───────────────────────────────
@@ -716,6 +784,8 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     init_token_tracker()
+    ledger = _load_token_ledger(out_dir)
+    prev_usage = deepcopy(get_current_token_tracker() or empty_token_usage())
 
     logger.info("█" * 70)
     logger.info("  TEXT-TRACK DEBUG: {}", filename)
@@ -731,158 +801,188 @@ def main() -> int:
     }
     t_start = time.time()
 
-    # ── Format dispatch ──────────────────────────────────────────────────────
-    if ext == ".pdf":
-        # Stage 1: Profile
-        if args.reuse_profile:
-            anatomy = _load_anatomy_cache(out_dir, file_path, filename)
-        else:
-            anatomy, profile_elapsed, profile_meta = _stage_profile(
+    try:
+        # ── Format dispatch ──────────────────────────────────────────────────
+        if ext == ".pdf":
+            # Stage 1: Profile
+            if args.reuse_profile:
+                anatomy = _load_anatomy_cache(out_dir, file_path, filename)
+            else:
+                anatomy, profile_elapsed, profile_meta = _stage_profile(
+                    file_path, filename, out_dir, args.model
+                )
+                trace["stages"]["profile"] = {
+                    "elapsed_s": round(profile_elapsed, 1),
+                    **profile_meta,
+                }
+                prev_usage = _record_token_stage(
+                    ledger, "profile", prev=prev_usage, out_dir=out_dir
+                )
+
+            if args.stop_at == "profile":
+                trace["stages"].setdefault("profile", {})["shard_count"] = len(
+                    anatomy.shard_plan.shards
+                )
+                logger.info("⏸️  Stopped at profile → {}", out_dir)
+                return 0
+
+            # Stage 2: MinerU extraction
+            if not args.reuse_mineru:
+                _shard_dirs, mineru_elapsed = _stage_mineru_pdf(
+                    file_path, filename, out_dir, anatomy,
+                )
+                trace["stages"]["mineru"] = {
+                    "elapsed_s": round(mineru_elapsed, 1),
+                    "shard_count": len(_shard_dirs),
+                }
+                prev_usage = _record_token_stage(
+                    ledger, "mineru", prev=prev_usage, out_dir=out_dir
+                )
+            else:
+                logger.info("⏩ Reusing cached MinerU shard dirs")
+
+            if args.stop_at == "mineru":
+                logger.info("⏸️  Stopped at mineru → {}", out_dir)
+                return 0
+
+            # Stage 3: Heading prediction + hierarchy tree
+            if args.reuse_hierarchy:
+                merged_path = out_dir / "_shards" / "merged_lines.json"
+                if not merged_path.exists():
+                    raise FileNotFoundError(f"No cached hierarchy: {merged_path}")
+                logger.info("⏩ Reusing cached merged_lines: {}", merged_path)
+                merged_lines = json.loads(merged_path.read_text(encoding="utf-8"))
+            else:
+                merged_lines, hier_elapsed = _stage_hierarchy_pdf(
+                    out_dir, anatomy, args.model,
+                )
+                trace["stages"]["hierarchy"] = {
+                    "elapsed_s": round(hier_elapsed, 1),
+                    "merged_lines_count": len(merged_lines),
+                    "heading_count": sum(1 for ln in merged_lines if ln.startswith("#")),
+                }
+                prev_usage = _record_token_stage(
+                    ledger, "hierarchy", prev=prev_usage, out_dir=out_dir
+                )
+
+            if args.stop_at == "hierarchy":
+                logger.info("⏸️  Stopped at hierarchy → {}", out_dir)
+                return 0
+
+            # Stage 4: Full extraction
+            chunks, full_elapsed = _stage_full_pdf(
+                out_dir, filename, merged_lines, args.model
+            )
+            trace["stages"]["full"] = {
+                "elapsed_s": round(full_elapsed, 1),
+                "chunk_count": len(chunks),
+            }
+            prev_usage = _record_token_stage(
+                ledger, "full", prev=prev_usage, out_dir=out_dir
+            )
+
+        elif ext in (".docx", ".doc"):
+            if args.stop_at in ("profile", "mineru"):
+                logger.info("ℹ️  No profiling/MinerU for DOCX format. Nothing to do.")
+                return 0
+
+            parsed_df, hier_elapsed = _stage_hierarchy_docx(
                 file_path, filename, out_dir, args.model
-            )
-            trace["stages"]["profile"] = {
-                "elapsed_s": round(profile_elapsed, 1),
-                **profile_meta,
-            }
-
-        if args.stop_at == "profile":
-            trace["stages"].setdefault("profile", {})["shard_count"] = len(
-                anatomy.shard_plan.shards
-            )
-            trace["token_usage"] = get_current_token_tracker()
-            _write_json(out_dir / "trace.json", trace)
-            logger.info("⏸️  Stopped at profile → {}", out_dir)
-            return 0
-
-        # Stage 2: MinerU extraction
-        if not args.reuse_mineru:
-            _shard_dirs, mineru_elapsed = _stage_mineru_pdf(
-                file_path, filename, out_dir, anatomy,
-            )
-            trace["stages"]["mineru"] = {
-                "elapsed_s": round(mineru_elapsed, 1),
-                "shard_count": len(_shard_dirs),
-            }
-        else:
-            logger.info("⏩ Reusing cached MinerU shard dirs")
-
-        if args.stop_at == "mineru":
-            trace["token_usage"] = get_current_token_tracker()
-            _write_json(out_dir / "trace.json", trace)
-            logger.info("⏸️  Stopped at mineru → {}", out_dir)
-            return 0
-
-        # Stage 3: Heading prediction + hierarchy tree
-        if args.reuse_hierarchy:
-            merged_path = out_dir / "_shards" / "merged_lines.json"
-            if not merged_path.exists():
-                raise FileNotFoundError(f"No cached hierarchy: {merged_path}")
-            logger.info("⏩ Reusing cached merged_lines: {}", merged_path)
-            merged_lines = json.loads(merged_path.read_text(encoding="utf-8"))
-        else:
-            merged_lines, hier_elapsed = _stage_hierarchy_pdf(
-                out_dir, anatomy, args.model,
             )
             trace["stages"]["hierarchy"] = {
                 "elapsed_s": round(hier_elapsed, 1),
-                "merged_lines_count": len(merged_lines),
-                "heading_count": sum(1 for ln in merged_lines if ln.startswith("#")),
+                "row_count": len(parsed_df) if parsed_df is not None else 0,
+            }
+            prev_usage = _record_token_stage(
+                ledger, "hierarchy", prev=prev_usage, out_dir=out_dir
+            )
+
+            if args.stop_at == "hierarchy":
+                logger.info("⏸️  Stopped at hierarchy → {}", out_dir)
+                return 0
+
+            from app.services.document_parser.orchestration.postprocess import (
+                apply_parse_postprocess,
+            )
+            parsed_df = apply_parse_postprocess(str(out_dir), parsed_df)
+            chunks, full_elapsed = _finalize_df(out_dir, filename, parsed_df)
+            trace["stages"]["full"] = {
+                "elapsed_s": round(full_elapsed, 1),
+                "chunk_count": len(chunks),
+            }
+            prev_usage = _record_token_stage(
+                ledger, "full", prev=prev_usage, out_dir=out_dir
+            )
+
+        elif ext in (".md", ".markdown"):
+            if args.stop_at in ("profile", "mineru"):
+                logger.info("ℹ️  No profiling/MinerU for Markdown format. Nothing to do.")
+                return 0
+
+            parsed_df, hier_elapsed = _stage_hierarchy_md(
+                file_path, filename, out_dir, args.model
+            )
+            trace["stages"]["hierarchy"] = {
+                "elapsed_s": round(hier_elapsed, 1),
+                "row_count": len(parsed_df) if parsed_df is not None else 0,
+            }
+            prev_usage = _record_token_stage(
+                ledger, "hierarchy", prev=prev_usage, out_dir=out_dir
+            )
+
+            if args.stop_at == "hierarchy":
+                logger.info("⏸️  Stopped at hierarchy → {}", out_dir)
+                return 0
+
+            from app.services.document_parser.orchestration.postprocess import (
+                apply_parse_postprocess,
+            )
+            parsed_df = apply_parse_postprocess(str(out_dir), parsed_df)
+            chunks, full_elapsed = _finalize_df(out_dir, filename, parsed_df)
+            trace["stages"]["full"] = {
+                "elapsed_s": round(full_elapsed, 1),
+                "chunk_count": len(chunks),
+            }
+            prev_usage = _record_token_stage(
+                ledger, "full", prev=prev_usage, out_dir=out_dir
+            )
+
+        else:
+            logger.error("Unsupported format: {}", ext)
+            return 1
+
+        # ── Optional DB publication ──────────────────────────────────────────
+        if args.run_db:
+            from scripts._debug_publish import publish_debug_result_dir
+            publish_result = publish_debug_result_dir(
+                result_dir=out_dir,
+                source_file_name=filename,
+                chunks=chunks,
+                parse_track="text_track",
+                upload_assets=True,
+            )
+            trace["stages"]["db_publish"] = {
+                "job_id": publish_result.job_id,
+                "document_id": publish_result.document_id,
             }
 
-        if args.stop_at == "hierarchy":
-            trace["token_usage"] = get_current_token_tracker()
-            _write_json(out_dir / "trace.json", trace)
-            logger.info("⏸️  Stopped at hierarchy → {}", out_dir)
-            return 0
-
-        # Stage 4: Full extraction
-        chunks, full_elapsed = _stage_full_pdf(out_dir, filename, merged_lines, args.model)
-        trace["stages"]["full"] = {
-            "elapsed_s": round(full_elapsed, 1),
-            "chunk_count": len(chunks),
-        }
-
-    elif ext in (".docx", ".doc"):
-        if args.stop_at in ("profile", "mineru"):
-            logger.info("ℹ️  No profiling/MinerU for DOCX format. Nothing to do.")
-            return 0
-
-        # Stage 2: parse_docx
-        parsed_df, hier_elapsed = _stage_hierarchy_docx(file_path, filename, out_dir, args.model)
-        trace["stages"]["hierarchy"] = {
-            "elapsed_s": round(hier_elapsed, 1),
-            "row_count": len(parsed_df) if parsed_df is not None else 0,
-        }
-
-        if args.stop_at == "hierarchy":
-            _write_json(out_dir / "trace.json", trace)
-            logger.info("⏸️  Stopped at hierarchy → {}", out_dir)
-            return 0
-
-        # Stage 4: DataFrame → chunks
-        from app.services.document_parser.orchestration.postprocess import apply_parse_postprocess
-        parsed_df = apply_parse_postprocess(str(out_dir), parsed_df)
-        chunks, full_elapsed = _finalize_df(out_dir, filename, parsed_df)
-        trace["stages"]["full"] = {
-            "elapsed_s": round(full_elapsed, 1),
-            "chunk_count": len(chunks),
-        }
-
-    elif ext in (".md", ".markdown"):
-        if args.stop_at in ("profile", "mineru"):
-            logger.info("ℹ️  No profiling/MinerU for Markdown format. Nothing to do.")
-            return 0
-
-        # Stage 2: parse_md
-        parsed_df, hier_elapsed = _stage_hierarchy_md(file_path, filename, out_dir, args.model)
-        trace["stages"]["hierarchy"] = {
-            "elapsed_s": round(hier_elapsed, 1),
-            "row_count": len(parsed_df) if parsed_df is not None else 0,
-        }
-
-        if args.stop_at == "hierarchy":
-            _write_json(out_dir / "trace.json", trace)
-            logger.info("⏸️  Stopped at hierarchy → {}", out_dir)
-            return 0
-
-        # Stage 4: DataFrame → chunks
-        from app.services.document_parser.orchestration.postprocess import apply_parse_postprocess
-        parsed_df = apply_parse_postprocess(str(out_dir), parsed_df)
-        chunks, full_elapsed = _finalize_df(out_dir, filename, parsed_df)
-        trace["stages"]["full"] = {
-            "elapsed_s": round(full_elapsed, 1),
-            "chunk_count": len(chunks),
-        }
-
-    else:
-        logger.error("Unsupported format: {}", ext)
-        return 1
-
-    # ── Optional DB publication ──────────────────────────────────────────────
-    if args.run_db:
-        from scripts._debug_publish import publish_debug_result_dir
-        publish_result = publish_debug_result_dir(
-            result_dir=out_dir,
-            source_file_name=filename,
-            chunks=chunks,
-            parse_track="text_track",
-            upload_assets=True,
+        trace["total_elapsed_s"] = round(time.time() - t_start, 1)
+        logger.info("")
+        logger.info("═" * 70)
+        logger.info("  ✅ DONE in {:.1f}s → {}", time.time() - t_start, out_dir)
+        logger.info("═" * 70)
+        return 0
+    finally:
+        remainder = token_usage_delta(
+            prev_usage,
+            deepcopy(get_current_token_tracker() or {}),
         )
-        trace["stages"]["db_publish"] = {
-            "job_id": publish_result.job_id,
-            "document_id": publish_result.document_id,
-        }
-
-    # ── Final trace ──────────────────────────────────────────────────────────
-    trace["total_elapsed_s"] = round(time.time() - t_start, 1)
-    trace["token_usage"] = get_current_token_tracker()
-    _write_json(out_dir / "trace.json", trace)
-
-    logger.info("")
-    logger.info("═" * 70)
-    logger.info("  ✅ DONE in {:.1f}s → {}", time.time() - t_start, out_dir)
-    logger.info("═" * 70)
-    return 0
+        usage = _aggregate_token_ledger(
+            ledger,
+            remainder=remainder if remainder.get("calls") or remainder.get("total_tokens") else None,
+        )
+        _apply_token_usage_to_outputs(out_dir, trace, usage)
+        cleanup_token_tracker()
 
 
 if __name__ == "__main__":

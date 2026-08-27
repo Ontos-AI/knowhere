@@ -28,6 +28,10 @@ from app.services.document_agent.calibration.prompts import (
 from app.services.document_agent.manifest import ToolContext
 from app.services.document_agent.tools.inspect_pages import inspect_pages
 from app.services.document_agent.visual import render_pages
+from shared.services.ai.token_tracking import (
+    bind_token_tracker,
+    get_current_token_tracker_root_id,
+)
 
 DEFAULT_WINDOW_SCHEDULE: tuple[int, ...] = (2, 4, 6, 10)
 
@@ -189,16 +193,21 @@ def _inspect_pages_concurrent(
             )
         ]
 
-    by_page: dict[int, PageInspectResult] = {}
-    with ThreadPoolExecutor(max_workers=len(pages)) as pool:
-        futures = {
-            pool.submit(
-                _inspect_one_page,
+    token_tracker_root_id = get_current_token_tracker_root_id()
+
+    def _inspect_one_page_with_tracking(page: int) -> PageInspectResult:
+        with bind_token_tracker(token_tracker_root_id):
+            return _inspect_one_page(
                 ctx=ctx,
                 title=title,
                 page=page,
                 rendered_page=rendered_by_page[page],
-            ): page
+            )
+
+    by_page: dict[int, PageInspectResult] = {}
+    with ThreadPoolExecutor(max_workers=len(pages)) as pool:
+        futures = {
+            pool.submit(_inspect_one_page_with_tracking, page): page
             for page in pages
         }
         for future in as_completed(futures):
