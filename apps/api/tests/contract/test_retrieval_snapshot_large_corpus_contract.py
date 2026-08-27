@@ -11,7 +11,12 @@ from httpx import AsyncClient
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
-from shared.services.retrieval.nav_snapshot import SnapshotSession, load_nav_snapshot
+from shared.services.retrieval.nav_snapshot import (
+    SnapshotSession,
+    _CHUNK_BATCH_SIZE,
+    _REVISION_GROUP_SIZE,
+    load_nav_snapshot,
+)
 from sqlalchemy import Executable, Result, select, text
 from sqlalchemy.engine import Row
 from sqlalchemy.exc import DBAPIError
@@ -776,12 +781,24 @@ async def test_large_snapshot_keeps_all_retrieval_inputs_after_bounded_sql_load(
 
         optimized_started = time.perf_counter()
         async with _contract_db_session() as db:
+            counting_db = _CountingSession(db)
             snapshot = await load_nav_snapshot(
-                db,
+                counting_db,
                 user_id=_USER_ID,
                 namespace=namespace,
             )
         optimized_elapsed = time.perf_counter() - optimized_started
+        expected_chunk_query_count = sum(
+            (
+                min(_REVISION_GROUP_SIZE, _DOCUMENT_COUNT - group_start)
+                * _CHUNKS_PER_DOCUMENT
+                + _CHUNK_BATCH_SIZE
+                - 1
+            )
+            // _CHUNK_BATCH_SIZE
+            for group_start in range(0, _DOCUMENT_COUNT, _REVISION_GROUP_SIZE)
+        )
+        assert counting_db.chunk_query_count == expected_chunk_query_count
 
         # A 1 ms budget makes the old unbounded statement deterministically
         # cancel without asserting on machine-dependent elapsed wall time.
@@ -803,35 +820,45 @@ async def test_large_snapshot_keeps_all_retrieval_inputs_after_bounded_sql_load(
     assert len(snapshot.document_ids) == _DOCUMENT_COUNT
     assert len(bounded_snapshot.document_ids) == _DOCUMENT_COUNT
 
-    optimized_chunks = {
-        chunk_id: (document_id, chunk)
+    optimized_rows = [
+        (
+            document_id,
+            chunk.chunk_id,
+            chunk.section_id,
+            chunk.chunk_type,
+            chunk.content,
+            chunk.sort_order,
+            chunk.source_chunk_path,
+            chunk.file_path,
+            chunk.metadata,
+            snapshot.chunk_ref_index[f"{document_id}:{chunk.chunk_id}"][
+                "section_path"
+            ],
+            snapshot.chunk_ref_index[f"{document_id}:{chunk.chunk_id}"]["job_id"],
+        )
         for document_id in snapshot.document_ids
         for section_id in snapshot.provider.children(document_id)
         for chunk in snapshot.provider.self_units(section_id)
-        for chunk_id in [chunk.chunk_id]
-    }
-    assert len(optimized_chunks) == _TOTAL_CHUNKS
-
-    legacy_by_chunk = {str(row[1]): row for row in legacy_rows}
-    for chunk_id, (document_id, chunk) in optimized_chunks.items():
-        legacy_row = legacy_by_chunk[chunk_id]
-        assert document_id == str(legacy_row[0])
-        assert chunk.section_id == str(legacy_row[2])
-        assert chunk.chunk_type == str(legacy_row[3])
-        assert chunk.content == str(legacy_row[4])
-        assert chunk.sort_order == int(legacy_row[5])
-        assert chunk.source_chunk_path == str(legacy_row[6])
-        assert chunk.file_path == str(legacy_row[7] or "")
-        assert chunk.metadata == (
-            legacy_row[8] if isinstance(legacy_row[8], dict) else {}
+    ]
+    optimized_rows.sort(key=lambda row: (row[0], row[5], row[1], row[2] or ""))
+    legacy_rows_projected = [
+        (
+            str(row[0]),
+            str(row[1]),
+            str(row[2]) if row[2] else None,
+            str(row[3]),
+            str(row[4]),
+            int(row[5]),
+            str(row[6]),
+            str(row[7] or ""),
+            row[8] if isinstance(row[8], dict) else {},
+            str(row[9] or ""),
+            str(row[10]) if row[10] else None,
         )
-
-        reference = snapshot.chunk_ref_index[f"{document_id}:{chunk_id}"]
-        assert reference["document_id"] == document_id
-        assert reference["section_path"] == str(legacy_row[9] or "")
-        assert reference["chunk_type"] == str(legacy_row[3])
-        assert reference["file_path"] == (str(legacy_row[7]) if legacy_row[7] else None)
-        assert reference["job_id"] == str(legacy_row[10])
+        for row in legacy_rows
+    ]
+    assert len(optimized_rows) == _TOTAL_CHUNKS
+    assert optimized_rows == legacy_rows_projected
 
     print(
         f"large snapshot load: legacy={legacy_elapsed:.3f}s "

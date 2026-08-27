@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Sequence, Union
 
 from alembic import op
+from sqlalchemy import text
 
 
 revision: str = "fbf0c1d2e3f4"
@@ -26,6 +27,29 @@ def upgrade() -> None:
     # production corpus is being indexed.  CONCURRENTLY cannot run inside the
     # transaction Alembic normally opens, so switch to an autocommit block.
     with op.get_context().autocommit_block():
+        invalid_index = op.get_bind().execute(
+            text(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_class AS index_class
+                    JOIN pg_namespace AS index_namespace
+                      ON index_namespace.oid = index_class.relnamespace
+                    JOIN pg_index AS index_metadata
+                      ON index_metadata.indexrelid = index_class.oid
+                    WHERE index_namespace.nspname = current_schema()
+                      AND index_class.relname =
+                          'idx_document_chunks_revision_snapshot_order'
+                      AND NOT index_metadata.indisvalid
+                )
+                """
+            )
+        ).scalar_one()
+        if invalid_index:
+            op.execute(
+                "DROP INDEX CONCURRENTLY IF EXISTS "
+                "idx_document_chunks_revision_snapshot_order"
+            )
         op.execute(
             """
             CREATE INDEX CONCURRENTLY IF NOT EXISTS
