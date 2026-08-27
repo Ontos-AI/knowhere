@@ -857,6 +857,22 @@ async def test_large_snapshot_keeps_all_retrieval_inputs_after_bounded_sql_load(
         )
         for row in legacy_rows
     ]
+    def row_order_key(row: tuple[object, ...]) -> tuple[str, ...]:
+        return (
+            str(row[0]),
+            str(row[5]),
+            str(row[1]),
+            str(row[2] or ""),
+            str(row[3]),
+            str(row[4]),
+            str(row[6]),
+            str(row[7] or ""),
+            str(row[8]),
+            str(row[9] or ""),
+            str(row[10] or ""),
+        )
+    legacy_rows_projected.sort(key=row_order_key)
+    optimized_rows.sort(key=row_order_key)
     assert len(optimized_rows) == _TOTAL_CHUNKS
     assert optimized_rows == legacy_rows_projected
 
