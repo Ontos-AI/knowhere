@@ -28,10 +28,10 @@ _FTS_CONFIG = "simple"
 # Guards against pathological queries producing an enormous tsquery.
 _MAX_FTS_QUERY_TOKENS = 50
 
-# Floor on each lexeme's share of the candidate budget. A query with many
-# lexemes would otherwise divide the budget down to a handful of rows each,
-# which throws away candidates the old global ordering would have kept.
-_MIN_CANDIDATES_PER_LEXEME = 50
+# Rows each lexeme contributes on top of the global slice. Small on purpose:
+# it exists to keep rare lexemes represented, not to replace the global
+# ordering, which is what ranks chunks covering several query terms.
+_CANDIDATES_PER_LEXEME_FLOOR = 50
 
 _TSV_FIELD_BY_SEARCH_FIELD = {
     "content_search_text": "content_search_tsv",
@@ -348,14 +348,17 @@ async def _bm25_channel(
         # prefilter aligned with the stored lexicon and leaves no room for
         # tsquery syntax in user input to change the query shape.
         #
-        # Each lexeme draws candidates from its own slice of the budget rather
-        # than competing in one global ts_rank_cd ordering. ts_rank_cd scores
-        # term density within a chunk and ignores how rare a term is across the
-        # corpus, while BM25 weights rare terms heavily. A short chunk holding
-        # the one rare term in a query therefore sorts near the bottom of a
-        # global ordering and is truncated first, even though BM25 would rank
-        # it top. Giving every lexeme its own slice keeps those chunks in the
-        # pool. See #278.
+        # Two pools are unioned. The global slice is the previous behaviour
+        # unchanged, ordered by ts_rank_cd over the whole query, which is what
+        # surfaces chunks covering several query terms. The per-lexeme floor
+        # adds a few rows for each lexeme on top, so a lexeme matching very
+        # little is still represented. ts_rank_cd scores term density within a
+        # chunk and ignores corpus-wide rarity, while BM25 weights rare terms
+        # heavily, so without the floor a short chunk holding the one rare term
+        # in a query is truncated before BM25 ever sees it. See #278.
+        #
+        # The union is a superset of the global slice, so nothing the previous
+        # ordering kept can be lost here.
         prefilter_sql = (
             corpus_cte
             + f""",
@@ -364,32 +367,47 @@ async def _bm25_channel(
             unnest(tsvector_to_array(to_tsvector('{_FTS_CONFIG}', token))) AS lexeme
         FROM unnest(CAST(:fts_tokens AS text[])) AS token
     ),
-    lexeme_budget AS (
-        SELECT
-            fl.lexeme,
-            to_tsquery('{_FTS_CONFIG}', quote_literal(fl.lexeme)) AS q,
-            GREATEST(
-                :fts_candidate_limit / GREATEST(COUNT(*) OVER (), 1),
-                :fts_min_per_lexeme
-            ) AS per_lexeme_limit
+    fts_query AS (
+        SELECT string_agg(quote_literal(lexeme), ' | ')::tsquery AS q
+        FROM fts_lexemes
+    ),
+    global_slice AS (
+        SELECT sc.*
+        FROM scoped_chunks sc, fts_query fq
+        WHERE COALESCE(sc.{search_field}, '') <> ''
+            AND fq.q IS NOT NULL
+            AND sc.{tsv_field} @@ fq.q
+        ORDER BY ts_rank_cd(sc.{tsv_field}, fq.q) DESC
+        LIMIT :fts_candidate_limit
+    ),
+    lexeme_floor AS (
+        SELECT per_lexeme.*
         FROM fts_lexemes fl
+        CROSS JOIN LATERAL (
+            SELECT sc.*
+            FROM scoped_chunks sc
+            WHERE COALESCE(sc.{search_field}, '') <> ''
+                AND sc.{tsv_field} @@ to_tsquery('{_FTS_CONFIG}', quote_literal(fl.lexeme))
+            ORDER BY
+                ts_rank_cd(
+                    sc.{tsv_field},
+                    to_tsquery('{_FTS_CONFIG}', quote_literal(fl.lexeme))
+                ) DESC
+            LIMIT :fts_lexeme_floor
+        ) per_lexeme
     )
     SELECT DISTINCT ON (candidates.id) candidates.*
-    FROM lexeme_budget lb
-    CROSS JOIN LATERAL (
-        SELECT sc.*
-        FROM scoped_chunks sc
-        WHERE COALESCE(sc.{search_field}, '') <> ''
-            AND sc.{tsv_field} @@ lb.q
-        ORDER BY ts_rank_cd(sc.{tsv_field}, lb.q) DESC
-        LIMIT lb.per_lexeme_limit
+    FROM (
+        SELECT * FROM global_slice
+        UNION ALL
+        SELECT * FROM lexeme_floor
     ) candidates
     """
         )
         prefilter_params = dict(params)
         prefilter_params["fts_tokens"] = fts_tokens
         prefilter_params["fts_candidate_limit"] = candidate_limit
-        prefilter_params["fts_min_per_lexeme"] = _MIN_CANDIDATES_PER_LEXEME
+        prefilter_params["fts_lexeme_floor"] = _CANDIDATES_PER_LEXEME_FLOOR
         result = await db.execute(text(prefilter_sql), prefilter_params)
         rows = [_row_to_dict(r) for r in result.all()]
         used_fallback = not rows

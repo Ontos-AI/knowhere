@@ -55,6 +55,15 @@ CREATE INDEX idx_chunk_path_search_tsv ON document_chunks USING GIN (path_search
 
 _NOISE_ROWS = 300
 _COMMON_TERM_ROWS = 1000
+_DENSE_ROWS_PER_TERM = 120
+_COVERING_QUERY_TERMS = (
+    "alpha",
+    "bravo",
+    "charlie",
+    "delta",
+    "echo",
+    "foxtrot",
+)
 
 
 @pytest_asyncio.fixture
@@ -282,3 +291,86 @@ async def test_rare_term_chunk_survives_a_saturated_candidate_budget(
     # it belongs at the top. A single global ts_rank_cd ordering truncates it
     # before BM25 ever sees it.
     assert [str(row["chunk_id"]) for row in rows][0] == "rare-zebra"
+
+
+@pytest_asyncio.fixture
+async def covering_chunk_session(
+    postgresql_proc: PostgreSQLProcess,
+) -> AsyncGenerator[AsyncSession, None]:
+    """Dense single-term chunks plus one chunk covering every query term.
+
+    ts_rank_cd puts the covering chunk first because it rewards matching more
+    of the query, and BM25 agrees. Spending the whole budget per lexeme loses
+    it, since each lexeme's slice fills with denser single-term rows.
+    """
+    dsn = (
+        f"postgresql+asyncpg://{postgresql_proc.user}@"
+        f"{postgresql_proc.host}:{postgresql_proc.port}/postgres"
+    )
+    engine = create_async_engine(dsn, isolation_level="AUTOCOMMIT")
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP SCHEMA IF EXISTS bm25_cover CASCADE"))
+        await conn.execute(text("CREATE SCHEMA bm25_cover"))
+        await conn.execute(text("SET search_path TO bm25_cover"))
+        for statement in filter(None, (s.strip() for s in _SCHEMA.split(";"))):
+            await conn.execute(text(statement))
+        await conn.execute(text("INSERT INTO job_results VALUES (1, 'job1')"))
+        await conn.execute(
+            text(
+                "INSERT INTO documents VALUES "
+                "('d1', 'u1', 'ns1', 'active', 1, 'sample.pdf')"
+            )
+        )
+        await conn.execute(text("INSERT INTO document_sections VALUES ('s1', '/root')"))
+        for term in _COVERING_QUERY_TERMS:
+            await conn.execute(
+                text(
+                    "INSERT INTO document_chunks "
+                    "(chunk_id, document_id, section_id, chunk_type, content, "
+                    " job_result_id, sort_order, content_search_text, path_search_text) "
+                    "SELECT :term || '-' || i, 'd1', 's1', 'text', 'body', 1, i, "
+                    "       repeat(:term || ' ', 5) || 'filler ' || i, 'p ' || i "
+                    "FROM generate_series(1, :dense) AS i"
+                ),
+                {"term": term, "dense": _DENSE_ROWS_PER_TERM},
+            )
+        await conn.execute(
+            text(
+                "INSERT INTO document_chunks "
+                "(chunk_id, document_id, section_id, chunk_type, content, "
+                " job_result_id, sort_order, content_search_text, path_search_text) "
+                "VALUES ('cover-all', 'd1', 's1', 'text', 'body', 1, 0, :covering, 'p cover')"
+            ),
+            {"covering": " ".join(_COVERING_QUERY_TERMS)},
+        )
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        await session.execute(text("SET search_path TO bm25_cover"))
+        yield session
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_chunk_covering_every_term_survives_a_saturated_budget(
+    covering_chunk_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        channel_settings, "RETRIEVAL_POSTGRES_FTS_CANDIDATE_LIMIT", 200, raising=False
+    )
+
+    rows = await content_channel(
+        covering_chunk_session,
+        user_id="u1",
+        namespace="ns1",
+        query=" ".join(_COVERING_QUERY_TERMS),
+        top_k=5,
+        exclude_document_ids=[],
+        exclude_sections=[],
+    )
+
+    # The global ts_rank_cd slice is what keeps this chunk. Dropping it in
+    # favour of a purely per-lexeme budget would hand the top spot to a dense
+    # single-term chunk instead.
+    assert [str(row["chunk_id"]) for row in rows][0] == "cover-all"
