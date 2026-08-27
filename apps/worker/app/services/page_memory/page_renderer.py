@@ -23,7 +23,7 @@ class PageRenderResult:
     """1-based page number."""
 
     image_path: str
-    """Absolute path to full-resolution PNG (``pages/page-N.png``)."""
+    """Absolute path to full-resolution PNG (``pages/{scope_id}/page-{n}.png``)."""
 
     raw_text: str
     """PROFILE scan text for this page."""
@@ -43,6 +43,7 @@ def render_document_pages(
     pdf_path: str,
     page_count: int,
     output_dir: str,
+    scope_id: str,
     pages: list[int] | None = None,
     page_features: list[PageFeature] | None = None,
     page_texts: dict[int, str] | None = None,
@@ -61,7 +62,11 @@ def render_document_pages(
     pages:
         Optional 1-based page subset to render. Defaults to every page.
     output_dir:
-        Root output directory; pages are written to ``output_dir/pages/``.
+        Root output directory; pages are written to
+        ``output_dir/pages/{scope_id}/page-{n}.png``.
+    scope_id:
+        Scope isolation key (e.g. ``p58-60``). Concurrent scopes must not
+        share a write path for the same page index.
     page_features:
         If available, dimensions are read from here (avoiding a second
         PyMuPDF open).  Otherwise falls back to 0/0/False.
@@ -81,6 +86,10 @@ def render_document_pages(
     list[PageRenderResult]
         One entry per page, ordered by page_index.
     """
+    resolved_scope = str(scope_id or "").strip()
+    if not resolved_scope:
+        raise ValueError("render_document_pages requires a non-empty scope_id")
+
     requested_pages = (
         sorted({page for page in pages if 1 <= page <= page_count})
         if pages is not None
@@ -90,14 +99,16 @@ def render_document_pages(
         return []
 
     texts = page_texts or {}
+    folder_name = f"pages/{resolved_scope}"
 
     # ── full-resolution PNGs ──────────────────────────────────────────
+    # Empty prefix → ``page-{n}.png`` (see visual._render_pages_worker).
     if ctx is not None:
         pngs = render_pages(
             ctx,
             requested_pages,
-            folder_name="pages",
-            prefix="page",
+            folder_name=folder_name,
+            prefix="",
             dpi=dpi,
             timeout=timeout,
         )
@@ -117,8 +128,8 @@ def render_document_pages(
         pngs = render_pages(
             tmp_ctx,
             requested_pages,
-            folder_name="pages",
-            prefix="page",
+            folder_name=folder_name,
+            prefix="",
             dpi=dpi,
             timeout=timeout,
         )

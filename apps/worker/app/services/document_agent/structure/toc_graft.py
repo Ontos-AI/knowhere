@@ -199,7 +199,7 @@ def _graft_one_child(
             reason="no_covering_path",
         )
         return primary_children
-    covering_node = _node_at_path(primary_children, covering)
+    covering_node = node_at_path(primary_children, covering)
     if covering_node is None:
         _record_skip(
             events=events,
@@ -223,7 +223,7 @@ def _graft_one_child(
             events=events,
         ),
     )
-    return _replace_node_at_path(primary_children, covering, updated_parent)
+    return replace_node_at_path(primary_children, covering, updated_parent)
 
 
 def _attach_new_child(
@@ -238,7 +238,7 @@ def _attach_new_child(
     contained_overrides: dict[tuple[str, ...], TitleMatch],
     events: list[dict[str, Any]],
 ) -> list[TitleNode]:
-    grafted = _rebase_levels(child, (parent.level + 1) - child.level)
+    grafted = rebase_levels(child, (parent.level + 1) - child.level)
     new_path = (*parent_path, grafted.title)
     events.append(
         {
@@ -248,14 +248,14 @@ def _attach_new_child(
             "start": start,
         }
     )
-    _remap_overrides(
+    remap_overrides(
         contained_overrides=contained_overrides,
         primary_overrides=primary_overrides,
         old_prefix=contained_path,
         new_prefix=new_path,
         drop_root=False,
     )
-    return _insert_by_start(
+    return insert_by_start(
         siblings=primary_children,
         new_node=grafted,
         start=start,
@@ -301,7 +301,7 @@ def _record_skip(
     events.append(event)
 
 
-def _remap_overrides(
+def remap_overrides(
     *,
     contained_overrides: dict[tuple[str, ...], TitleMatch],
     primary_overrides: dict[tuple[str, ...], TitleMatch],
@@ -309,6 +309,7 @@ def _remap_overrides(
     new_prefix: tuple[str, ...],
     drop_root: bool,
 ) -> None:
+    """Copy override entries under ``old_prefix`` onto ``new_prefix`` paths."""
     prefix_len = len(old_prefix)
     for path, match in contained_overrides.items():
         if path[:prefix_len] != old_prefix:
@@ -320,15 +321,16 @@ def _remap_overrides(
             primary_overrides[new_path] = match
 
 
-def _rebase_levels(node: TitleNode, delta: int) -> TitleNode:
+def rebase_levels(node: TitleNode, delta: int) -> TitleNode:
+    """Shift ``node.level`` (and descendants) by ``delta``."""
     return replace(
         node,
         level=node.level + delta,
-        children=[_rebase_levels(child, delta) for child in node.children],
+        children=[rebase_levels(child, delta) for child in node.children],
     )
 
 
-def _insert_by_start(
+def insert_by_start(
     *,
     siblings: list[TitleNode],
     new_node: TitleNode,
@@ -336,6 +338,7 @@ def _insert_by_start(
     parent_path: tuple[str, ...],
     primary_overrides: dict[tuple[str, ...], TitleMatch],
 ) -> list[TitleNode]:
+    """Insert ``new_node`` before the first sibling whose own page is ``> start``."""
     insert_at = len(siblings)
     for index, sibling in enumerate(siblings):
         match = primary_overrides.get((*parent_path, sibling.title))
@@ -347,7 +350,8 @@ def _insert_by_start(
     return updated
 
 
-def _node_at_path(nodes: list[TitleNode], path: tuple[str, ...]) -> TitleNode | None:
+def node_at_path(nodes: list[TitleNode], path: tuple[str, ...]) -> TitleNode | None:
+    """Return the node at ``path`` under ``nodes``, or None if missing."""
     current: list[TitleNode] = nodes
     node: TitleNode | None = None
     for title in path:
@@ -358,11 +362,12 @@ def _node_at_path(nodes: list[TitleNode], path: tuple[str, ...]) -> TitleNode | 
     return node
 
 
-def _replace_node_at_path(
+def replace_node_at_path(
     nodes: list[TitleNode],
     path: tuple[str, ...],
     new_node: TitleNode,
 ) -> list[TitleNode]:
+    """Replace the node at ``path`` with ``new_node`` (immutable list update)."""
     title, *rest = path
     updated: list[TitleNode] = []
     for node in nodes:
@@ -375,7 +380,7 @@ def _replace_node_at_path(
         updated.append(
             replace(
                 node,
-                children=_replace_node_at_path(node.children, tuple(rest), new_node),
+                children=replace_node_at_path(node.children, tuple(rest), new_node),
             )
         )
     return updated

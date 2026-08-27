@@ -55,6 +55,10 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
     beat the confirmed printed TOC pages on coverage, anchor from outline with
     physical overrides (no calibrate VLM). Otherwise keep the extracted TOC tree
     and run the existing VLM calibration path.
+
+    After calibration (primary + pending), each forest runs global paged-leaf
+    rehome, then pending forests are classified/grafted. Blackboard writes happen
+    only after that sequence.
     """
     from app.services.document_agent.calibration.orchestrator import (
         anchor_hierarchy,
@@ -115,6 +119,16 @@ def run_toc_anchoring(ctx: ToolContext) -> None:
             page_count=page_count,
             body_pages=body_pages,
         )
+
+    # scope-local TOC pre-pass: future hook (no-op this period)
+    resolve_nodes, skeleton_anchor = _rehome_calibrated_forest(
+        resolve_nodes,
+        skeleton_anchor,
+        toc_pages=toc_pages,
+    )
+    _rehome_pending_records(pending_records, toc_pages=toc_pages)
+
+    if pending_records:
         _assign_toc_relationships(
             root_anchor=skeleton_anchor,
             pending_records=pending_records,
@@ -201,6 +215,7 @@ def _try_outline_anchoring_route(
         page_texts=page_texts,
         body_pages=body_pages,
         page_count=page_count,
+        toc_pages=toc_pages,
     ):
         return False
 
@@ -221,6 +236,7 @@ def _write_outline_skeleton(
     page_texts: dict[int, str],
     body_pages: list[int],
     page_count: int,
+    toc_pages: list[int] | None = None,
 ) -> bool:
     """Anchor outline rows via physical overrides (no calibrate VLM).
 
@@ -241,6 +257,12 @@ def _write_outline_skeleton(
         ctx=ctx,
     )
     skeleton_anchor = replace(skeleton_anchor, source="pdf_outline")
+    # scope-local TOC pre-pass: future hook (no-op this period)
+    resolve_nodes, skeleton_anchor = _rehome_calibrated_forest(
+        resolve_nodes,
+        skeleton_anchor,
+        toc_pages=toc_pages,
+    )
     ctx.blackboard.skeleton_anchor = serialize_skeleton_anchor(skeleton_anchor)
     ctx.blackboard.skeleton_nodes = [
         serialize_title_node(node) for node in resolve_nodes
@@ -254,6 +276,50 @@ def _write_outline_skeleton(
         len(resolve_nodes),
     )
     return True
+
+
+def _rehome_calibrated_forest(
+    nodes: list[TitleNode],
+    skeleton_anchor: SkeletonAnchor,
+    *,
+    toc_pages: list[int] | None = None,
+) -> tuple[list[TitleNode], SkeletonAnchor]:
+    from app.services.document_agent.structure.toc_rehome import rehome_skeleton_forest
+
+    rehomed_nodes, rehomed_anchor, _events = rehome_skeleton_forest(
+        nodes,
+        skeleton_anchor,
+        toc_pages=toc_pages,
+    )
+    return rehomed_nodes, rehomed_anchor
+
+
+def _rehome_pending_records(
+    pending_records: list[dict[str, Any]],
+    *,
+    toc_pages: list[int] | None = None,
+) -> None:
+    from app.services.document_agent.structure.toc_rehome import rehome_skeleton_forest
+
+    for record in pending_records:
+        nodes_raw = record.get("nodes") or []
+        anchor_raw = record.get("skeleton_anchor")
+        if not isinstance(anchor_raw, dict) or not nodes_raw:
+            continue
+        nodes = [
+            deserialize_title_node(node)
+            for node in nodes_raw
+            if isinstance(node, dict)
+        ]
+        if not nodes:
+            continue
+        rehomed_nodes, rehomed_anchor, _events = rehome_skeleton_forest(
+            nodes,
+            deserialize_skeleton_anchor(anchor_raw),
+            toc_pages=toc_pages,
+        )
+        record["nodes"] = [serialize_title_node(node) for node in rehomed_nodes]
+        record["skeleton_anchor"] = serialize_skeleton_anchor(rehomed_anchor)
 
 
 def outline_physical_overrides(
@@ -348,9 +414,31 @@ def select_global_toc_hierarchies(
     return selected, pending, summary
 
 
+def pages_excluding_toc(pages: Any, toc_pages: Any) -> list[int]:
+    """Return ``pages`` with TOC pages removed (stable order).
+
+    Same exclusion source as TEXT-track MinerU ``exclude_pages`` and anchoring
+    ``body_pages``: ``toc_result.toc_pages``.
+    """
+    excluded: set[int] = set()
+    for raw in toc_pages or []:
+        try:
+            excluded.add(int(raw))
+        except (TypeError, ValueError):
+            continue
+    result: list[int] = []
+    for raw in pages or []:
+        try:
+            page = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if page not in excluded:
+            result.append(page)
+    return result
+
+
 def body_pages_excluding_toc(toc_pages: Any, page_count: int) -> list[int]:
-    excluded = {int(page) for page in (toc_pages or [])}
-    return [page for page in range(1, page_count + 1) if page not in excluded]
+    return pages_excluding_toc(range(1, page_count + 1), toc_pages)
 
 
 def pending_toc_body_scope(

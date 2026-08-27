@@ -90,23 +90,41 @@ def inspect_pages(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
             latency_ms=int((time.monotonic() - start) * 1000),
         )
 
-    from app.services.document_agent.visual import render_pages
-
     folder_name = str(args.get("folder_name") or "inspect_pages")
     prefix = str(args.get("prefix") or "inspect")
-    rendered = render_pages(
-        ctx,
-        pages,
-        folder_name=folder_name,
-        prefix=prefix,
-        timeout=120,
-    )
-    if not rendered:
-        return ToolResult(
-            status="error",
-            error="render failed",
-            latency_ms=int((time.monotonic() - start) * 1000),
+    pre_rendered = args.get("rendered_pages")
+    if isinstance(pre_rendered, list) and pre_rendered:
+        rendered = [
+            {"page": int(item["page"]), "png_path": str(item["png_path"])}
+            for item in pre_rendered
+            if isinstance(item, dict)
+            and item.get("page") is not None
+            and item.get("png_path")
+            and int(item["page"]) in pages
+        ]
+        rendered = sorted(rendered, key=lambda item: int(item["page"]))
+        if len(rendered) != len(pages):
+            return ToolResult(
+                status="error",
+                error="rendered_pages missing coverage for requested pages",
+                latency_ms=int((time.monotonic() - start) * 1000),
+            )
+    else:
+        from app.services.document_agent.visual import render_pages
+
+        rendered = render_pages(
+            ctx,
+            pages,
+            folder_name=folder_name,
+            prefix=prefix,
+            timeout=120,
         )
+        if not rendered:
+            return ToolResult(
+                status="error",
+                error="render failed",
+                latency_ms=int((time.monotonic() - start) * 1000),
+            )
 
     model = ctx.settings.get("vlm_model") or os.environ.get("IMAGE_MODEL")
     if not model:

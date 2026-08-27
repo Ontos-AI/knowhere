@@ -71,16 +71,14 @@ def _run_tagging_for_scope(
     page_count: int,
     page_texts: dict[int, str],
     page_features: list[Any],
-    toc_policy: Any,
+    toc_pages: list[int],
     args: Any,
-    token_cost_tracker: TokenCostTracker | None = None,
 ) -> ScopeResult:
     """Load Stage-3 combined tags and rehydrate renders for final assembly."""
+    from app.services.document_agent.structure.toc_anchoring import pages_excluding_toc
     from app.services.page_memory.page_renderer import render_document_pages
 
     scope_stages: list[dict[str, Any]] = []
-    if token_cost_tracker is not None:
-        token_cost_tracker.register_child_thread()
 
     fine_hierarchy_path = scope_dir / "fine_hierarchy.json"
     require_file(fine_hierarchy_path, hint=f"Run Stage 3 to produce {fine_hierarchy_path}")
@@ -114,26 +112,20 @@ def _run_tagging_for_scope(
     final_pages = (
         [int(page) for page in recorded_pages]
         if isinstance(recorded_pages, list)
-        else toc_policy.filter_processing_pages(
+        else pages_excluding_toc(
             _derive_hierarchy_page_scope(
                 skeletons=active_skeletons,
                 page_count=page_count,
-            )
+            ),
+            toc_pages,
         )
     )
-    recorded_excluded = prior_scope.get("excluded_toc_pages")
-    excluded_toc_pages = (
-        [int(page) for page in recorded_excluded]
-        if isinstance(recorded_excluded, list)
-        else sorted(toc_policy.pure_toc_pages)
-    )
+    final_pages = pages_excluding_toc(final_pages, toc_pages)
     scope_manifest = _scope_manifest(
         scope_id=scope_id,
         skeletons=active_skeletons,
         page_count=page_count,
         strategy="fine:finalize",
-        processing_pages=final_pages,
-        excluded_toc_pages=excluded_toc_pages,
     )
     logger.info(
         "🔬 [scope {}] loaded {} combined tags for {} processing pages",
@@ -147,6 +139,7 @@ def _run_tagging_for_scope(
         pdf_path=pdf_path,
         page_count=page_count,
         output_dir=str(out_dir),
+        scope_id=scope_id,
         pages=final_pages,
         page_features=page_features,
         page_texts=page_texts,
@@ -274,16 +267,7 @@ def main() -> int:
         args.finalize = True
 
     from app.services.document_agent.pdf_text import read_page_texts
-    from app.services.document_agent.structure.hierarchy_locator import extract_toc_nodes
-    from app.services.page_memory.memory_service import (
-        _append_toc_nav_skeletons,
-        _merge_static_toc_tags,
-    )
-    from app.services.page_memory.node_assembler import (
-        build_node_chunks,
-        build_toc_node_chunks,
-        merge_chunks_by_first_page,
-    )
+    from app.services.page_memory.node_assembler import build_node_rows
     from app.services.page_memory.skeleton_extractor import collapse_single_child_chains
     from shared.models.schemas.page_memory_config import PageMemoryConfig
 
@@ -300,9 +284,9 @@ def main() -> int:
     anatomy = load_anatomy_cache(anatomy_cache, pdf_path, filename)
     page_count = anatomy.page_count
     page_features = anatomy.page_features if anatomy else []
-    from toc_page_policy import TocPagePolicy
-
-    toc_policy = TocPagePolicy.from_anatomy(anatomy)
+    page_labels = anatomy.page_labels if anatomy else []
+    toc_result = getattr(anatomy, "toc_result", None)
+    toc_pages = list(getattr(toc_result, "toc_pages", None) or [])
 
     scope_ids = resolve_debug_scope_ids(
         scopes_dir=scopes_dir,
@@ -340,9 +324,8 @@ def main() -> int:
             page_count=page_count,
             page_texts=page_texts,
             page_features=page_features,
-            toc_policy=toc_policy,
+            toc_pages=toc_pages,
             args=args,
-            token_cost_tracker=token_cost_tracker,
         )
 
     if args.max_workers > 1 and len(scope_ids) > 1:
@@ -440,22 +423,17 @@ def main() -> int:
     )
 
     active_skeletons = all_skeletons
-    tags = _merge_static_toc_tags(all_tags, toc_policy)
-    nav_skeletons = _append_toc_nav_skeletons(
-        body_skeletons=active_skeletons,
-        anatomy=anatomy,
-        filename=filename,
-    )
+    tags = all_tags
 
     # Write top-level artifacts
     write_top_level_artifacts(
         out_dir=out_dir,
-        hierarchy=nav_skeletons,
+        hierarchy=active_skeletons,
         tags=tags,
         assets_by_page=all_assets if all_assets else None,
     )
 
-    # ── C7: Node assembly ──
+    # ── C7: Node assembly (same entry as production memory_service) ──
     logger.info("=" * 70)
     logger.info("🧱 C7: assemble canonical chunks")
     logger.info("=" * 70)
@@ -473,25 +451,48 @@ def main() -> int:
             image_path_by_page[page] = rend.image_path
 
     page_memory_config = PageMemoryConfig.default()
-    body_chunks = build_node_chunks(
+    label_map: dict[int, str] = {}
+    if page_labels:
+        for lbl in page_labels:
+            label_map[int(lbl.page)] = str(lbl.kind)
+    rows = build_node_rows(
         skeletons=active_skeletons,
         raw_text_by_page=raw_text_by_page,
         image_path_by_page=image_path_by_page,
+        output_dir=str(out_dir),
+        kind_by_page=label_map,
         tag_by_page=tag_map,
         filename=filename,
+        verdict="page",
         vlm_model=args.vlm_model or os.environ.get("IMAGE_MODEL"),
         page_assets_by_page=all_assets if all_assets else None,
+        node_summary_max_pages=page_memory_config.node_summary_max_pages,
         node_assembly_concurrency=page_memory_config.node_assembly_concurrency,
-        body_start_by_page=toc_policy.body_start_by_page(),
     )
-    toc_chunks = build_toc_node_chunks(anatomy=anatomy, filename=filename)
-    canonical_chunks = merge_chunks_by_first_page(toc_chunks, body_chunks)
-    from shared.services.chunks.canonical_chunk_builder import chunks_as_json
-
-    chunks = cast(
-        list[dict[str, Any]],
-        chunks_as_json(canonical_chunks),
-    )
+    chunks = [
+        {
+            "chunk_id": str(row.get("know_id") or ""),
+            "type": str(row.get("type") or "page"),
+            "content": str(row.get("content") or ""),
+            "path": str(row.get("path") or ""),
+            "metadata": {
+                "length": int(row.get("length") or 0),
+                "summary": str(row.get("summary") or ""),
+                "page_nums": [
+                    int(part)
+                    for part in str(row.get("page_nums") or "").split(",")
+                    if str(part).strip().isdigit()
+                ],
+                "keywords": [
+                    part.strip()
+                    for part in str(row.get("keywords") or "").split(";")
+                    if part.strip()
+                ],
+                **(row.get("extra_metadata") or {}),
+            },
+        }
+        for row in rows
+    ]
     logger.info(f"   C7: {len(chunks)} canonical chunks")
     record_stage(
         trace_stages,
@@ -569,6 +570,10 @@ def main() -> int:
             )
 
     # ── Final trace + cross-stage cost rollup ──
+    from app.services.document_agent.structure.hierarchy_locator import (
+        extract_toc_nodes,
+    )
+
     toc_nodes = (
         extract_toc_nodes(anatomy.toc_hierarchies) if anatomy.toc_hierarchies else []
     )
@@ -606,7 +611,10 @@ def main() -> int:
     report_path.write_text(report, encoding="utf-8")
 
     if args.finalize:
-        from shared.services.storage.zip_manifest_schema import ZipManifestBuilder
+        from shared.services.storage.zip_manifest_schema import (
+            ZipManifestBuilder,
+            enrich_manifest_with_token_cost_estimate,
+        )
 
         manifest = ZipManifestBuilder().generate_manifest(
             job_id=filename,
@@ -620,7 +628,11 @@ def main() -> int:
             hierarchy=hierarchy_dict,
         )
         (out_dir / "manifest.json").write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2),
+            json.dumps(
+                enrich_manifest_with_token_cost_estimate(manifest),
+                ensure_ascii=False,
+                indent=2,
+            ),
             encoding="utf-8",
         )
 

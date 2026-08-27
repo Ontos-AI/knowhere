@@ -42,7 +42,6 @@ DEFAULT_TIMEOUT = 3000
 QUEUE_POLL_INTERVAL_SECONDS = 0.1
 CHILD_EXIT_GRACE_SECONDS = 5
 POST_RESULT_EXIT_GRACE_SECONDS = 5
-POST_KILL_JOIN_GRACE_SECONDS = 1
 # Child can exit 0 before multiprocessing.Queue's feeder flushes; retry once.
 EMPTY_QUEUE_EXIT_RETRIES = 1
 PROCESS_POOL_SIZE = read_pymupdf_max_concurrent()
@@ -122,14 +121,16 @@ def _shutdown_process_pool() -> None:
 def _close_result_queue(result_queue: MultiprocessingQueue) -> None:
     """Release parent-side queue resources once the child result is no longer needed."""
     try:
+        # Avoid joining the queue feeder thread after we already have the payload;
+        # otherwise parent/child teardown can stall each other.
+        result_queue.cancel_join_thread()
+    except Exception as exc:
+        logger.debug(f"Failed to cancel PyMuPDF result queue join: {exc}")
+
+    try:
         result_queue.close()
     except Exception as exc:
         logger.debug(f"Failed to close PyMuPDF result queue: {exc}")
-
-    try:
-        result_queue.join_thread()
-    except Exception as exc:
-        logger.debug(f"Failed to join PyMuPDF result queue thread: {exc}")
 
 
 def _is_empty_queue_exit(exc: Exception) -> bool:
@@ -242,7 +243,8 @@ def _run_worker_in_spawned_process_once(
             ),
         )
 
-    _close_result_queue(result_queue)
+    # Success path: wait for natural child exit before tearing down the queue.
+    # Do not kill — the payload is already in hand; forced kill only adds noise.
     proc.join(timeout=POST_RESULT_EXIT_GRACE_SECONDS)
     elapsed = time.monotonic() - t0
     exit_lag = None
@@ -250,16 +252,13 @@ def _run_worker_in_spawned_process_once(
         exit_lag = elapsed - (wait_result.received_at - t0)
 
     if proc.is_alive():
-        proc.kill()
-        proc.join(timeout=POST_KILL_JOIN_GRACE_SECONDS)
-        elapsed = time.monotonic() - t0
-        if wait_result.received_at is not None:
-            exit_lag = elapsed - (wait_result.received_at - t0)
-        logger.warning(
+        logger.debug(
             f"[pymupdf-subprocess] EXIT_DELAY pid={child_pid} fn={worker_fn.__name__} "
             f"elapsed={elapsed:.1f}s exit_lag={exit_lag:.1f}s "
-            f"— result returned before child exited; child killed after grace"
+            f"— result returned; leaving child to finish exit without kill"
         )
+
+    _close_result_queue(result_queue)
 
     result = wait_result.result or {}
     if not result.get("ok"):

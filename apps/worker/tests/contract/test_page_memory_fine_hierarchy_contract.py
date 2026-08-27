@@ -53,6 +53,33 @@ def test_compute_fat_leaf_pages_uses_exclusive_boundaries() -> None:
     }
 
 
+def test_compute_fat_leaf_pages_excludes_toc_pages_from_span() -> None:
+    """Closed range 1-6 with toc=[2,3,4] is only 3 body pages → not fat when min=4."""
+    skeletons = [
+        SectionSkeleton(
+            section_path="demo.pdf/Abbreviations",
+            level=1,
+            start_page=1,
+            end_page=6,
+            title="Abbreviations",
+            parent_path="demo.pdf",
+        ),
+    ]
+    assert (
+        fine_hierarchy.compute_fat_leaf_pages(
+            skeletons,
+            min_pages=4,
+            toc_pages=[2, 3, 4],
+        )
+        == set()
+    )
+    assert fine_hierarchy.compute_fat_leaf_pages(
+        skeletons,
+        min_pages=2,
+        toc_pages=[2, 3, 4],
+    ) == {1, 5, 6}
+
+
 def test_refine_fat_leaf_skeletons_excludes_next_section_start_when_unordered(
     monkeypatch,
 ) -> None:

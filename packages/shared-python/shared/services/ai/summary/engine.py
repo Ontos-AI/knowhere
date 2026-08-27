@@ -7,7 +7,6 @@ duplicated across ``text/parser``, ``page_tagger``, ``node_assembler``, and
 - prompt construction (via the shared ``build_prompt`` registry),
 - the text-or-vision LLM call (with optional page/asset images),
 - JSON parsing with one retry,
-- budget reserve/commit/refund for visual calls,
 - deterministic language locking for text input.
 
 Two public functions:
@@ -38,18 +37,20 @@ from shared.services.ai.summary.model import (
     BodySummary,
     Entity,
 )
-from shared.utils.token_estimate import estimate_tokens
 
 SummaryMode = Literal["text", "page", "asset"]
 
 _MAX_JSON_RETRIES = 1
-_IMAGE_TOKEN_EST = 800
 
 
 def _read_image_b64(image_path: str) -> str | None:
     try:
         with open(image_path, "rb") as handle:
-            return base64.b64encode(handle.read()).decode()
+            raw = handle.read()
+        if not raw:
+            logger.warning("[summary] empty image file {}", image_path)
+            return None
+        return base64.b64encode(raw).decode()
     except Exception as exc:
         logger.warning("[summary] failed to read image {}: {}", image_path, exc)
         return None
@@ -105,17 +106,12 @@ def _call_llm(
     image_paths: list[str],
     usage_task: str,
     expect_json: bool,
-    budget: Any | None,
-    budget_pool: str,
-    budget_stage: str | None,
     channel: Literal["text", "vision"] = "text",
 ) -> Any | None:
-    """One text-or-vision call with budget accounting and a single JSON retry.
+    """One text-or-vision call with a single JSON retry.
 
     Returns the parsed object (``expect_json``) or the raw string, or ``None`` on
-    failure / exhausted budget. Budget is reserved before the call, committed on
-    success, refunded on failure — matching the prior per-caller bookkeeping but
-    in one place.
+    failure. Token usage is recorded by the shared client into the parse tracker.
 
     ``channel`` selects BYOK text vs vision credentials when overrides are active.
     """
@@ -136,13 +132,6 @@ def _call_llm(
         # Every requested image failed to load; nothing to send.
         return None
 
-    est = estimate_tokens(prompt) + _IMAGE_TOKEN_EST * max(1, len(image_paths))
-    if budget is not None and not budget.try_reserve(
-        budget_pool, est, stage=budget_stage
-    ):
-        logger.debug("[summary] budget exhausted for task {}", usage_task)
-        return None
-
     api_kwargs: dict[str, Any] = {}
     if expect_json:
         api_kwargs["response_format"] = {"type": "json_object"}
@@ -150,8 +139,6 @@ def _call_llm(
     resolve = resolve_vision if channel == "vision" else resolve_text
     effective_model, api_key, api_url = resolve(model)
     if not effective_model:
-        if budget is not None:
-            budget.refund(budget_pool, est=est, stage=budget_stage)
         return None
 
     client = _client_mod.get_openai_client(
@@ -161,7 +148,7 @@ def _call_llm(
     )
     for attempt in range(_MAX_JSON_RETRIES + 1):
         try:
-            raw, usage = client.chat_completion_with_usage(
+            raw, _ = client.chat_completion_with_usage(
                 messages=cast(Any, [{"role": "user", "content": content_parts}]),
                 model=effective_model,
                 temperature=temperature,
@@ -170,14 +157,6 @@ def _call_llm(
                 usage_task=usage_task,
                 **api_kwargs,
             )
-            if budget is not None:
-                budget.commit(
-                    budget_pool,
-                    actual=usage.get("total_tokens", est),
-                    est=est,
-                    stage=budget_stage,
-                )
-                budget = None  # commit once even across the retry loop
             if not expect_json:
                 if isinstance(raw, str) and raw.strip().lower() in ("null", "none"):
                     return None
@@ -195,15 +174,11 @@ def _call_llm(
                 continue
             return None
         except UnavailableException:
-            if budget is not None:
-                budget.refund(budget_pool, est=est, stage=budget_stage)
             if usage_task.startswith("page_memory."):
                 raise
             return None
         except Exception as exc:
             logger.warning("[summary] LLM call failed for {}: {}", usage_task, exc)
-            if budget is not None:
-                budget.refund(budget_pool, est=est, stage=budget_stage)
             return None
     return None
 
@@ -218,9 +193,6 @@ def summarize(
     max_keywords: int = ...,
     model: str | None = ...,
     usage_task: str | None = ...,
-    budget: Any | None = ...,
-    budget_pool: str = ...,
-    budget_stage: str | None = ...,
     asset_title_hint: str = ...,
     prompt_task: str | None = ...,
     prompt_paras: dict[str, Any] | None = ...,
@@ -238,9 +210,6 @@ def summarize(
     max_keywords: int = ...,
     model: str | None = ...,
     usage_task: str | None = ...,
-    budget: Any | None = ...,
-    budget_pool: str = ...,
-    budget_stage: str | None = ...,
     asset_title_hint: str = ...,
     prompt_task: str | None = ...,
     prompt_paras: dict[str, Any] | None = ...,
@@ -257,13 +226,6 @@ def summarize(
     max_keywords: int = 5,
     model: str | None = None,
     usage_task: str | None = None,
-    # TODO(parse-budget-cleanup): no live caller passes a non-None budget after
-    # PROFILE BudgetTracker removal. Drop budget/budget_pool/budget_stage once
-    # remaining formats stop needing this duck-typed hook, or redirect any
-    # future limit to token_tracking instead.
-    budget: Any | None = None,
-    budget_pool: str = "visual",
-    budget_stage: str | None = None,
     asset_title_hint: str = "",
     prompt_task: str | None = None,
     prompt_paras: dict[str, Any] | None = None,
@@ -279,9 +241,6 @@ def summarize(
     image_paths:
         Page or asset image(s). Required for ``page``/``asset`` modes that render
         from an image; ignored for plain ``text``.
-    budget:
-        Optional external reservation ledger. Visual calls reserve from
-        ``budget_stage``.
     prompt_task / prompt_paras:
         Override the prompt used for the image-based page path. Lets a bounded
         node summary (``page-memory-node-summary`` with ``node_title`` /
@@ -300,9 +259,6 @@ def summarize(
             summary_len=summary_len,
             model=model,
             usage_task=usage_task or "summary.asset",
-            budget=budget,
-            budget_pool=budget_pool,
-            budget_stage=budget_stage,
             asset_title_hint=asset_title_hint,
         )
     return _summarize_body(
@@ -313,9 +269,6 @@ def summarize(
         max_keywords=max_keywords,
         model=model,
         usage_task=usage_task or f"summary.{mode}",
-        budget=budget,
-        budget_pool=budget_pool,
-        budget_stage=budget_stage,
         prompt_task=prompt_task,
         prompt_paras=prompt_paras,
     )
@@ -330,9 +283,6 @@ def _summarize_body(
     max_keywords: int,
     model: str | None,
     usage_task: str,
-    budget: Any | None,
-    budget_pool: str,
-    budget_stage: str | None,
     prompt_task: str | None = None,
     prompt_paras: dict[str, Any] | None = None,
 ) -> BodySummary:
@@ -355,9 +305,6 @@ def _summarize_body(
             image_paths=image_paths,
             usage_task=usage_task,
             expect_json=True,
-            budget=budget,
-            budget_pool=budget_pool,
-            budget_stage=budget_stage,
             channel="vision",
         )
     else:
@@ -385,9 +332,6 @@ def _summarize_body(
             image_paths=[],
             usage_task=usage_task,
             expect_json=True,
-            budget=budget,
-            budget_pool="plan",
-            budget_stage=None,
             channel="text",
         )
 
@@ -408,9 +352,6 @@ def _summarize_asset(
     summary_len: int,
     model: str | None,
     usage_task: str,
-    budget: Any | None,
-    budget_pool: str,
-    budget_stage: str | None,
     asset_title_hint: str,
 ) -> AssetSummary:
     if not image_paths and not text.strip():
@@ -436,9 +377,6 @@ def _summarize_asset(
             image_paths=[],
             usage_task=usage_task,
             expect_json=False,
-            budget=budget,
-            budget_pool="plan",
-            budget_stage=None,
             channel="text",
         )
         if isinstance(raw, str) and raw.strip():
@@ -465,9 +403,6 @@ def _summarize_asset(
         image_paths=image_paths,
         usage_task=usage_task,
         expect_json=True,
-        budget=budget,
-        budget_pool=budget_pool,
-        budget_stage=budget_stage,
         channel="vision",
     )
     if isinstance(parsed, dict):
@@ -486,9 +421,6 @@ def transcribe(
     model: str | None = None,
     max_tokens: int = 1500,
     usage_task: str = "summary.transcribe",
-    budget: Any | None = None,
-    budget_pool: str = "visual",
-    budget_stage: str | None = None,
 ) -> str:
     """Single OCR primitive (§4.2): transcribe page/image text verbatim.
 
@@ -514,9 +446,6 @@ def transcribe(
         image_paths=image_paths,
         usage_task=usage_task,
         expect_json=True,
-        budget=budget,
-        budget_pool=budget_pool,
-        budget_stage=budget_stage,
         channel="vision",
     )
     if isinstance(parsed, dict):

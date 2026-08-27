@@ -432,7 +432,12 @@ def handle_table(
         from shared.services.ai.summary.engine import summarize
 
         # Tables are Contract B assets: title + summary + entities from HTML.
-        result = summarize(mode="asset", text=tb_html_str, max_keywords=3)
+        result = summarize(
+            mode="asset",
+            text=tb_html_str,
+            max_keywords=3,
+            usage_task="parser.docx.table",
+        )
         llm_title = result.title or None
         tb_keywords = result.keywords_str()
         llm_summary = result.summary or None
