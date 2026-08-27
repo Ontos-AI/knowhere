@@ -24,6 +24,7 @@ from shared.services.storage.zip_package_writer import (
 )
 from shared.services.storage.zip_result_resources import ZipResourceCollector
 from shared.services.storage.zip_result_schema import ZipResultSchemaBuilder
+from shared.services.storage.zip_manifest_schema import strip_manifest_cost_fields
 
 
 class ZipResultService:
@@ -83,6 +84,7 @@ class ZipResultService:
                 job_metadata=job_metadata,
                 hierarchy=hierarchy,
             )
+            manifest = strip_manifest_cost_fields(manifest)
             parse_track = str((job_metadata or {}).get("parse_track") or "")
             artifact = self._writer.write(
                 ZipPackageWriteRequest(
