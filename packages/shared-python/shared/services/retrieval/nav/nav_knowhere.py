@@ -425,6 +425,16 @@ class KnowhereProvider:
         self._ensure_section_loaded(section_id)
         return list(self._units_by_section.get(section_id, ()))
 
+    def release_section_units(self, section_id: str) -> None:
+        """Drop one section's loaded payload while keeping its structure."""
+        if self._lazy_loader is None:
+            return
+        sid = str(section_id or "").strip()
+        if not sid:
+            return
+        self._units_by_section.pop(sid, None)
+        self._loaded_sections.discard(sid)
+
     def subtree_units(self, section_id: str) -> List[UnitRow]:
         out = list(self.self_units(section_id))
         for cid in self.relations(section_id)[1]:
@@ -731,6 +741,14 @@ class NamespaceKnowhereProvider:
             release = getattr(provider, "release_loaded_units", None)
             if callable(release):
                 release()
+
+    def release_section_units(self, section_id: str) -> None:
+        owner = self._section_owner.get(str(section_id or "").strip())
+        if not owner:
+            return
+        release = getattr(self._docs[owner], "release_section_units", None)
+        if callable(release):
+            release(section_id)
 
     def address_level(self, node_id: str) -> Optional[NavLevel]:
         sid = str(node_id or "").strip()

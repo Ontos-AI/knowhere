@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .knowhere_hybrid import (
+    ScoreUnitRow,
     build_content_search_text,
     build_path_search_text,
     build_term_search_text,
-    score_dense_channel,
     score_rows_hybrid_all,
+    score_unit_stream_hybrid_all,
 )
 
 
@@ -26,6 +28,10 @@ def _line_content(ts: Any, section_id: str, doc_id: str) -> str:
     idx = getattr(ts, "_idx", None)
     b = getattr(idx, "_bundles", {}).get(doc_id) if idx is not None else None
     if b is None:
+        path_fn = getattr(ts, "path_titles", None)
+        if callable(path_fn):
+            path = str(path_fn(section_id, doc_id) or "").strip()
+            return path.rsplit(" / ", 1)[-1] if path else ""
         st = ts.get_structure(section_id)
         return str(st.get("preview") or "").strip()
     loc = getattr(idx, "_node_to_doc_line", {}).get(section_id)
@@ -173,47 +179,6 @@ def _pool_unit_scores_to_tree(
     return map_scores
 
 
-def _score_dense_units_by_doc(
-    units_by_doc: Sequence[Tuple[str, List[dict]]],
-    query: str,
-    *,
-    namespace: Optional[str],
-) -> Dict[str, Optional[Dict[str, float]]]:
-    """Read per-doc vector caches, returning raw cosine scores for global fusion.
-
-    Dense cosine is independently comparable across documents. Partitioning only
-    preserves the existing per-doc disk cache; no ranking or normalization occurs
-    here. If any partition fails, that whole channel falls back to global BM25.
-    """
-    dense_by_channel: Dict[str, Optional[Dict[str, float]]] = {}
-    for channel, text_field in (("path", "path_text"), ("content", "content")):
-        score_by_id: Dict[str, float] = {}
-        complete = True
-        for doc_id, units in units_by_doc:
-            if not units:
-                continue
-            unit_ids = [str(unit["chunk_id"]) for unit in units]
-            scores = score_dense_channel(
-                [str(unit.get(text_field) or "") for unit in units],
-                query,
-                unit_ids=unit_ids,
-                doc_id=doc_id,
-                channel=channel,
-                namespace=namespace,
-            )
-            if scores is None or len(scores) != len(unit_ids):
-                complete = False
-                break
-            score_by_id.update(
-                {
-                    unit_id: float(scores[index])
-                    for index, unit_id in enumerate(unit_ids)
-                }
-            )
-        dense_by_channel[channel] = score_by_id if complete else None
-    return dense_by_channel
-
-
 def build_score_units(ts: Any, doc_id: str, root_ids: Optional[Sequence[str]] = None) -> List[dict]:
     """Build leaf (+ interstitial self_only) units for hybrid scoring."""
     if root_ids is None:
@@ -274,6 +239,66 @@ def build_score_units(ts: Any, doc_id: str, root_ids: Optional[Sequence[str]] = 
             }
         )
     return units
+
+
+def iter_score_units(
+    ts: Any,
+    doc_id: str,
+    *,
+    children_map: Dict[str, List[str]],
+    leaves: Set[str],
+    titles: Dict[str, str],
+) -> Iterator[ScoreUnitRow]:
+    """Yield scoring units while releasing each lazy section after use."""
+    release = getattr(ts, "release_section_units", None)
+
+    for leaf_id in sorted(leaves):
+        try:
+            content = _section_body_text(ts, leaf_id, doc_id) or (
+                titles.get(leaf_id) or _line_content(ts, leaf_id, doc_id)
+            )
+            if content:
+                path_text = _ancestor_path_titles(ts, leaf_id, doc_id)
+                title = titles.get(leaf_id) or _line_content(ts, leaf_id, doc_id)
+                yield {
+                    "chunk_id": leaf_id,
+                    "section_id": leaf_id,
+                    "kind": "leaf",
+                    "content": content,
+                    "path_text": path_text,
+                    "path_search_text": build_path_search_text(
+                        section_path=path_text, section_title=title or content
+                    ),
+                    "content_search_text": build_content_search_text(content),
+                    "term_search_text": build_term_search_text(content, path_text=path_text),
+                }
+        finally:
+            if callable(release):
+                release(leaf_id)
+
+    for sid, kids in children_map.items():
+        if not kids:
+            continue
+        try:
+            self_text, has_interstitial = _self_only_text(ts, sid, doc_id)
+            if not has_interstitial or not self_text:
+                continue
+            path_text = _ancestor_path_titles(ts, sid, doc_id)
+            yield {
+                "chunk_id": f"{sid}__self",
+                "section_id": sid,
+                "kind": "self_only",
+                "content": self_text,
+                "path_text": path_text,
+                "path_search_text": build_path_search_text(
+                    section_path=path_text, section_title=titles.get(sid) or ""
+                ),
+                "content_search_text": build_content_search_text(self_text),
+                "term_search_text": build_term_search_text(self_text, path_text=path_text),
+            }
+        finally:
+            if callable(release):
+                release(sid)
 
 
 def compute_map_scores(
@@ -346,44 +371,33 @@ def compute_corpus_map_and_unit_scores(
         seen_doc_ids.add(doc_id)
         valid_doc_ids.append(doc_id)
 
-    ns = namespace
-    if not ns:
-        import os
+    del namespace  # Dense scoring is intentionally disabled for the corpus path.
 
-        ns = os.environ.get("NAV_MAP_UNIT_CACHE_NS", "").strip() or None
-
-    tree_by_doc: Dict[str, Tuple[Dict[str, List[str]], Set[str]]] = {}
-    units_by_doc: List[Tuple[str, List[dict]]] = []
-    all_units: List[dict] = []
+    tree_by_doc: Dict[
+        str,
+        Tuple[Dict[str, List[str]], Set[str], Dict[str, str]],
+    ] = {}
     for doc_id in valid_doc_ids:
         root_ids = list(ts.sections_for_doc(doc_id))
-        children_map, leaves, _titles = _walk_tree(ts, doc_id, root_ids)
-        units = build_score_units(ts, doc_id, root_ids=root_ids)
-        tree_by_doc[doc_id] = (children_map, leaves)
-        units_by_doc.append((doc_id, units))
-        all_units.extend(units)
-        release = getattr(ts, "release_loaded_units", None)
-        if callable(release):
-            release()
+        children_map, leaves, titles = _walk_tree(ts, doc_id, root_ids)
+        tree_by_doc[doc_id] = (children_map, leaves, titles)
 
-    dense_scores = _score_dense_units_by_doc(
-        units_by_doc,
-        query,
-        namespace=ns,
-    )
-    scored = score_rows_hybrid_all(
-        all_units,
-        query,
-        dense_scores_by_channel=dense_scores,
-    )
-    unit_scores = {
-        str(row.get("chunk_id") or ""): float(row.get("score") or 0.0)
-        for row in scored
-    }
+    def unit_factory() -> Iterator[ScoreUnitRow]:
+        for document_id in valid_doc_ids:
+            children_map, leaves, titles = tree_by_doc[document_id]
+            yield from iter_score_units(
+                ts,
+                document_id,
+                children_map=children_map,
+                leaves=leaves,
+                titles=titles,
+            )
+
+    unit_scores = score_unit_stream_hybrid_all(unit_factory, query)
 
     map_scores: Dict[str, float] = {}
     for doc_id in valid_doc_ids:
-        children_map, leaves = tree_by_doc[doc_id]
+        children_map, leaves, _titles = tree_by_doc[doc_id]
         doc_map_scores = _pool_unit_scores_to_tree(
             children_map, leaves, unit_scores
         )

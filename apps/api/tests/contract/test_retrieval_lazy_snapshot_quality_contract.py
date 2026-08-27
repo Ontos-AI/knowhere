@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections.abc import Sequence
+from typing import Any
 
 from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
 from shared.services.retrieval.nav.nav_knowhere import (
@@ -14,6 +15,11 @@ from shared.services.retrieval.nav.nav_knowhere import (
 from shared.services.retrieval.nav.nav_map_scores import (
     build_score_units,
     compute_corpus_map_and_unit_scores,
+)
+from shared.services.retrieval.nav.knowhere_hybrid import (
+    ScoreUnitRow,
+    score_rows_hybrid_all,
+    score_unit_stream_hybrid_all,
 )
 
 
@@ -101,3 +107,70 @@ def test_lazy_provider_preserves_score_units_and_scores() -> None:
         "duplicate-chunk",
         "asset-1",
     ]
+
+
+def test_streaming_scorer_preserves_exact_eager_scores() -> None:
+    rows: list[ScoreUnitRow] = [
+        {
+            "chunk_id": "unit-a",
+            "path_search_text": "root alpha",
+            "content_search_text": "alpha alpha evidence",
+            "term_search_text": "alpha alpha evidence root",
+        },
+        {
+            "chunk_id": "unit-b",
+            "path_search_text": "root beta",
+            "content_search_text": "beta evidence",
+            "term_search_text": "beta evidence root",
+        },
+        {
+            "chunk_id": "unit-c",
+            "path_search_text": "root common",
+            "content_search_text": "common evidence",
+            "term_search_text": "common evidence root",
+        },
+    ]
+    eager_rows: list[dict[str, Any]] = [dict(row) for row in rows]
+    eager_scores = {
+        str(row["chunk_id"]): float(row["score"])
+        for row in score_rows_hybrid_all(eager_rows, "alpha evidence")
+    }
+    replay_count: int = 0
+
+    def unit_factory() -> Sequence[ScoreUnitRow]:
+        nonlocal replay_count
+        replay_count += 1
+        return rows
+
+    assert score_unit_stream_hybrid_all(unit_factory, "alpha evidence") == eager_scores
+    assert replay_count == 1
+
+
+def test_streaming_scorer_preserves_duplicate_id_eager_semantics() -> None:
+    rows: list[ScoreUnitRow] = [
+        {
+            "chunk_id": "duplicate",
+            "path_search_text": "alpha",
+            "content_search_text": "alpha",
+            "term_search_text": "alpha",
+        },
+        {
+            "chunk_id": "duplicate",
+            "path_search_text": "beta",
+            "content_search_text": "beta",
+            "term_search_text": "beta",
+        },
+        {
+            "chunk_id": "other",
+            "path_search_text": "alpha beta",
+            "content_search_text": "alpha beta",
+            "term_search_text": "alpha beta",
+        },
+    ]
+    eager_rows: list[dict[str, Any]] = [dict(row) for row in rows]
+    eager_scores = {
+        str(row["chunk_id"]): float(row["score"])
+        for row in score_rows_hybrid_all(eager_rows, "alpha beta")
+    }
+
+    assert score_unit_stream_hybrid_all(lambda: rows, "alpha beta") == eager_scores
