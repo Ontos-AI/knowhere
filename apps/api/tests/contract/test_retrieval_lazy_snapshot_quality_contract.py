@@ -27,6 +27,32 @@ from shared.services.retrieval.nav.knowhere_hybrid import (
 @dataclass
 class _FakeChunkStore:
     units_by_section: dict[str, list[UnitRow]]
+    document_loads: int = 0
+
+    def load_document_units(
+        self,
+        document_id: str,
+        section_ids: Sequence[str],
+        extra_chunk_ids_by_section: dict[str, Sequence[str]] | None = None,
+    ) -> list[UnitRow]:
+        del document_id
+        self.document_loads += 1
+        selected = {str(section_id) for section_id in section_ids}
+        units = [
+            unit
+            for section_id, section_units in self.units_by_section.items()
+            if section_id in selected
+            for unit in section_units
+        ]
+        known = {unit.chunk_id for unit in units}
+        for chunk_ids in (extra_chunk_ids_by_section or {}).values():
+            for chunk_id in chunk_ids:
+                for section_units in self.units_by_section.values():
+                    for unit in section_units:
+                        if unit.chunk_id == chunk_id and unit.chunk_id not in known:
+                            units.append(unit)
+                            known.add(unit.chunk_id)
+        return units
 
     def load_section_units(
         self,
@@ -47,7 +73,7 @@ class _FakeChunkStore:
         return None
 
 
-def _providers() -> tuple[ProviderToolSpace, ProviderToolSpace]:
+def _providers() -> tuple[ProviderToolSpace, ProviderToolSpace, _FakeChunkStore]:
     sections = [
         SectionRow("root", None, "Root", "Root", 0, "", 0),
         SectionRow("section", "root", "Root / Section", "Section", 1, "", 1),
@@ -89,11 +115,11 @@ def _providers() -> tuple[ProviderToolSpace, ProviderToolSpace]:
         titles={"doc": "document"},
         chunk_owner_by_id={"duplicate-chunk": "doc", "asset-1": "doc"},
     )
-    return ProviderToolSpace(eager), ProviderToolSpace(lazy)
+    return ProviderToolSpace(eager), ProviderToolSpace(lazy), store
 
 
 def test_lazy_provider_preserves_score_units_and_scores() -> None:
-    eager, lazy = _providers()
+    eager, lazy, store = _providers()
 
     assert build_score_units(eager, "doc") == build_score_units(lazy, "doc")
     assert compute_corpus_map_and_unit_scores(
@@ -103,6 +129,10 @@ def test_lazy_provider_preserves_score_units_and_scores() -> None:
     )
 
     lazy_provider = lazy._provider
+    store.document_loads = 0
+    prefetch = getattr(lazy_provider, "prefetch_document_units")
+    prefetch("doc")
+    assert store.document_loads == 1
     self_units = getattr(lazy_provider, "self_units")
     assert [unit.chunk_id for unit in self_units("leaf")] == [
         "duplicate-chunk",
