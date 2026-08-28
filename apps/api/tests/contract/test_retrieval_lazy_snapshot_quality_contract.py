@@ -11,6 +11,7 @@ from shared.services.retrieval.nav.nav_knowhere import (
     NamespaceKnowhereProvider,
     SectionRow,
     UnitRow,
+    knowhere_database_url,
 )
 from shared.services.retrieval.nav.nav_map_scores import (
     build_score_units,
@@ -174,3 +175,18 @@ def test_streaming_scorer_preserves_duplicate_id_eager_semantics() -> None:
     }
 
     assert score_unit_stream_hybrid_all(lambda: rows, "alpha beta") == eager_scores
+
+
+def test_native_chunk_store_strips_async_driver_from_database_url(
+    monkeypatch: Any,
+) -> None:
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://prod-user:prod-password@db.example/knowhere",
+    )
+    monkeypatch.delenv("KNOWHERE_DATABASE_URL", raising=False)
+
+    assert (
+        knowhere_database_url()
+        == "postgresql://prod-user:prod-password@db.example/knowhere"
+    )
