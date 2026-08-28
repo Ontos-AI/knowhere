@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import AbstractAsyncContextManager
 
 from loguru import logger
@@ -180,12 +181,22 @@ async def _run_mapnav_route(
         episode_token_count,
         episode_workflow_plan,
     )
+    snapshot_started = time.perf_counter()
     snapshot = await load_nav_snapshot(
         context.db,
         user_id=context.user_id,
         namespace=context.namespace,
         exclude_document_ids=context.exclude_document_ids,
         exclude_sections=context.exclude_sections,
+        lazy=True,
+    )
+    snapshot_seconds = time.perf_counter() - snapshot_started
+    logger.info(
+        "retrieval mapnav stage=snapshot_load seconds={:.3f} documents={} refs={}".format(
+            snapshot_seconds,
+            len(snapshot.document_ids),
+            len(snapshot.chunk_ref_index),
+        )
     )
 
     # Small-corpus count / snapshot reads may leave a checkout; drop it before
@@ -196,20 +207,31 @@ async def _run_mapnav_route(
     cfg = build_nav_config()
     toolspace = ProviderToolSpace(snapshot.provider)
 
-    episode = await asyncio.to_thread(
-        run_nav_episode,
-        None,
-        context.query,
-        corpus_doc_ids=list(snapshot.document_ids),
-        budget_chars=budget,
-        compose_answer=False,
-        policy="llm",
-        config=cfg,
-        toolspace=toolspace,
-    )
+    episode_started = time.perf_counter()
+    try:
+        episode = await asyncio.to_thread(
+            run_nav_episode,
+            None,
+            context.query,
+            corpus_doc_ids=list(snapshot.document_ids),
+            budget_chars=budget,
+            compose_answer=False,
+            policy="llm",
+            config=cfg,
+            toolspace=toolspace,
+        )
 
-    refs, score_by_chunk_id = build_referenced_chunks(episode, snapshot)
+        refs, score_by_chunk_id = build_referenced_chunks(episode, snapshot)
+        logger.info(
+            "retrieval mapnav stage=episode seconds={:.3f} refs={}".format(
+                time.perf_counter() - episode_started,
+                len(refs),
+            )
+        )
+    finally:
+        snapshot.close()
 
+    hydration_started = time.perf_counter()
     async with open_fresh_database_context() as final_db:
         resolved = await resolve_workflow_references(
             db=final_db,
@@ -256,6 +278,12 @@ async def _run_mapnav_route(
             selected_paths=selected_paths,
             selected_doc_ids=selected_docs,
         )
+    logger.info(
+        "retrieval mapnav stage=hydration seconds={:.3f} results={}".format(
+            time.perf_counter() - hydration_started,
+            len(assembled_rows),
+        )
+    )
 
     stop_reason = str(getattr(episode, "stop_reason", "") or "completed")
     evidence_text = str(getattr(episode, "evidence_text", "") or "")

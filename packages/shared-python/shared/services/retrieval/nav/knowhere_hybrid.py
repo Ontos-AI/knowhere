@@ -5,17 +5,35 @@ Ported from Ontos-AI/knowhere:
 
 Reference: https://github.com/Ontos-AI/knowhere
 """
+
 from __future__ import annotations
 
 import os
 import re
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+import math
+from collections import Counter
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, TypedDict
 
 RRF_K = 60
 CHANNEL_WEIGHT_PATH = 1.0
 CHANNEL_WEIGHT_CONTENT = 2.0
 CHANNEL_WEIGHT_TERM = 1.5
 INTERNAL_RECALL_K_MULTIPLIER = 2
+
+
+class ScoreUnitRow(TypedDict, total=False):
+    """Compact scoring-unit shape shared by eager and streaming scorers."""
+
+    chunk_id: str
+    section_id: str
+    kind: str
+    content: str
+    path_text: str
+    path_search_text: str
+    content_search_text: str
+    term_search_text: str
 
 
 def tokenize_for_retrieval(text: str, *, dedupe: bool = True) -> List[str]:
@@ -39,7 +57,9 @@ def _space_join_tokens(text: str) -> str:
     return " ".join(tokenize_for_retrieval(text, dedupe=False))
 
 
-def build_content_search_text(content: str, *, section_summary: Optional[str] = None) -> str:
+def build_content_search_text(
+    content: str, *, section_summary: Optional[str] = None
+) -> str:
     parts = [str(content or "").strip()]
     if section_summary and str(section_summary).strip():
         parts.append(str(section_summary).strip())
@@ -68,7 +88,7 @@ def build_term_search_text(content: str, *, path_text: Optional[str] = None) -> 
     return combined
 
 
-def _get_search_tokens(row: dict[str, Any], *, search_field: str) -> List[str]:
+def _get_search_tokens(row: Mapping[str, object], *, search_field: str) -> List[str]:
     return [token for token in str(row.get(search_field) or "").split() if token]
 
 
@@ -99,7 +119,9 @@ def rank_rows_by_bm25(
     try:
         from rank_bm25 import BM25Okapi
     except ImportError:
-        return _rank_rows_by_token_overlap(rows, query_tokens, search_field=search_field)
+        return _rank_rows_by_token_overlap(
+            rows, query_tokens, search_field=search_field
+        )
 
     corpus: List[List[str]] = []
     ranked_rows: List[dict[str, Any]] = []
@@ -123,7 +145,9 @@ def rank_rows_by_bm25(
     return ranked_rows
 
 
-def rank_rows_by_term_channel(rows: List[dict[str, Any]], query: str) -> List[dict[str, Any]]:
+def rank_rows_by_term_channel(
+    rows: List[dict[str, Any]], query: str
+) -> List[dict[str, Any]]:
     query_lower = query.lower().strip()
     query_tokens = tokenize_query_for_ranker(query)
     if not query_lower or not query_tokens:
@@ -200,12 +224,24 @@ def normalize_row_scores(
 
 
 def _channel_weights() -> Tuple[float, float, float]:
-    path_w = float(os.environ.get("NAV_DISCOVERY_CHANNEL_WEIGHT_PATH", str(CHANNEL_WEIGHT_PATH)).strip() or CHANNEL_WEIGHT_PATH)
+    path_w = float(
+        os.environ.get(
+            "NAV_DISCOVERY_CHANNEL_WEIGHT_PATH", str(CHANNEL_WEIGHT_PATH)
+        ).strip()
+        or CHANNEL_WEIGHT_PATH
+    )
     content_w = float(
-        os.environ.get("NAV_DISCOVERY_CHANNEL_WEIGHT_CONTENT", str(CHANNEL_WEIGHT_CONTENT)).strip()
+        os.environ.get(
+            "NAV_DISCOVERY_CHANNEL_WEIGHT_CONTENT", str(CHANNEL_WEIGHT_CONTENT)
+        ).strip()
         or CHANNEL_WEIGHT_CONTENT
     )
-    term_w = float(os.environ.get("NAV_DISCOVERY_CHANNEL_WEIGHT_TERM", str(CHANNEL_WEIGHT_TERM)).strip() or CHANNEL_WEIGHT_TERM)
+    term_w = float(
+        os.environ.get(
+            "NAV_DISCOVERY_CHANNEL_WEIGHT_TERM", str(CHANNEL_WEIGHT_TERM)
+        ).strip()
+        or CHANNEL_WEIGHT_TERM
+    )
     return path_w, content_w, term_w
 
 
@@ -225,14 +261,23 @@ def hybrid_search_rows(
 
     recall_k = internal_recall_k
     if recall_k is None:
-        mult = int(os.environ.get("NAV_DISCOVERY_RECALL_MULT", str(INTERNAL_RECALL_K_MULTIPLIER)).strip() or INTERNAL_RECALL_K_MULTIPLIER)
+        mult = int(
+            os.environ.get(
+                "NAV_DISCOVERY_RECALL_MULT", str(INTERNAL_RECALL_K_MULTIPLIER)
+            ).strip()
+            or INTERNAL_RECALL_K_MULTIPLIER
+        )
         recall_k = max(top_k, top_k * max(1, mult))
 
     rrf_k = int(os.environ.get("NAV_DISCOVERY_RRF_K", str(RRF_K)).strip() or RRF_K)
     path_w, content_w, term_w = _channel_weights()
 
-    path_rows = rank_rows_by_bm25(list(rows), query_tokens, search_field="path_search_text")[:recall_k]
-    content_rows = rank_rows_by_bm25(list(rows), query_tokens, search_field="content_search_text")[:recall_k]
+    path_rows = rank_rows_by_bm25(
+        list(rows), query_tokens, search_field="path_search_text"
+    )[:recall_k]
+    content_rows = rank_rows_by_bm25(
+        list(rows), query_tokens, search_field="content_search_text"
+    )[:recall_k]
     term_rows = rank_rows_by_term_channel(list(rows), query)[:recall_k]
 
     fused = merge_channels_rrf(
@@ -245,27 +290,32 @@ def hybrid_search_rows(
     return fused
 
 
-
 def map_channel_weights() -> Tuple[float, float, float]:
     """Channel weights for map scoring (prefer NAV_MAP_* env, fall back to legacy names)."""
     path_w = float(
         os.environ.get(
             "NAV_MAP_CHANNEL_WEIGHT_PATH",
-            os.environ.get("NAV_DISCOVERY_CHANNEL_WEIGHT_PATH", str(CHANNEL_WEIGHT_PATH)),
+            os.environ.get(
+                "NAV_DISCOVERY_CHANNEL_WEIGHT_PATH", str(CHANNEL_WEIGHT_PATH)
+            ),
         ).strip()
         or CHANNEL_WEIGHT_PATH
     )
     content_w = float(
         os.environ.get(
             "NAV_MAP_CHANNEL_WEIGHT_CONTENT",
-            os.environ.get("NAV_DISCOVERY_CHANNEL_WEIGHT_CONTENT", str(CHANNEL_WEIGHT_CONTENT)),
+            os.environ.get(
+                "NAV_DISCOVERY_CHANNEL_WEIGHT_CONTENT", str(CHANNEL_WEIGHT_CONTENT)
+            ),
         ).strip()
         or CHANNEL_WEIGHT_CONTENT
     )
     term_w = float(
         os.environ.get(
             "NAV_MAP_CHANNEL_WEIGHT_TERM",
-            os.environ.get("NAV_DISCOVERY_CHANNEL_WEIGHT_TERM", str(CHANNEL_WEIGHT_TERM)),
+            os.environ.get(
+                "NAV_DISCOVERY_CHANNEL_WEIGHT_TERM", str(CHANNEL_WEIGHT_TERM)
+            ),
         ).strip()
         or CHANNEL_WEIGHT_TERM
     )
@@ -428,18 +478,23 @@ def fuse_channel_bm25_dense(
     dense_vals = [float(dense_by_id.get(uid, 0.0) or 0.0) for uid in unit_ids]
     bm25_n = _normalize_score_list(bm25_vals)
     dense_n = _normalize_score_list(dense_vals)
-    dense_w = float(os.environ.get("NAV_MAP_CHANNEL_DENSE_WEIGHT", "0.5").strip() or "0.5")
+    dense_w = float(
+        os.environ.get("NAV_MAP_CHANNEL_DENSE_WEIGHT", "0.5").strip() or "0.5"
+    )
     dense_w = min(1.0, max(0.0, dense_w))
     bm25_w = 1.0 - dense_w
     return {
-        uid: bm25_w * bm25_n[i] + dense_w * dense_n[i]
-        for i, uid in enumerate(unit_ids)
+        uid: bm25_w * bm25_n[i] + dense_w * dense_n[i] for i, uid in enumerate(unit_ids)
     }
 
 
 def _rank_ids_by_score(score_by_id: Dict[str, float]) -> List[str]:
     ranked = sorted(
-        ((sid, float(score)) for sid, score in score_by_id.items() if float(score) > 0.0),
+        (
+            (sid, float(score))
+            for sid, score in score_by_id.items()
+            if float(score) > 0.0
+        ),
         key=lambda item: (-item[1], item[0]),
     )
     return [sid for sid, _ in ranked]
@@ -453,9 +508,7 @@ def score_rows_hybrid_all(
     content_texts: Optional[Dict[str, str]] = None,
     doc_id: Optional[str] = None,
     namespace: Optional[str] = None,
-    dense_scores_by_channel: Optional[
-        Dict[str, Optional[Dict[str, float]]]
-    ] = None,
+    dense_scores_by_channel: Optional[Dict[str, Optional[Dict[str, float]]]] = None,
 ) -> List[dict[str, Any]]:
     """Score every row with path/content/term; optional within-channel dense fuse.
 
@@ -473,7 +526,9 @@ def score_rows_hybrid_all(
     if not unit_ids:
         return [dict(row, score=0.0) for row in rows]
 
-    row_by_id = {str(row.get("chunk_id") or ""): dict(row) for row in rows if row.get("chunk_id")}
+    row_by_id = {
+        str(row.get("chunk_id") or ""): dict(row) for row in rows if row.get("chunk_id")
+    }
     path_w, content_w, term_w = map_channel_weights()
     rrf_k = int(
         os.environ.get(
@@ -484,7 +539,9 @@ def score_rows_hybrid_all(
     )
 
     if query_tokens:
-        path_ranked = rank_rows_by_bm25(list(rows), query_tokens, search_field="path_search_text")
+        path_ranked = rank_rows_by_bm25(
+            list(rows), query_tokens, search_field="path_search_text"
+        )
         content_ranked = rank_rows_by_bm25(
             list(rows), query_tokens, search_field="content_search_text"
         )
@@ -496,7 +553,8 @@ def score_rows_hybrid_all(
         str(r.get("chunk_id") or ""): float(r.get("score") or 0.0) for r in path_ranked
     }
     content_bm25 = {
-        str(r.get("chunk_id") or ""): float(r.get("score") or 0.0) for r in content_ranked
+        str(r.get("chunk_id") or ""): float(r.get("score") or 0.0)
+        for r in content_ranked
     }
     term_bm25 = {
         str(r.get("chunk_id") or ""): float(r.get("score") or 0.0) for r in term_ranked
@@ -536,19 +594,12 @@ def score_rows_hybrid_all(
             namespace=namespace,
         )
         path_dense_by_id = (
-            {
-                uid: float(path_dense_scores[i])
-                for i, uid in enumerate(unit_ids)
-            }
-            if path_dense_scores is not None
-            and len(path_dense_scores) == len(unit_ids)
+            {uid: float(path_dense_scores[i]) for i, uid in enumerate(unit_ids)}
+            if path_dense_scores is not None and len(path_dense_scores) == len(unit_ids)
             else None
         )
         content_dense_by_id = (
-            {
-                uid: float(content_dense_scores[i])
-                for i, uid in enumerate(unit_ids)
-            }
+            {uid: float(content_dense_scores[i]) for i, uid in enumerate(unit_ids)}
             if content_dense_scores is not None
             and len(content_dense_scores) == len(unit_ids)
             else None
@@ -558,7 +609,9 @@ def score_rows_hybrid_all(
         content_dense_by_id = dense_scores_by_channel.get("content")
 
     path_channel = fuse_channel_bm25_dense(path_bm25, path_dense_by_id, unit_ids)
-    content_channel = fuse_channel_bm25_dense(content_bm25, content_dense_by_id, unit_ids)
+    content_channel = fuse_channel_bm25_dense(
+        content_bm25, content_dense_by_id, unit_ids
+    )
     term_channel = {uid: float(term_bm25.get(uid, 0.0) or 0.0) for uid in unit_ids}
 
     # Convert channel scores to ranked lists for existing RRF merger.
@@ -580,7 +633,9 @@ def score_rows_hybrid_all(
         top_k=len(unit_ids),
         k=rrf_k,
     )
-    fused_by_id = {str(r.get("chunk_id") or ""): float(r.get("score") or 0.0) for r in fused}
+    fused_by_id = {
+        str(r.get("chunk_id") or ""): float(r.get("score") or 0.0) for r in fused
+    }
     out_rows: List[dict[str, Any]] = []
     for uid in unit_ids:
         row = dict(row_by_id[uid])
@@ -590,3 +645,311 @@ def score_rows_hybrid_all(
         row["term_channel_score"] = float(term_channel.get(uid, 0.0) or 0.0)
         out_rows.append(row)
     return out_rows
+
+
+def score_unit_stream_hybrid_all(
+    unit_factory: Callable[[], Iterable[ScoreUnitRow]],
+    query: str,
+) -> Dict[str, float]:
+    """Score replayable units without retaining their payloads.
+
+    This is the corpus scorer used by map-nav. It mirrors the active BM25 and
+    weighted-RRF implementation, but keeps only token statistics, identifiers,
+    and final scores between bounded provider reads.
+    """
+    return score_unit_stream_hybrid_many(unit_factory, [query]).get(query, {})
+
+
+def score_unit_stream_hybrid_many(
+    unit_factory: Callable[[], Iterable[ScoreUnitRow]],
+    queries: Sequence[str],
+) -> Dict[str, Dict[str, float]]:
+    """Score several queries exactly while reading the corpus only once."""
+    unique_queries = list(dict.fromkeys(str(query) for query in queries))
+    if not unique_queries:
+        return {}
+
+    query_tokens_by_query = {
+        query: tokenize_query_for_ranker(query) for query in unique_queries
+    }
+    query_token_set = {
+        token
+        for query_tokens in query_tokens_by_query.values()
+        for token in query_tokens
+    }
+    query_lower_by_query = {query: query.lower().strip() for query in unique_queries}
+    units: List[_StreamingManyUnit] = []
+    path_stats = _StreamingBm25Stats.empty()
+    content_stats = _StreamingBm25Stats.empty()
+    for row in unit_factory():
+        unit_id = str(row.get("chunk_id") or "").strip()
+        if not unit_id:
+            continue
+        path_tokens = _get_search_tokens(row, search_field="path_search_text")
+        content_tokens = _get_search_tokens(row, search_field="content_search_text")
+        # BM25 corpus statistics are computed over the complete input rows by
+        # the eager scorer, including rows whose public IDs collide.
+        path_stats.observe(path_tokens)
+        content_stats.observe(content_tokens)
+        path_frequencies = Counter(path_tokens)
+        content_frequencies = Counter(content_tokens)
+        haystack = str(row.get("term_search_text") or "").lower()
+        term_scores: List[float] = []
+        for query in unique_queries:
+            query_lower = query_lower_by_query[query]
+            query_tokens = query_tokens_by_query[query]
+            term_score = 0.0
+            if query_lower:
+                if query_lower in haystack:
+                    term_score = 100.0
+                else:
+                    hit_count = sum(1 for token in query_tokens if token in haystack)
+                    if hit_count > 0:
+                        term_score = float(hit_count)
+            term_scores.append(term_score)
+        units.append(
+            _StreamingManyUnit(
+                unit_id=unit_id,
+                path_length=len(path_tokens),
+                content_length=len(content_tokens),
+                path_frequencies={
+                    token: path_frequencies[token]
+                    for token in query_token_set
+                    if path_frequencies[token]
+                },
+                content_frequencies={
+                    token: content_frequencies[token]
+                    for token in query_token_set
+                    if content_frequencies[token]
+                },
+                term_scores=tuple(term_scores),
+            )
+        )
+    path_stats.finalize()
+    content_stats.finalize()
+    return {
+        query: _score_streaming_units(
+            units,
+            path_stats=path_stats,
+            content_stats=content_stats,
+            query_tokens=query_tokens_by_query[query],
+            query_index=index,
+        )
+        for index, query in enumerate(unique_queries)
+    }
+
+
+def _score_streaming_units(
+    units: Sequence["_StreamingManyUnit"],
+    *,
+    path_stats: "_StreamingBm25Stats",
+    content_stats: "_StreamingBm25Stats",
+    query_tokens: List[str],
+    query_index: int,
+) -> Dict[str, float]:
+    path_by_id: Dict[str, float] = {}
+    content_by_id: Dict[str, float] = {}
+    term_by_id: Dict[str, float] = {}
+    unit_ids = list(dict.fromkeys(unit.unit_id for unit in units))
+    for unit in units:
+        path_score = path_stats.score(
+            unit.path_length, unit.path_frequencies, query_tokens
+        )
+        content_score = content_stats.score(
+            unit.content_length, unit.content_frequencies, query_tokens
+        )
+        path_by_id[unit.unit_id] = path_score
+        content_by_id[unit.unit_id] = content_score
+        term_by_id[unit.unit_id] = float(
+            unit.term_scores[query_index]
+            if query_index < len(unit.term_scores)
+            else 0.0
+        )
+
+    path_rows = [
+        (score, unit_id) for unit_id, score in path_by_id.items() if score > 0.0
+    ]
+    content_rows = [
+        (score, unit_id) for unit_id, score in content_by_id.items() if score > 0.0
+    ]
+    term_rows = [
+        (score, unit_id) for unit_id, score in term_by_id.items() if score > 0.0
+    ]
+    path_rows.sort(key=lambda item: (-item[0], item[1]))
+    content_rows.sort(key=lambda item: (-item[0], item[1]))
+    term_rows.sort(key=lambda item: (-item[0], item[1]))
+    path_weight, content_weight, term_weight = map_channel_weights()
+    rrf_k = int(
+        os.environ.get(
+            "NAV_MAP_RRF_K",
+            os.environ.get("NAV_DISCOVERY_RRF_K", str(RRF_K)),
+        ).strip()
+        or RRF_K
+    )
+    fused: Dict[str, float] = {unit_id: 0.0 for unit_id in unit_ids}
+    for rank, (_score, unit_id) in enumerate(path_rows):
+        fused[unit_id] = fused.get(unit_id, 0.0) + path_weight / (rrf_k + rank + 1)
+    for rank, (_score, unit_id) in enumerate(content_rows):
+        fused[unit_id] = fused.get(unit_id, 0.0) + content_weight / (rrf_k + rank + 1)
+    for rank, (_score, unit_id) in enumerate(term_rows):
+        fused[unit_id] = fused.get(unit_id, 0.0) + term_weight / (rrf_k + rank + 1)
+    return {unit_id: round(score, 6) for unit_id, score in fused.items()}
+
+
+@dataclass(frozen=True)
+class _StreamingManyUnit:
+    unit_id: str
+    path_length: int
+    content_length: int
+    path_frequencies: Mapping[str, int]
+    content_frequencies: Mapping[str, int]
+    term_scores: Tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class PersistedBm25Stats:
+    """Corpus statistics needed to reproduce ``BM25Okapi`` exactly."""
+
+    document_count: int
+    total_length: int
+    document_frequency: Mapping[str, int]
+    average_idf: float
+
+
+@dataclass(frozen=True)
+class PersistedScoreUnit:
+    """Query-specific frequencies for one persisted map unit."""
+
+    unit_id: str
+    path_length: int
+    content_length: int
+    path_frequencies: Mapping[str, int]
+    content_frequencies: Mapping[str, int]
+    term_scores: Tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class PersistedScoreCorpus:
+    """Compact query projection loaded from the map-unit index."""
+
+    units: Sequence[PersistedScoreUnit]
+    path_stats: PersistedBm25Stats
+    content_stats: PersistedBm25Stats
+
+
+def score_persisted_corpus_many(
+    corpus: PersistedScoreCorpus,
+    queries: Sequence[str],
+) -> Dict[str, Dict[str, float]]:
+    """Apply the existing BM25/RRF scorer to persisted query projections."""
+    unique_queries = list(dict.fromkeys(str(query) for query in queries))
+    if not unique_queries:
+        return {}
+    path_stats = _restore_bm25_stats(corpus.path_stats)
+    content_stats = _restore_bm25_stats(corpus.content_stats)
+    units = [
+        _StreamingManyUnit(
+            unit_id=unit.unit_id,
+            path_length=unit.path_length,
+            content_length=unit.content_length,
+            path_frequencies=unit.path_frequencies,
+            content_frequencies=unit.content_frequencies,
+            term_scores=unit.term_scores,
+        )
+        for unit in corpus.units
+    ]
+    return {
+        query: _score_streaming_units(
+            units,
+            path_stats=path_stats,
+            content_stats=content_stats,
+            query_tokens=tokenize_query_for_ranker(query),
+            query_index=query_index,
+        )
+        for query_index, query in enumerate(unique_queries)
+    }
+
+
+def _restore_bm25_stats(source: PersistedBm25Stats) -> "_StreamingBm25Stats":
+    stats = _StreamingBm25Stats.empty()
+    stats.document_count = source.document_count
+    stats.total_length = source.total_length
+    stats.average_length = (
+        source.total_length / source.document_count if source.document_count else 0.0
+    )
+    idf_by_token: Dict[str, float] = {}
+    for token, frequency in source.document_frequency.items():
+        idf = math.log(source.document_count - frequency + 0.5) - math.log(
+            frequency + 0.5
+        )
+        idf_by_token[token] = 0.25 * source.average_idf if idf < 0.0 else idf
+    stats.idf_by_token = idf_by_token
+    return stats
+
+
+class _StreamingBm25Stats:
+    """Exact BM25Okapi corpus statistics collected without row retention."""
+
+    def __init__(self) -> None:
+        self.document_count: int = 0
+        self.document_frequency: Counter[str] = Counter()
+        self.total_length: int = 0
+        self.average_length: float = 0.0
+        self.idf_by_token: Dict[str, float] = {}
+
+    @classmethod
+    def empty(cls) -> "_StreamingBm25Stats":
+        return cls()
+
+    def observe(self, tokens: List[str]) -> None:
+        if not tokens:
+            return
+        self.document_count += 1
+        self.total_length += len(tokens)
+        self.document_frequency.update(set(tokens))
+
+    def finalize(self) -> None:
+        self.average_length = (
+            self.total_length / self.document_count if self.document_count else 0.0
+        )
+        idf_by_token: Dict[str, float] = {}
+        idf_sum = 0.0
+        negative_tokens: List[str] = []
+        for token, frequency in self.document_frequency.items():
+            idf = math.log(self.document_count - frequency + 0.5) - math.log(
+                frequency + 0.5
+            )
+            idf_by_token[token] = idf
+            idf_sum += idf
+            if idf < 0.0:
+                negative_tokens.append(token)
+        average_idf = idf_sum / len(idf_by_token) if idf_by_token else 0.0
+        epsilon_floor = 0.25 * average_idf
+        for token in negative_tokens:
+            idf_by_token[token] = epsilon_floor
+        self.idf_by_token = idf_by_token
+
+    def score(
+        self,
+        document_length: int,
+        frequencies: Dict[str, int],
+        query_tokens: List[str],
+    ) -> float:
+        if (
+            not frequencies
+            or not query_tokens
+            or not self.document_count
+            or self.average_length <= 0.0
+        ):
+            return 0.0
+        denominator_base = 1.5 * (
+            1.0 - 0.75 + 0.75 * document_length / self.average_length
+        )
+        score = 0.0
+        for token in query_tokens:
+            frequency = frequencies.get(token, 0)
+            if not frequency:
+                continue
+            idf = self.idf_by_token.get(token, 0.0)
+            score += idf * (frequency * 2.5 / (frequency + denominator_base))
+        return score

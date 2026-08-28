@@ -49,7 +49,9 @@ class Document(Base):
     document_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(
         JSON, nullable=True
     )
-    parse_track: Mapped[str] = mapped_column(String(32), nullable=False, default="chunk")
+    parse_track: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="chunk"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, nullable=False
     )
@@ -139,6 +141,7 @@ class DocumentChunk(Base):
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: f"dchk_{uuid4().hex[:12]}"
     )
+
     chunk_id: Mapped[str] = mapped_column(String(64), nullable=False)
     user_id: Mapped[str] = mapped_column(Text, nullable=False)
     namespace: Mapped[str] = mapped_column(
@@ -210,6 +213,15 @@ class DocumentChunk(Base):
             "chunk_id",
             "id",
         ),
+        Index(
+            "idx_document_chunks_revision_section_order",
+            "document_id",
+            "job_result_id",
+            "section_id",
+            "sort_order",
+            "chunk_id",
+            "id",
+        ),
         Index("idx_document_chunks_section", "section_id"),
         Index(
             "idx_chunk_content_search_tsv",
@@ -220,6 +232,110 @@ class DocumentChunk(Base):
             "idx_chunk_path_search_tsv",
             "path_search_tsv",
             postgresql_using="gin",
+        ),
+    )
+
+
+class DocumentMapUnit(Base):
+    """Persisted lexical map unit for one document revision.
+
+    These rows are a derived index of the exact leaf and interstitial units
+    used by map-nav. Full chunk payloads remain in ``document_chunks`` and are
+    loaded separately for evidence hydration.
+    """
+
+    __tablename__ = "document_map_units"
+
+    id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    document_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    job_result_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("job_results.id", ondelete="CASCADE"), nullable=False
+    )
+    unit_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    section_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    unit_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    path_token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    term_search_text_lower: Mapped[str] = mapped_column(Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False
+    )
+
+    __table_args__ = (
+        Index(
+            "idx_document_map_units_revision_order",
+            "document_id",
+            "job_result_id",
+            "sort_order",
+            "unit_id",
+        ),
+        Index("idx_document_map_units_section", "section_id"),
+    )
+
+
+class DocumentMapUnitToken(Base):
+    """One exact token frequency in a persisted map unit channel."""
+
+    __tablename__ = "document_map_unit_tokens"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    map_unit_id: Mapped[str] = mapped_column(
+        String(160),
+        ForeignKey("document_map_units.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    token: Mapped[str] = mapped_column(Text, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    frequency: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "idx_document_map_unit_tokens_lookup",
+            "channel",
+            "token_hash",
+            "map_unit_id",
+        ),
+        Index("idx_document_map_unit_tokens_unit", "map_unit_id", "channel"),
+    )
+
+
+class DocumentMapUnitIndex(Base):
+    """Completeness marker for a revision's materialized map-unit index."""
+
+    __tablename__ = "document_map_unit_indexes"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    document_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    job_result_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("job_results.id", ondelete="CASCADE"), nullable=False
+    )
+    format_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id",
+            "job_result_id",
+            name="uq_document_map_unit_indexes_revision",
+        ),
+        Index(
+            "idx_document_map_unit_indexes_revision",
+            "document_id",
+            "job_result_id",
         ),
     )
 
@@ -376,44 +492,58 @@ class RetrievalHitStat(Base):
 class RetrievalRun(Base):
     """One row per agentic retrieval query.  Append-only analytics."""
 
-    __tablename__ = 'retrieval_runs'
+    __tablename__ = "retrieval_runs"
 
-    run_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: f'aret_{uuid4().hex[:12]}')
+    run_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: f"aret_{uuid4().hex[:12]}"
+    )
     user_id: Mapped[str] = mapped_column(Text, nullable=False)
-    namespace: Mapped[str] = mapped_column(String(255), nullable=False, default='default')
+    namespace: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="default"
+    )
     query: Mapped[str] = mapped_column(Text, nullable=False)
-    query_hash: Mapped[str] = mapped_column(String(32), nullable=False, default='')
+    query_hash: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     top_k: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     chunk_types: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
     filters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
-    policy_name: Mapped[str] = mapped_column(String(64), nullable=False, default='rule_based_v1')
+    policy_name: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="rule_based_v1"
+    )
     agentic_enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
     cache_hit: Mapped[bool] = mapped_column(nullable=False, default=False)
     result_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     final_doc_ids: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
-    result_provenance: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
-    parent_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    result_provenance: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSON, nullable=True
+    )
+    parent_run_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True, index=True
+    )
     workflow_step_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     workflow_plan: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     token_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (
-        Index('idx_retrieval_runs_user_namespace', 'user_id', 'namespace'),
-        Index('idx_retrieval_runs_created', 'created_at'),
-        Index('idx_retrieval_runs_query_hash', 'query_hash'),
+        Index("idx_retrieval_runs_user_namespace", "user_id", "namespace"),
+        Index("idx_retrieval_runs_created", "created_at"),
+        Index("idx_retrieval_runs_query_hash", "query_hash"),
     )
 
 
 class RetrievalStep(Base):
     """One row per agent step within a retrieval run.  Append-only analytics."""
 
-    __tablename__ = 'retrieval_steps'
+    __tablename__ = "retrieval_steps"
 
-    step_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: f'arst_{uuid4().hex[:12]}')
+    step_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: f"arst_{uuid4().hex[:12]}"
+    )
     run_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     step_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     action_type: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -425,9 +555,11 @@ class RetrievalStep(Base):
     token_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     model_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
 
     __table_args__ = (
-        Index('idx_retrieval_steps_run', 'run_id', 'step_index'),
-        Index('idx_retrieval_steps_created', 'created_at'),
+        Index("idx_retrieval_steps_run", "run_id", "step_index"),
+        Index("idx_retrieval_steps_created", "created_at"),
     )
