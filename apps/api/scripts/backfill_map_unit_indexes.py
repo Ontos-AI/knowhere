@@ -15,10 +15,22 @@ import sys
 from pathlib import Path
 
 
+def _resolve_shared_root(api_root: Path) -> Path:
+    """Resolve the shared package in source checkouts and runtime images."""
+    runtime_shared_root = api_root / "packages" / "shared-python"
+    if runtime_shared_root.is_dir():
+        return runtime_shared_root
+
+    repository_shared_root = api_root.parents[1] / "packages" / "shared-python"
+    if repository_shared_root.is_dir():
+        return repository_shared_root
+
+    raise RuntimeError(f"Could not locate shared-python package from {api_root}")
+
+
 def _bootstrap_python_path() -> None:
     api_root = Path(__file__).resolve().parents[1]
-    repo_root = api_root.parents[1]
-    shared_root = repo_root / "packages" / "shared-python"
+    shared_root = _resolve_shared_root(api_root)
     for path in (api_root, shared_root):
         value = os.fspath(path)
         if value not in sys.path:
@@ -44,7 +56,9 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Build and commit each current revision index.",
     )
-    parser.add_argument("--document-id", default="", help="Limit the backfill to one document.")
+    parser.add_argument(
+        "--document-id", default="", help="Limit the backfill to one document."
+    )
     return parser
 
 
@@ -62,7 +76,9 @@ def backfill_map_unit_indexes(*, apply: bool, document_id: str = "") -> int:
     documents = _load_documents(document_id)
     if not apply:
         for document in documents:
-            print(f"would backfill document={document.document_id} revision={document.current_job_result_id}")
+            print(
+                f"would backfill document={document.document_id} revision={document.current_job_result_id}"
+            )
         return len(documents)
 
     session_factory = get_sync_session_factory()
