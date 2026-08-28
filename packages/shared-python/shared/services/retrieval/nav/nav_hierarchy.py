@@ -249,6 +249,15 @@ class ProviderToolSpace:
         if str(getattr(provider, "doc_id", "")) == str(doc_id):
             fn()
 
+    def prefetch_document_units_batch(self, doc_ids: Sequence[str]) -> None:
+        """Forward a provider's bounded multi-document prefetch capability."""
+        fn = getattr(self._provider, "prefetch_document_units_batch", None)
+        if callable(fn):
+            fn(doc_ids)
+            return
+        for doc_id in doc_ids:
+            self.prefetch_document_units(str(doc_id))
+
     def release_document_units(self, doc_id: str) -> None:
         """Forward release of one document's prefetched payloads."""
         provider = self._provider

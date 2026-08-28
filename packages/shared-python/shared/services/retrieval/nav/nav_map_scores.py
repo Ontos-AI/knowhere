@@ -9,8 +9,12 @@ from .knowhere_hybrid import (
     build_path_search_text,
     build_term_search_text,
     score_rows_hybrid_all,
-    score_unit_stream_hybrid_all,
+    score_unit_stream_hybrid_many,
 )
+
+# Keep one bulk read bounded when a namespace contains a very large document,
+# while still replacing the per-document N+1 access pattern.
+_CORPUS_PREFETCH_GROUP_SIZE = 8
 
 
 def _children_ids(ts: Any, section_id: str, doc_id: str) -> List[str]:
@@ -362,6 +366,26 @@ def compute_corpus_map_and_unit_scores(
     All documents share one BM25 corpus, path/content normalization, channel
     ranking, and RRF pass. Document-level scores are keyed by bare ``document_id``.
     """
+    return compute_corpus_map_and_unit_scores_many(
+        ts,
+        doc_ids=doc_ids,
+        queries=[query],
+        namespace=namespace,
+    ).get(query, ({}, {}))
+
+
+def compute_corpus_map_and_unit_scores_many(
+    ts: Any,
+    *,
+    doc_ids: Sequence[str],
+    queries: Sequence[str],
+    namespace: Optional[str] = None,
+) -> Dict[str, Tuple[Dict[str, float], Dict[str, float]]]:
+    """Globally score several queries with one replay of the corpus units."""
+    unique_queries = list(dict.fromkeys(str(query) for query in queries))
+    if not unique_queries:
+        return {}
+
     valid_doc_ids: List[str] = []
     seen_doc_ids: Set[str] = set()
     for raw in doc_ids:
@@ -383,10 +407,37 @@ def compute_corpus_map_and_unit_scores(
         tree_by_doc[doc_id] = (children_map, leaves, titles)
 
     def unit_factory() -> Iterator[ScoreUnitRow]:
+        prefetch_batch = getattr(ts, "prefetch_document_units_batch", None)
+        release = getattr(ts, "release_document_units", None)
+        if callable(prefetch_batch):
+            for group_start in range(
+                0,
+                len(valid_doc_ids),
+                _CORPUS_PREFETCH_GROUP_SIZE,
+            ):
+                document_group = valid_doc_ids[
+                    group_start : group_start + _CORPUS_PREFETCH_GROUP_SIZE
+                ]
+                prefetch_batch(document_group)
+                try:
+                    for document_id in document_group:
+                        children_map, leaves, titles = tree_by_doc[document_id]
+                        yield from iter_score_units(
+                            ts,
+                            document_id,
+                            children_map=children_map,
+                            leaves=leaves,
+                            titles=titles,
+                        )
+                finally:
+                    if callable(release):
+                        for document_id in document_group:
+                            release(document_id)
+            return
+
         for document_id in valid_doc_ids:
             children_map, leaves, titles = tree_by_doc[document_id]
             prefetch = getattr(ts, "prefetch_document_units", None)
-            release = getattr(ts, "release_document_units", None)
             if callable(prefetch):
                 prefetch(document_id)
             try:
@@ -401,21 +452,27 @@ def compute_corpus_map_and_unit_scores(
                 if callable(release):
                     release(document_id)
 
-    unit_scores = score_unit_stream_hybrid_all(unit_factory, query)
-
-    map_scores: Dict[str, float] = {}
-    for doc_id in valid_doc_ids:
-        children_map, leaves, _titles = tree_by_doc[doc_id]
-        doc_map_scores = _pool_unit_scores_to_tree(
-            children_map, leaves, unit_scores
-        )
-        map_scores.update(doc_map_scores)
-        doc_max = max(
-            (float(value) for value in doc_map_scores.values()),
-            default=0.0,
-        )
-        map_scores[doc_id] = doc_max
-    return map_scores, unit_scores
+    unit_scores_by_query = score_unit_stream_hybrid_many(
+        unit_factory,
+        unique_queries,
+    )
+    results: Dict[str, Tuple[Dict[str, float], Dict[str, float]]] = {}
+    for query in unique_queries:
+        unit_scores = unit_scores_by_query.get(query, {})
+        map_scores: Dict[str, float] = {}
+        for doc_id in valid_doc_ids:
+            children_map, leaves, _titles = tree_by_doc[doc_id]
+            doc_map_scores = _pool_unit_scores_to_tree(
+                children_map, leaves, unit_scores
+            )
+            map_scores.update(doc_map_scores)
+            doc_max = max(
+                (float(value) for value in doc_map_scores.values()),
+                default=0.0,
+            )
+            map_scores[doc_id] = doc_max
+        results[query] = (map_scores, unit_scores)
+    return results
 
 
 def unit_id_to_section_id(unit_id: str) -> str:
@@ -474,3 +531,44 @@ def relight_map_for_query(
             ts, doc_ids=doc_ids, query=query
         )
     return map_scores, unit_scores, select_map_highlights(unit_scores, k=int(top_k))
+
+
+def relight_maps_for_queries(
+    ts: Any,
+    *,
+    doc_id: str,
+    queries: Sequence[str],
+    top_k: int = 6,
+) -> Dict[str, Tuple[Dict[str, float], Dict[str, float], List[str]]]:
+    """Re-score a shared map for several queries with one corpus replay."""
+    unique_queries = list(dict.fromkeys(str(query) for query in queries))
+    if not unique_queries:
+        return {}
+    doc = str(doc_id or "").strip()
+    if doc:
+        return {
+            query: relight_map_for_query(
+                ts,
+                doc_id=doc,
+                query=query,
+                top_k=top_k,
+            )
+            for query in unique_queries
+        }
+
+    doc_ids = [str(value) for value in (ts.document_ids() or ()) if str(value).strip()]
+    if not doc_ids:
+        return {}
+    scored = compute_corpus_map_and_unit_scores_many(
+        ts,
+        doc_ids=doc_ids,
+        queries=unique_queries,
+    )
+    return {
+        query: (
+            map_scores,
+            unit_scores,
+            select_map_highlights(unit_scores, k=int(top_k)),
+        )
+        for query, (map_scores, unit_scores) in scored.items()
+    }
