@@ -241,14 +241,24 @@ class ProviderToolSpace:
         """Forward a provider's bounded document payload prefetch capability."""
         provider = self._provider
         fn = getattr(provider, "prefetch_document_units", None)
-        if callable(fn) and str(getattr(provider, "doc_id", "")) == str(doc_id):
+        if not callable(fn):
+            return
+        if callable(getattr(provider, "document_ids", None)):
+            fn(doc_id)
+            return
+        if str(getattr(provider, "doc_id", "")) == str(doc_id):
             fn()
 
     def release_document_units(self, doc_id: str) -> None:
         """Forward release of one document's prefetched payloads."""
         provider = self._provider
         fn = getattr(provider, "release_document_units", None)
-        if callable(fn) and str(getattr(provider, "doc_id", "")) == str(doc_id):
+        if not callable(fn):
+            return
+        if callable(getattr(provider, "document_ids", None)):
+            fn(doc_id)
+            return
+        if str(getattr(provider, "doc_id", "")) == str(doc_id):
             fn()
 
 

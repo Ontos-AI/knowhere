@@ -129,6 +129,7 @@ def test_lazy_provider_preserves_score_units_and_scores() -> None:
     )
 
     lazy_provider = lazy._provider
+    store.document_loads = 0
     prefetch = getattr(lazy_provider, "prefetch_document_units")
     prefetch("doc")
     assert store.document_loads == 1
