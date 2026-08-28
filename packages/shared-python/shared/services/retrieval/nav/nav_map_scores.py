@@ -9,6 +9,7 @@ from .knowhere_hybrid import (
     build_path_search_text,
     build_term_search_text,
     score_rows_hybrid_all,
+    score_persisted_corpus_many,
     score_unit_stream_hybrid_many,
 )
 
@@ -22,7 +23,9 @@ def _children_ids(ts: Any, section_id: str, doc_id: str) -> List[str]:
     if not callable(children_fn):
         st = ts.get_structure(section_id)
         rows = st.get("children") or []
-        return [str(r.get("section_id") or "").strip() for r in rows if r.get("section_id")]
+        return [
+            str(r.get("section_id") or "").strip() for r in rows if r.get("section_id")
+        ]
     rows = children_fn(section_id, doc_id, limit=100000)
     return [str(r.get("section_id") or "").strip() for r in rows if r.get("section_id")]
 
@@ -152,8 +155,7 @@ def _pool_unit_scores_to_tree(
 ) -> Dict[str, float]:
     """MAX-pool globally comparable unit scores onto one document tree."""
     map_scores = {
-        leaf_id: float(unit_scores.get(leaf_id, 0.0) or 0.0)
-        for leaf_id in leaves
+        leaf_id: float(unit_scores.get(leaf_id, 0.0) or 0.0) for leaf_id in leaves
     }
 
     def score_node(section_id: str) -> float:
@@ -164,12 +166,9 @@ def _pool_unit_scores_to_tree(
             score = float(unit_scores.get(section_id, 0.0) or 0.0)
             map_scores[section_id] = score
             return score
-        descendant_leaves = _collect_descendant_leaves(
-            section_id, children_map, leaves
-        )
+        descendant_leaves = _collect_descendant_leaves(section_id, children_map, leaves)
         parts = [
-            float(unit_scores.get(leaf_id, 0.0) or 0.0)
-            for leaf_id in descendant_leaves
+            float(unit_scores.get(leaf_id, 0.0) or 0.0) for leaf_id in descendant_leaves
         ]
         self_key = f"{section_id}__self"
         if self_key in unit_scores:
@@ -183,7 +182,9 @@ def _pool_unit_scores_to_tree(
     return map_scores
 
 
-def build_score_units(ts: Any, doc_id: str, root_ids: Optional[Sequence[str]] = None) -> List[dict]:
+def build_score_units(
+    ts: Any, doc_id: str, root_ids: Optional[Sequence[str]] = None
+) -> List[dict]:
     """Build leaf (+ interstitial self_only) units for hybrid scoring."""
     if root_ids is None:
         root_ids = list(ts.sections_for_doc(doc_id))
@@ -212,7 +213,9 @@ def build_score_units(ts: Any, doc_id: str, root_ids: Optional[Sequence[str]] = 
                     section_path=path_text, section_title=title or content
                 ),
                 "content_search_text": build_content_search_text(content),
-                "term_search_text": build_term_search_text(content, path_text=path_text),
+                "term_search_text": build_term_search_text(
+                    content, path_text=path_text
+                ),
             }
         )
 
@@ -239,7 +242,9 @@ def build_score_units(ts: Any, doc_id: str, root_ids: Optional[Sequence[str]] = 
                     section_path=path_text, section_title=titles.get(sid) or ""
                 ),
                 "content_search_text": build_content_search_text(self_text),
-                "term_search_text": build_term_search_text(self_text, path_text=path_text),
+                "term_search_text": build_term_search_text(
+                    self_text, path_text=path_text
+                ),
             }
         )
     return units
@@ -274,7 +279,9 @@ def iter_score_units(
                         section_path=path_text, section_title=title or content
                     ),
                     "content_search_text": build_content_search_text(content),
-                    "term_search_text": build_term_search_text(content, path_text=path_text),
+                    "term_search_text": build_term_search_text(
+                        content, path_text=path_text
+                    ),
                 }
         finally:
             if callable(release):
@@ -298,7 +305,9 @@ def iter_score_units(
                     section_path=path_text, section_title=titles.get(sid) or ""
                 ),
                 "content_search_text": build_content_search_text(self_text),
-                "term_search_text": build_term_search_text(self_text, path_text=path_text),
+                "term_search_text": build_term_search_text(
+                    self_text, path_text=path_text
+                ),
             }
         finally:
             if callable(release):
@@ -349,7 +358,9 @@ def compute_map_and_unit_scores(
         doc_id=doc_id,
         namespace=ns,
     )
-    unit_score = {str(r.get("chunk_id") or ""): float(r.get("score") or 0.0) for r in scored}
+    unit_score = {
+        str(r.get("chunk_id") or ""): float(r.get("score") or 0.0) for r in scored
+    }
     map_scores = _pool_unit_scores_to_tree(children_map, leaves, unit_score)
     return map_scores, unit_score
 
@@ -452,9 +463,16 @@ def compute_corpus_map_and_unit_scores_many(
                 if callable(release):
                     release(document_id)
 
-    unit_scores_by_query = score_unit_stream_hybrid_many(
-        unit_factory,
-        unique_queries,
+    persisted_loader = getattr(ts, "load_persisted_score_corpus", None)
+    persisted_corpus = (
+        persisted_loader(valid_doc_ids, unique_queries)
+        if callable(persisted_loader)
+        else None
+    )
+    unit_scores_by_query = (
+        score_persisted_corpus_many(persisted_corpus, unique_queries)
+        if persisted_corpus is not None
+        else score_unit_stream_hybrid_many(unit_factory, unique_queries)
     )
     results: Dict[str, Tuple[Dict[str, float], Dict[str, float]]] = {}
     for query in unique_queries:

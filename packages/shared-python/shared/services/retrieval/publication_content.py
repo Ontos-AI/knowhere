@@ -6,7 +6,13 @@ from uuid import uuid4
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from shared.models.database.document import DocumentChunk, DocumentSection
+from shared.models.database.document import (
+    DocumentChunk,
+    DocumentMapUnit,
+    DocumentMapUnitIndex,
+    DocumentSection,
+)
+from shared.services.retrieval.map_unit_index import replace_document_map_units
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.search.lexical_text import (
     build_content_lexical_text,
@@ -57,7 +63,9 @@ def replace_document_revision_content(
     """Replace retrieval sections and chunks for one published document revision."""
     _delete_existing_revision_content(db, scope=scope)
     section_publisher = DocumentSectionPublisher(
-        db=db, scope=scope, section_summaries=section_summaries,
+        db=db,
+        scope=scope,
+        section_summaries=section_summaries,
     )
     for index, chunk in enumerate(chunks):
         safe_chunk = cast(dict[str, Any], remove_nul_characters(chunk))
@@ -81,6 +89,8 @@ def replace_document_revision_content(
                 fallback_sort_order=index,
             )
         )
+    db.flush()
+    replace_document_map_units(db, scope=scope)
 
 
 class DocumentSectionPublisher:
@@ -146,6 +156,16 @@ def _delete_existing_revision_content(
     *,
     scope: DocumentPublicationScope,
 ) -> None:
+    db.execute(
+        delete(DocumentMapUnitIndex)
+        .where(DocumentMapUnitIndex.document_id == scope.document_id)
+        .where(DocumentMapUnitIndex.job_result_id == scope.job_result_id)
+    )
+    db.execute(
+        delete(DocumentMapUnit)
+        .where(DocumentMapUnit.document_id == scope.document_id)
+        .where(DocumentMapUnit.job_result_id == scope.job_result_id)
+    )
     db.execute(
         delete(DocumentChunk)
         .where(DocumentChunk.document_id == scope.document_id)
