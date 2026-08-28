@@ -1,4 +1,5 @@
 import logging
+import re
 import sys
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -15,6 +16,10 @@ _DEFAULT_CONSOLE_FORMAT = (
     "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {extra[event]} | {message}"
 )
 _DEVELOPMENT_CONSOLE_FORMAT = "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level> <cyan>{extra}</cyan>"
+_DATABASE_URL_WITH_CREDENTIALS_PATTERN = re.compile(
+    r"(?P<scheme>postgres(?:ql)?(?:\+[^:/\s]+)?://)(?P<credentials>[^/\s@]+@)",
+    re.IGNORECASE,
+)
 
 
 class LogEvent(Enum):
@@ -79,6 +84,20 @@ def get_log_context() -> Dict[str, Any]:
     return _log_context.get().copy()
 
 
+def redact_sensitive_text(value: object) -> str:
+    """Redact credentials embedded in PostgreSQL URLs before they are logged."""
+    text = str(value)
+    return _DATABASE_URL_WITH_CREDENTIALS_PATTERN.sub(
+        r"\g<scheme>[REDACTED]@",
+        text,
+    )
+
+
+def contains_database_credentials(value: object) -> bool:
+    """Return whether text contains a PostgreSQL URL user-info component."""
+    return _DATABASE_URL_WITH_CREDENTIALS_PATTERN.search(str(value)) is not None
+
+
 def _is_expected_client_exception(exception: BaseException) -> bool:
     """Identify handled 4xx exceptions that should stay warnings in Logfire."""
     from shared.core.exceptions.knowhere_exception import KnowhereException
@@ -105,6 +124,13 @@ def _downgrade_expected_logfire_exception(
     helper: "ExceptionCallbackHelper",
 ) -> None:
     """Prevent handled client errors from creating Logfire exception issues."""
+    if contains_database_credentials(helper.exception):
+        # Logfire keeps exception.message and exception.stacktrace as safe keys,
+        # so its normal scrubber does not redact credentials embedded in them.
+        # Do not export the exception object when it contains a database URL.
+        helper.no_record_exception()
+        return
+
     if not _is_expected_client_exception(helper.exception):
         return
 
@@ -280,6 +306,11 @@ class InterceptHandler(logging.Handler):
             frame = frame.f_back
             depth += 1
 
-        logger.opt(depth=depth, exception=record.exc_info).log(
-            level, record.getMessage()
-        )
+        message = redact_sensitive_text(record.getMessage())
+        exception = record.exc_info
+        if exception is not None and contains_database_credentials(exception[1]):
+            # The exception object would otherwise be serialized by Logfire with
+            # its raw message and stacktrace, bypassing message scrubbing.
+            exception = None
+
+        logger.opt(depth=depth, exception=exception).log(level, message)
