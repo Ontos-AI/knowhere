@@ -28,6 +28,11 @@ _FTS_CONFIG = "simple"
 # Guards against pathological queries producing an enormous tsquery.
 _MAX_FTS_QUERY_TOKENS = 50
 
+# Rows each lexeme contributes on top of the global slice. Small on purpose:
+# it exists to keep rare lexemes represented, not to replace the global
+# ordering, which is what ranks chunks covering several query terms.
+_CANDIDATES_PER_LEXEME_FLOOR = 50
+
 _TSV_FIELD_BY_SEARCH_FIELD = {
     "content_search_text": "content_search_tsv",
     "path_search_text": "path_search_tsv",
@@ -339,34 +344,70 @@ async def _bm25_channel(
     used_fallback = True
     if fts_tokens:
         # Postgres lexes the tokens with the same configuration that generated
-        # the tsvector columns, then ORs the resulting lexemes. Building the
-        # tsquery server-side keeps the prefilter aligned with the stored
-        # lexicon and leaves no room for tsquery syntax in user input to
-        # change the query shape. `fts_query.q` is NULL when no token yields a
-        # lexeme, which the caller treats as "no usable prefilter".
+        # the tsvector columns. Building the query server-side keeps the
+        # prefilter aligned with the stored lexicon and leaves no room for
+        # tsquery syntax in user input to change the query shape.
+        #
+        # Two pools are unioned. The global slice is the previous behaviour
+        # unchanged, ordered by ts_rank_cd over the whole query, which is what
+        # surfaces chunks covering several query terms. The per-lexeme floor
+        # adds a few rows for each lexeme on top, so a lexeme matching very
+        # little is still represented. ts_rank_cd scores term density within a
+        # chunk and ignores corpus-wide rarity, while BM25 weights rare terms
+        # heavily, so without the floor a short chunk holding the one rare term
+        # in a query is truncated before BM25 ever sees it. See #278.
+        #
+        # The union is a superset of the global slice, so nothing the previous
+        # ordering kept can be lost here.
         prefilter_sql = (
             corpus_cte
             + f""",
+    fts_lexemes AS (
+        SELECT DISTINCT
+            unnest(tsvector_to_array(to_tsvector('{_FTS_CONFIG}', token))) AS lexeme
+        FROM unnest(CAST(:fts_tokens AS text[])) AS token
+    ),
     fts_query AS (
         SELECT string_agg(quote_literal(lexeme), ' | ')::tsquery AS q
-        FROM (
-            SELECT DISTINCT
-                unnest(tsvector_to_array(to_tsvector('{_FTS_CONFIG}', token))) AS lexeme
-            FROM unnest(CAST(:fts_tokens AS text[])) AS token
-        ) lexemes
+        FROM fts_lexemes
+    ),
+    global_slice AS (
+        SELECT sc.*
+        FROM scoped_chunks sc, fts_query fq
+        WHERE COALESCE(sc.{search_field}, '') <> ''
+            AND fq.q IS NOT NULL
+            AND sc.{tsv_field} @@ fq.q
+        ORDER BY ts_rank_cd(sc.{tsv_field}, fq.q) DESC
+        LIMIT :fts_candidate_limit
+    ),
+    lexeme_floor AS (
+        SELECT per_lexeme.*
+        FROM fts_lexemes fl
+        CROSS JOIN LATERAL (
+            SELECT sc.*
+            FROM scoped_chunks sc
+            WHERE COALESCE(sc.{search_field}, '') <> ''
+                AND sc.{tsv_field} @@ to_tsquery('{_FTS_CONFIG}', quote_literal(fl.lexeme))
+            ORDER BY
+                ts_rank_cd(
+                    sc.{tsv_field},
+                    to_tsquery('{_FTS_CONFIG}', quote_literal(fl.lexeme))
+                ) DESC
+            LIMIT :fts_lexeme_floor
+        ) per_lexeme
     )
-    SELECT sc.*
-    FROM scoped_chunks sc, fts_query fq
-    WHERE COALESCE(sc.{search_field}, '') <> ''
-        AND fq.q IS NOT NULL
-        AND sc.{tsv_field} @@ fq.q
-    ORDER BY ts_rank_cd(sc.{tsv_field}, fq.q) DESC
-    LIMIT :fts_candidate_limit
+    SELECT DISTINCT ON (candidates.id) candidates.*
+    FROM (
+        SELECT * FROM global_slice
+        UNION ALL
+        SELECT * FROM lexeme_floor
+    ) candidates
     """
         )
         prefilter_params = dict(params)
         prefilter_params["fts_tokens"] = fts_tokens
         prefilter_params["fts_candidate_limit"] = candidate_limit
+        prefilter_params["fts_lexeme_floor"] = _CANDIDATES_PER_LEXEME_FLOOR
         result = await db.execute(text(prefilter_sql), prefilter_params)
         rows = [_row_to_dict(r) for r in result.all()]
         used_fallback = not rows
@@ -385,15 +426,29 @@ async def _bm25_channel(
     ranked_rows = rank_rows_by_bm25(rows, query_tokens, search_field=search_field)
     ranked_rows = ranked_rows[:top_k]
 
+    duration_ms = (time.perf_counter() - started_at) * 1000
+    saturated = not used_fallback and candidate_count >= candidate_limit
     logger.debug(
-        "bm25_channel field={} candidates={} limit={} ranked={} fallback={} duration_ms={:.1f}",
+        "bm25_channel field={} candidates={} limit={} ranked={} "
+        "fallback={} saturated={} duration_ms={:.1f}",
         search_field,
         candidate_count,
         candidate_limit,
         len(ranked_rows),
         used_fallback,
-        (time.perf_counter() - started_at) * 1000,
+        saturated,
+        duration_ms,
     )
+    if saturated:
+        # The pool filled the budget, so chunks past it never reached BM25.
+        # Distinct from the healthy case, which the debug line alone cannot
+        # convey because both report candidates == limit.
+        logger.warning(
+            "bm25_channel candidate budget saturated field={} limit={}; "
+            "raise RETRIEVAL_POSTGRES_FTS_CANDIDATE_LIMIT if recall looks short",
+            search_field,
+            candidate_limit,
+        )
     return ranked_rows
 
 
