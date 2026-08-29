@@ -21,6 +21,8 @@ not from parsing ``section_id`` or ``section_path`` separators.
 from __future__ import annotations
 
 import os
+import logging
+import time
 from hashlib import sha256
 from dataclasses import dataclass, field
 from typing import (
@@ -51,6 +53,7 @@ _ASSET_TYPES = ("table", "image")
 ROOT_SECTION_PATH = "Root"
 _DEFAULT_DSN = "postgresql://root:root123@127.0.0.1:5433/Knowhere"
 _MAP_UNIT_INDEX_FORMAT_VERSION = 1
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -282,6 +285,7 @@ class ReadOnlyChunkStore:
         ]
         cur = self._connection().cursor()
         try:
+            stage_started = time.perf_counter()
             cur.execute(
                 "SELECT indexes.document_id, indexes.job_result_id, "
                 "indexes.format_version, indexes.unit_count, indexes.token_count "
@@ -292,11 +296,17 @@ class ReadOnlyChunkStore:
                 revision_params,
             )
             manifests = list(cur.fetchall())
+            _logger.info(
+                "retrieval map-index load stage=manifests seconds=%.3f rows=%d",
+                time.perf_counter() - stage_started,
+                len(manifests),
+            )
             if len(manifests) != len(revisions) or any(
                 int(row[2]) != _MAP_UNIT_INDEX_FORMAT_VERSION for row in manifests
             ):
                 return None
 
+            stage_started = time.perf_counter()
             cur.execute(
                 "SELECT COUNT(*), COUNT(DISTINCT (units.document_id, units.unit_id)) "
                 "FROM document_map_units AS units "
@@ -308,9 +318,15 @@ class ReadOnlyChunkStore:
             unit_count_row = cur.fetchone()
             indexed_unit_count = int(unit_count_row[0]) if unit_count_row else 0
             distinct_unit_count = int(unit_count_row[1]) if unit_count_row else 0
+            _logger.info(
+                "retrieval map-index load stage=unit_count seconds=%.3f rows=%d",
+                time.perf_counter() - stage_started,
+                indexed_unit_count,
+            )
             expected_count = sum(int(row[3]) for row in manifests)
             if indexed_unit_count != expected_count or distinct_unit_count != indexed_unit_count:
                 return None
+            stage_started = time.perf_counter()
             cur.execute(
                 "SELECT COUNT(*) FROM document_map_unit_tokens AS tokens "
                 "JOIN document_map_units AS units ON units.id = tokens.map_unit_id "
@@ -321,6 +337,11 @@ class ReadOnlyChunkStore:
             )
             token_row = cur.fetchone()
             indexed_token_count = int(token_row[0]) if token_row else 0
+            _logger.info(
+                "retrieval map-index load stage=token_count seconds=%.3f rows=%d",
+                time.perf_counter() - stage_started,
+                indexed_token_count,
+            )
             expected_token_count = sum(int(row[4]) for row in manifests)
             if indexed_token_count != expected_token_count:
                 return None
@@ -340,6 +361,7 @@ class ReadOnlyChunkStore:
             if allowed_pairs:
                 allowed_document_ids = [pair[0] for pair in allowed_pairs]
                 allowed_section_ids = [pair[1] for pair in allowed_pairs]
+                stage_started = time.perf_counter()
                 cur.execute(
                     "SELECT units.id, units.document_id, units.unit_id, units.section_id, "
                     "units.path_token_count, units.content_token_count "
@@ -355,6 +377,11 @@ class ReadOnlyChunkStore:
                     [*revision_params, allowed_document_ids, allowed_section_ids],
                 )
                 unit_rows = list(cur.fetchall())
+                _logger.info(
+                    "retrieval map-index load stage=units seconds=%.3f rows=%d",
+                    time.perf_counter() - stage_started,
+                    len(unit_rows),
+                )
             map_unit_ids = [str(row[0]) for row in unit_rows]
             unique_queries = list(dict.fromkeys(str(query) for query in queries))
             query_tokens_by_query = {
@@ -372,6 +399,7 @@ class ReadOnlyChunkStore:
                 query_token_hashes = [
                     sha256(token.encode("utf-8")).hexdigest() for token in query_tokens
                 ]
+                stage_started = time.perf_counter()
                 cur.execute(
                     "SELECT map_unit_id, channel, token, frequency "
                     "FROM document_map_unit_tokens "
@@ -383,12 +411,22 @@ class ReadOnlyChunkStore:
                     frequencies.setdefault((str(map_unit_id), str(channel)), {})[
                         str(token)
                     ] = int(frequency)
+                _logger.info(
+                    "retrieval map-index load stage=frequencies seconds=%.3f units=%d",
+                    time.perf_counter() - stage_started,
+                    len(map_unit_ids),
+                )
 
             term_scores = self._load_term_scores(
                 cur,
                 map_unit_ids=map_unit_ids,
                 queries=unique_queries,
                 query_tokens_by_query=query_tokens_by_query,
+            )
+            _logger.info(
+                "retrieval map-index load stage=complete units=%d queries=%d",
+                len(unit_rows),
+                len(unique_queries),
             )
             path_stats = self._load_persisted_bm25_stats(
                 cur,
@@ -459,14 +497,22 @@ class ReadOnlyChunkStore:
             params.append(query_lower)
             params.extend(query_tokens_by_query[query])
         params.append(list(map_unit_ids))
+        stage_started = time.perf_counter()
         cur.execute(
             "SELECT id, " + ", ".join(expressions) + " "
             "FROM document_map_units WHERE id = ANY(%s)",
             params,
         )
+        rows = cur.fetchall()
+        _logger.info(
+            "retrieval map-index load stage=term_scores units=%d queries=%d seconds=%.3f",
+            len(map_unit_ids),
+            len(queries),
+            time.perf_counter() - stage_started,
+        )
         return {
             str(row[0]): tuple(float(value) for value in row[1:])
-            for row in cur.fetchall()
+            for row in rows
         }
 
     def _load_persisted_bm25_stats(
@@ -497,6 +543,7 @@ class ReadOnlyChunkStore:
         )
         average_idf = 0.0
         if needs_average_idf and map_unit_ids and document_count:
+            stage_started = time.perf_counter()
             cur.execute(
                 "SELECT COALESCE(AVG(LN((%s - frequencies.document_frequency + 0.5) "
                 "/ (frequencies.document_frequency + 0.5))), 0.0) "
@@ -508,6 +555,11 @@ class ReadOnlyChunkStore:
             )
             row = cur.fetchone()
             average_idf = float(row[0]) if row else 0.0
+            _logger.info(
+                "retrieval map-index load stage=average_idf channel=%s seconds=%.3f",
+                channel,
+                time.perf_counter() - stage_started,
+            )
         return PersistedBm25Stats(
             document_count=document_count,
             total_length=sum(lengths),

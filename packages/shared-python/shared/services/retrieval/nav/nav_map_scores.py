@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+import logging
+import time
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .knowhere_hybrid import (
@@ -16,6 +18,7 @@ from .knowhere_hybrid import (
 # Keep one bulk read bounded when a namespace contains a very large document,
 # while still replacing the per-document N+1 access pattern.
 _CORPUS_PREFETCH_GROUP_SIZE = 8
+_logger = logging.getLogger(__name__)
 
 
 def _children_ids(ts: Any, section_id: str, doc_id: str) -> List[str]:
@@ -412,10 +415,17 @@ def compute_corpus_map_and_unit_scores_many(
         str,
         Tuple[Dict[str, List[str]], Set[str], Dict[str, str]],
     ] = {}
+    tree_started = time.perf_counter()
     for doc_id in valid_doc_ids:
         root_ids = list(ts.sections_for_doc(doc_id))
         children_map, leaves, titles = _walk_tree(ts, doc_id, root_ids)
         tree_by_doc[doc_id] = (children_map, leaves, titles)
+    _logger.info(
+        "retrieval mapnav phase=tree_build seconds=%.3f documents=%d sections=%d",
+        time.perf_counter() - tree_started,
+        len(valid_doc_ids),
+        sum(len(value[0]) for value in tree_by_doc.values()),
+    )
 
     def unit_factory() -> Iterator[ScoreUnitRow]:
         prefetch_batch = getattr(ts, "prefetch_document_units_batch", None)
@@ -464,17 +474,32 @@ def compute_corpus_map_and_unit_scores_many(
                     release(document_id)
 
     persisted_loader = getattr(ts, "load_persisted_score_corpus", None)
+    loader_started = time.perf_counter()
     persisted_corpus = (
         persisted_loader(valid_doc_ids, unique_queries)
         if callable(persisted_loader)
         else None
     )
+    _logger.info(
+        "retrieval mapnav phase=index_load seconds=%.3f persisted=%s",
+        time.perf_counter() - loader_started,
+        persisted_corpus is not None,
+    )
+    score_started = time.perf_counter()
     unit_scores_by_query = (
         score_persisted_corpus_many(persisted_corpus, unique_queries)
         if persisted_corpus is not None
         else score_unit_stream_hybrid_many(unit_factory, unique_queries)
     )
+    _logger.info(
+        "retrieval mapnav phase=unit_scoring persisted=%s seconds=%.3f units=%d queries=%d",
+        persisted_corpus is not None,
+        time.perf_counter() - score_started,
+        sum(len(scores) for scores in unit_scores_by_query.values()),
+        len(unique_queries),
+    )
     results: Dict[str, Tuple[Dict[str, float], Dict[str, float]]] = {}
+    pooling_started = time.perf_counter()
     for query in unique_queries:
         unit_scores = unit_scores_by_query.get(query, {})
         map_scores: Dict[str, float] = {}
@@ -490,6 +515,12 @@ def compute_corpus_map_and_unit_scores_many(
             )
             map_scores[doc_id] = doc_max
         results[query] = (map_scores, unit_scores)
+    _logger.info(
+        "retrieval mapnav phase=map_pooling seconds=%.3f documents=%d sections=%d",
+        time.perf_counter() - pooling_started,
+        len(valid_doc_ids),
+        sum(len(value[0]) for value in tree_by_doc.values()),
+    )
     return results
 
 

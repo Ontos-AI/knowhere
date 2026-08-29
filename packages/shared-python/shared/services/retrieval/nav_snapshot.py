@@ -8,6 +8,8 @@ that keeps **DB-original** ``section_path`` / ``job_id`` (never remounted).
 from __future__ import annotations
 
 import json
+import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -33,7 +35,10 @@ from shared.services.retrieval.search.section_filters import is_excluded_section
 # statement bounded. The contract benchmark verifies this page size against
 # the full 2 KiB content and metadata payload.
 _CHUNK_BATCH_SIZE = 10_000
-_REVISION_GROUP_SIZE = 32
+# Keep revision predicates bounded while reducing round trips for large
+# namespaces. Keyset paging still caps each payload query at 10,000 rows.
+_REVISION_GROUP_SIZE = 64
+_logger = logging.getLogger(__name__)
 
 
 class SnapshotSession(Protocol):
@@ -252,6 +257,9 @@ async def _load_chunk_index(
     ref_index: dict[str, dict[str, Any]] = {}
     root_assets_by_doc: dict[str, set[str]] = {}
     text_connections_by_doc: dict[str, list[tuple[str, str]]] = {}
+    query_seconds = 0.0
+    assembly_seconds = 0.0
+    query_count = 0
     for group_start in range(0, len(document_revisions), _REVISION_GROUP_SIZE):
         revision_group = document_revisions[group_start : group_start + _REVISION_GROUP_SIZE]
         last_key: tuple[str, str, int, str, str] | None = None
@@ -289,9 +297,13 @@ async def _load_chunk_index(
                     )
                     > tuple_(*[literal(value) for value in last_key])
                 )
+            query_started = time.perf_counter()
             rows = (await db.execute(stmt)).all()
+            query_seconds += time.perf_counter() - query_started
+            query_count += 1
             if not rows:
                 break
+            assembly_started = time.perf_counter()
             for row in rows:
                 document_id = str(row[0])
                 job_result_id = str(row[1])
@@ -339,6 +351,7 @@ async def _load_chunk_index(
                         text_connections_by_doc.setdefault(document_id, []).append(
                             (section_id or "", target)
                         )
+            assembly_seconds += time.perf_counter() - assembly_started
             last = rows[-1]
             last_key = (
                 str(last[0]),
@@ -356,6 +369,13 @@ async def _load_chunk_index(
             if target in asset_ids:
                 owners.setdefault(section_id, []).append(target)
         remounted[document_id] = {"root": sorted(asset_ids), "owners": owners}
+    _logger.info(
+        "retrieval snapshot phase=chunk_index rows=%d queries=%d query_seconds=%.3f assembly_seconds=%.3f",
+        sum(len(chunk_ids) for chunk_ids in ids_by_doc.values()),
+        query_count,
+        query_seconds,
+        assembly_seconds,
+    )
     return ids_by_doc, ref_index, remounted
 
 
@@ -392,7 +412,11 @@ async def _load_sections(
 
     by_doc: dict[str, list[SectionRow]] = {}
     path_by_id: dict[str, str] = {}
-    for row in (await db.execute(stmt)).all():
+    query_started = time.perf_counter()
+    rows = (await db.execute(stmt)).all()
+    query_seconds = time.perf_counter() - query_started
+    assembly_started = time.perf_counter()
+    for row in rows:
         document_id = str(row[0])
         section_path = str(row[3] or "")
         if is_excluded_section(
@@ -413,6 +437,12 @@ async def _load_sections(
         )
         by_doc.setdefault(document_id, []).append(section)
         path_by_id[section_id] = section_path
+    _logger.info(
+        "retrieval snapshot phase=sections rows=%d query_seconds=%.3f assembly_seconds=%.3f",
+        len(rows),
+        query_seconds,
+        time.perf_counter() - assembly_started,
+    )
     return by_doc, path_by_id
 
 
