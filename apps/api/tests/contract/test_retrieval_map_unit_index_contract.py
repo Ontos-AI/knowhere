@@ -274,6 +274,11 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
             await db.execute(
                 delete(DocumentMapUnitToken).where(DocumentMapUnitToken.id == token_id)
             )
+            await db.execute(
+                delete(DocumentMapUnitIndex).where(
+                    DocumentMapUnitIndex.document_id == document_id
+                )
+            )
             await db.commit()
             incomplete_snapshot = await load_nav_snapshot(
                 db,

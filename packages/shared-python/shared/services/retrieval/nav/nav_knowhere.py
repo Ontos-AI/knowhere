@@ -338,45 +338,11 @@ class ReadOnlyChunkStore:
             ):
                 return None
 
-            stage_started = time.perf_counter()
-            cur.execute(
-                "SELECT COUNT(*), COUNT(DISTINCT (units.document_id, units.unit_id)) "
-                "FROM document_map_units AS units "
-                f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
-                "ON units.document_id = revisions.document_id "
-                "AND units.job_result_id = revisions.job_result_id",
-                revision_params,
-            )
-            unit_count_row = cur.fetchone()
-            indexed_unit_count = int(unit_count_row[0]) if unit_count_row else 0
-            distinct_unit_count = int(unit_count_row[1]) if unit_count_row else 0
-            _logger.info(
-                "retrieval map-index load stage=unit_count seconds=%.3f rows=%d",
-                time.perf_counter() - stage_started,
-                indexed_unit_count,
-            )
-            expected_count = sum(int(row[3]) for row in manifests)
-            if indexed_unit_count != expected_count or distinct_unit_count != indexed_unit_count:
-                return None
-            stage_started = time.perf_counter()
-            cur.execute(
-                "SELECT COUNT(*) FROM document_map_unit_tokens AS tokens "
-                "JOIN document_map_units AS units ON units.id = tokens.map_unit_id "
-                f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
-                "ON units.document_id = revisions.document_id "
-                "AND units.job_result_id = revisions.job_result_id",
-                revision_params,
-            )
-            token_row = cur.fetchone()
-            indexed_token_count = int(token_row[0]) if token_row else 0
-            _logger.info(
-                "retrieval map-index load stage=token_count seconds=%.3f rows=%d",
-                time.perf_counter() - stage_started,
-                indexed_token_count,
-            )
-            expected_token_count = sum(int(row[4]) for row in manifests)
-            if indexed_token_count != expected_token_count:
-                return None
+            # The marker is written last in the same transaction that inserts
+            # all units and token rows.  A committed marker therefore denotes
+            # one complete revision snapshot; avoid recounting millions of
+            # token rows on every request.  Any rebuild deletes the marker
+            # first, so readers fall back to legacy scoring until completion.
             # The public chunk id is content-derived and may repeat within a
             # revision. The persisted scorer keys scores by that id, so use
             # the legacy payload path whenever ambiguity would change results.
