@@ -11,6 +11,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
+from collections.abc import Callable, Iterator, Mapping
 from typing import Any, Protocol
 
 from sqlalchemy import Executable, literal, select, tuple_
@@ -53,7 +54,7 @@ class NavSnapshot:
     """In-memory corpus for one map-nav episode."""
 
     provider: NamespaceKnowhereProvider
-    chunk_ref_index: dict[str, dict[str, Any]]
+    chunk_ref_index: Mapping[str, dict[str, Any]]
     document_ids: list[str]
     document_titles: dict[str, str]
 
@@ -199,11 +200,9 @@ async def load_nav_snapshot(
                 providers,
                 titles=kept_titles,
                 chunk_owner_by_id={
-                    chunk_id: meta["document_id"]
-                    for chunk_id, meta in chunk_ref_index.items()
-                    if ":" not in chunk_id
-                    and isinstance(meta, dict)
-                    and meta.get("document_id")
+                    chunk_id: document_id
+                    for document_id, chunk_ids in chunk_ids_by_doc.items()
+                    for chunk_id in chunk_ids
                 },
             )
         except Exception:
@@ -211,7 +210,10 @@ async def load_nav_snapshot(
             raise
         return NavSnapshot(
             provider=provider,
-            chunk_ref_index=dict(chunk_ref_index),
+            chunk_ref_index=LazyChunkRefIndex(
+                chunk_ref_index,
+                resolver=store.load_chunk_reference_metadata,
+            ),
             document_ids=list(provider.document_ids()),
             document_titles={did: kept_titles.get(did, did) for did in provider.document_ids()},
         )
@@ -252,7 +254,7 @@ async def _load_chunk_index(
     section_path_by_id: dict[str, str],
     job_id_by_result_id: dict[str, str],
 ) -> tuple[dict[str, list[str]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
-    """Load only IDs/reference metadata; content remains lazy."""
+    """Load only IDs/reference metadata; content and asset paths remain lazy."""
     ids_by_doc: dict[str, list[str]] = {}
     ref_index: dict[str, dict[str, Any]] = {}
     root_assets_by_doc: dict[str, set[str]] = {}
@@ -271,7 +273,8 @@ async def _load_chunk_index(
                     DocumentChunk.chunk_id,
                     DocumentChunk.section_id,
                     DocumentChunk.chunk_type,
-                    DocumentChunk.file_path,
+                    # Asset paths are only needed for selected references and
+                    # are resolved by ``LazyChunkRefIndex`` at bridge time.
                     DocumentChunk.chunk_metadata["connect_to"].label("connect_to"),
                     DocumentChunk.sort_order,
                     DocumentChunk.id,
@@ -323,7 +326,7 @@ async def _load_chunk_index(
                     "document_id": document_id,
                     "section_path": section_path,
                     "chunk_type": chunk_type,
-                    "file_path": str(row[5] or "") or None,
+                    "file_path": None,
                     "job_id": job_id_by_result_id.get(job_result_id),
                 }
                 ids_by_doc.setdefault(document_id, []).append(chunk_id)
@@ -335,7 +338,7 @@ async def _load_chunk_index(
                     and section_path == "Root"
                 ):
                     root_assets_by_doc.setdefault(document_id, set()).add(chunk_id)
-                connections = row[6]
+                connections = row[5]
                 if isinstance(connections, str) and connections.strip():
                     try:
                         connections = json.loads(connections)
@@ -356,9 +359,9 @@ async def _load_chunk_index(
             last_key = (
                 str(last[0]),
                 str(last[1]),
-                int(last[7] or 0),
+                int(last[6] or 0),
                 str(last[2] or ""),
-                str(last[8]),
+                str(last[7]),
             )
             if len(rows) < _CHUNK_BATCH_SIZE:
                 break
@@ -377,6 +380,48 @@ async def _load_chunk_index(
         assembly_seconds,
     )
     return ids_by_doc, ref_index, remounted
+
+
+class LazyChunkRefIndex(Mapping[str, dict[str, Any]]):
+    """Reference metadata map that resolves selected asset paths on demand.
+
+    Snapshot construction still records every chunk identity, section path,
+    type, and job id so navigation ownership is unchanged. ``file_path`` is
+    fetched only when the exit bridge asks for a selected reference.
+    """
+
+    def __init__(
+        self,
+        base: Mapping[str, dict[str, Any]],
+        *,
+        resolver: Callable[[str, str], Mapping[str, Any] | None],
+    ) -> None:
+        self._base = {str(key): dict(value) for key, value in base.items()}
+        self._resolver = resolver
+
+    def __getitem__(self, key: str) -> dict[str, Any]:
+        value = self.get(key)
+        if value is None:
+            raise KeyError(key)
+        return value
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._base)
+
+    def __len__(self) -> int:
+        return len(self._base)
+
+    def get(self, key: str, default: Any = None) -> dict[str, Any] | Any:
+        value = self._base.get(str(key))
+        if value is None:
+            return default
+        if value.get("file_path") is None:
+            document_id = str(value.get("document_id") or "").strip()
+            chunk_id = str(key).split(":", 1)[-1].strip()
+            resolved = self._resolver(document_id, chunk_id)
+            if resolved is not None:
+                value.update({"file_path": resolved.get("file_path") or None})
+        return value
 
 
 async def _load_sections(

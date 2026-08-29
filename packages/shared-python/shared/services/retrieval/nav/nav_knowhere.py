@@ -53,6 +53,7 @@ _ASSET_TYPES = ("table", "image")
 ROOT_SECTION_PATH = "Root"
 _DEFAULT_DSN = "postgresql://root:root123@127.0.0.1:5433/Knowhere"
 _MAP_UNIT_INDEX_FORMAT_VERSION = 1
+_MAP_SCORE_CHANNELS: Tuple[str, str] = ("path", "content")
 _logger = logging.getLogger(__name__)
 
 
@@ -164,6 +165,13 @@ def knowhere_database_url() -> str:
 
 
 class ChunkStore(Protocol):
+    def load_chunk_reference_metadata(
+        self,
+        document_id: str,
+        chunk_id: str,
+    ) -> Optional[Mapping[str, Any]]:
+        raise NotImplementedError
+
     def load_persisted_score_corpus(
         self,
         document_ids: Sequence[str],
@@ -262,6 +270,30 @@ class ReadOnlyChunkStore:
                     (doc_id, job_result_id, sid),
                 )
             return [_unit_from_row(row) for row in cur.fetchall()]
+        finally:
+            cur.close()
+
+    def load_chunk_reference_metadata(
+        self,
+        document_id: str,
+        chunk_id: str,
+    ) -> Optional[Mapping[str, Any]]:
+        """Resolve deferred reference fields for one selected chunk."""
+        doc_id = str(document_id).strip()
+        cid = str(chunk_id).strip()
+        job_result_id = self._revisions.get(doc_id)
+        if not doc_id or not cid or not job_result_id:
+            return None
+        cur = self._connection().cursor()
+        try:
+            cur.execute(
+                "SELECT file_path FROM document_chunks "
+                "WHERE document_id = %s AND job_result_id = %s AND chunk_id = %s "
+                "ORDER BY sort_order DESC, id DESC LIMIT 1",
+                (doc_id, job_result_id, cid),
+            )
+            row = cur.fetchone()
+            return {"file_path": str(row[0] or "") or None} if row else None
         finally:
             cur.close()
 
@@ -404,8 +436,13 @@ class ReadOnlyChunkStore:
                     "SELECT map_unit_id, channel, token, frequency "
                     "FROM document_map_unit_tokens "
                     "WHERE map_unit_id = ANY(%s) AND token_hash = ANY(%s) "
-                    "AND token = ANY(%s)",
-                    (map_unit_ids, query_token_hashes, query_tokens),
+                    "AND token = ANY(%s) AND channel = ANY(%s)",
+                    (
+                        map_unit_ids,
+                        query_token_hashes,
+                        query_tokens,
+                        list(_MAP_SCORE_CHANNELS),
+                    ),
                 )
                 for map_unit_id, channel, token, frequency in cur.fetchall():
                     frequencies.setdefault((str(map_unit_id), str(channel)), {})[

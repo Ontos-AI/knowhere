@@ -301,6 +301,13 @@ class DocumentMapUnitToken(Base):
             "token_hash",
             "map_unit_id",
         ),
+        Index(
+            "idx_document_map_unit_tokens_unit_lookup",
+            "map_unit_id",
+            "channel",
+            "token_hash",
+            postgresql_include=["token", "frequency"],
+        ),
         Index("idx_document_map_unit_tokens_unit", "map_unit_id", "channel"),
     )
 
