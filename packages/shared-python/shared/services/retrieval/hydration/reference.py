@@ -28,10 +28,10 @@ async def hydrate_referenced_chunk_rows(
 
     ref_keys = [
         build_reference_lookup_key(
-            document_id=ref.get('document_id'),
-            chunk_id=ref.get('chunk_id'),
-            section_path=ref.get('section_path'),
-            file_path=ref.get('file_path'),
+            document_id=ref.get("document_id"),
+            chunk_id=ref.get("chunk_id"),
+            section_path=ref.get("section_path"),
+            file_path=ref.get("file_path"),
         )
         for ref in refs
     ]
@@ -42,15 +42,16 @@ async def hydrate_referenced_chunk_rows(
     document_ids = sorted({document_id for document_id, _, _, _ in ref_keys})
     chunk_ids = sorted({chunk_id for _, chunk_id, _, _ in ref_keys})
     pinned_document_ids = [
-        document_id for document_id in document_ids if revision_pins and document_id in revision_pins
+        document_id
+        for document_id in document_ids
+        if revision_pins and document_id in revision_pins
     ]
     if revision_pins is not None and not pinned_document_ids:
         return []
 
     if revision_pins is None:
-        chunk_join = (
-            (DocumentChunk.document_id == Document.document_id)
-            & (DocumentChunk.job_result_id == Document.current_job_result_id)
+        chunk_join = (DocumentChunk.document_id == Document.document_id) & (
+            DocumentChunk.job_result_id == Document.current_job_result_id
         )
     else:
         chunk_join = and_(
@@ -67,9 +68,15 @@ async def hydrate_referenced_chunk_rows(
         )
 
     stmt = (
-        select(Document, DocumentChunk, DocumentSection, JobResult)
+        # Select only the job identifier needed for the public projection.
+        # Selecting the JobResult entity would trigger its ``chunks`` selectin
+        # relationship, loading the entire legacy job-chunk collection for
+        # every referenced revision during final hydration.
+        select(Document, DocumentChunk, DocumentSection, JobResult.job_id)
         .join(DocumentChunk, chunk_join)
-        .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
+        .outerjoin(
+            DocumentSection, DocumentSection.section_id == DocumentChunk.section_id
+        )
         .join(JobResult, JobResult.id == DocumentChunk.job_result_id)
         .where(Document.user_id == user_id)
         .where(Document.namespace == namespace)
@@ -82,40 +89,40 @@ async def hydrate_referenced_chunk_rows(
         .order_by(DocumentChunk.sort_order)
     )
     if revision_pins is None:
-        stmt = stmt.where(Document.status == 'active')
+        stmt = stmt.where(Document.status == "active")
     result = await db.execute(stmt)
 
     rows_by_key: dict[ReferenceLookupKey, dict[str, Any]] = {}
     rows_by_base_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for document, chunk, section, job_result in result.all():
+    for document, chunk, section, job_id in result.all():
         row = {
-            'document_id': document.document_id,
-            'chunk_id': chunk.chunk_id,
-            'section_id': chunk.section_id,
-            'section_path': section.section_path if section else None,
-            'source_file_name': document.source_file_name,
-            'chunk_type': chunk.chunk_type,
-            'content': chunk.content,
+            "document_id": document.document_id,
+            "chunk_id": chunk.chunk_id,
+            "section_id": chunk.section_id,
+            "section_path": section.section_path if section else None,
+            "source_file_name": document.source_file_name,
+            "chunk_type": chunk.chunk_type,
+            "content": chunk.content,
             # Use the caller-supplied score when available (e.g. discovery RRF or
             # KG confidence). None signals "no score known" so consumers can
             # distinguish unscored chunks from genuinely high-scoring ones.
-            'score': (
+            "score": (
                 score_by_chunk_id.get(chunk.chunk_id)
                 if score_by_chunk_id is not None
                 else None
             ),
-            'file_path': chunk.file_path,
-            'chunk_metadata': chunk.chunk_metadata or {},
-            'job_result_id': chunk.job_result_id,
-            'job_id': job_result.job_id if job_result else None,
-            'source_chunk_path': chunk.source_chunk_path,
-            'sort_order': chunk.sort_order,
+            "file_path": chunk.file_path,
+            "chunk_metadata": chunk.chunk_metadata or {},
+            "job_result_id": chunk.job_result_id,
+            "job_id": job_id,
+            "source_chunk_path": chunk.source_chunk_path,
+            "sort_order": chunk.sort_order,
         }
         key = build_reference_lookup_key(
-            document_id=row['document_id'],
-            chunk_id=row['chunk_id'],
-            section_path=row['section_path'],
-            file_path=row['file_path'],
+            document_id=row["document_id"],
+            chunk_id=row["chunk_id"],
+            section_path=row["section_path"],
+            file_path=row["file_path"],
         )
         rows_by_key[key] = row
         rows_by_base_key.setdefault((key[0], key[1]), []).append(row)
@@ -131,7 +138,7 @@ async def hydrate_referenced_chunk_rows(
                     candidate
                     for candidate in candidates
                     if key[2]
-                    and str(candidate.get('section_path') or '').strip() == key[2]
+                    and str(candidate.get("section_path") or "").strip() == key[2]
                 ),
                 None,
             )
@@ -141,10 +148,10 @@ async def hydrate_referenced_chunk_rows(
                         candidate
                         for candidate in candidates
                         if build_reference_lookup_key(
-                            document_id=candidate.get('document_id'),
-                            chunk_id=candidate.get('chunk_id'),
-                            section_path=candidate.get('section_path'),
-                            file_path=candidate.get('file_path'),
+                            document_id=candidate.get("document_id"),
+                            chunk_id=candidate.get("chunk_id"),
+                            section_path=candidate.get("section_path"),
+                            file_path=candidate.get("file_path"),
                         )
                         not in seen_keys
                     ),
@@ -152,10 +159,10 @@ async def hydrate_referenced_chunk_rows(
                 )
         if row is not None:
             row_key = build_reference_lookup_key(
-                document_id=row.get('document_id'),
-                chunk_id=row.get('chunk_id'),
-                section_path=row.get('section_path'),
-                file_path=row.get('file_path'),
+                document_id=row.get("document_id"),
+                chunk_id=row.get("chunk_id"),
+                section_path=row.get("section_path"),
+                file_path=row.get("file_path"),
             )
             if row_key in seen_keys:
                 continue
