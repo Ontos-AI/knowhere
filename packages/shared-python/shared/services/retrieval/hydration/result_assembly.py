@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,7 @@ async def assemble_retrieval_results(
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
     allowed_chunk_types: set[str] | None = None,
+    revision_pins: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     filtered_rows = filter_excluded_rows(
         rows,
@@ -37,6 +39,7 @@ async def assemble_retrieval_results(
         rows=filtered_rows,
         exclude_document_ids=exclude_document_ids,
         exclude_sections=exclude_sections,
+        revision_pins=revision_pins,
     )
     rows_by_chunk_id = {
         str(row.get('chunk_id') or ''): row
