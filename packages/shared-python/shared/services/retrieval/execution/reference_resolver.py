@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Mapping
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +29,7 @@ async def resolve_workflow_references(
     namespace: str,
     refs: list[dict[str, Any]],
     score_by_chunk_id: dict[str, float] | None = None,
+    revision_pins: Mapping[str, str] | None = None,
 ) -> ResolvedWorkflowReferences:
     hydrated_rows = await hydrate_referenced_chunk_rows(
         db=db,
@@ -35,6 +37,7 @@ async def resolve_workflow_references(
         namespace=namespace,
         refs=refs,
         score_by_chunk_id=score_by_chunk_id,
+        revision_pins=revision_pins,
     )
     resolved = _select_matching_references(refs, hydrated_rows)
     enriched_rows = await enrich_referenced_chunks_with_asset_url(resolved.rows)

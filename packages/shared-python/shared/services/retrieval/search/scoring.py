@@ -51,14 +51,18 @@ def merge_channels_rrf(
 
     for channel_idx, channel_rows in enumerate(channels):
         weight = weights[channel_idx] if channel_idx < len(weights) else 1.0
-        for rank, row in enumerate(channel_rows):
+        seen_chunk_ids: set[str] = set()
+        unique_rank = 0
+        for row in channel_rows:
             chunk_id = str(row.get('chunk_id') or '')
-            if not chunk_id:
+            if not chunk_id or chunk_id in seen_chunk_ids:
                 continue
-            rrf_score = weight / (k + rank + 1)
+            seen_chunk_ids.add(chunk_id)
+            rrf_score = weight / (k + unique_rank + 1)
             score_dict[chunk_id] = score_dict.get(chunk_id, 0.0) + rrf_score
             if chunk_id not in row_by_chunk_id:
                 row_by_chunk_id[chunk_id] = row
+            unique_rank += 1
 
     ranked = sorted(score_dict.items(), key=lambda x: x[1], reverse=True)
     results: list[dict[str, Any]] = []

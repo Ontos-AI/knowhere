@@ -47,6 +47,7 @@ from .knowhere_hybrid import (
     PersistedScoreUnit,
     tokenize_query_for_ranker,
 )
+from shared.services.retrieval.serving_manifest import decode_serving_manifest
 
 _ASSET_TYPES = ("table", "image")
 # Knowhere sentinel path for the virtual document container (not a collectable leaf).
@@ -54,6 +55,11 @@ ROOT_SECTION_PATH = "Root"
 _DEFAULT_DSN = "postgresql://root:root123@127.0.0.1:5433/Knowhere"
 _MAP_UNIT_INDEX_FORMAT_VERSION = 1
 _MAP_SCORE_CHANNELS: Tuple[str, str] = ("path", "content")
+# PostgreSQL's trigram planner evaluates one LIKE branch per pattern.  Once a
+# query has more than a handful of patterns, fetching the bounded pinned unit
+# set once and evaluating literal substring hits in Python is faster and keeps
+# SQL planning time from growing with the planner's subgoal length.
+_TERM_SCORE_FULL_SCAN_PATTERN_THRESHOLD = 8
 _logger = logging.getLogger(__name__)
 
 
@@ -220,6 +226,19 @@ class ReadOnlyChunkStore:
         self._revisions = dict(revisions)
         self._excluded_sections = set(excluded_sections or ())
         self._conn: Optional[_SyncConnection] = None
+        self._score_manifest_cache: Optional[
+            tuple[tuple[tuple[str, str], ...], list[Sequence[object]]]
+        ] = None
+        self._score_unit_rows_cache: dict[
+            tuple[tuple[str, str], ...], list[Sequence[object]]
+        ] = {}
+        self._score_frequency_cache: dict[
+            tuple[tuple[str, str], ...],
+            dict[tuple[str, str], dict[str, int]],
+        ] = {}
+        self._score_term_cache: dict[
+            tuple[tuple[str, str], ...], dict[str, Tuple[float, ...]]
+        ] = {}
 
     def _connection(self) -> "_SyncConnection":
         if self._conn is None:
@@ -317,25 +336,70 @@ class ReadOnlyChunkStore:
         ]
         cur = self._connection().cursor()
         try:
-            stage_started = time.perf_counter()
-            cur.execute(
-                "SELECT indexes.document_id, indexes.job_result_id, "
-                "indexes.format_version, indexes.unit_count, indexes.token_count "
-                "FROM document_map_unit_indexes AS indexes "
-                f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
-                "ON indexes.document_id = revisions.document_id "
-                "AND indexes.job_result_id = revisions.job_result_id",
-                revision_params,
-            )
-            manifests = list(cur.fetchall())
+            revision_key = tuple(revisions)
+            cached_manifests = self._score_manifest_cache
+            if cached_manifests is not None and cached_manifests[0] == revision_key:
+                manifests = cached_manifests[1]
+                _logger.info(
+                    "retrieval map-index load stage=manifests cache_hit rows=%d",
+                    len(manifests),
+                )
+            else:
+                stage_started = time.perf_counter()
+                try:
+                    cur.execute(
+                        "SELECT indexes.document_id, indexes.job_result_id, "
+                        "indexes.format_version, indexes.unit_count, indexes.token_count, "
+                        "manifests.payload_zlib, manifests.checksum, manifests.format_version, "
+                        "statistics.payload_zlib, statistics.checksum, statistics.format_version "
+                        "FROM document_map_unit_indexes AS indexes "
+                        f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
+                        "ON indexes.document_id = revisions.document_id "
+                        "AND indexes.job_result_id = revisions.job_result_id "
+                        "JOIN retrieval_serving_revision_manifests AS manifests "
+                        "ON manifests.document_id = indexes.document_id "
+                        "AND manifests.job_result_id = indexes.job_result_id "
+                        "JOIN retrieval_serving_revision_stats AS statistics "
+                        "ON statistics.document_id = indexes.document_id "
+                        "AND statistics.job_result_id = indexes.job_result_id",
+                        revision_params,
+                    )
+                except Exception as exc:
+                    if getattr(exc, "pgcode", None) == "42P01":
+                        return None
+                    raise
+                manifests = list(cur.fetchall())
+                self._score_manifest_cache = (revision_key, manifests)
             _logger.info(
                 "retrieval map-index load stage=manifests seconds=%.3f rows=%d",
-                time.perf_counter() - stage_started,
+                time.perf_counter() - stage_started if cached_manifests is None else 0.0,
                 len(manifests),
             )
             if len(manifests) != len(revisions) or any(
-                int(row[2]) != _MAP_UNIT_INDEX_FORMAT_VERSION for row in manifests
+                len(row) < 11
+                or int(row[2]) != _MAP_UNIT_INDEX_FORMAT_VERSION
+                or not row[5]
+                or not row[6]
+                or not row[8]
+                or not row[9]
+                for row in manifests
             ):
+                return None
+            decoded_manifests: dict[tuple[str, str], dict[str, Any]] = {}
+            decoded_statistics: dict[tuple[str, str], dict[str, Any]] = {}
+            try:
+                for row in manifests:
+                    decoded_manifests[(str(row[0]), str(row[1]))] = decode_serving_manifest(
+                        bytes(row[5]),
+                        checksum=str(row[6]),
+                        format_version=int(row[7]),
+                    )
+                    decoded_statistics[(str(row[0]), str(row[1]))] = decode_serving_manifest(
+                        bytes(row[8]),
+                        checksum=str(row[9]),
+                        format_version=int(row[10]),
+                    )
+            except ValueError:
                 return None
 
             # The marker is written last in the same transaction that inserts
@@ -355,30 +419,63 @@ class ReadOnlyChunkStore:
                 for document_id, section_ids in allowed_by_document.items()
                 for section_id in section_ids
             ]
+            unit_cache_key = revision_key
+            all_unit_rows = self._score_unit_rows_cache.get(unit_cache_key, [])
+            units_cache_hit = unit_cache_key in self._score_unit_rows_cache
             unit_rows: list[Sequence[object]] = []
             if allowed_pairs:
-                allowed_document_ids = [pair[0] for pair in allowed_pairs]
-                allowed_section_ids = [pair[1] for pair in allowed_pairs]
-                stage_started = time.perf_counter()
-                cur.execute(
-                    "SELECT units.id, units.document_id, units.unit_id, units.section_id, "
-                    "units.path_token_count, units.content_token_count "
-                    "FROM document_map_units AS units "
-                    f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
-                    "ON units.document_id = revisions.document_id "
-                    "AND units.job_result_id = revisions.job_result_id "
-                    "JOIN UNNEST(%s::text[], %s::text[]) "
-                    "AS allowed(document_id, section_id) "
-                    "ON units.document_id = allowed.document_id "
-                    "AND units.section_id = allowed.section_id "
-                    "ORDER BY units.document_id, units.sort_order, units.unit_id",
-                    [*revision_params, allowed_document_ids, allowed_section_ids],
-                )
-                unit_rows = list(cur.fetchall())
+                if not units_cache_hit:
+                    stage_started = time.perf_counter()
+                    manifest_rows: list[Sequence[object]] = []
+                    for document_id, job_result_id in revisions:
+                        payload = decoded_manifests.get((document_id, job_result_id), {})
+                        raw_units = payload.get("map_units")
+                        if not isinstance(raw_units, list):
+                            manifest_rows = []
+                            break
+                        for raw_unit in raw_units:
+                            if not isinstance(raw_unit, dict):
+                                manifest_rows = []
+                                break
+                            row_id = str(raw_unit.get("row_id") or "").strip()
+                            unit_id = str(raw_unit.get("unit_id") or "").strip()
+                            if not row_id or not unit_id:
+                                manifest_rows = []
+                                break
+                            manifest_rows.append(
+                                (
+                                    row_id,
+                                    document_id,
+                                    unit_id,
+                                    str(raw_unit.get("section_id") or ""),
+                                    int(raw_unit.get("path_token_count") or 0),
+                                    int(raw_unit.get("content_token_count") or 0),
+                                )
+                            )
+                        if not manifest_rows and raw_units:
+                            break
+                    expected_unit_count = sum(int(row[3]) for row in manifests)
+                    all_unit_rows = (
+                        manifest_rows
+                        if len(manifest_rows) == expected_unit_count
+                        else []
+                    )
+                    if expected_unit_count and not all_unit_rows:
+                        return None
+                    self._score_unit_rows_cache[unit_cache_key] = all_unit_rows
+                else:
+                    stage_started = time.perf_counter()
+                allowed_pairs_set = set(allowed_pairs)
+                unit_rows = [
+                    row
+                    for row in all_unit_rows
+                    if (str(row[1]), str(row[3])) in allowed_pairs_set
+                ]
                 _logger.info(
-                    "retrieval map-index load stage=units seconds=%.3f rows=%d",
-                    time.perf_counter() - stage_started,
+                    "retrieval map-index load stage=units seconds=%.3f rows=%d cache_hit=%s",
+                    time.perf_counter() - stage_started if not units_cache_hit else 0.0,
                     len(unit_rows),
+                    units_cache_hit,
                 )
             map_unit_ids = [str(row[0]) for row in unit_rows]
             unique_queries = list(dict.fromkeys(str(query) for query in queries))
@@ -394,6 +491,48 @@ class ReadOnlyChunkStore:
             )
             frequencies: Dict[Tuple[str, str], Dict[str, int]] = {}
             if map_unit_ids and query_tokens:
+                full_frequency_map = self._score_frequency_cache.get(revision_key)
+                if full_frequency_map is None:
+                    full_frequency_map = {}
+                    for document_id, job_result_id in revisions:
+                        payload = decoded_statistics.get((document_id, job_result_id), {})
+                        unit_frequencies = payload.get("unit_frequencies", {})
+                        if not isinstance(unit_frequencies, dict):
+                            continue
+                        for map_unit_id, by_channel in unit_frequencies.items():
+                            if not isinstance(by_channel, dict):
+                                continue
+                            for channel in _MAP_SCORE_CHANNELS:
+                                values = by_channel.get(channel, {})
+                                if isinstance(values, dict):
+                                    full_frequency_map[(str(map_unit_id), channel)] = {
+                                        str(token): int(value)
+                                        for token, value in values.items()
+                                    }
+                    self._score_frequency_cache[revision_key] = full_frequency_map
+                frequencies = {
+                    key: {
+                        token: value
+                        for token, value in values.items()
+                        if token in query_tokens
+                    }
+                    for key, values in full_frequency_map.items()
+                    if key[0] in map_unit_ids
+                }
+            expected_units_by_revision = {
+                (str(row[0]), str(row[1])): int(row[3]) for row in manifests
+            }
+            statistics_complete = all(
+                int(
+                    decoded_statistics.get((document_id, job_result_id), {}).get(
+                        "unit_count", -1
+                    )
+                )
+                == expected_units_by_revision.get((document_id, job_result_id), -1)
+                for document_id, job_result_id in revisions
+            )
+            manifest_frequency_complete = bool(map_unit_ids) and statistics_complete
+            if map_unit_ids and query_tokens and not manifest_frequency_complete:
                 query_token_hashes = [
                     sha256(token.encode("utf-8")).hexdigest() for token in query_tokens
                 ]
@@ -420,12 +559,16 @@ class ReadOnlyChunkStore:
                     len(map_unit_ids),
                 )
 
-            term_scores = self._load_term_scores(
-                cur,
-                map_unit_ids=map_unit_ids,
-                queries=unique_queries,
-                query_tokens_by_query=query_tokens_by_query,
-            )
+            term_cache_key = (revision_key, tuple(unique_queries))
+            term_scores = self._score_term_cache.get(term_cache_key)
+            if term_scores is None:
+                term_scores = self._load_term_scores(
+                    cur,
+                    map_unit_ids=map_unit_ids,
+                    queries=unique_queries,
+                    query_tokens_by_query=query_tokens_by_query,
+                )
+                self._score_term_cache[term_cache_key] = term_scores
             _logger.info(
                 "retrieval map-index load stage=complete units=%d queries=%d",
                 len(unit_rows),
@@ -481,42 +624,81 @@ class ReadOnlyChunkStore:
     ) -> Dict[str, Tuple[float, ...]]:
         if not map_unit_ids or not queries:
             return {}
-        expressions: List[str] = []
-        params: List[object] = []
+        # Keep candidate selection in PostgreSQL so the trigram index can
+        # discard non-matching units, but compute the exact score once per
+        # returned row in Python.  The previous query generated one POSITION
+        # expression and one OR predicate for every query token.  Long planner
+        # subgoals therefore produced very large SQL statements and repeated
+        # substring evaluation for the same row.  LIKE ANY keeps the SQL shape
+        # constant while preserving the existing literal substring semantics in
+        # the final Python scoring pass (LIKE may over-select wildcard matches,
+        # which are rejected by the literal checks below).
+        candidate_patterns: list[str] = []
         for query in queries:
             query_lower = query.lower().strip()
             if not query_lower:
-                expressions.append("0.0")
                 continue
-            token_expressions = [
-                "CASE WHEN POSITION(%s IN term_search_text_lower) > 0 THEN 1 ELSE 0 END"
-                for _token in query_tokens_by_query[query]
-            ]
-            token_sum = " + ".join(token_expressions) or "0"
-            expressions.append(
-                "CASE WHEN POSITION(%s IN term_search_text_lower) > 0 "
-                f"THEN 100.0 ELSE ({token_sum})::double precision END"
+            candidate_patterns.append(f"%{query_lower}%")
+            candidate_patterns.extend(
+                f"%{token}%" for token in query_tokens_by_query[query] if token
             )
-            params.append(query_lower)
-            params.extend(query_tokens_by_query[query])
-        params.append(list(map_unit_ids))
+        candidate_patterns = list(dict.fromkeys(candidate_patterns))
+        if not candidate_patterns:
+            return {}
         stage_started = time.perf_counter()
-        cur.execute(
-            "SELECT id, " + ", ".join(expressions) + " "
-            "FROM document_map_units WHERE id = ANY(%s)",
-            params,
-        )
+        if len(candidate_patterns) > _TERM_SCORE_FULL_SCAN_PATTERN_THRESHOLD:
+            # Long subgoals make LIKE ANY increasingly expensive even with the
+            # trigram index.  The map-unit id list is already bounded by the
+            # pinned serving projection, so one text fetch plus literal Python
+            # checks avoids a query whose shape grows with token count.
+            cur.execute(
+                "SELECT id, term_search_text_lower "
+                "FROM document_map_units WHERE id = ANY(%s)",
+                (list(map_unit_ids),),
+            )
+            candidate_mode = "full_scan"
+        else:
+            cur.execute(
+                "SELECT id, term_search_text_lower "
+                "FROM document_map_units "
+                "WHERE id = ANY(%s) AND term_search_text_lower LIKE ANY(%s)",
+                (list(map_unit_ids), candidate_patterns),
+            )
+            candidate_mode = "trigram"
         rows = cur.fetchall()
         _logger.info(
-            "retrieval map-index load stage=term_scores units=%d queries=%d seconds=%.3f",
+            "retrieval map-index load stage=term_scores units=%d queries=%d mode=%s seconds=%.3f",
             len(map_unit_ids),
             len(queries),
+            candidate_mode,
             time.perf_counter() - stage_started,
         )
-        return {
-            str(row[0]): tuple(float(value) for value in row[1:])
-            for row in rows
-        }
+        scores_by_unit: Dict[str, Tuple[float, ...]] = {}
+        for row in rows:
+            if len(row) < 2:
+                continue
+            unit_id = str(row[0])
+            haystack = str(row[1] or "").lower()
+            scores: list[float] = []
+            for query in queries:
+                query_lower = query.lower().strip()
+                if not query_lower:
+                    scores.append(0.0)
+                elif query_lower in haystack:
+                    scores.append(100.0)
+                else:
+                    scores.append(
+                        float(
+                            sum(
+                                1
+                                for token in query_tokens_by_query[query]
+                                if token in haystack
+                            )
+                        )
+                    )
+            if any(score > 0.0 for score in scores):
+                scores_by_unit[unit_id] = tuple(scores)
+        return scores_by_unit
 
     def _load_persisted_bm25_stats(
         self,

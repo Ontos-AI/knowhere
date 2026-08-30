@@ -14,10 +14,25 @@ from dataclasses import dataclass
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any, Protocol
 
-from sqlalchemy import Executable, literal, select, tuple_
+from sqlalchemy import (
+    ARRAY,
+    Executable,
+    String,
+    bindparam,
+    cast,
+    func,
+    literal,
+    select,
+    tuple_,
+)
 from sqlalchemy.engine import Result
 
-from shared.models.database.document import Document, DocumentChunk, DocumentSection
+from shared.models.database.document import (
+    Document,
+    DocumentChunk,
+    DocumentSection,
+    RetrievalServingRevisionManifest,
+)
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.nav.nav_knowhere import (
     LazyKnowhereProvider,
@@ -29,12 +44,13 @@ from shared.services.retrieval.nav.nav_knowhere import (
     knowhere_database_url,
 )
 from shared.services.retrieval.search.section_filters import is_excluded_section
+from shared.services.retrieval.serving_manifest import decode_serving_manifest
+from shared.services.retrieval.manifest_cache import get_cached_manifest_payloads
 
 
 # Keep each payload query bounded under the API's 30-second statement timeout.
-# Ten-thousand-row keyset pages avoid OFFSET scans while keeping each payload
-# statement bounded. The contract benchmark verifies this page size against
-# the full 2 KiB content and metadata payload.
+# Ten-thousand-row keyset pages avoid OFFSET scans while keeping the reference
+# payload bounded under the API's 30-second asyncpg command timeout.
 _CHUNK_BATCH_SIZE = 10_000
 # Keep revision predicates bounded while reducing round trips for large
 # namespaces. Keyset paging still caps each payload query at 10,000 rows.
@@ -48,6 +64,9 @@ class SnapshotSession(Protocol):
     async def execute(self, statement: Executable) -> Result[tuple[object, ...]]:
         raise NotImplementedError
 
+    async def rollback(self) -> None:
+        raise NotImplementedError
+
 
 @dataclass(frozen=True)
 class NavSnapshot:
@@ -57,6 +76,7 @@ class NavSnapshot:
     chunk_ref_index: Mapping[str, dict[str, Any]]
     document_ids: list[str]
     document_titles: dict[str, str]
+    document_revisions: Mapping[str, str] | None
 
     def close(self) -> None:
         close = getattr(self.provider, "close", None)
@@ -70,9 +90,12 @@ def build_nav_snapshot(
     sections_by_doc: dict[str, list[SectionRow]],
     units_by_doc: dict[str, list[UnitRow]],
     chunk_ref_index: dict[str, dict[str, Any]],
+    document_revisions: Mapping[str, str] | None = None,
 ) -> NavSnapshot:
     """Assemble provider + index from already-fetched rows (also used by tests)."""
-    doc_ids = [did for did in document_titles if did in sections_by_doc or did in units_by_doc]
+    doc_ids = [
+        did for did in document_titles if did in sections_by_doc or did in units_by_doc
+    ]
     if not doc_ids:
         raise ValueError("nav snapshot requires at least one active document")
 
@@ -90,7 +113,18 @@ def build_nav_snapshot(
         provider=provider,
         chunk_ref_index=dict(chunk_ref_index),
         document_ids=list(provider.document_ids()),
-        document_titles={did: document_titles.get(did, did) for did in provider.document_ids()},
+        document_titles={
+            did: document_titles.get(did, did) for did in provider.document_ids()
+        },
+        document_revisions=(
+            {
+                did: str(document_revisions.get(did, ""))
+                for did in provider.document_ids()
+                if document_revisions.get(did)
+            }
+            if document_revisions is not None
+            else None
+        ),
     )
 
 
@@ -102,19 +136,38 @@ async def load_nav_snapshot(
     exclude_document_ids: list[str] | None = None,
     exclude_sections: list[dict[str, str]] | None = None,
     lazy: bool = False,
+    revision_pins: Mapping[str, str] | None = None,
 ) -> NavSnapshot:
     """Preload namespace current revision into a sync map-nav snapshot."""
-    excluded_docs = [str(x).strip() for x in (exclude_document_ids or ()) if str(x).strip()]
+    excluded_docs = [
+        str(x).strip() for x in (exclude_document_ids or ()) if str(x).strip()
+    ]
     excluded_secs = list(exclude_sections or ())
 
-    doc_stmt = (
-        select(Document.document_id, Document.source_file_name, Document.current_job_result_id)
-        .where(Document.user_id == user_id)
-        .where(Document.namespace == namespace)
-        .where(Document.status == "active")
-        .where(Document.current_job_result_id.is_not(None))
-        .order_by(Document.document_id)
-    )
+    if revision_pins is None:
+        doc_stmt = (
+            select(
+                Document.document_id,
+                Document.source_file_name,
+                Document.current_job_result_id,
+            )
+            .where(Document.user_id == user_id)
+            .where(Document.namespace == namespace)
+            .where(Document.status == "active")
+            .where(Document.current_job_result_id.is_not(None))
+            .order_by(Document.document_id)
+        )
+    else:
+        pinned_document_ids = [str(document_id) for document_id in revision_pins]
+        if not pinned_document_ids:
+            raise ValueError("revision pins must include at least one document")
+        doc_stmt = (
+            select(Document.document_id, Document.source_file_name)
+            .where(Document.user_id == user_id)
+            .where(Document.namespace == namespace)
+            .where(Document.document_id.in_(pinned_document_ids))
+            .order_by(Document.document_id)
+        )
     if excluded_docs:
         doc_stmt = doc_stmt.where(Document.document_id.notin_(excluded_docs))
     doc_rows = list((await db.execute(doc_stmt)).all())
@@ -127,12 +180,18 @@ async def load_nav_snapshot(
     document_titles: dict[str, str] = {}
     current_job_result_ids: set[str] = set()
     document_revisions: list[tuple[str, str]] = []
-    for document_id, source_file_name, current_job_result_id in doc_rows:
+    for doc_row in doc_rows:
+        document_id = doc_row[0]
+        source_file_name = doc_row[1]
         did = str(document_id)
         title = str(source_file_name or "").strip() or did
         document_titles[did] = title
-        if current_job_result_id:
-            job_result_id = str(current_job_result_id)
+        job_result_id = (
+            str(revision_pins.get(did, ""))
+            if revision_pins is not None
+            else str(doc_row[2] or "")
+        )
+        if job_result_id:
             current_job_result_ids.add(job_result_id)
             document_revisions.append((did, job_result_id))
 
@@ -147,28 +206,47 @@ async def load_nav_snapshot(
         if job_result_id and job_id
     }
 
-    sections_by_doc, section_path_by_id = await _load_sections(
+    manifest_sections = await _load_manifest_sections(
         db,
         document_revisions=document_revisions,
         exclude_sections=excluded_secs,
+        job_id_by_result_id=job_id_by_result_id,
     )
-    if lazy:
-        chunk_ids_by_doc, chunk_ref_index, remounted_assets = await _load_chunk_index(
+    if manifest_sections is None:
+        sections_by_doc, section_path_by_id = await _load_sections(
             db,
             document_revisions=document_revisions,
             exclude_sections=excluded_secs,
-            section_path_by_id=section_path_by_id,
-            job_id_by_result_id=job_id_by_result_id,
         )
+        manifest_chunk_index = None
+    else:
+        sections_by_doc, section_path_by_id, manifest_chunk_index = manifest_sections
+    if lazy:
+        if manifest_chunk_index is None:
+            chunk_ids_by_doc, chunk_ref_index, remounted_assets = await _load_chunk_index(
+                db,
+                document_revisions=document_revisions,
+                exclude_sections=excluded_secs,
+                section_path_by_id=section_path_by_id,
+                job_id_by_result_id=job_id_by_result_id,
+            )
+        else:
+            chunk_ids_by_doc, chunk_ref_index, remounted_assets = manifest_chunk_index
         kept_titles = {
-            did: title for did, title in document_titles.items() if sections_by_doc.get(did)
+            did: title
+            for did, title in document_titles.items()
+            if sections_by_doc.get(did)
         }
         if not kept_titles:
             raise ValueError(
                 f"nav snapshot empty after excludes for "
                 f"user_id={user_id!r} namespace={namespace!r}"
             )
-        revisions = {did: result_id for did, result_id in document_revisions if did in kept_titles}
+        revisions = {
+            did: result_id
+            for did, result_id in document_revisions
+            if did in kept_titles
+        }
         store = ReadOnlyChunkStore(
             dsn=knowhere_database_url(),
             revisions=revisions,
@@ -192,7 +270,9 @@ async def load_nav_snapshot(
                     chunk_store=store,
                     known_chunk_ids=chunk_ids_by_doc.get(did, ()),
                     root_asset_ids=remounted_assets.get(did, {}).get("root", ()),
-                    remounted_assets_by_section=remounted_assets.get(did, {}).get("owners", {}),
+                    remounted_assets_by_section=remounted_assets.get(did, {}).get(
+                        "owners", {}
+                    ),
                 )
                 for did in kept_titles
             ]
@@ -215,7 +295,10 @@ async def load_nav_snapshot(
                 resolver=store.load_chunk_reference_metadata,
             ),
             document_ids=list(provider.document_ids()),
-            document_titles={did: kept_titles.get(did, did) for did in provider.document_ids()},
+            document_titles={
+                did: kept_titles.get(did, did) for did in provider.document_ids()
+            },
+            document_revisions=dict(revisions),
         )
 
     units_by_doc, chunk_ref_index = await _load_chunks(
@@ -228,9 +311,7 @@ async def load_nav_snapshot(
 
     # Keep only documents that still have sections after exclude filters.
     kept_titles = {
-        did: title
-        for did, title in document_titles.items()
-        if sections_by_doc.get(did)
+        did: title for did, title in document_titles.items() if sections_by_doc.get(did)
     }
     if not kept_titles:
         raise ValueError(
@@ -243,7 +324,172 @@ async def load_nav_snapshot(
         sections_by_doc={did: sections_by_doc.get(did, []) for did in kept_titles},
         units_by_doc={did: units_by_doc.get(did, []) for did in kept_titles},
         chunk_ref_index=chunk_ref_index,
+        document_revisions={
+            document_id: job_result_id
+            for document_id, job_result_id in document_revisions
+            if document_id in kept_titles
+        },
     )
+
+
+async def _load_manifest_sections(
+    db: SnapshotSession,
+    *,
+    document_revisions: list[tuple[str, str]],
+    exclude_sections: list[dict[str, str]],
+    job_id_by_result_id: dict[str, str],
+) -> tuple[
+    dict[str, list[SectionRow]],
+    dict[str, str],
+    tuple[dict[str, list[str]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]],
+] | None:
+    """Load section metadata from complete serving manifests when available."""
+    cached_payloads = get_cached_manifest_payloads(
+        db,
+        revisions=dict(document_revisions),
+    )
+    if cached_payloads is not None and len(cached_payloads) == len(document_revisions):
+        manifest_entries: list[tuple[object, ...]] = [
+            (document_id, job_result_id, payload, None, None)
+            for document_id, job_result_id in document_revisions
+            for payload in [cached_payloads.get((document_id, job_result_id))]
+            if payload is not None
+        ]
+        if len(manifest_entries) != len(document_revisions):
+            return None
+    else:
+        statement = select(
+            RetrievalServingRevisionManifest.document_id,
+            RetrievalServingRevisionManifest.job_result_id,
+            RetrievalServingRevisionManifest.payload_zlib,
+            RetrievalServingRevisionManifest.checksum,
+            RetrievalServingRevisionManifest.format_version,
+        ).where(
+            tuple_(
+                RetrievalServingRevisionManifest.document_id,
+                RetrievalServingRevisionManifest.job_result_id,
+            ).in_(document_revisions)
+        )
+        try:
+            rows = (await db.execute(statement)).all()
+        except Exception:
+            await db.rollback()
+            return None
+        if len(rows) != len(document_revisions):
+            return None
+        manifest_entries = [tuple(row) for row in rows]
+    by_doc: dict[str, list[SectionRow]] = {}
+    path_by_id: dict[str, str] = {}
+    ids_by_doc: dict[str, list[str]] = {}
+    ref_index: dict[str, dict[str, Any]] = {}
+    root_assets_by_doc: dict[str, set[str]] = {}
+    text_connections_by_doc: dict[str, list[tuple[str, str]]] = {}
+    try:
+        for document_id, _job_result_id, payload_zlib, checksum, format_version in manifest_entries:
+            if isinstance(payload_zlib, dict):
+                payload = payload_zlib
+            else:
+                if not isinstance(payload_zlib, (bytes, bytearray, memoryview)):
+                    return None
+                if checksum is None or format_version is None:
+                    return None
+                payload = decode_serving_manifest(
+                    bytes(payload_zlib),
+                    checksum=str(checksum),
+                    format_version=int(str(format_version)),
+                )
+            raw_sections = payload.get("sections")
+            if not isinstance(raw_sections, list):
+                return None
+            for raw_section in raw_sections:
+                if not isinstance(raw_section, dict):
+                    return None
+                section_path = str(raw_section.get("section_path") or "")
+                if is_excluded_section(
+                    document_id=str(document_id),
+                    section_path=section_path,
+                    exclude_sections=exclude_sections,
+                ):
+                    continue
+                section_id = str(raw_section.get("section_id") or "")
+                if not section_id or not section_path:
+                    return None
+                section = SectionRow(
+                    section_id=section_id,
+                    parent_section_id=(
+                        str(raw_section["parent_section_id"])
+                        if raw_section.get("parent_section_id")
+                        else None
+                    ),
+                    section_path=section_path,
+                    section_title=str(raw_section.get("section_title") or "").strip(),
+                    section_level=int(raw_section.get("section_level") or 0),
+                    summary=str(raw_section.get("summary") or "").strip(),
+                    sort_order=int(raw_section.get("sort_order") or 0),
+                )
+                by_doc.setdefault(str(document_id), []).append(section)
+                path_by_id[section_id] = section_path
+            raw_chunks = payload.get("chunks")
+            if not isinstance(raw_chunks, list):
+                return None
+            for raw_chunk in raw_chunks:
+                if not isinstance(raw_chunk, dict):
+                    return None
+                chunk_id = str(raw_chunk.get("chunk_id") or "").strip()
+                if not chunk_id:
+                    return None
+                section_id = (
+                    str(raw_chunk["section_id"])
+                    if raw_chunk.get("section_id")
+                    else None
+                )
+                section_path = path_by_id.get(section_id) if section_id else None
+                if is_excluded_section(
+                    document_id=str(document_id),
+                    section_path=section_path,
+                    exclude_sections=exclude_sections,
+                ) or (section_id and section_id not in path_by_id):
+                    continue
+                chunk_type = str(raw_chunk.get("chunk_type") or "text")
+                meta = {
+                    "document_id": str(document_id),
+                    "section_path": section_path,
+                    "chunk_type": chunk_type,
+                    "file_path": None,
+                    "job_id": job_id_by_result_id.get(str(_job_result_id)),
+                }
+                document_key = str(document_id)
+                ids_by_doc.setdefault(document_key, []).append(chunk_id)
+                ref_index[chunk_id] = meta
+                ref_index[f"{document_key}:{chunk_id}"] = meta
+                if (
+                    chunk_type in {"image", "table"}
+                    and section_id
+                    and section_path == "Root"
+                ):
+                    root_assets_by_doc.setdefault(document_key, set()).add(chunk_id)
+                connections = raw_chunk.get("connect_to")
+                if chunk_type == "text" and isinstance(connections, list):
+                    for connection in connections:
+                        target = (
+                            str(connection.get("target") or "").strip()
+                            if isinstance(connection, dict)
+                            else str(connection or "").strip()
+                        )
+                        if target:
+                            text_connections_by_doc.setdefault(document_key, []).append(
+                                (section_id or "", target)
+                            )
+    except (TypeError, ValueError, KeyError):
+        return None
+    remounted: dict[str, dict[str, Any]] = {}
+    for document_id, asset_ids in root_assets_by_doc.items():
+        owners: dict[str, list[str]] = {}
+        for section_id, target in text_connections_by_doc.get(document_id, ()):
+            if target in asset_ids:
+                owners.setdefault(section_id, []).append(target)
+        remounted[document_id] = {"root": sorted(asset_ids), "owners": owners}
+    return by_doc, path_by_id, (ids_by_doc, ref_index, remounted)
 
 
 async def _load_chunk_index(
@@ -431,62 +677,109 @@ async def _load_sections(
     exclude_sections: list[dict[str, str]],
 ) -> tuple[dict[str, list[SectionRow]], dict[str, str]]:
     # Captured pairs replace DocumentSection.job_result_id == Document.current_job_result_id.
-    stmt = (
-        select(
-            DocumentSection.document_id,
-            DocumentSection.section_id,
-            DocumentSection.parent_section_id,
-            DocumentSection.section_path,
-            DocumentSection.section_title,
-            DocumentSection.section_level,
-            DocumentSection.summary,
-            DocumentSection.sort_order,
-        )
-        .where(
-            tuple_(
-                DocumentSection.document_id,
-                DocumentSection.job_result_id,
-            ).in_(document_revisions)
-        )
-        .order_by(
-            DocumentSection.document_id,
-            DocumentSection.sort_order,
-            DocumentSection.section_id,
-        )
-    )
-
     by_doc: dict[str, list[SectionRow]] = {}
     path_by_id: dict[str, str] = {}
-    query_started = time.perf_counter()
-    rows = (await db.execute(stmt)).all()
-    query_seconds = time.perf_counter() - query_started
-    assembly_started = time.perf_counter()
-    for row in rows:
-        document_id = str(row[0])
-        section_path = str(row[3] or "")
-        if is_excluded_section(
-            document_id=document_id,
-            section_path=section_path,
-            exclude_sections=exclude_sections,
-        ):
-            continue
-        section_id = str(row[1])
-        section = SectionRow(
-            section_id=section_id,
-            parent_section_id=str(row[2]) if row[2] else None,
-            section_path=section_path,
-            section_title=str(row[4] or "").strip(),
-            section_level=int(row[5] or 0),
-            summary=str(row[6] or "").strip(),
-            sort_order=int(row[7] or 0),
+    document_ids = [document_id for document_id, _ in document_revisions]
+    job_result_ids = [job_result_id for _, job_result_id in document_revisions]
+    revision_rows = (
+        func.unnest(
+            cast(
+                bindparam("section_document_ids", value=document_ids), ARRAY(String())
+            ),
+            cast(
+                bindparam("section_job_result_ids", value=job_result_ids),
+                ARRAY(String()),
+            ),
         )
-        by_doc.setdefault(document_id, []).append(section)
-        path_by_id[section_id] = section_path
+        .table_valued("document_id", "job_result_id")
+        .render_derived(name="revisions")
+    )
+    last_key: tuple[str, str, int, str] | None = None
+    query_seconds = 0.0
+    assembly_seconds = 0.0
+    query_count = 0
+    row_count = 0
+    while True:
+        stmt = (
+            select(
+                DocumentSection.document_id,
+                DocumentSection.section_id,
+                DocumentSection.parent_section_id,
+                DocumentSection.section_path,
+                DocumentSection.section_title,
+                DocumentSection.section_level,
+                DocumentSection.summary,
+                DocumentSection.sort_order,
+                DocumentSection.job_result_id,
+            )
+            .join(
+                revision_rows,
+                (DocumentSection.document_id == revision_rows.c.document_id)
+                & (DocumentSection.job_result_id == revision_rows.c.job_result_id),
+            )
+            .order_by(
+                DocumentSection.document_id,
+                DocumentSection.job_result_id,
+                DocumentSection.sort_order,
+                DocumentSection.section_id,
+            )
+            .limit(_CHUNK_BATCH_SIZE)
+        )
+        if last_key is not None:
+            stmt = stmt.where(
+                tuple_(
+                    DocumentSection.document_id,
+                    DocumentSection.job_result_id,
+                    DocumentSection.sort_order,
+                    DocumentSection.section_id,
+                )
+                > tuple_(*[literal(value) for value in last_key])
+            )
+        query_started = time.perf_counter()
+        rows = (await db.execute(stmt)).all()
+        query_seconds += time.perf_counter() - query_started
+        query_count += 1
+        if not rows:
+            break
+        row_count += len(rows)
+        assembly_started = time.perf_counter()
+        for row in rows:
+            document_id = str(row[0])
+            section_path = str(row[3] or "")
+            if is_excluded_section(
+                document_id=document_id,
+                section_path=section_path,
+                exclude_sections=exclude_sections,
+            ):
+                continue
+            section_id = str(row[1])
+            section = SectionRow(
+                section_id=section_id,
+                parent_section_id=str(row[2]) if row[2] else None,
+                section_path=section_path,
+                section_title=str(row[4] or "").strip(),
+                section_level=int(row[5] or 0),
+                summary=str(row[6] or "").strip(),
+                sort_order=int(row[7] or 0),
+            )
+            by_doc.setdefault(document_id, []).append(section)
+            path_by_id[section_id] = section_path
+        assembly_seconds += time.perf_counter() - assembly_started
+        last = rows[-1]
+        last_key = (
+            str(last[0]),
+            str(last[8]),
+            int(last[7] or 0),
+            str(last[1]),
+        )
+        if len(rows) < _CHUNK_BATCH_SIZE:
+            break
     _logger.info(
-        "retrieval snapshot phase=sections rows=%d query_seconds=%.3f assembly_seconds=%.3f",
-        len(rows),
+        "retrieval snapshot phase=sections rows=%d queries=%d query_seconds=%.3f assembly_seconds=%.3f",
+        row_count,
+        query_count,
         query_seconds,
-        time.perf_counter() - assembly_started,
+        assembly_seconds,
     )
     return by_doc, path_by_id
 

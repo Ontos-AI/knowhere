@@ -23,10 +23,10 @@ CREATE TABLE documents (
     user_id TEXT,
     namespace TEXT,
     status TEXT,
-    current_job_result_id INTEGER,
+    current_job_result_id TEXT,
     source_file_name TEXT
 );
-CREATE TABLE job_results (id INTEGER PRIMARY KEY, job_id TEXT);
+CREATE TABLE job_results (id TEXT PRIMARY KEY, job_id TEXT);
 CREATE TABLE document_sections (section_id TEXT PRIMARY KEY, section_path TEXT);
 CREATE TABLE document_chunks (
     id SERIAL PRIMARY KEY,
@@ -38,7 +38,7 @@ CREATE TABLE document_chunks (
     source_chunk_path TEXT,
     file_path TEXT,
     chunk_metadata JSONB,
-    job_result_id INTEGER,
+    job_result_id TEXT,
     sort_order INTEGER,
     content_search_text TEXT,
     content_search_tsv TSVECTOR GENERATED ALWAYS AS
@@ -197,3 +197,35 @@ async def test_exclusions_still_apply_under_the_prefilter(
         exclude_sections=[],
     )
     assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_content_channel_uses_the_requested_revision_pin(
+    seeded_session: AsyncSession,
+) -> None:
+    await seeded_session.execute(text("INSERT INTO job_results VALUES (2, 'job2')"))
+    await seeded_session.execute(
+        text(
+            "INSERT INTO document_chunks "
+            "(chunk_id, document_id, section_id, chunk_type, content, "
+            " job_result_id, sort_order, content_search_text, path_search_text) "
+            "VALUES ('new-hit', 'd1', 's1', 'text', 'new body', 2, 1, "
+            " 'alpha replacement', 'new path')"
+        )
+    )
+    await seeded_session.execute(
+        text("UPDATE documents SET current_job_result_id = 2 WHERE document_id = 'd1'")
+    )
+
+    rows = await content_channel(
+        seeded_session,
+        user_id="u1",
+        namespace="ns1",
+        query="alpha",
+        top_k=50,
+        exclude_document_ids=[],
+        exclude_sections=[],
+        revision_pins={"d1": "1"},
+    )
+
+    assert [str(row["chunk_id"]) for row in rows] == ["hit-en"]
