@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any, cast
@@ -40,7 +41,12 @@ async def test_classic_channels_share_pins_but_use_distinct_sessions(
         observed.append((db, kwargs["revision_pins"]))
         return []
 
-    monkeypatch.setattr("shared.core.database.get_db_context", fake_context)
+    # Import the active module explicitly.  Some API contract fixtures reload
+    # shared.core.database between tests, leaving the package attribute pointed
+    # at an old module object; dotted-string patching can then miss the module
+    # used by discovery's lazy import.
+    database_module = importlib.import_module("shared.core.database")
+    monkeypatch.setattr(database_module, "get_db_context", fake_context)
     monkeypatch.setattr(discovery, "path_channel", fake_channel)
     monkeypatch.setattr(discovery, "content_channel", fake_channel)
     monkeypatch.setattr(discovery, "term_channel", fake_channel)
