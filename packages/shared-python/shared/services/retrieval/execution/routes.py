@@ -23,7 +23,6 @@ from shared.services.retrieval.execution.route_types import (
 )
 from shared.services.retrieval.search.ranking import rank_retrieval_candidates
 from shared.services.retrieval.search.scoped_corpus import (
-    count_manifest_chunks,
     count_scoped_chunks,
     load_all_scoped_chunks,
 )
@@ -58,27 +57,15 @@ async def _try_run_small_corpus_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome | None:
     total_chunk_count: int | None = None
-    if (
-        context.use_agentic is not False
-        and context.revision_pins is not None
-        and not context.exclude_document_ids
-        and not context.exclude_sections
-        and context.allowed_chunk_types is None
-        and not context.signal_paths
-    ):
-        total_chunk_count = await count_manifest_chunks(
-            context.db,
-            revision_pins=context.revision_pins,
-        )
-    if total_chunk_count is None:
-        total_chunk_count = await count_scoped_chunks(
-            context.db,
-            user_id=context.user_id,
-            namespace=context.namespace,
-            exclude_document_ids=context.exclude_document_ids,
-            allowed_chunk_types=context.allowed_chunk_types,
-            revision_pins=context.revision_pins,
-        )
+    total_chunk_count = await count_scoped_chunks(
+        context.db,
+        user_id=context.user_id,
+        namespace=context.namespace,
+        exclude_document_ids=context.exclude_document_ids,
+        allowed_chunk_types=context.allowed_chunk_types,
+        revision_pins=context.revision_pins,
+        max_count=context.top_k + 1,
+    )
 
     logger.info(f"\n  Total chunks in scope: {total_chunk_count}")
     if total_chunk_count > context.top_k:

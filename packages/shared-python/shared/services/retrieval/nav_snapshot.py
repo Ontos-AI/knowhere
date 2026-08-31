@@ -55,6 +55,12 @@ _CHUNK_BATCH_SIZE = 10_000
 # Keep revision predicates bounded while reducing round trips for large
 # namespaces. Keyset paging still caps each payload query at 10,000 rows.
 _REVISION_GROUP_SIZE = 64
+# Compressed manifests are efficient for small namespaces, but transferring a
+# large set of binary payloads can exceed the asyncpg statement timeout before
+# PostgreSQL has done meaningful work. For larger snapshots, the normalized
+# section/chunk index loaders below transfer only the fields map-nav needs and
+# page them by revision.
+_MANIFEST_MAX_REVISION_COUNT = 32
 _logger = logging.getLogger(__name__)
 
 
@@ -206,12 +212,14 @@ async def load_nav_snapshot(
         if job_result_id and job_id
     }
 
-    manifest_sections = await _load_manifest_sections(
-        db,
-        document_revisions=document_revisions,
-        exclude_sections=excluded_secs,
-        job_id_by_result_id=job_id_by_result_id,
-    )
+    manifest_sections = None
+    if len(document_revisions) <= _MANIFEST_MAX_REVISION_COUNT:
+        manifest_sections = await _load_manifest_sections(
+            db,
+            document_revisions=document_revisions,
+            exclude_sections=excluded_secs,
+            job_id_by_result_id=job_id_by_result_id,
+        )
     if manifest_sections is None:
         sections_by_doc, section_path_by_id = await _load_sections(
             db,
@@ -358,26 +366,31 @@ async def _load_manifest_sections(
         if len(manifest_entries) != len(document_revisions):
             return None
     else:
-        statement = select(
-            RetrievalServingRevisionManifest.document_id,
-            RetrievalServingRevisionManifest.job_result_id,
-            RetrievalServingRevisionManifest.payload_zlib,
-            RetrievalServingRevisionManifest.checksum,
-            RetrievalServingRevisionManifest.format_version,
-        ).where(
-            tuple_(
+        manifest_entries = []
+        for group_start in range(0, len(document_revisions), _REVISION_GROUP_SIZE):
+            revision_group = document_revisions[
+                group_start : group_start + _REVISION_GROUP_SIZE
+            ]
+            statement = select(
                 RetrievalServingRevisionManifest.document_id,
                 RetrievalServingRevisionManifest.job_result_id,
-            ).in_(document_revisions)
-        )
-        try:
-            rows = (await db.execute(statement)).all()
-        except Exception:
-            await db.rollback()
-            return None
-        if len(rows) != len(document_revisions):
-            return None
-        manifest_entries = [tuple(row) for row in rows]
+                RetrievalServingRevisionManifest.payload_zlib,
+                RetrievalServingRevisionManifest.checksum,
+                RetrievalServingRevisionManifest.format_version,
+            ).where(
+                tuple_(
+                    RetrievalServingRevisionManifest.document_id,
+                    RetrievalServingRevisionManifest.job_result_id,
+                ).in_(revision_group)
+            )
+            try:
+                rows = (await db.execute(statement)).all()
+            except Exception:
+                await db.rollback()
+                return None
+            if len(rows) != len(revision_group):
+                return None
+            manifest_entries.extend(tuple(row) for row in rows)
     by_doc: dict[str, list[SectionRow]] = {}
     path_by_id: dict[str, str] = {}
     ids_by_doc: dict[str, list[str]] = {}
