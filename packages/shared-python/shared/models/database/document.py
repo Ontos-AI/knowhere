@@ -270,6 +270,12 @@ class DocumentMapUnit(Base):
     path_token_count: Mapped[int] = mapped_column(Integer, nullable=False)
     content_token_count: Mapped[int] = mapped_column(Integer, nullable=False)
     term_search_text_lower: Mapped[str] = mapped_column(Text, nullable=False)
+    # Asset presence under this unit's section, after root-asset remount
+    # (``KnowhereProvider._remount_root_assets``). Lets type-scoped queries
+    # (e.g. chunk_types=["image"]) narrow map-unit candidates *before*
+    # scoring instead of scoring everything and discarding after the fact.
+    has_image: Mapped[bool] = mapped_column(nullable=False, default=False)
+    has_table: Mapped[bool] = mapped_column(nullable=False, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, nullable=False
@@ -284,6 +290,18 @@ class DocumentMapUnit(Base):
             "unit_id",
         ),
         Index("idx_document_map_units_section", "section_id"),
+        Index(
+            "idx_document_map_units_has_image",
+            "document_id",
+            "job_result_id",
+            postgresql_where=has_image.is_(True),
+        ),
+        Index(
+            "idx_document_map_units_has_table",
+            "document_id",
+            "job_result_id",
+            postgresql_where=has_table.is_(True),
+        ),
     )
 
 
@@ -338,6 +356,12 @@ class DocumentMapUnitIndex(Base):
     format_version: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_count: Mapped[int] = mapped_column(Integer, nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    # rank_bm25 Okapi average IDF for the revision's units (path/content).
+    # Written at index time so query scoring never rescans all tokens.
+    average_idf_path: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    average_idf_content: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, nullable=False
     )
@@ -514,6 +538,38 @@ class RetrievalNamespaceTokenStat(Base):
             "generation",
             "channel",
             "token_hash",
+        ),
+    )
+
+
+class RetrievalNamespaceMapSnapshot(Base):
+    """Persisted namespace-level MAP (sections + chunk index + map units).
+
+    Incrementally patched at publish/archive time (one document's subtree at
+    a time); query time reads this row directly instead of merging per-file
+    manifests. Overwritten in place -- no generation history is retained.
+    """
+
+    __tablename__ = "retrieval_namespace_map_snapshots"
+
+    id: Mapped[str] = mapped_column(
+        String(100), primary_key=True, default=lambda: f"rnmap_{uuid4().hex}"
+    )
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    namespace: Mapped[str] = mapped_column(String(255), nullable=False)
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    format_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    payload_zlib: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "namespace",
+            name="uq_retrieval_namespace_map_snapshots_scope",
         ),
     )
 

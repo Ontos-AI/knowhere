@@ -22,6 +22,9 @@ from shared.models.database.job_result import JobResult
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
+from shared.services.retrieval.namespace_map_snapshot import (
+    remove_document_from_namespace_map_snapshot,
+)
 from shared.services.retrieval.publication_content import (
     deduplicate_chunks_by_source_path,
     replace_document_revision_content,
@@ -190,6 +193,12 @@ class RetrievalPublicationService:
                 db,
                 user_id=scope.user_id,
                 namespace=str(existing_namespace),
+            )
+            remove_document_from_namespace_map_snapshot(
+                db,
+                user_id=scope.user_id,
+                namespace=str(existing_namespace),
+                document_id=document.document_id,
             )
         advance_namespace_generation(
             db,

@@ -31,6 +31,7 @@ class RetrievalQuery:
     threshold: float = 0.0
     internal_recall_k: int | None = None
     use_agentic: bool | None = None
+    conversation_id: str | None = None
     llm_config: LLMConfig | None = None
 
     @classmethod
@@ -53,6 +54,7 @@ class RetrievalQuery:
         threshold: float = 0.0,
         internal_recall_k: int | None = None,
         use_agentic: bool | None = None,
+        conversation_id: str | None = None,
         llm_config: LLMConfig | None = None,
     ) -> "RetrievalQuery":
         return cls(
@@ -72,6 +74,7 @@ class RetrievalQuery:
             threshold=threshold,
             internal_recall_k=internal_recall_k,
             use_agentic=use_agentic,
+            conversation_id=conversation_id,
             llm_config=llm_config,
         )
 
@@ -125,4 +128,5 @@ class RetrievalQuery:
             internal_recall_k=self.internal_recall_k,
             effective_recall_k=self.resolve_effective_recall_k(),
             use_agentic=self.use_agentic,
+            conversation_id=self.conversation_id,
         )

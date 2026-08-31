@@ -31,6 +31,7 @@ from shared.models.database.document import (
     Document,
     DocumentChunk,
     DocumentSection,
+    RetrievalNamespaceMapSnapshot,
     RetrievalServingRevisionManifest,
 )
 from shared.models.database.job_result import JobResult
@@ -46,6 +47,10 @@ from shared.services.retrieval.nav.nav_knowhere import (
 from shared.services.retrieval.search.section_filters import is_excluded_section
 from shared.services.retrieval.serving_manifest import decode_serving_manifest
 from shared.services.retrieval.manifest_cache import get_cached_manifest_payloads
+from shared.services.retrieval.namespace_map_snapshot_cache import (
+    cache_namespace_documents,
+    get_cached_namespace_documents,
+)
 
 
 # Keep each payload query bounded under the API's 30-second statement timeout.
@@ -212,15 +217,40 @@ async def load_nav_snapshot(
         if job_result_id and job_id
     }
 
-    manifest_sections = None
-    if len(document_revisions) <= _MANIFEST_MAX_REVISION_COUNT:
-        manifest_sections = await _load_manifest_sections(
-            db,
-            document_revisions=document_revisions,
+    snapshot_entries = await _resolve_namespace_snapshot_entries(
+        db,
+        user_id=user_id,
+        namespace=namespace,
+        document_revisions=document_revisions,
+    )
+    if snapshot_entries is not None:
+        manifest_sections = _parse_manifest_entries(
+            snapshot_entries,
             exclude_sections=excluded_secs,
             job_id_by_result_id=job_id_by_result_id,
         )
+    else:
+        _logger.warning(
+            "retrieval snapshot fallback=manifest_merge user_id=%s namespace=%s documents=%d",
+            user_id,
+            namespace,
+            len(document_revisions),
+        )
+        manifest_sections = None
+        if len(document_revisions) <= _MANIFEST_MAX_REVISION_COUNT:
+            manifest_sections = await _load_manifest_sections(
+                db,
+                document_revisions=document_revisions,
+                exclude_sections=excluded_secs,
+                job_id_by_result_id=job_id_by_result_id,
+            )
     if manifest_sections is None:
+        _logger.warning(
+            "retrieval snapshot fallback=table_scan user_id=%s namespace=%s documents=%d",
+            user_id,
+            namespace,
+            len(document_revisions),
+        )
         sections_by_doc, section_path_by_id = await _load_sections(
             db,
             document_revisions=document_revisions,
@@ -340,18 +370,72 @@ async def load_nav_snapshot(
     )
 
 
-async def _load_manifest_sections(
+async def _resolve_namespace_snapshot_entries(
+    db: SnapshotSession,
+    *,
+    user_id: str,
+    namespace: str,
+    document_revisions: list[tuple[str, str]],
+) -> list[tuple[object, ...]] | None:
+    """Return manifest-shaped entries from the persisted namespace snapshot.
+
+    Returns ``None`` (triggering the exact per-revision fallback) when the
+    snapshot row is missing, corrupt, or stale for any requested revision.
+    """
+    statement = select(
+        RetrievalNamespaceMapSnapshot.generation,
+        RetrievalNamespaceMapSnapshot.payload_zlib,
+        RetrievalNamespaceMapSnapshot.checksum,
+        RetrievalNamespaceMapSnapshot.format_version,
+    ).where(
+        RetrievalNamespaceMapSnapshot.user_id == user_id,
+        RetrievalNamespaceMapSnapshot.namespace == namespace,
+    )
+    try:
+        row = (await db.execute(statement)).first()
+    except Exception:
+        await db.rollback()
+        return None
+    if row is None:
+        return None
+    generation, payload_zlib, checksum, format_version = row
+    documents = get_cached_namespace_documents(
+        user_id=user_id, namespace=namespace, generation=int(generation)
+    )
+    if documents is None:
+        try:
+            payload = decode_serving_manifest(
+                bytes(payload_zlib),
+                checksum=str(checksum),
+                format_version=int(format_version),
+            )
+        except (ValueError, TypeError):
+            return None
+        decoded_documents = payload.get("documents")
+        if not isinstance(decoded_documents, dict):
+            return None
+        documents = decoded_documents
+        cache_namespace_documents(
+            user_id=user_id,
+            namespace=namespace,
+            generation=int(generation),
+            documents=documents,
+        )
+    entries: list[tuple[object, ...]] = []
+    for document_id, job_result_id in document_revisions:
+        entry = documents.get(document_id)
+        if not isinstance(entry, dict) or str(entry.get("job_result_id") or "") != job_result_id:
+            return None
+        entries.append((document_id, job_result_id, entry, None, None))
+    return entries
+
+
+async def _resolve_manifest_entries(
     db: SnapshotSession,
     *,
     document_revisions: list[tuple[str, str]],
-    exclude_sections: list[dict[str, str]],
-    job_id_by_result_id: dict[str, str],
-) -> tuple[
-    dict[str, list[SectionRow]],
-    dict[str, str],
-    tuple[dict[str, list[str]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]],
-] | None:
-    """Load section metadata from complete serving manifests when available."""
+) -> list[tuple[object, ...]] | None:
+    """Resolve per-revision manifest rows from the request cache or table."""
     cached_payloads = get_cached_manifest_payloads(
         db,
         revisions=dict(document_revisions),
@@ -365,32 +449,71 @@ async def _load_manifest_sections(
         ]
         if len(manifest_entries) != len(document_revisions):
             return None
-    else:
-        manifest_entries = []
-        for group_start in range(0, len(document_revisions), _REVISION_GROUP_SIZE):
-            revision_group = document_revisions[
-                group_start : group_start + _REVISION_GROUP_SIZE
-            ]
-            statement = select(
+        return manifest_entries
+
+    manifest_entries = []
+    for group_start in range(0, len(document_revisions), _REVISION_GROUP_SIZE):
+        revision_group = document_revisions[
+            group_start : group_start + _REVISION_GROUP_SIZE
+        ]
+        statement = select(
+            RetrievalServingRevisionManifest.document_id,
+            RetrievalServingRevisionManifest.job_result_id,
+            RetrievalServingRevisionManifest.payload_zlib,
+            RetrievalServingRevisionManifest.checksum,
+            RetrievalServingRevisionManifest.format_version,
+        ).where(
+            tuple_(
                 RetrievalServingRevisionManifest.document_id,
                 RetrievalServingRevisionManifest.job_result_id,
-                RetrievalServingRevisionManifest.payload_zlib,
-                RetrievalServingRevisionManifest.checksum,
-                RetrievalServingRevisionManifest.format_version,
-            ).where(
-                tuple_(
-                    RetrievalServingRevisionManifest.document_id,
-                    RetrievalServingRevisionManifest.job_result_id,
-                ).in_(revision_group)
-            )
-            try:
-                rows = (await db.execute(statement)).all()
-            except Exception:
-                await db.rollback()
-                return None
-            if len(rows) != len(revision_group):
-                return None
-            manifest_entries.extend(tuple(row) for row in rows)
+            ).in_(revision_group)
+        )
+        try:
+            rows = (await db.execute(statement)).all()
+        except Exception:
+            await db.rollback()
+            return None
+        if len(rows) != len(revision_group):
+            return None
+        manifest_entries.extend(tuple(row) for row in rows)
+    return manifest_entries
+
+
+async def _load_manifest_sections(
+    db: SnapshotSession,
+    *,
+    document_revisions: list[tuple[str, str]],
+    exclude_sections: list[dict[str, str]],
+    job_id_by_result_id: dict[str, str],
+) -> tuple[
+    dict[str, list[SectionRow]],
+    dict[str, str],
+    tuple[dict[str, list[str]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]],
+] | None:
+    """Load section metadata from complete serving manifests when available."""
+    manifest_entries = await _resolve_manifest_entries(
+        db, document_revisions=document_revisions
+    )
+    if manifest_entries is None:
+        return None
+    return _parse_manifest_entries(
+        manifest_entries,
+        exclude_sections=exclude_sections,
+        job_id_by_result_id=job_id_by_result_id,
+    )
+
+
+def _parse_manifest_entries(
+    manifest_entries: list[tuple[object, ...]],
+    *,
+    exclude_sections: list[dict[str, str]],
+    job_id_by_result_id: dict[str, str],
+) -> tuple[
+    dict[str, list[SectionRow]],
+    dict[str, str],
+    tuple[dict[str, list[str]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]],
+] | None:
+    """Parse manifest-shaped entries (decoded dict or raw compressed row) into sections."""
     by_doc: dict[str, list[SectionRow]] = {}
     path_by_id: dict[str, str] = {}
     ids_by_doc: dict[str, list[str]] = {}

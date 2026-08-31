@@ -58,14 +58,6 @@ def build_revision_serving_payload(
             )
         )
     )
-    map_units = list(
-        db.scalars(
-            select(DocumentMapUnit)
-            .where(DocumentMapUnit.document_id == scope.document_id)
-            .where(DocumentMapUnit.job_result_id == scope.job_result_id)
-            .order_by(DocumentMapUnit.sort_order, DocumentMapUnit.unit_id)
-        )
-    )
     section_path_by_id = {
         section.section_id: section.section_path for section in sections
     }
@@ -121,18 +113,6 @@ def build_revision_serving_payload(
             }
             for chunk in chunks
         ],
-        "map_units": [
-            {
-                "row_id": unit.id,
-                "unit_id": unit.unit_id,
-                "section_id": unit.section_id,
-                "unit_kind": unit.unit_kind,
-                "path_token_count": unit.path_token_count,
-                "content_token_count": unit.content_token_count,
-                "sort_order": unit.sort_order,
-            }
-            for unit in map_units
-        ],
         "root_asset_ids": sorted(root_asset_ids),
         "remounted_assets_by_section": remounted_assets,
     }
@@ -143,7 +123,12 @@ def build_revision_statistics_payload(
     *,
     scope: DocumentPublicationScope,
 ) -> dict[str, Any]:
-    """Build compressed scoring contributions for one revision."""
+    """Build compressed scoring contributions for one revision.
+
+    Stores aggregate token frequencies for namespace statistics rebuild.
+    Per-unit frequencies stay in ``document_map_unit_tokens`` and are loaded
+    at query time by the query tokens only.
+    """
     units = list(
         db.scalars(
             select(DocumentMapUnit)
@@ -153,9 +138,8 @@ def build_revision_statistics_payload(
     )
     unit_ids = [unit.id for unit in units]
     frequencies: dict[str, dict[str, int]] = {"path": {}, "content": {}}
-    unit_frequencies: dict[str, dict[str, dict[str, int]]] = {}
     if unit_ids:
-        for map_unit_id, channel, token, frequency in db.execute(
+        for _map_unit_id, channel, token, frequency in db.execute(
             select(
                 DocumentMapUnitToken.map_unit_id,
                 DocumentMapUnitToken.channel,
@@ -164,15 +148,12 @@ def build_revision_statistics_payload(
             ).where(DocumentMapUnitToken.map_unit_id.in_(unit_ids))
         ).all():
             channel_key = str(channel)
-            if channel_key in frequencies:
-                token_key = str(token)
-                frequency_value = int(frequency)
-                frequencies[channel_key][token_key] = (
-                    frequencies[channel_key].get(token_key, 0) + frequency_value
-                )
-                unit_frequencies.setdefault(str(map_unit_id), {}).setdefault(
-                    channel_key, {}
-                )[token_key] = frequency_value
+            if channel_key not in frequencies:
+                continue
+            token_key = str(token)
+            frequencies[channel_key][token_key] = frequencies[channel_key].get(
+                token_key, 0
+            ) + int(frequency)
     return {
         "document_id": scope.document_id,
         "job_result_id": scope.job_result_id,
@@ -182,7 +163,6 @@ def build_revision_statistics_payload(
             int(unit.content_token_count or 0) for unit in units
         ),
         "token_frequencies": frequencies,
-        "unit_frequencies": unit_frequencies,
     }
 
 
@@ -190,8 +170,12 @@ def persist_revision_serving_state(
     db: Session,
     *,
     scope: DocumentPublicationScope,
-) -> None:
-    """Replace manifest and statistics rows for one revision atomically."""
+) -> dict[str, Any]:
+    """Replace manifest and statistics rows for one revision atomically.
+
+    Returns the manifest payload so callers can patch the namespace-level MAP
+    snapshot without rebuilding it.
+    """
     manifest_payload = build_revision_serving_payload(db, scope=scope)
     statistics_payload = build_revision_statistics_payload(db, scope=scope)
     manifest_bytes, manifest_checksum, manifest_version = encode_serving_manifest(
@@ -232,6 +216,7 @@ def persist_revision_serving_state(
             checksum=statistics_checksum,
         )
     )
+    return manifest_payload
 
 
 def rebuild_namespace_serving_statistics(

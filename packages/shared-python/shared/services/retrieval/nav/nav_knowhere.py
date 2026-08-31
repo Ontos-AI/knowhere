@@ -23,7 +23,6 @@ from __future__ import annotations
 import os
 import logging
 import time
-from hashlib import sha256
 from dataclasses import dataclass, field
 from typing import (
     Any,
@@ -42,12 +41,10 @@ from typing import (
 from .nav_address import NavLevel
 from .nav_hierarchy import NodeMeta
 from .knowhere_hybrid import (
-    PersistedBm25Stats,
     PersistedScoreCorpus,
     PersistedScoreUnit,
     tokenize_query_for_ranker,
 )
-from shared.services.retrieval.serving_manifest import decode_serving_manifest
 
 _ASSET_TYPES = ("table", "image")
 # Knowhere sentinel path for the virtual document container (not a collectable leaf).
@@ -55,11 +52,6 @@ ROOT_SECTION_PATH = "Root"
 _DEFAULT_DSN = "postgresql://root:root123@127.0.0.1:5433/Knowhere"
 _MAP_UNIT_INDEX_FORMAT_VERSION = 1
 _MAP_SCORE_CHANNELS: Tuple[str, str] = ("path", "content")
-# PostgreSQL's trigram planner evaluates one LIKE branch per pattern.  Once a
-# query has more than a handful of patterns, fetching the bounded pinned unit
-# set once and evaluating literal substring hits in Python is faster and keeps
-# SQL planning time from growing with the planner's subgoal length.
-_TERM_SCORE_FULL_SCAN_PATTERN_THRESHOLD = 8
 _logger = logging.getLogger(__name__)
 
 
@@ -186,20 +178,6 @@ class ChunkStore(Protocol):
     ) -> Optional[PersistedScoreCorpus]:
         raise NotImplementedError
 
-    def load_documents_units(
-        self,
-        section_ids_by_document: Mapping[str, Sequence[str]],
-    ) -> Dict[str, List[UnitRow]]:
-        raise NotImplementedError
-
-    def load_document_units(
-        self,
-        document_id: str,
-        section_ids: Sequence[str],
-        extra_chunk_ids_by_section: Optional[Dict[str, Sequence[str]]] = None,
-    ) -> List[UnitRow]:
-        raise NotImplementedError
-
     def load_section_units(
         self,
         document_id: str,
@@ -226,18 +204,11 @@ class ReadOnlyChunkStore:
         self._revisions = dict(revisions)
         self._excluded_sections = set(excluded_sections or ())
         self._conn: Optional[_SyncConnection] = None
-        self._score_manifest_cache: Optional[
-            tuple[tuple[tuple[str, str], ...], list[Sequence[object]]]
-        ] = None
         self._score_unit_rows_cache: dict[
-            tuple[tuple[str, str], ...], list[Sequence[object]]
+            tuple[tuple[str, str], ...], list[dict[str, object]]
         ] = {}
-        self._score_frequency_cache: dict[
-            tuple[tuple[str, str], ...],
-            dict[tuple[str, str], dict[str, int]],
-        ] = {}
-        self._score_term_cache: dict[
-            tuple[tuple[str, str], ...], dict[str, Tuple[float, ...]]
+        self._score_average_idf_cache: dict[
+            tuple[tuple[str, str], ...], tuple[float, float]
         ] = {}
 
     def _connection(self) -> "_SyncConnection":
@@ -322,7 +293,17 @@ class ReadOnlyChunkStore:
         allowed_section_ids_by_document: Mapping[str, Sequence[str]],
         queries: Sequence[str],
     ) -> Optional[PersistedScoreCorpus]:
-        """Load query-relevant score inputs when every revision is indexed."""
+        """Load query-token score inputs from map-unit tables when indexed.
+
+        Units and lengths come from ``document_map_units``. Frequencies come from
+        ``document_map_unit_tokens`` filtered to the query tokens. Average IDF
+        comes from ``document_map_unit_indexes`` (written at index time).
+        """
+        from shared.services.retrieval.nav.persisted_score_load import (
+            build_channel_bm25_stats,
+            combine_average_idf,
+        )
+
         revisions = [
             (document_id, self._revisions[document_id])
             for raw_document_id in document_ids
@@ -334,276 +315,177 @@ class ReadOnlyChunkStore:
         revision_params: List[object] = [
             value for revision in revisions for value in revision
         ]
+        unique_queries = list(dict.fromkeys(str(query) for query in queries))
+        query_tokens = list(
+            dict.fromkeys(
+                token
+                for query in unique_queries
+                for token in tokenize_query_for_ranker(query)
+            )
+        )
         cur = self._connection().cursor()
         try:
             revision_key = tuple(revisions)
-            cached_manifests = self._score_manifest_cache
-            if cached_manifests is not None and cached_manifests[0] == revision_key:
-                manifests = cached_manifests[1]
-                _logger.info(
-                    "retrieval map-index load stage=manifests cache_hit rows=%d",
-                    len(manifests),
+            stage_started = time.perf_counter()
+            try:
+                cur.execute(
+                    "SELECT indexes.document_id, indexes.job_result_id, "
+                    "indexes.format_version, indexes.unit_count, "
+                    "indexes.average_idf_path, indexes.average_idf_content "
+                    "FROM document_map_unit_indexes AS indexes "
+                    f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
+                    "ON indexes.document_id = revisions.document_id "
+                    "AND indexes.job_result_id = revisions.job_result_id",
+                    revision_params,
                 )
-            else:
-                stage_started = time.perf_counter()
-                try:
-                    cur.execute(
-                        "SELECT indexes.document_id, indexes.job_result_id, "
-                        "indexes.format_version, indexes.unit_count, indexes.token_count, "
-                        "manifests.payload_zlib, manifests.checksum, manifests.format_version, "
-                        "statistics.payload_zlib, statistics.checksum, statistics.format_version "
-                        "FROM document_map_unit_indexes AS indexes "
-                        f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
-                        "ON indexes.document_id = revisions.document_id "
-                        "AND indexes.job_result_id = revisions.job_result_id "
-                        "JOIN retrieval_serving_revision_manifests AS manifests "
-                        "ON manifests.document_id = indexes.document_id "
-                        "AND manifests.job_result_id = indexes.job_result_id "
-                        "JOIN retrieval_serving_revision_stats AS statistics "
-                        "ON statistics.document_id = indexes.document_id "
-                        "AND statistics.job_result_id = indexes.job_result_id",
-                        revision_params,
-                    )
-                except Exception as exc:
-                    if getattr(exc, "pgcode", None) == "42P01":
-                        return None
-                    raise
-                manifests = list(cur.fetchall())
-                self._score_manifest_cache = (revision_key, manifests)
+            except Exception as exc:
+                if getattr(exc, "pgcode", None) in {"42P01", "42703"}:
+                    return None
+                raise
+            index_rows = list(cur.fetchall())
             _logger.info(
-                "retrieval map-index load stage=manifests seconds=%.3f rows=%d",
-                time.perf_counter() - stage_started if cached_manifests is None else 0.0,
-                len(manifests),
+                "retrieval map-index load stage=indexes seconds=%.3f rows=%d",
+                time.perf_counter() - stage_started,
+                len(index_rows),
             )
-            if len(manifests) != len(revisions) or any(
-                len(row) < 11
-                or int(row[2]) != _MAP_UNIT_INDEX_FORMAT_VERSION
-                or not row[5]
-                or not row[6]
-                or not row[8]
-                or not row[9]
-                for row in manifests
+            if len(index_rows) != len(revisions) or any(
+                len(row) < 6 or int(row[2]) != _MAP_UNIT_INDEX_FORMAT_VERSION
+                for row in index_rows
             ):
                 return None
-            decoded_manifests: dict[tuple[str, str], dict[str, Any]] = {}
-            decoded_statistics: dict[tuple[str, str], dict[str, Any]] = {}
-            try:
-                for row in manifests:
-                    decoded_manifests[(str(row[0]), str(row[1]))] = decode_serving_manifest(
-                        bytes(row[5]),
-                        checksum=str(row[6]),
-                        format_version=int(row[7]),
-                    )
-                    decoded_statistics[(str(row[0]), str(row[1]))] = decode_serving_manifest(
-                        bytes(row[8]),
-                        checksum=str(row[9]),
-                        format_version=int(row[10]),
-                    )
-            except ValueError:
-                return None
 
-            # The marker is written last in the same transaction that inserts
-            # all units and token rows.  A committed marker therefore denotes
-            # one complete revision snapshot; avoid recounting millions of
-            # token rows on every request.  Any rebuild deletes the marker
-            # first, so readers fall back to legacy scoring until completion.
-            # The public chunk id is content-derived and may repeat within a
-            # revision. The persisted scorer keys scores by that id, so use
-            # the legacy payload path whenever ambiguity would change results.
+            if revision_key in self._score_average_idf_cache:
+                average_idf_path, average_idf_content = self._score_average_idf_cache[
+                    revision_key
+                ]
+            else:
+                average_idf_path = combine_average_idf(
+                    [(float(row[4] or 0.0), int(row[3] or 0)) for row in index_rows]
+                )
+                average_idf_content = combine_average_idf(
+                    [(float(row[5] or 0.0), int(row[3] or 0)) for row in index_rows]
+                )
+                self._score_average_idf_cache[revision_key] = (
+                    average_idf_path,
+                    average_idf_content,
+                )
+
             allowed_by_document = {
                 str(document_id): {str(section_id) for section_id in section_ids}
                 for document_id, section_ids in allowed_section_ids_by_document.items()
             }
-            allowed_pairs = [
+            allowed_pairs_set = {
                 (document_id, section_id)
                 for document_id, section_ids in allowed_by_document.items()
                 for section_id in section_ids
-            ]
-            unit_cache_key = revision_key
-            all_unit_rows = self._score_unit_rows_cache.get(unit_cache_key, [])
-            units_cache_hit = unit_cache_key in self._score_unit_rows_cache
-            unit_rows: list[Sequence[object]] = []
-            if allowed_pairs:
-                if not units_cache_hit:
-                    stage_started = time.perf_counter()
-                    manifest_rows: list[Sequence[object]] = []
-                    for document_id, job_result_id in revisions:
-                        payload = decoded_manifests.get((document_id, job_result_id), {})
-                        raw_units = payload.get("map_units")
-                        if not isinstance(raw_units, list):
-                            manifest_rows = []
-                            break
-                        for raw_unit in raw_units:
-                            if not isinstance(raw_unit, dict):
-                                manifest_rows = []
-                                break
-                            row_id = str(raw_unit.get("row_id") or "").strip()
-                            unit_id = str(raw_unit.get("unit_id") or "").strip()
-                            if not row_id or not unit_id:
-                                manifest_rows = []
-                                break
-                            manifest_rows.append(
-                                (
-                                    row_id,
-                                    document_id,
-                                    unit_id,
-                                    str(raw_unit.get("section_id") or ""),
-                                    int(raw_unit.get("path_token_count") or 0),
-                                    int(raw_unit.get("content_token_count") or 0),
-                                )
-                            )
-                        if not manifest_rows and raw_units:
-                            break
-                    expected_unit_count = sum(int(row[3]) for row in manifests)
-                    all_unit_rows = (
-                        manifest_rows
-                        if len(manifest_rows) == expected_unit_count
-                        else []
-                    )
-                    if expected_unit_count and not all_unit_rows:
-                        return None
-                    self._score_unit_rows_cache[unit_cache_key] = all_unit_rows
-                else:
-                    stage_started = time.perf_counter()
-                allowed_pairs_set = set(allowed_pairs)
-                unit_rows = [
-                    row
-                    for row in all_unit_rows
-                    if (str(row[1]), str(row[3])) in allowed_pairs_set
-                ]
-                _logger.info(
-                    "retrieval map-index load stage=units seconds=%.3f rows=%d cache_hit=%s",
-                    time.perf_counter() - stage_started if not units_cache_hit else 0.0,
-                    len(unit_rows),
-                    units_cache_hit,
-                )
-            map_unit_ids = [str(row[0]) for row in unit_rows]
-            unique_queries = list(dict.fromkeys(str(query) for query in queries))
-            query_tokens_by_query = {
-                query: tokenize_query_for_ranker(query) for query in unique_queries
             }
-            query_tokens = list(
-                dict.fromkeys(
-                    token
-                    for query in unique_queries
-                    for token in query_tokens_by_query[query]
-                )
-            )
-            frequencies: Dict[Tuple[str, str], Dict[str, int]] = {}
-            if map_unit_ids and query_tokens:
-                full_frequency_map = self._score_frequency_cache.get(revision_key)
-                if full_frequency_map is None:
-                    full_frequency_map = {}
-                    for document_id, job_result_id in revisions:
-                        payload = decoded_statistics.get((document_id, job_result_id), {})
-                        unit_frequencies = payload.get("unit_frequencies", {})
-                        if not isinstance(unit_frequencies, dict):
-                            continue
-                        for map_unit_id, by_channel in unit_frequencies.items():
-                            if not isinstance(by_channel, dict):
-                                continue
-                            for channel in _MAP_SCORE_CHANNELS:
-                                values = by_channel.get(channel, {})
-                                if isinstance(values, dict):
-                                    full_frequency_map[(str(map_unit_id), channel)] = {
-                                        str(token): int(value)
-                                        for token, value in values.items()
-                                    }
-                    self._score_frequency_cache[revision_key] = full_frequency_map
-                frequencies = {
-                    key: {
-                        token: value
-                        for token, value in values.items()
-                        if token in query_tokens
-                    }
-                    for key, values in full_frequency_map.items()
-                    if key[0] in map_unit_ids
-                }
-            expected_units_by_revision = {
-                (str(row[0]), str(row[1])): int(row[3]) for row in manifests
-            }
-            statistics_complete = all(
-                int(
-                    decoded_statistics.get((document_id, job_result_id), {}).get(
-                        "unit_count", -1
-                    )
-                )
-                == expected_units_by_revision.get((document_id, job_result_id), -1)
-                for document_id, job_result_id in revisions
-            )
-            manifest_frequency_complete = bool(map_unit_ids) and statistics_complete
-            if map_unit_ids and query_tokens and not manifest_frequency_complete:
-                query_token_hashes = [
-                    sha256(token.encode("utf-8")).hexdigest() for token in query_tokens
-                ]
+            all_unit_rows = self._score_unit_rows_cache.get(revision_key)
+            if all_unit_rows is None:
                 stage_started = time.perf_counter()
                 cur.execute(
-                    "SELECT map_unit_id, channel, token, frequency "
-                    "FROM document_map_unit_tokens "
-                    "WHERE map_unit_id = ANY(%s) AND token_hash = ANY(%s) "
-                    "AND token = ANY(%s) AND channel = ANY(%s)",
-                    (
-                        map_unit_ids,
-                        query_token_hashes,
-                        query_tokens,
-                        list(_MAP_SCORE_CHANNELS),
-                    ),
+                    "SELECT units.id, units.document_id, units.unit_id, "
+                    "units.section_id, units.path_token_count, units.content_token_count "
+                    "FROM document_map_units AS units "
+                    f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
+                    "ON units.document_id = revisions.document_id "
+                    "AND units.job_result_id = revisions.job_result_id "
+                    "ORDER BY units.document_id, units.sort_order, units.unit_id",
+                    revision_params,
                 )
+                all_unit_rows = [
+                    {
+                        "map_unit_id": str(row[0]),
+                        "document_id": str(row[1]),
+                        "unit_id": str(row[2]),
+                        "section_id": str(row[3] or ""),
+                        "path_token_count": int(row[4] or 0),
+                        "content_token_count": int(row[5] or 0),
+                    }
+                    for row in cur.fetchall()
+                ]
+                expected_unit_count = sum(int(row[3] or 0) for row in index_rows)
+                if expected_unit_count and len(all_unit_rows) != expected_unit_count:
+                    return None
+                self._score_unit_rows_cache[revision_key] = all_unit_rows
+                _logger.info(
+                    "retrieval map-index load stage=units seconds=%.3f rows=%d cache_hit=%s",
+                    time.perf_counter() - stage_started,
+                    len(all_unit_rows),
+                    False,
+                )
+            else:
+                _logger.info(
+                    "retrieval map-index load stage=units seconds=0.000 rows=%d cache_hit=%s",
+                    len(all_unit_rows),
+                    True,
+                )
+
+            unit_rows = [
+                row
+                for row in all_unit_rows
+                if (str(row["document_id"]), str(row["section_id"])) in allowed_pairs_set
+            ]
+            frequencies: Dict[Tuple[str, str], Dict[str, int]] = {}
+            if unit_rows and query_tokens:
+                stage_started = time.perf_counter()
+                cur.execute(
+                    "SELECT units.id, tokens.channel, tokens.token, tokens.frequency "
+                    "FROM document_map_unit_tokens AS tokens "
+                    "JOIN document_map_units AS units ON units.id = tokens.map_unit_id "
+                    f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
+                    "ON units.document_id = revisions.document_id "
+                    "AND units.job_result_id = revisions.job_result_id "
+                    "WHERE tokens.token = ANY(%s) AND tokens.channel = ANY(%s)",
+                    [*revision_params, list(query_tokens), list(_MAP_SCORE_CHANNELS)],
+                )
+                allowed_map_unit_ids = {str(row["map_unit_id"]) for row in unit_rows}
                 for map_unit_id, channel, token, frequency in cur.fetchall():
+                    if str(map_unit_id) not in allowed_map_unit_ids:
+                        continue
                     frequencies.setdefault((str(map_unit_id), str(channel)), {})[
                         str(token)
                     ] = int(frequency)
                 _logger.info(
-                    "retrieval map-index load stage=frequencies seconds=%.3f units=%d",
+                    "retrieval map-index load stage=frequencies seconds=%.3f units=%d tokens=%d",
                     time.perf_counter() - stage_started,
-                    len(map_unit_ids),
+                    len(unit_rows),
+                    len(query_tokens),
                 )
 
-            term_cache_key = (revision_key, tuple(unique_queries))
-            term_scores = self._score_term_cache.get(term_cache_key)
-            if term_scores is None:
-                term_scores = self._load_term_scores(
-                    cur,
-                    map_unit_ids=map_unit_ids,
-                    queries=unique_queries,
-                    query_tokens_by_query=query_tokens_by_query,
-                )
-                self._score_term_cache[term_cache_key] = term_scores
             _logger.info(
                 "retrieval map-index load stage=complete units=%d queries=%d",
                 len(unit_rows),
                 len(unique_queries),
             )
-            path_stats = self._load_persisted_bm25_stats(
-                cur,
+            path_stats = build_channel_bm25_stats(
                 unit_rows=unit_rows,
-                map_unit_ids=map_unit_ids,
+                map_unit_id_field="map_unit_id",
+                length_field="path_token_count",
                 channel="path",
                 query_tokens=query_tokens,
                 frequencies=frequencies,
-                length_index=4,
+                average_idf=average_idf_path,
             )
-            content_stats = self._load_persisted_bm25_stats(
-                cur,
+            content_stats = build_channel_bm25_stats(
                 unit_rows=unit_rows,
-                map_unit_ids=map_unit_ids,
+                map_unit_id_field="map_unit_id",
+                length_field="content_token_count",
                 channel="content",
                 query_tokens=query_tokens,
                 frequencies=frequencies,
-                length_index=5,
+                average_idf=average_idf_content,
             )
             return PersistedScoreCorpus(
                 units=[
                     PersistedScoreUnit(
-                        unit_id=str(row[2]),
-                        path_length=int(row[4]),
-                        content_length=int(row[5]),
-                        path_frequencies=frequencies.get((str(row[0]), "path"), {}),
-                        content_frequencies=frequencies.get(
-                            (str(row[0]), "content"), {}
+                        unit_id=str(row["unit_id"]),
+                        path_length=int(row["path_token_count"]),
+                        content_length=int(row["content_token_count"]),
+                        path_frequencies=frequencies.get(
+                            (str(row["map_unit_id"]), "path"), {}
                         ),
-                        term_scores=term_scores.get(
-                            str(row[0]), tuple(0.0 for _query in unique_queries)
+                        content_frequencies=frequencies.get(
+                            (str(row["map_unit_id"]), "content"), {}
                         ),
                     )
                     for row in unit_rows
@@ -613,273 +495,6 @@ class ReadOnlyChunkStore:
             )
         finally:
             cur.close()
-
-    def _load_term_scores(
-        self,
-        cur: "_SyncCursor",
-        *,
-        map_unit_ids: Sequence[str],
-        queries: Sequence[str],
-        query_tokens_by_query: Mapping[str, Sequence[str]],
-    ) -> Dict[str, Tuple[float, ...]]:
-        if not map_unit_ids or not queries:
-            return {}
-        # Keep candidate selection in PostgreSQL so the trigram index can
-        # discard non-matching units, but compute the exact score once per
-        # returned row in Python.  The previous query generated one POSITION
-        # expression and one OR predicate for every query token.  Long planner
-        # subgoals therefore produced very large SQL statements and repeated
-        # substring evaluation for the same row.  LIKE ANY keeps the SQL shape
-        # constant while preserving the existing literal substring semantics in
-        # the final Python scoring pass (LIKE may over-select wildcard matches,
-        # which are rejected by the literal checks below).
-        candidate_patterns: list[str] = []
-        for query in queries:
-            query_lower = query.lower().strip()
-            if not query_lower:
-                continue
-            candidate_patterns.append(f"%{query_lower}%")
-            candidate_patterns.extend(
-                f"%{token}%" for token in query_tokens_by_query[query] if token
-            )
-        candidate_patterns = list(dict.fromkeys(candidate_patterns))
-        if not candidate_patterns:
-            return {}
-        stage_started = time.perf_counter()
-        if len(candidate_patterns) > _TERM_SCORE_FULL_SCAN_PATTERN_THRESHOLD:
-            # Long subgoals make LIKE ANY increasingly expensive even with the
-            # trigram index.  The map-unit id list is already bounded by the
-            # pinned serving projection, so one text fetch plus literal Python
-            # checks avoids a query whose shape grows with token count.
-            cur.execute(
-                "SELECT id, term_search_text_lower "
-                "FROM document_map_units WHERE id = ANY(%s)",
-                (list(map_unit_ids),),
-            )
-            candidate_mode = "full_scan"
-        else:
-            cur.execute(
-                "SELECT id, term_search_text_lower "
-                "FROM document_map_units "
-                "WHERE id = ANY(%s) AND term_search_text_lower LIKE ANY(%s)",
-                (list(map_unit_ids), candidate_patterns),
-            )
-            candidate_mode = "trigram"
-        rows = cur.fetchall()
-        _logger.info(
-            "retrieval map-index load stage=term_scores units=%d queries=%d mode=%s seconds=%.3f",
-            len(map_unit_ids),
-            len(queries),
-            candidate_mode,
-            time.perf_counter() - stage_started,
-        )
-        scores_by_unit: Dict[str, Tuple[float, ...]] = {}
-        for row in rows:
-            if len(row) < 2:
-                continue
-            unit_id = str(row[0])
-            haystack = str(row[1] or "").lower()
-            scores: list[float] = []
-            for query in queries:
-                query_lower = query.lower().strip()
-                if not query_lower:
-                    scores.append(0.0)
-                elif query_lower in haystack:
-                    scores.append(100.0)
-                else:
-                    scores.append(
-                        float(
-                            sum(
-                                1
-                                for token in query_tokens_by_query[query]
-                                if token in haystack
-                            )
-                        )
-                    )
-            if any(score > 0.0 for score in scores):
-                scores_by_unit[unit_id] = tuple(scores)
-        return scores_by_unit
-
-    def _load_persisted_bm25_stats(
-        self,
-        cur: "_SyncCursor",
-        *,
-        unit_rows: Sequence[Sequence[object]],
-        map_unit_ids: Sequence[str],
-        channel: str,
-        query_tokens: Sequence[str],
-        frequencies: Mapping[Tuple[str, str], Mapping[str, int]],
-        length_index: int,
-    ) -> PersistedBm25Stats:
-        lengths = [
-            int(row[length_index]) for row in unit_rows if int(row[length_index]) > 0
-        ]
-        document_count = len(lengths)
-        document_frequency = {
-            token: sum(
-                1
-                for row in unit_rows
-                if frequencies.get((str(row[0]), channel), {}).get(token, 0) > 0
-            )
-            for token in query_tokens
-        }
-        needs_average_idf = any(
-            frequency > document_count / 2 for frequency in document_frequency.values()
-        )
-        average_idf = 0.0
-        if needs_average_idf and map_unit_ids and document_count:
-            stage_started = time.perf_counter()
-            cur.execute(
-                "SELECT COALESCE(AVG(LN((%s - frequencies.document_frequency + 0.5) "
-                "/ (frequencies.document_frequency + 0.5))), 0.0) "
-                "FROM (SELECT token, COUNT(*) AS document_frequency "
-                "FROM document_map_unit_tokens "
-                "WHERE map_unit_id = ANY(%s) AND channel = %s "
-                "GROUP BY token) AS frequencies",
-                (document_count, list(map_unit_ids), channel),
-            )
-            row = cur.fetchone()
-            average_idf = float(row[0]) if row else 0.0
-            _logger.info(
-                "retrieval map-index load stage=average_idf channel=%s seconds=%.3f",
-                channel,
-                time.perf_counter() - stage_started,
-            )
-        return PersistedBm25Stats(
-            document_count=document_count,
-            total_length=sum(lengths),
-            document_frequency=document_frequency,
-            average_idf=average_idf,
-        )
-
-    def load_document_units(
-        self,
-        document_id: str,
-        section_ids: Sequence[str],
-        extra_chunk_ids_by_section: Optional[Dict[str, Sequence[str]]] = None,
-    ) -> List[UnitRow]:
-        """Load one document's section payloads in a single ordered query."""
-        doc_id = str(document_id).strip()
-        job_result_id = self._revisions.get(doc_id)
-        section_values = [
-            str(section_id).strip()
-            for section_id in section_ids
-            if str(section_id).strip()
-        ]
-        extra_ids = [
-            str(chunk_id).strip()
-            for chunk_ids in (extra_chunk_ids_by_section or {}).values()
-            for chunk_id in chunk_ids
-            if str(chunk_id).strip()
-        ]
-        if not doc_id or not job_result_id or (not section_values and not extra_ids):
-            return []
-
-        predicates: list[str] = []
-        params: list[object] = [doc_id, job_result_id]
-        if section_values:
-            predicates.append("section_id = ANY(%s)")
-            params.append(section_values)
-        if extra_ids:
-            predicates.append("chunk_id = ANY(%s)")
-            params.append(extra_ids)
-
-        cur = self._connection().cursor()
-        try:
-            cur.execute(
-                "SELECT chunk_id, section_id, chunk_type, content, sort_order, "
-                "source_chunk_path, file_path, chunk_metadata "
-                "FROM document_chunks "
-                "WHERE document_id = %s AND job_result_id = %s AND ("
-                + " OR ".join(predicates)
-                + ") ORDER BY section_id, sort_order, chunk_id, id",
-                params,
-            )
-            units: list[UnitRow] = []
-            for row in cur.fetchall():
-                section_id = str(row[1]) if row[1] else None
-                if section_id and (doc_id, section_id) in self._excluded_sections:
-                    continue
-                units.append(_unit_from_row(row))
-            return units
-        finally:
-            cur.close()
-
-    def load_documents_units(
-        self,
-        section_ids_by_document: Mapping[str, Sequence[str]],
-    ) -> Dict[str, List[UnitRow]]:
-        """Load a bounded group of revisions with keyset-paged SQL queries."""
-        requested = [
-            (str(document_id).strip(), self._revisions.get(str(document_id).strip()))
-            for document_id in section_ids_by_document
-            if str(document_id).strip()
-        ]
-        revisions = [
-            (document_id, str(job_result_id))
-            for document_id, job_result_id in requested
-            if job_result_id
-        ]
-        if not revisions:
-            return {}
-
-        values_sql = ", ".join(["(%s, %s)"] * len(revisions))
-        params: List[object] = [value for revision in revisions for value in revision]
-        units_by_document: Dict[str, List[UnitRow]] = {
-            document_id: [] for document_id, _job_result_id in revisions
-        }
-        last_key: Optional[Tuple[str, str, int, str, str]] = None
-        while True:
-            page_params = list(params)
-            keyset_sql = ""
-            if last_key is not None:
-                keyset_sql = (
-                    " AND (chunks.document_id, chunks.job_result_id, "
-                    "chunks.sort_order, chunks.chunk_id, chunks.id) > "
-                    "(%s, %s, %s, %s, %s)"
-                )
-                page_params.extend(last_key)
-            page_params.append(10_000)
-            cur = self._connection().cursor()
-            try:
-                cur.execute(
-                    "SELECT chunks.document_id, chunks.job_result_id, chunks.chunk_id, "
-                    "chunks.section_id, chunks.chunk_type, chunks.content, "
-                    "chunks.sort_order, chunks.source_chunk_path, chunks.file_path, "
-                    "chunks.chunk_metadata, chunks.id "
-                    "FROM document_chunks AS chunks "
-                    f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
-                    "ON chunks.document_id = revisions.document_id "
-                    "AND chunks.job_result_id = revisions.job_result_id"
-                    f"{keyset_sql} "
-                    "ORDER BY chunks.document_id, chunks.job_result_id, "
-                    "chunks.sort_order, chunks.chunk_id, chunks.id LIMIT %s",
-                    page_params,
-                )
-                rows = cur.fetchall()
-            finally:
-                cur.close()
-            if not rows:
-                break
-            for row in rows:
-                document_id = str(row[0])
-                section_id = str(row[3]) if row[3] else None
-                if section_id and (document_id, section_id) in self._excluded_sections:
-                    continue
-                units_by_document.setdefault(document_id, []).append(
-                    _unit_from_row(row[2:10])
-                )
-            last = rows[-1]
-            last_key = (
-                str(last[0]),
-                str(last[1]),
-                int(last[6] or 0),
-                str(last[2] or ""),
-                str(last[10] or ""),
-            )
-            if len(rows) < 10_000:
-                break
-        return units_by_document
 
     def close(self) -> None:
         if self._conn is not None:
@@ -1110,16 +725,6 @@ class KnowhereProvider:
         self._ensure_section_loaded(section_id)
         return list(self._units_by_section.get(section_id, ()))
 
-    def release_section_units(self, section_id: str) -> None:
-        """Drop one section's loaded payload while keeping its structure."""
-        if self._lazy_loader is None:
-            return
-        sid = str(section_id or "").strip()
-        if not sid:
-            return
-        self._units_by_section.pop(sid, None)
-        self._loaded_sections.discard(sid)
-
     def subtree_units(self, section_id: str) -> List[UnitRow]:
         out = list(self.self_units(section_id))
         for cid in self.relations(section_id)[1]:
@@ -1211,61 +816,6 @@ class LazyKnowhereProvider(KnowhereProvider):
         )
         self._chunk_store = chunk_store
         self._root_asset_ids = {str(chunk_id) for chunk_id in root_asset_ids}
-        self._remounted_assets_by_section = {
-            str(section_id): [str(chunk_id) for chunk_id in chunk_ids]
-            for section_id, chunk_ids in (remounted_assets_by_section or {}).items()
-        }
-
-    def prefetch_document_units(self) -> None:
-        """Load this document's section payloads with one bounded SQL query."""
-        section_ids = list(self._sections)
-        loaded = self._chunk_store.load_document_units(
-            self.doc_id,
-            section_ids,
-            self._remounted_assets_by_section,
-        )
-        self.install_prefetched_document_units(loaded)
-
-    def install_prefetched_document_units(
-        self,
-        loaded: Sequence[UnitRow],
-    ) -> None:
-        """Install rows fetched by either a document or corpus-group query."""
-        section_ids = list(self._sections)
-        by_section: Dict[str, List[UnitRow]] = {}
-        for unit in loaded:
-            sid = str(unit.section_id or "").strip()
-            if sid and sid in self._sections:
-                by_section.setdefault(sid, []).append(unit)
-
-        units_by_id = {unit.chunk_id: unit for unit in loaded if unit.chunk_id}
-        for section_id, asset_ids in self._remounted_assets_by_section.items():
-            target = by_section.setdefault(section_id, [])
-            known = {unit.chunk_id for unit in target}
-            for asset_id in asset_ids:
-                asset = units_by_id.get(asset_id)
-                if asset is not None and asset.chunk_id not in known:
-                    target.append(asset)
-                    known.add(asset.chunk_id)
-
-        for section_id in section_ids:
-            units = by_section.get(section_id, [])
-            units.sort(key=lambda unit: (unit.sort_order, unit.chunk_id))
-            self._units_by_section[section_id] = units
-            self._loaded_sections.add(section_id)
-
-        for section_id in section_ids:
-            if is_root_section_path(self.section_path(section_id)):
-                self._units_by_section[section_id] = [
-                    unit
-                    for unit in self._units_by_section.get(section_id, ())
-                    if unit.chunk_id not in self._root_asset_ids
-                ]
-
-    def release_document_units(self) -> None:
-        """Release all payloads loaded by the document batch."""
-        self._units_by_section.clear()
-        self._loaded_sections.clear()
 
     def _ensure_section_loaded(self, section_id: str) -> None:
         super()._ensure_section_loaded(section_id)
@@ -1282,10 +832,6 @@ class LazyKnowhereProvider(KnowhereProvider):
 
     def close(self) -> None:
         self._chunk_store.close()
-
-    def release_loaded_units(self) -> None:
-        self._units_by_section.clear()
-        self._loaded_sections.clear()
 
 
 def _connect(dsn: str) -> _SyncConnection:
@@ -1478,61 +1024,6 @@ class NamespaceKnowhereProvider:
             if callable(close):
                 close()
 
-    def release_loaded_units(self) -> None:
-        for provider in self._docs.values():
-            release = getattr(provider, "release_loaded_units", None)
-            if callable(release):
-                release()
-
-    def release_section_units(self, section_id: str) -> None:
-        owner = self._section_owner.get(str(section_id or "").strip())
-        if not owner:
-            return
-        release = getattr(self._docs[owner], "release_section_units", None)
-        if callable(release):
-            release(section_id)
-
-    def prefetch_document_units(self, doc_id: str) -> None:
-        provider = self._docs.get(str(doc_id).strip())
-        prefetch = getattr(provider, "prefetch_document_units", None)
-        if callable(prefetch):
-            prefetch()
-
-    def prefetch_document_units_batch(self, doc_ids: Sequence[str]) -> None:
-        """Load a bounded document group with one query per shared chunk store."""
-        providers = [
-            self._docs[doc_id]
-            for raw_doc_id in doc_ids
-            if (doc_id := str(raw_doc_id).strip()) in self._docs
-        ]
-        providers_by_store: Dict[int, List[LazyKnowhereProvider]] = {}
-        stores_by_id: Dict[int, ChunkStore] = {}
-        for provider in providers:
-            if not isinstance(provider, LazyKnowhereProvider):
-                continue
-            store = provider._chunk_store
-            store_id = id(store)
-            stores_by_id[store_id] = store
-            providers_by_store.setdefault(store_id, []).append(provider)
-
-        for store_id, lazy_providers in providers_by_store.items():
-            store = stores_by_id[store_id]
-            batch_loader = getattr(store, "load_documents_units", None)
-            if not callable(batch_loader):
-                for provider in lazy_providers:
-                    provider.prefetch_document_units()
-                continue
-            loaded_by_document = batch_loader(
-                {
-                    provider.doc_id: list(provider._sections)
-                    for provider in lazy_providers
-                }
-            )
-            for provider in lazy_providers:
-                provider.install_prefetched_document_units(
-                    loaded_by_document.get(provider.doc_id, ())
-                )
-
     def load_persisted_score_corpus(
         self,
         doc_ids: Sequence[str],
@@ -1568,12 +1059,6 @@ class NamespaceKnowhereProvider:
             {provider.doc_id: list(provider._sections) for provider in lazy_providers},
             queries,
         )
-
-    def release_document_units(self, doc_id: str) -> None:
-        provider = self._docs.get(str(doc_id).strip())
-        release = getattr(provider, "release_document_units", None)
-        if callable(release):
-            release()
 
     def address_level(self, node_id: str) -> Optional[NavLevel]:
         sid = str(node_id or "").strip()
