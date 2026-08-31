@@ -270,6 +270,12 @@ class DocumentMapUnit(Base):
     path_token_count: Mapped[int] = mapped_column(Integer, nullable=False)
     content_token_count: Mapped[int] = mapped_column(Integer, nullable=False)
     term_search_text_lower: Mapped[str] = mapped_column(Text, nullable=False)
+    # Asset presence under this unit's section, after root-asset remount
+    # (``KnowhereProvider._remount_root_assets``). Lets type-scoped queries
+    # (e.g. chunk_types=["image"]) narrow map-unit candidates *before*
+    # scoring instead of scoring everything and discarding after the fact.
+    has_image: Mapped[bool] = mapped_column(nullable=False, default=False)
+    has_table: Mapped[bool] = mapped_column(nullable=False, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, nullable=False
@@ -284,6 +290,18 @@ class DocumentMapUnit(Base):
             "unit_id",
         ),
         Index("idx_document_map_units_section", "section_id"),
+        Index(
+            "idx_document_map_units_has_image",
+            "document_id",
+            "job_result_id",
+            postgresql_where=has_image.is_(True),
+        ),
+        Index(
+            "idx_document_map_units_has_table",
+            "document_id",
+            "job_result_id",
+            postgresql_where=has_table.is_(True),
+        ),
     )
 
 

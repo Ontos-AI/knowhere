@@ -356,6 +356,19 @@ async def test_lazy_snapshot_defers_selected_asset_reference_metadata(
             )
             await db.commit()
 
+        async with contract_db_session() as db:
+            persisted_units = list(
+                (
+                    await db.execute(
+                        select(DocumentMapUnit).where(
+                            DocumentMapUnit.document_id == document_id
+                        )
+                    )
+                ).scalars()
+            )
+        assert any(unit.has_image for unit in persisted_units)
+        assert all(not unit.has_table for unit in persisted_units)
+
         calls: list[tuple[str, str]] = []
         original = ReadOnlyChunkStore.load_chunk_reference_metadata
 

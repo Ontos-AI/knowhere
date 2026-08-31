@@ -1,11 +1,8 @@
-"""Deterministic contracts for revision and channel-session coherence."""
+"""Deterministic contracts for revision-generation coherence."""
 
 from __future__ import annotations
 
-import importlib
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-from typing import Any, cast
+from typing import cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,62 +11,6 @@ from shared.services.retrieval.execution.revision_pins import (
     RetrievalRevisionPins,
     is_revision_generation_stable,
 )
-from shared.services.retrieval.search import discovery
-
-
-@pytest.mark.asyncio
-async def test_classic_channels_share_pins_but_use_distinct_sessions(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    pins = RetrievalRevisionPins(
-        revisions={"doc-1": "revision-1"},
-        generation=7,
-    )
-    sessions: list[object] = []
-    observed: list[tuple[object, object]] = []
-
-    @asynccontextmanager
-    async def fake_context() -> AsyncGenerator[object, None]:
-        session = object()
-        sessions.append(session)
-        yield session
-
-    async def fake_channel(
-        db: AsyncSession,
-        **kwargs: Any,
-    ) -> list[dict[str, Any]]:
-        observed.append((db, kwargs["revision_pins"]))
-        return []
-
-    # Import the active module explicitly.  Some API contract fixtures reload
-    # shared.core.database between tests, leaving the package attribute pointed
-    # at an old module object; dotted-string patching can then miss the module
-    # used by discovery's lazy import.
-    database_module = importlib.import_module("shared.core.database")
-    monkeypatch.setattr(database_module, "get_db_context", fake_context)
-    monkeypatch.setattr(discovery, "path_channel", fake_channel)
-    monkeypatch.setattr(discovery, "content_channel", fake_channel)
-    monkeypatch.setattr(discovery, "term_channel", fake_channel)
-
-    result = await discovery.bottom_discovery(
-        cast(AsyncSession, object()),
-        user_id="user-1",
-        namespace="namespace-1",
-        query="coherent query",
-        top_k=3,
-        exclude_document_ids=[],
-        exclude_sections=[],
-        revision_pins=pins,
-    )
-
-    assert result.status == "discovery_done"
-    assert len(sessions) == 3
-    assert len({id(session) for session in sessions}) == 3
-    assert len(observed) == 3
-    assert {id(session) for session, _pins in observed} == {
-        id(session) for session in sessions
-    }
-    assert all(observed_pins is pins for _session, observed_pins in observed)
 
 
 class _GenerationResult:

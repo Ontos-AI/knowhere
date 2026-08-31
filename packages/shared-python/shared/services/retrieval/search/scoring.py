@@ -10,35 +10,6 @@ def get_row_path(row: dict[str, Any]) -> str:
     return str(row.get('section_path') or row.get('source_chunk_path') or '')
 
 
-def merge_same_section_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if not rows:
-        return rows
-    groups: dict[str, list[dict[str, Any]]] = {}
-    order: list[str] = []
-    for row in rows:
-        section_path = row.get('section_path')
-        if section_path:
-            key = f"{row.get('document_id', '')}::{section_path}"
-        else:
-            key = row.get('chunk_id', '')
-        if key not in groups:
-            groups[key] = []
-            order.append(key)
-        groups[key].append(row)
-
-    merged: list[dict[str, Any]] = []
-    for key in order:
-        group = groups[key]
-        if len(group) == 1:
-            merged.append(group[0])
-            continue
-        base = dict(group[0])
-        base['content'] = '\n'.join(str(row.get('content', '')) for row in group)
-        base['score'] = max(row.get('score', 0.0) for row in group)
-        merged.append(base)
-    return merged
-
-
 def merge_channels_rrf(
     channels: list[list[dict[str, Any]]],
     weights: list[float],

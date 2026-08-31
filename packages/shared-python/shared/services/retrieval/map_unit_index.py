@@ -93,6 +93,11 @@ def replace_document_map_units(
         map_unit_id = f"dmu_{uuid4().hex}"
         path_tokens = str(unit.get("path_search_text") or "").split()
         content_tokens = str(unit.get("content_search_text") or "").split()
+        # ``provider.self_units`` already reflects root-asset remount (assets
+        # referenced via ``connect_to`` are moved onto the text section that
+        # embeds them), so this is the same ownership the query-time scorer
+        # sees, not a new computation.
+        section_chunk_types = {u.chunk_type for u in provider.self_units(section_id)}
         db.add(
             DocumentMapUnit(
                 id=map_unit_id,
@@ -104,6 +109,8 @@ def replace_document_map_units(
                 path_token_count=len(path_tokens),
                 content_token_count=len(content_tokens),
                 term_search_text_lower=str(unit.get("term_search_text") or "").lower(),
+                has_image="image" in section_chunk_types,
+                has_table="table" in section_chunk_types,
                 sort_order=sort_order,
             )
         )

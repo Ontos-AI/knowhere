@@ -1,7 +1,6 @@
 """KnowWhere-style 3-channel hybrid retrieval (path BM25 + content BM25 + term).
 
-Ported from Ontos-AI/knowhere:
-  packages/shared-python/shared/services/retrieval/search/{scoring,lexical_ranker,channels}.py
+Ported from Ontos-AI/knowhere map-unit BM25 (path + content).
 
 Reference: https://github.com/Ontos-AI/knowhere
 """

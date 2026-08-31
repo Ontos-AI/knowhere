@@ -7,7 +7,7 @@ from contextlib import AbstractAsyncContextManager
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.search.discovery import bottom_discovery
+from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
 from shared.services.retrieval.execution.reference_resolver import (
     resolve_workflow_references,
 )
@@ -118,7 +118,7 @@ async def _try_run_small_corpus_route(
 async def _run_classic_topk_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
-    discovery_result = await bottom_discovery(
+    discovery_result = await map_unit_discovery(
         context.db,
         user_id=context.user_id,
         namespace=context.namespace,
@@ -129,9 +129,6 @@ async def _run_classic_topk_route(
         chunk_types=context.allowed_chunk_types,
         signal_paths=context.signal_paths,
         filter_mode=context.filter_mode,
-        channels=context.channels,
-        channel_weights=context.channel_weights,
-        internal_recall_k=context.internal_recall_k,
         revision_pins=context.revision_pins,
     )
 

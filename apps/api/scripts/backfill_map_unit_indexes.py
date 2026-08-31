@@ -1,7 +1,10 @@
 """Backfill persisted MAP-NAV lexical indexes for existing revisions.
 
-The migration creates empty derived tables intentionally. Run this command
-after deployment with ``--apply`` so each revision is rebuilt and committed
+Rebuilds, per active revision: the map-unit index, the revision serving
+manifest, that document's subtree in the namespace MAP snapshot, namespace
+statistics, and the namespace generation. The migrations that create these
+derived tables leave them empty intentionally. Run this command after
+deployment with ``--apply`` so each revision is rebuilt and committed
 independently; without ``--apply`` it is a read-only inventory.
 """
 
@@ -44,6 +47,9 @@ from sqlalchemy import select
 from shared.core.database_sync import get_sync_session_factory
 from shared.models.database.document import Document
 from shared.services.retrieval.map_unit_index import replace_document_map_units
+from shared.services.retrieval.namespace_map_snapshot import (
+    patch_namespace_map_snapshot,
+)
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.serving_generation import (
     advance_namespace_generation,
@@ -130,7 +136,10 @@ def backfill_map_unit_indexes(*, apply: bool, document_id: str = "") -> int:
                 source_file_name=str(locked_document.source_file_name or ""),
             )
             replace_document_map_units(db, scope=scope)
-            persist_revision_serving_state(db, scope=scope)
+            manifest_payload = persist_revision_serving_state(db, scope=scope)
+            patch_namespace_map_snapshot(
+                db, scope=scope, manifest_payload=manifest_payload
+            )
             rebuild_namespace_serving_statistics(
                 db,
                 user_id=scope.user_id,
