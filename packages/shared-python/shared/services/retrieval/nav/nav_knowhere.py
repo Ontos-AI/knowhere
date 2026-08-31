@@ -21,36 +21,16 @@ not from parsing ``section_id`` or ``section_path`` separators.
 from __future__ import annotations
 
 import os
-from hashlib import sha256
 from dataclasses import dataclass, field
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Iterable,
-    List,
-    Mapping,
-    Optional,
-    Protocol,
-    Sequence,
-    Set,
-    Tuple,
-)
+from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Sequence, Set, Tuple
 
 from .nav_address import NavLevel
 from .nav_hierarchy import NodeMeta
-from .knowhere_hybrid import (
-    PersistedBm25Stats,
-    PersistedScoreCorpus,
-    PersistedScoreUnit,
-    tokenize_query_for_ranker,
-)
 
 _ASSET_TYPES = ("table", "image")
 # Knowhere sentinel path for the virtual document container (not a collectable leaf).
 ROOT_SECTION_PATH = "Root"
 _DEFAULT_DSN = "postgresql://root:root123@127.0.0.1:5433/Knowhere"
-_MAP_UNIT_INDEX_FORMAT_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -161,20 +141,6 @@ def knowhere_database_url() -> str:
 
 
 class ChunkStore(Protocol):
-    def load_persisted_score_corpus(
-        self,
-        document_ids: Sequence[str],
-        allowed_section_ids_by_document: Mapping[str, Sequence[str]],
-        queries: Sequence[str],
-    ) -> Optional[PersistedScoreCorpus]:
-        raise NotImplementedError
-
-    def load_documents_units(
-        self,
-        section_ids_by_document: Mapping[str, Sequence[str]],
-    ) -> Dict[str, List[UnitRow]]:
-        raise NotImplementedError
-
     def load_document_units(
         self,
         document_id: str,
@@ -225,20 +191,11 @@ class ReadOnlyChunkStore:
         doc_id = str(document_id).strip()
         sid = str(section_id).strip()
         job_result_id = self._revisions.get(doc_id)
-        if (
-            not doc_id
-            or not sid
-            or not job_result_id
-            or (doc_id, sid) in self._excluded_sections
-        ):
+        if not doc_id or not sid or not job_result_id or (doc_id, sid) in self._excluded_sections:
             return []
         cur = self._connection().cursor()
         try:
-            ids = [
-                str(chunk_id).strip()
-                for chunk_id in extra_chunk_ids
-                if str(chunk_id).strip()
-            ]
+            ids = [str(chunk_id).strip() for chunk_id in extra_chunk_ids if str(chunk_id).strip()]
             if ids:
                 cur.execute(
                     "SELECT chunk_id, section_id, chunk_type, content, sort_order, "
@@ -262,259 +219,6 @@ class ReadOnlyChunkStore:
         finally:
             cur.close()
 
-    def load_persisted_score_corpus(
-        self,
-        document_ids: Sequence[str],
-        allowed_section_ids_by_document: Mapping[str, Sequence[str]],
-        queries: Sequence[str],
-    ) -> Optional[PersistedScoreCorpus]:
-        """Load query-relevant score inputs when every revision is indexed."""
-        revisions = [
-            (document_id, self._revisions[document_id])
-            for raw_document_id in document_ids
-            if (document_id := str(raw_document_id).strip()) in self._revisions
-        ]
-        if not revisions or len(revisions) != len(document_ids):
-            return None
-        values_sql = ", ".join(["(%s, %s)"] * len(revisions))
-        revision_params: List[object] = [
-            value for revision in revisions for value in revision
-        ]
-        cur = self._connection().cursor()
-        try:
-            cur.execute(
-                "SELECT indexes.document_id, indexes.job_result_id, "
-                "indexes.format_version, indexes.unit_count, indexes.token_count "
-                "FROM document_map_unit_indexes AS indexes "
-                f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
-                "ON indexes.document_id = revisions.document_id "
-                "AND indexes.job_result_id = revisions.job_result_id",
-                revision_params,
-            )
-            manifests = list(cur.fetchall())
-            if len(manifests) != len(revisions) or any(
-                int(row[2]) != _MAP_UNIT_INDEX_FORMAT_VERSION for row in manifests
-            ):
-                return None
-
-            cur.execute(
-                "SELECT COUNT(*), COUNT(DISTINCT (units.document_id, units.unit_id)) "
-                "FROM document_map_units AS units "
-                f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
-                "ON units.document_id = revisions.document_id "
-                "AND units.job_result_id = revisions.job_result_id",
-                revision_params,
-            )
-            unit_count_row = cur.fetchone()
-            indexed_unit_count = int(unit_count_row[0]) if unit_count_row else 0
-            distinct_unit_count = int(unit_count_row[1]) if unit_count_row else 0
-            expected_count = sum(int(row[3]) for row in manifests)
-            if indexed_unit_count != expected_count or distinct_unit_count != indexed_unit_count:
-                return None
-            cur.execute(
-                "SELECT COUNT(*) FROM document_map_unit_tokens AS tokens "
-                "JOIN document_map_units AS units ON units.id = tokens.map_unit_id "
-                f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
-                "ON units.document_id = revisions.document_id "
-                "AND units.job_result_id = revisions.job_result_id",
-                revision_params,
-            )
-            token_row = cur.fetchone()
-            indexed_token_count = int(token_row[0]) if token_row else 0
-            expected_token_count = sum(int(row[4]) for row in manifests)
-            if indexed_token_count != expected_token_count:
-                return None
-            # The public chunk id is content-derived and may repeat within a
-            # revision. The persisted scorer keys scores by that id, so use
-            # the legacy payload path whenever ambiguity would change results.
-            allowed_by_document = {
-                str(document_id): {str(section_id) for section_id in section_ids}
-                for document_id, section_ids in allowed_section_ids_by_document.items()
-            }
-            allowed_pairs = [
-                (document_id, section_id)
-                for document_id, section_ids in allowed_by_document.items()
-                for section_id in section_ids
-            ]
-            unit_rows: list[Sequence[object]] = []
-            if allowed_pairs:
-                allowed_document_ids = [pair[0] for pair in allowed_pairs]
-                allowed_section_ids = [pair[1] for pair in allowed_pairs]
-                cur.execute(
-                    "SELECT units.id, units.document_id, units.unit_id, units.section_id, "
-                    "units.path_token_count, units.content_token_count "
-                    "FROM document_map_units AS units "
-                    f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
-                    "ON units.document_id = revisions.document_id "
-                    "AND units.job_result_id = revisions.job_result_id "
-                    "JOIN UNNEST(%s::text[], %s::text[]) "
-                    "AS allowed(document_id, section_id) "
-                    "ON units.document_id = allowed.document_id "
-                    "AND units.section_id = allowed.section_id "
-                    "ORDER BY units.document_id, units.sort_order, units.unit_id",
-                    [*revision_params, allowed_document_ids, allowed_section_ids],
-                )
-                unit_rows = list(cur.fetchall())
-            map_unit_ids = [str(row[0]) for row in unit_rows]
-            unique_queries = list(dict.fromkeys(str(query) for query in queries))
-            query_tokens_by_query = {
-                query: tokenize_query_for_ranker(query) for query in unique_queries
-            }
-            query_tokens = list(
-                dict.fromkeys(
-                    token
-                    for query in unique_queries
-                    for token in query_tokens_by_query[query]
-                )
-            )
-            frequencies: Dict[Tuple[str, str], Dict[str, int]] = {}
-            if map_unit_ids and query_tokens:
-                query_token_hashes = [
-                    sha256(token.encode("utf-8")).hexdigest() for token in query_tokens
-                ]
-                cur.execute(
-                    "SELECT map_unit_id, channel, token, frequency "
-                    "FROM document_map_unit_tokens "
-                    "WHERE map_unit_id = ANY(%s) AND token_hash = ANY(%s) "
-                    "AND token = ANY(%s)",
-                    (map_unit_ids, query_token_hashes, query_tokens),
-                )
-                for map_unit_id, channel, token, frequency in cur.fetchall():
-                    frequencies.setdefault((str(map_unit_id), str(channel)), {})[
-                        str(token)
-                    ] = int(frequency)
-
-            term_scores = self._load_term_scores(
-                cur,
-                map_unit_ids=map_unit_ids,
-                queries=unique_queries,
-                query_tokens_by_query=query_tokens_by_query,
-            )
-            path_stats = self._load_persisted_bm25_stats(
-                cur,
-                unit_rows=unit_rows,
-                map_unit_ids=map_unit_ids,
-                channel="path",
-                query_tokens=query_tokens,
-                frequencies=frequencies,
-                length_index=4,
-            )
-            content_stats = self._load_persisted_bm25_stats(
-                cur,
-                unit_rows=unit_rows,
-                map_unit_ids=map_unit_ids,
-                channel="content",
-                query_tokens=query_tokens,
-                frequencies=frequencies,
-                length_index=5,
-            )
-            return PersistedScoreCorpus(
-                units=[
-                    PersistedScoreUnit(
-                        unit_id=str(row[2]),
-                        path_length=int(row[4]),
-                        content_length=int(row[5]),
-                        path_frequencies=frequencies.get((str(row[0]), "path"), {}),
-                        content_frequencies=frequencies.get(
-                            (str(row[0]), "content"), {}
-                        ),
-                        term_scores=term_scores.get(
-                            str(row[0]), tuple(0.0 for _query in unique_queries)
-                        ),
-                    )
-                    for row in unit_rows
-                ],
-                path_stats=path_stats,
-                content_stats=content_stats,
-            )
-        finally:
-            cur.close()
-
-    def _load_term_scores(
-        self,
-        cur: "_SyncCursor",
-        *,
-        map_unit_ids: Sequence[str],
-        queries: Sequence[str],
-        query_tokens_by_query: Mapping[str, Sequence[str]],
-    ) -> Dict[str, Tuple[float, ...]]:
-        if not map_unit_ids or not queries:
-            return {}
-        expressions: List[str] = []
-        params: List[object] = []
-        for query in queries:
-            query_lower = query.lower().strip()
-            if not query_lower:
-                expressions.append("0.0")
-                continue
-            token_expressions = [
-                "CASE WHEN POSITION(%s IN term_search_text_lower) > 0 THEN 1 ELSE 0 END"
-                for _token in query_tokens_by_query[query]
-            ]
-            token_sum = " + ".join(token_expressions) or "0"
-            expressions.append(
-                "CASE WHEN POSITION(%s IN term_search_text_lower) > 0 "
-                f"THEN 100.0 ELSE ({token_sum})::double precision END"
-            )
-            params.append(query_lower)
-            params.extend(query_tokens_by_query[query])
-        params.append(list(map_unit_ids))
-        cur.execute(
-            "SELECT id, " + ", ".join(expressions) + " "
-            "FROM document_map_units WHERE id = ANY(%s)",
-            params,
-        )
-        return {
-            str(row[0]): tuple(float(value) for value in row[1:])
-            for row in cur.fetchall()
-        }
-
-    def _load_persisted_bm25_stats(
-        self,
-        cur: "_SyncCursor",
-        *,
-        unit_rows: Sequence[Sequence[object]],
-        map_unit_ids: Sequence[str],
-        channel: str,
-        query_tokens: Sequence[str],
-        frequencies: Mapping[Tuple[str, str], Mapping[str, int]],
-        length_index: int,
-    ) -> PersistedBm25Stats:
-        lengths = [
-            int(row[length_index]) for row in unit_rows if int(row[length_index]) > 0
-        ]
-        document_count = len(lengths)
-        document_frequency = {
-            token: sum(
-                1
-                for row in unit_rows
-                if frequencies.get((str(row[0]), channel), {}).get(token, 0) > 0
-            )
-            for token in query_tokens
-        }
-        needs_average_idf = any(
-            frequency > document_count / 2 for frequency in document_frequency.values()
-        )
-        average_idf = 0.0
-        if needs_average_idf and map_unit_ids and document_count:
-            cur.execute(
-                "SELECT COALESCE(AVG(LN((%s - frequencies.document_frequency + 0.5) "
-                "/ (frequencies.document_frequency + 0.5))), 0.0) "
-                "FROM (SELECT token, COUNT(*) AS document_frequency "
-                "FROM document_map_unit_tokens "
-                "WHERE map_unit_id = ANY(%s) AND channel = %s "
-                "GROUP BY token) AS frequencies",
-                (document_count, list(map_unit_ids), channel),
-            )
-            row = cur.fetchone()
-            average_idf = float(row[0]) if row else 0.0
-        return PersistedBm25Stats(
-            document_count=document_count,
-            total_length=sum(lengths),
-            document_frequency=document_frequency,
-            average_idf=average_idf,
-        )
-
     def load_document_units(
         self,
         document_id: str,
@@ -524,11 +228,7 @@ class ReadOnlyChunkStore:
         """Load one document's section payloads in a single ordered query."""
         doc_id = str(document_id).strip()
         job_result_id = self._revisions.get(doc_id)
-        section_values = [
-            str(section_id).strip()
-            for section_id in section_ids
-            if str(section_id).strip()
-        ]
+        section_values = [str(section_id).strip() for section_id in section_ids if str(section_id).strip()]
         extra_ids = [
             str(chunk_id).strip()
             for chunk_ids in (extra_chunk_ids_by_section or {}).values()
@@ -568,82 +268,6 @@ class ReadOnlyChunkStore:
         finally:
             cur.close()
 
-    def load_documents_units(
-        self,
-        section_ids_by_document: Mapping[str, Sequence[str]],
-    ) -> Dict[str, List[UnitRow]]:
-        """Load a bounded group of revisions with keyset-paged SQL queries."""
-        requested = [
-            (str(document_id).strip(), self._revisions.get(str(document_id).strip()))
-            for document_id in section_ids_by_document
-            if str(document_id).strip()
-        ]
-        revisions = [
-            (document_id, str(job_result_id))
-            for document_id, job_result_id in requested
-            if job_result_id
-        ]
-        if not revisions:
-            return {}
-
-        values_sql = ", ".join(["(%s, %s)"] * len(revisions))
-        params: List[object] = [value for revision in revisions for value in revision]
-        units_by_document: Dict[str, List[UnitRow]] = {
-            document_id: [] for document_id, _job_result_id in revisions
-        }
-        last_key: Optional[Tuple[str, str, int, str, str]] = None
-        while True:
-            page_params = list(params)
-            keyset_sql = ""
-            if last_key is not None:
-                keyset_sql = (
-                    " AND (chunks.document_id, chunks.job_result_id, "
-                    "chunks.sort_order, chunks.chunk_id, chunks.id) > "
-                    "(%s, %s, %s, %s, %s)"
-                )
-                page_params.extend(last_key)
-            page_params.append(10_000)
-            cur = self._connection().cursor()
-            try:
-                cur.execute(
-                    "SELECT chunks.document_id, chunks.job_result_id, chunks.chunk_id, "
-                    "chunks.section_id, chunks.chunk_type, chunks.content, "
-                    "chunks.sort_order, chunks.source_chunk_path, chunks.file_path, "
-                    "chunks.chunk_metadata, chunks.id "
-                    "FROM document_chunks AS chunks "
-                    f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
-                    "ON chunks.document_id = revisions.document_id "
-                    "AND chunks.job_result_id = revisions.job_result_id"
-                    f"{keyset_sql} "
-                    "ORDER BY chunks.document_id, chunks.job_result_id, "
-                    "chunks.sort_order, chunks.chunk_id, chunks.id LIMIT %s",
-                    page_params,
-                )
-                rows = cur.fetchall()
-            finally:
-                cur.close()
-            if not rows:
-                break
-            for row in rows:
-                document_id = str(row[0])
-                section_id = str(row[3]) if row[3] else None
-                if section_id and (document_id, section_id) in self._excluded_sections:
-                    continue
-                units_by_document.setdefault(document_id, []).append(
-                    _unit_from_row(row[2:10])
-                )
-            last = rows[-1]
-            last_key = (
-                str(last[0]),
-                str(last[1]),
-                int(last[6] or 0),
-                str(last[2] or ""),
-                str(last[10] or ""),
-            )
-            if len(rows) < 10_000:
-                break
-        return units_by_document
-
     def close(self) -> None:
         if self._conn is not None:
             self._conn.close()
@@ -655,9 +279,6 @@ class _SyncCursor(Protocol):
         raise NotImplementedError
 
     def fetchall(self) -> Sequence[Sequence[object]]:
-        raise NotImplementedError
-
-    def fetchone(self) -> Optional[Sequence[object]]:
         raise NotImplementedError
 
     def close(self) -> None:
@@ -987,14 +608,6 @@ class LazyKnowhereProvider(KnowhereProvider):
             section_ids,
             self._remounted_assets_by_section,
         )
-        self.install_prefetched_document_units(loaded)
-
-    def install_prefetched_document_units(
-        self,
-        loaded: Sequence[UnitRow],
-    ) -> None:
-        """Install rows fetched by either a document or corpus-group query."""
-        section_ids = list(self._sections)
         by_section: Dict[str, List[UnitRow]] = {}
         for unit in loaded:
             sid = str(unit.section_id or "").strip()
@@ -1182,9 +795,7 @@ def load_namespace_from_db(
     providers = [load_document_from_db(did, dsn=url) for did in wanted]
     merged_titles = dict(auto_titles)
     if titles:
-        merged_titles.update(
-            {str(k): str(v) for k, v in titles.items() if str(k).strip()}
-        )
+        merged_titles.update({str(k): str(v) for k, v in titles.items() if str(k).strip()})
     return NamespaceKnowhereProvider(providers, titles=merged_titles or None)
 
 
@@ -1261,77 +872,6 @@ class NamespaceKnowhereProvider:
         if callable(prefetch):
             prefetch()
 
-    def prefetch_document_units_batch(self, doc_ids: Sequence[str]) -> None:
-        """Load a bounded document group with one query per shared chunk store."""
-        providers = [
-            self._docs[doc_id]
-            for raw_doc_id in doc_ids
-            if (doc_id := str(raw_doc_id).strip()) in self._docs
-        ]
-        providers_by_store: Dict[int, List[LazyKnowhereProvider]] = {}
-        stores_by_id: Dict[int, ChunkStore] = {}
-        for provider in providers:
-            if not isinstance(provider, LazyKnowhereProvider):
-                continue
-            store = provider._chunk_store
-            store_id = id(store)
-            stores_by_id[store_id] = store
-            providers_by_store.setdefault(store_id, []).append(provider)
-
-        for store_id, lazy_providers in providers_by_store.items():
-            store = stores_by_id[store_id]
-            batch_loader = getattr(store, "load_documents_units", None)
-            if not callable(batch_loader):
-                for provider in lazy_providers:
-                    provider.prefetch_document_units()
-                continue
-            loaded_by_document = batch_loader(
-                {
-                    provider.doc_id: list(provider._sections)
-                    for provider in lazy_providers
-                }
-            )
-            for provider in lazy_providers:
-                provider.install_prefetched_document_units(
-                    loaded_by_document.get(provider.doc_id, ())
-                )
-
-    def load_persisted_score_corpus(
-        self,
-        doc_ids: Sequence[str],
-        queries: Sequence[str],
-    ) -> Optional[PersistedScoreCorpus]:
-        """Return the index projection only when all documents share one store."""
-        providers = [
-            self._docs[document_id]
-            for raw_document_id in doc_ids
-            if (document_id := str(raw_document_id).strip()) in self._docs
-        ]
-        if len(providers) != len(doc_ids) or not all(
-            isinstance(provider, LazyKnowhereProvider) for provider in providers
-        ):
-            return None
-        lazy_providers = [
-            provider
-            for provider in providers
-            if isinstance(provider, LazyKnowhereProvider)
-        ]
-        stores = {
-            id(provider._chunk_store): provider._chunk_store
-            for provider in lazy_providers
-        }
-        if len(stores) != 1:
-            return None
-        store = next(iter(stores.values()))
-        loader = getattr(store, "load_persisted_score_corpus", None)
-        if not callable(loader):
-            return None
-        return loader(
-            [provider.doc_id for provider in lazy_providers],
-            {provider.doc_id: list(provider._sections) for provider in lazy_providers},
-            queries,
-        )
-
     def release_document_units(self, doc_id: str) -> None:
         provider = self._docs.get(str(doc_id).strip())
         release = getattr(provider, "release_document_units", None)
@@ -1379,12 +919,8 @@ class NamespaceKnowhereProvider:
         if sid in self._docs:
             provider = self._docs[sid]
             count_fn = getattr(provider, "chunk_count", None)
-            n_chunks = (
-                int(count_fn())
-                if callable(count_fn)
-                else sum(
-                    len(provider.self_units(sec)) for sec in provider.all_section_ids()
-                )
+            n_chunks = int(count_fn()) if callable(count_fn) else sum(
+                len(provider.self_units(sec)) for sec in provider.all_section_ids()
             )
             return NodeMeta(
                 title=self._titles.get(sid, sid),
@@ -1416,9 +952,7 @@ class NamespaceKnowhereProvider:
         if sid in self._docs:
             provider = self._docs[sid]
             return "\n".join(
-                provider.content(root)
-                for root in provider.roots(sid)
-                if provider.content(root)
+                provider.content(root) for root in provider.roots(sid) if provider.content(root)
             )
         owner = self._section_owner.get(sid)
         if not owner:

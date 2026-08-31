@@ -69,34 +69,6 @@ workflow validates these resources, registers immutable image-digest task
 definitions, runs the production migration first, and then updates the ECS
 services. It does not create or delete AWS resources.
 
-## Required post-deploy backfill
-
-The map-nav lexical-index migration creates the derived index tables, but it does
-not rebuild indexes for revisions that already exist. Until those revisions are
-backfilled, retrieval remains quality-preserving but uses the legacy scoring
-path. Every release containing the map-nav index change must include the
-following DevOps action in its release notification.
-
-Run the commands as a one-off container using the newly deployed API image and
-the production database secret. Do not run them inside the long-lived API task.
-
-```bash
-# Read-only inventory
-python /app/scripts/backfill_map_unit_indexes.py
-
-# Optional canary: apply one affected document first
-python /app/scripts/backfill_map_unit_indexes.py \
-  --document-id <document-id> \
-  --apply
-
-# Apply to all current document revisions
-python /app/scripts/backfill_map_unit_indexes.py --apply
-```
-
-The script commits each document revision independently and is safe to rerun.
-Verify the canary retrieval before starting the full apply. New or republished
-documents build their index automatically during publication.
-
 ## Manual staging availability
 
 `.github/workflows/manage-staging.yml` exposes three manually dispatched

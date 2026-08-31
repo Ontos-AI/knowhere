@@ -126,16 +126,6 @@ def _unbound_retrieval_query(subgoal: Subgoal) -> str:
     return raw or (subgoal.need or "").strip() or subgoal.retrieval_query
 
 
-def _resolve_subgoal_query(state: NavState, subgoal: Subgoal) -> str:
-    query = bind_slots(subgoal.retrieval_query, state.slot_bindings)
-    if unbound_slots(query):
-        query = _unbound_retrieval_query(subgoal)
-    refined = str(
-        (state.subgoal_refined_queries or {}).get(subgoal.id) or ""
-    ).strip()
-    return refined or query
-
-
 def _run_navigate_for_query(
     ts: Any,
     state: NavState,
@@ -190,7 +180,6 @@ def _relit_map(
     config: NavConfig,
     *,
     query: str,
-    prepared: Optional[Tuple[Dict[str, float], Dict[str, float], List[str]]] = None,
 ) -> Iterator[None]:
     """Score the shared map against the harvest ``query`` for one call.
 
@@ -200,9 +189,9 @@ def _relit_map(
     the query the policy is told to pursue. Scoring failures degrade to the
     episode lighting.
     """
-    relit = prepared
+    relit: Optional[Tuple[Dict[str, float], Dict[str, float], List[str]]] = None
     q = (query or "").strip()
-    if relit is None and q:
+    if q:
         try:
             from .nav_map_scores import relight_map_for_query
 
@@ -235,10 +224,6 @@ def _execute_subgoal_harvest_once(
     subgoal: Subgoal,
     *,
     steps_out: Optional[List[Any]],
-    retrieval_query: Optional[str] = None,
-    prepared_relight: Optional[
-        Tuple[Dict[str, float], Dict[str, float], List[str]]
-    ] = None,
 ) -> Dict[str, Any]:
     """One harvest() call for this subgoal this wave — no internal retry loop.
 
@@ -247,21 +232,22 @@ def _execute_subgoal_harvest_once(
     """
     from .nav_harvest import harvest
 
-    rq = retrieval_query or _resolve_subgoal_query(state, subgoal)
+    rq = bind_slots(subgoal.retrieval_query, state.slot_bindings)
+    if unbound_slots(rq):
+        # F1: deps may be "settled" (satisfied or dropped) without ever
+        # producing this subgoal's referenced slot — degrade to a query with
+        # the unresolved {{...}} braces stripped rather than stalling.
+        rq = _unbound_retrieval_query(subgoal)
     refined = str((state.subgoal_refined_queries or {}).get(subgoal.id) or "").strip()
+    if refined:
+        rq = refined
     _set_focus(state, subgoal, rq)
     # Always enter at namespace/document root; prior dead-ends stay hidden via
     # subgoal_dismissed_section_ids so the next harvest sees siblings instead.
     before_sections = set(state.collected_section_ids)
     before_explicit = set(state.explicit_collect_ids)
     before_len = len(state.collected)
-    with _relit_map(
-        ts,
-        state,
-        config,
-        query=rq,
-        prepared=prepared_relight,
-    ):
+    with _relit_map(ts, state, config, query=rq):
         harvest_result = harvest(
             ts,
             state,
@@ -447,39 +433,10 @@ def execute_plan(
 
         by_id = {s.id: s for s in plan.subgoals}
         outputs: List[Dict[str, Any]] = []
-        query_by_subgoal = {
-            sid: _resolve_subgoal_query(state, by_id[sid]) for sid in ready
-        }
-        prepared_relights: Dict[
-            str,
-            Tuple[Dict[str, float], Dict[str, float], List[str]],
-        ] = {}
-        try:
-            from .nav_map_scores import relight_maps_for_queries
-
-            prepared_relights = relight_maps_for_queries(
-                ts,
-                doc_id=state.doc_id,
-                queries=list(query_by_subgoal.values()),
-                top_k=int(config.collect_top_k),
-            )
-        except Exception:
-            prepared_relights = {}
 
         def _run_one(sid: str, working_state: NavState, out_steps: Optional[List[Any]]) -> Dict[str, Any]:
-            query = query_by_subgoal[sid]
-            prepared = prepared_relights.get(query)
-            if prepared is not None and not prepared[0]:
-                prepared = None
             return _execute_subgoal_harvest_once(
-                ts,
-                working_state,
-                config,
-                plan,
-                by_id[sid],
-                steps_out=out_steps,
-                retrieval_query=query,
-                prepared_relight=prepared,
+                ts, working_state, config, plan, by_id[sid], steps_out=out_steps
             )
 
         # Serial wave execution (parallel fan-out retired with ThreadPoolExecutor).

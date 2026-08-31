@@ -22,22 +22,7 @@ driving the full plan -> harvest -> plan_control -> settle pipeline.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import (
-    Any,
-    Dict,
-    List,
-    Optional,
-    Protocol,
-    Sequence,
-    Set,
-    Tuple,
-    TYPE_CHECKING,
-    cast,
-    runtime_checkable,
-)
-
-if TYPE_CHECKING:
-    from .knowhere_hybrid import PersistedScoreCorpus
+from typing import Any, Dict, List, Optional, Protocol, Sequence, Set, Tuple, runtime_checkable
 
 
 @dataclass
@@ -185,9 +170,7 @@ class ProviderToolSpace:
         first_order = int(getattr(units[0], "sort_order", 0) or 0)
         return "\n".join(texts), first_order, len(units)
 
-    def _make_chunk(
-        self, node_id: str, doc_id: str, text: str, order: int, section_id: str
-    ) -> Any:
+    def _make_chunk(self, node_id: str, doc_id: str, text: str, order: int, section_id: str) -> Any:
         from ._compat import Chunk  # type: ignore
 
         return Chunk(
@@ -225,9 +208,7 @@ class ProviderToolSpace:
             text = str(self._provider.content(section_id) or "")
             if not text.strip():
                 return []
-            return [
-                self._make_chunk(f"{section_id}__path", doc_id, text, 0, section_id)
-            ]
+            return [self._make_chunk(f"{section_id}__path", doc_id, text, 0, section_id)]
 
         # One unit per descendant leaf, plus one per interstitial parent, so
         # node ids line up with the keys nav_map_scores.build_score_units emits.
@@ -246,9 +227,7 @@ class ProviderToolSpace:
         out.sort(key=lambda c: (min(c.line_ids or (0,)), c.node_id))
         return out
 
-    def read_chunks(
-        self, section_id: str, query: str, *, doc_id: str, k: int
-    ) -> List[Any]:
+    def read_chunks(self, section_id: str, query: str, *, doc_id: str, k: int) -> List[Any]:
         del section_id, query, doc_id, k
         return []
 
@@ -270,15 +249,6 @@ class ProviderToolSpace:
         if str(getattr(provider, "doc_id", "")) == str(doc_id):
             fn()
 
-    def prefetch_document_units_batch(self, doc_ids: Sequence[str]) -> None:
-        """Forward a provider's bounded multi-document prefetch capability."""
-        fn = getattr(self._provider, "prefetch_document_units_batch", None)
-        if callable(fn):
-            fn(doc_ids)
-            return
-        for doc_id in doc_ids:
-            self.prefetch_document_units(str(doc_id))
-
     def release_document_units(self, doc_id: str) -> None:
         """Forward release of one document's prefetched payloads."""
         provider = self._provider
@@ -290,17 +260,6 @@ class ProviderToolSpace:
             return
         if str(getattr(provider, "doc_id", "")) == str(doc_id):
             fn()
-
-    def load_persisted_score_corpus(
-        self,
-        doc_ids: Sequence[str],
-        queries: Sequence[str],
-    ) -> Optional["PersistedScoreCorpus"]:
-        """Forward the optional revision-pinned map-unit index capability."""
-        fn = getattr(self._provider, "load_persisted_score_corpus", None)
-        if not callable(fn):
-            return None
-        return cast(Optional["PersistedScoreCorpus"], fn(doc_ids, queries))
 
 
 @dataclass

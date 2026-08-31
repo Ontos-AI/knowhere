@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
@@ -16,13 +16,11 @@ from shared.services.retrieval.nav.nav_knowhere import (
 from shared.services.retrieval.nav.nav_map_scores import (
     build_score_units,
     compute_corpus_map_and_unit_scores,
-    compute_corpus_map_and_unit_scores_many,
 )
 from shared.services.retrieval.nav.knowhere_hybrid import (
     ScoreUnitRow,
     score_rows_hybrid_all,
     score_unit_stream_hybrid_all,
-    score_unit_stream_hybrid_many,
 )
 
 
@@ -30,21 +28,6 @@ from shared.services.retrieval.nav.knowhere_hybrid import (
 class _FakeChunkStore:
     units_by_section: dict[str, list[UnitRow]]
     document_loads: int = 0
-    batch_loads: int = 0
-
-    def load_documents_units(
-        self,
-        section_ids_by_document: Mapping[str, Sequence[str]],
-    ) -> dict[str, list[UnitRow]]:
-        self.batch_loads += 1
-        return {
-            document_id: [
-                unit
-                for section_id in section_ids
-                for unit in self.units_by_section.get(section_id, ())
-            ]
-            for document_id, section_ids in section_ids_by_document.items()
-        }
 
     def load_document_units(
         self,
@@ -131,63 +114,6 @@ def _providers() -> tuple[ProviderToolSpace, ProviderToolSpace, _FakeChunkStore]
         ],
         titles={"doc": "document"},
         chunk_owner_by_id={"duplicate-chunk": "doc", "asset-1": "doc"},
-    )
-    return ProviderToolSpace(eager), ProviderToolSpace(lazy), store
-
-
-def _multi_document_providers() -> tuple[
-    ProviderToolSpace,
-    ProviderToolSpace,
-    _FakeChunkStore,
-]:
-    first_sections = [
-        SectionRow("root-a", None, "Root A", "Root A", 0, "", 0),
-        SectionRow("leaf-a", "root-a", "Root A / Leaf A", "Leaf A", 1, "", 1),
-    ]
-    second_sections = [
-        SectionRow("root-b", None, "Root B", "Root B", 0, "", 0),
-        SectionRow("leaf-b", "root-b", "Root B / Leaf B", "Leaf B", 1, "", 1),
-    ]
-    first_unit = UnitRow("chunk-a", "leaf-a", "text", "alpha evidence", 1)
-    second_unit = UnitRow("chunk-b", "leaf-b", "text", "beta evidence", 1)
-    eager = NamespaceKnowhereProvider(
-        [
-            KnowhereProvider(
-                doc_id="doc-a",
-                sections=first_sections,
-                units=[first_unit],
-            ),
-            KnowhereProvider(
-                doc_id="doc-b",
-                sections=second_sections,
-                units=[second_unit],
-            ),
-        ],
-        titles={"doc-a": "Document A", "doc-b": "Document B"},
-    )
-    store = _FakeChunkStore(
-        {
-            "leaf-a": [first_unit],
-            "leaf-b": [second_unit],
-        }
-    )
-    lazy = NamespaceKnowhereProvider(
-        [
-            LazyKnowhereProvider(
-                doc_id="doc-a",
-                sections=first_sections,
-                chunk_store=store,
-                known_chunk_ids=[first_unit.chunk_id],
-            ),
-            LazyKnowhereProvider(
-                doc_id="doc-b",
-                sections=second_sections,
-                chunk_store=store,
-                known_chunk_ids=[second_unit.chunk_id],
-            ),
-        ],
-        titles={"doc-a": "Document A", "doc-b": "Document B"},
-        chunk_owner_by_id={"chunk-a": "doc-a", "chunk-b": "doc-b"},
     )
     return ProviderToolSpace(eager), ProviderToolSpace(lazy), store
 
@@ -279,88 +205,6 @@ def test_streaming_scorer_preserves_duplicate_id_eager_semantics() -> None:
     }
 
     assert score_unit_stream_hybrid_all(lambda: rows, "alpha beta") == eager_scores
-
-
-def test_streaming_scorer_scores_multiple_queries_with_one_corpus_read() -> None:
-    rows: list[ScoreUnitRow] = [
-        {
-            "chunk_id": "unit-a",
-            "path_search_text": "root alpha",
-            "content_search_text": "alpha alpha evidence",
-            "term_search_text": "alpha alpha evidence root",
-        },
-        {
-            "chunk_id": "unit-b",
-            "path_search_text": "root beta",
-            "content_search_text": "beta evidence",
-            "term_search_text": "beta evidence root",
-        },
-        {
-            "chunk_id": "unit-c",
-            "path_search_text": "root common",
-            "content_search_text": "common evidence",
-            "term_search_text": "common evidence root",
-        },
-    ]
-    queries: list[str] = ["alpha evidence", "beta evidence"]
-    expected = {
-        query: score_unit_stream_hybrid_all(lambda: rows, query)
-        for query in queries
-    }
-    read_count: int = 0
-
-    def unit_factory() -> Sequence[ScoreUnitRow]:
-        nonlocal read_count
-        read_count += 1
-        return rows
-
-    assert score_unit_stream_hybrid_many(unit_factory, queries) == expected
-    assert read_count == 1
-
-
-def test_corpus_map_scores_multiple_queries_with_one_lazy_load() -> None:
-    eager, lazy, store = _providers()
-    queries: list[str] = ["alpha retrieval", "supporting image"]
-    expected = {
-        query: compute_corpus_map_and_unit_scores(
-            eager,
-            doc_ids=["doc"],
-            query=query,
-        )
-        for query in queries
-    }
-
-    store.document_loads = 0
-    store.batch_loads = 0
-    actual = compute_corpus_map_and_unit_scores_many(
-        lazy,
-        doc_ids=["doc"],
-        queries=queries,
-    )
-
-    assert actual == expected
-    assert store.batch_loads == 1
-    assert store.document_loads == 0
-
-
-def test_corpus_map_batches_multiple_documents_without_score_drift() -> None:
-    eager, lazy, store = _multi_document_providers()
-    queries: list[str] = ["alpha evidence", "beta evidence"]
-    expected = compute_corpus_map_and_unit_scores_many(
-        eager,
-        doc_ids=["doc-a", "doc-b"],
-        queries=queries,
-    )
-
-    actual = compute_corpus_map_and_unit_scores_many(
-        lazy,
-        doc_ids=["doc-a", "doc-b"],
-        queries=queries,
-    )
-
-    assert actual == expected
-    assert store.batch_loads == 1
-    assert store.document_loads == 0
 
 
 def test_native_chunk_store_strips_async_driver_from_database_url(
