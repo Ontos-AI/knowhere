@@ -132,11 +132,7 @@ def knowhere_database_url() -> str:
         or str(os.environ.get("DATABASE_URL") or "").strip()
     )
     if configured:
-        # ``ReadOnlyChunkStore`` uses psycopg2's native connector, which
-        # accepts libpq URLs but not SQLAlchemy's ``+driver`` suffix.
-        return configured.replace("postgresql+asyncpg://", "postgresql://", 1).replace(
-            "postgresql+psycopg2://", "postgresql://", 1
-        )
+        return configured.replace("postgresql+asyncpg", "postgresql+psycopg2")
     return _DEFAULT_DSN
 
 
