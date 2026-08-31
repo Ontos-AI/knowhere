@@ -16,7 +16,7 @@ from shared.services.retrieval.nav_snapshot import (
     _REVISION_GROUP_SIZE,
     load_nav_snapshot,
 )
-import shared.services.retrieval.nav_snapshot as nav_snapshot_module
+from shared.services.retrieval import nav_snapshot as nav_snapshot_module
 from sqlalchemy import Executable, Result, select
 from sqlalchemy.engine import Row
 from sqlalchemy.sql.selectable import Select
@@ -63,6 +63,9 @@ class _CountingSession:
             self.chunk_query_count += 1
         result = await self._session.execute(statement)
         return cast(Result[tuple[object, ...]], result)
+
+    async def rollback(self) -> None:
+        await self._session.rollback()
 
 
 async def _seed_large_retrieval_corpus(namespace: str) -> None:

@@ -26,6 +26,7 @@ from sqlalchemy import (
     tuple_,
 )
 from sqlalchemy.engine import Result
+from sqlalchemy.exc import SQLAlchemyError
 
 from shared.models.database.document import (
     Document,
@@ -393,8 +394,14 @@ async def _resolve_namespace_snapshot_entries(
     )
     try:
         row = (await db.execute(statement)).first()
-    except Exception:
+    except SQLAlchemyError as exc:
         await db.rollback()
+        _logger.warning(
+            "retrieval snapshot namespace lookup failed user_id=%s namespace=%s error=%s",
+            user_id,
+            namespace,
+            exc,
+        )
         return None
     if row is None:
         return None
@@ -470,8 +477,13 @@ async def _resolve_manifest_entries(
         )
         try:
             rows = (await db.execute(statement)).all()
-        except Exception:
+        except SQLAlchemyError as exc:
             await db.rollback()
+            _logger.warning(
+                "retrieval manifest lookup failed revisions=%s error=%s",
+                revision_group,
+                exc,
+            )
             return None
         if len(rows) != len(revision_group):
             return None
