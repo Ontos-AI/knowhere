@@ -6,6 +6,7 @@ from typing import cast
 from uuid import uuid4
 
 from httpx import AsyncClient
+import pytest
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
@@ -15,6 +16,7 @@ from shared.services.retrieval.nav_snapshot import (
     _REVISION_GROUP_SIZE,
     load_nav_snapshot,
 )
+from shared.services.retrieval import nav_snapshot as nav_snapshot_module
 from sqlalchemy import Executable, Result, select
 from sqlalchemy.engine import Row
 from sqlalchemy.sql.selectable import Select
@@ -61,6 +63,9 @@ class _CountingSession:
             self.chunk_query_count += 1
         result = await self._session.execute(statement)
         return cast(Result[tuple[object, ...]], result)
+
+    async def rollback(self) -> None:
+        await self._session.rollback()
 
 
 async def _seed_large_retrieval_corpus(namespace: str) -> None:
@@ -252,10 +257,19 @@ async def test_large_snapshot_keeps_all_retrieval_inputs_after_bounded_sql_load(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     namespace = f"large-corpus-{uuid4().hex[:8]}"
     async with developer_api_client_factory():
         await _seed_large_retrieval_corpus(namespace)
+        async def unexpected_manifest_load(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("large snapshots must use normalized retrieval rows")
+
+        monkeypatch.setattr(
+            nav_snapshot_module,
+            "_load_manifest_sections",
+            unexpected_manifest_load,
+        )
         legacy_rows = await _load_legacy_rows(namespace)
         async with contract_db_session() as db:
             counting_db = _CountingSession(db)

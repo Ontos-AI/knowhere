@@ -1,21 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+import logging
+import time
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .knowhere_hybrid import (
-    ScoreUnitRow,
     build_content_search_text,
     build_path_search_text,
     build_term_search_text,
-    score_rows_hybrid_all,
     score_persisted_corpus_many,
-    score_unit_stream_hybrid_many,
 )
 
-# Keep one bulk read bounded when a namespace contains a very large document,
-# while still replacing the per-document N+1 access pattern.
-_CORPUS_PREFETCH_GROUP_SIZE = 8
+_logger = logging.getLogger(__name__)
 
 
 def _children_ids(ts: Any, section_id: str, doc_id: str) -> List[str]:
@@ -250,70 +246,6 @@ def build_score_units(
     return units
 
 
-def iter_score_units(
-    ts: Any,
-    doc_id: str,
-    *,
-    children_map: Dict[str, List[str]],
-    leaves: Set[str],
-    titles: Dict[str, str],
-) -> Iterator[ScoreUnitRow]:
-    """Yield scoring units while releasing each lazy section after use."""
-    release = getattr(ts, "release_section_units", None)
-
-    for leaf_id in sorted(leaves):
-        try:
-            content = _section_body_text(ts, leaf_id, doc_id) or (
-                titles.get(leaf_id) or _line_content(ts, leaf_id, doc_id)
-            )
-            if content:
-                path_text = _ancestor_path_titles(ts, leaf_id, doc_id)
-                title = titles.get(leaf_id) or _line_content(ts, leaf_id, doc_id)
-                yield {
-                    "chunk_id": leaf_id,
-                    "section_id": leaf_id,
-                    "kind": "leaf",
-                    "content": content,
-                    "path_text": path_text,
-                    "path_search_text": build_path_search_text(
-                        section_path=path_text, section_title=title or content
-                    ),
-                    "content_search_text": build_content_search_text(content),
-                    "term_search_text": build_term_search_text(
-                        content, path_text=path_text
-                    ),
-                }
-        finally:
-            if callable(release):
-                release(leaf_id)
-
-    for sid, kids in children_map.items():
-        if not kids:
-            continue
-        try:
-            self_text, has_interstitial = _self_only_text(ts, sid, doc_id)
-            if not has_interstitial or not self_text:
-                continue
-            path_text = _ancestor_path_titles(ts, sid, doc_id)
-            yield {
-                "chunk_id": f"{sid}__self",
-                "section_id": sid,
-                "kind": "self_only",
-                "content": self_text,
-                "path_text": path_text,
-                "path_search_text": build_path_search_text(
-                    section_path=path_text, section_title=titles.get(sid) or ""
-                ),
-                "content_search_text": build_content_search_text(self_text),
-                "term_search_text": build_term_search_text(
-                    self_text, path_text=path_text
-                ),
-            }
-        finally:
-            if callable(release):
-                release(sid)
-
-
 def compute_map_scores(
     ts: Any,
     *,
@@ -337,32 +269,10 @@ def compute_map_and_unit_scores(
     namespace: Optional[str] = None,
 ) -> Tuple[Dict[str, float], Dict[str, float]]:
     """Return (section map_scores, unit hybrid scores keyed by chunk_id)."""
-    if root_ids is None:
-        root_ids = list(ts.sections_for_doc(doc_id))
-    children_map, leaves, _titles = _walk_tree(ts, doc_id, root_ids)
-    units = build_score_units(ts, doc_id, root_ids=root_ids)
-    if not units:
-        return {}, {}
-
-    ns = namespace
-    if not ns:
-        import os
-
-        ns = os.environ.get("NAV_MAP_UNIT_CACHE_NS", "").strip() or None
-
-    scored = score_rows_hybrid_all(
-        units,
-        query,
-        path_texts={u["chunk_id"]: u.get("path_text") or "" for u in units},
-        content_texts={u["chunk_id"]: u.get("content") or "" for u in units},
-        doc_id=doc_id,
-        namespace=ns,
+    del root_ids
+    return compute_corpus_map_and_unit_scores(
+        ts, doc_ids=[doc_id], query=query, namespace=namespace
     )
-    unit_score = {
-        str(r.get("chunk_id") or ""): float(r.get("score") or 0.0) for r in scored
-    }
-    map_scores = _pool_unit_scores_to_tree(children_map, leaves, unit_score)
-    return map_scores, unit_score
 
 
 def compute_corpus_map_and_unit_scores(
@@ -412,69 +322,45 @@ def compute_corpus_map_and_unit_scores_many(
         str,
         Tuple[Dict[str, List[str]], Set[str], Dict[str, str]],
     ] = {}
+    tree_started = time.perf_counter()
     for doc_id in valid_doc_ids:
         root_ids = list(ts.sections_for_doc(doc_id))
         children_map, leaves, titles = _walk_tree(ts, doc_id, root_ids)
         tree_by_doc[doc_id] = (children_map, leaves, titles)
-
-    def unit_factory() -> Iterator[ScoreUnitRow]:
-        prefetch_batch = getattr(ts, "prefetch_document_units_batch", None)
-        release = getattr(ts, "release_document_units", None)
-        if callable(prefetch_batch):
-            for group_start in range(
-                0,
-                len(valid_doc_ids),
-                _CORPUS_PREFETCH_GROUP_SIZE,
-            ):
-                document_group = valid_doc_ids[
-                    group_start : group_start + _CORPUS_PREFETCH_GROUP_SIZE
-                ]
-                prefetch_batch(document_group)
-                try:
-                    for document_id in document_group:
-                        children_map, leaves, titles = tree_by_doc[document_id]
-                        yield from iter_score_units(
-                            ts,
-                            document_id,
-                            children_map=children_map,
-                            leaves=leaves,
-                            titles=titles,
-                        )
-                finally:
-                    if callable(release):
-                        for document_id in document_group:
-                            release(document_id)
-            return
-
-        for document_id in valid_doc_ids:
-            children_map, leaves, titles = tree_by_doc[document_id]
-            prefetch = getattr(ts, "prefetch_document_units", None)
-            if callable(prefetch):
-                prefetch(document_id)
-            try:
-                yield from iter_score_units(
-                    ts,
-                    document_id,
-                    children_map=children_map,
-                    leaves=leaves,
-                    titles=titles,
-                )
-            finally:
-                if callable(release):
-                    release(document_id)
+    _logger.info(
+        "retrieval mapnav phase=tree_build seconds=%.3f documents=%d sections=%d",
+        time.perf_counter() - tree_started,
+        len(valid_doc_ids),
+        sum(len(value[0]) for value in tree_by_doc.values()),
+    )
 
     persisted_loader = getattr(ts, "load_persisted_score_corpus", None)
+    loader_started = time.perf_counter()
     persisted_corpus = (
         persisted_loader(valid_doc_ids, unique_queries)
         if callable(persisted_loader)
         else None
     )
+    _logger.info(
+        "retrieval mapnav phase=index_load seconds=%.3f persisted=%s",
+        time.perf_counter() - loader_started,
+        persisted_corpus is not None,
+    )
+    score_started = time.perf_counter()
     unit_scores_by_query = (
         score_persisted_corpus_many(persisted_corpus, unique_queries)
         if persisted_corpus is not None
-        else score_unit_stream_hybrid_many(unit_factory, unique_queries)
+        else {query: {} for query in unique_queries}
+    )
+    _logger.info(
+        "retrieval mapnav phase=unit_scoring persisted=%s seconds=%.3f units=%d queries=%d",
+        persisted_corpus is not None,
+        time.perf_counter() - score_started,
+        sum(len(scores) for scores in unit_scores_by_query.values()),
+        len(unique_queries),
     )
     results: Dict[str, Tuple[Dict[str, float], Dict[str, float]]] = {}
+    pooling_started = time.perf_counter()
     for query in unique_queries:
         unit_scores = unit_scores_by_query.get(query, {})
         map_scores: Dict[str, float] = {}
@@ -490,6 +376,12 @@ def compute_corpus_map_and_unit_scores_many(
             )
             map_scores[doc_id] = doc_max
         results[query] = (map_scores, unit_scores)
+    _logger.info(
+        "retrieval mapnav phase=map_pooling seconds=%.3f documents=%d sections=%d",
+        time.perf_counter() - pooling_started,
+        len(valid_doc_ids),
+        sum(len(value[0]) for value in tree_by_doc.values()),
+    )
     return results
 
 

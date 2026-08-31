@@ -5,6 +5,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.retrieval.execution.revision_pins import RetrievalRevisionPins
+
 
 @dataclass(frozen=True)
 class RetrievalRouteContext:
@@ -26,6 +28,8 @@ class RetrievalRouteContext:
     internal_recall_k: int | None
     effective_recall_k: int
     use_agentic: bool | None
+    conversation_id: str | None = None
+    revision_pins: RetrievalRevisionPins | None = None
 
 
 @dataclass(frozen=True)

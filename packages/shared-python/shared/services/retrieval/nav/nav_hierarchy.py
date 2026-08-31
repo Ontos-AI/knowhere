@@ -145,14 +145,22 @@ class ProviderToolSpace:
     def _children_for_section_path(
         self, section_id: str, doc_id: str, limit: Optional[int] = None
     ) -> List[dict]:
-        del doc_id  # section_id is globally addressable in this provider model.
         child_ids = [str(c) for c in self._provider.children(section_id)]
         if limit is not None:
             child_ids = child_ids[: max(0, int(limit))]
-        return [
-            {"section_id": cid, "preview": self._provider.node_meta(cid).title}
-            for cid in child_ids
-        ]
+        # ``node_meta`` may materialize a lazy subtree to calculate chunk
+        # counts. Tree traversal needs only the child id/title; avoid an N+1
+        # payload load while building the scoring tree.
+        out: List[dict] = []
+        for cid in child_ids:
+            path = self.path_titles(cid, doc_id)
+            out.append(
+                {
+                    "section_id": cid,
+                    "preview": path.rsplit(" / ", 1)[-1] if path else "",
+                }
+            )
+        return out
 
     def section_relation_ids(
         self, section_id: str, doc_id: str
@@ -251,45 +259,6 @@ class ProviderToolSpace:
     ) -> List[Any]:
         del section_id, query, doc_id, k
         return []
-
-    def release_section_units(self, section_id: str) -> None:
-        """Release one lazy section without discarding the hierarchy."""
-        release = getattr(self._provider, "release_section_units", None)
-        if callable(release):
-            release(section_id)
-
-    def prefetch_document_units(self, doc_id: str) -> None:
-        """Forward a provider's bounded document payload prefetch capability."""
-        provider = self._provider
-        fn = getattr(provider, "prefetch_document_units", None)
-        if not callable(fn):
-            return
-        if callable(getattr(provider, "document_ids", None)):
-            fn(doc_id)
-            return
-        if str(getattr(provider, "doc_id", "")) == str(doc_id):
-            fn()
-
-    def prefetch_document_units_batch(self, doc_ids: Sequence[str]) -> None:
-        """Forward a provider's bounded multi-document prefetch capability."""
-        fn = getattr(self._provider, "prefetch_document_units_batch", None)
-        if callable(fn):
-            fn(doc_ids)
-            return
-        for doc_id in doc_ids:
-            self.prefetch_document_units(str(doc_id))
-
-    def release_document_units(self, doc_id: str) -> None:
-        """Forward release of one document's prefetched payloads."""
-        provider = self._provider
-        fn = getattr(provider, "release_document_units", None)
-        if not callable(fn):
-            return
-        if callable(getattr(provider, "document_ids", None)):
-            fn(doc_id)
-            return
-        if str(getattr(provider, "doc_id", "")) == str(doc_id):
-            fn()
 
     def load_persisted_score_corpus(
         self,

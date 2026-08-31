@@ -22,6 +22,9 @@ from shared.models.database.job_result import JobResult
 from shared.models.schemas.job_metadata import JobMetadataHelper
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
+from shared.services.retrieval.namespace_map_snapshot import (
+    remove_document_from_namespace_map_snapshot,
+)
 from shared.services.retrieval.publication_content import (
     deduplicate_chunks_by_source_path,
     replace_document_revision_content,
@@ -30,6 +33,13 @@ from shared.services.retrieval.publication_models import (
     DocumentPublicationScope,
     ExistingDocumentScope,
     PublishedDocumentState,
+)
+from shared.services.retrieval.serving_generation import (
+    advance_namespace_generation,
+    lock_namespace_generation,
+)
+from shared.services.retrieval.serving_manifest import (
+    rebuild_namespace_serving_statistics,
 )
 
 
@@ -122,6 +132,23 @@ class RetrievalPublicationService:
                 skipped_all_duplicate=True,
             )
 
+        existing_namespace = None
+        if document_id:
+            existing_namespace = db.execute(
+                select(Document.namespace).where(
+                    Document.document_id == str(document_id)
+                )
+            ).scalar_one_or_none()
+        namespaces_to_lock = {namespace}
+        if existing_namespace:
+            namespaces_to_lock.add(str(existing_namespace))
+        for namespace_to_lock in sorted(namespaces_to_lock):
+            lock_namespace_generation(
+                db,
+                user_id=str(job.user_id),
+                namespace=namespace_to_lock,
+            )
+
         document = self._upsert_document_revision(
             db,
             job=job,
@@ -156,6 +183,28 @@ class RetrievalPublicationService:
         )
 
         db.flush()
+        rebuild_namespace_serving_statistics(
+            db,
+            user_id=scope.user_id,
+            namespace=scope.namespace,
+        )
+        if existing_namespace and str(existing_namespace) != scope.namespace:
+            rebuild_namespace_serving_statistics(
+                db,
+                user_id=scope.user_id,
+                namespace=str(existing_namespace),
+            )
+            remove_document_from_namespace_map_snapshot(
+                db,
+                user_id=scope.user_id,
+                namespace=str(existing_namespace),
+                document_id=document.document_id,
+            )
+        advance_namespace_generation(
+            db,
+            user_id=scope.user_id,
+            namespace=scope.namespace,
+        )
         return PublishedDocumentState(
             user_id=str(job.user_id),
             namespace=namespace,
@@ -209,6 +258,7 @@ class RetrievalPublicationService:
                 )
                 return None
             document.status = "active"
+            document.namespace = namespace
             document.archived_at = None
             document.current_job_result_id = job_result_id
             document.source_file_name = source_file_name or document.source_file_name

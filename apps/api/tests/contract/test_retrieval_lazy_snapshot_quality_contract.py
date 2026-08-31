@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
+from collections import Counter
+import math
 from typing import Any
 
 from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
@@ -19,57 +21,17 @@ from shared.services.retrieval.nav.nav_map_scores import (
     compute_corpus_map_and_unit_scores_many,
 )
 from shared.services.retrieval.nav.knowhere_hybrid import (
-    ScoreUnitRow,
-    score_rows_hybrid_all,
-    score_unit_stream_hybrid_all,
-    score_unit_stream_hybrid_many,
+    PersistedBm25Stats,
+    PersistedScoreCorpus,
+    PersistedScoreUnit,
+    score_persisted_corpus_many,
 )
 
 
 @dataclass
 class _FakeChunkStore:
     units_by_section: dict[str, list[UnitRow]]
-    document_loads: int = 0
-    batch_loads: int = 0
-
-    def load_documents_units(
-        self,
-        section_ids_by_document: Mapping[str, Sequence[str]],
-    ) -> dict[str, list[UnitRow]]:
-        self.batch_loads += 1
-        return {
-            document_id: [
-                unit
-                for section_id in section_ids
-                for unit in self.units_by_section.get(section_id, ())
-            ]
-            for document_id, section_ids in section_ids_by_document.items()
-        }
-
-    def load_document_units(
-        self,
-        document_id: str,
-        section_ids: Sequence[str],
-        extra_chunk_ids_by_section: dict[str, Sequence[str]] | None = None,
-    ) -> list[UnitRow]:
-        del document_id
-        self.document_loads += 1
-        selected = {str(section_id) for section_id in section_ids}
-        units = [
-            unit
-            for section_id, section_units in self.units_by_section.items()
-            if section_id in selected
-            for unit in section_units
-        ]
-        known = {unit.chunk_id for unit in units}
-        for chunk_ids in (extra_chunk_ids_by_section or {}).values():
-            for chunk_id in chunk_ids:
-                for section_units in self.units_by_section.values():
-                    for unit in section_units:
-                        if unit.chunk_id == chunk_id and unit.chunk_id not in known:
-                            units.append(unit)
-                            known.add(unit.chunk_id)
-        return units
+    section_loads: int = 0
 
     def load_section_units(
         self,
@@ -78,6 +40,7 @@ class _FakeChunkStore:
         extra_chunk_ids: Sequence[str] = (),
     ) -> list[UnitRow]:
         del document_id
+        self.section_loads += 1
         units = list(self.units_by_section.get(section_id, ()))
         known = {unit.chunk_id for unit in units}
         for units_in_section in self.units_by_section.values():
@@ -196,17 +159,18 @@ def test_lazy_provider_preserves_score_units_and_scores() -> None:
     eager, lazy, store = _providers()
 
     assert build_score_units(eager, "doc") == build_score_units(lazy, "doc")
-    assert compute_corpus_map_and_unit_scores(
+    eager_scores = compute_corpus_map_and_unit_scores(
         eager, doc_ids=["doc"], query="alpha retrieval"
-    ) == compute_corpus_map_and_unit_scores(
+    )
+    lazy_scores = compute_corpus_map_and_unit_scores(
         lazy, doc_ids=["doc"], query="alpha retrieval"
     )
+    assert eager_scores[1] == {}
+    assert lazy_scores[1] == {}
+    assert all(score == 0.0 for score in eager_scores[0].values())
+    assert all(score == 0.0 for score in lazy_scores[0].values())
 
     lazy_provider = lazy._provider
-    store.document_loads = 0
-    prefetch = getattr(lazy_provider, "prefetch_document_units")
-    prefetch("doc")
-    assert store.document_loads == 1
     self_units = getattr(lazy_provider, "self_units")
     assert [unit.chunk_id for unit in self_units("leaf")] == [
         "duplicate-chunk",
@@ -214,144 +178,97 @@ def test_lazy_provider_preserves_score_units_and_scores() -> None:
     ]
 
 
-def test_streaming_scorer_preserves_exact_eager_scores() -> None:
-    rows: list[ScoreUnitRow] = [
+def test_persisted_score_projection_ranks_matching_units() -> None:
+    rows: list[dict[str, str]] = [
         {
             "chunk_id": "unit-a",
             "path_search_text": "root alpha",
-            "content_search_text": "alpha alpha evidence",
-            "term_search_text": "alpha alpha evidence root",
+            "content_search_text": "common alpha alpha evidence",
         },
         {
             "chunk_id": "unit-b",
             "path_search_text": "root beta",
-            "content_search_text": "beta evidence",
-            "term_search_text": "beta evidence root",
+            "content_search_text": "common beta evidence",
         },
         {
             "chunk_id": "unit-c",
             "path_search_text": "root common",
             "content_search_text": "common evidence",
-            "term_search_text": "common evidence root",
         },
     ]
-    eager_rows: list[dict[str, Any]] = [dict(row) for row in rows]
-    eager_scores = {
-        str(row["chunk_id"]): float(row["score"])
-        for row in score_rows_hybrid_all(eager_rows, "alpha evidence")
-    }
-    replay_count: int = 0
+    queries = ["common alpha", "beta evidence"]
+    query_tokens = {token for query in queries for token in query.split()}
 
-    def unit_factory() -> Sequence[ScoreUnitRow]:
-        nonlocal replay_count
-        replay_count += 1
-        return rows
-
-    assert score_unit_stream_hybrid_all(unit_factory, "alpha evidence") == eager_scores
-    assert replay_count == 1
-
-
-def test_streaming_scorer_preserves_duplicate_id_eager_semantics() -> None:
-    rows: list[ScoreUnitRow] = [
-        {
-            "chunk_id": "duplicate",
-            "path_search_text": "alpha",
-            "content_search_text": "alpha",
-            "term_search_text": "alpha",
-        },
-        {
-            "chunk_id": "duplicate",
-            "path_search_text": "beta",
-            "content_search_text": "beta",
-            "term_search_text": "beta",
-        },
-        {
-            "chunk_id": "other",
-            "path_search_text": "alpha beta",
-            "content_search_text": "alpha beta",
-            "term_search_text": "alpha beta",
-        },
-    ]
-    eager_rows: list[dict[str, Any]] = [dict(row) for row in rows]
-    eager_scores = {
-        str(row["chunk_id"]): float(row["score"])
-        for row in score_rows_hybrid_all(eager_rows, "alpha beta")
-    }
-
-    assert score_unit_stream_hybrid_all(lambda: rows, "alpha beta") == eager_scores
-
-
-def test_streaming_scorer_scores_multiple_queries_with_one_corpus_read() -> None:
-    rows: list[ScoreUnitRow] = [
-        {
-            "chunk_id": "unit-a",
-            "path_search_text": "root alpha",
-            "content_search_text": "alpha alpha evidence",
-            "term_search_text": "alpha alpha evidence root",
-        },
-        {
-            "chunk_id": "unit-b",
-            "path_search_text": "root beta",
-            "content_search_text": "beta evidence",
-            "term_search_text": "beta evidence root",
-        },
-        {
-            "chunk_id": "unit-c",
-            "path_search_text": "root common",
-            "content_search_text": "common evidence",
-            "term_search_text": "common evidence root",
-        },
-    ]
-    queries: list[str] = ["alpha evidence", "beta evidence"]
-    expected = {
-        query: score_unit_stream_hybrid_all(lambda: rows, query)
-        for query in queries
-    }
-    read_count: int = 0
-
-    def unit_factory() -> Sequence[ScoreUnitRow]:
-        nonlocal read_count
-        read_count += 1
-        return rows
-
-    assert score_unit_stream_hybrid_many(unit_factory, queries) == expected
-    assert read_count == 1
-
-
-def test_corpus_map_scores_multiple_queries_with_one_lazy_load() -> None:
-    eager, lazy, store = _providers()
-    queries: list[str] = ["alpha retrieval", "supporting image"]
-    expected = {
-        query: compute_corpus_map_and_unit_scores(
-            eager,
-            doc_ids=["doc"],
-            query=query,
+    def build_stats(search_field: str) -> PersistedBm25Stats:
+        token_rows = [str(row[search_field]).split() for row in rows]
+        document_frequency = Counter(
+            token for tokens in token_rows for token in set(tokens)
         )
-        for query in queries
-    }
+        document_count = len(token_rows)
+        raw_idfs = [
+            math.log(document_count - frequency + 0.5) - math.log(frequency + 0.5)
+            for frequency in document_frequency.values()
+        ]
+        return PersistedBm25Stats(
+            document_count=document_count,
+            total_length=sum(len(tokens) for tokens in token_rows),
+            document_frequency={
+                token: document_frequency[token] for token in query_tokens
+            },
+            average_idf=sum(raw_idfs) / len(raw_idfs),
+        )
 
-    store.document_loads = 0
-    store.batch_loads = 0
+    corpus = PersistedScoreCorpus(
+        units=[
+            PersistedScoreUnit(
+                unit_id=str(row["chunk_id"]),
+                path_length=len(str(row["path_search_text"]).split()),
+                content_length=len(str(row["content_search_text"]).split()),
+                path_frequencies={
+                    token: str(row["path_search_text"]).split().count(token)
+                    for token in query_tokens
+                },
+                content_frequencies={
+                    token: str(row["content_search_text"]).split().count(token)
+                    for token in query_tokens
+                },
+            )
+            for row in rows
+        ],
+        path_stats=build_stats("path_search_text"),
+        content_stats=build_stats("content_search_text"),
+    )
+
+    scored = score_persisted_corpus_many(corpus, queries)
+    assert set(scored) == set(queries)
+    assert scored["common alpha"]["unit-a"] > scored["common alpha"]["unit-b"]
+    assert scored["beta evidence"]["unit-b"] > scored["beta evidence"]["unit-a"]
+
+
+def test_missing_index_does_not_read_chunk_payloads() -> None:
+    _eager, lazy, store = _providers()
+    queries: list[str] = ["alpha retrieval", "supporting image"]
+    store.section_loads = 0
     actual = compute_corpus_map_and_unit_scores_many(
         lazy,
         doc_ids=["doc"],
         queries=queries,
     )
 
-    assert actual == expected
-    assert store.batch_loads == 1
-    assert store.document_loads == 0
+    assert set(actual) == set(queries)
+    assert all(unit_scores == {} for _map_scores, unit_scores in actual.values())
+    assert store.section_loads == 0
 
 
-def test_corpus_map_batches_multiple_documents_without_score_drift() -> None:
+def test_missing_index_is_empty_across_documents() -> None:
     eager, lazy, store = _multi_document_providers()
     queries: list[str] = ["alpha evidence", "beta evidence"]
+    store.section_loads = 0
     expected = compute_corpus_map_and_unit_scores_many(
         eager,
         doc_ids=["doc-a", "doc-b"],
         queries=queries,
     )
-
     actual = compute_corpus_map_and_unit_scores_many(
         lazy,
         doc_ids=["doc-a", "doc-b"],
@@ -359,8 +276,8 @@ def test_corpus_map_batches_multiple_documents_without_score_drift() -> None:
     )
 
     assert actual == expected
-    assert store.batch_loads == 1
-    assert store.document_loads == 0
+    assert all(unit_scores == {} for _map_scores, unit_scores in actual.values())
+    assert store.section_loads == 0
 
 
 def test_native_chunk_store_strips_async_driver_from_database_url(

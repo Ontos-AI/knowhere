@@ -23,6 +23,7 @@ from shared.services.retrieval.nav.nav_knowhere import (
     UnitRow,
 )
 from shared.services.retrieval.nav.nav_map_scores import build_score_units
+from shared.services.retrieval.nav.persisted_score_load import average_idf_from_unit_dfs
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 
 
@@ -85,6 +86,8 @@ def replace_document_map_units(
     )
     persisted_count = 0
     token_count = 0
+    path_unit_df: Counter[str] = Counter()
+    content_unit_df: Counter[str] = Counter()
     for sort_order, unit in enumerate(score_units):
         unit_id = str(unit.get("chunk_id") or "").strip()
         section_id = str(unit.get("section_id") or "").strip()
@@ -93,6 +96,13 @@ def replace_document_map_units(
         map_unit_id = f"dmu_{uuid4().hex}"
         path_tokens = str(unit.get("path_search_text") or "").split()
         content_tokens = str(unit.get("content_search_text") or "").split()
+        path_unit_df.update(set(path_tokens))
+        content_unit_df.update(set(content_tokens))
+        # ``provider.self_units`` already reflects root-asset remount (assets
+        # referenced via ``connect_to`` are moved onto the text section that
+        # embeds them), so this is the same ownership the query-time scorer
+        # sees, not a new computation.
+        section_chunk_types = {u.chunk_type for u in provider.self_units(section_id)}
         db.add(
             DocumentMapUnit(
                 id=map_unit_id,
@@ -104,6 +114,8 @@ def replace_document_map_units(
                 path_token_count=len(path_tokens),
                 content_token_count=len(content_tokens),
                 term_search_text_lower=str(unit.get("term_search_text") or "").lower(),
+                has_image="image" in section_chunk_types,
+                has_table="table" in section_chunk_types,
                 sort_order=sort_order,
             )
         )
@@ -132,6 +144,14 @@ def replace_document_map_units(
             format_version=MAP_UNIT_INDEX_FORMAT_VERSION,
             unit_count=persisted_count,
             token_count=token_count,
+            average_idf_path=average_idf_from_unit_dfs(
+                unit_count=persisted_count,
+                token_document_frequency=path_unit_df,
+            ),
+            average_idf_content=average_idf_from_unit_dfs(
+                unit_count=persisted_count,
+                token_document_frequency=content_unit_df,
+            ),
         )
     )
 

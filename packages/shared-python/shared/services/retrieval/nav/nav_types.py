@@ -305,6 +305,12 @@ class NavState:
     # PLAN's rewritten retrieval_query per subgoal after widen. Overrides the
     # planned query for the next harvest, and re-scores the shared map with it.
     subgoal_refined_queries: Dict[str, str] = field(default_factory=dict)
+    # Episode-local map scores keyed by retrieval query. Checklist waves may
+    # revisit the same subgoal query; reuse the exact score snapshot instead of
+    # rebuilding the persisted index and rescoring the corpus.
+    relit_map_cache: Dict[
+        str, Tuple[Dict[str, float], Dict[str, float], List[str]]
+    ] = field(default_factory=dict)
     # Per-subgoal "seen but not selected" section ids — hidden from later map
     # views for that subgoal so widen surfaces siblings instead of dead ends.
     subgoal_dismissed_section_ids: Dict[str, set[str]] = field(default_factory=dict)

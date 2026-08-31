@@ -7,10 +7,16 @@ from contextlib import AbstractAsyncContextManager
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.search.discovery import bottom_discovery
-from shared.services.retrieval.execution.reference_resolver import resolve_workflow_references
-from shared.services.retrieval.hydration.result_assembly import assemble_retrieval_results
-from shared.services.retrieval.hydration.legacy_evidence import render_legacy_evidence_text
+from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
+from shared.services.retrieval.execution.reference_resolver import (
+    resolve_workflow_references,
+)
+from shared.services.retrieval.hydration.result_assembly import (
+    assemble_retrieval_results,
+)
+from shared.services.retrieval.hydration.legacy_evidence import (
+    render_legacy_evidence_text,
+)
 from shared.services.retrieval.execution.route_types import (
     RetrievalRouteContext,
     RetrievalRouteOutcome,
@@ -19,6 +25,10 @@ from shared.services.retrieval.search.ranking import rank_retrieval_candidates
 from shared.services.retrieval.search.scoped_corpus import (
     count_scoped_chunks,
     load_all_scoped_chunks,
+)
+from shared.services.retrieval.execution.revision_pins import (
+    capture_revision_pins,
+    is_revision_generation_stable,
 )
 
 
@@ -52,6 +62,8 @@ async def _try_run_small_corpus_route(
         namespace=context.namespace,
         exclude_document_ids=context.exclude_document_ids,
         allowed_chunk_types=context.allowed_chunk_types,
+        revision_pins=context.revision_pins,
+        max_count=context.top_k + 1,
     )
 
     logger.info(f"\n  Total chunks in scope: {total_chunk_count}")
@@ -71,6 +83,7 @@ async def _try_run_small_corpus_route(
         allowed_chunk_types=context.allowed_chunk_types,
         signal_paths=context.signal_paths or [],
         filter_mode=context.filter_mode,
+        revision_pins=context.revision_pins,
     )
     logger.info(
         f"  small_corpus load: loaded={len(all_rows)} rows after signal/exclude filters"
@@ -81,6 +94,7 @@ async def _try_run_small_corpus_route(
         exclude_document_ids=context.exclude_document_ids,
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
+        revision_pins=context.revision_pins,
     )
     results = assembled_rows
     response = {
@@ -103,7 +117,7 @@ async def _try_run_small_corpus_route(
 async def _run_classic_topk_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
-    discovery_result = await bottom_discovery(
+    discovery_result = await map_unit_discovery(
         context.db,
         user_id=context.user_id,
         namespace=context.namespace,
@@ -114,9 +128,7 @@ async def _run_classic_topk_route(
         chunk_types=context.allowed_chunk_types,
         signal_paths=context.signal_paths,
         filter_mode=context.filter_mode,
-        channels=context.channels,
-        channel_weights=context.channel_weights,
-        internal_recall_k=context.internal_recall_k,
+        revision_pins=context.revision_pins,
     )
 
     fused_rows = (
@@ -132,6 +144,7 @@ async def _run_classic_topk_route(
         discovery_rows=fused_rows,
         routed_rows=[],
         top_k=context.top_k,
+        revision_pins=context.revision_pins,
     )
 
     assembled_rows = await assemble_retrieval_results(
@@ -140,6 +153,7 @@ async def _run_classic_topk_route(
         exclude_document_ids=context.exclude_document_ids,
         exclude_sections=context.exclude_sections,
         allowed_chunk_types=context.allowed_chunk_types,
+        revision_pins=context.revision_pins,
     )
     results = assembled_rows
     response = {
@@ -181,7 +195,9 @@ async def _run_mapnav_route(
         episode_token_count,
         episode_workflow_plan,
     )
+
     snapshot_started = time.perf_counter()
+    snapshot_pins = context.revision_pins
     snapshot = await load_nav_snapshot(
         context.db,
         user_id=context.user_id,
@@ -189,13 +205,37 @@ async def _run_mapnav_route(
         exclude_document_ids=context.exclude_document_ids,
         exclude_sections=context.exclude_sections,
         lazy=True,
+        revision_pins=snapshot_pins,
     )
+    if snapshot_pins is not None and not await is_revision_generation_stable(
+        context.db,
+        user_id=context.user_id,
+        namespace=context.namespace,
+        pins=snapshot_pins,
+    ):
+        snapshot.close()
+        snapshot_pins = await capture_revision_pins(
+            context.db,
+            user_id=context.user_id,
+            namespace=context.namespace,
+        )
+        snapshot = await load_nav_snapshot(
+            context.db,
+            user_id=context.user_id,
+            namespace=context.namespace,
+            exclude_document_ids=context.exclude_document_ids,
+            exclude_sections=context.exclude_sections,
+            lazy=True,
+            revision_pins=snapshot_pins,
+        )
     snapshot_seconds = time.perf_counter() - snapshot_started
     logger.info(
-        "retrieval mapnav stage=snapshot_load seconds={:.3f} documents={} refs={}".format(
+        "retrieval mapnav stage=snapshot_load seconds={:.3f} documents={} refs={} "
+        "conversation_id={}".format(
             snapshot_seconds,
             len(snapshot.document_ids),
             len(snapshot.chunk_ref_index),
+            context.conversation_id or "",
         )
     )
 
@@ -239,6 +279,7 @@ async def _run_mapnav_route(
             namespace=context.namespace,
             refs=refs,
             score_by_chunk_id=score_by_chunk_id or None,
+            revision_pins=snapshot.document_revisions,
         )
         assembled_rows = await assemble_retrieval_results(
             db=final_db,
@@ -246,6 +287,7 @@ async def _run_mapnav_route(
             exclude_document_ids=context.exclude_document_ids,
             exclude_sections=context.exclude_sections,
             allowed_chunk_types=context.allowed_chunk_types,
+            revision_pins=snapshot.document_revisions,
         )
 
         decision_steps = build_decision_trace(
@@ -299,9 +341,7 @@ async def _run_mapnav_route(
         "decision_trace": decision_trace,
     }
 
-    completion_detail = (
-        f"chunks | evidence={len(evidence_text)} chars | router=mapnav"
-    )
+    completion_detail = f"chunks | evidence={len(evidence_text)} chars | router=mapnav"
     return RetrievalRouteOutcome(
         response=response,
         hit_stats_results=resolved.refs,

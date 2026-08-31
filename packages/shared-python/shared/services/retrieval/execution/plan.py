@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from typing import Any
 
 from loguru import logger
@@ -16,6 +17,10 @@ from shared.services.retrieval.cache_service import (
     set_cached_retrieval_query_result,
 )
 from shared.services.retrieval.execution.routes import run_retrieval_route
+from shared.services.retrieval.execution.revision_pins import (
+    capture_revision_pins,
+    is_revision_generation_stable,
+)
 from shared.services.retrieval.stats.recorder import (
     schedule_retrieval_hit_stats_update,
 )
@@ -43,6 +48,7 @@ async def run_retrieval_query(
     threshold: float = 0.0,
     internal_recall_k: int | None = None,
     use_agentic: bool | None = None,
+    conversation_id: str | None = None,
     llm_config: LLMConfig | None = None,
 ) -> dict[str, Any]:
     """Run retrieval through the plan module."""
@@ -64,6 +70,7 @@ async def run_retrieval_query(
             threshold=threshold,
             internal_recall_k=internal_recall_k,
             use_agentic=use_agentic,
+            conversation_id=conversation_id,
             llm_config=llm_config,
         )
     ).execute()
@@ -142,7 +149,26 @@ class RetrievalExecutionPlan:
 
         logger.debug(f"  📦 Cache miss (version={cache_version}), running full pipeline")
 
-        outcome = await run_retrieval_route(request.build_route_context())
+        route_context = request.build_route_context()
+        revision_pins = await capture_revision_pins(
+            request.db,
+            user_id=request.user_id,
+            namespace=request.namespace,
+        )
+        if not await is_revision_generation_stable(
+            request.db,
+            user_id=request.user_id,
+            namespace=request.namespace,
+            pins=revision_pins,
+        ):
+            revision_pins = await capture_revision_pins(
+                request.db,
+                user_id=request.user_id,
+                namespace=request.namespace,
+            )
+        outcome = await run_retrieval_route(
+            replace(route_context, revision_pins=revision_pins)
+        )
 
         if cache_version is not None:
             await _write_cached_response(

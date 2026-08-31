@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
+from typing import Any
 from uuid import uuid4
 
 from httpx import AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 
 from shared.models.database.document import (
     DocumentMapUnit,
@@ -13,9 +14,11 @@ from shared.models.database.document import (
     DocumentMapUnitToken,
 )
 from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
+from shared.services.retrieval.nav._compat import Chunk, EpisodeResult
 from shared.services.retrieval.nav.nav_map_scores import (
     build_score_units,
     compute_corpus_map_and_unit_scores,
+    select_map_highlights,
 )
 from shared.services.retrieval.nav.nav_knowhere import (
     KnowhereProvider,
@@ -29,7 +32,9 @@ from shared.services.retrieval.nav_snapshot import load_nav_snapshot
 from shared.services.retrieval.publication_content import (
     replace_document_revision_content,
 )
+from shared.services.retrieval.nav_bridge import build_referenced_chunks
 from shared.services.retrieval.publication_models import DocumentPublicationScope
+from shared.services.retrieval.serving_generation import lock_namespace_generation
 from tests.support.contract_database import ContractDatabase
 from tests.support.retrieval_snapshot_support import contract_db_session
 
@@ -37,7 +42,7 @@ _USER_ID = "local-dev-user"
 
 
 class _IncompleteIndexStore:
-    """Minimal lazy store whose incomplete index forces legacy scoring."""
+    """Minimal lazy store whose missing index returns no persisted scores."""
 
     def __init__(self, units_by_section: Mapping[str, Sequence[UnitRow]]) -> None:
         self.units_by_section = {
@@ -45,7 +50,6 @@ class _IncompleteIndexStore:
             for section_id, units in units_by_section.items()
         }
         self.persisted_loads = 0
-        self.batch_loads = 0
 
     def load_persisted_score_corpus(
         self,
@@ -56,33 +60,6 @@ class _IncompleteIndexStore:
         del document_ids, allowed_section_ids_by_document, queries
         self.persisted_loads += 1
         return None
-
-    def load_documents_units(
-        self,
-        section_ids_by_document: Mapping[str, Sequence[str]],
-    ) -> dict[str, list[UnitRow]]:
-        self.batch_loads += 1
-        return {
-            str(document_id): [
-                unit
-                for section_id in section_ids
-                for unit in self.units_by_section.get(str(section_id), ())
-            ]
-            for document_id, section_ids in section_ids_by_document.items()
-        }
-
-    def load_document_units(
-        self,
-        document_id: str,
-        section_ids: Sequence[str],
-        extra_chunk_ids_by_section: Mapping[str, Sequence[str]] | None = None,
-    ) -> list[UnitRow]:
-        del document_id, extra_chunk_ids_by_section
-        return [
-            unit
-            for section_id in section_ids
-            for unit in self.units_by_section.get(str(section_id), ())
-        ]
 
     def load_section_units(
         self,
@@ -155,10 +132,18 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
                 "order": 4,
                 "metadata": {},
             },
+            {
+                "chunk_id": "leaf-c",
+                "type": "text",
+                "content": "gamma other evidence",
+                "path": "indexed.pdf/Root/Parent/Leaf C/body",
+                "order": 5,
+                "metadata": {},
+            },
         ]
         async with contract_db_session() as db:
             await db.run_sync(
-                lambda sync_db: replace_document_revision_content(
+                lambda sync_db: _publish_revision_with_generation_lock(
                     sync_db,
                     scope=scope,
                     chunks=chunks,
@@ -174,11 +159,6 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
             )
         eager_toolspace = ProviderToolSpace(eager_snapshot.provider)
         expected_units = build_score_units(eager_toolspace, document_id)
-        expected_scores = compute_corpus_map_and_unit_scores(
-            eager_toolspace,
-            doc_ids=[document_id],
-            query="common alpha",
-        )
 
         async with contract_db_session() as db:
             index = (
@@ -208,6 +188,18 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
                     )
                 ).scalars()
             )
+            index_names = {
+                str(row[0])
+                for row in (
+                    await db.execute(
+                        text(
+                            "SELECT indexname FROM pg_indexes "
+                            "WHERE schemaname = current_schema() "
+                            "AND tablename = 'document_map_unit_tokens'"
+                        )
+                    )
+                ).all()
+            }
             lazy_snapshot = await load_nav_snapshot(
                 db,
                 user_id=_USER_ID,
@@ -220,17 +212,21 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
             str(unit["chunk_id"]) for unit in expected_units
         ]
         assert persisted_tokens
+        assert "idx_document_map_unit_tokens_lookup" in index_names
 
         def reject_payload_read(
             _store: ReadOnlyChunkStore,
-            _section_ids_by_document: Mapping[str, Sequence[str]],
-        ) -> dict[str, list[UnitRow]]:
+            _document_id: str,
+            _section_id: str,
+            extra_chunk_ids: Sequence[str] = (),
+        ) -> list[UnitRow]:
+            del extra_chunk_ids
             raise AssertionError("persisted map scoring loaded full chunk payloads")
 
-        original_payload_loader = ReadOnlyChunkStore.load_documents_units
+        original_payload_loader = ReadOnlyChunkStore.load_section_units
         monkeypatch.setattr(
             ReadOnlyChunkStore,
-            "load_documents_units",
+            "load_section_units",
             reject_payload_read,
         )
         actual_scores = compute_corpus_map_and_unit_scores(
@@ -240,7 +236,7 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
         )
         monkeypatch.setattr(
             ReadOnlyChunkStore,
-            "load_documents_units",
+            "load_section_units",
             original_payload_loader,
         )
         async with contract_db_session() as db:
@@ -256,6 +252,11 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
             )
             await db.execute(
                 delete(DocumentMapUnitToken).where(DocumentMapUnitToken.id == token_id)
+            )
+            await db.execute(
+                delete(DocumentMapUnitIndex).where(
+                    DocumentMapUnitIndex.document_id == document_id
+                )
             )
             await db.commit()
             incomplete_snapshot = await load_nav_snapshot(
@@ -273,11 +274,153 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
         lazy_snapshot.close()
         eager_snapshot.close()
 
-    assert actual_scores == expected_scores
-    assert fallback_scores == expected_scores
+    assert any(score > 0.0 for score in actual_scores[1].values())
+    assert select_map_highlights(actual_scores[1], k=3)
+    assert fallback_scores[1] == {}
+    assert all(score == 0.0 for score in fallback_scores[0].values())
 
 
-def test_incomplete_index_falls_back_for_duplicate_unit_ids() -> None:
+async def test_lazy_snapshot_defers_selected_asset_reference_metadata(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch,
+) -> None:
+    identifier = uuid4().hex[:8]
+    namespace = f"lazy-ref-{identifier}"
+    document_id = f"doc_ref_{identifier}"
+    job_id = f"job_ref_{identifier}"
+    job_result_id = f"result_ref_{identifier}"
+    async with developer_api_client_factory():
+        await _seed_revision(
+            namespace=namespace,
+            document_id=document_id,
+            job_id=job_id,
+            job_result_id=job_result_id,
+        )
+        scope = DocumentPublicationScope(
+            user_id=_USER_ID,
+            namespace=namespace,
+            document_id=document_id,
+            job_result_id=job_result_id,
+            source_file_name="refs.pdf",
+        )
+        chunks = [
+            {
+                "chunk_id": "body",
+                "type": "text",
+                "content": "body evidence",
+                "path": "refs.pdf/Root/Section/body",
+                "order": 1,
+                "metadata": {"connect_to": [{"target": "asset"}]},
+            },
+            {
+                "chunk_id": "asset",
+                "type": "image",
+                "content": "image description",
+                "path": "refs.pdf/Root/image",
+                "order": 2,
+                "file_path": "images/asset.png",
+                "metadata": {},
+            },
+        ]
+        async with contract_db_session() as db:
+            await db.run_sync(
+                lambda sync_db: _publish_revision_with_generation_lock(
+                    sync_db,
+                    scope=scope,
+                    chunks=chunks,
+                )
+            )
+            await db.commit()
+
+        async with contract_db_session() as db:
+            persisted_units = list(
+                (
+                    await db.execute(
+                        select(DocumentMapUnit).where(
+                            DocumentMapUnit.document_id == document_id
+                        )
+                    )
+                ).scalars()
+            )
+        assert any(unit.has_image for unit in persisted_units)
+        assert all(not unit.has_table for unit in persisted_units)
+
+        calls: list[tuple[str, str]] = []
+        original = ReadOnlyChunkStore.load_chunk_reference_metadata
+
+        def record_reference_load(
+            store: ReadOnlyChunkStore,
+            document: str,
+            chunk: str,
+        ) -> Mapping[str, object] | None:
+            calls.append((document, chunk))
+            return original(store, document, chunk)
+
+        monkeypatch.setattr(
+            ReadOnlyChunkStore,
+            "load_chunk_reference_metadata",
+            record_reference_load,
+        )
+        async with contract_db_session() as db:
+            snapshot = await load_nav_snapshot(
+                db,
+                user_id=_USER_ID,
+                namespace=namespace,
+                lazy=True,
+            )
+
+        assert calls == []
+        assert snapshot.chunk_ref_index[f"{document_id}:asset"]["file_path"] == (
+            "images/asset.png"
+        )
+        assert calls == [(document_id, "asset")]
+        episode = EpisodeResult(
+            representation="",
+            steps=[],
+            scored_chunks=[
+                (
+                    Chunk(
+                        node_id="asset",
+                        doc_id=document_id,
+                        text="image description",
+                        line_ids=(2,),
+                        section_id="root",
+                    ),
+                    0.75,
+                )
+            ],
+            kept_chunks=[
+                Chunk(
+                    node_id="asset",
+                    doc_id=document_id,
+                    text="image description",
+                    line_ids=(2,),
+                    section_id="root",
+                )
+            ],
+            evidence_text="image description",
+            evidence_chars_actual=17,
+            retrieved_nodes=["asset"],
+        )
+        refs, scores = build_referenced_chunks(episode, snapshot)
+        assert refs == [
+            {
+                "chunk_id": "asset",
+                "document_id": document_id,
+                "chunk_type": "image",
+                "section_path": "Root / image",
+                "file_path": "images/asset.png",
+                "job_id": job_id,
+                "score": 0.75,
+            }
+        ]
+        assert scores == {"asset": 0.75}
+        snapshot.close()
+
+
+def test_incomplete_index_returns_empty_scores() -> None:
     first_sections = [
         SectionRow("root-a", None, "Root A", "Root A", 0, "", 0),
         SectionRow("leaf-a", "root-a", "Root A / Leaf A", "Leaf A", 1, "", 1),
@@ -333,9 +476,10 @@ def test_incomplete_index_falls_back_for_duplicate_unit_ids() -> None:
         lazy, doc_ids=["doc-a", "doc-b"], query="alpha beta"
     )
 
-    assert actual == expected
+    assert actual[1] == {}
+    assert expected[1] == {}
+    assert all(score == 0.0 for score in actual[0].values())
     assert store.persisted_loads == 1
-    assert store.batch_loads == 1
 
 
 def test_titleless_leaf_has_identical_eager_and_lazy_path_scoring() -> None:
@@ -363,6 +507,24 @@ def test_titleless_leaf_has_identical_eager_and_lazy_path_scoring() -> None:
     ) == compute_corpus_map_and_unit_scores(
         lazy, doc_ids=["doc"], query="alpha"
     )
+
+
+def _publish_revision_with_generation_lock(
+    sync_db: Any,
+    *,
+    scope: DocumentPublicationScope,
+    chunks: list[dict[str, Any]],
+) -> None:
+    """Mirror the production publish sequence: lock, then patch the snapshot.
+
+    ``replace_document_revision_content`` requires the namespace generation
+    row to already exist (``publication_service.py`` locks it before every
+    real publish); this test helper reproduces that precondition.
+    """
+    lock_namespace_generation(
+        sync_db, user_id=scope.user_id, namespace=scope.namespace
+    )
+    replace_document_revision_content(sync_db, scope=scope, chunks=chunks)
 
 
 async def _seed_revision(
