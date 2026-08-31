@@ -7,7 +7,6 @@ that keeps **DB-original** ``section_path`` / ``job_id`` (never remounted).
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -17,13 +16,10 @@ from sqlalchemy.engine import Result
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.nav.nav_knowhere import (
-    LazyKnowhereProvider,
     KnowhereProvider,
     NamespaceKnowhereProvider,
-    ReadOnlyChunkStore,
     SectionRow,
     UnitRow,
-    knowhere_database_url,
 )
 from shared.services.retrieval.search.section_filters import is_excluded_section
 
@@ -51,11 +47,6 @@ class NavSnapshot:
     chunk_ref_index: dict[str, dict[str, Any]]
     document_ids: list[str]
     document_titles: dict[str, str]
-
-    def close(self) -> None:
-        close = getattr(self.provider, "close", None)
-        if callable(close):
-            close()
 
 
 def build_nav_snapshot(
@@ -95,7 +86,6 @@ async def load_nav_snapshot(
     namespace: str,
     exclude_document_ids: list[str] | None = None,
     exclude_sections: list[dict[str, str]] | None = None,
-    lazy: bool = False,
 ) -> NavSnapshot:
     """Preload namespace current revision into a sync map-nav snapshot."""
     excluded_docs = [str(x).strip() for x in (exclude_document_ids or ()) if str(x).strip()]
@@ -146,71 +136,6 @@ async def load_nav_snapshot(
         document_revisions=document_revisions,
         exclude_sections=excluded_secs,
     )
-    if lazy:
-        chunk_ids_by_doc, chunk_ref_index, remounted_assets = await _load_chunk_index(
-            db,
-            document_revisions=document_revisions,
-            exclude_sections=excluded_secs,
-            section_path_by_id=section_path_by_id,
-            job_id_by_result_id=job_id_by_result_id,
-        )
-        kept_titles = {
-            did: title for did, title in document_titles.items() if sections_by_doc.get(did)
-        }
-        if not kept_titles:
-            raise ValueError(
-                f"nav snapshot empty after excludes for "
-                f"user_id={user_id!r} namespace={namespace!r}"
-            )
-        revisions = {did: result_id for did, result_id in document_revisions if did in kept_titles}
-        store = ReadOnlyChunkStore(
-            dsn=knowhere_database_url(),
-            revisions=revisions,
-            excluded_sections={
-                (
-                    str(item.get("document_id") or "").strip(),
-                    section_id,
-                )
-                for section_id, section_path in section_path_by_id.items()
-                for item in excluded_secs
-                if isinstance(item, dict)
-                and str(item.get("document_id") or "").strip()
-                and str(item.get("section_path") or "").strip() == section_path
-            },
-        )
-        try:
-            providers = [
-                LazyKnowhereProvider(
-                    doc_id=did,
-                    sections=sections_by_doc.get(did, ()),
-                    chunk_store=store,
-                    known_chunk_ids=chunk_ids_by_doc.get(did, ()),
-                    root_asset_ids=remounted_assets.get(did, {}).get("root", ()),
-                    remounted_assets_by_section=remounted_assets.get(did, {}).get("owners", {}),
-                )
-                for did in kept_titles
-            ]
-            provider = NamespaceKnowhereProvider(
-                providers,
-                titles=kept_titles,
-                chunk_owner_by_id={
-                    chunk_id: meta["document_id"]
-                    for chunk_id, meta in chunk_ref_index.items()
-                    if ":" not in chunk_id
-                    and isinstance(meta, dict)
-                    and meta.get("document_id")
-                },
-            )
-        except Exception:
-            store.close()
-            raise
-        return NavSnapshot(
-            provider=provider,
-            chunk_ref_index=dict(chunk_ref_index),
-            document_ids=list(provider.document_ids()),
-            document_titles={did: kept_titles.get(did, did) for did in provider.document_ids()},
-        )
-
     units_by_doc, chunk_ref_index = await _load_chunks(
         db,
         document_revisions=document_revisions,
@@ -237,126 +162,6 @@ async def load_nav_snapshot(
         units_by_doc={did: units_by_doc.get(did, []) for did in kept_titles},
         chunk_ref_index=chunk_ref_index,
     )
-
-
-async def _load_chunk_index(
-    db: SnapshotSession,
-    *,
-    document_revisions: list[tuple[str, str]],
-    exclude_sections: list[dict[str, str]],
-    section_path_by_id: dict[str, str],
-    job_id_by_result_id: dict[str, str],
-) -> tuple[dict[str, list[str]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
-    """Load only IDs/reference metadata; content remains lazy."""
-    ids_by_doc: dict[str, list[str]] = {}
-    ref_index: dict[str, dict[str, Any]] = {}
-    root_assets_by_doc: dict[str, set[str]] = {}
-    text_connections_by_doc: dict[str, list[tuple[str, str]]] = {}
-    for group_start in range(0, len(document_revisions), _REVISION_GROUP_SIZE):
-        revision_group = document_revisions[group_start : group_start + _REVISION_GROUP_SIZE]
-        last_key: tuple[str, str, int, str, str] | None = None
-        while True:
-            stmt = (
-                select(
-                    DocumentChunk.document_id,
-                    DocumentChunk.job_result_id,
-                    DocumentChunk.chunk_id,
-                    DocumentChunk.section_id,
-                    DocumentChunk.chunk_type,
-                    DocumentChunk.file_path,
-                    DocumentChunk.chunk_metadata["connect_to"].label("connect_to"),
-                    DocumentChunk.sort_order,
-                    DocumentChunk.id,
-                )
-                .where(tuple_(DocumentChunk.document_id, DocumentChunk.job_result_id).in_(revision_group))
-                .order_by(
-                    DocumentChunk.document_id,
-                    DocumentChunk.job_result_id,
-                    DocumentChunk.sort_order,
-                    DocumentChunk.chunk_id,
-                    DocumentChunk.id,
-                )
-                .limit(_CHUNK_BATCH_SIZE)
-            )
-            if last_key is not None:
-                stmt = stmt.where(
-                    tuple_(
-                        DocumentChunk.document_id,
-                        DocumentChunk.job_result_id,
-                        DocumentChunk.sort_order,
-                        DocumentChunk.chunk_id,
-                        DocumentChunk.id,
-                    )
-                    > tuple_(*[literal(value) for value in last_key])
-                )
-            rows = (await db.execute(stmt)).all()
-            if not rows:
-                break
-            for row in rows:
-                document_id = str(row[0])
-                job_result_id = str(row[1])
-                chunk_id = str(row[2] or "").strip()
-                section_id = str(row[3]) if row[3] else None
-                section_path = section_path_by_id.get(section_id) if section_id else None
-                if is_excluded_section(
-                    document_id=document_id,
-                    section_path=section_path,
-                    exclude_sections=exclude_sections,
-                ) or (section_id and section_id not in section_path_by_id):
-                    continue
-                if not chunk_id:
-                    continue
-                chunk_type = str(row[4] or "text")
-                meta = {
-                    "document_id": document_id,
-                    "section_path": section_path,
-                    "chunk_type": chunk_type,
-                    "file_path": str(row[5] or "") or None,
-                    "job_id": job_id_by_result_id.get(job_result_id),
-                }
-                ids_by_doc.setdefault(document_id, []).append(chunk_id)
-                ref_index[chunk_id] = meta
-                ref_index[f"{document_id}:{chunk_id}"] = meta
-                if (
-                    chunk_type in {"image", "table"}
-                    and section_id
-                    and section_path == "Root"
-                ):
-                    root_assets_by_doc.setdefault(document_id, set()).add(chunk_id)
-                connections = row[6]
-                if isinstance(connections, str) and connections.strip():
-                    try:
-                        connections = json.loads(connections)
-                    except json.JSONDecodeError:
-                        connections = None
-                if chunk_type == "text" and isinstance(connections, list):
-                    for connection in connections:
-                        if not isinstance(connection, dict):
-                            continue
-                        target = str(connection.get("target") or "").strip()
-                        if not target:
-                            continue
-                        text_connections_by_doc.setdefault(document_id, []).append(
-                            (section_id or "", target)
-                        )
-            last = rows[-1]
-            last_key = (
-                str(last[0]),
-                str(last[1]),
-                int(last[7] or 0),
-                str(last[2] or ""),
-                str(last[8]),
-            )
-            if len(rows) < _CHUNK_BATCH_SIZE:
-                break
-    remounted: dict[str, dict[str, Any]] = {}
-    for document_id, asset_ids in root_assets_by_doc.items():
-        owners: dict[str, list[str]] = {}
-        for section_id, target in text_connections_by_doc.get(document_id, ()):
-            if target in asset_ids:
-                owners.setdefault(section_id, []).append(target)
-        remounted[document_id] = {"root": sorted(asset_ids), "owners": owners}
-    return ids_by_doc, ref_index, remounted
 
 
 async def _load_sections(

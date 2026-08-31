@@ -186,7 +186,6 @@ async def _run_mapnav_route(
         namespace=context.namespace,
         exclude_document_ids=context.exclude_document_ids,
         exclude_sections=context.exclude_sections,
-        lazy=True,
     )
 
     # Small-corpus count / snapshot reads may leave a checkout; drop it before
@@ -197,22 +196,19 @@ async def _run_mapnav_route(
     cfg = build_nav_config()
     toolspace = ProviderToolSpace(snapshot.provider)
 
-    try:
-        episode = await asyncio.to_thread(
-            run_nav_episode,
-            None,
-            context.query,
-            corpus_doc_ids=list(snapshot.document_ids),
-            budget_chars=budget,
-            compose_answer=False,
-            policy="llm",
-            config=cfg,
-            toolspace=toolspace,
-        )
+    episode = await asyncio.to_thread(
+        run_nav_episode,
+        None,
+        context.query,
+        corpus_doc_ids=list(snapshot.document_ids),
+        budget_chars=budget,
+        compose_answer=False,
+        policy="llm",
+        config=cfg,
+        toolspace=toolspace,
+    )
 
-        refs, score_by_chunk_id = build_referenced_chunks(episode, snapshot)
-    finally:
-        snapshot.close()
+    refs, score_by_chunk_id = build_referenced_chunks(episode, snapshot)
 
     async with open_fresh_database_context() as final_db:
         resolved = await resolve_workflow_references(
