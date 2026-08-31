@@ -131,11 +131,7 @@ async def _run_classic_topk_route(
         revision_pins=context.revision_pins,
     )
 
-    fused_rows = (
-        discovery_result.payload.get("fused_rows", [])
-        if discovery_result.status != "error"
-        else []
-    )
+    fused_rows = list(discovery_result.payload.get("fused_rows") or [])
 
     ranked_rows = await rank_retrieval_candidates(
         context.db,
