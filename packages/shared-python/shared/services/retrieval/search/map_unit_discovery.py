@@ -7,9 +7,11 @@ Replaces the retired chunk-level 3-channel SQL scan. Scoring uses the same
 the request is image/table only, ``has_image`` / ``has_table`` (written at
 index time) narrow candidates before scoring.
 
-Hydration returns one primary chunk per winning unit. Asset-only requests
-then follow ``connect_to`` to that unit's image/table row. Downstream
-``assemble_retrieval_results`` still inlines connected assets for text hits.
+Hydration returns the single non-asset chunk owned by each winning unit
+(one content chunk per leaf section). Assets never become the primary hit;
+image/table-only requests follow ``connect_to`` from that text chunk.
+Downstream ``assemble_retrieval_results`` still inlines connected assets
+for text hits. Failures raise; they are not converted into empty results.
 """
 
 from __future__ import annotations
@@ -165,80 +167,75 @@ async def map_unit_discovery(
 ) -> DiscoveryResult:
     """Score the whole in-scope corpus via the persisted map-unit BM25 scorer."""
     t0 = time.monotonic()
-    try:
-        if db is None:
-            return DiscoveryResult(
-                status="error",
-                error="database session required",
-                latency_ms=0,
-            )
-        query_tokens = tokenize_query_for_ranker(query)
-        if not query_tokens:
-            return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
+    if db is None:
+        raise ValueError("database session required for map_unit_discovery")
+    query_tokens = tokenize_query_for_ranker(query)
+    if not query_tokens:
+        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
 
-        revision_join, revision_clause, revision_params = _build_revision_scope(
-            revision_pins
+    revision_join, revision_clause, revision_params = _build_revision_scope(
+        revision_pins
+    )
+    exclude_clause, exclude_params = _build_exclude_clause(exclude_document_ids)
+    type_clause, type_params = _build_type_clause(chunk_types)
+    signal_clause, signal_params = _build_signal_clause(
+        signal_paths or [], filter_mode
+    )
+    params: dict[str, Any] = {"user_id": user_id, "namespace": namespace}
+    params.update(revision_params)
+    params.update(exclude_params)
+    params.update(type_params)
+    params.update(signal_params)
+
+    cte = _SCOPED_UNITS_CTE.format(
+        revision_join=revision_join,
+        revision_clause=revision_clause,
+        exclude_clause=exclude_clause,
+        type_clause=type_clause,
+        signal_clause=signal_clause,
+    )
+    unit_result = await db.execute(text(cte + "SELECT * FROM scoped_units"), params)
+    unit_rows = [dict(row._mapping) for row in unit_result.all()]
+    unit_rows = [
+        row
+        for row in unit_rows
+        if not is_excluded_section(
+            document_id=row.get("document_id"),
+            section_path=row.get("section_path"),
+            exclude_sections=exclude_sections,
         )
-        exclude_clause, exclude_params = _build_exclude_clause(exclude_document_ids)
-        type_clause, type_params = _build_type_clause(chunk_types)
-        signal_clause, signal_params = _build_signal_clause(
-            signal_paths or [], filter_mode
-        )
-        params: dict[str, Any] = {"user_id": user_id, "namespace": namespace}
-        params.update(revision_params)
-        params.update(exclude_params)
-        params.update(type_params)
-        params.update(signal_params)
+    ]
 
-        cte = _SCOPED_UNITS_CTE.format(
-            revision_join=revision_join,
-            revision_clause=revision_clause,
-            exclude_clause=exclude_clause,
-            type_clause=type_clause,
-            signal_clause=signal_clause,
-        )
-        unit_result = await db.execute(text(cte + "SELECT * FROM scoped_units"), params)
-        unit_rows = [dict(row._mapping) for row in unit_result.all()]
-        unit_rows = [
-            row
-            for row in unit_rows
-            if not is_excluded_section(
-                document_id=row.get("document_id"),
-                section_path=row.get("section_path"),
-                exclude_sections=exclude_sections,
-            )
-        ]
+    if not unit_rows:
+        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
 
-        if not unit_rows:
-            return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
-
-        frequency_result = await db.execute(
-            text(
-                cte
-                + """
+    frequency_result = await db.execute(
+        text(
+            cte
+            + """
                 SELECT tokens.map_unit_id, tokens.channel, tokens.token, tokens.frequency
                 FROM document_map_unit_tokens AS tokens
                 JOIN scoped_units ON scoped_units.map_unit_id = tokens.map_unit_id
                 WHERE tokens.channel = ANY(:channels)
                     AND tokens.token = ANY(:tokens)
                 """
-            ),
-            {
-                **params,
-                "channels": list(_MAP_SCORE_CHANNELS),
-                "tokens": query_tokens,
-            },
+        ),
+        {
+            **params,
+            "channels": list(_MAP_SCORE_CHANNELS),
+            "tokens": query_tokens,
+        },
+    )
+    frequencies: dict[tuple[str, str], dict[str, int]] = {}
+    for map_unit_id, channel, token, frequency in frequency_result.all():
+        frequencies.setdefault((str(map_unit_id), str(channel)), {})[str(token)] = (
+            int(frequency)
         )
-        frequencies: dict[tuple[str, str], dict[str, int]] = {}
-        for map_unit_id, channel, token, frequency in frequency_result.all():
-            frequencies.setdefault((str(map_unit_id), str(channel)), {})[str(token)] = (
-                int(frequency)
-            )
 
-        index_result = await db.execute(
-            text(
-                cte
-                + """
+    index_result = await db.execute(
+        text(
+            cte
+            + """
                 SELECT indexes.average_idf_path, indexes.average_idf_content,
                        indexes.unit_count
                 FROM document_map_unit_indexes AS indexes
@@ -248,101 +245,97 @@ async def map_unit_discovery(
                     ON indexes.document_id = scoped_revisions.document_id
                     AND indexes.job_result_id = scoped_revisions.job_result_id
                 """
-            ),
-            params,
-        )
-        index_parts = [
-            (float(path_idf or 0.0), float(content_idf or 0.0), int(unit_count or 0))
-            for path_idf, content_idf, unit_count in index_result.all()
+        ),
+        params,
+    )
+    index_parts = [
+        (float(path_idf or 0.0), float(content_idf or 0.0), int(unit_count or 0))
+        for path_idf, content_idf, unit_count in index_result.all()
+    ]
+    average_idf_path = combine_average_idf(
+        [(path_idf, unit_count) for path_idf, _content_idf, unit_count in index_parts]
+    )
+    average_idf_content = combine_average_idf(
+        [
+            (content_idf, unit_count)
+            for _path_idf, content_idf, unit_count in index_parts
         ]
-        average_idf_path = combine_average_idf(
-            [(path_idf, unit_count) for path_idf, _content_idf, unit_count in index_parts]
-        )
-        average_idf_content = combine_average_idf(
-            [
-                (content_idf, unit_count)
-                for _path_idf, content_idf, unit_count in index_parts
-            ]
-        )
+    )
 
-        path_stats = build_channel_bm25_stats(
-            unit_rows=unit_rows,
-            map_unit_id_field="map_unit_id",
-            length_field="path_token_count",
-            channel="path",
-            query_tokens=query_tokens,
-            frequencies=frequencies,
-            average_idf=average_idf_path,
-        )
-        content_stats = build_channel_bm25_stats(
-            unit_rows=unit_rows,
-            map_unit_id_field="map_unit_id",
-            length_field="content_token_count",
-            channel="content",
-            query_tokens=query_tokens,
-            frequencies=frequencies,
-            average_idf=average_idf_content,
-        )
+    path_stats = build_channel_bm25_stats(
+        unit_rows=unit_rows,
+        map_unit_id_field="map_unit_id",
+        length_field="path_token_count",
+        channel="path",
+        query_tokens=query_tokens,
+        frequencies=frequencies,
+        average_idf=average_idf_path,
+    )
+    content_stats = build_channel_bm25_stats(
+        unit_rows=unit_rows,
+        map_unit_id_field="map_unit_id",
+        length_field="content_token_count",
+        channel="content",
+        query_tokens=query_tokens,
+        frequencies=frequencies,
+        average_idf=average_idf_content,
+    )
 
-        corpus = PersistedScoreCorpus(
-            units=[
-                PersistedScoreUnit(
-                    unit_id=row["map_unit_id"],
-                    path_length=int(row["path_token_count"]),
-                    content_length=int(row["content_token_count"]),
-                    path_frequencies=frequencies.get((row["map_unit_id"], "path"), {}),
-                    content_frequencies=frequencies.get(
-                        (row["map_unit_id"], "content"), {}
-                    ),
-                )
-                for row in unit_rows
-            ],
-            path_stats=path_stats,
-            content_stats=content_stats,
-        )
-        scores_by_unit = score_persisted_corpus_many(corpus, [query]).get(query, {})
-
-        rows_by_unit_id = {row["map_unit_id"]: row for row in unit_rows}
-        ranked_unit_ids = sorted(
-            (unit_id for unit_id, score in scores_by_unit.items() if score > 0.0),
-            key=lambda unit_id: scores_by_unit[unit_id],
-            reverse=True,
-        )[:top_k]
-
-        fused_rows = await _hydrate_winning_units(
-            db,
-            ranked_unit_ids=ranked_unit_ids,
-            rows_by_unit_id=rows_by_unit_id,
-            scores_by_unit=scores_by_unit,
-            chunk_types=chunk_types,
-            exclude_document_ids=exclude_document_ids,
-            exclude_sections=exclude_sections,
-            revision_pins=revision_pins,
-        )
-        if fused_rows:
-            normalize_row_scores(
-                fused_rows,
-                source_field="score",
-                target_field="discovery_score",
-                default=0.5,
+    corpus = PersistedScoreCorpus(
+        units=[
+            PersistedScoreUnit(
+                unit_id=row["map_unit_id"],
+                path_length=int(row["path_token_count"]),
+                content_length=int(row["content_token_count"]),
+                path_frequencies=frequencies.get((row["map_unit_id"], "path"), {}),
+                content_frequencies=frequencies.get(
+                    (row["map_unit_id"], "content"), {}
+                ),
             )
+            for row in unit_rows
+        ],
+        path_stats=path_stats,
+        content_stats=content_stats,
+    )
+    scores_by_unit = score_persisted_corpus_many(corpus, [query]).get(query, {})
 
-        latency = int((time.monotonic() - t0) * 1000)
-        logger.info(
-            "  search.map_unit_discovery: {} units scored, {} fused rows, {}ms",
-            len(unit_rows),
-            len(fused_rows),
-            latency,
+    rows_by_unit_id = {row["map_unit_id"]: row for row in unit_rows}
+    ranked_unit_ids = sorted(
+        (unit_id for unit_id, score in scores_by_unit.items() if score > 0.0),
+        key=lambda unit_id: scores_by_unit[unit_id],
+        reverse=True,
+    )[:top_k]
+
+    fused_rows = await _hydrate_winning_units(
+        db,
+        ranked_unit_ids=ranked_unit_ids,
+        rows_by_unit_id=rows_by_unit_id,
+        scores_by_unit=scores_by_unit,
+        chunk_types=chunk_types,
+        exclude_document_ids=exclude_document_ids,
+        exclude_sections=exclude_sections,
+        revision_pins=revision_pins,
+    )
+    if fused_rows:
+        normalize_row_scores(
+            fused_rows,
+            source_field="score",
+            target_field="discovery_score",
+            default=0.5,
         )
-        return DiscoveryResult(
-            status="discovery_done",
-            payload={"fused_rows": fused_rows},
-            latency_ms=latency,
-        )
-    except Exception as exc:
-        latency = int((time.monotonic() - t0) * 1000)
-        logger.error(f"  search.map_unit_discovery failed: {exc}")
-        return DiscoveryResult(status="error", error=str(exc), latency_ms=latency)
+
+    latency = int((time.monotonic() - t0) * 1000)
+    logger.info(
+        "  search.map_unit_discovery: {} units scored, {} fused rows, {}ms",
+        len(unit_rows),
+        len(fused_rows),
+        latency,
+    )
+    return DiscoveryResult(
+        status="discovery_done",
+        payload={"fused_rows": fused_rows},
+        latency_ms=latency,
+    )
 
 
 def _as_metadata_dict(value: object) -> dict[str, Any]:
@@ -355,10 +348,12 @@ def _as_metadata_dict(value: object) -> dict[str, Any]:
 
 
 def _primary_chunk(chunks: list[dict[str, Any]]) -> dict[str, Any] | None:
+    # A content section owns exactly one non-asset chunk; assets reach the
+    # result only through connect_to at assembly, never as a primary hit.
     for chunk in chunks:
         if normalize_chunk_type(chunk.get("chunk_type")) not in ASSET_CHUNK_TYPES:
             return chunk
-    return chunks[0] if chunks else None
+    return None
 
 
 async def _hydrate_winning_units(
