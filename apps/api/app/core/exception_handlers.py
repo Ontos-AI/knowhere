@@ -48,7 +48,7 @@ Exception Sources:
 """
 
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from typing import List, cast
 
 from fastapi import FastAPI, HTTPException, Request
@@ -88,10 +88,7 @@ def _get_request_id(request: Request) -> str:
 
 
 async def knowhere_exception_handler(
-    request: Request,
-    exc: KnowhereException,
-    *,
-    response_headers: Mapping[str, str] | None = None,
+    request: Request, exc: KnowhereException
 ) -> JSONResponse:
     """
     This handler enforces the separation between:
@@ -122,10 +119,7 @@ async def knowhere_exception_handler(
     exc.logging(request_id=request_id)
 
     # Always include request ID header for client-side correlation
-    # Preserve framework-provided headers such as ``Allow: POST`` for 405
-    # responses and ``WWW-Authenticate`` for authentication challenges.
-    headers = dict(response_headers or {})
-    headers["X-Request-ID"] = request_id
+    headers = {"X-Request-ID": request_id}
     retry_after = exc.details.get("retry_after")
     if retry_after:
         headers["Retry-After"] = str(retry_after)
@@ -214,11 +208,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     )
 
     # Delegate to central handler
-    return await knowhere_exception_handler(
-        request,
-        knowhere_exc,
-        response_headers=exc.headers,
-    )
+    return await knowhere_exception_handler(request, knowhere_exc)
 
 
 async def validation_exception_handler(
