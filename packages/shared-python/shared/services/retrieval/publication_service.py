@@ -31,13 +31,6 @@ from shared.services.retrieval.publication_models import (
     ExistingDocumentScope,
     PublishedDocumentState,
 )
-from shared.services.retrieval.serving_generation import (
-    advance_namespace_generation,
-    lock_namespace_generation,
-)
-from shared.services.retrieval.serving_manifest import (
-    rebuild_namespace_serving_statistics,
-)
 
 
 def utc_now_naive() -> datetime:
@@ -129,23 +122,6 @@ class RetrievalPublicationService:
                 skipped_all_duplicate=True,
             )
 
-        existing_namespace = None
-        if document_id:
-            existing_namespace = db.execute(
-                select(Document.namespace).where(
-                    Document.document_id == str(document_id)
-                )
-            ).scalar_one_or_none()
-        namespaces_to_lock = {namespace}
-        if existing_namespace:
-            namespaces_to_lock.add(str(existing_namespace))
-        for namespace_to_lock in sorted(namespaces_to_lock):
-            lock_namespace_generation(
-                db,
-                user_id=str(job.user_id),
-                namespace=namespace_to_lock,
-            )
-
         document = self._upsert_document_revision(
             db,
             job=job,
@@ -180,22 +156,6 @@ class RetrievalPublicationService:
         )
 
         db.flush()
-        rebuild_namespace_serving_statistics(
-            db,
-            user_id=scope.user_id,
-            namespace=scope.namespace,
-        )
-        if existing_namespace and str(existing_namespace) != scope.namespace:
-            rebuild_namespace_serving_statistics(
-                db,
-                user_id=scope.user_id,
-                namespace=str(existing_namespace),
-            )
-        advance_namespace_generation(
-            db,
-            user_id=scope.user_id,
-            namespace=scope.namespace,
-        )
         return PublishedDocumentState(
             user_id=str(job.user_id),
             namespace=namespace,
@@ -249,7 +209,6 @@ class RetrievalPublicationService:
                 )
                 return None
             document.status = "active"
-            document.namespace = namespace
             document.archived_at = None
             document.current_job_result_id = job_result_id
             document.source_file_name = source_file_name or document.source_file_name

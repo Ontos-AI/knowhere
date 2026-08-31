@@ -145,22 +145,14 @@ class ProviderToolSpace:
     def _children_for_section_path(
         self, section_id: str, doc_id: str, limit: Optional[int] = None
     ) -> List[dict]:
+        del doc_id  # section_id is globally addressable in this provider model.
         child_ids = [str(c) for c in self._provider.children(section_id)]
         if limit is not None:
             child_ids = child_ids[: max(0, int(limit))]
-        # ``node_meta`` may materialize a lazy subtree to calculate chunk
-        # counts. Tree traversal needs only the child id/title; avoid an N+1
-        # payload load while building the scoring tree.
-        out: List[dict] = []
-        for cid in child_ids:
-            path = self.path_titles(cid, doc_id)
-            out.append(
-                {
-                    "section_id": cid,
-                    "preview": path.rsplit(" / ", 1)[-1] if path else "",
-                }
-            )
-        return out
+        return [
+            {"section_id": cid, "preview": self._provider.node_meta(cid).title}
+            for cid in child_ids
+        ]
 
     def section_relation_ids(
         self, section_id: str, doc_id: str

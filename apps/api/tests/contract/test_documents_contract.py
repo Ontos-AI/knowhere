@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from tests.support.contract_database import ContractDatabase
 from shared.testing.contract_runtime import get_contract_database_url
-from shared.services.retrieval.serving_manifest import encode_serving_manifest
 
 
 async def _create_contract_engine() -> AsyncEngine:
@@ -1020,7 +1019,9 @@ async def test_should_include_media_asset_urls_in_document_chunk_list_when_reque
     assert chunks[1]["asset_url"] == expected_asset_url
 
     assert default_response.status_code == 200
-    default_chunks = cast(list[dict[str, object]], default_response.json()["chunks"])
+    default_chunks = cast(
+        list[dict[str, object]], default_response.json()["chunks"]
+    )
     assert default_chunks[1]["asset_url"] is None
 
 
@@ -1333,84 +1334,3 @@ async def test_should_archive_a_document_via_the_legacy_archive_route(
     assert response_json["archived_at"]
     assert persisted_document["status"] == "archived"
     assert persisted_document["archived_at"] is not None
-
-
-@pytest.mark.asyncio
-async def test_archive_removes_revision_serving_stats_and_advances_generation(
-    developer_api_client_factory: Callable[
-        [], AbstractAsyncContextManager[AsyncClient]
-    ],
-) -> None:
-    document_id = f"doc_{uuid4().hex[:12]}"
-    namespace = f"archive-serving-{uuid4().hex[:8]}"
-    async with developer_api_client_factory() as api_client:
-        revision = await _insert_document_revision_with_chunks(
-            document_id=document_id,
-            namespace=namespace,
-            chunks=[
-                {
-                    "id": f"dchk_{uuid4().hex[:12]}",
-                    "chunk_id": "archive-serving-chunk",
-                    "chunk_type": "text",
-                    "content": "serving contribution",
-                    "source_chunk_path": "Archive/Serving",
-                    "metadata": {},
-                }
-            ],
-        )
-        payload_bytes, checksum, version = encode_serving_manifest(
-            {
-                "document_id": document_id,
-                "job_result_id": revision["job_result_id"],
-                "unit_count": 1,
-                "path_token_count": 1,
-                "content_token_count": 2,
-                "token_frequencies": {
-                    "path": {"archive": 1},
-                    "content": {"serving": 1},
-                },
-            }
-        )
-        await ContractDatabase.execute(
-            """
-            INSERT INTO retrieval_serving_revision_stats (
-                id, user_id, namespace, document_id, job_result_id,
-                format_version, payload_zlib, checksum, created_at
-            ) VALUES (
-                :id, :user_id, :namespace, :document_id, :job_result_id,
-                :format_version, :payload_zlib, :checksum, NOW()
-            )
-            """,
-            {
-                "id": f"rss_{uuid4().hex[:12]}",
-                "user_id": "local-dev-user",
-                "namespace": namespace,
-                "document_id": document_id,
-                "job_result_id": revision["job_result_id"],
-                "format_version": version,
-                "payload_zlib": payload_bytes,
-                "checksum": checksum,
-            },
-        )
-        response = await api_client.post(f"/api/v1/documents/{document_id}/archive")
-
-    assert response.status_code == 200
-    remaining_revision_stats = await ContractDatabase.fetch_one(
-        """
-        SELECT id
-        FROM retrieval_serving_revision_stats
-        WHERE document_id = :document_id AND job_result_id = :job_result_id
-        """,
-        {"document_id": document_id, "job_result_id": revision["job_result_id"]},
-    )
-    namespace_stats = await ContractDatabase.fetch_one(
-        """
-        SELECT generation
-        FROM retrieval_namespace_stats
-        WHERE user_id = :user_id AND namespace = :namespace
-        """,
-        {"user_id": "local-dev-user", "namespace": namespace},
-    )
-    assert remaining_revision_stats is None
-    assert namespace_stats is not None
-    assert int(namespace_stats["generation"]) >= 1

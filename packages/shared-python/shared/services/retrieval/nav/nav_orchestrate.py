@@ -204,8 +204,6 @@ def _relit_map(
     relit = prepared
     q = (query or "").strip()
     if relit is None and q:
-        relit = state.relit_map_cache.get(q)
-    if relit is None and q:
         try:
             from .nav_map_scores import relight_map_for_query
 
@@ -217,7 +215,6 @@ def _relit_map(
             )
             if scores:
                 relit = (scores, units, highlights)
-                state.relit_map_cache[q] = relit
         except Exception:
             relit = None
     if relit is None:

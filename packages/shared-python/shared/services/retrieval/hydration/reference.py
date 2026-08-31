@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import Document, DocumentChunk, DocumentSection
@@ -21,7 +20,6 @@ async def hydrate_referenced_chunk_rows(
     namespace: str,
     refs: list[dict[str, Any]],
     score_by_chunk_id: dict[str, float] | None = None,
-    revision_pins: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     if db is None or not refs:
         return []
@@ -41,48 +39,22 @@ async def hydrate_referenced_chunk_rows(
 
     document_ids = sorted({document_id for document_id, _, _, _ in ref_keys})
     chunk_ids = sorted({chunk_id for _, chunk_id, _, _ in ref_keys})
-    pinned_document_ids = [
-        document_id for document_id in document_ids if revision_pins and document_id in revision_pins
-    ]
-    if revision_pins is not None and not pinned_document_ids:
-        return []
-
-    if revision_pins is None:
-        chunk_join = (
-            (DocumentChunk.document_id == Document.document_id)
-            & (DocumentChunk.job_result_id == Document.current_job_result_id)
-        )
-    else:
-        chunk_join = and_(
-            DocumentChunk.document_id == Document.document_id,
-            or_(
-                *[
-                    and_(
-                        DocumentChunk.document_id == document_id,
-                        DocumentChunk.job_result_id == str(revision_pins[document_id]),
-                    )
-                    for document_id in pinned_document_ids
-                ]
-            ),
-        )
-
     stmt = (
         select(Document, DocumentChunk, DocumentSection, JobResult)
-        .join(DocumentChunk, chunk_join)
+        .join(
+            DocumentChunk,
+            (DocumentChunk.document_id == Document.document_id)
+            & (DocumentChunk.job_result_id == Document.current_job_result_id),
+        )
         .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
         .join(JobResult, JobResult.id == DocumentChunk.job_result_id)
         .where(Document.user_id == user_id)
         .where(Document.namespace == namespace)
-        .where(
-            Document.document_id.in_(
-                document_ids if revision_pins is None else pinned_document_ids
-            )
-        )
+        .where(Document.status == 'active')
+        .where(Document.document_id.in_(document_ids))
         .where(DocumentChunk.chunk_id.in_(chunk_ids))
         .order_by(DocumentChunk.sort_order)
     )
-    if revision_pins is None:
-        stmt = stmt.where(Document.status == 'active')
     result = await db.execute(stmt)
 
     rows_by_key: dict[ReferenceLookupKey, dict[str, Any]] = {}

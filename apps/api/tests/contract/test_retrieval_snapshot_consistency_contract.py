@@ -6,12 +6,8 @@ from typing import cast
 from uuid import uuid4
 
 from httpx import AsyncClient
-import pytest
 from sqlalchemy import Executable, Result
 
-from shared.services.retrieval.execution.reference_resolver import (
-    resolve_workflow_references,
-)
 from shared.services.retrieval.nav_snapshot import SnapshotSession, load_nav_snapshot
 from tests.support.retrieval_snapshot_support import contract_db_session
 from tests.support.contract_database import ContractDatabase
@@ -184,53 +180,3 @@ async def test_snapshot_keeps_sections_and_chunks_on_the_captured_revision(
     assert snapshot.chunk_ref_index[chunks[0].chunk_id]["section_path"] == (
         "republished.pdf/old"
     )
-
-
-@pytest.mark.asyncio
-async def test_reference_hydration_keeps_the_captured_revision_after_republish(
-    developer_api_client_factory: Callable[
-        [], AbstractAsyncContextManager[AsyncClient]
-    ],
-) -> None:
-    namespace = f"revision-hydration-race-{uuid4().hex[:8]}"
-    async with developer_api_client_factory():
-        document_id, new_result_id = await _seed_republished_document(namespace)
-        revision_rows = await ContractDatabase.fetch_all(
-            """
-            SELECT job_result_id, chunk_id
-            FROM document_chunks
-            WHERE document_id = :document_id
-            ORDER BY job_result_id
-            """,
-            {"document_id": document_id},
-        )
-        old_revision = next(
-            row for row in revision_rows if row["job_result_id"] != new_result_id
-        )
-        await ContractDatabase.execute(
-            """
-            UPDATE documents
-            SET current_job_result_id = :new_result_id
-            WHERE document_id = :document_id
-            """,
-            {"new_result_id": new_result_id, "document_id": document_id},
-        )
-
-        async with contract_db_session() as db:
-            resolved = await resolve_workflow_references(
-                db=db,
-                user_id=_USER_ID,
-                namespace=namespace,
-                refs=[
-                    {
-                        "document_id": document_id,
-                        "chunk_id": old_revision["chunk_id"],
-                    }
-                ],
-                revision_pins={document_id: old_revision["job_result_id"]},
-            )
-
-    assert [row["content"] for row in resolved.rows] == ["old content"]
-    assert [row["job_result_id"] for row in resolved.rows] == [
-        old_revision["job_result_id"]
-    ]

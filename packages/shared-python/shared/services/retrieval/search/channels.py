@@ -8,7 +8,6 @@ ranked rows. Channels are fused via RRF in the orchestrator.
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping
 from typing import Any
 
 from loguru import logger
@@ -62,7 +61,7 @@ WITH scoped_chunks AS (
     FROM document_chunks dc
     JOIN documents d
         ON d.document_id = dc.document_id
-        {revision_join}
+        AND d.current_job_result_id = dc.job_result_id
     LEFT JOIN document_sections ds
         ON ds.section_id = dc.section_id
     JOIN job_results jr
@@ -70,40 +69,10 @@ WITH scoped_chunks AS (
     WHERE d.user_id = :user_id
         AND d.namespace = :namespace
         AND d.status = 'active'
-        {revision_clause}
         {exclude_clause}
         {extra_filters}
 )
 """
-
-
-def _build_revision_scope(
-    revision_pins: Mapping[str, str] | None,
-) -> tuple[str, str, dict[str, Any]]:
-    if revision_pins is None:
-        return (
-            "AND d.current_job_result_id = dc.job_result_id",
-            "",
-            {},
-        )
-
-    pairs = [
-        (str(document_id).strip(), str(job_result_id).strip())
-        for document_id, job_result_id in revision_pins.items()
-        if str(document_id).strip() and str(job_result_id).strip()
-    ]
-    if not pairs:
-        return "", "AND FALSE", {}
-
-    params: dict[str, Any] = {}
-    placeholders: list[str] = []
-    for index, (document_id, job_result_id) in enumerate(pairs):
-        document_key = f"_pin_document_{index}"
-        revision_key = f"_pin_revision_{index}"
-        placeholders.append(f"(:{document_key}, :{revision_key})")
-        params[document_key] = document_id
-        params[revision_key] = job_result_id
-    return "", f"AND (dc.document_id, dc.job_result_id) IN ({', '.join(placeholders)})", params
 
 
 def _build_exclude_clause(exclude_document_ids: list[str]) -> str:
@@ -259,7 +228,6 @@ async def path_channel(
     allowed_chunk_types: set[str] | None = None,
     signal_paths: list[str] | None = None,
     filter_mode: str = "delete",
-    revision_pins: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Path channel: BM25 over pre-tokenized path search text.
 
@@ -278,7 +246,6 @@ async def path_channel(
         signal_paths=signal_paths,
         filter_mode=filter_mode,
         search_field="path_search_text",
-        revision_pins=revision_pins,
     )
 
 
@@ -294,7 +261,6 @@ async def content_channel(
     allowed_chunk_types: set[str] | None = None,
     signal_paths: list[str] | None = None,
     filter_mode: str = "delete",
-    revision_pins: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Content channel: BM25 over pre-tokenized content search text."""
     return await _bm25_channel(
@@ -309,7 +275,6 @@ async def content_channel(
         signal_paths=signal_paths,
         filter_mode=filter_mode,
         search_field="content_search_text",
-        revision_pins=revision_pins,
     )
 
 
@@ -326,7 +291,6 @@ async def _bm25_channel(
     signal_paths: list[str] | None,
     filter_mode: str,
     search_field: str,
-    revision_pins: Mapping[str, str] | None,
 ) -> list[dict[str, Any]]:
     if search_field not in {"content_search_text", "path_search_text"}:
         raise ValueError(f"Unsupported search_field: {search_field}")
@@ -353,14 +317,7 @@ async def _bm25_channel(
     params.update(extra_params)
     params.update(section_params)
 
-    revision_join, revision_clause, revision_params = _build_revision_scope(
-        revision_pins
-    )
-    params.update(revision_params)
-
     corpus_cte = _SCOPED_CORPUS_CTE.format(
-        revision_join=revision_join,
-        revision_clause=revision_clause,
         exclude_clause=exclude_clause,
         extra_filters=extra_sql,
     )
@@ -452,7 +409,6 @@ async def term_channel(
     allowed_chunk_types: set[str] | None = None,
     signal_paths: list[str] | None = None,
     filter_mode: str = "delete",
-    revision_pins: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Term/grep channel: substring matching on term_search_text.
 
@@ -479,11 +435,6 @@ async def term_channel(
     )
     params.update(extra_params)
 
-    revision_join, revision_clause, revision_params = _build_revision_scope(
-        revision_pins
-    )
-    params.update(revision_params)
-
     ilike_conditions = []
     for i, unit in enumerate(query_tokens):
         param_key = f"unit_{i}"
@@ -497,8 +448,6 @@ async def term_channel(
     where_clause = " OR ".join(ilike_conditions)
     sql = (
         _SCOPED_CORPUS_CTE.format(
-            revision_join=revision_join,
-            revision_clause=revision_clause,
             exclude_clause=exclude_clause, extra_filters=extra_sql
         )
         + f"""

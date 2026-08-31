@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 from sqlalchemy import and_, or_, select
@@ -21,7 +20,6 @@ async def hydrate_connected_target_rows(
     rows: list[dict[str, Any]],
     exclude_document_ids: list[str],
     exclude_sections: list[dict[str, str]],
-    revision_pins: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     if db is None:
         return []
@@ -63,25 +61,7 @@ async def hydrate_connected_target_rows(
 
     stmt = (
         select(Document, DocumentChunk, DocumentSection, JobResult)
-        .join(
-            DocumentChunk,
-            (
-                (DocumentChunk.document_id == Document.document_id)
-                if revision_pins is None
-                else and_(
-                    DocumentChunk.document_id == Document.document_id,
-                    or_(
-                        *[
-                            and_(
-                                DocumentChunk.document_id == document_id,
-                                DocumentChunk.job_result_id == job_result_id,
-                            )
-                            for document_id, job_result_id in target_ids_by_revision
-                        ]
-                    ),
-                )
-            ),
-        )
+        .join(DocumentChunk, DocumentChunk.document_id == Document.document_id)
         .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
         .join(JobResult, JobResult.id == DocumentChunk.job_result_id)
         .where(or_(*revision_filters))

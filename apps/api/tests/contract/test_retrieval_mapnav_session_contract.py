@@ -135,14 +135,12 @@ async def test_mapnav_route_should_release_route_session_before_fresh_final_hydr
         namespace: str,
         refs: list[RouteRow],
         score_by_chunk_id: dict[str, float] | None = None,
-        revision_pins: dict[str, str] | None = None,
     ) -> ResolvedWorkflowReferences:
         assert db is fresh_db
         assert user_id == "contract-user"
         assert namespace == "contract-namespace"
         assert refs
         assert score_by_chunk_id is not None
-        assert revision_pins is None
         events.append("resolve_references")
         row = {
             "document_id": "doc_contract",
@@ -161,13 +159,11 @@ async def test_mapnav_route_should_release_route_session_before_fresh_final_hydr
         exclude_document_ids: list[str],
         exclude_sections: list[dict[str, str]],
         allowed_chunk_types: set[str] | None,
-        revision_pins: dict[str, str] | None = None,
     ) -> list[RouteRow]:
         assert db is fresh_db
         assert exclude_document_ids == []
         assert exclude_sections == []
         assert allowed_chunk_types is None
-        assert revision_pins is None
         events.append("assemble_results")
         return rows
 

@@ -18,9 +18,7 @@ Does not call LLM. Does not touch map-nav / wallet / agentic budget.
 
 from __future__ import annotations
 
-import asyncio
 import time
-from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -70,13 +68,11 @@ async def bottom_discovery(
     channels: list[str] | None = None,
     channel_weights: dict[str, float] | None = None,
     internal_recall_k: int | None = None,
-    revision_pins: Mapping[str, str] | None = None,
     **_kwargs: Any,
 ) -> DiscoveryResult:
     """Run 3-channel BM25 discovery plus RRF fusion."""
     t0 = time.monotonic()
     try:
-        del db
         allowed_chunk_types = chunk_types
         effective_recall_k = (
             internal_recall_k
@@ -85,10 +81,13 @@ async def bottom_discovery(
         )
         active_channels = set(channels) if channels else {"path", "content", "term"}
 
-        path_rows, content_rows, term_rows = await asyncio.gather(
-            _run_channel(
-                path_channel,
-                enabled="path" in active_channels,
+        path_rows: list[dict[str, Any]] = []
+        content_rows: list[dict[str, Any]] = []
+        term_rows: list[dict[str, Any]] = []
+
+        if "path" in active_channels:
+            path_rows = await path_channel(
+                db,
                 user_id=user_id,
                 namespace=namespace,
                 query=query,
@@ -98,11 +97,11 @@ async def bottom_discovery(
                 allowed_chunk_types=allowed_chunk_types,
                 signal_paths=signal_paths,
                 filter_mode=filter_mode,
-                revision_pins=revision_pins,
-            ),
-            _run_channel(
-                content_channel,
-                enabled="content" in active_channels,
+            )
+
+        if "content" in active_channels:
+            content_rows = await content_channel(
+                db,
                 user_id=user_id,
                 namespace=namespace,
                 query=query,
@@ -112,11 +111,11 @@ async def bottom_discovery(
                 allowed_chunk_types=allowed_chunk_types,
                 signal_paths=signal_paths,
                 filter_mode=filter_mode,
-                revision_pins=revision_pins,
-            ),
-            _run_channel(
-                term_channel,
-                enabled="term" in active_channels,
+            )
+
+        if "term" in active_channels:
+            term_rows = await term_channel(
+                db,
                 user_id=user_id,
                 namespace=namespace,
                 query=query,
@@ -126,9 +125,7 @@ async def bottom_discovery(
                 allowed_chunk_types=allowed_chunk_types,
                 signal_paths=signal_paths,
                 filter_mode=filter_mode,
-                revision_pins=revision_pins,
-            ),
-        )
+            )
 
         default_weights = {
             "path": CHANNEL_WEIGHT_PATH,
@@ -197,20 +194,3 @@ async def bottom_discovery(
         latency = int((time.monotonic() - t0) * 1000)
         logger.error(f"  search.bottom_discovery failed: {exc}")
         return DiscoveryResult(status="error", error=str(exc), latency_ms=latency)
-
-
-async def _run_channel(
-    channel: Callable[..., Awaitable[list[dict[str, Any]]]],
-    *,
-    enabled: bool,
-    **kwargs: Any,
-) -> list[dict[str, Any]]:
-    if not enabled:
-        return []
-
-    # Import lazily so discovery remains usable by lightweight contract tests
-    # without creating a database context until a channel is actually enabled.
-    from shared.core.database import get_db_context
-
-    async with get_db_context() as channel_db:
-        return await channel(channel_db, **kwargs)

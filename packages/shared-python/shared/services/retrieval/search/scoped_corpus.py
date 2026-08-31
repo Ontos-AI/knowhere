@@ -1,72 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
-from sqlalchemy import and_, func, select, tuple_
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import SQLAlchemyError
 
-from shared.models.database.document import (
-    Document,
-    DocumentChunk,
-    DocumentSection,
-    RetrievalServingRevisionManifest,
-)
+from shared.models.database.document import Document, DocumentChunk, DocumentSection
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.search.section_filters import is_excluded_section
-from shared.services.retrieval.serving_manifest import decode_serving_manifest
-from shared.services.retrieval.manifest_cache import cache_manifest_payloads
-
-
-async def count_manifest_chunks(
-    db: AsyncSession,
-    *,
-    revision_pins: Mapping[str, str],
-) -> int | None:
-    """Count chunks exactly from complete pinned manifests when available."""
-    if not revision_pins:
-        return None
-    statement = select(
-        RetrievalServingRevisionManifest.document_id,
-        RetrievalServingRevisionManifest.job_result_id,
-        RetrievalServingRevisionManifest.payload_zlib,
-        RetrievalServingRevisionManifest.checksum,
-        RetrievalServingRevisionManifest.format_version,
-    ).where(
-        tuple_(
-            RetrievalServingRevisionManifest.document_id,
-            RetrievalServingRevisionManifest.job_result_id,
-        ).in_(list(revision_pins.items()))
-    )
-    try:
-        rows = (await db.execute(statement)).all()
-        if len(rows) != len(revision_pins):
-            return None
-        total = 0
-        decoded_payloads: dict[tuple[str, str], dict[str, Any]] = {}
-        for document_id, job_result_id, payload_zlib, checksum, format_version in rows:
-            payload = decode_serving_manifest(
-                bytes(payload_zlib),
-                checksum=str(checksum),
-                format_version=int(format_version),
-            )
-            chunks = payload.get("chunks")
-            if not isinstance(chunks, list):
-                return None
-            total += len(chunks)
-            decoded_payloads[(str(document_id), str(job_result_id))] = payload
-        cache_manifest_payloads(
-            db,
-            revisions=revision_pins,
-            payloads=decoded_payloads,
-        )
-        return total
-    except SQLAlchemyError:
-        await db.rollback()
-        return None
-    except (TypeError, ValueError, KeyError):
-        return None
 
 
 async def count_scoped_chunks(
@@ -76,32 +17,18 @@ async def count_scoped_chunks(
     namespace: str,
     exclude_document_ids: list[str],
     allowed_chunk_types: set[str] | None,
-    revision_pins: Mapping[str, str] | None = None,
 ) -> int:
-    if revision_pins is None:
-        stmt = (
-            select(func.count(DocumentChunk.id))
-            .join(
-                Document,
-                (Document.document_id == DocumentChunk.document_id)
-                & (Document.current_job_result_id == DocumentChunk.job_result_id),
-            )
-            .where(Document.user_id == user_id)
-            .where(Document.namespace == namespace)
-            .where(Document.status == 'active')
+    stmt = (
+        select(func.count(DocumentChunk.id))
+        .join(
+            Document,
+            (Document.document_id == DocumentChunk.document_id)
+            & (Document.current_job_result_id == DocumentChunk.job_result_id),
         )
-    else:
-        stmt = (
-            select(func.count(DocumentChunk.id))
-            .join(Document, Document.document_id == DocumentChunk.document_id)
-            .where(Document.user_id == user_id)
-            .where(Document.namespace == namespace)
-            .where(
-                tuple_(DocumentChunk.document_id, DocumentChunk.job_result_id).in_(
-                    list(revision_pins.items())
-                )
-            )
-        )
+        .where(Document.user_id == user_id)
+        .where(Document.namespace == namespace)
+        .where(Document.status == 'active')
+    )
     if exclude_document_ids:
         stmt = stmt.where(Document.document_id.notin_(list(exclude_document_ids)))
     if allowed_chunk_types is not None:
@@ -120,31 +47,21 @@ async def load_all_scoped_chunks(
     allowed_chunk_types: set[str] | None,
     signal_paths: list[str],
     filter_mode: str,
-    revision_pins: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    if revision_pins is None:
-        chunk_join = (
-            (DocumentChunk.document_id == Document.document_id)
-            & (DocumentChunk.job_result_id == Document.current_job_result_id)
-        )
-    else:
-        chunk_join = and_(
-            DocumentChunk.document_id == Document.document_id,
-            tuple_(DocumentChunk.document_id, DocumentChunk.job_result_id).in_(
-                list(revision_pins.items())
-            ),
-        )
     stmt = (
         select(Document, DocumentChunk, DocumentSection, JobResult)
-        .join(DocumentChunk, chunk_join)
+        .join(
+            DocumentChunk,
+            (DocumentChunk.document_id == Document.document_id)
+            & (DocumentChunk.job_result_id == Document.current_job_result_id),
+        )
         .outerjoin(DocumentSection, DocumentSection.section_id == DocumentChunk.section_id)
         .join(JobResult, JobResult.id == DocumentChunk.job_result_id)
         .where(Document.user_id == user_id)
         .where(Document.namespace == namespace)
+        .where(Document.status == 'active')
         .order_by(DocumentChunk.sort_order)
     )
-    if revision_pins is None:
-        stmt = stmt.where(Document.status == 'active')
     if exclude_document_ids:
         stmt = stmt.where(Document.document_id.notin_(list(exclude_document_ids)))
     if allowed_chunk_types is not None:

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
-from collections import Counter
-import math
 from typing import Any
 
 from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
@@ -22,11 +20,7 @@ from shared.services.retrieval.nav.nav_map_scores import (
 )
 from shared.services.retrieval.nav.knowhere_hybrid import (
     ScoreUnitRow,
-    PersistedBm25Stats,
-    PersistedScoreCorpus,
-    PersistedScoreUnit,
     score_rows_hybrid_all,
-    score_persisted_corpus_many,
     score_unit_stream_hybrid_all,
     score_unit_stream_hybrid_many,
 )
@@ -310,7 +304,8 @@ def test_streaming_scorer_scores_multiple_queries_with_one_corpus_read() -> None
     ]
     queries: list[str] = ["alpha evidence", "beta evidence"]
     expected = {
-        query: score_unit_stream_hybrid_all(lambda: rows, query) for query in queries
+        query: score_unit_stream_hybrid_all(lambda: rows, query)
+        for query in queries
     }
     read_count: int = 0
 
@@ -321,87 +316,6 @@ def test_streaming_scorer_scores_multiple_queries_with_one_corpus_read() -> None
 
     assert score_unit_stream_hybrid_many(unit_factory, queries) == expected
     assert read_count == 1
-
-
-def test_persisted_score_projection_preserves_exact_eager_scores() -> None:
-    rows: list[ScoreUnitRow] = [
-        {
-            "chunk_id": "unit-a",
-            "path_search_text": "root alpha",
-            "content_search_text": "common alpha alpha evidence",
-            "term_search_text": "common alpha alpha evidence root",
-        },
-        {
-            "chunk_id": "unit-b",
-            "path_search_text": "root beta",
-            "content_search_text": "common beta evidence",
-            "term_search_text": "common beta evidence root",
-        },
-        {
-            "chunk_id": "unit-c",
-            "path_search_text": "root common",
-            "content_search_text": "common evidence",
-            "term_search_text": "common evidence root",
-        },
-    ]
-    queries = ["common alpha", "beta evidence"]
-    expected = {
-        query: score_unit_stream_hybrid_all(lambda: rows, query) for query in queries
-    }
-    query_tokens = {token for query in queries for token in query.split()}
-
-    def build_stats(search_field: str) -> PersistedBm25Stats:
-        token_rows = [str(row[search_field]).split() for row in rows]
-        document_frequency = Counter(
-            token for tokens in token_rows for token in set(tokens)
-        )
-        document_count = len(token_rows)
-        raw_idfs = [
-            math.log(document_count - frequency + 0.5) - math.log(frequency + 0.5)
-            for frequency in document_frequency.values()
-        ]
-        return PersistedBm25Stats(
-            document_count=document_count,
-            total_length=sum(len(tokens) for tokens in token_rows),
-            document_frequency={
-                token: document_frequency[token] for token in query_tokens
-            },
-            average_idf=sum(raw_idfs) / len(raw_idfs),
-        )
-
-    corpus = PersistedScoreCorpus(
-        units=[
-            PersistedScoreUnit(
-                unit_id=str(row["chunk_id"]),
-                path_length=len(str(row["path_search_text"]).split()),
-                content_length=len(str(row["content_search_text"]).split()),
-                path_frequencies={
-                    token: str(row["path_search_text"]).split().count(token)
-                    for token in query_tokens
-                },
-                content_frequencies={
-                    token: str(row["content_search_text"]).split().count(token)
-                    for token in query_tokens
-                },
-                term_scores=tuple(
-                    100.0
-                    if query in str(row["term_search_text"])
-                    else float(
-                        sum(
-                            token in str(row["term_search_text"])
-                            for token in query.split()
-                        )
-                    )
-                    for query in queries
-                ),
-            )
-            for row in rows
-        ],
-        path_stats=build_stats("path_search_text"),
-        content_stats=build_stats("content_search_text"),
-    )
-
-    assert score_persisted_corpus_many(corpus, queries) == expected
 
 
 def test_corpus_map_scores_multiple_queries_with_one_lazy_load() -> None:

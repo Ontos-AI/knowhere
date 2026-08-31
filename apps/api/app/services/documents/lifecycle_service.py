@@ -8,25 +8,13 @@ from typing import Any
 
 from app.repositories.document_repository import DocumentRepository
 from loguru import logger
-from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.models.database.document import (
-    DocumentChunk,
-    DocumentSection,
-    RetrievalServingRevisionStat,
-)
+from shared.models.database.document import DocumentChunk, DocumentSection
 from shared.services.retrieval.cache_service import (
     invalidate_retrieval_cache_namespaces,
 )
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
-from shared.services.retrieval.serving_generation import (
-    advance_namespace_generation,
-    lock_namespace_generation,
-)
-from shared.services.retrieval.serving_manifest import (
-    rebuild_namespace_serving_statistics,
-)
 from shared.services.storage.result_storage import ResultStorage, get_result_storage
 
 _DOCUMENT_CHUNK_ASSET_URL_EXPIRES_SECONDS = 7 * 24 * 60 * 60
@@ -115,7 +103,7 @@ def _normalize_page_asset(raw_asset: dict[str, Any]) -> dict[str, Any] | None:
         "content_type": content_type,
         "source": source,
     }
-    if asset_url := str(raw_asset.get("asset_url") or "").strip():
+    if (asset_url := str(raw_asset.get("asset_url") or "").strip()):
         asset["asset_url"] = asset_url
     if (width := _positive_int(raw_asset.get("width"))) is not None:
         asset["width"] = width
@@ -458,38 +446,7 @@ class DocumentService:
             return document_payload(document)
 
         previous_namespace = document.namespace
-        await db.run_sync(
-            lambda sync_db: lock_namespace_generation(
-                sync_db,
-                user_id=user_id,
-                namespace=previous_namespace,
-            )
-        )
         await self._repository.archive_document(db, document=document)
-        current_revision = document.current_job_result_id
-        if current_revision:
-            await db.run_sync(
-                lambda sync_db: sync_db.execute(
-                    delete(RetrievalServingRevisionStat).where(
-                        RetrievalServingRevisionStat.document_id == document_id,
-                        RetrievalServingRevisionStat.job_result_id == current_revision,
-                    )
-                )
-            )
-        await db.run_sync(
-            lambda sync_db: rebuild_namespace_serving_statistics(
-                sync_db,
-                user_id=user_id,
-                namespace=previous_namespace,
-            )
-        )
-        await db.run_sync(
-            lambda sync_db: advance_namespace_generation(
-                sync_db,
-                user_id=user_id,
-                namespace=previous_namespace,
-            )
-        )
         await db.run_sync(
             lambda sync_db: self._graph_service.remove_document_graph(
                 sync_db,

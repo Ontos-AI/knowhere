@@ -12,10 +12,8 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
-    BigInteger,
     Index,
     Integer,
-    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -132,13 +130,6 @@ class DocumentSection(Base):
         ),
         Index("idx_document_sections_scope", "user_id", "namespace"),
         Index("idx_document_sections_doc_revision", "document_id", "job_result_id"),
-        Index(
-            "idx_document_sections_revision_snapshot_order",
-            "document_id",
-            "job_result_id",
-            "sort_order",
-            "section_id",
-        ),
     )
 
 
@@ -310,13 +301,6 @@ class DocumentMapUnitToken(Base):
             "token_hash",
             "map_unit_id",
         ),
-        Index(
-            "idx_document_map_unit_tokens_unit_lookup",
-            "map_unit_id",
-            "channel",
-            "token_hash",
-            postgresql_include=["token", "frequency"],
-        ),
         Index("idx_document_map_unit_tokens_unit", "map_unit_id", "channel"),
     )
 
@@ -352,168 +336,6 @@ class DocumentMapUnitIndex(Base):
             "idx_document_map_unit_indexes_revision",
             "document_id",
             "job_result_id",
-        ),
-    )
-
-
-class RetrievalNamespaceGeneration(Base):
-    """Monotonic serving generation for one user-owned namespace."""
-
-    __tablename__ = "retrieval_namespace_generations"
-
-    id: Mapped[str] = mapped_column(
-        String(100), primary_key=True, default=lambda: f"rng_{uuid4().hex}"
-    )
-    user_id: Mapped[str] = mapped_column(Text, nullable=False)
-    namespace: Mapped[str] = mapped_column(String(255), nullable=False)
-    generation: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=False
-    )
-
-    __table_args__ = (
-        UniqueConstraint(
-            "user_id",
-            "namespace",
-            name="uq_retrieval_namespace_generations_scope",
-        ),
-    )
-
-
-class RetrievalServingRevisionManifest(Base):
-    """Compressed ordered metadata for one document revision."""
-
-    __tablename__ = "retrieval_serving_revision_manifests"
-
-    id: Mapped[str] = mapped_column(
-        String(100), primary_key=True, default=lambda: f"rsm_{uuid4().hex}"
-    )
-    user_id: Mapped[str] = mapped_column(Text, nullable=False)
-    namespace: Mapped[str] = mapped_column(String(255), nullable=False)
-    document_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("documents.document_id", ondelete="CASCADE"), nullable=False
-    )
-    job_result_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("job_results.id", ondelete="CASCADE"), nullable=False
-    )
-    format_version: Mapped[int] = mapped_column(Integer, nullable=False)
-    payload_zlib: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now_naive, nullable=False
-    )
-
-    __table_args__ = (
-        UniqueConstraint(
-            "document_id",
-            "job_result_id",
-            name="uq_retrieval_serving_revision_manifests_revision",
-        ),
-        Index(
-            "idx_retrieval_serving_revision_manifests_scope",
-            "user_id",
-            "namespace",
-            "document_id",
-            "job_result_id",
-        ),
-    )
-
-
-class RetrievalServingRevisionStat(Base):
-    """Compressed scoring contribution for one document revision."""
-
-    __tablename__ = "retrieval_serving_revision_stats"
-
-    id: Mapped[str] = mapped_column(
-        String(100), primary_key=True, default=lambda: f"rss_{uuid4().hex}"
-    )
-    user_id: Mapped[str] = mapped_column(Text, nullable=False)
-    namespace: Mapped[str] = mapped_column(String(255), nullable=False)
-    document_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("documents.document_id", ondelete="CASCADE"), nullable=False
-    )
-    job_result_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("job_results.id", ondelete="CASCADE"), nullable=False
-    )
-    format_version: Mapped[int] = mapped_column(Integer, nullable=False)
-    payload_zlib: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now_naive, nullable=False
-    )
-
-    __table_args__ = (
-        UniqueConstraint(
-            "document_id",
-            "job_result_id",
-            name="uq_retrieval_serving_revision_stats_revision",
-        ),
-        Index(
-            "idx_retrieval_serving_revision_stats_scope",
-            "user_id",
-            "namespace",
-            "document_id",
-            "job_result_id",
-        ),
-    )
-
-
-class RetrievalNamespaceStat(Base):
-    """Compressed aggregate scoring statistics for one namespace generation."""
-
-    __tablename__ = "retrieval_namespace_stats"
-
-    id: Mapped[str] = mapped_column(
-        String(100), primary_key=True, default=lambda: f"rns_{uuid4().hex}"
-    )
-    user_id: Mapped[str] = mapped_column(Text, nullable=False)
-    namespace: Mapped[str] = mapped_column(String(255), nullable=False)
-    generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    payload_zlib: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=False
-    )
-
-    __table_args__ = (
-        UniqueConstraint(
-            "user_id",
-            "namespace",
-            name="uq_retrieval_namespace_stats_scope",
-        ),
-    )
-
-
-class RetrievalNamespaceTokenStat(Base):
-    """Document frequency for one token/channel in a namespace generation."""
-
-    __tablename__ = "retrieval_namespace_token_stats"
-
-    id: Mapped[str] = mapped_column(
-        String(100), primary_key=True, default=lambda: f"rnt_{uuid4().hex}"
-    )
-    user_id: Mapped[str] = mapped_column(Text, nullable=False)
-    namespace: Mapped[str] = mapped_column(String(255), nullable=False)
-    generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    channel: Mapped[str] = mapped_column(String(32), nullable=False)
-    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    document_frequency: Mapped[int] = mapped_column(Integer, nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint(
-            "user_id",
-            "namespace",
-            "channel",
-            "token_hash",
-            name="uq_retrieval_namespace_token_stats_key",
-        ),
-        Index(
-            "idx_retrieval_namespace_token_stats_lookup",
-            "user_id",
-            "namespace",
-            "generation",
-            "channel",
-            "token_hash",
         ),
     )
 
