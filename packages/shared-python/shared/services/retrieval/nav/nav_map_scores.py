@@ -8,10 +8,87 @@ from .knowhere_hybrid import (
     build_content_search_text,
     build_path_search_text,
     build_term_search_text,
+    PersistedScoreCorpus,
+    PersistedScoreUnit,
     score_persisted_corpus_many,
+)
+from .persisted_score_load import (
+    average_idf_from_unit_dfs,
+    build_channel_bm25_stats,
 )
 
 _logger = logging.getLogger(__name__)
+
+
+def _build_legacy_score_corpus(ts: Any, doc_ids: Sequence[str]) -> PersistedScoreCorpus:
+    """Build the retired in-memory scorer input when persisted indexes are absent."""
+    raw_units: List[dict] = []
+    for doc_id in doc_ids:
+        raw_units.extend(build_score_units(ts, doc_id))
+    frequencies: Dict[Tuple[str, str], Dict[str, int]] = {}
+    unit_rows: List[dict] = []
+    path_dfs: Dict[str, int] = {}
+    content_dfs: Dict[str, int] = {}
+    for unit in raw_units:
+        unit_id = str(unit.get("chunk_id") or "").strip()
+        if not unit_id:
+            continue
+        path_tokens = str(unit.get("path_search_text") or "").split()
+        content_tokens = str(unit.get("content_search_text") or "").split()
+        path_freq: Dict[str, int] = {}
+        content_freq: Dict[str, int] = {}
+        for token in path_tokens:
+            path_freq[token] = path_freq.get(token, 0) + 1
+        for token in content_tokens:
+            content_freq[token] = content_freq.get(token, 0) + 1
+        frequencies[(unit_id, "path")] = path_freq
+        frequencies[(unit_id, "content")] = content_freq
+        for token in path_freq:
+            path_dfs[token] = path_dfs.get(token, 0) + 1
+        for token in content_freq:
+            content_dfs[token] = content_dfs.get(token, 0) + 1
+        unit_rows.append(
+            {
+                "unit_id": unit_id,
+                "path_length": len(path_tokens),
+                "content_length": len(content_tokens),
+            }
+        )
+    unit_count = len(unit_rows)
+    return PersistedScoreCorpus(
+        units=[
+            PersistedScoreUnit(
+                unit_id=str(row["unit_id"]),
+                path_length=int(row["path_length"]),
+                content_length=int(row["content_length"]),
+                path_frequencies=frequencies[(str(row["unit_id"]), "path")],
+                content_frequencies=frequencies[(str(row["unit_id"]), "content")],
+            )
+            for row in unit_rows
+        ],
+        path_stats=build_channel_bm25_stats(
+            unit_rows=unit_rows,
+            map_unit_id_field="unit_id",
+            length_field="path_length",
+            channel="path",
+            query_tokens=list(path_dfs),
+            frequencies=frequencies,
+            average_idf=average_idf_from_unit_dfs(
+                unit_count=unit_count, token_document_frequency=path_dfs
+            ),
+        ),
+        content_stats=build_channel_bm25_stats(
+            unit_rows=unit_rows,
+            map_unit_id_field="unit_id",
+            length_field="content_length",
+            channel="content",
+            query_tokens=list(content_dfs),
+            frequencies=frequencies,
+            average_idf=average_idf_from_unit_dfs(
+                unit_count=unit_count, token_document_frequency=content_dfs
+            ),
+        ),
+    )
 
 
 def _children_ids(ts: Any, section_id: str, doc_id: str) -> List[str]:
@@ -346,6 +423,13 @@ def compute_corpus_map_and_unit_scores_many(
         time.perf_counter() - loader_started,
         persisted_corpus is not None,
     )
+    if persisted_corpus is None:
+        _logger.warning(
+            "retrieval map index unavailable; using bounded legacy in-memory scorer "
+            "documents=%d",
+            len(valid_doc_ids),
+        )
+        persisted_corpus = _build_legacy_score_corpus(ts, valid_doc_ids)
     score_started = time.perf_counter()
     unit_scores_by_query = (
         score_persisted_corpus_many(persisted_corpus, unique_queries)

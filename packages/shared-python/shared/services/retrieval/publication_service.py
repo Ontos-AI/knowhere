@@ -200,6 +200,14 @@ class RetrievalPublicationService:
                 namespace=str(existing_namespace),
                 document_id=document.document_id,
             )
+            # A namespace move mutates both namespace snapshots. Advance the
+            # old namespace generation as well so request-scoped/process-local
+            # snapshot caches cannot reuse the pre-move generation.
+            advance_namespace_generation(
+                db,
+                user_id=scope.user_id,
+                namespace=str(existing_namespace),
+            )
         advance_namespace_generation(
             db,
             user_id=scope.user_id,

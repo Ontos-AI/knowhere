@@ -10,11 +10,43 @@ from shared.services.redis import RedisServiceFactory
 
 _RETRIEVAL_CACHE_TTL_SECONDS = 300
 _VERSION_FALLBACK = 0
+_INDEX_READINESS_TTL_SECONDS = 60
 
 
 def _namespace_version_key(*, user_id: str, namespace: str) -> str:
     namespace = normalize_retrieval_namespace(namespace)
     return f"retrieval:version:{user_id}:{namespace}"
+
+
+def _namespace_index_readiness_key(*, user_id: str, namespace: str) -> str:
+    namespace = normalize_retrieval_namespace(namespace)
+    return f"retrieval:index-readiness:{user_id}:{namespace}"
+
+
+async def record_retrieval_index_readiness(
+    *,
+    user_id: str,
+    namespace: str,
+    ready: bool,
+    expected_revisions: int,
+    indexed_revisions: int,
+) -> None:
+    """Publish a short-lived index readiness signal for operators and callers.
+
+    Redis is deliberately only a status cache. PostgreSQL generations and
+    serving rows remain the source of truth, and retrieval must continue to
+    work if Redis is unavailable.
+    """
+    redis_service = RedisServiceFactory.get_service()
+    await redis_service.set(
+        _namespace_index_readiness_key(user_id=user_id, namespace=namespace),
+        {
+            "ready": bool(ready),
+            "expected_revisions": int(expected_revisions),
+            "indexed_revisions": int(indexed_revisions),
+        },
+        ex=_INDEX_READINESS_TTL_SECONDS,
+    )
 
 
 def _normalize_exclude_sections(exclude_sections: list[dict[str, str]]) -> list[str]:

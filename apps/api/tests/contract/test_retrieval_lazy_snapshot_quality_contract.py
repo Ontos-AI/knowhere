@@ -165,10 +165,7 @@ def test_lazy_provider_preserves_score_units_and_scores() -> None:
     lazy_scores = compute_corpus_map_and_unit_scores(
         lazy, doc_ids=["doc"], query="alpha retrieval"
     )
-    assert eager_scores[1] == {}
-    assert lazy_scores[1] == {}
-    assert all(score == 0.0 for score in eager_scores[0].values())
-    assert all(score == 0.0 for score in lazy_scores[0].values())
+    assert eager_scores == lazy_scores
 
     lazy_provider = lazy._provider
     self_units = getattr(lazy_provider, "self_units")
@@ -245,7 +242,7 @@ def test_persisted_score_projection_ranks_matching_units() -> None:
     assert scored["beta evidence"]["unit-b"] > scored["beta evidence"]["unit-a"]
 
 
-def test_missing_index_does_not_read_chunk_payloads() -> None:
+def test_missing_index_falls_back_to_legacy_payload_scoring() -> None:
     _eager, lazy, store = _providers()
     queries: list[str] = ["alpha retrieval", "supporting image"]
     store.section_loads = 0
@@ -256,8 +253,8 @@ def test_missing_index_does_not_read_chunk_payloads() -> None:
     )
 
     assert set(actual) == set(queries)
-    assert all(unit_scores == {} for _map_scores, unit_scores in actual.values())
-    assert store.section_loads == 0
+    assert any(unit_scores for _map_scores, unit_scores in actual.values())
+    assert store.section_loads > 0
 
 
 def test_missing_index_is_empty_across_documents() -> None:
@@ -276,8 +273,8 @@ def test_missing_index_is_empty_across_documents() -> None:
     )
 
     assert actual == expected
-    assert all(unit_scores == {} for _map_scores, unit_scores in actual.values())
-    assert store.section_loads == 0
+    assert any(unit_scores for _map_scores, unit_scores in actual.values())
+    assert store.section_loads > 0
 
 
 def test_native_chunk_store_strips_async_driver_from_database_url(

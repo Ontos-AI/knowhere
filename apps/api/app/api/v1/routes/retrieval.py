@@ -7,7 +7,7 @@ from typing import Any, Literal
 from app.api.dependencies.current_user import with_current_user
 from app.services.rate_limit.data_structures import CurrentUser
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.core.database import get_db
@@ -60,10 +60,17 @@ class RetrievalQueryRequest(BaseModel):
     )
     channels: list[str] = Field(
         default_factory=list,
-        description="Channels to run (empty=all). Options: path, content, term",
+        description=(
+            "Deprecated and unsupported by the persisted map-unit route. "
+            "Leave empty; explicit channel selection is rejected."
+        ),
     )
     channel_weights: dict[str, float] = Field(
-        default_factory=dict, description="Per-channel weight overrides"
+        default_factory=dict,
+        description=(
+            "Deprecated and unsupported by the persisted map-unit route. "
+            "Leave empty; explicit overrides are rejected."
+        ),
     )
     rerank: bool = Field(False, description="Enable LLM reranking after RRF fusion")
     threshold: float = Field(0.0, ge=0.0, description="Minimum RRF score threshold")
@@ -111,6 +118,20 @@ class RetrievalQueryRequest(BaseModel):
     @classmethod
     def normalize_namespace(cls, namespace: str | None) -> str:
         return normalize_retrieval_namespace(namespace)
+
+    @model_validator(mode="after")
+    def reject_unsupported_channel_controls(self) -> "RetrievalQueryRequest":
+        if self.channels:
+            raise ValueError(
+                "channels is deprecated and unsupported; omit it and use the "
+                "persisted path/content map-unit scorer"
+            )
+        if self.channel_weights:
+            raise ValueError(
+                "channel_weights is deprecated and unsupported; omit it and use "
+                "the persisted path/content map-unit scorer"
+            )
+        return self
 
 
 class RetrievalQueryResponse(BaseModel):

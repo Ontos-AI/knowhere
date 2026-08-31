@@ -300,6 +300,7 @@ class ReadOnlyChunkStore:
         comes from ``document_map_unit_indexes`` (written at index time).
         """
         from shared.services.retrieval.nav.persisted_score_load import (
+            average_idf_from_namespace_stats,
             build_channel_bm25_stats,
             combine_average_idf,
         )
@@ -359,12 +360,51 @@ class ReadOnlyChunkStore:
                     revision_key
                 ]
             else:
-                average_idf_path = combine_average_idf(
-                    [(float(row[4] or 0.0), int(row[3] or 0)) for row in index_rows]
-                )
-                average_idf_content = combine_average_idf(
-                    [(float(row[5] or 0.0), int(row[3] or 0)) for row in index_rows]
-                )
+                total_unit_count = sum(int(row[3] or 0) for row in index_rows)
+                try:
+                    cur.execute(
+                        "SELECT tokens.channel, tokens.token, "
+                        "COUNT(DISTINCT tokens.map_unit_id) "
+                        "FROM document_map_unit_tokens AS tokens "
+                        "JOIN document_map_units AS units ON units.id = tokens.map_unit_id "
+                        f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
+                        "ON units.document_id = revisions.document_id "
+                        "AND units.job_result_id = revisions.job_result_id "
+                        "WHERE tokens.channel = ANY(%s) "
+                        "GROUP BY tokens.channel, tokens.token",
+                        [*revision_params, ["path", "content"]],
+                    )
+                    namespace_token_dfs: dict[str, list[int]] = {
+                        "path": [],
+                        "content": [],
+                    }
+                    for channel, _token, document_frequency in cur.fetchall():
+                        if str(channel) in namespace_token_dfs:
+                            namespace_token_dfs[str(channel)].append(
+                                int(document_frequency)
+                            )
+                    average_idf_path = average_idf_from_namespace_stats(
+                        unit_count=total_unit_count,
+                        token_document_frequencies=namespace_token_dfs["path"],
+                    )
+                    average_idf_content = average_idf_from_namespace_stats(
+                        unit_count=total_unit_count,
+                        token_document_frequencies=namespace_token_dfs["content"],
+                    )
+                except Exception as exc:
+                    _logger.warning(
+                        "exact namespace IDF load failed; using revision averages: %s",
+                        exc,
+                    )
+                    average_idf_path = combine_average_idf(
+                        [(float(row[4] or 0.0), int(row[3] or 0)) for row in index_rows]
+                    )
+                    average_idf_content = combine_average_idf(
+                        [
+                            (float(row[5] or 0.0), int(row[3] or 0))
+                            for row in index_rows
+                        ]
+                    )
                 self._score_average_idf_cache[revision_key] = (
                     average_idf_path,
                     average_idf_content,
