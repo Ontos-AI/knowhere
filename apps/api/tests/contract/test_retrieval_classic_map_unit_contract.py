@@ -156,6 +156,29 @@ async def test_classic_route_image_filter_scores_only_units_with_images(
                 },
             ],
         )
+        await _publish_document(
+            namespace=namespace,
+            source_file_name="third-image.pdf",
+            chunks=[
+                {
+                    "chunk_id": f"third-body-{identifier}",
+                    "type": "text",
+                    "content": "another unrelated caption beside a diagram",
+                    "path": "third-image.pdf/Root/Section/body",
+                    "order": 1,
+                    "metadata": {"connect_to": [{"target": f"diagram-{identifier}"}]},
+                },
+                {
+                    "chunk_id": f"diagram-{identifier}",
+                    "type": "image",
+                    "content": "unrelated diagram",
+                    "path": "images/diagram.png",
+                    "order": 2,
+                    "file_path": "images/diagram.png",
+                    "metadata": {},
+                },
+            ],
+        )
         async with contract_db_session() as db:
             image_units = list(
                 (

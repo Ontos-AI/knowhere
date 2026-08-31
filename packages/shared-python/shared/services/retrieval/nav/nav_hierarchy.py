@@ -260,45 +260,6 @@ class ProviderToolSpace:
         del section_id, query, doc_id, k
         return []
 
-    def release_section_units(self, section_id: str) -> None:
-        """Release one lazy section without discarding the hierarchy."""
-        release = getattr(self._provider, "release_section_units", None)
-        if callable(release):
-            release(section_id)
-
-    def prefetch_document_units(self, doc_id: str) -> None:
-        """Forward a provider's bounded document payload prefetch capability."""
-        provider = self._provider
-        fn = getattr(provider, "prefetch_document_units", None)
-        if not callable(fn):
-            return
-        if callable(getattr(provider, "document_ids", None)):
-            fn(doc_id)
-            return
-        if str(getattr(provider, "doc_id", "")) == str(doc_id):
-            fn()
-
-    def prefetch_document_units_batch(self, doc_ids: Sequence[str]) -> None:
-        """Forward a provider's bounded multi-document prefetch capability."""
-        fn = getattr(self._provider, "prefetch_document_units_batch", None)
-        if callable(fn):
-            fn(doc_ids)
-            return
-        for doc_id in doc_ids:
-            self.prefetch_document_units(str(doc_id))
-
-    def release_document_units(self, doc_id: str) -> None:
-        """Forward release of one document's prefetched payloads."""
-        provider = self._provider
-        fn = getattr(provider, "release_document_units", None)
-        if not callable(fn):
-            return
-        if callable(getattr(provider, "document_ids", None)):
-            fn(doc_id)
-            return
-        if str(getattr(provider, "doc_id", "")) == str(doc_id):
-            fn()
-
     def load_persisted_score_corpus(
         self,
         doc_ids: Sequence[str],

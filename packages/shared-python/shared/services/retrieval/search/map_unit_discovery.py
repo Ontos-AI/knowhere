@@ -268,18 +268,8 @@ async def map_unit_discovery(
         scores_by_unit = score_persisted_corpus_many(corpus, [query]).get(query, {})
 
         rows_by_unit_id = {row["map_unit_id"]: row for row in unit_rows}
-
-        def _unit_has_query_hit(unit_id: str) -> bool:
-            # BM25 fused score can be 0 when IDF is 0 (tiny corpus). A unit
-            # that actually holds a query token is still a hit.
-            return any(
-                frequencies.get((unit_id, channel), {}).get(token, 0) > 0
-                for channel in _MAP_SCORE_CHANNELS
-                for token in query_tokens
-            )
-
         ranked_unit_ids = sorted(
-            (unit_id for unit_id in scores_by_unit if _unit_has_query_hit(unit_id)),
+            (unit_id for unit_id, score in scores_by_unit.items() if score > 0.0),
             key=lambda unit_id: scores_by_unit[unit_id],
             reverse=True,
         )[:top_k]

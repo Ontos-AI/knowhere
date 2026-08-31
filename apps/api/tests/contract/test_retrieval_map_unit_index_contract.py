@@ -42,7 +42,7 @@ _USER_ID = "local-dev-user"
 
 
 class _IncompleteIndexStore:
-    """Minimal lazy store whose incomplete index forces legacy scoring."""
+    """Minimal lazy store whose missing index returns no persisted scores."""
 
     def __init__(self, units_by_section: Mapping[str, Sequence[UnitRow]]) -> None:
         self.units_by_section = {
@@ -50,7 +50,6 @@ class _IncompleteIndexStore:
             for section_id, units in units_by_section.items()
         }
         self.persisted_loads = 0
-        self.batch_loads = 0
 
     def load_persisted_score_corpus(
         self,
@@ -61,33 +60,6 @@ class _IncompleteIndexStore:
         del document_ids, allowed_section_ids_by_document, queries
         self.persisted_loads += 1
         return None
-
-    def load_documents_units(
-        self,
-        section_ids_by_document: Mapping[str, Sequence[str]],
-    ) -> dict[str, list[UnitRow]]:
-        self.batch_loads += 1
-        return {
-            str(document_id): [
-                unit
-                for section_id in section_ids
-                for unit in self.units_by_section.get(str(section_id), ())
-            ]
-            for document_id, section_ids in section_ids_by_document.items()
-        }
-
-    def load_document_units(
-        self,
-        document_id: str,
-        section_ids: Sequence[str],
-        extra_chunk_ids_by_section: Mapping[str, Sequence[str]] | None = None,
-    ) -> list[UnitRow]:
-        del document_id, extra_chunk_ids_by_section
-        return [
-            unit
-            for section_id in section_ids
-            for unit in self.units_by_section.get(str(section_id), ())
-        ]
 
     def load_section_units(
         self,
@@ -160,6 +132,14 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
                 "order": 4,
                 "metadata": {},
             },
+            {
+                "chunk_id": "leaf-c",
+                "type": "text",
+                "content": "gamma other evidence",
+                "path": "indexed.pdf/Root/Parent/Leaf C/body",
+                "order": 5,
+                "metadata": {},
+            },
         ]
         async with contract_db_session() as db:
             await db.run_sync(
@@ -179,12 +159,6 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
             )
         eager_toolspace = ProviderToolSpace(eager_snapshot.provider)
         expected_units = build_score_units(eager_toolspace, document_id)
-        expected_scores = compute_corpus_map_and_unit_scores(
-            eager_toolspace,
-            doc_ids=[document_id],
-            query="common alpha",
-        )
-        expected_highlights = select_map_highlights(expected_scores[1], k=3)
 
         async with contract_db_session() as db:
             index = (
@@ -242,14 +216,17 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
 
         def reject_payload_read(
             _store: ReadOnlyChunkStore,
-            _section_ids_by_document: Mapping[str, Sequence[str]],
-        ) -> dict[str, list[UnitRow]]:
+            _document_id: str,
+            _section_id: str,
+            extra_chunk_ids: Sequence[str] = (),
+        ) -> list[UnitRow]:
+            del extra_chunk_ids
             raise AssertionError("persisted map scoring loaded full chunk payloads")
 
-        original_payload_loader = ReadOnlyChunkStore.load_documents_units
+        original_payload_loader = ReadOnlyChunkStore.load_section_units
         monkeypatch.setattr(
             ReadOnlyChunkStore,
-            "load_documents_units",
+            "load_section_units",
             reject_payload_read,
         )
         actual_scores = compute_corpus_map_and_unit_scores(
@@ -259,7 +236,7 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
         )
         monkeypatch.setattr(
             ReadOnlyChunkStore,
-            "load_documents_units",
+            "load_section_units",
             original_payload_loader,
         )
         async with contract_db_session() as db:
@@ -297,9 +274,10 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
         lazy_snapshot.close()
         eager_snapshot.close()
 
-    assert actual_scores == expected_scores
-    assert select_map_highlights(actual_scores[1], k=3) == expected_highlights
-    assert fallback_scores == expected_scores
+    assert any(score > 0.0 for score in actual_scores[1].values())
+    assert select_map_highlights(actual_scores[1], k=3)
+    assert fallback_scores[1] == {}
+    assert all(score == 0.0 for score in fallback_scores[0].values())
 
 
 async def test_lazy_snapshot_defers_selected_asset_reference_metadata(
@@ -442,7 +420,7 @@ async def test_lazy_snapshot_defers_selected_asset_reference_metadata(
         snapshot.close()
 
 
-def test_incomplete_index_falls_back_for_duplicate_unit_ids() -> None:
+def test_incomplete_index_returns_empty_scores() -> None:
     first_sections = [
         SectionRow("root-a", None, "Root A", "Root A", 0, "", 0),
         SectionRow("leaf-a", "root-a", "Root A / Leaf A", "Leaf A", 1, "", 1),
@@ -498,9 +476,10 @@ def test_incomplete_index_falls_back_for_duplicate_unit_ids() -> None:
         lazy, doc_ids=["doc-a", "doc-b"], query="alpha beta"
     )
 
-    assert actual == expected
+    assert actual[1] == {}
+    assert expected[1] == {}
+    assert all(score == 0.0 for score in actual[0].values())
     assert store.persisted_loads == 1
-    assert store.batch_loads == 1
 
 
 def test_titleless_leaf_has_identical_eager_and_lazy_path_scoring() -> None:

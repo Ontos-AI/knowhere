@@ -181,20 +181,6 @@ class ChunkStore(Protocol):
     ) -> Optional[PersistedScoreCorpus]:
         raise NotImplementedError
 
-    def load_documents_units(
-        self,
-        section_ids_by_document: Mapping[str, Sequence[str]],
-    ) -> Dict[str, List[UnitRow]]:
-        raise NotImplementedError
-
-    def load_document_units(
-        self,
-        document_id: str,
-        section_ids: Sequence[str],
-        extra_chunk_ids_by_section: Optional[Dict[str, Sequence[str]]] = None,
-    ) -> List[UnitRow]:
-        raise NotImplementedError
-
     def load_section_units(
         self,
         document_id: str,
@@ -645,135 +631,6 @@ class ReadOnlyChunkStore:
             average_idf=average_idf,
         )
 
-    def load_document_units(
-        self,
-        document_id: str,
-        section_ids: Sequence[str],
-        extra_chunk_ids_by_section: Optional[Dict[str, Sequence[str]]] = None,
-    ) -> List[UnitRow]:
-        """Load one document's section payloads in a single ordered query."""
-        doc_id = str(document_id).strip()
-        job_result_id = self._revisions.get(doc_id)
-        section_values = [
-            str(section_id).strip()
-            for section_id in section_ids
-            if str(section_id).strip()
-        ]
-        extra_ids = [
-            str(chunk_id).strip()
-            for chunk_ids in (extra_chunk_ids_by_section or {}).values()
-            for chunk_id in chunk_ids
-            if str(chunk_id).strip()
-        ]
-        if not doc_id or not job_result_id or (not section_values and not extra_ids):
-            return []
-
-        predicates: list[str] = []
-        params: list[object] = [doc_id, job_result_id]
-        if section_values:
-            predicates.append("section_id = ANY(%s)")
-            params.append(section_values)
-        if extra_ids:
-            predicates.append("chunk_id = ANY(%s)")
-            params.append(extra_ids)
-
-        cur = self._connection().cursor()
-        try:
-            cur.execute(
-                "SELECT chunk_id, section_id, chunk_type, content, sort_order, "
-                "source_chunk_path, file_path, chunk_metadata "
-                "FROM document_chunks "
-                "WHERE document_id = %s AND job_result_id = %s AND ("
-                + " OR ".join(predicates)
-                + ") ORDER BY section_id, sort_order, chunk_id, id",
-                params,
-            )
-            units: list[UnitRow] = []
-            for row in cur.fetchall():
-                section_id = str(row[1]) if row[1] else None
-                if section_id and (doc_id, section_id) in self._excluded_sections:
-                    continue
-                units.append(_unit_from_row(row))
-            return units
-        finally:
-            cur.close()
-
-    def load_documents_units(
-        self,
-        section_ids_by_document: Mapping[str, Sequence[str]],
-    ) -> Dict[str, List[UnitRow]]:
-        """Load a bounded group of revisions with keyset-paged SQL queries."""
-        requested = [
-            (str(document_id).strip(), self._revisions.get(str(document_id).strip()))
-            for document_id in section_ids_by_document
-            if str(document_id).strip()
-        ]
-        revisions = [
-            (document_id, str(job_result_id))
-            for document_id, job_result_id in requested
-            if job_result_id
-        ]
-        if not revisions:
-            return {}
-
-        values_sql = ", ".join(["(%s, %s)"] * len(revisions))
-        params: List[object] = [value for revision in revisions for value in revision]
-        units_by_document: Dict[str, List[UnitRow]] = {
-            document_id: [] for document_id, _job_result_id in revisions
-        }
-        last_key: Optional[Tuple[str, str, int, str, str]] = None
-        while True:
-            page_params = list(params)
-            keyset_sql = ""
-            if last_key is not None:
-                keyset_sql = (
-                    " AND (chunks.document_id, chunks.job_result_id, "
-                    "chunks.sort_order, chunks.chunk_id, chunks.id) > "
-                    "(%s, %s, %s, %s, %s)"
-                )
-                page_params.extend(last_key)
-            page_params.append(10_000)
-            cur = self._connection().cursor()
-            try:
-                cur.execute(
-                    "SELECT chunks.document_id, chunks.job_result_id, chunks.chunk_id, "
-                    "chunks.section_id, chunks.chunk_type, chunks.content, "
-                    "chunks.sort_order, chunks.source_chunk_path, chunks.file_path, "
-                    "chunks.chunk_metadata, chunks.id "
-                    "FROM document_chunks AS chunks "
-                    f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
-                    "ON chunks.document_id = revisions.document_id "
-                    "AND chunks.job_result_id = revisions.job_result_id"
-                    f"{keyset_sql} "
-                    "ORDER BY chunks.document_id, chunks.job_result_id, "
-                    "chunks.sort_order, chunks.chunk_id, chunks.id LIMIT %s",
-                    page_params,
-                )
-                rows = cur.fetchall()
-            finally:
-                cur.close()
-            if not rows:
-                break
-            for row in rows:
-                document_id = str(row[0])
-                section_id = str(row[3]) if row[3] else None
-                if section_id and (document_id, section_id) in self._excluded_sections:
-                    continue
-                units_by_document.setdefault(document_id, []).append(
-                    _unit_from_row(row[2:10])
-                )
-            last = rows[-1]
-            last_key = (
-                str(last[0]),
-                str(last[1]),
-                int(last[6] or 0),
-                str(last[2] or ""),
-                str(last[10] or ""),
-            )
-            if len(rows) < 10_000:
-                break
-        return units_by_document
-
     def close(self) -> None:
         if self._conn is not None:
             self._conn.close()
@@ -1003,16 +860,6 @@ class KnowhereProvider:
         self._ensure_section_loaded(section_id)
         return list(self._units_by_section.get(section_id, ()))
 
-    def release_section_units(self, section_id: str) -> None:
-        """Drop one section's loaded payload while keeping its structure."""
-        if self._lazy_loader is None:
-            return
-        sid = str(section_id or "").strip()
-        if not sid:
-            return
-        self._units_by_section.pop(sid, None)
-        self._loaded_sections.discard(sid)
-
     def subtree_units(self, section_id: str) -> List[UnitRow]:
         out = list(self.self_units(section_id))
         for cid in self.relations(section_id)[1]:
@@ -1104,61 +951,6 @@ class LazyKnowhereProvider(KnowhereProvider):
         )
         self._chunk_store = chunk_store
         self._root_asset_ids = {str(chunk_id) for chunk_id in root_asset_ids}
-        self._remounted_assets_by_section = {
-            str(section_id): [str(chunk_id) for chunk_id in chunk_ids]
-            for section_id, chunk_ids in (remounted_assets_by_section or {}).items()
-        }
-
-    def prefetch_document_units(self) -> None:
-        """Load this document's section payloads with one bounded SQL query."""
-        section_ids = list(self._sections)
-        loaded = self._chunk_store.load_document_units(
-            self.doc_id,
-            section_ids,
-            self._remounted_assets_by_section,
-        )
-        self.install_prefetched_document_units(loaded)
-
-    def install_prefetched_document_units(
-        self,
-        loaded: Sequence[UnitRow],
-    ) -> None:
-        """Install rows fetched by either a document or corpus-group query."""
-        section_ids = list(self._sections)
-        by_section: Dict[str, List[UnitRow]] = {}
-        for unit in loaded:
-            sid = str(unit.section_id or "").strip()
-            if sid and sid in self._sections:
-                by_section.setdefault(sid, []).append(unit)
-
-        units_by_id = {unit.chunk_id: unit for unit in loaded if unit.chunk_id}
-        for section_id, asset_ids in self._remounted_assets_by_section.items():
-            target = by_section.setdefault(section_id, [])
-            known = {unit.chunk_id for unit in target}
-            for asset_id in asset_ids:
-                asset = units_by_id.get(asset_id)
-                if asset is not None and asset.chunk_id not in known:
-                    target.append(asset)
-                    known.add(asset.chunk_id)
-
-        for section_id in section_ids:
-            units = by_section.get(section_id, [])
-            units.sort(key=lambda unit: (unit.sort_order, unit.chunk_id))
-            self._units_by_section[section_id] = units
-            self._loaded_sections.add(section_id)
-
-        for section_id in section_ids:
-            if is_root_section_path(self.section_path(section_id)):
-                self._units_by_section[section_id] = [
-                    unit
-                    for unit in self._units_by_section.get(section_id, ())
-                    if unit.chunk_id not in self._root_asset_ids
-                ]
-
-    def release_document_units(self) -> None:
-        """Release all payloads loaded by the document batch."""
-        self._units_by_section.clear()
-        self._loaded_sections.clear()
 
     def _ensure_section_loaded(self, section_id: str) -> None:
         super()._ensure_section_loaded(section_id)
@@ -1175,10 +967,6 @@ class LazyKnowhereProvider(KnowhereProvider):
 
     def close(self) -> None:
         self._chunk_store.close()
-
-    def release_loaded_units(self) -> None:
-        self._units_by_section.clear()
-        self._loaded_sections.clear()
 
 
 def _connect(dsn: str) -> _SyncConnection:
@@ -1371,61 +1159,6 @@ class NamespaceKnowhereProvider:
             if callable(close):
                 close()
 
-    def release_loaded_units(self) -> None:
-        for provider in self._docs.values():
-            release = getattr(provider, "release_loaded_units", None)
-            if callable(release):
-                release()
-
-    def release_section_units(self, section_id: str) -> None:
-        owner = self._section_owner.get(str(section_id or "").strip())
-        if not owner:
-            return
-        release = getattr(self._docs[owner], "release_section_units", None)
-        if callable(release):
-            release(section_id)
-
-    def prefetch_document_units(self, doc_id: str) -> None:
-        provider = self._docs.get(str(doc_id).strip())
-        prefetch = getattr(provider, "prefetch_document_units", None)
-        if callable(prefetch):
-            prefetch()
-
-    def prefetch_document_units_batch(self, doc_ids: Sequence[str]) -> None:
-        """Load a bounded document group with one query per shared chunk store."""
-        providers = [
-            self._docs[doc_id]
-            for raw_doc_id in doc_ids
-            if (doc_id := str(raw_doc_id).strip()) in self._docs
-        ]
-        providers_by_store: Dict[int, List[LazyKnowhereProvider]] = {}
-        stores_by_id: Dict[int, ChunkStore] = {}
-        for provider in providers:
-            if not isinstance(provider, LazyKnowhereProvider):
-                continue
-            store = provider._chunk_store
-            store_id = id(store)
-            stores_by_id[store_id] = store
-            providers_by_store.setdefault(store_id, []).append(provider)
-
-        for store_id, lazy_providers in providers_by_store.items():
-            store = stores_by_id[store_id]
-            batch_loader = getattr(store, "load_documents_units", None)
-            if not callable(batch_loader):
-                for provider in lazy_providers:
-                    provider.prefetch_document_units()
-                continue
-            loaded_by_document = batch_loader(
-                {
-                    provider.doc_id: list(provider._sections)
-                    for provider in lazy_providers
-                }
-            )
-            for provider in lazy_providers:
-                provider.install_prefetched_document_units(
-                    loaded_by_document.get(provider.doc_id, ())
-                )
-
     def load_persisted_score_corpus(
         self,
         doc_ids: Sequence[str],
@@ -1461,12 +1194,6 @@ class NamespaceKnowhereProvider:
             {provider.doc_id: list(provider._sections) for provider in lazy_providers},
             queries,
         )
-
-    def release_document_units(self, doc_id: str) -> None:
-        provider = self._docs.get(str(doc_id).strip())
-        release = getattr(provider, "release_document_units", None)
-        if callable(release):
-            release()
 
     def address_level(self, node_id: str) -> Optional[NavLevel]:
         sid = str(node_id or "").strip()

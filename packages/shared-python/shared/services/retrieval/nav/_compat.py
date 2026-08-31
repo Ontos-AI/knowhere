@@ -1,9 +1,8 @@
 """Minimal stand-ins for experiment-repo ``agent_delivery`` symbols.
 
 Production map-nav runs with ``toolspace=ProviderToolSpace(...)`` and
-``compose_answer=False``, so most of these are type/shape only. Dense fuse is
-hard-off until shared with three-channel vector wiring
-(``map_dense_enabled`` returns False; dense helpers stay in place).
+``compose_answer=False``, so most of these are type/shape only. Query-time
+map scoring uses the persisted path+content BM25 corpus only.
 """
 
 from __future__ import annotations
