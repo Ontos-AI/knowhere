@@ -13,7 +13,7 @@ down_revision: str | None = "5b6c7d8e9f0a"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 
-__all__: list[str] = [
+__all__ = [
     "revision",
     "down_revision",
     "branch_labels",
