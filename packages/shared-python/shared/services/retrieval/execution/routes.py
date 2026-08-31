@@ -56,7 +56,6 @@ async def run_retrieval_route(
 async def _try_run_small_corpus_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome | None:
-    total_chunk_count: int | None = None
     total_chunk_count = await count_scoped_chunks(
         context.db,
         user_id=context.user_id,
