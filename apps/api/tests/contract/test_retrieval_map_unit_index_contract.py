@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
+from typing import Any
 from uuid import uuid4
 
 from httpx import AsyncClient
@@ -33,6 +34,7 @@ from shared.services.retrieval.publication_content import (
 )
 from shared.services.retrieval.nav_bridge import build_referenced_chunks
 from shared.services.retrieval.publication_models import DocumentPublicationScope
+from shared.services.retrieval.serving_generation import lock_namespace_generation
 from tests.support.contract_database import ContractDatabase
 from tests.support.retrieval_snapshot_support import contract_db_session
 
@@ -161,7 +163,7 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
         ]
         async with contract_db_session() as db:
             await db.run_sync(
-                lambda sync_db: replace_document_revision_content(
+                lambda sync_db: _publish_revision_with_generation_lock(
                     sync_db,
                     scope=scope,
                     chunks=chunks,
@@ -346,7 +348,7 @@ async def test_lazy_snapshot_defers_selected_asset_reference_metadata(
         ]
         async with contract_db_session() as db:
             await db.run_sync(
-                lambda sync_db: replace_document_revision_content(
+                lambda sync_db: _publish_revision_with_generation_lock(
                     sync_db,
                     scope=scope,
                     chunks=chunks,
@@ -513,6 +515,24 @@ def test_titleless_leaf_has_identical_eager_and_lazy_path_scoring() -> None:
     ) == compute_corpus_map_and_unit_scores(
         lazy, doc_ids=["doc"], query="alpha"
     )
+
+
+def _publish_revision_with_generation_lock(
+    sync_db: Any,
+    *,
+    scope: DocumentPublicationScope,
+    chunks: list[dict[str, Any]],
+) -> None:
+    """Mirror the production publish sequence: lock, then patch the snapshot.
+
+    ``replace_document_revision_content`` requires the namespace generation
+    row to already exist (``publication_service.py`` locks it before every
+    real publish); this test helper reproduces that precondition.
+    """
+    lock_namespace_generation(
+        sync_db, user_id=scope.user_id, namespace=scope.namespace
+    )
+    replace_document_revision_content(sync_db, scope=scope, chunks=chunks)
 
 
 async def _seed_revision(

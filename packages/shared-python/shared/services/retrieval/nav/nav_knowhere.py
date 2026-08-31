@@ -55,11 +55,6 @@ ROOT_SECTION_PATH = "Root"
 _DEFAULT_DSN = "postgresql://root:root123@127.0.0.1:5433/Knowhere"
 _MAP_UNIT_INDEX_FORMAT_VERSION = 1
 _MAP_SCORE_CHANNELS: Tuple[str, str] = ("path", "content")
-# PostgreSQL's trigram planner evaluates one LIKE branch per pattern.  Once a
-# query has more than a handful of patterns, fetching the bounded pinned unit
-# set once and evaluating literal substring hits in Python is faster and keeps
-# SQL planning time from growing with the planner's subgoal length.
-_TERM_SCORE_FULL_SCAN_PATTERN_THRESHOLD = 8
 _logger = logging.getLogger(__name__)
 
 
@@ -235,9 +230,6 @@ class ReadOnlyChunkStore:
         self._score_frequency_cache: dict[
             tuple[tuple[str, str], ...],
             dict[tuple[str, str], dict[str, int]],
-        ] = {}
-        self._score_term_cache: dict[
-            tuple[tuple[str, str], ...], dict[str, Tuple[float, ...]]
         ] = {}
 
     def _connection(self) -> "_SyncConnection":
@@ -559,16 +551,6 @@ class ReadOnlyChunkStore:
                     len(map_unit_ids),
                 )
 
-            term_cache_key = (revision_key, tuple(unique_queries))
-            term_scores = self._score_term_cache.get(term_cache_key)
-            if term_scores is None:
-                term_scores = self._load_term_scores(
-                    cur,
-                    map_unit_ids=map_unit_ids,
-                    queries=unique_queries,
-                    query_tokens_by_query=query_tokens_by_query,
-                )
-                self._score_term_cache[term_cache_key] = term_scores
             _logger.info(
                 "retrieval map-index load stage=complete units=%d queries=%d",
                 len(unit_rows),
@@ -602,9 +584,6 @@ class ReadOnlyChunkStore:
                         content_frequencies=frequencies.get(
                             (str(row[0]), "content"), {}
                         ),
-                        term_scores=term_scores.get(
-                            str(row[0]), tuple(0.0 for _query in unique_queries)
-                        ),
                     )
                     for row in unit_rows
                 ],
@@ -613,92 +592,6 @@ class ReadOnlyChunkStore:
             )
         finally:
             cur.close()
-
-    def _load_term_scores(
-        self,
-        cur: "_SyncCursor",
-        *,
-        map_unit_ids: Sequence[str],
-        queries: Sequence[str],
-        query_tokens_by_query: Mapping[str, Sequence[str]],
-    ) -> Dict[str, Tuple[float, ...]]:
-        if not map_unit_ids or not queries:
-            return {}
-        # Keep candidate selection in PostgreSQL so the trigram index can
-        # discard non-matching units, but compute the exact score once per
-        # returned row in Python.  The previous query generated one POSITION
-        # expression and one OR predicate for every query token.  Long planner
-        # subgoals therefore produced very large SQL statements and repeated
-        # substring evaluation for the same row.  LIKE ANY keeps the SQL shape
-        # constant while preserving the existing literal substring semantics in
-        # the final Python scoring pass (LIKE may over-select wildcard matches,
-        # which are rejected by the literal checks below).
-        candidate_patterns: list[str] = []
-        for query in queries:
-            query_lower = query.lower().strip()
-            if not query_lower:
-                continue
-            candidate_patterns.append(f"%{query_lower}%")
-            candidate_patterns.extend(
-                f"%{token}%" for token in query_tokens_by_query[query] if token
-            )
-        candidate_patterns = list(dict.fromkeys(candidate_patterns))
-        if not candidate_patterns:
-            return {}
-        stage_started = time.perf_counter()
-        if len(candidate_patterns) > _TERM_SCORE_FULL_SCAN_PATTERN_THRESHOLD:
-            # Long subgoals make LIKE ANY increasingly expensive even with the
-            # trigram index.  The map-unit id list is already bounded by the
-            # pinned serving projection, so one text fetch plus literal Python
-            # checks avoids a query whose shape grows with token count.
-            cur.execute(
-                "SELECT id, term_search_text_lower "
-                "FROM document_map_units WHERE id = ANY(%s)",
-                (list(map_unit_ids),),
-            )
-            candidate_mode = "full_scan"
-        else:
-            cur.execute(
-                "SELECT id, term_search_text_lower "
-                "FROM document_map_units "
-                "WHERE id = ANY(%s) AND term_search_text_lower LIKE ANY(%s)",
-                (list(map_unit_ids), candidate_patterns),
-            )
-            candidate_mode = "trigram"
-        rows = cur.fetchall()
-        _logger.info(
-            "retrieval map-index load stage=term_scores units=%d queries=%d mode=%s seconds=%.3f",
-            len(map_unit_ids),
-            len(queries),
-            candidate_mode,
-            time.perf_counter() - stage_started,
-        )
-        scores_by_unit: Dict[str, Tuple[float, ...]] = {}
-        for row in rows:
-            if len(row) < 2:
-                continue
-            unit_id = str(row[0])
-            haystack = str(row[1] or "").lower()
-            scores: list[float] = []
-            for query in queries:
-                query_lower = query.lower().strip()
-                if not query_lower:
-                    scores.append(0.0)
-                elif query_lower in haystack:
-                    scores.append(100.0)
-                else:
-                    scores.append(
-                        float(
-                            sum(
-                                1
-                                for token in query_tokens_by_query[query]
-                                if token in haystack
-                            )
-                        )
-                    )
-            if any(score > 0.0 for score in scores):
-                scores_by_unit[unit_id] = tuple(scores)
-        return scores_by_unit
 
     def _load_persisted_bm25_stats(
         self,

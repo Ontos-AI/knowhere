@@ -28,6 +28,7 @@ class RetrievalRouteContext:
     internal_recall_k: int | None
     effective_recall_k: int
     use_agentic: bool | None
+    conversation_id: str | None = None
     revision_pins: RetrievalRevisionPins | None = None
 
 

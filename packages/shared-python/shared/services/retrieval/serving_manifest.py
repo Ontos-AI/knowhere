@@ -190,8 +190,12 @@ def persist_revision_serving_state(
     db: Session,
     *,
     scope: DocumentPublicationScope,
-) -> None:
-    """Replace manifest and statistics rows for one revision atomically."""
+) -> dict[str, Any]:
+    """Replace manifest and statistics rows for one revision atomically.
+
+    Returns the manifest payload so callers can patch the namespace-level MAP
+    snapshot without rebuilding it.
+    """
     manifest_payload = build_revision_serving_payload(db, scope=scope)
     statistics_payload = build_revision_statistics_payload(db, scope=scope)
     manifest_bytes, manifest_checksum, manifest_version = encode_serving_manifest(
@@ -232,6 +236,7 @@ def persist_revision_serving_state(
             checksum=statistics_checksum,
         )
     )
+    return manifest_payload
 
 
 def rebuild_namespace_serving_statistics(

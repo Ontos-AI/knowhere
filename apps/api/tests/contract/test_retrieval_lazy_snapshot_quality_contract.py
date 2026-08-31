@@ -220,7 +220,11 @@ def test_lazy_provider_preserves_score_units_and_scores() -> None:
     ]
 
 
-def test_streaming_scorer_preserves_exact_eager_scores() -> None:
+def test_streaming_scorer_preserves_exact_eager_scores(monkeypatch: Any) -> None:
+    # Corpus-wide map-nav scoring retired the term channel (see the
+    # unify-bm25-persistent-map plan); zero its weight so the eager oracle
+    # is directly comparable to the path+content-only streaming scorer.
+    monkeypatch.setenv("NAV_MAP_CHANNEL_WEIGHT_TERM", "0")
     rows: list[ScoreUnitRow] = [
         {
             "chunk_id": "unit-a",
@@ -257,7 +261,12 @@ def test_streaming_scorer_preserves_exact_eager_scores() -> None:
     assert replay_count == 1
 
 
-def test_streaming_scorer_preserves_duplicate_id_eager_semantics() -> None:
+def test_streaming_scorer_preserves_duplicate_id_eager_semantics(
+    monkeypatch: Any,
+) -> None:
+    # See test_streaming_scorer_preserves_exact_eager_scores: term is retired
+    # from corpus-wide scoring, so the eager oracle's term weight is zeroed.
+    monkeypatch.setenv("NAV_MAP_CHANNEL_WEIGHT_TERM", "0")
     rows: list[ScoreUnitRow] = [
         {
             "chunk_id": "duplicate",
@@ -383,17 +392,6 @@ def test_persisted_score_projection_preserves_exact_eager_scores() -> None:
                     token: str(row["content_search_text"]).split().count(token)
                     for token in query_tokens
                 },
-                term_scores=tuple(
-                    100.0
-                    if query in str(row["term_search_text"])
-                    else float(
-                        sum(
-                            token in str(row["term_search_text"])
-                            for token in query.split()
-                        )
-                    )
-                    for query in queries
-                ),
             )
             for row in rows
         ],

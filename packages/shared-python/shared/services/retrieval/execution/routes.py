@@ -234,10 +234,12 @@ async def _run_mapnav_route(
         )
     snapshot_seconds = time.perf_counter() - snapshot_started
     logger.info(
-        "retrieval mapnav stage=snapshot_load seconds={:.3f} documents={} refs={}".format(
+        "retrieval mapnav stage=snapshot_load seconds={:.3f} documents={} refs={} "
+        "conversation_id={}".format(
             snapshot_seconds,
             len(snapshot.document_ids),
             len(snapshot.chunk_ref_index),
+            context.conversation_id or "",
         )
     )
 

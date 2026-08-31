@@ -20,6 +20,9 @@ from shared.services.retrieval.cache_service import (
     invalidate_retrieval_cache_namespaces,
 )
 from shared.services.retrieval.graph.service import DocumentGraphService, GraphScope
+from shared.services.retrieval.namespace_map_snapshot import (
+    remove_document_from_namespace_map_snapshot,
+)
 from shared.services.retrieval.serving_generation import (
     advance_namespace_generation,
     lock_namespace_generation,
@@ -481,6 +484,14 @@ class DocumentService:
                 sync_db,
                 user_id=user_id,
                 namespace=previous_namespace,
+            )
+        )
+        await db.run_sync(
+            lambda sync_db: remove_document_from_namespace_map_snapshot(
+                sync_db,
+                user_id=user_id,
+                namespace=previous_namespace,
+                document_id=document_id,
             )
         )
         await db.run_sync(

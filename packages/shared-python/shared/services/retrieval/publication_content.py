@@ -13,6 +13,9 @@ from shared.models.database.document import (
     DocumentSection,
 )
 from shared.services.retrieval.map_unit_index import replace_document_map_units
+from shared.services.retrieval.namespace_map_snapshot import (
+    patch_namespace_map_snapshot,
+)
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.serving_manifest import persist_revision_serving_state
 from shared.services.retrieval.search.lexical_text import (
@@ -93,7 +96,8 @@ def replace_document_revision_content(
     db.flush()
     replace_document_map_units(db, scope=scope)
     db.flush()
-    persist_revision_serving_state(db, scope=scope)
+    manifest_payload = persist_revision_serving_state(db, scope=scope)
+    patch_namespace_map_snapshot(db, scope=scope, manifest_payload=manifest_payload)
 
 
 class DocumentSectionPublisher:

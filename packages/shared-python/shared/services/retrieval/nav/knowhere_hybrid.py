@@ -664,7 +664,11 @@ def score_unit_stream_hybrid_many(
     unit_factory: Callable[[], Iterable[ScoreUnitRow]],
     queries: Sequence[str],
 ) -> Dict[str, Dict[str, float]]:
-    """Score several queries exactly while reading the corpus only once."""
+    """Score several queries exactly while reading the corpus only once.
+
+    Corpus-wide map-nav scoring is path+content only; the term channel was
+    retired here (see the unify-bm25-persistent-map plan).
+    """
     unique_queries = list(dict.fromkeys(str(query) for query in queries))
     if not unique_queries:
         return {}
@@ -677,7 +681,6 @@ def score_unit_stream_hybrid_many(
         for query_tokens in query_tokens_by_query.values()
         for token in query_tokens
     }
-    query_lower_by_query = {query: query.lower().strip() for query in unique_queries}
     units: List[_StreamingManyUnit] = []
     path_stats = _StreamingBm25Stats.empty()
     content_stats = _StreamingBm25Stats.empty()
@@ -693,20 +696,6 @@ def score_unit_stream_hybrid_many(
         content_stats.observe(content_tokens)
         path_frequencies = Counter(path_tokens)
         content_frequencies = Counter(content_tokens)
-        haystack = str(row.get("term_search_text") or "").lower()
-        term_scores: List[float] = []
-        for query in unique_queries:
-            query_lower = query_lower_by_query[query]
-            query_tokens = query_tokens_by_query[query]
-            term_score = 0.0
-            if query_lower:
-                if query_lower in haystack:
-                    term_score = 100.0
-                else:
-                    hit_count = sum(1 for token in query_tokens if token in haystack)
-                    if hit_count > 0:
-                        term_score = float(hit_count)
-            term_scores.append(term_score)
         units.append(
             _StreamingManyUnit(
                 unit_id=unit_id,
@@ -722,7 +711,6 @@ def score_unit_stream_hybrid_many(
                     for token in query_token_set
                     if content_frequencies[token]
                 },
-                term_scores=tuple(term_scores),
             )
         )
     path_stats.finalize()
@@ -733,9 +721,8 @@ def score_unit_stream_hybrid_many(
             path_stats=path_stats,
             content_stats=content_stats,
             query_tokens=query_tokens_by_query[query],
-            query_index=index,
         )
-        for index, query in enumerate(unique_queries)
+        for query in unique_queries
     }
 
 
@@ -745,11 +732,9 @@ def _score_streaming_units(
     path_stats: "_StreamingBm25Stats",
     content_stats: "_StreamingBm25Stats",
     query_tokens: List[str],
-    query_index: int,
 ) -> Dict[str, float]:
     path_by_id: Dict[str, float] = {}
     content_by_id: Dict[str, float] = {}
-    term_by_id: Dict[str, float] = {}
     unit_ids = list(dict.fromkeys(unit.unit_id for unit in units))
     for unit in units:
         path_score = path_stats.score(
@@ -760,11 +745,6 @@ def _score_streaming_units(
         )
         path_by_id[unit.unit_id] = path_score
         content_by_id[unit.unit_id] = content_score
-        term_by_id[unit.unit_id] = float(
-            unit.term_scores[query_index]
-            if query_index < len(unit.term_scores)
-            else 0.0
-        )
 
     path_rows = [
         (score, unit_id) for unit_id, score in path_by_id.items() if score > 0.0
@@ -772,13 +752,9 @@ def _score_streaming_units(
     content_rows = [
         (score, unit_id) for unit_id, score in content_by_id.items() if score > 0.0
     ]
-    term_rows = [
-        (score, unit_id) for unit_id, score in term_by_id.items() if score > 0.0
-    ]
     path_rows.sort(key=lambda item: (-item[0], item[1]))
     content_rows.sort(key=lambda item: (-item[0], item[1]))
-    term_rows.sort(key=lambda item: (-item[0], item[1]))
-    path_weight, content_weight, term_weight = map_channel_weights()
+    path_weight, content_weight, _term_weight = map_channel_weights()
     rrf_k = int(
         os.environ.get(
             "NAV_MAP_RRF_K",
@@ -791,8 +767,6 @@ def _score_streaming_units(
         fused[unit_id] = fused.get(unit_id, 0.0) + path_weight / (rrf_k + rank + 1)
     for rank, (_score, unit_id) in enumerate(content_rows):
         fused[unit_id] = fused.get(unit_id, 0.0) + content_weight / (rrf_k + rank + 1)
-    for rank, (_score, unit_id) in enumerate(term_rows):
-        fused[unit_id] = fused.get(unit_id, 0.0) + term_weight / (rrf_k + rank + 1)
     return {unit_id: round(score, 6) for unit_id, score in fused.items()}
 
 
@@ -803,7 +777,6 @@ class _StreamingManyUnit:
     content_length: int
     path_frequencies: Mapping[str, int]
     content_frequencies: Mapping[str, int]
-    term_scores: Tuple[float, ...]
 
 
 @dataclass(frozen=True)
@@ -825,7 +798,6 @@ class PersistedScoreUnit:
     content_length: int
     path_frequencies: Mapping[str, int]
     content_frequencies: Mapping[str, int]
-    term_scores: Tuple[float, ...]
 
 
 @dataclass(frozen=True)
@@ -854,7 +826,6 @@ def score_persisted_corpus_many(
             content_length=unit.content_length,
             path_frequencies=unit.path_frequencies,
             content_frequencies=unit.content_frequencies,
-            term_scores=unit.term_scores,
         )
         for unit in corpus.units
     ]
@@ -864,9 +835,8 @@ def score_persisted_corpus_many(
             path_stats=path_stats,
             content_stats=content_stats,
             query_tokens=tokenize_query_for_ranker(query),
-            query_index=query_index,
         )
-        for query_index, query in enumerate(unique_queries)
+        for query in unique_queries
     }
 
 

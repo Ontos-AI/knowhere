@@ -77,6 +77,14 @@ class RetrievalQueryRequest(BaseModel):
             "Set false to force classic 3-channel top-K retrieval."
         ),
     )
+    conversation_id: str | None = Field(
+        None,
+        max_length=255,
+        description=(
+            "Caller-supplied conversation identifier, threaded through for "
+            "retrieval tracing. Does not affect caching or result content."
+        ),
+    )
 
     @field_validator("channels")
     @classmethod
@@ -172,6 +180,7 @@ async def execute_retrieval_query(
         threshold=payload.threshold,
         internal_recall_k=payload.internal_recall_k,
         use_agentic=payload.use_agentic,
+        conversation_id=payload.conversation_id,
         llm_config=llm_config,
     )
 

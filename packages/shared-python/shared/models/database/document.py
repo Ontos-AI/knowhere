@@ -518,6 +518,38 @@ class RetrievalNamespaceTokenStat(Base):
     )
 
 
+class RetrievalNamespaceMapSnapshot(Base):
+    """Persisted namespace-level MAP (sections + chunk index + map units).
+
+    Incrementally patched at publish/archive time (one document's subtree at
+    a time); query time reads this row directly instead of merging per-file
+    manifests. Overwritten in place -- no generation history is retained.
+    """
+
+    __tablename__ = "retrieval_namespace_map_snapshots"
+
+    id: Mapped[str] = mapped_column(
+        String(100), primary_key=True, default=lambda: f"rnmap_{uuid4().hex}"
+    )
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    namespace: Mapped[str] = mapped_column(String(255), nullable=False)
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    format_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    payload_zlib: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "namespace",
+            name="uq_retrieval_namespace_map_snapshots_scope",
+        ),
+    )
+
+
 class GraphNode(Base):
     """Persisted derived graph node used for routing and expansion."""
 
