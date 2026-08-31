@@ -30,11 +30,14 @@ from shared.services.retrieval.hydration.row_utils import (
     normalize_chunk_type,
 )
 from shared.services.retrieval.nav.knowhere_hybrid import (
-    PersistedBm25Stats,
     PersistedScoreCorpus,
     PersistedScoreUnit,
     score_persisted_corpus_many,
     tokenize_query_for_ranker,
+)
+from shared.services.retrieval.nav.persisted_score_load import (
+    build_channel_bm25_stats,
+    combine_average_idf,
 )
 from shared.services.retrieval.search.scoring import normalize_row_scores
 from shared.services.retrieval.search.section_filters import is_excluded_section
@@ -209,17 +212,19 @@ async def map_unit_discovery(
         if not unit_rows:
             return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
 
-        map_unit_ids = [row["map_unit_id"] for row in unit_rows]
         frequency_result = await db.execute(
             text(
-                "SELECT map_unit_id, channel, token, frequency "
-                "FROM document_map_unit_tokens "
-                "WHERE map_unit_id = ANY(:unit_ids) "
-                "AND channel = ANY(:channels) "
-                "AND token = ANY(:tokens)"
+                cte
+                + """
+                SELECT tokens.map_unit_id, tokens.channel, tokens.token, tokens.frequency
+                FROM document_map_unit_tokens AS tokens
+                JOIN scoped_units ON scoped_units.map_unit_id = tokens.map_unit_id
+                WHERE tokens.channel = ANY(:channels)
+                    AND tokens.token = ANY(:tokens)
+                """
             ),
             {
-                "unit_ids": map_unit_ids,
+                **params,
                 "channels": list(_MAP_SCORE_CHANNELS),
                 "tokens": query_tokens,
             },
@@ -230,23 +235,53 @@ async def map_unit_discovery(
                 int(frequency)
             )
 
-        path_stats = await _build_bm25_stats(
-            db,
+        index_result = await db.execute(
+            text(
+                cte
+                + """
+                SELECT indexes.average_idf_path, indexes.average_idf_content,
+                       indexes.unit_count
+                FROM document_map_unit_indexes AS indexes
+                JOIN (
+                    SELECT DISTINCT document_id, job_result_id FROM scoped_units
+                ) AS scoped_revisions
+                    ON indexes.document_id = scoped_revisions.document_id
+                    AND indexes.job_result_id = scoped_revisions.job_result_id
+                """
+            ),
+            params,
+        )
+        index_parts = [
+            (float(path_idf or 0.0), float(content_idf or 0.0), int(unit_count or 0))
+            for path_idf, content_idf, unit_count in index_result.all()
+        ]
+        average_idf_path = combine_average_idf(
+            [(path_idf, unit_count) for path_idf, _content_idf, unit_count in index_parts]
+        )
+        average_idf_content = combine_average_idf(
+            [
+                (content_idf, unit_count)
+                for _path_idf, content_idf, unit_count in index_parts
+            ]
+        )
+
+        path_stats = build_channel_bm25_stats(
             unit_rows=unit_rows,
-            map_unit_ids=map_unit_ids,
+            map_unit_id_field="map_unit_id",
+            length_field="path_token_count",
             channel="path",
             query_tokens=query_tokens,
             frequencies=frequencies,
-            length_field="path_token_count",
+            average_idf=average_idf_path,
         )
-        content_stats = await _build_bm25_stats(
-            db,
+        content_stats = build_channel_bm25_stats(
             unit_rows=unit_rows,
-            map_unit_ids=map_unit_ids,
+            map_unit_id_field="map_unit_id",
+            length_field="content_token_count",
             channel="content",
             query_tokens=query_tokens,
             frequencies=frequencies,
-            length_field="content_token_count",
+            average_idf=average_idf_content,
         )
 
         corpus = PersistedScoreCorpus(
@@ -308,58 +343,6 @@ async def map_unit_discovery(
         latency = int((time.monotonic() - t0) * 1000)
         logger.error(f"  search.map_unit_discovery failed: {exc}")
         return DiscoveryResult(status="error", error=str(exc), latency_ms=latency)
-
-
-async def _build_bm25_stats(
-    session: AsyncSession,
-    *,
-    unit_rows: list[dict[str, Any]],
-    map_unit_ids: list[str],
-    channel: str,
-    query_tokens: list[str],
-    frequencies: dict[tuple[str, str], dict[str, int]],
-    length_field: str,
-) -> PersistedBm25Stats:
-    lengths = [
-        int(row[length_field]) for row in unit_rows if int(row[length_field]) > 0
-    ]
-    document_count = len(lengths)
-    document_frequency = {
-        token: sum(
-            1
-            for row in unit_rows
-            if frequencies.get((row["map_unit_id"], channel), {}).get(token, 0) > 0
-        )
-        for token in query_tokens
-    }
-    needs_average_idf = any(
-        frequency > document_count / 2 for frequency in document_frequency.values()
-    )
-    average_idf = 0.0
-    if needs_average_idf and map_unit_ids and document_count:
-        result = await session.execute(
-            text(
-                "SELECT COALESCE(AVG(LN((:document_count - frequencies.document_frequency "
-                "+ 0.5) / (frequencies.document_frequency + 0.5))), 0.0) "
-                "FROM (SELECT token, COUNT(*) AS document_frequency "
-                "FROM document_map_unit_tokens "
-                "WHERE map_unit_id = ANY(:unit_ids) AND channel = :channel "
-                "GROUP BY token) AS frequencies"
-            ),
-            {
-                "document_count": document_count,
-                "unit_ids": map_unit_ids,
-                "channel": channel,
-            },
-        )
-        row = result.first()
-        average_idf = float(row[0]) if row else 0.0
-    return PersistedBm25Stats(
-        document_count=document_count,
-        total_length=sum(lengths),
-        document_frequency=document_frequency,
-        average_idf=average_idf,
-    )
 
 
 def _as_metadata_dict(value: object) -> dict[str, Any]:

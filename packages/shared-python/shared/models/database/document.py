@@ -356,6 +356,12 @@ class DocumentMapUnitIndex(Base):
     format_version: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_count: Mapped[int] = mapped_column(Integer, nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    # rank_bm25 Okapi average IDF for the revision's units (path/content).
+    # Written at index time so query scoring never rescans all tokens.
+    average_idf_path: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    average_idf_content: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, nullable=False
     )
