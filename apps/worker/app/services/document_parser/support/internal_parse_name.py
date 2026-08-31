@@ -5,6 +5,9 @@ import os
 from dataclasses import dataclass
 
 from app.services.common.file_utils import path_handle
+from app.services.document_parser.support.filename_limits import (
+    truncate_internal_filename,
+)
 
 
 @dataclass(frozen=True)
@@ -39,7 +42,7 @@ def normalize_internal_parse_name(
     effective_root = name_root or "document"
     internal_name = f"{effective_root}{effective_ext}"
 
-    return (
+    normalized_name = (
         internal_name.replace("(", "-")
         .replace(")", "-")
         .replace("[", "-")
@@ -53,6 +56,7 @@ def normalize_internal_parse_name(
         .replace(chr(0x2015), "-")
         .replace(chr(0x2212), "-")
     )
+    return truncate_internal_filename(normalized_name)
 
 
 def prepare_internal_parse_input(
