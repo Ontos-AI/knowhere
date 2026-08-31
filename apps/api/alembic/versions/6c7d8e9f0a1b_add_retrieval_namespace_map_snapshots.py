@@ -13,6 +13,15 @@ down_revision: str | None = "5b6c7d8e9f0a"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 
+__all__: list[str] = [
+    "revision",
+    "down_revision",
+    "branch_labels",
+    "depends_on",
+    "upgrade",
+    "downgrade",
+]
+
 
 def upgrade() -> None:
     if not sa.inspect(op.get_bind()).has_table("retrieval_namespace_map_snapshots"):
