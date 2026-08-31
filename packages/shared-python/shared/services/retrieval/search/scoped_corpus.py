@@ -77,11 +77,10 @@ async def count_scoped_chunks(
     exclude_document_ids: list[str],
     allowed_chunk_types: set[str] | None,
     revision_pins: Mapping[str, str] | None = None,
-    max_count: int | None = None,
 ) -> int:
     if revision_pins is None:
         stmt = (
-            select(DocumentChunk.id)
+            select(func.count(DocumentChunk.id))
             .join(
                 Document,
                 (Document.document_id == DocumentChunk.document_id)
@@ -93,7 +92,7 @@ async def count_scoped_chunks(
         )
     else:
         stmt = (
-            select(DocumentChunk.id)
+            select(func.count(DocumentChunk.id))
             .join(Document, Document.document_id == DocumentChunk.document_id)
             .where(Document.user_id == user_id)
             .where(Document.namespace == namespace)
@@ -107,13 +106,7 @@ async def count_scoped_chunks(
         stmt = stmt.where(Document.document_id.notin_(list(exclude_document_ids)))
     if allowed_chunk_types is not None:
         stmt = stmt.where(func.lower(DocumentChunk.chunk_type).in_(list(allowed_chunk_types)))
-
-    if max_count is not None:
-        stmt = stmt.limit(max_count)
-
-    result = await db.execute(
-        select(func.count()).select_from(stmt.order_by(None).subquery())
-    )
+    result = await db.execute(stmt)
     return result.scalar() or 0
 
 
