@@ -45,7 +45,6 @@ from .knowhere_hybrid import (
     PersistedScoreUnit,
     tokenize_query_for_ranker,
 )
-from shared.services.retrieval.serving_manifest import decode_serving_manifest
 
 _ASSET_TYPES = ("table", "image")
 # Knowhere sentinel path for the virtual document container (not a collectable leaf).
