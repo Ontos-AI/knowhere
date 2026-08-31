@@ -141,14 +141,6 @@ def knowhere_database_url() -> str:
 
 
 class ChunkStore(Protocol):
-    def load_document_units(
-        self,
-        document_id: str,
-        section_ids: Sequence[str],
-        extra_chunk_ids_by_section: Optional[Dict[str, Sequence[str]]] = None,
-    ) -> List[UnitRow]:
-        raise NotImplementedError
-
     def load_section_units(
         self,
         document_id: str,
@@ -216,55 +208,6 @@ class ReadOnlyChunkStore:
                     (doc_id, job_result_id, sid),
                 )
             return [_unit_from_row(row) for row in cur.fetchall()]
-        finally:
-            cur.close()
-
-    def load_document_units(
-        self,
-        document_id: str,
-        section_ids: Sequence[str],
-        extra_chunk_ids_by_section: Optional[Dict[str, Sequence[str]]] = None,
-    ) -> List[UnitRow]:
-        """Load one document's section payloads in a single ordered query."""
-        doc_id = str(document_id).strip()
-        job_result_id = self._revisions.get(doc_id)
-        section_values = [str(section_id).strip() for section_id in section_ids if str(section_id).strip()]
-        extra_ids = [
-            str(chunk_id).strip()
-            for chunk_ids in (extra_chunk_ids_by_section or {}).values()
-            for chunk_id in chunk_ids
-            if str(chunk_id).strip()
-        ]
-        if not doc_id or not job_result_id or (not section_values and not extra_ids):
-            return []
-
-        predicates: list[str] = []
-        params: list[object] = [doc_id, job_result_id]
-        if section_values:
-            predicates.append("section_id = ANY(%s)")
-            params.append(section_values)
-        if extra_ids:
-            predicates.append("chunk_id = ANY(%s)")
-            params.append(extra_ids)
-
-        cur = self._connection().cursor()
-        try:
-            cur.execute(
-                "SELECT chunk_id, section_id, chunk_type, content, sort_order, "
-                "source_chunk_path, file_path, chunk_metadata "
-                "FROM document_chunks "
-                "WHERE document_id = %s AND job_result_id = %s AND ("
-                + " OR ".join(predicates)
-                + ") ORDER BY section_id, sort_order, chunk_id, id",
-                params,
-            )
-            units: list[UnitRow] = []
-            for row in cur.fetchall():
-                section_id = str(row[1]) if row[1] else None
-                if section_id and (doc_id, section_id) in self._excluded_sections:
-                    continue
-                units.append(_unit_from_row(row))
-            return units
         finally:
             cur.close()
 
@@ -595,53 +538,6 @@ class LazyKnowhereProvider(KnowhereProvider):
         )
         self._chunk_store = chunk_store
         self._root_asset_ids = {str(chunk_id) for chunk_id in root_asset_ids}
-        self._remounted_assets_by_section = {
-            str(section_id): [str(chunk_id) for chunk_id in chunk_ids]
-            for section_id, chunk_ids in (remounted_assets_by_section or {}).items()
-        }
-
-    def prefetch_document_units(self) -> None:
-        """Load this document's section payloads with one bounded SQL query."""
-        section_ids = list(self._sections)
-        loaded = self._chunk_store.load_document_units(
-            self.doc_id,
-            section_ids,
-            self._remounted_assets_by_section,
-        )
-        by_section: Dict[str, List[UnitRow]] = {}
-        for unit in loaded:
-            sid = str(unit.section_id or "").strip()
-            if sid and sid in self._sections:
-                by_section.setdefault(sid, []).append(unit)
-
-        units_by_id = {unit.chunk_id: unit for unit in loaded if unit.chunk_id}
-        for section_id, asset_ids in self._remounted_assets_by_section.items():
-            target = by_section.setdefault(section_id, [])
-            known = {unit.chunk_id for unit in target}
-            for asset_id in asset_ids:
-                asset = units_by_id.get(asset_id)
-                if asset is not None and asset.chunk_id not in known:
-                    target.append(asset)
-                    known.add(asset.chunk_id)
-
-        for section_id in section_ids:
-            units = by_section.get(section_id, [])
-            units.sort(key=lambda unit: (unit.sort_order, unit.chunk_id))
-            self._units_by_section[section_id] = units
-            self._loaded_sections.add(section_id)
-
-        for section_id in section_ids:
-            if is_root_section_path(self.section_path(section_id)):
-                self._units_by_section[section_id] = [
-                    unit
-                    for unit in self._units_by_section.get(section_id, ())
-                    if unit.chunk_id not in self._root_asset_ids
-                ]
-
-    def release_document_units(self) -> None:
-        """Release all payloads loaded by the document batch."""
-        self._units_by_section.clear()
-        self._loaded_sections.clear()
 
     def _ensure_section_loaded(self, section_id: str) -> None:
         super()._ensure_section_loaded(section_id)
@@ -865,18 +761,6 @@ class NamespaceKnowhereProvider:
         release = getattr(self._docs[owner], "release_section_units", None)
         if callable(release):
             release(section_id)
-
-    def prefetch_document_units(self, doc_id: str) -> None:
-        provider = self._docs.get(str(doc_id).strip())
-        prefetch = getattr(provider, "prefetch_document_units", None)
-        if callable(prefetch):
-            prefetch()
-
-    def release_document_units(self, doc_id: str) -> None:
-        provider = self._docs.get(str(doc_id).strip())
-        release = getattr(provider, "release_document_units", None)
-        if callable(release):
-            release()
 
     def address_level(self, node_id: str) -> Optional[NavLevel]:
         sid = str(node_id or "").strip()

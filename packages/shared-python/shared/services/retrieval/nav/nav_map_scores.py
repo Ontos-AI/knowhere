@@ -385,21 +385,13 @@ def compute_corpus_map_and_unit_scores(
     def unit_factory() -> Iterator[ScoreUnitRow]:
         for document_id in valid_doc_ids:
             children_map, leaves, titles = tree_by_doc[document_id]
-            prefetch = getattr(ts, "prefetch_document_units", None)
-            release = getattr(ts, "release_document_units", None)
-            if callable(prefetch):
-                prefetch(document_id)
-            try:
-                yield from iter_score_units(
-                    ts,
-                    document_id,
-                    children_map=children_map,
-                    leaves=leaves,
-                    titles=titles,
-                )
-            finally:
-                if callable(release):
-                    release(document_id)
+            yield from iter_score_units(
+                ts,
+                document_id,
+                children_map=children_map,
+                leaves=leaves,
+                titles=titles,
+            )
 
     unit_scores = score_unit_stream_hybrid_all(unit_factory, query)
 
