@@ -20,9 +20,7 @@ Migration to Knowhere: inject the production callable with
 
 from __future__ import annotations
 
-import logging
 import os
-import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Callable, Dict, Iterator, Optional, Sequence
@@ -32,7 +30,6 @@ from typing import Any, Callable, Dict, Iterator, Optional, Sequence
 NavChatBackend = Callable[..., Dict[str, Any]]
 
 _backend: Optional[NavChatBackend] = None
-_logger = logging.getLogger(__name__)
 
 _DS_DEFAULT_MODEL = "deepseek-v4-flash"
 _DEFAULT_PLANNER_THINK_MAX = 16384
@@ -193,34 +190,25 @@ def nav_chat(
         raise NavTokenLimit(used=nav_tokens_used(), limit=nav_token_limit())
 
     merged_extra = _merge_thinking_extra(extra, role=thinking_role, model=model)
-    call_started = time.perf_counter()
 
     if _backend is not None:
-        try:
-            result = _backend(
-                purpose=purpose,
-                messages=list(messages),
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                response_format=response_format,
-                extra=merged_extra,
-                thinking_role=thinking_role,
-                context=context,
-                api_key_env=api_key_env,
-                base_url_env=base_url_env,
-                timeout=timeout,
-                usage_tag=usage_tag,
-            )
-            record_episode_tokens((result or {}).get("usage"))
-            return result
-        finally:
-            _logger.info(
-                "retrieval mapnav llm_call purpose=%s role=%s seconds=%.3f",
-                purpose,
-                thinking_role,
-                time.perf_counter() - call_started,
-            )
+        result = _backend(
+            purpose=purpose,
+            messages=list(messages),
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=response_format,
+            extra=merged_extra,
+            thinking_role=thinking_role,
+            context=context,
+            api_key_env=api_key_env,
+            base_url_env=base_url_env,
+            timeout=timeout,
+            usage_tag=usage_tag,
+        )
+        record_episode_tokens((result or {}).get("usage"))
+        return result
 
     from ._compat import cached_chat_completion  # type: ignore
     from ._compat import (  # type: ignore
@@ -242,24 +230,16 @@ def nav_chat(
             f"(model={model!r}; need DS_KEY for deepseek-* or OPENAI_API_KEY)."
         )
     client = make_openai_client(api_key=key, base_url=base_url, timeout=timeout)
-    try:
-        cached = cached_chat_completion(
-            client,
-            purpose=purpose,
-            model=model,
-            messages=list(messages),
-            temperature=temperature,
-            max_tokens=max_tokens,
-            response_format=response_format,
-            extra=merged_extra,
-        )
-    finally:
-        _logger.info(
-            "retrieval mapnav llm_call purpose=%s role=%s seconds=%.3f",
-            purpose,
-            thinking_role,
-            time.perf_counter() - call_started,
-        )
+    cached = cached_chat_completion(
+        client,
+        purpose=purpose,
+        model=model,
+        messages=list(messages),
+        temperature=temperature,
+        max_tokens=max_tokens,
+        response_format=response_format,
+        extra=merged_extra,
+    )
     if usage_tag:
         record_usage(usage_tag, cached.get("usage"))
     record_episode_tokens(cached.get("usage"))

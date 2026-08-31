@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import logging
-import os
 import time
+import os
 from typing import Any, List, Optional, Sequence, Tuple
 
 from ._compat import AgentStep, EpisodeResult
@@ -38,7 +37,6 @@ from .nav_types import (
 # Back-compat aliases for tests / callers.
 _evidence_owner_section_id = evidence_owner_section_id
 _unit_score_for_evidence_chunk = unit_score_for_evidence_chunk
-_logger = logging.getLogger(__name__)
 
 
 def _chunks_to_retrieved_nodes(chunks: List[Chunk]) -> List[str]:
@@ -400,7 +398,6 @@ def _run_nav_episode_body(
 
     state = NavState(doc_id=episode_doc, query=query, task_type=task_type)
     steps: List[AgentStep] = []
-    map_started = time.perf_counter()
     if namespace_mode:
         section_ids = list(ts.sections_for_doc(""))
         state.map_scores, state.unit_scores = compute_corpus_map_and_unit_scores(
@@ -411,12 +408,6 @@ def _run_nav_episode_body(
         state.map_scores, state.unit_scores = compute_map_and_unit_scores(
             ts, doc_id=episode_doc, query=query, root_ids=section_ids
         )
-    _logger.info(
-        "retrieval mapnav phase=map_scoring seconds=%.3f documents=%d sections=%d",
-        time.perf_counter() - map_started,
-        len(corpus_ids),
-        len(section_ids),
-    )
     state.highlight_ids = select_map_highlights(
         state.unit_scores, k=int(cfg.collect_top_k)
     )
@@ -443,11 +434,6 @@ def _run_nav_episode_body(
                 }, t0=plan_t0),
             )
         )
-        _logger.info(
-            "retrieval mapnav phase=planner seconds=%.3f subgoals=%d",
-            time.perf_counter() - plan_t0,
-            len(retrieval_plan.subgoals),
-        )
 
     # Checklist: wave orchestration; navigate mode: classic single navigate.
     if cfg.is_checklist and state.retrieval_plan is not None:
@@ -466,11 +452,6 @@ def _run_nav_episode_body(
                 detail=stamp_step_detail(orch_detail, t0=orch_t0),
             )
         )
-        _logger.info(
-            "retrieval mapnav phase=orchestration seconds=%.3f waves=%d",
-            time.perf_counter() - orch_t0,
-            len(orch_detail.get("waves", [])),
-        )
     else:
         navigate(
             ts,
@@ -483,18 +464,12 @@ def _run_nav_episode_body(
             steps_out=steps,
         )
 
-    evidence_started = time.perf_counter()
     fill = pack_nav_evidence(
         _dedupe_scored(list(state.collected)),
         ts,
         state,
         cfg,
         budget_chars=budget_chars,
-    )
-    _logger.info(
-        "retrieval mapnav phase=evidence_pack seconds=%.3f chunks=%d",
-        time.perf_counter() - evidence_started,
-        len(fill.kept_chunks),
     )
     scored_chunks = list(fill.scored_chunks)
     retrieval_seconds = time.perf_counter() - retrieval_t0

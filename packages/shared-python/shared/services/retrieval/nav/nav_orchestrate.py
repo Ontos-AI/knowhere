@@ -8,14 +8,14 @@ owned by ``plan_control``.
 
 from __future__ import annotations
 
-import logging
+from .nav_token_budget import stamp_step_detail
+
 import re
 import time
 from contextlib import contextmanager
 from dataclasses import asdict
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
-from .nav_token_budget import stamp_step_detail
 from .nav_navigate import navigate
 from .nav_plan import (
     RetrievalPlan,
@@ -29,7 +29,6 @@ from .nav_types import NavConfig, NavState, SubgoalResult
 from .nav_verify import apply_bindings_from_result, build_subgoal_result
 
 _SLOT_STRIP_RE = re.compile(r"\{\{\s*[^}]+\s*\}\}")
-_logger = logging.getLogger(__name__)
 
 
 def ready_subgoal_ids(
@@ -484,18 +483,8 @@ def execute_plan(
             )
 
         # Serial wave execution (parallel fan-out retired with ThreadPoolExecutor).
-        wave_started = time.perf_counter()
         for sid in ready:
-            subgoal_started = time.perf_counter()
-            try:
-                outputs.append(_run_one(sid, state, steps_out))
-            finally:
-                _logger.info(
-                    "retrieval mapnav harvest subgoal=%s wave=%d seconds=%.3f",
-                    sid,
-                    wave_idx,
-                    time.perf_counter() - subgoal_started,
-                )
+            outputs.append(_run_one(sid, state, steps_out))
 
         # Bookkeeping shared by both decision paths.
         for item in outputs:
@@ -519,17 +508,9 @@ def execute_plan(
                 state.subgoal_attempt_counts.get(sid, 0)
             ) + 1
 
-        control_started = time.perf_counter()
-        try:
-            control_detail = _apply_plan_control(
-                ts, state, config, plan=plan, outputs=outputs, by_id=by_id, steps_out=steps_out
-            )
-        finally:
-            _logger.info(
-                "retrieval mapnav plan_control wave=%d seconds=%.3f",
-                wave_idx,
-                time.perf_counter() - control_started,
-            )
+        control_detail = _apply_plan_control(
+            ts, state, config, plan=plan, outputs=outputs, by_id=by_id, steps_out=steps_out
+        )
         wave_detail["plan_control"] = control_detail
         replan_requested = bool(control_detail.get("replan"))
         if control_detail.get("done"):
@@ -544,12 +525,6 @@ def execute_plan(
                 )
             )
         summary["waves"].append(wave_detail)
-        _logger.info(
-            "retrieval mapnav wave=%d ready=%d seconds=%.3f",
-            wave_idx,
-            len(ready),
-            time.perf_counter() - wave_started,
-        )
 
         if replan_requested:
             cap = int(getattr(config, "max_replans", 0) or 0)
