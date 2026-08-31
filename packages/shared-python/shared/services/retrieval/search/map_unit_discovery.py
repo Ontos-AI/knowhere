@@ -7,11 +7,10 @@ Replaces the retired chunk-level 3-channel SQL scan. Scoring uses the same
 the request is image/table only, ``has_image`` / ``has_table`` (written at
 index time) narrow candidates before scoring.
 
-Hydration returns the single non-asset chunk owned by each winning unit
-(one content chunk per leaf section). Assets never become the primary hit;
-image/table-only requests follow ``connect_to`` from that text chunk.
-Downstream ``assemble_retrieval_results`` still inlines connected assets
-for text hits. Failures raise; they are not converted into empty results.
+Hydration returns the one chunk owned by each winning leaf. Images and
+tables are not sibling chunks on that leaf; they enter through
+``connect_to``. Image/table-only requests follow ``connect_to`` from
+that chunk. Failures raise; they are not converted into empty results.
 """
 
 from __future__ import annotations
@@ -347,15 +346,6 @@ def _as_metadata_dict(value: object) -> dict[str, Any]:
     return {}
 
 
-def _primary_chunk(chunks: list[dict[str, Any]]) -> dict[str, Any] | None:
-    # A content section owns exactly one non-asset chunk; assets reach the
-    # result only through connect_to at assembly, never as a primary hit.
-    for chunk in chunks:
-        if normalize_chunk_type(chunk.get("chunk_type")) not in ASSET_CHUNK_TYPES:
-            return chunk
-    return None
-
-
 async def _hydrate_winning_units(
     session: AsyncSession,
     *,
@@ -367,7 +357,7 @@ async def _hydrate_winning_units(
     exclude_sections: list[dict[str, str]],
     revision_pins: Mapping[str, str] | None,
 ) -> list[dict[str, Any]]:
-    """Map each winning unit to one chunk; asset-only requests follow connect_to."""
+    """Map each winning leaf to its one chunk; asset requests follow connect_to."""
     if not ranked_unit_ids:
         return []
 
@@ -402,12 +392,12 @@ async def _hydrate_winning_units(
             "section_ids": section_ids,
         },
     )
-    chunk_rows_by_section: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    chunk_by_section: dict[tuple[str, str, str], dict[str, Any]] = {}
     for chunk_row in result.all():
         row = dict(chunk_row._mapping)
         row["chunk_metadata"] = _as_metadata_dict(row.get("chunk_metadata"))
         key = (row["document_id"], row["job_result_id"], row["section_id"])
-        chunk_rows_by_section.setdefault(key, []).append(row)
+        chunk_by_section[key] = row
 
     primaries: list[dict[str, Any]] = []
     for unit_id in ranked_unit_ids:
@@ -417,7 +407,7 @@ async def _hydrate_winning_units(
             unit_row["job_result_id"],
             unit_row["section_id"],
         )
-        primary = _primary_chunk(chunk_rows_by_section.get(key, []))
+        primary = chunk_by_section.get(key)
         if primary is None:
             continue
         fused = dict(primary)
@@ -448,7 +438,8 @@ async def _hydrate_winning_units(
             primary["job_result_id"],
             primary["section_id"],
         )
-        candidates = list(chunk_rows_by_section.get(key, ()))
+        section_chunk = chunk_by_section.get(key)
+        candidates = [section_chunk] if section_chunk is not None else []
         for target_id in iter_connected_target_ids(primary):
             target = connected_by_id.get(target_id)
             if target is not None:
