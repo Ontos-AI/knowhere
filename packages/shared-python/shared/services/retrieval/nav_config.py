@@ -61,7 +61,7 @@ _PRODUCTION_NAV_DICT: dict[str, Any] = {
     "max_waves": 0,
     "max_harvest_depth": 3,
     "plan_control_digest_chars": 600,
-    "enable_node_filter": False,
+    "enable_node_filter": True,
     "filter_max_rounds": 3,
     "filter_min_hits": 1,
     "filter_max_hits": 40,
