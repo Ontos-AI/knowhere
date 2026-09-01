@@ -76,7 +76,6 @@ def _section_view_from_structure(
         preview=preview,
         score=_lexical_score(query, f"{section_id} {preview}"),
         n_lines=int(st.get("n_lines") or 0),
-        n_chunks=int(st.get("n_chunks") or 0),
         has_children=bool(children),
         depth_from_scope=depth_from_scope,
         title=preview[:80] if preview else section_id,
@@ -127,7 +126,6 @@ class _MapNode:
     title: str
     score: float
     n_lines: int
-    n_chunks: int
     has_children: bool
     children: List["_MapNode"] = field(default_factory=list)
     n_descendants: int = 0
@@ -353,7 +351,6 @@ def _build_map_tree(
             title=title,
             score=score,
             n_lines=int(st.get("n_lines") or 0),
-            n_chunks=int(st.get("n_chunks") or 0),
             has_children=False,
             parent_id=parent_id,
         )
@@ -461,10 +458,7 @@ def _render_map(
         leaf_tag = " [Leaf]" if not node.has_children else ""
         hit_tag = format_hit_tag(is_highlight=is_hit)
         harvested_tag = format_harvested_tag(node.harvested_by)
-        line = (
-            f"{indent}[{map_id}] {node.title} ({node.n_chunks} chunks)"
-            f"{leaf_tag}{hit_tag}{harvested_tag}"
-        )
+        line = f"{indent}[{map_id}] {node.title}{leaf_tag}{hit_tag}{harvested_tag}"
         lines.append(line)
         summary = ""
         if inline_summary:
@@ -484,7 +478,6 @@ def _render_map(
                 preview="",
                 score=node.score,
                 n_lines=node.n_lines,
-                n_chunks=node.n_chunks,
                 has_children=node.has_children,
                 depth_from_scope=node.depth,
                 map_id=map_id,
@@ -703,7 +696,7 @@ def build_projection(
         leaf_tag = " [Leaf]" if not view.has_children else ""
         title = view.preview[:80] if view.preview else view.section_id
         add_line(
-            f"{indent}[{view.section_id}] {title} ({view.n_chunks} chunks){leaf_tag}"
+            f"{indent}[{view.section_id}] {title}{leaf_tag}"
         )
         if view.preview:
             add_line(f"{indent}     Preview: \"{view.preview[:80]}\"")

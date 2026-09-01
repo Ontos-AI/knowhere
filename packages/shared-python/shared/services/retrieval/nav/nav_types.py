@@ -175,7 +175,6 @@ class SectionView:
     preview: str
     score: float = 0.0
     n_lines: int = 0
-    n_chunks: int = 0
     has_children: bool = False
     depth_from_scope: int = 0
     map_id: str = ""

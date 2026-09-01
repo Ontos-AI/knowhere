@@ -435,26 +435,21 @@ class ReadOnlyChunkStore:
             frequencies: Dict[Tuple[str, str], Dict[str, int]] = {}
             if unit_rows and query_tokens:
                 stage_started = time.perf_counter()
+                # Restrict the token scan to this episode's map units instead of
+                # matching token_hash across the whole table then filtering.
+                allowed_map_unit_ids = [str(row["map_unit_id"]) for row in unit_rows]
                 cur.execute(
-                    "WITH matching_tokens AS MATERIALIZED ("
                     "SELECT map_unit_id, channel, token, frequency "
                     "FROM document_map_unit_tokens "
-                    "WHERE token_hash = ANY(%s) AND channel = ANY(%s)"
-                    ") "
-                    "SELECT matching_tokens.map_unit_id, matching_tokens.channel, "
-                    "matching_tokens.token, matching_tokens.frequency "
-                    "FROM matching_tokens "
-                    "JOIN document_map_units AS units "
-                    "ON units.id = matching_tokens.map_unit_id "
-                    f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
-                    "ON units.document_id = revisions.document_id "
-                    "AND units.job_result_id = revisions.job_result_id",
-                    [list(query_token_hashes), list(_MAP_SCORE_CHANNELS), *revision_params],
+                    "WHERE map_unit_id = ANY(%s) "
+                    "AND token_hash = ANY(%s) AND channel = ANY(%s)",
+                    [
+                        allowed_map_unit_ids,
+                        list(query_token_hashes),
+                        list(_MAP_SCORE_CHANNELS),
+                    ],
                 )
-                allowed_map_unit_ids = {str(row["map_unit_id"]) for row in unit_rows}
                 for map_unit_id, channel, token, frequency in cur.fetchall():
-                    if str(map_unit_id) not in allowed_map_unit_ids:
-                        continue
                     frequencies.setdefault((str(map_unit_id), str(channel)), {})[
                         str(token)
                     ] = int(frequency)
@@ -502,6 +497,11 @@ class ReadOnlyChunkStore:
                         ),
                     )
                     for row in unit_rows
+                    # Only units with at least one query-token frequency can
+                    # score > 0; zero-frequency units are implicit 0 and are
+                    # never materialized for BM25.
+                    if frequencies.get((str(row["map_unit_id"]), "path"))
+                    or frequencies.get((str(row["map_unit_id"]), "content"))
                 ],
                 path_stats=path_stats,
                 content_stats=content_stats,
@@ -708,7 +708,6 @@ class KnowhereProvider:
             title=row.section_title,
             summary=row.summary,
             has_children=bool(self._children.get(section_id)),
-            n_chunks=len(self.subtree_units(section_id)),
         )
 
     def relations(self, section_id: str) -> Tuple[Set[str], Set[str]]:
@@ -798,9 +797,6 @@ class KnowhereProvider:
 
     def all_section_ids(self) -> List[str]:
         return list(self._sections)
-
-    def chunk_count(self) -> int:
-        return len(self._chunk_ids)
 
 
 class LazyKnowhereProvider(KnowhereProvider):
@@ -1113,19 +1109,10 @@ class NamespaceKnowhereProvider:
         sid = str(section_id or "").strip()
         if sid in self._docs:
             provider = self._docs[sid]
-            count_fn = getattr(provider, "chunk_count", None)
-            n_chunks = (
-                int(count_fn())
-                if callable(count_fn)
-                else sum(
-                    len(provider.self_units(sec)) for sec in provider.all_section_ids()
-                )
-            )
             return NodeMeta(
                 title=self._titles.get(sid, sid),
                 summary="",
                 has_children=bool(provider.roots(sid)),
-                n_chunks=n_chunks,
             )
         owner = self._section_owner.get(sid)
         if not owner:

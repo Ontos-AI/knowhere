@@ -395,15 +395,25 @@ def compute_corpus_map_and_unit_scores_many(
 
     del namespace  # Dense scoring is intentionally disabled for the corpus path.
 
+    # Tree shape is query-independent; reuse it across the episode's two
+    # scoring passes (user query + per-subgoal retrieval_query) on the same
+    # ToolSpace instead of re-walking every document each time.
+    tree_cache = getattr(ts, "_mapnav_tree_cache", None)
+    if not isinstance(tree_cache, dict):
+        tree_cache = {}
+        setattr(ts, "_mapnav_tree_cache", tree_cache)
     tree_by_doc: Dict[
         str,
         Tuple[Dict[str, List[str]], Set[str], Dict[str, str]],
     ] = {}
     tree_started = time.perf_counter()
     for doc_id in valid_doc_ids:
-        root_ids = list(ts.sections_for_doc(doc_id))
-        children_map, leaves, titles = _walk_tree(ts, doc_id, root_ids)
-        tree_by_doc[doc_id] = (children_map, leaves, titles)
+        cached = tree_cache.get(doc_id)
+        if cached is None:
+            root_ids = list(ts.sections_for_doc(doc_id))
+            cached = _walk_tree(ts, doc_id, root_ids)
+            tree_cache[doc_id] = cached
+        tree_by_doc[doc_id] = cached
     _logger.info(
         "retrieval mapnav phase=tree_build seconds=%.3f documents=%d sections=%d",
         time.perf_counter() - tree_started,
@@ -508,8 +518,7 @@ def relight_map_for_query(
 ) -> Tuple[Dict[str, float], Dict[str, float], List[str]]:
     """Re-score the whole shared map against ``query``.
 
-    Same namespace / single-doc split as the episode-level pass in ``nav_agent``:
-    an empty ``doc_id`` means the corpus root, where document ids are map nodes
+    An empty ``doc_id`` means the corpus root, where document ids are map nodes
     and ``ts.document_ids()`` is already restricted to the episode's corpus.
     """
     doc = str(doc_id or "").strip()

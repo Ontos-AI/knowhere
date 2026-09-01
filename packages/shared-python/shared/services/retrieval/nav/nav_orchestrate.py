@@ -136,6 +136,94 @@ def _resolve_subgoal_query(state: NavState, subgoal: Subgoal) -> str:
     return refined or query
 
 
+def seed_episode_map_scores_from_plan(
+    ts: Any,
+    state: NavState,
+    config: NavConfig,
+    plan: RetrievalPlan,
+) -> int:
+    """Light the map from executable plan retrieval_query strings; set baseline.
+
+    Scores bound (or refined) retrieval_query values only — queries still holding
+    ``{{slot}}`` placeholders are skipped and scored later when harvest resolves
+    them. Empty plan falls back to ``state.query``. Harvest may temporarily
+    relight per subgoal; ``_relit_map`` restores this baseline for evidence pack.
+    Returns the number of unique queries scored.
+    """
+    queries: List[str] = []
+    seen: Set[str] = set()
+    for subgoal in plan.subgoals:
+        refined = str(
+            (state.subgoal_refined_queries or {}).get(subgoal.id) or ""
+        ).strip()
+        if refined:
+            q = refined
+        else:
+            bound = bind_slots(subgoal.retrieval_query, state.slot_bindings)
+            # Skip not-yet-bound slot queries — scoring a stripped skeleton
+            # cannot cache-hit the later bound harvest string.
+            if unbound_slots(bound):
+                continue
+            q = str(bound or "").strip()
+        if q and q not in seen:
+            seen.add(q)
+            queries.append(q)
+    if not queries:
+        q = str(state.query or "").strip()
+        if q:
+            queries = [q]
+    if not queries:
+        state.map_scores = {}
+        state.unit_scores = {}
+        state.highlight_ids = []
+        state.relit_map_cache = {}
+        return 0
+
+    # Replace prior episode lighting entirely (including after replan).
+    state.relit_map_cache = {}
+
+    map_started = time.perf_counter()
+    from .nav_map_scores import relight_maps_for_queries
+
+    prepared = relight_maps_for_queries(
+        ts,
+        doc_id=state.doc_id,
+        queries=queries,
+        top_k=int(config.collect_top_k),
+    )
+    for query, triple in prepared.items():
+        scores, units, highlights = triple
+        if scores:
+            state.relit_map_cache[query] = (
+                dict(scores),
+                dict(units),
+                list(highlights),
+            )
+
+    baseline = None
+    for query in queries:
+        triple = prepared.get(query)
+        if triple and triple[0]:
+            baseline = triple
+            break
+    if baseline is not None:
+        scores, units, highlights = baseline
+        state.map_scores = dict(scores)
+        state.unit_scores = dict(units)
+        state.highlight_ids = list(highlights)
+    else:
+        state.map_scores = {}
+        state.unit_scores = {}
+        state.highlight_ids = []
+
+    _logger.info(
+        "retrieval mapnav phase=map_scoring seconds=%.3f queries=%d",
+        time.perf_counter() - map_started,
+        len(queries),
+    )
+    return len(queries)
+
+
 def _wave_subgoal_result(
     plan: RetrievalPlan,
     state: NavState,
@@ -174,11 +262,10 @@ def _relit_map(
 ) -> Iterator[None]:
     """Score the shared map against the harvest ``query`` for one call.
 
-    Episode-level ``state.map_scores`` is computed from the original user query.
-    Checklist harvests run under a per-subgoal ``retrieval_query``, so the map
-    must be re-scored against that string — otherwise the ranking disagrees with
-    the query the policy is told to pursue. Scoring failures degrade to the
-    episode lighting.
+    Episode-level ``state.map_scores`` is the post-plan baseline (lit from
+    plan ``retrieval_query`` strings). Checklist harvests may run under a
+    different per-subgoal string, so the map is re-scored for that call and
+    restored to the episode baseline afterward for evidence packing.
     """
     relit = prepared
     q = (query or "").strip()
@@ -195,15 +282,19 @@ def _relit_map(
                 top_k=int(config.collect_top_k),
             )
             if scores:
-                relit = (scores, units, highlights)
+                relit = (dict(scores), dict(units), list(highlights))
                 state.relit_map_cache[q] = relit
         except Exception:
             relit = None
     if relit is None:
         yield
         return
+    scores, units, highlights = relit
     saved = (state.map_scores, state.unit_scores, state.highlight_ids)
-    state.map_scores, state.unit_scores, state.highlight_ids = relit
+    # Copy so harvest readers cannot mutate the cached baseline triple.
+    state.map_scores = dict(scores)
+    state.unit_scores = dict(units)
+    state.highlight_ids = list(highlights)
     try:
         yield
     finally:
@@ -548,23 +639,40 @@ def execute_plan(
         by_id = {s.id: s for s in plan.subgoals}
         outputs: List[Dict[str, Any]] = []
         query_by_subgoal = {
-            sid: _resolve_subgoal_query(state, by_id[sid]) for sid in ready
+            sid: str(_resolve_subgoal_query(state, by_id[sid]) or "").strip()
+            for sid in ready
         }
         prepared_relights: Dict[
             str,
             Tuple[Dict[str, float], Dict[str, float], List[str]],
         ] = {}
-        try:
-            from .nav_map_scores import relight_maps_for_queries
+        missing_queries: List[str] = []
+        for query in query_by_subgoal.values():
+            if not query:
+                continue
+            cached = state.relit_map_cache.get(query)
+            if cached is not None:
+                prepared_relights[query] = cached
+            elif query not in missing_queries:
+                missing_queries.append(query)
+        if missing_queries:
+            try:
+                from .nav_map_scores import relight_maps_for_queries
 
-            prepared_relights = relight_maps_for_queries(
-                ts,
-                doc_id=state.doc_id,
-                queries=list(query_by_subgoal.values()),
-                top_k=int(config.collect_top_k),
-            )
-        except Exception:
-            prepared_relights = {}
+                scored = relight_maps_for_queries(
+                    ts,
+                    doc_id=state.doc_id,
+                    queries=missing_queries,
+                    top_k=int(config.collect_top_k),
+                )
+                for query, triple in scored.items():
+                    scores, units, highlights = triple
+                    prepared = (dict(scores), dict(units), list(highlights))
+                    prepared_relights[query] = prepared
+                    if scores:
+                        state.relit_map_cache[query] = prepared
+            except Exception:
+                pass
 
         def _run_one(sid: str, working_state: NavState, out_steps: Optional[List[Any]]) -> Dict[str, Any]:
             query = query_by_subgoal[sid]
@@ -655,7 +763,7 @@ def execute_plan(
             if cap > 0 and int(state.replan_count) < cap:
                 state.replan_count += 1
                 t0 = time.perf_counter()
-                new_plan = plan_query(ts, state, config)
+                new_plan = plan_query(state, config)
                 state.retrieval_plan = new_plan
                 plan = new_plan
                 # A regenerated plan gets fresh subgoal ids (s1, s2, ... again),
@@ -663,7 +771,9 @@ def execute_plan(
                 # qualified "sX.slot" bindings) cannot be safely carried over —
                 # those ids now mean something else. What IS safe and worth
                 # keeping is unqualified slot bindings (plain fact values) and
-                # every chunk already in state.collected.
+                # every chunk already in state.collected. Clear before re-seeding
+                # so stale refined queries / qualified bindings cannot leak into
+                # the new plan's retrieval_query scoring.
                 state.satisfied_subgoal_ids = set()
                 state.attempted_subgoal_ids = set()
                 state.dropped_subgoal_ids = set()
@@ -675,6 +785,7 @@ def execute_plan(
                 state.slot_bindings = {
                     k: v for k, v in state.slot_bindings.items() if "." not in k
                 }
+                seed_episode_map_scores_from_plan(ts, state, config, new_plan)
                 if steps_out is not None:
                     steps_out.append(
                         AgentStep(

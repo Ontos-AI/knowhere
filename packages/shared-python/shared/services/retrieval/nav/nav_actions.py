@@ -103,7 +103,6 @@ def build_legal_actions(
                     score=score,
                     metadata={
                         "map_id": view.map_id,
-                        "n_chunks": view.n_chunks,
                         "highlight": is_hit,
                         "multi": True,
                     },
@@ -186,9 +185,8 @@ def format_actionable_map_observation(
         hit_tag = format_hit_tag(is_highlight=bool(view.is_highlight))
         harvested_tag = format_harvested_tag(getattr(view, "harvested_by", "") or "")
         map_id = view.map_id or "?"
-        meta = f"({view.n_chunks} chunks)"
         lines.append(
-            f"{indent}[{map_id}] {view.title or view.section_id} {meta}"
+            f"{indent}[{map_id}] {view.title or view.section_id}"
             f"{leaf_tag}{hit_tag}{harvested_tag} actions: {node_actions(view.section_id)}"
         )
         if inline_summary and view.summary:

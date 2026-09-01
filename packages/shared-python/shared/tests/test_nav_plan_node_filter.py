@@ -62,3 +62,5 @@ def test_planner_prompt_mentions_where_vs_fuzzy() -> None:
     text = _planner_system_prompt(max_subgoals=0)
     assert "use_node_filter" in text
     assert "fallback" in text
+    assert "only the user query" in text.lower()
+    assert "folded" not in text.lower()
