@@ -126,12 +126,10 @@ def render_submap_observation(
     ts: Any,
     result: FilterResult,
     *,
-    char_limit: int,
     doc_ids: Sequence[str] | None = None,
 ) -> str:
-    """Hit-count line plus a budgeted preview of matched nodes."""
+    """Hit-count line plus every matched node (path + summary)."""
     del doc_ids
-    limit = max(0, int(char_limit))
     header = f"hits={result.cardinality}"
     if result.truncated:
         header = f"{header} truncated=true"
@@ -142,8 +140,6 @@ def render_submap_observation(
 
     summaries = _load_summaries(ts)
     lines = [header]
-    used = len(header) + 1
-    shown = 0
     for sid in result.matched_section_ids:
         owner = _owner_document(ts, sid)
         title = _path_text(ts, sid, owner) or sid
@@ -151,16 +147,7 @@ def render_submap_observation(
         summary = str(summaries.get(sid) or "").strip()
         if summary:
             block.append(f"    summary: {summary}")
-        chunk = "\n".join(block)
-        extra = len(chunk) + (1 if lines else 0)
-        if limit and used + extra > limit:
-            lines.append(
-                f"preview truncated after {shown} nodes; tighten the predicate"
-            )
-            break
-        lines.append(chunk)
-        used += extra
-        shown += 1
+        lines.append("\n".join(block))
     return "\n".join(lines)
 
 

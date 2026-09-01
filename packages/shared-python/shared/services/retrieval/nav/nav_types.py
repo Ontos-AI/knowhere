@@ -103,7 +103,6 @@ class NavConfig:
     filter_max_rounds: int = 3
     filter_min_hits: int = 1
     filter_max_hits: int = 40
-    filter_submap_char_limit: int = 2000
 
     @property
     def is_checklist(self) -> bool:

@@ -138,6 +138,7 @@ def test_node_filter_steps_map_and_count_tokens() -> None:
                     ],
                     "fields": ["path"],
                     "cardinality": 2,
+                    "action": "done",
                     "decision": "collect_all",
                     "reason": "small_cardinality",
                     "matched_section_ids": ["sec_q3"],
@@ -153,7 +154,8 @@ def test_node_filter_steps_map_and_count_tokens() -> None:
     assert steps[0].phase == "node_filter"
     assert steps[0].observation["cardinality"] == 2
     assert steps[0].observation["fields"] == ["path"]
-    assert steps[0].decision["action"] == "collect_all"
+    assert steps[0].decision["action"] == "done"
+    assert steps[0].result["decision"] == "collect_all"
     assert steps[0].budget["tokens_used_delta"] == 80
     assert steps[0].budget["token_limit"] == 100000
     assert steps[-1].result["layer_llm_steps"]["harvest"] >= 1

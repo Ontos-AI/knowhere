@@ -84,7 +84,6 @@ def _cfg(**kwargs: Any) -> NavConfig:
         "filter_max_rounds": 3,
         "filter_min_hits": 1,
         "filter_max_hits": 40,
-        "filter_submap_char_limit": 2000,
         "llm_model": "test-model",
         "llm_max_tokens": 256,
     }
@@ -104,6 +103,38 @@ def _install_script(monkeypatch: Any, replies: List[dict[str, Any]]) -> None:
         "shared.services.retrieval.nav.nav_llm.nav_chat",
         fake_nav_chat,
     )
+
+
+def test_widen_relooks_full_map(monkeypatch: Any) -> None:
+    seen_users: List[str] = []
+    queue: List[dict[str, Any]] = [
+        {"action": "widen", "reason": "sub-map too narrow"},
+        {"action": "done", "decision": "collect_all", "reason": "ok"},
+    ]
+
+    def fake_nav_chat(**kwargs: Any) -> dict[str, Any]:
+        messages = kwargs.get("messages") or []
+        seen_users.append(str(messages[-1].get("content") or ""))
+        obj = queue.pop(0) if queue else {"action": "fallback", "reason": "empty"}
+        return {"content": json.dumps(obj)}
+
+    monkeypatch.setattr(
+        "shared.services.retrieval.nav.nav_llm.nav_chat",
+        fake_nav_chat,
+    )
+    out = run_scope_filter(
+        _ts(),
+        _cfg(),
+        query="apple q3 profit",
+        doc_ids=["doc_apple", "doc_other"],
+        seed_filter=node_filter([field_predicate("path", ["Q3"])]),
+    )
+    assert out.decision == "collect_all"
+    assert len(seen_users) == 2
+    assert "Full map" not in seen_users[0]
+    assert "Sub-map" in seen_users[0]
+    assert "Full map" in seen_users[1]
+    assert "Last filter" in seen_users[1]
 
 
 def test_zero_hits_widen_then_done(monkeypatch: Any) -> None:
