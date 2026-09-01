@@ -106,8 +106,9 @@ async def test_classic_route_uses_token_hash_lookup_for_frequency_query(
         _executemany: bool,
     ) -> None:
         if (
-            "FROM document_map_unit_tokens AS tokens" in statement
-            and "tokens.frequency" in statement
+            "FROM document_map_unit_tokens" in statement
+            and "frequency" in statement
+            and "token_hash" in statement
         ):
             statements.append(statement)
 
@@ -168,6 +169,8 @@ async def test_classic_route_uses_token_hash_lookup_for_frequency_query(
     assert statements
     assert "token_hash = ANY" in statements[-1]
     assert "token = ANY" not in statements[-1]
+    assert "matching_tokens AS MATERIALIZED" in statements[-1]
+    assert "FROM matching_tokens" in statements[-1]
 
 
 async def test_classic_route_image_filter_scores_only_units_with_images(

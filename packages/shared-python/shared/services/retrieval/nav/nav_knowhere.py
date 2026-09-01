@@ -24,6 +24,7 @@ import os
 import logging
 import time
 from dataclasses import dataclass, field
+from hashlib import sha256
 from typing import (
     Any,
     Callable,
@@ -323,6 +324,9 @@ class ReadOnlyChunkStore:
                 for token in tokenize_query_for_ranker(query)
             )
         )
+        query_token_hashes = [
+            sha256(token.encode("utf-8")).hexdigest() for token in query_tokens
+        ]
         cur = self._connection().cursor()
         try:
             revision_key = tuple(revisions)
@@ -432,14 +436,20 @@ class ReadOnlyChunkStore:
             if unit_rows and query_tokens:
                 stage_started = time.perf_counter()
                 cur.execute(
-                    "SELECT units.id, tokens.channel, tokens.token, tokens.frequency "
-                    "FROM document_map_unit_tokens AS tokens "
-                    "JOIN document_map_units AS units ON units.id = tokens.map_unit_id "
+                    "WITH matching_tokens AS MATERIALIZED ("
+                    "SELECT map_unit_id, channel, token, frequency "
+                    "FROM document_map_unit_tokens "
+                    "WHERE token_hash = ANY(%s) AND channel = ANY(%s)"
+                    ") "
+                    "SELECT matching_tokens.map_unit_id, matching_tokens.channel, "
+                    "matching_tokens.token, matching_tokens.frequency "
+                    "FROM matching_tokens "
+                    "JOIN document_map_units AS units "
+                    "ON units.id = matching_tokens.map_unit_id "
                     f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
                     "ON units.document_id = revisions.document_id "
-                    "AND units.job_result_id = revisions.job_result_id "
-                    "WHERE tokens.token = ANY(%s) AND tokens.channel = ANY(%s)",
-                    [*revision_params, list(query_tokens), list(_MAP_SCORE_CHANNELS)],
+                    "AND units.job_result_id = revisions.job_result_id",
+                    [list(query_token_hashes), list(_MAP_SCORE_CHANNELS), *revision_params],
                 )
                 allowed_map_unit_ids = {str(row["map_unit_id"]) for row in unit_rows}
                 for map_unit_id, channel, token, frequency in cur.fetchall():
