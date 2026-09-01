@@ -306,6 +306,28 @@ async def test_should_return_request_validation_failure_for_an_invalid_channel(
     assert "Invalid channel" in cast(str, violations[0]["description"])
 
 
+async def test_should_reject_legacy_channel_controls(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    async with developer_api_client_factory() as api_client:
+        response = await api_client.post(
+            "/api/v1/retrieval/query",
+            json={
+                "namespace": "default",
+                "query": "alpha",
+                "channels": ["content"],
+            },
+        )
+
+    assert response.status_code == 400
+    response_json = cast(dict[str, object], response.json())
+    error = cast(dict[str, object], response_json["error"])
+    assert error["code"] == "INVALID_ARGUMENT"
+    assert "deprecated and unsupported" in str(error)
+
+
 async def test_should_exclude_matching_document_ids_from_the_response(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]

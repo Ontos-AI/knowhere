@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import time
 import zlib
 from typing import Any
 
@@ -26,6 +28,7 @@ from shared.models.database.job_result import JobResult
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 
 SERVING_MANIFEST_FORMAT_VERSION = 1
+_logger = logging.getLogger(__name__)
 
 
 def build_revision_serving_payload(
@@ -230,6 +233,7 @@ def rebuild_namespace_serving_statistics(
     Callers hold the namespace generation lock. The aggregate is prepared for
     the generation that the caller will publish next.
     """
+    started = time.perf_counter()
     generation = db.execute(
         select(RetrievalNamespaceGeneration)
         .where(RetrievalNamespaceGeneration.user_id == user_id)
@@ -328,6 +332,17 @@ def rebuild_namespace_serving_statistics(
         ]
     )
     db.flush()
+    _logger.info(
+        "retrieval namespace statistics rebuilt user_id=%s namespace=%s "
+        "generation=%d documents=%d units=%d token_stats=%d seconds=%.3f",
+        user_id,
+        namespace,
+        target_generation,
+        aggregate["document_count"],
+        aggregate["unit_count"],
+        len(document_frequencies),
+        time.perf_counter() - started,
+    )
     return target_generation
 
 
