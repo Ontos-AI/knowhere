@@ -55,8 +55,7 @@ from shared.services.retrieval.serving_manifest import (
 )
 from shared.services.retrieval.manifest_cache import get_cached_manifest_payloads
 from shared.services.retrieval.namespace_map_snapshot_redis import (
-    get_snapshot_blob,
-    set_snapshot_blob,
+    NamespaceMapSnapshotRedisCache,
 )
 from shared.core.exceptions.redis_exceptions import RedisOperationError
 
@@ -452,8 +451,11 @@ async def _resolve_namespace_snapshot_entries(
         _current_generation = generation_result.scalar_one_or_none()
     except SQLAlchemyError as exc:
         await db.rollback()
-        _logger.warning("retrieval snapshot generation lookup failed error=%s", exc)
-        _current_generation = None
+        _logger.warning(
+            "retrieval snapshot generation lookup failed; using fallback error=%s",
+            exc,
+        )
+        return None
     if _is_snapshot_timing_enabled():
         _logger.info(
             "retrieval snapshot generation generation=%s",
@@ -512,7 +514,7 @@ async def _resolve_namespace_snapshot_entries(
         return None
     cached_blob: bytes | None = None
     try:
-        cached_blob = await get_snapshot_blob(
+        cached_blob = await NamespaceMapSnapshotRedisCache.get(
             user_id=user_id, namespace=namespace, generation=row_generation
         )
     except RedisOperationError as exc:
@@ -576,7 +578,7 @@ async def _resolve_namespace_snapshot_entries(
     documents = decoded_documents
     if cached_blob is None:
         try:
-            await set_snapshot_blob(
+            await NamespaceMapSnapshotRedisCache.set(
                 user_id=user_id,
                 namespace=namespace,
                 generation=row_generation,

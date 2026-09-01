@@ -344,7 +344,8 @@ async def _run_mapnav_route(
     completion_detail = f"chunks | evidence={len(evidence_text)} chars | router=mapnav"
     process_finished = resource.getrusage(resource.RUSAGE_SELF)
     logger.info(
-        "retrieval mapnav stage=process_resources cpu_seconds=%.3f max_rss_kb=%d",
+        "retrieval mapnav stage=process_resources cpu_seconds=%.3f "
+        "process_max_rss_kb=%d",
         (process_finished.ru_utime + process_finished.ru_stime)
         - (process_started.ru_utime + process_started.ru_stime),
         int(process_finished.ru_maxrss),

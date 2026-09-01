@@ -249,7 +249,7 @@ def encode_namespace_map_snapshot(
     documents = payload.get("documents")
     if not isinstance(documents, dict):
         raise ValueError("namespace snapshot documents must be an object")
-    routing_documents: dict[str, Any] = {}
+    routing_documents: dict[str, dict[str, object]] = {}
     for document_id, raw_document in documents.items():
         if not isinstance(raw_document, dict):
             raise ValueError(f"namespace snapshot document is not an object: {document_id}")
@@ -257,7 +257,7 @@ def encode_namespace_map_snapshot(
         raw_chunks = raw_document.get("chunks")
         if not isinstance(raw_sections, list) or not isinstance(raw_chunks, list):
             raise ValueError(f"namespace snapshot records are invalid: {document_id}")
-        sections = []
+        sections: list[dict[str, object]] = []
         for section in raw_sections:
             if not isinstance(section, dict) or not str(section.get("section_id") or ""):
                 raise ValueError(f"namespace snapshot section is invalid: {document_id}")
@@ -271,7 +271,7 @@ def encode_namespace_map_snapshot(
                     if key in section
                 }
             )
-        chunks = []
+        chunks: list[dict[str, object]] = []
         for chunk in raw_chunks:
             if not isinstance(chunk, dict) or not str(chunk.get("chunk_id") or ""):
                 raise ValueError(f"namespace snapshot chunk is invalid: {document_id}")
