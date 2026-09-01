@@ -569,8 +569,8 @@ class _SelectionLength:
         if group_index is None or node_id in self.kept_ids:
             return False
         old_count = self._counts[group_index]
+        evidence_index = self._evidence_index(group_index)
         if old_count > 0:
-            evidence_index = self._evidence_index(group_index)
             old_block = self._block_length(
                 self._groups[group_index],
                 count=old_count,
@@ -578,9 +578,6 @@ class _SelectionLength:
                 indented_total=self._indented_totals[group_index],
                 evidence_index=evidence_index,
             )
-        else:
-            evidence_index = self._evidence_index(group_index)
-            old_block = 0
 
         self.kept_ids.add(node_id)
         self._counts[group_index] += 1
