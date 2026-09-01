@@ -189,18 +189,41 @@ def decode_serving_manifest(
     if format_version != SERVING_MANIFEST_FORMAT_VERSION:
         raise ValueError(f"unsupported serving manifest version: {format_version}")
 
+    return _decode_compressed_json(
+        payload_zlib,
+        checksum=checksum,
+        timings=timings,
+        compression_error="invalid serving manifest compression",
+        checksum_error="serving manifest checksum mismatch",
+        json_error="invalid serving manifest JSON",
+        object_error="serving manifest payload must be an object",
+    )
+
+
+def _decode_compressed_json(
+    payload_zlib: bytes,
+    *,
+    checksum: str,
+    timings: MutableMapping[str, float] | None,
+    compression_error: str,
+    checksum_error: str,
+    json_error: str,
+    object_error: str,
+) -> dict[str, Any]:
+    """Decompress, validate, and decode a canonical JSON payload."""
+
     started = time.perf_counter()
     try:
         canonical_payload = zlib.decompress(payload_zlib)
     except zlib.error as exc:
-        raise ValueError("invalid serving manifest compression") from exc
+        raise ValueError(compression_error) from exc
     if timings is not None:
         timings["decompress_seconds"] = time.perf_counter() - started
 
     checksum_started = time.perf_counter()
     actual_checksum = hashlib.sha256(canonical_payload).hexdigest()
     if actual_checksum != checksum:
-        raise ValueError("serving manifest checksum mismatch")
+        raise ValueError(checksum_error)
     if timings is not None:
         timings["checksum_seconds"] = time.perf_counter() - checksum_started
 
@@ -208,14 +231,14 @@ def decode_serving_manifest(
     try:
         decoded = json.loads(canonical_payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("invalid serving manifest JSON") from exc
+        raise ValueError(json_error) from exc
     if timings is not None:
         timings["json_decode_seconds"] = time.perf_counter() - json_started
         timings["compressed_bytes"] = float(len(payload_zlib))
         timings["decompressed_bytes"] = float(len(canonical_payload))
         timings["decode_seconds"] = time.perf_counter() - started
     if not isinstance(decoded, dict):
-        raise ValueError("serving manifest payload must be an object")
+        raise ValueError(object_error)
     return decoded
 
 
@@ -224,54 +247,52 @@ def encode_namespace_map_snapshot(
 ) -> tuple[bytes, str, int]:
     """Encode the routing-only namespace snapshot using its own format version."""
     documents = payload.get("documents")
+    if not isinstance(documents, dict):
+        raise ValueError("namespace snapshot documents must be an object")
     routing_documents: dict[str, Any] = {}
-    if isinstance(documents, dict):
-        for document_id, raw_document in documents.items():
-            if not isinstance(raw_document, dict):
-                continue
-            sections = [
+    for document_id, raw_document in documents.items():
+        if not isinstance(raw_document, dict):
+            raise ValueError(f"namespace snapshot document is not an object: {document_id}")
+        raw_sections = raw_document.get("sections")
+        raw_chunks = raw_document.get("chunks")
+        if not isinstance(raw_sections, list) or not isinstance(raw_chunks, list):
+            raise ValueError(f"namespace snapshot records are invalid: {document_id}")
+        sections = []
+        for section in raw_sections:
+            if not isinstance(section, dict) or not str(section.get("section_id") or ""):
+                raise ValueError(f"namespace snapshot section is invalid: {document_id}")
+            sections.append(
                 {
                     key: section[key]
                     for key in (
-                        "section_id",
-                        "parent_section_id",
-                        "section_path",
-                        "section_title",
-                        "section_level",
-                        "summary",
-                        "sort_order",
+                        "section_id", "parent_section_id", "section_path",
+                        "section_title", "section_level", "summary", "sort_order",
                     )
                     if key in section
                 }
-                for section in (raw_document.get("sections") or [])
-                if isinstance(section, dict)
-            ]
-            chunks = [
+            )
+        chunks = []
+        for chunk in raw_chunks:
+            if not isinstance(chunk, dict) or not str(chunk.get("chunk_id") or ""):
+                raise ValueError(f"namespace snapshot chunk is invalid: {document_id}")
+            chunks.append(
                 {
                     key: chunk[key]
-                    for key in (
-                        "chunk_id",
-                        "section_id",
-                        "chunk_type",
-                        "sort_order",
-                        "connect_to",
-                    )
+                    for key in ("chunk_id", "section_id", "chunk_type", "sort_order", "connect_to")
                     if key in chunk
                 }
-                for chunk in (raw_document.get("chunks") or [])
-                if isinstance(chunk, dict)
-            ]
-            routing_documents[str(document_id)] = {
-                "job_result_id": raw_document.get("job_result_id"),
-                "job_id": raw_document.get("job_id"),
-                "sections": sections,
-                "chunks": chunks,
-                "root_asset_ids": raw_document.get("root_asset_ids") or [],
-                "remounted_assets_by_section": raw_document.get(
-                    "remounted_assets_by_section"
-                )
-                or {},
-            }
+            )
+        routing_documents[str(document_id)] = {
+            "job_result_id": raw_document.get("job_result_id"),
+            "job_id": raw_document.get("job_id"),
+            "sections": sections,
+            "chunks": chunks,
+            "root_asset_ids": raw_document.get("root_asset_ids") or [],
+            "remounted_assets_by_section": raw_document.get(
+                "remounted_assets_by_section"
+            )
+            or {},
+        }
     compressed, checksum, _ = encode_serving_manifest({"documents": routing_documents})
     return compressed, checksum, NAMESPACE_MAP_SNAPSHOT_FORMAT_VERSION
 
@@ -293,31 +314,12 @@ def decode_namespace_map_snapshot(
         )
     if format_version != NAMESPACE_MAP_SNAPSHOT_FORMAT_VERSION:
         raise ValueError(f"unsupported namespace snapshot version: {format_version}")
-    # The compression/checksum contract is identical to serving manifests; only
-    # the payload shape/version is different.
-    started = time.perf_counter()
-    try:
-        canonical_payload = zlib.decompress(payload_zlib)
-    except zlib.error as exc:
-        raise ValueError("invalid namespace snapshot compression") from exc
-    if timings is not None:
-        timings["decompress_seconds"] = time.perf_counter() - started
-        timings["compressed_bytes"] = float(len(payload_zlib))
-        timings["decompressed_bytes"] = float(len(canonical_payload))
-    checksum_started = time.perf_counter()
-    actual_checksum = hashlib.sha256(canonical_payload).hexdigest()
-    if actual_checksum != checksum:
-        raise ValueError("namespace snapshot checksum mismatch")
-    if timings is not None:
-        timings["checksum_seconds"] = time.perf_counter() - checksum_started
-    json_started = time.perf_counter()
-    try:
-        decoded = json.loads(canonical_payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("invalid namespace snapshot JSON") from exc
-    if timings is not None:
-        timings["json_decode_seconds"] = time.perf_counter() - json_started
-        timings["decode_seconds"] = time.perf_counter() - started
-    if not isinstance(decoded, dict):
-        raise ValueError("namespace snapshot payload must be an object")
-    return decoded
+    return _decode_compressed_json(
+        payload_zlib,
+        checksum=checksum,
+        timings=timings,
+        compression_error="invalid namespace snapshot compression",
+        checksum_error="namespace snapshot checksum mismatch",
+        json_error="invalid namespace snapshot JSON",
+        object_error="namespace snapshot payload must be an object",
+    )

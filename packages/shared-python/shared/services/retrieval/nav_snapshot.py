@@ -58,6 +58,7 @@ from shared.services.retrieval.namespace_map_snapshot_redis import (
     get_snapshot_blob,
     set_snapshot_blob,
 )
+from shared.core.exceptions.redis_exceptions import RedisOperationError
 
 
 # Keep each payload query bounded under the API's 30-second statement timeout.
@@ -76,7 +77,7 @@ _MANIFEST_MAX_REVISION_COUNT = 32
 _logger = logging.getLogger(__name__)
 
 
-def _snapshot_timing_enabled() -> bool:
+def _is_snapshot_timing_enabled() -> bool:
     """Enable detailed snapshot timings for local performance diagnosis."""
     return os.environ.get("RETRIEVAL_SNAPSHOT_TIMING", "0").strip().lower() in {
         "1",
@@ -368,7 +369,7 @@ async def load_nav_snapshot(
             },
             document_revisions=dict(revisions),
         )
-        if _snapshot_timing_enabled():
+        if _is_snapshot_timing_enabled():
             _logger.info(
                 "retrieval snapshot timing total_seconds=%.3f parse_seconds=%.3f "
                 "ref_index_copy_seconds=%.3f doc_query_seconds=%.3f "
@@ -413,7 +414,7 @@ async def load_nav_snapshot(
             if document_id in kept_titles
         },
     )
-    if _snapshot_timing_enabled():
+    if _is_snapshot_timing_enabled():
         _logger.info(
             "retrieval snapshot timing total_seconds=%.3f parse_seconds=%.3f "
             "doc_query_seconds=%.3f job_query_seconds=%.3f documents=%d "
@@ -453,7 +454,7 @@ async def _resolve_namespace_snapshot_entries(
         await db.rollback()
         _logger.warning("retrieval snapshot generation lookup failed error=%s", exc)
         _current_generation = None
-    if _snapshot_timing_enabled():
+    if _is_snapshot_timing_enabled():
         _logger.info(
             "retrieval snapshot generation generation=%s",
             _current_generation,
@@ -480,7 +481,7 @@ async def _resolve_namespace_snapshot_entries(
         )
         return None
     lookup_seconds = time.perf_counter() - lookup_started
-    if _snapshot_timing_enabled():
+    if _is_snapshot_timing_enabled():
         _logger.info(
             "retrieval snapshot lookup seconds=%.3f found=%s",
             lookup_seconds,
@@ -497,12 +498,24 @@ async def _resolve_namespace_snapshot_entries(
             generation_value,
         )
         return None
+    if (
+        generation_value is None
+        and _current_generation is not None
+        and int(_current_generation) > 0
+        and row_generation != int(_current_generation)
+    ):
+        _logger.info(
+            "retrieval snapshot generation mismatch row=%d current=%d",
+            row_generation,
+            int(_current_generation),
+        )
+        return None
     cached_blob: bytes | None = None
     try:
         cached_blob = await get_snapshot_blob(
             user_id=user_id, namespace=namespace, generation=row_generation
         )
-    except Exception as exc:
+    except RedisOperationError as exc:
         _logger.warning("retrieval snapshot redis get failed error=%s", exc)
     database_blob: bytes | None = None
     if cached_blob is None:
@@ -519,8 +532,8 @@ async def _resolve_namespace_snapshot_entries(
         blob: bytes = database_blob
     else:
         blob = cached_blob
-    timing_enabled = _snapshot_timing_enabled()
-    decode_timings: dict[str, float] | None = {} if timing_enabled else None
+    is_timing_enabled = _is_snapshot_timing_enabled()
+    decode_timings: dict[str, float] | None = {} if is_timing_enabled else None
     decode_started = time.perf_counter()
     try:
         payload = decode_namespace_map_snapshot(
@@ -569,9 +582,9 @@ async def _resolve_namespace_snapshot_entries(
                 generation=row_generation,
                 payload_zlib=blob,
             )
-        except Exception as exc:
+        except RedisOperationError as exc:
             _logger.warning("retrieval snapshot redis set failed error=%s", exc)
-        if timing_enabled:
+        if is_timing_enabled:
             _logger.info(
                 "retrieval snapshot decode cache_hit=false seconds=%.3f "
                 "compressed_bytes=%d decompressed_bytes=%d "
@@ -585,7 +598,7 @@ async def _resolve_namespace_snapshot_entries(
                 (decode_timings or {}).get("json_decode_seconds", 0.0),
                 len(documents),
             )
-    elif timing_enabled:
+    elif is_timing_enabled:
         _logger.info(
             "retrieval snapshot decode cache_hit=true seconds=%.3f "
             "compressed_bytes=%d decompressed_bytes=%d decompress_seconds=%.3f "
@@ -820,7 +833,7 @@ def _parse_manifest_entries(
             if target in asset_ids:
                 owners.setdefault(section_id, []).append(target)
         remounted[document_id] = {"root": sorted(asset_ids), "owners": owners}
-    if _snapshot_timing_enabled():
+    if _is_snapshot_timing_enabled():
         _logger.info(
             "retrieval snapshot parse sections=%d chunks=%d connections=%d "
             "section_seconds=%.3f chunk_seconds=%.3f remount_seconds=%.3f "
