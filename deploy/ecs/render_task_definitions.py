@@ -32,6 +32,8 @@ REQUIRED_VARIABLES: Final[tuple[str, ...]] = (
     "API_WEBHOOK_ENDPOINT",
     "SNS_TOPIC_ARN",
     "QSTASH_CALLBACK_BASE_URL",
+    "API_CPU",
+    "API_MEMORY",
     "WORKER_CPU",
     "WORKER_MEMORY",
 )

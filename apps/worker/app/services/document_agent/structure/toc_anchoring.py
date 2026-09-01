@@ -195,15 +195,16 @@ def _try_outline_anchoring_route(
         if (judge_result.payload or {}).get("choice") != OUTLINE_CHOICE:
             return False
 
-    toc_with_level: list[dict[str, Any]] = []
-    for entry in kept:
-        row: dict[str, Any] = {
+    # Judge digest used full ``kept`` (incl. null pages). Anchoring / null-page
+    # ReAct only consume resolvable outline destinations (``paged_kept``).
+    toc_with_level: list[dict[str, Any]] = [
+        {
             "heading": entry["heading"],
             "level": entry["level"],
+            "physical_page": int(entry["page"]),
         }
-        if entry.get("page") is not None:
-            row["physical_page"] = int(entry["page"])
-        toc_with_level.append(row)
+        for entry in paged_kept
+    ]
 
     hierarchy = {
         "source": "pdf_outline",

@@ -4,7 +4,7 @@
 
 Same PROFILE anchoring path as production PAGE/TEXT:
 
-  select primary/pending → calibrate (Agent Phase-1 + Phase-2) →
+  restore Stage-1 outline (or re-probe) → calibrate / outline route →
   classify contained/parallel → graft contained → write skeleton_*
 
 Also resolves coarse skeletons (C4 resolve-only) into pipeline state so
@@ -36,7 +36,7 @@ from _debug_pm_shared import (
     _serialize_skeletons,
     base_argparser,
     load_anatomy_cache,
-    load_stage0_into_coordinator,
+    load_stage1_into_coordinator_for_anchoring,
     page_text_cache_path,
     pipeline_state_path,
     record_stage,
@@ -125,14 +125,8 @@ def main() -> int:
                 "skip_toc_anchoring": False,
             },
         )
-        load_stage0_into_coordinator(coordinator, out_dir)
+        load_stage1_into_coordinator_for_anchoring(coordinator, out_dir, anatomy)
         bb = coordinator.blackboard
-        bb.toc_result = anatomy.toc_result
-        bb.toc_hierarchies = hierarchies
-        bb.shard_plan = anatomy.shard_plan or single_shard_plan(page_count)
-        bb.skeleton_anchor = None
-        bb.skeleton_nodes = None
-        bb.pending_skeleton_anchors = []
 
         run_toc_anchoring(coordinator.ctx)
 

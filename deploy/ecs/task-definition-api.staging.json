@@ -4,8 +4,8 @@
   "executionRoleArn": "${EXECUTION_ROLE_ARN}",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
-  "cpu": "256",
-  "memory": "1024",
+  "cpu": "${API_CPU}",
+  "memory": "${API_MEMORY}",
   "runtimePlatform": {
     "cpuArchitecture": "X86_64",
     "operatingSystemFamily": "LINUX"

@@ -124,6 +124,43 @@ def test_build_decision_trace_maps_three_layers_and_terminal() -> None:
     assert steps[-1].result["layer_llm_steps"]["control"] >= 1
 
 
+def test_node_filter_steps_map_and_count_tokens() -> None:
+    episode = SimpleNamespace(
+        stop_reason="completed",
+        evidence_chars_actual=0,
+        steps=[
+            _step(
+                "node_filter",
+                {
+                    "round": 1,
+                    "predicates": [
+                        {"field": "path", "terms": ["AAPL"], "match": "substring"}
+                    ],
+                    "fields": ["path"],
+                    "cardinality": 2,
+                    "action": "done",
+                    "decision": "collect_all",
+                    "reason": "small_cardinality",
+                    "matched_section_ids": ["sec_q3"],
+                    "token_limit": 100000,
+                    "tokens_used_total": 80,
+                    "tokens_used_delta": 80,
+                    "elapsed_ms": 12,
+                },
+            )
+        ],
+    )
+    steps = build_decision_trace(episode, evidence_char_budget=12000, n_refs=0)
+    assert steps[0].phase == "node_filter"
+    assert steps[0].observation["cardinality"] == 2
+    assert steps[0].observation["fields"] == ["path"]
+    assert steps[0].decision["action"] == "done"
+    assert steps[0].result["decision"] == "collect_all"
+    assert steps[0].budget["tokens_used_delta"] == 80
+    assert steps[0].budget["token_limit"] == 100000
+    assert steps[-1].result["layer_llm_steps"]["harvest"] >= 1
+
+
 def test_episode_helpers() -> None:
     episode = SimpleNamespace(
         steps=[

@@ -4,7 +4,6 @@ from .nav_types import (
     ActionKind,
     NavConfig,
     NavState,
-    RegionReport,
     SubgoalResult,
     map_mode_enabled,
 )
@@ -22,7 +21,6 @@ __all__ = [
     "ActionKind",
     "NavConfig",
     "NavState",
-    "RegionReport",
     "SubgoalResult",
     "map_mode_enabled",
     "run_nav_episode",

@@ -138,12 +138,11 @@ def next_dispatch_depth(
     child_id: str,
     depth: int,
 ) -> int:
-    """Child navigate/harvest depth after DISPATCH into ``child_id``.
+    """Child harvest depth after DISPATCH into ``child_id``.
 
     Namespace → document is depth-neutral (child starts at 0). Namespace →
     section under a document starts at 1. Once already inside a document or
-    section scope, always ``depth + 1``. Shared by ``dispatch()`` and harvest
-    recursion so the two paths agree.
+    section scope, always ``depth + 1``.
     """
     parent_sid = str(parent_scope or "").strip()
     if parent_sid:

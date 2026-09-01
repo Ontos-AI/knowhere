@@ -1,7 +1,7 @@
 """M4/M5: wave orchestration over a RetrievalPlan.
 
 Execution order = dependency DAG ∩ soft prefer_after. Each subgoal runs its own
-harvest/navigate so evidence attribution stays per-subgoal. Slot values are
+harvest so evidence attribution stays per-subgoal. Slot values are
 extracted only when a later subgoal references them; checklist acceptance is
 owned by ``plan_control``.
 """
@@ -16,7 +16,6 @@ from dataclasses import asdict
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
 from .nav_token_budget import stamp_step_detail
-from .nav_navigate import navigate
 from .nav_plan import (
     RetrievalPlan,
     Subgoal,
@@ -137,24 +136,92 @@ def _resolve_subgoal_query(state: NavState, subgoal: Subgoal) -> str:
     return refined or query
 
 
-def _run_navigate_for_query(
+def seed_episode_map_scores_from_plan(
     ts: Any,
     state: NavState,
     config: NavConfig,
-    *,
-    query: str,
-    steps_out: Optional[List[Any]],
-) -> None:
-    navigate(
+    plan: RetrievalPlan,
+) -> int:
+    """Light the map from executable plan retrieval_query strings; set baseline.
+
+    Scores bound (or refined) retrieval_query values only — queries still holding
+    ``{{slot}}`` placeholders are skipped and scored later when harvest resolves
+    them. Empty plan falls back to ``state.query``. Harvest may temporarily
+    relight per subgoal; ``_relit_map`` restores this baseline for evidence pack.
+    Returns the number of unique queries scored.
+    """
+    queries: List[str] = []
+    seen: Set[str] = set()
+    for subgoal in plan.subgoals:
+        refined = str(
+            (state.subgoal_refined_queries or {}).get(subgoal.id) or ""
+        ).strip()
+        if refined:
+            q = refined
+        else:
+            bound = bind_slots(subgoal.retrieval_query, state.slot_bindings)
+            # Skip not-yet-bound slot queries — scoring a stripped skeleton
+            # cannot cache-hit the later bound harvest string.
+            if unbound_slots(bound):
+                continue
+            q = str(bound or "").strip()
+        if q and q not in seen:
+            seen.add(q)
+            queries.append(q)
+    if not queries:
+        q = str(state.query or "").strip()
+        if q:
+            queries = [q]
+    if not queries:
+        state.map_scores = {}
+        state.unit_scores = {}
+        state.highlight_ids = []
+        state.relit_map_cache = {}
+        return 0
+
+    # Replace prior episode lighting entirely (including after replan).
+    state.relit_map_cache = {}
+
+    map_started = time.perf_counter()
+    from .nav_map_scores import relight_maps_for_queries
+
+    prepared = relight_maps_for_queries(
         ts,
-        state=state,
-        scope=None,
-        query=query,
-        config=config,
-        depth=0,
-        budget=int(config.map_char_limit),
-        steps_out=steps_out,
+        doc_id=state.doc_id,
+        queries=queries,
+        top_k=int(config.collect_top_k),
     )
+    for query, triple in prepared.items():
+        scores, units, highlights = triple
+        if scores:
+            state.relit_map_cache[query] = (
+                dict(scores),
+                dict(units),
+                list(highlights),
+            )
+
+    baseline = None
+    for query in queries:
+        triple = prepared.get(query)
+        if triple and triple[0]:
+            baseline = triple
+            break
+    if baseline is not None:
+        scores, units, highlights = baseline
+        state.map_scores = dict(scores)
+        state.unit_scores = dict(units)
+        state.highlight_ids = list(highlights)
+    else:
+        state.map_scores = {}
+        state.unit_scores = {}
+        state.highlight_ids = []
+
+    _logger.info(
+        "retrieval mapnav phase=map_scoring seconds=%.3f queries=%d",
+        time.perf_counter() - map_started,
+        len(queries),
+    )
+    return len(queries)
 
 
 def _wave_subgoal_result(
@@ -195,11 +262,10 @@ def _relit_map(
 ) -> Iterator[None]:
     """Score the shared map against the harvest ``query`` for one call.
 
-    Episode-level ``state.map_scores`` is computed from the original user query.
-    Checklist harvests run under a per-subgoal ``retrieval_query``, so the map
-    must be re-scored against that string — otherwise the ranking disagrees with
-    the query the policy is told to pursue. Scoring failures degrade to the
-    episode lighting.
+    Episode-level ``state.map_scores`` is the post-plan baseline (lit from
+    plan ``retrieval_query`` strings). Checklist harvests may run under a
+    different per-subgoal string, so the map is re-scored for that call and
+    restored to the episode baseline afterward for evidence packing.
     """
     relit = prepared
     q = (query or "").strip()
@@ -216,15 +282,19 @@ def _relit_map(
                 top_k=int(config.collect_top_k),
             )
             if scores:
-                relit = (scores, units, highlights)
+                relit = (dict(scores), dict(units), list(highlights))
                 state.relit_map_cache[q] = relit
         except Exception:
             relit = None
     if relit is None:
         yield
         return
+    scores, units, highlights = relit
     saved = (state.map_scores, state.unit_scores, state.highlight_ids)
-    state.map_scores, state.unit_scores, state.highlight_ids = relit
+    # Copy so harvest readers cannot mutate the cached baseline triple.
+    state.map_scores = dict(scores)
+    state.unit_scores = dict(units)
+    state.highlight_ids = list(highlights)
     try:
         yield
     finally:
@@ -249,8 +319,6 @@ def _execute_subgoal_harvest_once(
     Retry / widen / drop / replan authority belongs to ``plan_control`` across
     waves (see ``nav_control.plan_control``), not to this single call.
     """
-    from .nav_harvest import harvest
-
     rq = retrieval_query or _resolve_subgoal_query(state, subgoal)
     refined = str((state.subgoal_refined_queries or {}).get(subgoal.id) or "").strip()
     _set_focus(state, subgoal, rq)
@@ -266,12 +334,11 @@ def _execute_subgoal_harvest_once(
         query=rq,
         prepared=prepared_relight,
     ):
-        harvest_result = harvest(
+        harvest_result = _harvest_after_node_filter(
             ts,
             state,
             config,
             subgoal=subgoal,
-            entry_scope=None,
             query=rq,
             steps_out=steps_out,
         )
@@ -301,6 +368,126 @@ def _execute_subgoal_harvest_once(
             "refined_query": refined,
         },
     }
+
+
+def _harvest_after_node_filter(
+    ts: Any,
+    state: NavState,
+    config: NavConfig,
+    *,
+    subgoal: Subgoal,
+    query: str,
+    steps_out: Optional[List[Any]],
+) -> Any:
+    from .nav_harvest import harvest
+
+    if not bool(getattr(config, "enable_node_filter", False)) or not bool(
+        getattr(subgoal, "use_node_filter", False)
+    ):
+        return harvest(
+            ts,
+            state,
+            config,
+            subgoal=subgoal,
+            entry_scope=None,
+            query=query,
+            steps_out=steps_out,
+        )
+
+    from .nav_scope_filter import run_scope_filter
+
+    doc_ids = list(ts.document_ids() or ())
+    if not doc_ids and state.doc_id:
+        doc_ids = [str(state.doc_id)]
+    seed = None
+    raw_seed = list(getattr(subgoal, "node_filter_predicates", None) or [])
+    if raw_seed:
+        from .nav_scope_filter import parse_node_filter
+
+        seed = parse_node_filter({"predicates": raw_seed})
+    outcome = run_scope_filter(
+        ts,
+        config,
+        query=query,
+        doc_ids=doc_ids,
+        seed_filter=seed,
+        steps_out=steps_out,
+    )
+    if outcome.decision == "collect_all":
+        collected = _collect_filtered_sections(
+            ts, state, config, subgoal=subgoal, section_ids=outcome.settled_section_ids
+        )
+        if collected is not None:
+            return collected
+    if outcome.decision == "scoped_harvest" and outcome.settled_section_ids:
+        return harvest(
+            ts,
+            state,
+            config,
+            subgoal=subgoal,
+            entry_scope=None,
+            query=query,
+            steps_out=steps_out,
+            allowed_section_ids=set(outcome.settled_section_ids),
+        )
+    return harvest(
+        ts,
+        state,
+        config,
+        subgoal=subgoal,
+        entry_scope=None,
+        query=query,
+        steps_out=steps_out,
+    )
+
+
+def _collect_filtered_sections(
+    ts: Any,
+    state: NavState,
+    config: NavConfig,
+    *,
+    subgoal: Subgoal,
+    section_ids: Sequence[str],
+) -> Any:
+    from .nav_address import is_dispatch_only_node
+    from .nav_harvest import HarvestResult
+    from .nav_knowhere import is_root_section
+    from .nav_navigate import _apply_collect
+    from .nav_types import ActionKind, LegalAction
+
+    collectable = [
+        sid
+        for sid in section_ids
+        if str(sid).strip()
+        and not is_dispatch_only_node(ts, sid)
+        and not is_root_section(ts, sid)
+    ]
+    if not collectable:
+        return None
+    actions = [
+        LegalAction(
+            action_id=f"C{i}",
+            kind=ActionKind.COLLECT,
+            section_id=sid,
+            metadata={"multi": True},
+        )
+        for i, sid in enumerate(collectable, start=1)
+    ]
+    primary = actions[0]
+    primary.metadata = dict(primary.metadata or {})
+    primary.metadata["batch_actions"] = actions
+    primary.metadata["confidence_by_section"] = {sid: 1.0 for sid in collectable}
+    detail = _apply_collect(ts, state, primary, config)
+    new_roots = list(detail.get("collect_section_ids") or [])
+    if bool(config.is_checklist):
+        for sid in new_roots:
+            state.harvested_owner_subgoal[sid] = subgoal.id
+    return HarvestResult(
+        subgoal_id=subgoal.id,
+        new_section_ids=new_roots,
+        n_policy_calls=0,
+        reason="node_filter_collect_all",
+    )
 
 
 def _apply_plan_control(
@@ -418,13 +605,13 @@ def execute_plan(
 
     plan = state.retrieval_plan
     if plan is None or not getattr(plan, "subgoals", None):
-        _run_navigate_for_query(
-            ts, state, config, query=episode_query or state.query, steps_out=steps_out
-        )
-        return {"fallback_navigate": True}
+        # Retired: no multi-step navigate fallback. Planning always yields a
+        # subgoal (fallback_plan on failure); an empty plan here is a bug.
+        _logger.warning("execute_plan called with empty retrieval_plan; skipping wave")
+        return {"waves": [], "results": {}}
 
     max_waves = int(getattr(config, "max_waves", 0) or 0)
-    # Checklist mode always harvests + plan_controls (navigate-per-subgoal retired).
+    # Checklist mode always harvests + plan_controls.
     wave_idx = 0
     summary: Dict[str, Any] = {"waves": [], "results": {}}
     episode_done = False
@@ -452,23 +639,45 @@ def execute_plan(
         by_id = {s.id: s for s in plan.subgoals}
         outputs: List[Dict[str, Any]] = []
         query_by_subgoal = {
-            sid: _resolve_subgoal_query(state, by_id[sid]) for sid in ready
+            sid: str(_resolve_subgoal_query(state, by_id[sid]) or "").strip()
+            for sid in ready
         }
         prepared_relights: Dict[
             str,
             Tuple[Dict[str, float], Dict[str, float], List[str]],
         ] = {}
-        try:
-            from .nav_map_scores import relight_maps_for_queries
+        missing_queries: List[str] = []
+        for query in query_by_subgoal.values():
+            if not query:
+                continue
+            cached = state.relit_map_cache.get(query)
+            if cached is not None:
+                prepared_relights[query] = cached
+            elif query not in missing_queries:
+                missing_queries.append(query)
+        if missing_queries:
+            try:
+                from .nav_map_scores import relight_maps_for_queries
 
-            prepared_relights = relight_maps_for_queries(
-                ts,
-                doc_id=state.doc_id,
-                queries=list(query_by_subgoal.values()),
-                top_k=int(config.collect_top_k),
-            )
-        except Exception:
-            prepared_relights = {}
+                scored = relight_maps_for_queries(
+                    ts,
+                    doc_id=state.doc_id,
+                    queries=missing_queries,
+                    top_k=int(config.collect_top_k),
+                )
+                for query, triple in scored.items():
+                    scores, units, highlights = triple
+                    prepared = (dict(scores), dict(units), list(highlights))
+                    prepared_relights[query] = prepared
+                    if scores:
+                        state.relit_map_cache[query] = prepared
+            except Exception:
+                _logger.exception(
+                    "Failed to precompute relight maps; continuing without prepared relights "
+                    "(doc_id=%s, query_count=%d)",
+                    state.doc_id,
+                    len(missing_queries),
+                )
 
         def _run_one(sid: str, working_state: NavState, out_steps: Optional[List[Any]]) -> Dict[str, Any]:
             query = query_by_subgoal[sid]
@@ -559,7 +768,7 @@ def execute_plan(
             if cap > 0 and int(state.replan_count) < cap:
                 state.replan_count += 1
                 t0 = time.perf_counter()
-                new_plan = plan_query(ts, state, config)
+                new_plan = plan_query(state, config)
                 state.retrieval_plan = new_plan
                 plan = new_plan
                 # A regenerated plan gets fresh subgoal ids (s1, s2, ... again),
@@ -567,7 +776,9 @@ def execute_plan(
                 # qualified "sX.slot" bindings) cannot be safely carried over —
                 # those ids now mean something else. What IS safe and worth
                 # keeping is unqualified slot bindings (plain fact values) and
-                # every chunk already in state.collected.
+                # every chunk already in state.collected. Clear before re-seeding
+                # so stale refined queries / qualified bindings cannot leak into
+                # the new plan's retrieval_query scoring.
                 state.satisfied_subgoal_ids = set()
                 state.attempted_subgoal_ids = set()
                 state.dropped_subgoal_ids = set()
@@ -579,6 +790,7 @@ def execute_plan(
                 state.slot_bindings = {
                     k: v for k, v in state.slot_bindings.items() if "." not in k
                 }
+                seed_episode_map_scores_from_plan(ts, state, config, new_plan)
                 if steps_out is not None:
                     steps_out.append(
                         AgentStep(

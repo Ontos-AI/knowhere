@@ -76,7 +76,6 @@ def _section_view_from_structure(
         preview=preview,
         score=_lexical_score(query, f"{section_id} {preview}"),
         n_lines=int(st.get("n_lines") or 0),
-        n_chunks=int(st.get("n_chunks") or 0),
         has_children=bool(children),
         depth_from_scope=depth_from_scope,
         title=preview[:80] if preview else section_id,
@@ -127,7 +126,6 @@ class _MapNode:
     title: str
     score: float
     n_lines: int
-    n_chunks: int
     has_children: bool
     children: List["_MapNode"] = field(default_factory=list)
     n_descendants: int = 0
@@ -317,11 +315,13 @@ def _build_map_tree(
     collected_section_ids: Optional[Set[str]] = None,
     dismissed_section_ids: Optional[Set[str]] = None,
     harvested_section_ids: Optional[Dict[str, str]] = None,
+    keep_ids: Optional[Set[str]] = None,
 ) -> List[_MapNode]:
     roots: List[_MapNode] = []
     seen: Set[str] = set()
     node_count = 0
     harvested = dict(harvested_section_ids or {})
+    keep = set(keep_ids) if keep_ids is not None else None
     # collected = branch done (sid ∪ descendants already marked by caller).
     # Harvested roots stay visible as a collapsed single line (fix-map-
     # visibility); their descendants are still fully removed like any other
@@ -351,7 +351,6 @@ def _build_map_tree(
             title=title,
             score=score,
             n_lines=int(st.get("n_lines") or 0),
-            n_chunks=int(st.get("n_chunks") or 0),
             has_children=False,
             parent_id=parent_id,
         )
@@ -365,6 +364,8 @@ def _build_map_tree(
     ) -> None:
         """Attach section_id if visible. collected/dismissed drop node + subtree."""
         if not section_id or section_id in gone:
+            return
+        if keep is not None and section_id not in keep:
             return
         node = make_node(section_id, depth, parent_id)
         if node is None:
@@ -457,10 +458,7 @@ def _render_map(
         leaf_tag = " [Leaf]" if not node.has_children else ""
         hit_tag = format_hit_tag(is_highlight=is_hit)
         harvested_tag = format_harvested_tag(node.harvested_by)
-        line = (
-            f"{indent}[{map_id}] {node.title} ({node.n_chunks} chunks)"
-            f"{leaf_tag}{hit_tag}{harvested_tag}"
-        )
+        line = f"{indent}[{map_id}] {node.title}{leaf_tag}{hit_tag}{harvested_tag}"
         lines.append(line)
         summary = ""
         if inline_summary:
@@ -480,7 +478,6 @@ def _render_map(
                 preview="",
                 score=node.score,
                 n_lines=node.n_lines,
-                n_chunks=node.n_chunks,
                 has_children=node.has_children,
                 depth_from_scope=node.depth,
                 map_id=map_id,
@@ -499,6 +496,30 @@ def _render_map(
         render(root)
 
     return "\n".join(lines), visible, id_to_section, any_hidden
+
+
+def _expand_allowed_with_ancestors(
+    ts: Any,
+    allowed_section_ids: Optional[Set[str]],
+) -> Optional[Set[str]]:
+    if allowed_section_ids is None:
+        return None
+    keep = {str(sid).strip() for sid in allowed_section_ids if str(sid).strip()}
+    parent_fn = getattr(ts, "parent_id", None)
+    if not callable(parent_fn):
+        return keep
+    extra: Set[str] = set()
+    for sid in keep:
+        cur = sid
+        seen: Set[str] = set()
+        while cur and cur not in seen:
+            seen.add(cur)
+            parent = parent_fn(cur)
+            if not parent:
+                break
+            extra.add(str(parent))
+            cur = str(parent)
+    return keep | extra
 
 
 def _fallback_highlights_from_tree(roots: List[_MapNode], k: int) -> List[str]:
@@ -520,6 +541,7 @@ def build_map(
     highlight_ids: Optional[List[str]] = None,
     extra_hidden_ids: Optional[Set[str]] = None,
     harvested_section_ids: Optional[Dict[str, str]] = None,
+    allowed_section_ids: Optional[Set[str]] = None,
 ) -> Projection:
     """Full-depth title map with score-ordered budget hiding (+ optional inline summary)."""
     scores = dict(map_scores or {})
@@ -527,6 +549,7 @@ def build_map(
         root_ids = [scope]
     else:
         root_ids = _top_sections(ts, doc_id)
+    keep_ids = _expand_allowed_with_ancestors(ts, allowed_section_ids)
     roots = _build_map_tree(
         ts,
         root_ids=root_ids,
@@ -535,6 +558,7 @@ def build_map(
         collected_section_ids=collected_section_ids,
         dismissed_section_ids=dismissed_section_ids,
         harvested_section_ids=harvested_section_ids,
+        keep_ids=keep_ids,
     )
     hits = [str(x).strip() for x in (highlight_ids or []) if str(x).strip()]
     if not hits:
@@ -606,6 +630,7 @@ def build_projection(
     highlight_ids: Optional[List[str]] = None,
     extra_hidden_ids: Optional[Set[str]] = None,
     harvested_section_ids: Optional[Dict[str, str]] = None,
+    allowed_section_ids: Optional[Set[str]] = None,
 ) -> Projection:
     if map_mode_enabled(config):
         return build_map(
@@ -620,6 +645,7 @@ def build_projection(
             highlight_ids=highlight_ids,
             extra_hidden_ids=extra_hidden_ids,
             harvested_section_ids=harvested_section_ids,
+            allowed_section_ids=allowed_section_ids,
         )
 
     # Minimal non-map fallback (legacy shallow projection) — kept for ablation only.
@@ -670,7 +696,7 @@ def build_projection(
         leaf_tag = " [Leaf]" if not view.has_children else ""
         title = view.preview[:80] if view.preview else view.section_id
         add_line(
-            f"{indent}[{view.section_id}] {title} ({view.n_chunks} chunks){leaf_tag}"
+            f"{indent}[{view.section_id}] {title}{leaf_tag}"
         )
         if view.preview:
             add_line(f"{indent}     Preview: \"{view.preview[:80]}\"")
