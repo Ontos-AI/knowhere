@@ -33,6 +33,8 @@ RENDER_VARIABLES: dict[str, str] = {
     "API_WEBHOOK_ENDPOINT": "https://api-staging.knowhereto.ai/v1/internal/s3-events",
     "SNS_TOPIC_ARN": "arn:aws:sns:us-east-1:107424103509:knowhere-staging-s3-events",
     "QSTASH_CALLBACK_BASE_URL": "https://api-staging.knowhereto.ai/api/v1",
+    "API_CPU": "256",
+    "API_MEMORY": "1024",
     "WORKER_CPU": "2048",
     "WORKER_MEMORY": "4096",
 }
@@ -153,6 +155,20 @@ def test_staging_worker_preserves_evidence_selected_capacity(tmp_path: Path) -> 
     # on two fixed 2-vCPU tasks, so CD must not restore the rejected task size.
     assert definition["cpu"] == "2048"
     assert definition["memory"] == "4096"
+
+
+def test_staging_api_preserves_selected_capacity(tmp_path: Path) -> None:
+    """API capacity remains at the verified staging size."""
+    output_path: Path = tmp_path / "task-definition-api.staging.json"
+    render_template(
+        TEMPLATE_DIRECTORY / "task-definition-api.staging.json",
+        output_path,
+        RENDER_VARIABLES,
+    )
+    definition: dict[str, object] = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert definition["cpu"] == "256"
+    assert definition["memory"] == "1024"
 
 
 def test_renderer_rejects_forbidden_s3_credential_variable() -> None:

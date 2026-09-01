@@ -32,12 +32,18 @@ FRONTEND_URL=https://staging.knowhereto.ai \
 API_WEBHOOK_ENDPOINT=https://api-staging.knowhereto.ai/v1/internal/s3-events \
 SNS_TOPIC_ARN=arn:aws:sns:us-east-1:107424103509:knowhere-staging-s3-events \
 QSTASH_CALLBACK_BASE_URL=https://api-staging.knowhereto.ai/api/v1 \
+API_CPU=256 \
+API_MEMORY=1024 \
 WORKER_CPU=2048 \
 WORKER_MEMORY=4096 \
 python deploy/ecs/render_task_definitions.py --environment staging --output-dir /tmp/knowhere-ecs-rendered
 ```
 
 The output directory is deployment-only and must not be committed. The renderer fails on missing inputs, unresolved placeholders, or either long-lived S3 credential variable.
+
+The staging workflow keeps the API at 256 CPU / 1024 MiB. The production release
+workflow sets the API to 512 CPU / 2048 MiB (2 GiB) and the worker to 2048 CPU /
+4096 MiB, so production API memory remains at 2 GiB across future releases.
 
 ## Staging workflow prerequisites
 
