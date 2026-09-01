@@ -227,31 +227,31 @@ def _pool_unit_scores_to_tree(
     unit_scores: Dict[str, float],
 ) -> Dict[str, float]:
     """MAX-pool globally comparable unit scores onto one document tree."""
-    map_scores = {
-        leaf_id: float(unit_scores.get(leaf_id, 0.0) or 0.0) for leaf_id in leaves
-    }
-
-    def score_node(section_id: str) -> float:
-        if section_id in map_scores:
-            return map_scores[section_id]
+    # ``_walk_tree`` inserts every parent before its children. Reversing that
+    # order is therefore a postorder traversal without allocating descendant
+    # lists or revisiting nodes.
+    map_scores: Dict[str, float] = {}
+    descendant_leaf_max: Dict[str, float] = {}
+    for section_id in reversed(children_map):
         kids = children_map.get(section_id) or []
         if not kids:
-            score = float(unit_scores.get(section_id, 0.0) or 0.0)
-            map_scores[section_id] = score
-            return score
-        descendant_leaves = _collect_descendant_leaves(section_id, children_map, leaves)
-        parts = [
-            float(unit_scores.get(leaf_id, 0.0) or 0.0) for leaf_id in descendant_leaves
-        ]
-        self_key = f"{section_id}__self"
-        if self_key in unit_scores:
-            parts.append(float(unit_scores[self_key]))
-        score = float(max(parts)) if parts else 0.0
-        map_scores[section_id] = score
-        return score
-
-    for section_id in children_map:
-        score_node(section_id)
+            leaf_score = float(unit_scores.get(section_id, 0.0) or 0.0)
+            descendant_leaf_max[section_id] = leaf_score
+            score = leaf_score
+        else:
+            child_leaf_scores = [
+                descendant_leaf_max.get(kid, float(unit_scores.get(kid, 0.0) or 0.0))
+                for kid in kids
+            ]
+            leaf_score = max(child_leaf_scores, default=0.0)
+            descendant_leaf_max[section_id] = leaf_score
+            self_score = float(unit_scores.get(f"{section_id}__self", 0.0) or 0.0)
+            score = max(leaf_score, self_score)
+        map_scores[section_id] = float(score)
+    # Preserve the legacy behavior for leaf ids that are not present in the
+    # children map (defensive support for sparse providers).
+    for leaf_id in leaves:
+        map_scores.setdefault(leaf_id, float(unit_scores.get(leaf_id, 0.0) or 0.0))
     return map_scores
 
 

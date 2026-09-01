@@ -160,6 +160,49 @@ class RedisService:
                 original_exception=e,
             )
 
+    async def get_bytes(self, key: str) -> bytes | None:
+        """Get a value without JSON decoding (for compressed binary blobs)."""
+        try:
+            client = await self._get_client()
+            full_key = self._build_key(key)
+
+            async def _operation() -> bytes | None:
+                result = await client.get(full_key)
+                if result is None:
+                    return None
+                if isinstance(result, bytes):
+                    return result
+                if isinstance(result, bytearray):
+                    return bytes(result)
+                return str(result).encode("utf-8")
+
+            return await self._execute_with_retry(_operation)
+        except Exception as e:
+            logger.error(f"Redis GET_BYTES operation failed: {e}")
+            raise RedisOperationError(
+                internal_message=f"GET_BYTES operation failed: {str(e)}",
+                operation="GET_BYTES",
+                original_exception=e,
+            )
+
+    async def set_bytes(self, key: str, value: bytes, *, ex: int) -> bool:
+        """Set a compressed binary value with an explicit TTL."""
+        try:
+            client = await self._get_client()
+            full_key = self._build_key(key)
+
+            async def _operation() -> bool:
+                return bool(await client.set(full_key, value, ex=ex))
+
+            return await self._execute_with_retry(_operation)
+        except Exception as e:
+            logger.error(f"Redis SET_BYTES operation failed: {e}")
+            raise RedisOperationError(
+                internal_message=f"SET_BYTES operation failed: {str(e)}",
+                operation="SET_BYTES",
+                original_exception=e,
+            )
+
     async def delete(self, *keys: str) -> int:
         """Delete keys."""
         try:
