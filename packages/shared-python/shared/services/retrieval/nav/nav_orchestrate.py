@@ -1,7 +1,7 @@
 """M4/M5: wave orchestration over a RetrievalPlan.
 
 Execution order = dependency DAG ∩ soft prefer_after. Each subgoal runs its own
-harvest/navigate so evidence attribution stays per-subgoal. Slot values are
+harvest so evidence attribution stays per-subgoal. Slot values are
 extracted only when a later subgoal references them; checklist acceptance is
 owned by ``plan_control``.
 """
@@ -16,7 +16,6 @@ from dataclasses import asdict
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
 from .nav_token_budget import stamp_step_detail
-from .nav_navigate import navigate
 from .nav_plan import (
     RetrievalPlan,
     Subgoal,
@@ -137,26 +136,6 @@ def _resolve_subgoal_query(state: NavState, subgoal: Subgoal) -> str:
     return refined or query
 
 
-def _run_navigate_for_query(
-    ts: Any,
-    state: NavState,
-    config: NavConfig,
-    *,
-    query: str,
-    steps_out: Optional[List[Any]],
-) -> None:
-    navigate(
-        ts,
-        state=state,
-        scope=None,
-        query=query,
-        config=config,
-        depth=0,
-        budget=int(config.map_char_limit),
-        steps_out=steps_out,
-    )
-
-
 def _wave_subgoal_result(
     plan: RetrievalPlan,
     state: NavState,
@@ -249,8 +228,6 @@ def _execute_subgoal_harvest_once(
     Retry / widen / drop / replan authority belongs to ``plan_control`` across
     waves (see ``nav_control.plan_control``), not to this single call.
     """
-    from .nav_harvest import harvest
-
     rq = retrieval_query or _resolve_subgoal_query(state, subgoal)
     refined = str((state.subgoal_refined_queries or {}).get(subgoal.id) or "").strip()
     _set_focus(state, subgoal, rq)
@@ -266,12 +243,11 @@ def _execute_subgoal_harvest_once(
         query=rq,
         prepared=prepared_relight,
     ):
-        harvest_result = harvest(
+        harvest_result = _harvest_after_node_filter(
             ts,
             state,
             config,
             subgoal=subgoal,
-            entry_scope=None,
             query=rq,
             steps_out=steps_out,
         )
@@ -301,6 +277,126 @@ def _execute_subgoal_harvest_once(
             "refined_query": refined,
         },
     }
+
+
+def _harvest_after_node_filter(
+    ts: Any,
+    state: NavState,
+    config: NavConfig,
+    *,
+    subgoal: Subgoal,
+    query: str,
+    steps_out: Optional[List[Any]],
+) -> Any:
+    from .nav_harvest import harvest
+
+    if not bool(getattr(config, "enable_node_filter", False)) or not bool(
+        getattr(subgoal, "use_node_filter", False)
+    ):
+        return harvest(
+            ts,
+            state,
+            config,
+            subgoal=subgoal,
+            entry_scope=None,
+            query=query,
+            steps_out=steps_out,
+        )
+
+    from .nav_scope_filter import run_scope_filter
+
+    doc_ids = list(ts.document_ids() or ())
+    if not doc_ids and state.doc_id:
+        doc_ids = [str(state.doc_id)]
+    seed = None
+    raw_seed = list(getattr(subgoal, "node_filter_predicates", None) or [])
+    if raw_seed:
+        from .nav_scope_filter import parse_node_filter
+
+        seed = parse_node_filter({"predicates": raw_seed})
+    outcome = run_scope_filter(
+        ts,
+        config,
+        query=query,
+        doc_ids=doc_ids,
+        seed_filter=seed,
+        steps_out=steps_out,
+    )
+    if outcome.decision == "collect_all":
+        collected = _collect_filtered_sections(
+            ts, state, config, subgoal=subgoal, section_ids=outcome.settled_section_ids
+        )
+        if collected is not None:
+            return collected
+    if outcome.decision == "scoped_harvest" and outcome.settled_section_ids:
+        return harvest(
+            ts,
+            state,
+            config,
+            subgoal=subgoal,
+            entry_scope=None,
+            query=query,
+            steps_out=steps_out,
+            allowed_section_ids=set(outcome.settled_section_ids),
+        )
+    return harvest(
+        ts,
+        state,
+        config,
+        subgoal=subgoal,
+        entry_scope=None,
+        query=query,
+        steps_out=steps_out,
+    )
+
+
+def _collect_filtered_sections(
+    ts: Any,
+    state: NavState,
+    config: NavConfig,
+    *,
+    subgoal: Subgoal,
+    section_ids: Sequence[str],
+) -> Any:
+    from .nav_address import is_dispatch_only_node
+    from .nav_harvest import HarvestResult
+    from .nav_knowhere import is_root_section
+    from .nav_navigate import _apply_collect
+    from .nav_types import ActionKind, LegalAction
+
+    collectable = [
+        sid
+        for sid in section_ids
+        if str(sid).strip()
+        and not is_dispatch_only_node(ts, sid)
+        and not is_root_section(ts, sid)
+    ]
+    if not collectable:
+        return None
+    actions = [
+        LegalAction(
+            action_id=f"C{i}",
+            kind=ActionKind.COLLECT,
+            section_id=sid,
+            metadata={"multi": True},
+        )
+        for i, sid in enumerate(collectable, start=1)
+    ]
+    primary = actions[0]
+    primary.metadata = dict(primary.metadata or {})
+    primary.metadata["batch_actions"] = actions
+    primary.metadata["confidence_by_section"] = {sid: 1.0 for sid in collectable}
+    detail = _apply_collect(ts, state, primary, config)
+    new_roots = list(detail.get("collect_section_ids") or [])
+    if bool(config.is_checklist):
+        for sid in new_roots:
+            state.harvested_owner_subgoal[sid] = subgoal.id
+    return HarvestResult(
+        subgoal_id=subgoal.id,
+        new_section_ids=new_roots,
+        n_policy_calls=0,
+        reason="node_filter_collect_all",
+    )
 
 
 def _apply_plan_control(
@@ -418,13 +514,13 @@ def execute_plan(
 
     plan = state.retrieval_plan
     if plan is None or not getattr(plan, "subgoals", None):
-        _run_navigate_for_query(
-            ts, state, config, query=episode_query or state.query, steps_out=steps_out
-        )
-        return {"fallback_navigate": True}
+        # Retired: no multi-step navigate fallback. Planning always yields a
+        # subgoal (fallback_plan on failure); an empty plan here is a bug.
+        _logger.warning("execute_plan called with empty retrieval_plan; skipping wave")
+        return {"waves": [], "results": {}}
 
     max_waves = int(getattr(config, "max_waves", 0) or 0)
-    # Checklist mode always harvests + plan_controls (navigate-per-subgoal retired).
+    # Checklist mode always harvests + plan_controls.
     wave_idx = 0
     summary: Dict[str, Any] = {"waves": [], "results": {}}
     episode_done = False

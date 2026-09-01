@@ -55,6 +55,8 @@ class Subgoal:
     prefer_after: List[str] = field(default_factory=list)
     contract: Contract = field(default_factory=Contract)
     produces: List[str] = field(default_factory=list)
+    use_node_filter: bool = False
+    node_filter_predicates: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -112,8 +114,8 @@ def unbound_slots(text: str) -> List[str]:
 def extract_plan_json(text: str) -> Optional[dict]:
     """Parse a (possibly nested) JSON object from model output.
 
-    Unlike the navigate-action helper, this uses brace balancing so nested
-    plan objects are not truncated to the first inner ``{...}``.
+    Uses brace balancing so nested plan objects are not truncated to the first
+    inner ``{...}``.
     """
     s = (text or "").strip()
     if not s:
@@ -157,6 +159,39 @@ def extract_plan_json(text: str) -> Optional[dict]:
                 except Exception:
                     return None
     return None
+
+
+def _as_bool(raw: Any) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_node_filter_predicates(raw: Any) -> List[Dict[str, Any]]:
+    if isinstance(raw, dict):
+        raw = raw.get("predicates")
+    if not isinstance(raw, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        field = str(item.get("field") or "").strip().lower()
+        if field not in {"path", "summary"}:
+            continue
+        terms = item.get("terms") or []
+        if isinstance(terms, str):
+            terms = [terms]
+        if not isinstance(terms, list):
+            continue
+        cleaned = [str(t) for t in terms if str(t)]
+        if not cleaned:
+            continue
+        match = str(item.get("match") or "substring").strip().lower()
+        if match not in {"substring", "regex"}:
+            match = "substring"
+        out.append({"field": field, "terms": cleaned, "match": match})
+    return out
 
 
 def _as_str_list(raw: Any) -> List[str]:
@@ -421,6 +456,10 @@ def parse_retrieval_plan(
                 prefer_after=_as_str_list(row.get("prefer_after")),
                 contract=_parse_contract(row.get("contract")),
                 produces=produces,
+                use_node_filter=_as_bool(row.get("use_node_filter")),
+                node_filter_predicates=_parse_node_filter_predicates(
+                    row.get("node_filter") or row.get("node_filter_predicates")
+                ),
             )
         )
 
@@ -612,7 +651,13 @@ def _planner_system_prompt(*, max_subgoals: int) -> str:
         "9. map_coverage: sufficient | partial | insufficient — whether the planning "
         "map shows enough structure to ground this plan.\n"
         "10. reason must be English, under 40 words. Document titles stay original "
-        "language.\n\n"
+        "language.\n"
+        "11. Set use_node_filter=true when the subgoal enumerates or compares "
+        "named facets you can write as path/summary predicates (filenames, "
+        "tickers, section titles). Keep it false for vague semantic needs; "
+        "retrieval_query remains the fuzzy-leg fallback. Optional node_filter "
+        "may seed predicates: "
+        '[{\"field\":\"path|summary\",\"terms\":[\"...\"],\"match\":\"substring|regex\"}].\n\n'
         "Return ONLY one JSON object:\n"
         "{\n"
         '  "reason": "...",\n'
@@ -630,7 +675,9 @@ def _planner_system_prompt(*, max_subgoals: int) -> str:
         '      "prefer_after": [],\n'
         '      "produces": ["entity"],\n'
         '      "contract": {"kind": "single_fact|enumeration|span|comparison|existence", '
-        '"cardinality": null}\n'
+        '"cardinality": null},\n'
+        '      "use_node_filter": false,\n'
+        '      "node_filter": []\n'
         "    },\n"
         "    {\n"
         '      "id": "s2",\n'

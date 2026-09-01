@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-NavMode = Literal["navigate", "checklist"]
+NavMode = Literal["checklist"]
 
 
 class ActionKind(str, Enum):
@@ -58,7 +58,6 @@ class NavConfig:
     # Recursive dispatch.
     enable_recursive_dispatch: bool = True
     max_dispatch_depth: int = 3
-    navigate_max_steps: int = 8
     subagent_model: str = ""
     # Scoped maps whose estimated (with-summary) size exceeds this threshold drop
     # inline summaries (title-only), nudging the agent to DISPATCH deeper rather
@@ -69,16 +68,8 @@ class NavConfig:
     # COMPOSE child score = own_unit + compose_confidence_weight * collect_confidence
     # (see nav_compose._child_final_score); drives group_key / within-group rank.
     compose_confidence_weight: float = 0.5
-    # Depth-0 group_rank preview budget: over this many chars, skip Assembled
-    # Evidence / group_rank entirely (title+summary per parent group).
-    compose_group_rank_max_chars: int = 10000
-    # Depth-0 hard rewrite: after agent chooses COLLECT, if branch text length
-    # exceeds the limit and the node has children, rewrite that sid to DISPATCH.
-    enable_depth0_oversize_to_dispatch: bool = False
-    # 0 = use episode evidence budget_chars (set in run_nav_episode).
-    depth0_oversize_char_limit: int = 0
-    # Product mode: navigate = classic map loop; checklist = plan+harvest+control.
-    mode: NavMode = "navigate"
+    # Product mode: checklist = plan+harvest+control.
+    mode: NavMode = "checklist"
     # Display budget for the one-shot planning map; executor still uses map_char_limit.
     # 0 = reuse map_char_limit.
     planning_map_char_limit: int = 10000
@@ -90,12 +81,12 @@ class NavConfig:
     planner_think_max_tokens: int = 0
     # 0 → RETRIEVAL_NAV_TOKEN_LIMIT env / default 100000.
     token_limit: int = 0
-    # Separate from navigate llm_max_tokens: plan JSON is larger.
+    # Plan JSON is larger than a single harvest action; give the planner more room.
     planner_llm_max_tokens: int = 1024
-    # Harvest multi-id JSON (collect_ids + per-id confidence) needs more than
-    # navigate's 256 — capped completion truncates mid-object and parses as empty.
+    # Harvest multi-id JSON (collect_ids + per-id confidence) needs more than a
+    # bare 256 — capped completion truncates mid-object and parses as empty.
     harvest_llm_max_tokens: int = 1024
-    # Checklist: navigate/harvest cycles per subgoal before drop. Min 1.
+    # Checklist: harvest cycles per subgoal before drop. Min 1.
     subgoal_max_attempts: int = 2
     # Checklist: 0 = never replan; otherwise hard cap on structural replans.
     # Default 1 so shared-checklist probe/harness match without silent overrides.
@@ -107,6 +98,12 @@ class NavConfig:
     # Retired: plan_control now shows full prebuilt section summaries (already
     # head/tail clipped at summary-build time), not a raw-evidence char cut.
     plan_control_digest_chars: int = 600
+    # WHERE node filter (pre-harvest). Off until orchestrate enables a subgoal.
+    enable_node_filter: bool = False
+    filter_max_rounds: int = 3
+    filter_min_hits: int = 1
+    filter_max_hits: int = 40
+    filter_submap_char_limit: int = 2000
 
     @property
     def is_checklist(self) -> bool:
@@ -123,7 +120,7 @@ class NavConfig:
             flat["tight_remaining_steps"] = int(
                 budget_modes.get("tight_remaining_steps", cls.tight_remaining_steps)
             )
-        # Retired product flags (collapsed into mode=navigate|checklist).
+        # Retired product flags (dropped after the navigate loop was removed).
         for dead in (
             "expand_top_k",
             "map_peek_top_k",
@@ -157,10 +154,14 @@ class NavConfig:
             "llm_model_env",
             "planner_model_env",
             "subagent_model_env",
+            # Retired with the multi-step navigate loop.
+            "navigate_max_steps",
+            "enable_depth0_oversize_to_dispatch",
+            "depth0_oversize_char_limit",
+            "compose_group_rank_max_chars",
         ):
             flat.pop(dead, None)
-        raw_mode = str(flat.get("mode") or "navigate").strip().lower()
-        flat["mode"] = "checklist" if raw_mode == "checklist" else "navigate"
+        flat["mode"] = "checklist"
         allowed = {f.name for f in cls.__dataclass_fields__.values()}
         cfg = cls(**{k: v for k, v in flat.items() if k in allowed})
         if cfg.map_mode and cfg.llm_max_tokens < 256:
@@ -226,19 +227,6 @@ class LegalAction:
 
 
 @dataclass
-class RegionReport:
-    """Result of one navigate(scope, ...) call (top-level or dispatched subagent)."""
-
-    scope: Optional[str]
-    collected_section_ids: List[str] = field(default_factory=list)
-    suggestions: List[str] = field(default_factory=list)
-    summary: str = ""
-    reason: str = ""
-    skipped: bool = False
-    depth: int = 0
-
-
-@dataclass
 class SubgoalResult:
     """Typed outcome of one subgoal execution (M5)."""
 
@@ -258,7 +246,7 @@ class NavState:
     doc_id: str
     query: str
     task_type: str = "unknown"
-    # Working scope for the *current* navigate call (set by navigate(), not a stack).
+    # Working scope for the current harvest level (set by harvest(), not a stack).
     current_scope: Optional[str] = None
     collected_ids: set[str] = field(default_factory=set)
     collected: List[Tuple[Any, float]] = field(default_factory=list)
@@ -270,9 +258,6 @@ class NavState:
     blocked_collect_section_ids: set[str] = field(default_factory=set)
     action_history: List[Dict[str, Any]] = field(default_factory=list)
     refusal_events: List[Dict[str, Any]] = field(default_factory=list)
-    # Subagent / investigate reports shown to the parent agent.
-    reports_context: str = ""
-    investigated_section_ids: set[str] = field(default_factory=set)
     dismissed_section_ids: set[str] = field(default_factory=set)
     # Explicit COLLECT confidence by section_id; hydration-only descendants stay 0.
     collect_confidence: Dict[str, float] = field(default_factory=dict)

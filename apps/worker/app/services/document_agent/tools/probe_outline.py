@@ -1,4 +1,4 @@
-"""probe.outline: read PDF bookmarks via get_toc and build a pruned tree."""
+"""probe.outline: read PDF bookmarks via get_toc and build a nested tree."""
 
 from __future__ import annotations
 
@@ -18,8 +18,12 @@ def _normalize_page(raw: Any) -> int | None:
     return page if page > 0 else None
 
 
-def _flat_toc_to_forest(entries: list[list[Any]]) -> list[dict[str, Any]]:
-    """Convert flat ``[level, title, page]`` rows into a nested forest."""
+def build_outline_forest(entries: list[list[Any]]) -> list[dict[str, Any]]:
+    """Convert flat ``[level, title, page]`` rows into a nested forest.
+
+    No-page destinations (``page <= 0``) become ``page=None`` and are retained;
+    printed TOC likewise keeps entries whose printed pages are out of range.
+    """
     roots: list[dict[str, Any]] = []
     stack: list[dict[str, Any]] = []
     for row in entries:
@@ -45,30 +49,6 @@ def _flat_toc_to_forest(entries: list[list[Any]]) -> list[dict[str, Any]]:
     return roots
 
 
-def prune_outline_forest(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Keep no-page parents when descendants have pages; drop no-page leaves/subtrees."""
-    kept: list[dict[str, Any]] = []
-    for node in nodes:
-        children = prune_outline_forest(list(node.get("children") or []))
-        page = node.get("page")
-        if page is None and not children:
-            # No-page leaf, or entire no-page subtree after child prune.
-            continue
-        kept.append(
-            {
-                "title": node["title"],
-                "level": node["level"],
-                "page": page,
-                "children": children,
-            }
-        )
-    return kept
-
-
-def build_outline_forest(entries: list[list[Any]]) -> list[dict[str, Any]]:
-    return prune_outline_forest(_flat_toc_to_forest(entries))
-
-
 def _count_nodes(nodes: list[dict[str, Any]]) -> int:
     total = 0
     for node in nodes:
@@ -79,8 +59,8 @@ def _count_nodes(nodes: list[dict[str, Any]]) -> int:
 @register_tool(
     name="probe.outline",
     description=(
-        "Read PDF bookmark outline via get_toc(simple=True) and return a pruned tree. "
-        "No-page parents are kept when children have pages; no-page leaves/subtrees are dropped."
+        "Read PDF bookmark outline via get_toc(simple=True) and return a nested "
+        "tree. No-page destinations are kept as page=null."
     ),
     parameters={
         "type": "object",

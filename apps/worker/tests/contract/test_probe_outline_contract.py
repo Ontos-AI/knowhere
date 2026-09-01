@@ -1,4 +1,4 @@
-"""Contract tests for probe.outline forest prune and physical pages."""
+"""Contract tests for probe.outline forest build and physical pages."""
 
 from __future__ import annotations
 
@@ -32,13 +32,17 @@ def test_outline_keeps_no_page_parent_with_paged_children() -> None:
     assert [child["page"] for child in forest[0]["children"]] == [10, 20]
 
 
-def test_outline_drops_no_page_leaf_and_empty_subtree() -> None:
+def test_outline_keeps_no_page_leaf_and_no_page_subtree() -> None:
     forest = build_outline_forest(
         [
             [1, "Keep", 5],
-            [1, "DropLeaf", -1],
-            [1, "DropParent", -1],
-            [2, "DropChild", 0],
+            [1, "KeepLeaf", -1],
+            [1, "KeepParent", -1],
+            [2, "KeepChild", 0],
         ]
     )
-    assert [node["title"] for node in forest] == ["Keep"]
+    assert [node["title"] for node in forest] == ["Keep", "KeepLeaf", "KeepParent"]
+    assert forest[1]["page"] is None
+    assert forest[2]["page"] is None
+    assert [child["title"] for child in forest[2]["children"]] == ["KeepChild"]
+    assert forest[2]["children"][0]["page"] is None

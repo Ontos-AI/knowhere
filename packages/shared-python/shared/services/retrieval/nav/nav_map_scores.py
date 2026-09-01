@@ -330,7 +330,7 @@ def compute_map_scores(
     query: str,
     root_ids: Optional[Sequence[str]] = None,
 ) -> Dict[str, float]:
-    """Leaf 3-channel scores + parent max-pool (self_only only if interstitial)."""
+    """Leaf path+content scores + parent max-pool (self_only only if interstitial)."""
     map_scores, _unit_scores = compute_map_and_unit_scores(
         ts, doc_id=doc_id, query=query, root_ids=root_ids
     )

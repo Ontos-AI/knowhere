@@ -36,10 +36,11 @@ Fields: action is one of grep, strip_header, strip_footer, give_up; query is a s
 Ordered query strategy (follow this order; skip a step only if already tried
 or not applicable to the given title / parent path). Pattern-level only —
 do not invent document-specific titles:
-1. Derive the search line from the given title by removing leading number /
-   letter / punctuation prefixes and trailing metadata qualifiers (document
-   identifiers/codes, revision labels, and similar). Keep the semantic title
-   body. Prefer that body over a metadata-only query when both are present.
+1. Derive the semantic title body from the given title: strip leading
+   number / letter / punctuation prefixes and trailing metadata qualifiers
+   (document identifiers/codes, revision labels, and similar). The given title
+   may be a merged heading (semantic body plus a code); still reduce it to the
+   semantic body first. Grep that body before any metadata-only query.
 2. When the parent path indicates appendices/annexes (or the title is a
    lettered appendix-style entry): grep the structural form
    "Appendix <letter>" using the letter taken from the title. Prefer this

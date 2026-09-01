@@ -4,8 +4,8 @@
 
 Resumes Stage-0 blackboard (``stage0_state.json`` + ``page_full_text_cache.json``,
 including asset-probe ``has_asset`` flags) and runs the production TOC segment:
-  find.toc_anchor_pages → extract.toc_with_boundaries
-  → persist doc_profile.json
+  find.toc_anchor_pages → probe.outline → extract.toc_with_boundaries
+  → persist doc_profile.json + ``_doc_agent/pdf_outline_roots.json``
 
 Requires Stage 0 first:
   uv run python scripts/page_memory/debug_pm_stage0_bootstrap.py --file ...

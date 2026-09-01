@@ -84,18 +84,20 @@ def _seed_preprobed_pages(
     coordinator.blackboard.global_signals["assets_probed"] = True
 
 
-def test_toc_anchor_text_scan_whole_line_keyword_and_split_repair() -> None:
+def test_toc_anchor_text_scan_line_contains_keyword_and_split_repair() -> None:
     late_lines = [f"body line {idx}" for idx in range(60)] + ["目录"]
     split_lines = ["Table of", "Con", "tents"]
-    false_positive_lines = [
+    # Containment (not whole-line equality): prefixed titles and body mentions hit.
+    contains_lines = [
+        "General table of contents",
         "Commentary provides guidance on minimum cement contents in different situations.",
         "The basic contents of a typical contract document are shown below:",
     ]
 
     late_matches = toc_anchor_tool._find_toc_text_matches(late_lines)  # noqa: SLF001
     split_matches = toc_anchor_tool._find_toc_text_matches(split_lines)  # noqa: SLF001
-    false_matches = toc_anchor_tool._find_toc_text_matches(  # noqa: SLF001
-        false_positive_lines
+    contains_matches = toc_anchor_tool._find_toc_text_matches(  # noqa: SLF001
+        contains_lines
     )
 
     assert late_matches[0]["line_index"] == 60
@@ -103,7 +105,11 @@ def test_toc_anchor_text_scan_whole_line_keyword_and_split_repair() -> None:
     assert split_matches[0]["match_kind"] == "keyword:table of contents"
     assert split_matches[0]["line_index"] == 0
     assert split_matches[0]["line_end_index"] == 2
-    assert false_matches == []
+    assert [m["match_kind"] for m in contains_matches] == [
+        "keyword:table of contents",
+        "keyword:contents",
+        "keyword:contents",
+    ]
 
 
 def test_toc_extraction_raises_on_pipeline_failure(tmp_path: Path) -> None:

@@ -7,7 +7,7 @@ Nav modules call ``nav_chat`` / ``resolve_nav_model`` only — they must not rea
 
 Thinking policy (DeepSeek V4 defaults thinking ON if omitted):
 
-- ``action`` (navigate / harvest / refine / verify / score):
+- ``action`` (harvest / refine / verify / score):
   always disabled — short JSON under ``llm_max_tokens`` (often 256).
 - ``planner`` (plan_query / replan only): episode-bound
   ``NavConfig.planner_thinking``, else ``NAV_PLANNER_THINKING`` for EXP

@@ -30,7 +30,13 @@ def _outline_roots() -> list[dict[str, Any]]:
                     "level": 2,
                     "page": 15,
                     "children": [],
-                }
+                },
+                {
+                    "title": "截断章节",
+                    "level": 2,
+                    "page": None,
+                    "children": [],
+                },
             ],
         }
     ]
@@ -127,6 +133,8 @@ def test_outline_wins_skips_calibrate_and_keeps_confirmed_toc_pages() -> None:
     assert calibrate_calls["count"] == 0
     assert len(judge_calls) == 1
     assert judge_calls[0]["toc_pages"] == [2, 3, 4, 5]
+    # Null outline destinations stay in the judge digest…
+    assert "截断章节" in str(judge_calls[0].get("outline_digest") or "")
     assert ctx.blackboard.toc_result is not None
     assert ctx.blackboard.toc_result.toc_pages == [2, 3, 4, 5]
     assert ctx.blackboard.toc_result.method == "pdf_outline"
@@ -135,6 +143,10 @@ def test_outline_wins_skips_calibrate_and_keeps_confirmed_toc_pages() -> None:
     assert ctx.blackboard.skeleton_anchor["offset_status"] == "ok"
     assert ctx.blackboard.toc_hierarchies is not None
     assert ctx.blackboard.toc_hierarchies[0]["source"] == "pdf_outline"
+    # …but are omitted from the anchoring hierarchy (no null-page ReAct targets).
+    anchored_rows = ctx.blackboard.toc_hierarchies[0]["toc_with_level"]
+    assert [row["heading"] for row in anchored_rows] == ["第一章", "第二章"]
+    assert all("physical_page" in row for row in anchored_rows)
 
 
 def test_outline_without_toc_pages_adopts_without_judge() -> None:

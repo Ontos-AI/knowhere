@@ -292,65 +292,6 @@ def _build_groups(
     return list(groups.values())
 
 
-def _group_summary_text(ts: ToolSpace, section_id: str) -> str:
-    """Prebuilt section summary for a compose group header (no body heuristics)."""
-    sid = str(section_id or "").strip()
-    if not sid:
-        return ""
-    try:
-        from section_summary_store import get_summary
-
-        doc = _section_doc_id(ts, sid, "")
-        text = str(get_summary(sid, doc_id=doc) or "").strip()
-        if text:
-            return text
-    except Exception:
-        pass
-    try:
-        st = ts.get_structure(sid) or {}
-        text = str(st.get("summary") or "").strip()
-        if text:
-            return text
-        return str(st.get("preview") or "").strip()
-    except Exception:
-        return ""
-
-
-def build_compose_preview(
-    collected: Sequence[Tuple[Chunk, float]],
-    ts: ToolSpace,
-    state: NavState,
-    config: NavConfig,
-) -> Tuple[str, Dict[str, str]]:
-    """Assemble current pool into [G*] parent-group preview for group_rank.
-
-    One line per group: ``[Gi] §title`` plus that group's header-node summary.
-    No child expansion, unit scores, or char counts. If the preview exceeds
-    ``compose_group_rank_max_chars``, return empty so callers skip group_rank.
-    """
-    scored = dedupe_scored(list(collected))
-    groups = _build_groups(scored, ts, state, config)
-    groups.sort(key=lambda g: (-g.group_key, g.doc_order_key))
-
-    lines: List[str] = []
-    g_map: Dict[str, str] = {}
-    for i, g in enumerate(groups, 1):
-        gid = f"G{i}"
-        if g.parent_id:
-            g_map[gid] = str(g.parent_id)
-        title = g.parent_title or str(g.parent_id or "").strip() or gid
-        lines.append(f"[{gid}] §{title}")
-        summary = _group_summary_text(ts, str(g.parent_id or ""))
-        if summary:
-            lines.append(f"  {summary}")
-
-    text = "\n".join(lines)
-    max_chars = max(0, int(getattr(config, "compose_group_rank_max_chars", 10000) or 0))
-    if max_chars > 0 and len(text) > max_chars:
-        return "", {}
-    return text, g_map
-
-
 def _render_group(
     group: _ParentGroup,
     selected: Sequence[_ChildItem],
