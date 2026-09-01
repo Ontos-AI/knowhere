@@ -59,7 +59,7 @@ def test_read_only_score_loader_drives_frequency_lookup_from_token_hash(
                 self.rows = [(document_id, job_result_id, 1, 1, 0.0, 0.0)]
             elif "FROM document_map_units AS units" in statement:
                 self.rows = [("unit-frequency", document_id, "chunk-frequency", "section-frequency", 1, 1)]
-            elif "matching_tokens AS MATERIALIZED" in statement:
+            elif "FROM document_map_unit_tokens" in statement:
                 self.rows = [("unit-frequency", "path", "retrieval", 1)]
             else:
                 self.rows = []
@@ -101,14 +101,15 @@ def test_read_only_score_loader_drives_frequency_lookup_from_token_hash(
     frequency_executions = [
         (statement, parameters)
         for statement, parameters in executions
-        if "matching_tokens AS MATERIALIZED" in statement
+        if "FROM document_map_unit_tokens" in statement
     ]
     assert len(frequency_executions) == 1
     statement, parameters = frequency_executions[0]
-    assert "FROM matching_tokens" in statement
+    assert "map_unit_id = ANY" in statement
     assert "token_hash = ANY" in statement
     assert isinstance(parameters, list)
-    assert parameters[0] == [
+    assert parameters[0] == ["unit-frequency"]
+    assert parameters[1] == [
         "6e51d6a3d90b6a3243d38e6da6b3f31f49867c1360beba83da8ca9630f9672c7"
     ]
 

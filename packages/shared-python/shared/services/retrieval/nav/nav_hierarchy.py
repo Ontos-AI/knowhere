@@ -45,7 +45,6 @@ class NodeMeta:
     title: str = ""
     summary: str = ""
     has_children: bool = False
-    n_chunks: int = 0
 
 
 @runtime_checkable
@@ -61,7 +60,7 @@ class HierarchyProvider(Protocol):
         ...
 
     def node_meta(self, section_id: str) -> NodeMeta:
-        """Title/summary/chunk-count/has_children for one node."""
+        """Title/summary/has_children for one node."""
         ...
 
     def relations(self, section_id: str) -> Tuple[Set[str], Set[str]]:
@@ -134,7 +133,6 @@ class ProviderToolSpace:
             "preview": meta.title,
             "summary": str(meta.summary or ""),
             "n_lines": 1,
-            "n_chunks": int(meta.n_chunks),
             "children": [
                 {"section_id": cid, "preview": self._provider.node_meta(cid).title}
                 for cid in child_ids
@@ -332,7 +330,6 @@ class InMemoryHierarchyProvider:
             title=node.title,
             summary=self._summaries.get(section_id, ""),
             has_children=bool(node.children),
-            n_chunks=1,
         )
 
     def parent_id(self, section_id: str) -> Optional[str]:
