@@ -28,7 +28,6 @@ from .nav_map_scores import (
     compute_map_and_unit_scores,
     select_map_highlights,
 )
-from .nav_navigate import navigate
 from .nav_types import (
     LegalAction,
     NavConfig,
@@ -379,10 +378,6 @@ def _run_nav_episode_body(
     mult = float(getattr(cfg, "scope_inline_summary_budget_mult", 0.0) or 0.0)
     if mult > 0.0 and int(budget_chars) > 0:
         cfg.scope_inline_summary_char_limit = max(1, int(budget_chars * mult))
-    # Depth-0 oversize→DISPATCH threshold defaults to the evidence budget.
-    if bool(getattr(cfg, "enable_depth0_oversize_to_dispatch", False)):
-        if int(getattr(cfg, "depth0_oversize_char_limit", 0) or 0) <= 0:
-            cfg.depth0_oversize_char_limit = max(1, int(budget_chars))
     retrieval_t0 = time.perf_counter()
     if toolspace is not None:
         ts = toolspace
@@ -421,67 +416,58 @@ def _run_nav_episode_body(
         state.unit_scores, k=int(cfg.collect_top_k)
     )
 
-    if cfg.is_checklist:
-        from .nav_plan import plan_query
+    from .nav_plan import plan_query
 
-        plan_t0 = time.perf_counter()
-        retrieval_plan = plan_query(ts, state, cfg)
-        state.retrieval_plan = retrieval_plan
-        steps.append(
-            AgentStep(
-                step_idx=len(steps) + 1,
-                action="query_plan",
-                detail=stamp_step_detail({
-                    "fallback": bool(retrieval_plan.fallback),
-                    "n_subgoals": len(retrieval_plan.subgoals),
-                    "reason": retrieval_plan.reason,
-                    "plan": retrieval_plan.to_dict(),
-                    "planning_map_char_limit": int(
-                        getattr(cfg, "planning_map_char_limit", 0) or cfg.map_char_limit
-                    ),
-                    "seconds": time.perf_counter() - plan_t0,
-                }, t0=plan_t0),
-            )
+    plan_t0 = time.perf_counter()
+    retrieval_plan = plan_query(ts, state, cfg)
+    state.retrieval_plan = retrieval_plan
+    steps.append(
+        AgentStep(
+            step_idx=len(steps) + 1,
+            action="query_plan",
+            detail=stamp_step_detail({
+                "fallback": bool(retrieval_plan.fallback),
+                "n_subgoals": len(retrieval_plan.subgoals),
+                "reason": retrieval_plan.reason,
+                "plan": retrieval_plan.to_dict(),
+                "planning_map_char_limit": int(
+                    getattr(cfg, "planning_map_char_limit", 0) or cfg.map_char_limit
+                ),
+                "seconds": time.perf_counter() - plan_t0,
+            }, t0=plan_t0),
         )
-        _logger.info(
-            "retrieval mapnav phase=planner seconds=%.3f subgoals=%d",
-            time.perf_counter() - plan_t0,
-            len(retrieval_plan.subgoals),
-        )
+    )
+    _logger.info(
+        "retrieval mapnav phase=planner seconds=%.3f subgoals=%d",
+        time.perf_counter() - plan_t0,
+        len(retrieval_plan.subgoals),
+    )
 
-    # Checklist: wave orchestration; navigate mode: classic single navigate.
-    if cfg.is_checklist and state.retrieval_plan is not None:
-        from .nav_orchestrate import execute_plan
+    # Checklist: wave orchestration. Every episode runs plan + harvest + control.
+    if state.retrieval_plan is None:
+        from .nav_plan import fallback_plan
 
-        orch_t0 = time.perf_counter()
-        orch_detail = execute_plan(
-            ts, state, cfg, steps_out=steps, episode_query=query
+        state.retrieval_plan = fallback_plan(query, reason="missing_plan")
+    from .nav_orchestrate import execute_plan
+
+    orch_t0 = time.perf_counter()
+    orch_detail = execute_plan(
+        ts, state, cfg, steps_out=steps, episode_query=query
+    )
+    orch_detail = dict(orch_detail or {})
+    orch_detail["seconds"] = time.perf_counter() - orch_t0
+    steps.append(
+        AgentStep(
+            step_idx=len(steps) + 1,
+            action="plan_orchestrate",
+            detail=stamp_step_detail(orch_detail, t0=orch_t0),
         )
-        orch_detail = dict(orch_detail or {})
-        orch_detail["seconds"] = time.perf_counter() - orch_t0
-        steps.append(
-            AgentStep(
-                step_idx=len(steps) + 1,
-                action="plan_orchestrate",
-                detail=stamp_step_detail(orch_detail, t0=orch_t0),
-            )
-        )
-        _logger.info(
-            "retrieval mapnav phase=orchestration seconds=%.3f waves=%d",
-            time.perf_counter() - orch_t0,
-            len(orch_detail.get("waves", [])),
-        )
-    else:
-        navigate(
-            ts,
-            state=state,
-            scope=None,
-            query=query,
-            config=cfg,
-            depth=0,
-            budget=int(cfg.map_char_limit),
-            steps_out=steps,
-        )
+    )
+    _logger.info(
+        "retrieval mapnav phase=orchestration seconds=%.3f waves=%d",
+        time.perf_counter() - orch_t0,
+        len(orch_detail.get("waves", [])),
+    )
 
     evidence_started = time.perf_counter()
     fill = pack_nav_evidence(

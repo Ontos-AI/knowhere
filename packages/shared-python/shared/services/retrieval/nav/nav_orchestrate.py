@@ -1,7 +1,7 @@
 """M4/M5: wave orchestration over a RetrievalPlan.
 
 Execution order = dependency DAG ∩ soft prefer_after. Each subgoal runs its own
-harvest/navigate so evidence attribution stays per-subgoal. Slot values are
+harvest so evidence attribution stays per-subgoal. Slot values are
 extracted only when a later subgoal references them; checklist acceptance is
 owned by ``plan_control``.
 """
@@ -16,7 +16,6 @@ from dataclasses import asdict
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
 from .nav_token_budget import stamp_step_detail
-from .nav_navigate import navigate
 from .nav_plan import (
     RetrievalPlan,
     Subgoal,
@@ -135,26 +134,6 @@ def _resolve_subgoal_query(state: NavState, subgoal: Subgoal) -> str:
         (state.subgoal_refined_queries or {}).get(subgoal.id) or ""
     ).strip()
     return refined or query
-
-
-def _run_navigate_for_query(
-    ts: Any,
-    state: NavState,
-    config: NavConfig,
-    *,
-    query: str,
-    steps_out: Optional[List[Any]],
-) -> None:
-    navigate(
-        ts,
-        state=state,
-        scope=None,
-        query=query,
-        config=config,
-        depth=0,
-        budget=int(config.map_char_limit),
-        steps_out=steps_out,
-    )
 
 
 def _wave_subgoal_result(
@@ -535,13 +514,13 @@ def execute_plan(
 
     plan = state.retrieval_plan
     if plan is None or not getattr(plan, "subgoals", None):
-        _run_navigate_for_query(
-            ts, state, config, query=episode_query or state.query, steps_out=steps_out
-        )
-        return {"fallback_navigate": True}
+        # Retired: no multi-step navigate fallback. Planning always yields a
+        # subgoal (fallback_plan on failure); an empty plan here is a bug.
+        _logger.warning("execute_plan called with empty retrieval_plan; skipping wave")
+        return {"waves": [], "results": {}}
 
     max_waves = int(getattr(config, "max_waves", 0) or 0)
-    # Checklist mode always harvests + plan_controls (navigate-per-subgoal retired).
+    # Checklist mode always harvests + plan_controls.
     wave_idx = 0
     summary: Dict[str, Any] = {"waves": [], "results": {}}
     episode_done = False

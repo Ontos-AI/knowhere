@@ -134,7 +134,6 @@ def _map_one(
                 "attempted": detail.get("attempted"),
                 "dropped": detail.get("dropped"),
                 "waves": detail.get("waves"),
-                "fallback_navigate": detail.get("fallback_navigate"),
             },
             budget=budget,
             elapsed_ms=elapsed,
@@ -258,47 +257,6 @@ def _map_one(
             elapsed_ms=elapsed,
         )
 
-    if action in {
-        "nav_collect",
-        "nav_dispatch",
-        "nav_finish",
-        "nav_dispatch_skipped",
-    } or action.startswith("nav_"):
-        kind = {
-            "nav_collect": "COLLECT",
-            "nav_dispatch": "DISPATCH",
-            "nav_finish": "FINISH",
-            "nav_dispatch_skipped": "SKIP",
-        }.get(action)
-        if kind is None and action.startswith("nav_"):
-            kind = action[4:].upper() or "STEP"
-        return DecisionTraceStep(
-            step_index=step_index,
-            agent="navigator",
-            phase="navigate",
-            parent_step_index=parent_step_index,
-            scope=scope,
-            observation={
-                "legal_actions_preview": detail.get("legal_actions_preview") or [],
-                "projection_chars": detail.get("projection_chars"),
-                "n_legal_actions": detail.get("n_legal_actions"),
-                "llm_raw": _clip_raw(detail.get("llm_raw") or detail.get("raw")),
-            },
-            decision={
-                "action": kind,
-                "action_id": detail.get("action_id"),
-                "ids": detail.get("ids") or detail.get("section_ids"),
-                "reason": detail.get("reason") or "",
-            },
-            result={
-                "status": "ok",
-                "collect_section_ids": detail.get("collect_section_ids") or [],
-                "kind": detail.get("kind") or kind,
-            },
-            budget=budget,
-            elapsed_ms=elapsed,
-        )
-
     if action == "plan_control":
         return DecisionTraceStep(
             step_index=step_index,
@@ -401,7 +359,7 @@ def build_decision_trace(
     steps_in: Sequence[Any] = list(getattr(episode, "steps", None) or ())
     out: list[DecisionTraceStep] = []
     harvest_parent_by_depth: dict[int, int] = {}
-    layer_counts = {"planner": 0, "harvest": 0, "control": 0, "navigate": 0}
+    layer_counts = {"planner": 0, "harvest": 0, "control": 0}
 
     for raw_step in steps_in:
         action = str(getattr(raw_step, "action", "") or "").strip()
@@ -437,8 +395,6 @@ def build_decision_trace(
             layer_counts["harvest"] += 1
         elif mapped.phase == "plan_control":
             layer_counts["control"] += 1
-        elif mapped.phase == "navigate":
-            layer_counts["navigate"] += 1
 
     stop = str(getattr(episode, "stop_reason", "") or "completed")
     last_budget = out[-1].budget if out and out[-1].budget else {

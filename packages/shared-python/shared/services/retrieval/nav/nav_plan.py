@@ -114,8 +114,8 @@ def unbound_slots(text: str) -> List[str]:
 def extract_plan_json(text: str) -> Optional[dict]:
     """Parse a (possibly nested) JSON object from model output.
 
-    Unlike the navigate-action helper, this uses brace balancing so nested
-    plan objects are not truncated to the first inner ``{...}``.
+    Uses brace balancing so nested plan objects are not truncated to the first
+    inner ``{...}``.
     """
     s = (text or "").strip()
     if not s:

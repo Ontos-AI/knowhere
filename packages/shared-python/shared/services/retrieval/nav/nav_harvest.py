@@ -14,9 +14,9 @@ node whose children overflow the display budget naturally nudges the model
 toward DISPATCH — no separate "scope overflow" special case is needed here.
 
 Depends only on the existing map/action primitives (``nav_projection``,
-``nav_actions``) plus ``nav_navigate._apply_collect`` for hydration — the same
-kernel surface ``navigate()`` already uses. No new ToolSpace capability is
-required beyond the 5 documented in docs/audit_plan_nav_overlap.md.
+``nav_actions``) plus ``nav_navigate._apply_collect`` for hydration. No new
+ToolSpace capability is required beyond the 5 documented in
+docs/audit_plan_nav_overlap.md.
 """
 
 from __future__ import annotations

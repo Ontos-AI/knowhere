@@ -30,8 +30,6 @@ def test_build_nav_config_is_checklist_map_trim_stack() -> None:
     assert cfg.is_checklist
     assert cfg.map_mode is True
     assert cfg.policy == "llm"
-    assert cfg.enable_depth0_oversize_to_dispatch is True
-    assert cfg.depth0_oversize_char_limit == 500
     assert cfg.subgoal_max_attempts == 2
     assert cfg.max_replans == 1
     assert cfg.max_waves == 0
