@@ -303,6 +303,10 @@ def _estimate_markdown_heading_level(line: str, meta_ctx: Any | None):
     if hash_level <= 0:
         return code_level, code_reason, line_clean
 
+    # "#" / "##" with no title text must not become headings via hash_level alone.
+    if not stripped_line.strip():
+        return -1, f"{hash_level}# AND empty-title {code_reason}", line_clean
+
     if isinstance(code_level, int):
         est_level = max(hash_level, code_level)
     else:

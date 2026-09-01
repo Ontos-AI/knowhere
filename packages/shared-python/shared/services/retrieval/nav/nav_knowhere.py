@@ -363,7 +363,10 @@ class ReadOnlyChunkStore:
                     [(float(row[4] or 0.0), int(row[3] or 0)) for row in index_rows]
                 )
                 average_idf_content = combine_average_idf(
-                    [(float(row[5] or 0.0), int(row[3] or 0)) for row in index_rows]
+                    [
+                        (float(row[5] or 0.0), int(row[3] or 0))
+                        for row in index_rows
+                    ]
                 )
                 self._score_average_idf_cache[revision_key] = (
                     average_idf_path,

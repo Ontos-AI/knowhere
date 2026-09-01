@@ -1,8 +1,8 @@
 """Backfill persisted MAP-NAV lexical indexes for existing revisions.
 
 Rebuilds, per active revision: the map-unit index, the revision serving
-manifest, that document's subtree in the namespace MAP snapshot, namespace
-statistics, and the namespace generation. The migrations that create these
+manifest, that document's subtree in the namespace MAP snapshot, and the
+namespace generation. The migrations that create these
 derived tables leave them empty intentionally. Run this command after
 deployment with ``--apply`` so each revision is rebuilt and committed
 independently; without ``--apply`` it is a read-only inventory.
@@ -69,7 +69,6 @@ from shared.services.retrieval.serving_generation import (
 from shared.services.retrieval.serving_manifest import (
     decode_serving_manifest,
     persist_revision_serving_state,
-    rebuild_namespace_serving_statistics,
 )
 
 
@@ -345,11 +344,6 @@ def backfill_map_unit_indexes(*, apply: bool, document_id: str = "") -> int:
             manifest_payload = persist_revision_serving_state(db, scope=scope)
             patch_namespace_map_snapshot(
                 db, scope=scope, manifest_payload=manifest_payload
-            )
-            rebuild_namespace_serving_statistics(
-                db,
-                user_id=scope.user_id,
-                namespace=scope.namespace,
             )
             advance_namespace_generation(
                 db,

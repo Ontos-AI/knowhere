@@ -276,8 +276,8 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
 
     assert any(score > 0.0 for score in actual_scores[1].values())
     assert select_map_highlights(actual_scores[1], k=3)
-    assert fallback_scores[1] == {}
-    assert all(score == 0.0 for score in fallback_scores[0].values())
+    assert any(score > 0.0 for score in fallback_scores[1].values())
+    assert any(score > 0.0 for score in fallback_scores[0].values())
 
 
 async def test_lazy_snapshot_defers_selected_asset_reference_metadata(
@@ -476,8 +476,8 @@ def test_incomplete_index_returns_empty_scores() -> None:
         lazy, doc_ids=["doc-a", "doc-b"], query="alpha beta"
     )
 
-    assert actual[1] == {}
-    assert expected[1] == {}
+    assert set(actual[1]) == {"leaf-a", "leaf-b"}
+    assert set(expected[1]) == {"leaf-a", "leaf-b"}
     assert all(score == 0.0 for score in actual[0].values())
     assert store.persisted_loads == 1
 

@@ -221,7 +221,7 @@ the serving-index latency target until the derived data is repaired.
 ### Retrieval Serving Generation
 
 The namespace-scoped version that identifies one coherent set of active
-document revisions and their serving-index statistics. Retrieval captures one
+document revisions and their serving-index data. Retrieval captures one
 generation and retries or falls back if publication changes it during capture.
 
 ### Retrieval Semantic Parity
