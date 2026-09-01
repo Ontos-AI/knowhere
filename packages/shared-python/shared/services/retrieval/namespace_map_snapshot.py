@@ -2,9 +2,8 @@
 
 Callers must already hold the namespace generation lock (see
 ``serving_generation.lock_namespace_generation``) before calling either
-function here, exactly as ``rebuild_namespace_serving_statistics`` requires.
-Each call only touches one document's subtree; every other document's
-subtree in the payload is left byte-for-byte unchanged.
+function here. Each call only touches one document's subtree; every other
+document's subtree in the payload is left byte-for-byte unchanged.
 """
 
 from __future__ import annotations
@@ -81,8 +80,7 @@ def remove_document_from_namespace_map_snapshot(
 def _target_generation(db: Session, *, user_id: str, namespace: str) -> int:
     """Namespace generation this snapshot is prepared for (current + 1).
 
-    Mirrors ``rebuild_namespace_serving_statistics``: callers advance the
-    generation after this write, in the same transaction.
+    Callers advance the generation after this write, in the same transaction.
     """
     generation = db.execute(
         select(RetrievalNamespaceGeneration)

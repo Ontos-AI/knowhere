@@ -8,13 +8,11 @@ from typing import Any
 
 from app.repositories.document_repository import DocumentRepository
 from loguru import logger
-from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.models.database.document import (
     DocumentChunk,
     DocumentSection,
-    RetrievalServingRevisionStat,
 )
 from shared.services.retrieval.cache_service import (
     invalidate_retrieval_cache_namespaces,
@@ -26,9 +24,6 @@ from shared.services.retrieval.namespace_map_snapshot import (
 from shared.services.retrieval.serving_generation import (
     advance_namespace_generation,
     lock_namespace_generation,
-)
-from shared.services.retrieval.serving_manifest import (
-    rebuild_namespace_serving_statistics,
 )
 from shared.services.storage.result_storage import ResultStorage, get_result_storage
 
@@ -469,23 +464,6 @@ class DocumentService:
             )
         )
         await self._repository.archive_document(db, document=document)
-        current_revision = document.current_job_result_id
-        if current_revision:
-            await db.run_sync(
-                lambda sync_db: sync_db.execute(
-                    delete(RetrievalServingRevisionStat).where(
-                        RetrievalServingRevisionStat.document_id == document_id,
-                        RetrievalServingRevisionStat.job_result_id == current_revision,
-                    )
-                )
-            )
-        await db.run_sync(
-            lambda sync_db: rebuild_namespace_serving_statistics(
-                sync_db,
-                user_id=user_id,
-                namespace=previous_namespace,
-            )
-        )
         await db.run_sync(
             lambda sync_db: remove_document_from_namespace_map_snapshot(
                 sync_db,

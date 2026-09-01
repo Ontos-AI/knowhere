@@ -38,9 +38,6 @@ from shared.services.retrieval.serving_generation import (
     advance_namespace_generation,
     lock_namespace_generation,
 )
-from shared.services.retrieval.serving_manifest import (
-    rebuild_namespace_serving_statistics,
-)
 
 
 def utc_now_naive() -> datetime:
@@ -183,17 +180,7 @@ class RetrievalPublicationService:
         )
 
         db.flush()
-        rebuild_namespace_serving_statistics(
-            db,
-            user_id=scope.user_id,
-            namespace=scope.namespace,
-        )
         if existing_namespace and str(existing_namespace) != scope.namespace:
-            rebuild_namespace_serving_statistics(
-                db,
-                user_id=scope.user_id,
-                namespace=str(existing_namespace),
-            )
             remove_document_from_namespace_map_snapshot(
                 db,
                 user_id=scope.user_id,
