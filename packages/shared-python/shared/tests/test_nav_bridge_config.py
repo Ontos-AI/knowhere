@@ -41,6 +41,7 @@ def test_build_nav_config_is_checklist_map_trim_stack() -> None:
     assert cfg.planner_thinking == "enabled"
     assert cfg.planner_think_max_tokens == 16_384
     assert cfg.token_limit == 100_000
+    assert cfg.enable_node_filter is True
     assert not hasattr(cfg, "llm_model_env")
 
 
