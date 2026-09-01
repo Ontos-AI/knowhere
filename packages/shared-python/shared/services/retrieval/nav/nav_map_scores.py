@@ -518,8 +518,7 @@ def relight_map_for_query(
 ) -> Tuple[Dict[str, float], Dict[str, float], List[str]]:
     """Re-score the whole shared map against ``query``.
 
-    Same namespace / single-doc split as the episode-level pass in ``nav_agent``:
-    an empty ``doc_id`` means the corpus root, where document ids are map nodes
+    An empty ``doc_id`` means the corpus root, where document ids are map nodes
     and ``ts.document_ids()`` is already restricted to the episode's corpus.
     """
     doc = str(doc_id or "").strip()

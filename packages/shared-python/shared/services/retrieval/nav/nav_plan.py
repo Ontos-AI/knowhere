@@ -1,7 +1,8 @@
 """Structure-conditioned query planning (M2).
 
-Looks at a planning map observation and emits a coverage checklist plus an
-auditable RetrievalPlan over one shared search space.
+``plan_query`` is query-only: it emits a coverage checklist plus an auditable
+RetrievalPlan from the user question (no pre-lit map). ``refine_subgoal_query``
+may still read a folded planning map after harvest has lit scores.
 """
 
 from __future__ import annotations
@@ -284,9 +285,9 @@ def language_reference_text(
 ) -> str:
     """Script reference for retrieval_query checks.
 
-    Uses the user query plus visible map *titles* only. The actionable map
-    observation is intentionally excluded — its English chrome (collect=/dispatch=
-    /[Hit]/ would falsely dominate script detection.
+    Planner is query-only (projection=None). Refine still sees the folded map;
+    its English chrome (collect=/dispatch=/[Hit]) is excluded — only visible
+    map *titles* are used so they do not dominate script detection.
     """
     parts: List[str] = []
     q = (query or "").strip()
@@ -420,7 +421,6 @@ def parse_retrieval_plan(
     obj: dict,
     *,
     query: str,
-    projection: Optional[Projection] = None,
 ) -> RetrievalPlan:
     """Parse LLM JSON into a RetrievalPlan; invalid refs are dropped."""
     rows = obj.get("subgoals") or obj.get("goals") or obj.get("steps") or []
@@ -620,38 +620,34 @@ def _planner_system_prompt(*, max_subgoals: int) -> str:
     if max_subgoals > 0:
         cap = f" Prefer at most {max_subgoals} subgoals."
     return (
-        "You are a retrieval planner for a hierarchical document map.\n"
-        "You see a folded title map of the corpus/document. Nodes may carry "
-        "collect=C* and dispatch=D* action ids; [Hit] marks hybrid retrieval beacons.\n"
-        "Your job is to emit a coverage checklist plus a retrieval plan over ONE "
-        "shared search space — do not partition the corpus with per-subgoal "
-        "scopes or map anchors.\n\n"
+        "You are a retrieval planner. You receive only the user query (no "
+        "document map). Emit a coverage checklist plus a retrieval plan over "
+        "ONE shared search space — do not invent per-subgoal corpus partitions.\n\n"
         "Rules:\n"
         "1. coverage_checklist lists the facts that episode evidence must cover "
         "(short, concrete facts in the query's language)."
         f"{cap}\n"
-        "2. Default to a SINGLE subgoal over the whole map. Only add more "
-        "subgoals for a hard data dependency ({{s1.slot}} in a later query) or "
-        "for clearly independent cross-entity comparisons. Do not split merely "
-        "to list checklist items.\n"
+        "2. Default to a SINGLE subgoal. Only add more subgoals for a hard data "
+        "dependency ({{s1.slot}} in a later query) or for clearly independent "
+        "cross-entity comparisons. Do not split merely to list checklist items.\n"
         "3. Each subgoal produces at most ONE slot name in produces "
         "(enumeration = one list-valued slot).\n"
         "4. retrieval_query is a SHORT KEYWORD QUERY for THIS subgoal only "
         "(space-separated entity/role/topic tokens, e.g. \"王仁坤 总工程师 设计成果\"). "
         "Split or adapt the user question into compact lexical terms — do NOT "
-        "emit a full natural-language question or long prose. It is scored by "
-        "lexical/hybrid retrieval and lights the map, so keep entity names and "
-        "role terms; drop filler words. Same language/script as the map titles "
-        "and user query — do not translate section terms into another script.\n"
+        "emit a full natural-language question or long prose. Downstream lexical "
+        "retrieval scores and lights the map from these tokens, so keep entity "
+        "names and role terms; drop filler words. Same language/script as the "
+        "user query — do not translate terms into another script.\n"
         "5. If a later retrieval_query needs a value from an earlier subgoal, "
         "write it as {{s1.slot}} (not prose). That implies depends_on.\n"
         "6. depends_on = hard data dependency. prefer_after = soft ordering only.\n"
         "7. All subgoals share one search space — do not invent per-subgoal scopes.\n"
         "8. relations only for parent-child or sibling (omit unrelated pairs).\n"
-        "9. map_coverage: sufficient | partial | insufficient — whether the planning "
-        "map shows enough structure to ground this plan.\n"
-        "10. reason must be English, under 40 words. Document titles stay original "
-        "language.\n"
+        "9. map_coverage: sufficient | partial | insufficient — whether the user "
+        "query alone is enough to write executable retrieval_query terms "
+        "(use sufficient unless the query is empty or unusable).\n"
+        "10. reason must be English, under 40 words.\n"
         "11. Set use_node_filter=true when the subgoal enumerates or compares "
         "named facets you can write as path predicates (filenames, section "
         "titles). Keep it false for vague semantic needs; "
@@ -694,7 +690,6 @@ def _planner_system_prompt(*, max_subgoals: int) -> str:
 
 
 def _language_repair_user(
-    observation: str,
     state: NavState,
     bad_plan: RetrievalPlan,
     *,
@@ -708,26 +703,21 @@ def _language_repair_user(
     return (
         f"User query: {state.query}\n"
         f"Task type: {state.task_type}\n\n"
-        f"=== Planning Map ===\n{observation}\n=== End Planning Map ===\n\n"
         "Your previous plan had retrieval_query values that do not match the "
-        "language/script of the map titles and user query. Those queries will "
-        "fail lexical retrieval. Rewrite the FULL plan JSON. Keep structure, but "
-        "rewrite every mismatched retrieval_query as a short keyword query "
-        "in the map's own language and terms (space-separated tokens, not a "
+        "language/script of the user query. Those queries will fail lexical "
+        "retrieval. Rewrite the FULL plan JSON. Keep structure, but rewrite "
+        "every mismatched retrieval_query as a short keyword query in the "
+        "query's own language and terms (space-separated tokens, not a "
         "full-sentence question).\n"
         f"Mismatched retrieval_query lines:\n{bad_block}\n"
     )
 
 
 def plan_query(
-    ts: Any,
     state: NavState,
     config: NavConfig,
-    *,
-    observation: Optional[str] = None,
-    projection: Optional[Projection] = None,
 ) -> RetrievalPlan:
-    """LLM plan over the planning map. Falls back to a single subgoal on failure."""
+    """LLM plan from the user query only (no pre-lit map). Falls back to one subgoal."""
     from .nav_llm import (  # type: ignore
         nav_chat,
         planner_output_max_tokens,
@@ -738,9 +728,6 @@ def plan_query(
 
     if nav_token_budget_exhausted():
         return fallback_plan(state.query, reason="token_limit")
-
-    if projection is None or observation is None:
-        projection, observation = build_planning_observation(ts, state, config)
 
     model = resolve_nav_model(
         model=config.planner_model,
@@ -754,11 +741,10 @@ def plan_query(
         timeout_s = 300.0 if thinking_mode == "enabled" else 90.0
     max_subgoals = int(getattr(config, "planner_max_subgoals", 0) or 0)
     system = _planner_system_prompt(max_subgoals=max_subgoals)
-    reference = language_reference_text(query=state.query, projection=projection)
+    reference = language_reference_text(query=state.query)
     user = (
         f"User query: {state.query}\n"
         f"Task type: {state.task_type}\n\n"
-        f"=== Planning Map ===\n{observation}\n=== End Planning Map ===\n\n"
         "Return the retrieval plan JSON."
     )
     max_tokens = planner_output_max_tokens(
@@ -804,9 +790,7 @@ def plan_query(
                 last_err = "empty_content"
                 continue
             obj = extract_plan_json(last_raw) or {}
-            plan = parse_retrieval_plan(
-                obj, query=state.query, projection=projection
-            )
+            plan = parse_retrieval_plan(obj, query=state.query)
             plan.raw = last_raw[:2000]
             ok, why = validate_retrieval_plan(plan)
             if not ok:
@@ -815,9 +799,7 @@ def plan_query(
             if plan_has_language_mismatch(plan, reference) and not language_repair_used:
                 language_repair_used = True
                 last_err = "language_mismatch"
-                user = _language_repair_user(
-                    observation, state, plan, reference=reference
-                )
+                user = _language_repair_user(state, plan, reference=reference)
                 continue
             if plan_has_language_mismatch(plan, reference):
                 last_err = "language_mismatch"

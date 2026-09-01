@@ -94,9 +94,6 @@ def _map_one(
             parent_step_index=parent_step_index,
             scope=scope,
             observation={
-                "projection_chars": detail.get("projection_chars"),
-                "hit_section_ids": detail.get("hit_section_ids") or [],
-                "planning_map_char_limit": detail.get("planning_map_char_limit"),
                 "llm_raw": _clip_raw(
                     plan_payload.get("raw") or detail.get("llm_raw") or detail.get("raw")
                 ),

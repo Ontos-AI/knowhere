@@ -23,11 +23,6 @@ from .nav_compose import (
     pack_nav_evidence,
     unit_score_for_evidence_chunk,
 )
-from .nav_map_scores import (
-    compute_corpus_map_and_unit_scores,
-    compute_map_and_unit_scores,
-    select_map_highlights,
-)
 from .nav_types import (
     LegalAction,
     NavConfig,
@@ -395,31 +390,16 @@ def _run_nav_episode_body(
 
     state = NavState(doc_id=episode_doc, query=query, task_type=task_type)
     steps: List[AgentStep] = []
-    map_started = time.perf_counter()
     if namespace_mode:
         section_ids = list(ts.sections_for_doc(""))
-        state.map_scores, state.unit_scores = compute_corpus_map_and_unit_scores(
-            ts, doc_ids=corpus_ids, query=query
-        )
     else:
         section_ids = ts.sections_for_doc(episode_doc)
-        state.map_scores, state.unit_scores = compute_map_and_unit_scores(
-            ts, doc_id=episode_doc, query=query, root_ids=section_ids
-        )
-    _logger.info(
-        "retrieval mapnav phase=map_scoring seconds=%.3f documents=%d sections=%d",
-        time.perf_counter() - map_started,
-        len(corpus_ids),
-        len(section_ids),
-    )
-    state.highlight_ids = select_map_highlights(
-        state.unit_scores, k=int(cfg.collect_top_k)
-    )
 
     from .nav_plan import plan_query
 
+    # Planner is query-only: no pre-lit map. Score/light after the plan exists.
     plan_t0 = time.perf_counter()
-    retrieval_plan = plan_query(ts, state, cfg)
+    retrieval_plan = plan_query(state, cfg)
     state.retrieval_plan = retrieval_plan
     steps.append(
         AgentStep(
@@ -430,9 +410,6 @@ def _run_nav_episode_body(
                 "n_subgoals": len(retrieval_plan.subgoals),
                 "reason": retrieval_plan.reason,
                 "plan": retrieval_plan.to_dict(),
-                "planning_map_char_limit": int(
-                    getattr(cfg, "planning_map_char_limit", 0) or cfg.map_char_limit
-                ),
                 "seconds": time.perf_counter() - plan_t0,
             }, t0=plan_t0),
         )
@@ -448,7 +425,9 @@ def _run_nav_episode_body(
         from .nav_plan import fallback_plan
 
         state.retrieval_plan = fallback_plan(query, reason="missing_plan")
-    from .nav_orchestrate import execute_plan
+    from .nav_orchestrate import execute_plan, seed_episode_map_scores_from_plan
+
+    seed_episode_map_scores_from_plan(ts, state, cfg, state.retrieval_plan)
 
     orch_t0 = time.perf_counter()
     orch_detail = execute_plan(
