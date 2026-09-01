@@ -38,29 +38,6 @@ def combine_average_idf(parts: Sequence[tuple[float, int]]) -> float:
     )
 
 
-def average_idf_from_namespace_stats(
-    *,
-    unit_count: int,
-    token_document_frequencies: Sequence[int],
-) -> float:
-    """Compute the exact namespace-level average IDF used by rank_bm25.
-
-    Namespace token statistics already contain one document frequency per
-    token. Computing the mean from those rows avoids the incorrect
-    per-revision-average approximation when a namespace contains revisions
-    with different token distributions.
-    """
-    if unit_count <= 0:
-        return 0.0
-    idfs = [
-        math.log(unit_count - int(frequency) + 0.5)
-        - math.log(int(frequency) + 0.5)
-        for frequency in token_document_frequencies
-        if 0 < int(frequency) <= unit_count
-    ]
-    return sum(idfs) / len(idfs) if idfs else 0.0
-
-
 def build_channel_bm25_stats(
     *,
     unit_rows: Sequence[Mapping[str, Any]],

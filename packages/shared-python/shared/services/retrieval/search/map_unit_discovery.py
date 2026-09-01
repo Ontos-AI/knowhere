@@ -37,11 +37,9 @@ from shared.services.retrieval.nav.knowhere_hybrid import (
     tokenize_query_for_ranker,
 )
 from shared.services.retrieval.nav.persisted_score_load import (
-    average_idf_from_namespace_stats,
     build_channel_bm25_stats,
     combine_average_idf,
 )
-from shared.services.retrieval.serving_manifest import decode_serving_manifest
 from shared.services.retrieval.cache_service import record_retrieval_index_readiness
 from shared.services.retrieval.search.scoring import normalize_row_scores
 from shared.services.retrieval.search.section_filters import is_excluded_section
@@ -101,80 +99,6 @@ class DiscoveryResult:
     payload: dict[str, Any] = field(default_factory=dict)
     latency_ms: int = 0
     error: str | None = None
-
-
-async def _load_exact_namespace_average_idf(
-    db: AsyncSession,
-    *,
-    user_id: str,
-    namespace: str,
-) -> tuple[float, float] | None:
-    """Load exact namespace IDF floors from the published aggregate tables."""
-    generation_row = (
-        await db.execute(
-            text(
-                "SELECT generation FROM retrieval_namespace_generations "
-                "WHERE user_id = :user_id AND namespace = :namespace"
-            ),
-            {"user_id": user_id, "namespace": namespace},
-        )
-    ).first()
-    if generation_row is None:
-        return None
-    generation = int(generation_row[0])
-    stat_row = (
-        await db.execute(
-            text(
-                "SELECT payload_zlib, checksum, format_version "
-                "FROM retrieval_namespace_stats "
-                "WHERE user_id = :user_id AND namespace = :namespace "
-                "AND generation = :generation"
-            ),
-            {
-                "user_id": user_id,
-                "namespace": namespace,
-                "generation": generation,
-            },
-        )
-    ).first()
-    if stat_row is None:
-        return None
-    payload = decode_serving_manifest(
-        stat_row[0], checksum=str(stat_row[1]), format_version=int(stat_row[2])
-    )
-    unit_count = int(payload.get("unit_count") or 0)
-    if unit_count <= 0:
-        return None
-    token_rows = (
-        await db.execute(
-            text(
-                "SELECT channel, document_frequency "
-                "FROM retrieval_namespace_token_stats "
-                "WHERE user_id = :user_id AND namespace = :namespace "
-                "AND generation = :generation AND channel = ANY(:channels)"
-            ),
-            {
-                "user_id": user_id,
-                "namespace": namespace,
-                "generation": generation,
-                "channels": ["path", "content"],
-            },
-        )
-    ).all()
-    frequencies: dict[str, list[int]] = {"path": [], "content": []}
-    for channel, frequency in token_rows:
-        if str(channel) in frequencies:
-            frequencies[str(channel)].append(int(frequency))
-    return (
-        average_idf_from_namespace_stats(
-            unit_count=unit_count,
-            token_document_frequencies=frequencies["path"],
-        ),
-        average_idf_from_namespace_stats(
-            unit_count=unit_count,
-            token_document_frequencies=frequencies["content"],
-        ),
-    )
 
 
 def _build_revision_scope(
@@ -421,28 +345,18 @@ async def map_unit_discovery(
         )
     except Exception as exc:
         logger.warning("retrieval index readiness publish failed: %s", exc)
-    exact_namespace_idf = None
-    if revision_pins is None:
-        exact_namespace_idf = await _load_exact_namespace_average_idf(
-            db,
-            user_id=user_id,
-            namespace=namespace,
-        )
-    if exact_namespace_idf is not None:
-        average_idf_path, average_idf_content = exact_namespace_idf
-    else:
-        average_idf_path = combine_average_idf(
-            [
-                (path_idf, unit_count)
-                for path_idf, _content_idf, unit_count in index_parts
-            ]
-        )
-        average_idf_content = combine_average_idf(
-            [
-                (content_idf, unit_count)
-                for _path_idf, content_idf, unit_count in index_parts
-            ]
-        )
+    average_idf_path = combine_average_idf(
+        [
+            (path_idf, unit_count)
+            for path_idf, _content_idf, unit_count in index_parts
+        ]
+    )
+    average_idf_content = combine_average_idf(
+        [
+            (content_idf, unit_count)
+            for _path_idf, content_idf, unit_count in index_parts
+        ]
+    )
 
     path_stats = build_channel_bm25_stats(
         unit_rows=unit_rows,
