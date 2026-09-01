@@ -604,6 +604,9 @@ def run_stage1_toc(
         persist_anatomy_map(coordinator.ctx, {})
         profile_path = out_dir / DOC_PROFILE_FILENAME
         write_debug_json(profile_path, anatomy.to_dict())
+        # Stage-2 resumes outline separately: anatomy map does not carry it.
+        outline_roots = list(coordinator.blackboard.pdf_outline_roots or [])
+        persist_pdf_outline_roots(out_dir, outline_roots)
         # Canonical profile is at package root; drop nested duplicate.
         try:
             (out_dir / "_doc_agent" / "anatomy_map.json").unlink()
@@ -620,6 +623,7 @@ def run_stage1_toc(
             payload={
                 "toc_pages": list(getattr(anatomy.toc_result, "toc_pages", []) or []),
                 "region_count": len(list(anatomy.toc_hierarchies or [])),
+                "outline_root_count": len(outline_roots),
                 "skip_toc_anchoring": True,
             },
         )
@@ -752,6 +756,7 @@ def pipeline_state_path(out_dir: Path) -> Path:
 
 STAGE0_STATE_NAME = "stage0_state.json"
 PAGE_TEXT_CACHE_NAME = "page_full_text_cache.json"
+PDF_OUTLINE_ROOTS_NAME = "pdf_outline_roots.json"
 
 
 def stage0_state_path(out_dir: Path) -> Path:
@@ -760,6 +765,80 @@ def stage0_state_path(out_dir: Path) -> Path:
 
 def page_text_cache_path(out_dir: Path) -> Path:
     return out_dir / "_doc_agent" / PAGE_TEXT_CACHE_NAME
+
+
+def pdf_outline_roots_path(out_dir: Path) -> Path:
+    """Stage-1 outline forest consumed by Stage-2 ``run_toc_anchoring``."""
+    return out_dir / "_doc_agent" / PDF_OUTLINE_ROOTS_NAME
+
+
+def persist_pdf_outline_roots(out_dir: Path, roots: list[Any] | None) -> Path:
+    """Write Stage-1 ``probe.outline`` forest for Stage-2 resume."""
+    path = pdf_outline_roots_path(out_dir)
+    write_debug_json(path, list(roots or []))
+    return path
+
+
+def load_pdf_outline_roots(out_dir: Path) -> list[dict[str, Any]] | None:
+    """Load Stage-1 outline forest, or ``None`` when the artifact is missing."""
+    path = pdf_outline_roots_path(out_dir)
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError(f"pdf_outline_roots must be a list: {path}")
+    return [row for row in data if isinstance(row, dict)]
+
+
+def restore_pdf_outline_roots_for_anchoring(coordinator, out_dir: Path) -> None:
+    """Put Stage-1 outline on the blackboard (re-probe + persist if missing).
+
+    Production keeps ``probe.outline`` on the same blackboard through
+    ``run_toc_anchoring``. Staged debug must restore that forest explicitly.
+    """
+    outline_roots = load_pdf_outline_roots(out_dir)
+    if outline_roots is not None:
+        coordinator.blackboard.pdf_outline_roots = outline_roots
+        logger.info(
+            "  restored pdf_outline_roots from Stage-1 ({} roots)",
+            len(outline_roots),
+        )
+        return
+
+    from app.services.document_agent.registry import REGISTRY
+
+    logger.warning("  Stage-1 pdf_outline_roots missing; re-running probe.outline")
+    REGISTRY.dispatch("probe.outline", coordinator.ctx, {})
+    persist_pdf_outline_roots(
+        out_dir, list(coordinator.blackboard.pdf_outline_roots or [])
+    )
+
+
+def load_stage1_into_coordinator_for_anchoring(
+    coordinator,
+    out_dir: Path,
+    anatomy,
+) -> None:
+    """Resume Stage-0 + Stage-1 TOC state for production ``run_toc_anchoring``.
+
+    Loads page text/features from Stage-0, TOC extract outputs from Stage-1
+    anatomy, restores outline roots, and clears any prior skeleton_* so
+    anchoring writes a fresh result.
+    """
+    from app.services.document_agent.validators import single_shard_plan
+
+    load_stage0_into_coordinator(coordinator, out_dir)
+    bb = coordinator.blackboard
+    page_count = int(getattr(anatomy, "page_count", None) or bb.page_count or 0)
+    bb.toc_result = anatomy.toc_result
+    bb.toc_hierarchies = list(getattr(anatomy, "toc_hierarchies", None) or [])
+    bb.shard_plan = getattr(anatomy, "shard_plan", None) or single_shard_plan(
+        page_count
+    )
+    bb.skeleton_anchor = None
+    bb.skeleton_nodes = None
+    bb.pending_skeleton_anchors = []
+    restore_pdf_outline_roots_for_anchoring(coordinator, out_dir)
 
 
 def load_pipeline_state(

@@ -83,12 +83,30 @@ def _merge_keyword_split_lines(
     return merged
 
 
+def _match_toc_keyword_in_line(normalized_line: str) -> str | None:
+    """Return the longest TOC keyword contained in a normalized line."""
+    if not normalized_line:
+        return None
+    return next(
+        (
+            keyword
+            for keyword in sorted(TOC_KEYWORDS, key=len, reverse=True)
+            if keyword in normalized_line
+        ),
+        None,
+    )
+
+
 def _find_toc_text_matches(lines: list[str]) -> list[dict[str, Any]]:
-    """Match TOC keywords only as whole lines after keyword-split repair."""
+    """Match TOC keywords as line-level containment after keyword-split repair.
+
+    Cross-line handling stays keyword-internal only (e.g. 目+录). Hit rule is
+    ``keyword in normalized_line`` (longest match wins), not whole-line equality.
+    """
     matches: list[dict[str, Any]] = []
     for raw_line, start_idx, end_idx in _merge_keyword_split_lines(lines):
-        keyword = normalize_match_text(raw_line)
-        if keyword not in TOC_KEYWORDS:
+        keyword = _match_toc_keyword_in_line(normalize_match_text(raw_line))
+        if keyword is None:
             continue
         matches.append(
             {
@@ -205,8 +223,9 @@ def _filter_recurring_elements(
 @register_tool(
     name="find.toc_anchor_pages",
     description=(
-        "Scan full PDF page text for whole-line TOC keywords, filter recurring "
-        "navigation elements, then render candidate PNGs for VLM confirmation."
+        "Scan full PDF page text for line-level TOC keywords (containment after "
+        "keyword-split repair), filter recurring navigation elements, then "
+        "render candidate PNGs for VLM confirmation."
     ),
     preconditions=(has_page_labels, has_page_full_text),
 )

@@ -24,7 +24,7 @@ from _debug_pm_shared import (
     _build_debug_coordinator,
     base_argparser,
     load_anatomy_cache,
-    load_stage0_into_coordinator,
+    load_stage1_into_coordinator_for_anchoring,
     page_text_cache_path,
     require_file,
     resolve_anatomy_cache_path,
@@ -46,7 +46,6 @@ def main() -> int:
     args = parser.parse_args()
 
     from app.services.document_agent.structure.toc_anchoring import run_toc_anchoring
-    from app.services.document_agent.validators import single_shard_plan
     from shared.core.config import settings
 
     pdf_path, filename, out_dir = resolve_paths(args)
@@ -56,8 +55,6 @@ def main() -> int:
     require_file(anatomy_cache, hint="Run Stage 1 first")
 
     anatomy = load_anatomy_cache(anatomy_cache, pdf_path, filename)
-    page_count = int(anatomy.page_count or 0)
-    hierarchies = list(getattr(anatomy, "toc_hierarchies", None) or [])
 
     logger.info("█" * 70)
     logger.info("  Production null-page locate dump — {}", filename)
@@ -74,14 +71,8 @@ def main() -> int:
             model=None if args.no_vlm else args.model,
             settings_extra={"skip_toc_anchoring": False},
         )
-        load_stage0_into_coordinator(coordinator, out_dir)
+        load_stage1_into_coordinator_for_anchoring(coordinator, out_dir, anatomy)
         bb = coordinator.blackboard
-        bb.toc_result = anatomy.toc_result
-        bb.toc_hierarchies = hierarchies
-        bb.shard_plan = anatomy.shard_plan or single_shard_plan(page_count)
-        bb.skeleton_anchor = None
-        bb.skeleton_nodes = None
-        bb.pending_skeleton_anchors = []
 
         run_toc_anchoring(coordinator.ctx)
 
