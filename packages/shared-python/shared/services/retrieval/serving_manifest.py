@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
-import time
 import zlib
 from typing import Any
 
@@ -15,20 +13,13 @@ from sqlalchemy.orm import Session
 from shared.models.database.document import (
     Document,
     DocumentChunk,
-    DocumentMapUnit,
-    DocumentMapUnitToken,
     DocumentSection,
-    RetrievalNamespaceGeneration,
-    RetrievalNamespaceStat,
-    RetrievalNamespaceTokenStat,
     RetrievalServingRevisionManifest,
-    RetrievalServingRevisionStat,
 )
 from shared.models.database.job_result import JobResult
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 
 SERVING_MANIFEST_FORMAT_VERSION = 1
-_logger = logging.getLogger(__name__)
 
 
 def build_revision_serving_payload(
@@ -121,81 +112,24 @@ def build_revision_serving_payload(
     }
 
 
-def build_revision_statistics_payload(
-    db: Session,
-    *,
-    scope: DocumentPublicationScope,
-) -> dict[str, Any]:
-    """Build compressed scoring contributions for one revision.
-
-    Stores aggregate token frequencies for namespace statistics rebuild.
-    Per-unit frequencies stay in ``document_map_unit_tokens`` and are loaded
-    at query time by the query tokens only.
-    """
-    units = list(
-        db.scalars(
-            select(DocumentMapUnit)
-            .where(DocumentMapUnit.document_id == scope.document_id)
-            .where(DocumentMapUnit.job_result_id == scope.job_result_id)
-        )
-    )
-    unit_ids = [unit.id for unit in units]
-    frequencies: dict[str, dict[str, int]] = {"path": {}, "content": {}}
-    if unit_ids:
-        for _map_unit_id, channel, token, frequency in db.execute(
-            select(
-                DocumentMapUnitToken.map_unit_id,
-                DocumentMapUnitToken.channel,
-                DocumentMapUnitToken.token,
-                DocumentMapUnitToken.frequency,
-            ).where(DocumentMapUnitToken.map_unit_id.in_(unit_ids))
-        ).all():
-            channel_key = str(channel)
-            if channel_key not in frequencies:
-                continue
-            token_key = str(token)
-            frequencies[channel_key][token_key] = frequencies[channel_key].get(
-                token_key, 0
-            ) + int(frequency)
-    return {
-        "document_id": scope.document_id,
-        "job_result_id": scope.job_result_id,
-        "unit_count": len(units),
-        "path_token_count": sum(int(unit.path_token_count or 0) for unit in units),
-        "content_token_count": sum(
-            int(unit.content_token_count or 0) for unit in units
-        ),
-        "token_frequencies": frequencies,
-    }
-
-
 def persist_revision_serving_state(
     db: Session,
     *,
     scope: DocumentPublicationScope,
 ) -> dict[str, Any]:
-    """Replace manifest and statistics rows for one revision atomically.
+    """Replace the serving manifest row for one revision atomically.
 
     Returns the manifest payload so callers can patch the namespace-level MAP
     snapshot without rebuilding it.
     """
     manifest_payload = build_revision_serving_payload(db, scope=scope)
-    statistics_payload = build_revision_statistics_payload(db, scope=scope)
     manifest_bytes, manifest_checksum, manifest_version = encode_serving_manifest(
         manifest_payload
-    )
-    statistics_bytes, statistics_checksum, statistics_version = encode_serving_manifest(
-        statistics_payload
     )
     db.execute(
         delete(RetrievalServingRevisionManifest)
         .where(RetrievalServingRevisionManifest.document_id == scope.document_id)
         .where(RetrievalServingRevisionManifest.job_result_id == scope.job_result_id)
-    )
-    db.execute(
-        delete(RetrievalServingRevisionStat)
-        .where(RetrievalServingRevisionStat.document_id == scope.document_id)
-        .where(RetrievalServingRevisionStat.job_result_id == scope.job_result_id)
     )
     db.add(
         RetrievalServingRevisionManifest(
@@ -208,142 +142,7 @@ def persist_revision_serving_state(
             checksum=manifest_checksum,
         )
     )
-    db.add(
-        RetrievalServingRevisionStat(
-            user_id=scope.user_id,
-            namespace=scope.namespace,
-            document_id=scope.document_id,
-            job_result_id=scope.job_result_id,
-            format_version=statistics_version,
-            payload_zlib=statistics_bytes,
-            checksum=statistics_checksum,
-        )
-    )
     return manifest_payload
-
-
-def rebuild_namespace_serving_statistics(
-    db: Session,
-    *,
-    user_id: str,
-    namespace: str,
-) -> int:
-    """Recompute namespace aggregates from active current revisions.
-
-    Callers hold the namespace generation lock. The aggregate is prepared for
-    the generation that the caller will publish next.
-    """
-    started = time.perf_counter()
-    generation = db.execute(
-        select(RetrievalNamespaceGeneration)
-        .where(RetrievalNamespaceGeneration.user_id == user_id)
-        .where(RetrievalNamespaceGeneration.namespace == namespace)
-        .with_for_update()
-    ).scalar_one()
-    target_generation = int(generation.generation) + 1
-    revisions = {
-        (str(document_id), str(job_result_id))
-        for document_id, job_result_id in db.execute(
-            select(Document.document_id, Document.current_job_result_id)
-            .where(Document.user_id == user_id)
-            .where(Document.namespace == namespace)
-            .where(Document.status == "active")
-            .where(Document.current_job_result_id.is_not(None))
-        ).all()
-        if document_id and job_result_id
-    }
-    aggregate: dict[str, Any] = {
-        "document_count": 0,
-        "unit_count": 0,
-        "path_token_count": 0,
-        "content_token_count": 0,
-        "token_frequencies": {"path": {}, "content": {}},
-    }
-    document_frequencies: dict[tuple[str, str], int] = {}
-    for row in db.scalars(
-        select(RetrievalServingRevisionStat)
-        .where(RetrievalServingRevisionStat.user_id == user_id)
-        .where(RetrievalServingRevisionStat.namespace == namespace)
-    ):
-        if (row.document_id, row.job_result_id) not in revisions:
-            continue
-        payload = decode_serving_manifest(
-            row.payload_zlib,
-            checksum=row.checksum,
-            format_version=row.format_version,
-        )
-        aggregate["document_count"] += 1
-        aggregate["unit_count"] += int(payload.get("unit_count", 0))
-        aggregate["path_token_count"] += int(payload.get("path_token_count", 0))
-        aggregate["content_token_count"] += int(payload.get("content_token_count", 0))
-        token_frequencies = payload.get("token_frequencies", {})
-        if not isinstance(token_frequencies, dict):
-            continue
-        for channel, values in token_frequencies.items():
-            if channel not in aggregate["token_frequencies"] or not isinstance(
-                values, dict
-            ):
-                continue
-            for token, value in values.items():
-                token_key = str(token)
-                aggregate["token_frequencies"][channel][token_key] = aggregate[
-                    "token_frequencies"
-                ][channel].get(token_key, 0) + int(value)
-                if int(value) > 0:
-                    key = (str(channel), token_key)
-                    document_frequencies[key] = document_frequencies.get(key, 0) + 1
-
-    encoded, checksum, _version = encode_serving_manifest(aggregate)
-    namespace_stat = db.execute(
-        select(RetrievalNamespaceStat)
-        .where(RetrievalNamespaceStat.user_id == user_id)
-        .where(RetrievalNamespaceStat.namespace == namespace)
-    ).scalar_one_or_none()
-    if namespace_stat is None:
-        db.add(
-            RetrievalNamespaceStat(
-                user_id=user_id,
-                namespace=namespace,
-                generation=target_generation,
-                payload_zlib=encoded,
-                checksum=checksum,
-            )
-        )
-    else:
-        namespace_stat.generation = target_generation
-        namespace_stat.payload_zlib = encoded
-        namespace_stat.checksum = checksum
-    db.execute(
-        delete(RetrievalNamespaceTokenStat)
-        .where(RetrievalNamespaceTokenStat.user_id == user_id)
-        .where(RetrievalNamespaceTokenStat.namespace == namespace)
-    )
-    db.add_all(
-        [
-            RetrievalNamespaceTokenStat(
-                user_id=user_id,
-                namespace=namespace,
-                generation=target_generation,
-                channel=channel,
-                token_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
-                document_frequency=frequency,
-            )
-            for (channel, token), frequency in document_frequencies.items()
-        ]
-    )
-    db.flush()
-    _logger.info(
-        "retrieval namespace statistics rebuilt user_id=%s namespace=%s "
-        "generation=%d documents=%d units=%d token_stats=%d seconds=%.3f",
-        user_id,
-        namespace,
-        target_generation,
-        aggregate["document_count"],
-        aggregate["unit_count"],
-        len(document_frequencies),
-        time.perf_counter() - started,
-    )
-    return target_generation
 
 
 def _connection_target_ids(metadata: Any) -> list[str]:
