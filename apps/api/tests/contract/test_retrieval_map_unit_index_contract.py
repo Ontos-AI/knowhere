@@ -105,11 +105,15 @@ def test_read_only_score_loader_drives_frequency_lookup_from_token_hash(
     ]
     assert len(frequency_executions) == 1
     statement, parameters = frequency_executions[0]
-    assert "map_unit_id = ANY" in statement
+    assert "scoped_units AS MATERIALIZED" in statement
+    assert "JOIN scoped_units" in statement
+    assert "channel = ANY" in statement
     assert "token_hash = ANY" in statement
+    assert "map_unit_id = ANY" not in statement
     assert isinstance(parameters, list)
     assert parameters[0] == ["unit-frequency"]
-    assert parameters[1] == [
+    assert parameters[1] == ["path", "content"]
+    assert parameters[2] == [
         "6e51d6a3d90b6a3243d38e6da6b3f31f49867c1360beba83da8ca9630f9672c7"
     ]
 

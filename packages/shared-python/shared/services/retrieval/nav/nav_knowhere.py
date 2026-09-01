@@ -435,18 +435,27 @@ class ReadOnlyChunkStore:
             frequencies: Dict[Tuple[str, str], Dict[str, int]] = {}
             if unit_rows and query_tokens:
                 stage_started = time.perf_counter()
-                # Restrict the token scan to this episode's map units instead of
-                # matching token_hash across the whole table then filtering.
+                # Keep the episode scope explicit without materializing every
+                # token row matching a common query term.  PostgreSQL can choose
+                # either the scoped-unit side or the channel/token_hash-leading
+                # index, while the scope still limits results to the pinned
+                # revision and allowed sections.
                 allowed_map_unit_ids = [str(row["map_unit_id"]) for row in unit_rows]
                 cur.execute(
-                    "SELECT map_unit_id, channel, token, frequency "
-                    "FROM document_map_unit_tokens "
-                    "WHERE map_unit_id = ANY(%s) "
-                    "AND token_hash = ANY(%s) AND channel = ANY(%s)",
+                    "WITH scoped_units AS MATERIALIZED ("
+                    "SELECT unnest(%s::text[]) AS map_unit_id"
+                    ") "
+                    "SELECT tokens.map_unit_id, tokens.channel, tokens.token, "
+                    "tokens.frequency "
+                    "FROM document_map_unit_tokens AS tokens "
+                    "JOIN scoped_units "
+                    "ON scoped_units.map_unit_id = tokens.map_unit_id "
+                    "WHERE tokens.channel = ANY(%s) "
+                    "AND tokens.token_hash = ANY(%s)",
                     [
                         allowed_map_unit_ids,
-                        list(query_token_hashes),
                         list(_MAP_SCORE_CHANNELS),
+                        list(query_token_hashes),
                     ],
                 )
                 for map_unit_id, channel, token, frequency in cur.fetchall():
