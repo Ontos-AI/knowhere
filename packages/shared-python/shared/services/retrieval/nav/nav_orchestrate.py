@@ -672,7 +672,12 @@ def execute_plan(
                     if scores:
                         state.relit_map_cache[query] = prepared
             except Exception:
-                pass
+                _logger.exception(
+                    "Failed to precompute relight maps; continuing without prepared relights "
+                    "(doc_id=%s, query_count=%d)",
+                    state.doc_id,
+                    len(missing_queries),
+                )
 
         def _run_one(sid: str, working_state: NavState, out_steps: Optional[List[Any]]) -> Dict[str, Any]:
             query = query_by_subgoal[sid]
