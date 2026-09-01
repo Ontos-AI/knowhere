@@ -232,26 +232,30 @@ async def map_unit_discovery(
     if not unit_rows:
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
 
-    frequency_result = await db.execute(
-        text(
-            (
-                cte
-                if signal_paths
-                else _SCOPED_UNIT_IDS_CTE.format(
-                    revision_join=revision_join,
-                    revision_clause=revision_clause,
-                    exclude_clause=exclude_clause,
-                    type_clause=type_clause,
-                )
-            )
-            + """
-                SELECT tokens.map_unit_id, tokens.channel, tokens.token, tokens.frequency
-                FROM document_map_unit_tokens AS tokens
-                JOIN scoped_units ON scoped_units.map_unit_id = tokens.map_unit_id
-                WHERE tokens.channel = ANY(:channels)
-                    AND tokens.token_hash = ANY(:token_hashes)
+    frequency_scope_cte = cte if signal_paths else _SCOPED_UNIT_IDS_CTE.format(
+        revision_join=revision_join,
+        revision_clause=revision_clause,
+        exclude_clause=exclude_clause,
+        type_clause=type_clause,
+    )
+    frequency_query = text(
+        "WITH matching_tokens AS MATERIALIZED ("
+        "SELECT map_unit_id, channel, token, frequency "
+        "FROM document_map_unit_tokens "
+        "WHERE channel = ANY(:channels) "
+        "AND token_hash = ANY(:token_hashes)"
+        "), "
+        + frequency_scope_cte.lstrip().removeprefix("WITH ")
+        + """
+                SELECT matching_tokens.map_unit_id, matching_tokens.channel,
+                       matching_tokens.token, matching_tokens.frequency
+                FROM matching_tokens
+                JOIN scoped_units
+                    ON scoped_units.map_unit_id = matching_tokens.map_unit_id
                 """
-        ),
+    )
+    frequency_result = await db.execute(
+        frequency_query,
         {
             **params,
             "channels": list(_MAP_SCORE_CHANNELS),

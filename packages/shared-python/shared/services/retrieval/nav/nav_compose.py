@@ -111,6 +111,18 @@ def _section_title(ts: ToolSpace, section_id: str, doc_id: str, *, max_chars: in
             return t[:max_chars].rstrip()
         return t
 
+    # ``path_titles`` is a lightweight title lookup.  Prefer it over
+    # ``get_structure`` because the latter may calculate the complete subtree
+    # chunk count, which is unnecessary while rendering evidence headers.
+    path_titles = getattr(ts, "path_titles", None)
+    if callable(path_titles):
+        try:
+            path = str(path_titles(sid, doc_id) or "").strip()
+        except TypeError:
+            path = str(path_titles(sid) or "").strip()
+        if path:
+            return _clip(path.rsplit(" / ", 1)[-1])
+
     # Prefer structure title (Knowhere / ProviderToolSpace); never parse ids.
     try:
         st = ts.get_structure(sid)
@@ -172,25 +184,43 @@ def _child_final_score(
     return float(own_unit) + float(w_conf) * conf
 
 
-def _is_header_only_owner(owner: str, owners: set[str], ts: ToolSpace, doc_id: str) -> bool:
-    """True if owner is a structural ancestor of another collected owner."""
-    if not owner or owner not in owners:
-        return False
-    owner_doc = _section_doc_id(ts, owner, doc_id)
-    for other in owners:
-        if other == owner:
+def _parent_id_for_compose(ts: ToolSpace, section_id: str, doc_id: str) -> Optional[str]:
+    """Resolve a direct parent without materializing a section subtree."""
+    parent_fn = getattr(ts, "parent_id", None)
+    if callable(parent_fn):
+        try:
+            parent = parent_fn(section_id)
+        except Exception:
+            parent = None
+        if parent:
+            return str(parent)
+    return direct_parent_id(ts, section_id, doc_id)
+
+
+def _header_only_owners(
+    owners: set[str], ts: ToolSpace, doc_id: str
+) -> set[str]:
+    """Find collected owners that are ancestors of another collected owner.
+
+    Walk each owner's parent chain once instead of comparing every owner with
+    every other owner.  This keeps compose grouping proportional to the number
+    of owners and hierarchy depth, even when a broad collect returns thousands
+    of chunks.
+    """
+    headers: set[str] = set()
+    for owner in owners:
+        if not owner:
             continue
-        if _section_doc_id(ts, other, doc_id) != owner_doc:
-            continue
-        cur = other
+        owner_doc = _section_doc_id(ts, owner, doc_id)
+        current = owner
         for _ in range(64):
-            p = direct_parent_id(ts, cur, owner_doc)
-            if p is None:
+            parent = _parent_id_for_compose(ts, current, owner_doc)
+            if parent is None:
                 break
-            if p == owner:
-                return True
-            cur = p
-    return False
+            if parent in owners and _section_doc_id(ts, parent, doc_id) == owner_doc:
+                headers.add(parent)
+            current = parent
+    return headers
 
 
 @dataclass
@@ -259,9 +289,7 @@ def _build_groups(
         items.append((chunk, owner, score))
 
     owners = {owner for _c, owner, _s in items if owner}
-    header_owners = {
-        o for o in owners if _is_header_only_owner(o, owners, ts, state.doc_id)
-    }
+    header_owners = _header_only_owners(owners, ts, state.doc_id)
 
     groups: Dict[Optional[str], _ParentGroup] = {}
     for chunk, owner, score in items:
@@ -407,27 +435,183 @@ def _render_kept(
     )
 
 
+def _count_power10_boundaries(lower: int, upper: int) -> int:
+    """Count decimal digit-boundary positions in ``(lower, upper]``."""
+    if upper <= lower:
+        return 0
+    boundary = 10
+    count = 0
+    while boundary <= upper:
+        if boundary > lower:
+            count += 1
+        boundary *= 10
+    return count
+
+
+class _SelectionLength:
+    """Maintain exact rendered selection length under one-child mutations."""
+
+    def __init__(self, groups: Sequence[_ParentGroup], kept_ids: Set[str]) -> None:
+        self._groups = groups
+        self.kept_ids = kept_ids
+        self._group_by_node_id: Dict[str, int] = {}
+        self._plain_lengths: Dict[str, int] = {}
+        self._indented_lengths: Dict[str, int] = {}
+        self._counts: List[int] = []
+        self._plain_totals: List[int] = []
+        self._indented_totals: List[int] = []
+        self._nonempty_count = 0
+        self.total = 0
+
+        for group_index, group in enumerate(groups):
+            plain_total = 0
+            indented_total = 0
+            count = 0
+            for child in group.children:
+                node_id = str(child.chunk.node_id or "")
+                if not node_id:
+                    continue
+                body = _chunk_body(child.chunk)
+                plain_length = len(body)
+                indented_length = len(
+                    "\n".join(
+                        ("  " + line if line.strip() else line)
+                        for line in body.splitlines()
+                    )
+                )
+                self._group_by_node_id[node_id] = group_index
+                self._plain_lengths[node_id] = plain_length
+                self._indented_lengths[node_id] = indented_length
+                if node_id in kept_ids:
+                    count += 1
+                    plain_total += plain_length
+                    indented_total += indented_length
+            self._counts.append(count)
+            self._plain_totals.append(plain_total)
+            self._indented_totals.append(indented_total)
+
+        self._recalculate_total()
+
+    @staticmethod
+    def _block_length(
+        group: _ParentGroup,
+        *,
+        count: int,
+        plain_total: int,
+        indented_total: int,
+        evidence_index: int,
+    ) -> int:
+        if count <= 0:
+            return 0
+        prefix = len(f"[E{evidence_index}]")
+        if group.parent_title:
+            prefix += 1 + len(f"[§ {group.parent_title}]")
+        body_length = indented_total if count >= 2 else plain_total
+        return prefix + count + body_length
+
+    def _recalculate_total(self) -> None:
+        total = 0
+        evidence_index = 0
+        for index, group in enumerate(self._groups):
+            count = self._counts[index]
+            if count <= 0:
+                continue
+            evidence_index += 1
+            total += self._block_length(
+                group,
+                count=count,
+                plain_total=self._plain_totals[index],
+                indented_total=self._indented_totals[index],
+                evidence_index=evidence_index,
+            )
+        self._nonempty_count = evidence_index
+        self.total = total + max(0, evidence_index - 1) * 2
+
+    def _evidence_index(self, group_index: int) -> int:
+        return sum(1 for count in self._counts[:group_index] if count > 0) + 1
+
+    def remove(self, node_id: str) -> None:
+        group_index = self._group_by_node_id.get(node_id)
+        if group_index is None or node_id not in self.kept_ids:
+            return
+        old_count = self._counts[group_index]
+        old_index = self._evidence_index(group_index)
+        old_block = self._block_length(
+            self._groups[group_index],
+            count=old_count,
+            plain_total=self._plain_totals[group_index],
+            indented_total=self._indented_totals[group_index],
+            evidence_index=old_index,
+        )
+        self.kept_ids.remove(node_id)
+        self._counts[group_index] -= 1
+        self._plain_totals[group_index] -= self._plain_lengths[node_id]
+        self._indented_totals[group_index] -= self._indented_lengths[node_id]
+        if old_count > 1:
+            new_block = self._block_length(
+                self._groups[group_index],
+                count=old_count - 1,
+                plain_total=self._plain_totals[group_index],
+                indented_total=self._indented_totals[group_index],
+                evidence_index=old_index,
+            )
+            self.total += new_block - old_block
+            return
+
+        self.total -= old_block
+        if self._nonempty_count > 1:
+            self.total -= 2
+        self.total -= _count_power10_boundaries(old_index, self._nonempty_count)
+        self._nonempty_count -= 1
+
+    def add(self, node_id: str) -> bool:
+        group_index = self._group_by_node_id.get(node_id)
+        if group_index is None or node_id in self.kept_ids:
+            return False
+        old_count = self._counts[group_index]
+        if old_count > 0:
+            evidence_index = self._evidence_index(group_index)
+            old_block = self._block_length(
+                self._groups[group_index],
+                count=old_count,
+                plain_total=self._plain_totals[group_index],
+                indented_total=self._indented_totals[group_index],
+                evidence_index=evidence_index,
+            )
+        else:
+            evidence_index = self._evidence_index(group_index)
+            old_block = 0
+
+        self.kept_ids.add(node_id)
+        self._counts[group_index] += 1
+        self._plain_totals[group_index] += self._plain_lengths[node_id]
+        self._indented_totals[group_index] += self._indented_lengths[node_id]
+        new_block = self._block_length(
+            self._groups[group_index],
+            count=self._counts[group_index],
+            plain_total=self._plain_totals[group_index],
+            indented_total=self._indented_totals[group_index],
+            evidence_index=evidence_index,
+        )
+        if old_count > 0:
+            self.total += new_block - old_block
+        else:
+            old_nonempty_count = self._nonempty_count
+            self.total += new_block
+            if old_nonempty_count > 0:
+                self.total += 2
+            self.total += _count_power10_boundaries(
+                evidence_index, old_nonempty_count + 1
+            )
+            self._nonempty_count += 1
+        return True
+
+
 def _selection_chars(
     groups: Sequence[_ParentGroup], kept_ids: Set[str]
 ) -> int:
-    """Exact rendered length of the current full-text selection (no truncation)."""
-    parts: List[str] = []
-    sep = "\n\n"
-    for g in groups:
-        entries = [
-            c
-            for c in sorted(g.children, key=lambda x: x.line_key)
-            if c.chunk.node_id in kept_ids
-        ]
-        if not entries:
-            continue
-        block = _render_group(
-            g, entries, evidence_index=len(parts) + 1, indent=len(entries) >= 2
-        )
-        parts.append(block)
-    if not parts:
-        return 0
-    return len(sep.join(parts))
+    """Exact rendered length of the current full-text selection."""
+    return _SelectionLength(groups, kept_ids).total
 
 
 def _refill_to_budget(
@@ -460,18 +644,16 @@ def _refill_to_budget(
             c.line_key,
         )
     )
-    used = _selection_chars(groups, kept_ids)
+    selection = _SelectionLength(groups, kept_ids)
     for child in dropped:
-        if used >= budget_chars:
+        if selection.total >= budget_chars:
             break
-        if len(child.chunk.text or "") > budget_chars - used:
+        if len(child.chunk.text or "") > budget_chars - selection.total:
             continue
-        kept_ids.add(child.chunk.node_id)
-        size = _selection_chars(groups, kept_ids)
-        if size > budget_chars:
-            kept_ids.discard(child.chunk.node_id)
+        if not selection.add(child.chunk.node_id):
             continue
-        used = size
+        if selection.total > budget_chars:
+            selection.remove(child.chunk.node_id)
 
 
 def _pack_trim(
@@ -497,8 +679,10 @@ def _pack_trim(
     if not kept_ids:
         return ComposeFillResult([], "", 0, 0, False, scored_flat, dropped_any=False)
 
+    selection = _SelectionLength(groups, kept_ids)
+
     def fits() -> bool:
-        return _selection_chars(groups, kept_ids) <= budget_chars
+        return selection.total <= budget_chars
 
     if fits():
         return _render_kept(
@@ -516,7 +700,7 @@ def _pack_trim(
         for child in candidates:
             if fits():
                 break
-            kept_ids.discard(child.chunk.node_id)
+            selection.remove(child.chunk.node_id)
         if fits():
             break
 
@@ -532,7 +716,7 @@ def _pack_trim(
                     break
                 if len(kept_ids) <= 1:
                     break
-                kept_ids.discard(child.chunk.node_id)
+                selection.remove(child.chunk.node_id)
             if fits() or len(kept_ids) <= 1:
                 break
 

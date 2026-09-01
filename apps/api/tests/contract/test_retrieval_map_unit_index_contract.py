@@ -15,6 +15,7 @@ from shared.models.database.document import (
 )
 from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
 from shared.services.retrieval.nav._compat import Chunk, EpisodeResult
+from shared.services.retrieval.nav import nav_knowhere
 from shared.services.retrieval.nav.nav_map_scores import (
     build_score_units,
     compute_corpus_map_and_unit_scores,
@@ -39,6 +40,77 @@ from tests.support.contract_database import ContractDatabase
 from tests.support.retrieval_snapshot_support import contract_db_session
 
 _USER_ID = "local-dev-user"
+
+
+def test_read_only_score_loader_drives_frequency_lookup_from_token_hash(
+    monkeypatch,
+) -> None:
+    document_id = "doc-frequency"
+    job_result_id = "revision-frequency"
+    executions: list[tuple[str, object]] = []
+
+    class FakeCursor:
+        def __init__(self) -> None:
+            self.rows: list[tuple[object, ...]] = []
+
+        def execute(self, statement: str, parameters: object = None) -> None:
+            executions.append((statement, parameters))
+            if "document_map_unit_indexes" in statement:
+                self.rows = [(document_id, job_result_id, 1, 1, 0.0, 0.0)]
+            elif "FROM document_map_units AS units" in statement:
+                self.rows = [("unit-frequency", document_id, "chunk-frequency", "section-frequency", 1, 1)]
+            elif "matching_tokens AS MATERIALIZED" in statement:
+                self.rows = [("unit-frequency", "path", "retrieval", 1)]
+            else:
+                self.rows = []
+
+        def fetchall(self) -> list[tuple[object, ...]]:
+            return self.rows
+
+        def close(self) -> None:
+            return None
+
+    class FakeConnection:
+        def __init__(self) -> None:
+            self.cursor_instance = FakeCursor()
+
+        def set_session(self, *, readonly: bool, autocommit: bool) -> None:
+            assert readonly is True
+            assert autocommit is True
+
+        def cursor(self) -> FakeCursor:
+            return self.cursor_instance
+
+        def close(self) -> None:
+            return None
+
+    connection = FakeConnection()
+    monkeypatch.setattr(nav_knowhere, "_connect", lambda _dsn: connection)
+    store = nav_knowhere.ReadOnlyChunkStore(
+        dsn="postgresql://test",
+        revisions={document_id: job_result_id},
+    )
+
+    corpus = store.load_persisted_score_corpus(
+        [document_id],
+        {document_id: ["section-frequency"]},
+        ["retrieval"],
+    )
+
+    assert corpus is not None
+    frequency_executions = [
+        (statement, parameters)
+        for statement, parameters in executions
+        if "matching_tokens AS MATERIALIZED" in statement
+    ]
+    assert len(frequency_executions) == 1
+    statement, parameters = frequency_executions[0]
+    assert "FROM matching_tokens" in statement
+    assert "token_hash = ANY" in statement
+    assert isinstance(parameters, list)
+    assert parameters[0] == [
+        "6e51d6a3d90b6a3243d38e6da6b3f31f49867c1360beba83da8ca9630f9672c7"
+    ]
 
 
 class _IncompleteIndexStore:
