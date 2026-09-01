@@ -200,6 +200,7 @@ def _map_one(
         )
 
     if action == "node_filter":
+        step_action = str(detail.get("action") or detail.get("decision") or "filter")
         return DecisionTraceStep(
             step_index=step_index,
             agent="navigator",
@@ -216,13 +217,11 @@ def _map_one(
                 "round": detail.get("round"),
             },
             decision={
-                "action": detail.get("decision") or "filter",
+                "action": step_action,
                 "reason": detail.get("reason") or "",
             },
             result={
-                "status": "fallback"
-                if str(detail.get("decision") or "") == "fallback"
-                else "ok",
+                "status": "fallback" if step_action == "fallback" else "ok",
                 "cardinality": detail.get("cardinality"),
                 "decision": detail.get("decision") or "",
                 "reason": detail.get("reason") or "",

@@ -65,7 +65,6 @@ _PRODUCTION_NAV_DICT: dict[str, Any] = {
     "filter_max_rounds": 3,
     "filter_min_hits": 1,
     "filter_max_hits": 40,
-    "filter_submap_char_limit": 2000,
 }
 
 

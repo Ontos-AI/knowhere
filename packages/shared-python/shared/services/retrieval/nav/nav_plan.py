@@ -653,11 +653,11 @@ def _planner_system_prompt(*, max_subgoals: int) -> str:
         "10. reason must be English, under 40 words. Document titles stay original "
         "language.\n"
         "11. Set use_node_filter=true when the subgoal enumerates or compares "
-        "named facets you can write as path/summary predicates (filenames, "
-        "tickers, section titles). Keep it false for vague semantic needs; "
+        "named facets you can write as path predicates (filenames, section "
+        "titles). Keep it false for vague semantic needs; "
         "retrieval_query remains the fuzzy-leg fallback. Optional node_filter "
         "may seed predicates: "
-        '[{\"field\":\"path|summary\",\"terms\":[\"...\"],\"match\":\"substring|regex\"}].\n\n'
+        '[{\"field\":\"path\",\"terms\":[\"...\"],\"match\":\"substring|regex\"}].\n\n'
         "Return ONLY one JSON object:\n"
         "{\n"
         '  "reason": "...",\n'

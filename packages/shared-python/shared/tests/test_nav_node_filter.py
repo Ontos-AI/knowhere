@@ -163,6 +163,7 @@ def test_regex_or_terms_and_preview_budget() -> None:
     assert set(result.matched_section_ids) == {"sec_q3", "sec_crop"}
     assert result.cardinality == 2
 
-    preview = render_submap_observation(ts, result, char_limit=40)
+    preview = render_submap_observation(ts, result)
     assert preview.startswith("hits=2")
-    assert "tighten the predicate" in preview
+    assert "sec_q3" not in preview  # paths shown, not ids
+    assert "Q3 Results" in preview

@@ -7,6 +7,7 @@ a done-in-band settle. Decision is cardinality-driven; the agent may override.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Sequence
 
@@ -86,9 +87,8 @@ def run_scope_filter(
     max_rounds = max(1, int(getattr(config, "filter_max_rounds", 3) or 3))
     min_hits = max(0, int(getattr(config, "filter_min_hits", 1) or 0))
     max_hits = max(min_hits, int(getattr(config, "filter_max_hits", 40) or 0))
-    char_limit = max(0, int(getattr(config, "filter_submap_char_limit", 2000) or 0))
     wanted = [str(did).strip() for did in doc_ids if str(did).strip()]
-    map_text = str(map_observation or "").strip() or _compact_map(ts, wanted, char_limit)
+    map_text = str(map_observation or "").strip() or _compact_map(ts, wanted)
     current = seed_filter
     last_result: Optional[FilterResult] = None
     last_obs = ""
@@ -99,11 +99,13 @@ def run_scope_filter(
         action = _scope_filter_policy_call(
             config,
             query=query,
-            map_observation=map_text,
+            full_map=map_text,
+            last_filter=None,
             last_result=None,
             last_observation="",
             round_idx=0,
             max_rounds=max_rounds,
+            include_full_map=True,
         )
         current = action.get("filter")
         last_decision = action.get("decision")
@@ -129,9 +131,7 @@ def run_scope_filter(
         assert current is not None
         result = apply_node_filter(ts, wanted, current)
         last_result = result
-        last_obs = render_submap_observation(
-            ts, result, char_limit=char_limit, doc_ids=wanted
-        )
+        last_obs = render_submap_observation(ts, result, doc_ids=wanted)
         in_band = min_hits <= result.cardinality <= max_hits
         if steps_out is not None:
             from ._compat import AgentStep
@@ -151,8 +151,9 @@ def run_scope_filter(
                             "truncated": result.truncated,
                             "failed_predicates": list(result.failed_predicates),
                             "matched_section_ids": list(result.matched_section_ids),
+                            "action": "",
                             "decision": "",
-                            "reason": last_reason,
+                            "reason": "",
                         }
                     ),
                 )
@@ -160,32 +161,58 @@ def run_scope_filter(
 
         is_last = round_idx >= max_rounds
         if is_last:
+            if steps_out:
+                steps_out[-1].detail["action"] = "max_rounds"
             return _settle(
                 result,
                 in_band=in_band,
                 agent_decision=last_decision,
                 min_hits=min_hits,
                 rounds=round_idx,
-                reason=last_reason or ("max_rounds" if in_band else "max_rounds_out_of_band"),
+                reason=("max_rounds" if in_band else "max_rounds_out_of_band"),
                 steps_out=steps_out,
             )
 
         action = _scope_filter_policy_call(
             config,
             query=query,
-            map_observation=map_text,
+            full_map=map_text,
+            last_filter=current,
             last_result=result,
             last_observation=last_obs,
             round_idx=round_idx,
             max_rounds=max_rounds,
+            include_full_map=False,
         )
+        if action.get("kind") == "widen":
+            # Agent judged the sub-map too narrow: one re-look with the full
+            # map, same round. A second widen settles on whatever it returns.
+            action = _scope_filter_policy_call(
+                config,
+                query=query,
+                full_map=map_text,
+                last_filter=current,
+                last_result=result,
+                last_observation=last_obs,
+                round_idx=round_idx,
+                max_rounds=max_rounds,
+                include_full_map=True,
+            )
+            if action.get("kind") == "widen":
+                if action.get("filter") is not None:
+                    action["kind"] = "filter"
+                else:
+                    action["kind"] = "fallback"
+                    action["reason"] = action.get("reason") or "widen_without_filter"
         last_decision = action.get("decision")
         last_reason = str(action.get("reason") or "")
         kind = str(action.get("kind") or "")
         if steps_out:
-            steps_out[-1].detail["decision"] = last_decision or kind
+            steps_out[-1].detail["action"] = kind
             steps_out[-1].detail["reason"] = last_reason
         if kind == "fallback":
+            if steps_out:
+                steps_out[-1].detail["decision"] = "fallback"
             return ScopeFilterOutcome(
                 decision="fallback",
                 settled_section_ids=list(result.matched_section_ids),
@@ -195,20 +222,15 @@ def run_scope_filter(
                 reason=last_reason or "policy_fallback",
             )
         if kind == "done":
-            if in_band:
-                return _settle(
-                    result,
-                    in_band=True,
-                    agent_decision=last_decision,
-                    min_hits=min_hits,
-                    rounds=round_idx,
-                    reason=last_reason or "done",
-                    steps_out=steps_out,
-                )
-            nxt = action.get("filter")
-            if nxt is not None:
-                current = nxt
-            continue
+            return _settle(
+                result,
+                in_band=in_band,
+                agent_decision=last_decision,
+                min_hits=min_hits,
+                rounds=round_idx,
+                reason=last_reason or "done",
+                steps_out=steps_out,
+            )
         nxt = action.get("filter")
         if nxt is not None:
             current = nxt
@@ -267,11 +289,13 @@ def _scope_filter_policy_call(
     config: NavConfig,
     *,
     query: str,
-    map_observation: str,
+    full_map: str,
+    last_filter: Optional[NodeFilter],
     last_result: Optional[FilterResult],
     last_observation: str,
     round_idx: int,
     max_rounds: int,
+    include_full_map: bool,
 ) -> Dict[str, Any]:
     from .nav_llm import nav_chat, resolve_nav_model
     from .nav_policy import _extract_json_obj
@@ -285,21 +309,21 @@ def _scope_filter_policy_call(
         model_env="NAV_LLM_MODEL",
         fallback_envs=("NAV_LLM_MODEL",),
     )
-    card = last_result.cardinality if last_result is not None else None
-    user = (
-        f"User query: {query}\n"
-        f"Round: {round_idx}/{max_rounds}\n"
-        f"Last cardinality: {card}\n"
-        f"=== Map ===\n{map_observation}\n=== End Map ===\n"
-    )
+    user = f"Query: {query}\nRound: {round_idx}/{max_rounds}\n"
+    if last_filter is not None:
+        user += f"Last filter: {json.dumps(_filter_payload(last_filter), ensure_ascii=False)}\n"
+    if last_result is not None:
+        user += f"Last hits: {last_result.cardinality}\n"
     if last_observation:
-        user += f"\n=== Last filter observation ===\n{last_observation}\n"
+        user += f"=== Sub-map (hits of last filter) ===\n{last_observation}\n"
+    if include_full_map:
+        user += f"=== Full map ===\n{full_map}\n=== End Full Map ===\n"
     try:
         cached = nav_chat(
             purpose=_SCOPE_FILTER_PURPOSE,
             model=model,
             messages=[
-                {"role": "system", "content": _scope_filter_system_prompt()},
+                {"role": "system", "content": _scope_filter_system_prompt(seed=last_filter is None)},
                 {"role": "user", "content": user},
             ],
             temperature=float(config.llm_temperature),
@@ -314,7 +338,7 @@ def _scope_filter_policy_call(
     text = str(cached.get("content") or "").strip()
     obj = _extract_json_obj(text) or {}
     kind = str(obj.get("action") or obj.get("kind") or "filter").strip().lower()
-    if kind not in {"filter", "done", "fallback"}:
+    if kind not in {"filter", "done", "widen", "fallback"}:
         kind = "filter"
     decision_raw = str(obj.get("decision") or "").strip().lower()
     decision: Optional[ScopeDecision] = (
@@ -330,18 +354,39 @@ def _scope_filter_policy_call(
     }
 
 
-def _scope_filter_system_prompt() -> str:
-    return (
-        "You write a WHERE node filter over document filenames, section paths, "
-        "and section summaries. Return json.\n"
-        "Schema: {\"action\":\"filter|done|fallback\",\"predicates\":"
-        "[{\"field\":\"path|summary\",\"terms\":[\"...\"],\"match\":\"substring|regex\"}],"
+def _scope_filter_system_prompt(*, seed: bool) -> str:
+    field_schema = (
+        '"path"' if seed else '"path|summary"'
+    )
+    field_rule = (
+        "Match on section paths only (filenames and title chains)."
+        if seed
+        else "Fields AND together; terms inside one field OR together."
+    )
+    base = (
+        "You write a WHERE filter over document sections. Return json.\n"
+        "Schema: {\"action\":\"filter|done|widen|fallback\",\"predicates\":"
+        f"[{{\"field\":{field_schema},\"terms\":[\"...\"],\"match\":\"substring|regex\"}}],"
         "\"decision\":\"collect_all|scoped_harvest|fallback\",\"reason\":\"...\"}\n"
-        "Fields AND together; terms inside one field OR together. "
-        "Use world-knowledge aliases (e.g. 苹果|AAPL|apple). "
-        "action=filter revises the predicate; action=done keeps the last apply "
-        "when the hit count is reasonable; action=fallback drops to keyword harvest. "
-        "decision is used only when settling."
+        f"{field_rule}\n"
+        "Write terms as natural-language words from the query or the map "
+        "(entities, topics, aliases); do not rely on section numbering alone.\n"
+    )
+    if seed:
+        return base + (
+            "Write the first filter for the query against the full map. "
+            "action=filter returns it; action=fallback only when no path "
+            "predicate can isolate the target sections."
+        )
+    return base + (
+        "You see the sub-map hit by the last filter; judge by its content:\n"
+        "- sub-map covers the query -> action=done\n"
+        "- sub-map has off-topic nodes -> action=filter with a narrower "
+        "revision of the last filter\n"
+        "- sub-map looks too narrow or misses parts of the query -> "
+        "action=widen to see the full map once, then revise\n"
+        "Revise the last filter, never restart from the query. "
+        "action=fallback only when no predicate can isolate the target sections."
     )
 
 
@@ -352,22 +397,10 @@ def _filter_payload(nf: NodeFilter) -> List[Dict[str, Any]]:
     ]
 
 
-def _compact_map(ts: Any, doc_ids: Sequence[str], char_limit: int) -> str:
+def _compact_map(ts: Any, doc_ids: Sequence[str]) -> str:
     path_fn = getattr(ts, "path_titles", None)
     structure_fn = getattr(ts, "get_structure", None)
     lines: List[str] = []
-    used = 0
-    limit = max(0, int(char_limit))
-
-    def add_line(text: str) -> bool:
-        nonlocal used
-        extra = len(text) + 1
-        if limit and used + extra > limit:
-            lines.append("map truncated")
-            return False
-        lines.append(text)
-        used += extra
-        return True
 
     def path_of(sid: str, doc_id: str) -> str:
         if not callable(path_fn):
@@ -391,8 +424,7 @@ def _compact_map(ts: Any, doc_ids: Sequence[str], char_limit: int) -> str:
     root_fn = getattr(ts, "sections_for_doc", None)
 
     for doc_id in doc_ids:
-        if not add_line(path_of(doc_id, doc_id)):
-            return "\n".join(lines)
+        lines.append(path_of(doc_id, doc_id))
         stack = [str(s) for s in (root_fn(doc_id) if callable(root_fn) else []) if str(s)]
         seen: set[str] = set()
         while stack:
@@ -403,8 +435,7 @@ def _compact_map(ts: Any, doc_ids: Sequence[str], char_limit: int) -> str:
             path = path_of(sid, doc_id)
             summary = summary_of(sid)
             line = path if not summary else f"{path} | {summary}"
-            if not add_line(line):
-                return "\n".join(lines)
+            lines.append(line)
             kids = [str(c) for c in (child_fn(sid) if callable(child_fn) else []) if str(c)]
             stack[0:0] = kids
     return "\n".join(lines)
