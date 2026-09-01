@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import resource
 import time
 from contextlib import AbstractAsyncContextManager
 
@@ -173,6 +174,7 @@ async def _run_mapnav_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
     """Default agentic path: PLANNER + HARVEST + CONTROL (checklist map-nav)."""
+    process_started = resource.getrusage(resource.RUSAGE_SELF)
     from shared.services.retrieval import nav_llm_backend  # noqa: F401
     from shared.services.retrieval.nav import run_nav_episode
     from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
@@ -202,6 +204,7 @@ async def _run_mapnav_route(
         exclude_sections=context.exclude_sections,
         lazy=True,
         revision_pins=snapshot_pins,
+        generation=(snapshot_pins.generation if snapshot_pins is not None else None),
     )
     if snapshot_pins is not None and not await is_revision_generation_stable(
         context.db,
@@ -223,6 +226,7 @@ async def _run_mapnav_route(
             exclude_sections=context.exclude_sections,
             lazy=True,
             revision_pins=snapshot_pins,
+            generation=(snapshot_pins.generation if snapshot_pins is not None else None),
         )
     snapshot_seconds = time.perf_counter() - snapshot_started
     logger.info(
@@ -338,6 +342,14 @@ async def _run_mapnav_route(
     }
 
     completion_detail = f"chunks | evidence={len(evidence_text)} chars | router=mapnav"
+    process_finished = resource.getrusage(resource.RUSAGE_SELF)
+    logger.info(
+        "retrieval mapnav stage=process_resources cpu_seconds=%.3f "
+        "process_max_rss_kb=%d",
+        (process_finished.ru_utime + process_finished.ru_stime)
+        - (process_started.ru_utime + process_started.ru_stime),
+        int(process_finished.ru_maxrss),
+    )
     return RetrievalRouteOutcome(
         response=response,
         hit_stats_results=resolved.refs,

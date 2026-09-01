@@ -67,7 +67,7 @@ from shared.services.retrieval.serving_generation import (
     lock_namespace_generation,
 )
 from shared.services.retrieval.serving_manifest import (
-    decode_serving_manifest,
+    decode_namespace_map_snapshot,
     persist_revision_serving_state,
 )
 
@@ -160,7 +160,7 @@ def check_fallback_readiness(*, document_id: str = "") -> list[NamespaceFallback
                 snapshot_status = "missing"
             else:
                 try:
-                    payload = decode_serving_manifest(
+                    payload = decode_namespace_map_snapshot(
                         bytes(snapshot.payload_zlib),
                         checksum=str(snapshot.checksum),
                         format_version=int(snapshot.format_version),

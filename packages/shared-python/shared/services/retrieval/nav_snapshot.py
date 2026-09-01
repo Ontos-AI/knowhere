@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
+import zlib
 from dataclasses import dataclass
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any, Protocol
@@ -33,6 +35,7 @@ from shared.models.database.document import (
     DocumentChunk,
     DocumentSection,
     RetrievalNamespaceMapSnapshot,
+    RetrievalNamespaceGeneration,
     RetrievalServingRevisionManifest,
 )
 from shared.models.database.job_result import JobResult
@@ -46,12 +49,15 @@ from shared.services.retrieval.nav.nav_knowhere import (
     knowhere_database_url,
 )
 from shared.services.retrieval.search.section_filters import is_excluded_section
-from shared.services.retrieval.serving_manifest import decode_serving_manifest
-from shared.services.retrieval.manifest_cache import get_cached_manifest_payloads
-from shared.services.retrieval.namespace_map_snapshot_cache import (
-    cache_namespace_documents,
-    get_cached_namespace_documents,
+from shared.services.retrieval.serving_manifest import (
+    decode_namespace_map_snapshot,
+    decode_serving_manifest,
 )
+from shared.services.retrieval.manifest_cache import get_cached_manifest_payloads
+from shared.services.retrieval.namespace_map_snapshot_redis import (
+    NamespaceMapSnapshotRedisCache,
+)
+from shared.core.exceptions.redis_exceptions import RedisOperationError
 
 
 # Keep each payload query bounded under the API's 30-second statement timeout.
@@ -68,6 +74,16 @@ _REVISION_GROUP_SIZE = 64
 # page them by revision.
 _MANIFEST_MAX_REVISION_COUNT = 32
 _logger = logging.getLogger(__name__)
+
+
+def _is_snapshot_timing_enabled() -> bool:
+    """Enable detailed snapshot timings for local performance diagnosis."""
+    return os.environ.get("RETRIEVAL_SNAPSHOT_TIMING", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 class SnapshotSession(Protocol):
@@ -149,12 +165,14 @@ async def load_nav_snapshot(
     exclude_sections: list[dict[str, str]] | None = None,
     lazy: bool = False,
     revision_pins: Mapping[str, str] | None = None,
+    generation: int | None = None,
 ) -> NavSnapshot:
     """Preload namespace current revision into a sync map-nav snapshot."""
     excluded_docs = [
         str(x).strip() for x in (exclude_document_ids or ()) if str(x).strip()
     ]
     excluded_secs = list(exclude_sections or ())
+    snapshot_started = time.perf_counter()
 
     if revision_pins is None:
         doc_stmt = (
@@ -182,7 +200,9 @@ async def load_nav_snapshot(
         )
     if excluded_docs:
         doc_stmt = doc_stmt.where(Document.document_id.notin_(excluded_docs))
+    doc_query_started = time.perf_counter()
     doc_rows = list((await db.execute(doc_stmt)).all())
+    doc_query_seconds = time.perf_counter() - doc_query_started
     if not doc_rows:
         raise ValueError(
             f"no active documents with current revision for "
@@ -207,11 +227,13 @@ async def load_nav_snapshot(
             current_job_result_ids.add(job_result_id)
             document_revisions.append((did, job_result_id))
 
+    job_query_started = time.perf_counter()
     job_result_rows = await db.execute(
         select(JobResult.id, JobResult.job_id).where(
             JobResult.id.in_(list(current_job_result_ids))
         )
     )
+    job_query_seconds = time.perf_counter() - job_query_started
     job_id_by_result_id = {
         str(job_result_id): str(job_id)
         for job_result_id, job_id in job_result_rows.all()
@@ -223,13 +245,16 @@ async def load_nav_snapshot(
         user_id=user_id,
         namespace=namespace,
         document_revisions=document_revisions,
+        expected_generation=generation,
     )
     if snapshot_entries is not None:
+        parse_started = time.perf_counter()
         manifest_sections = _parse_manifest_entries(
             snapshot_entries,
             exclude_sections=excluded_secs,
             job_id_by_result_id=job_id_by_result_id,
         )
+        parse_seconds = time.perf_counter() - parse_started
     else:
         _logger.warning(
             "retrieval snapshot fallback=manifest_merge user_id=%s namespace=%s documents=%d",
@@ -245,6 +270,7 @@ async def load_nav_snapshot(
                 exclude_sections=excluded_secs,
                 job_id_by_result_id=job_id_by_result_id,
             )
+        parse_seconds = 0.0
     if manifest_sections is None:
         _logger.warning(
             "retrieval snapshot fallback=table_scan user_id=%s namespace=%s documents=%d",
@@ -324,21 +350,39 @@ async def load_nav_snapshot(
                     for chunk_id in chunk_ids
                 },
             )
+            ref_index_started = time.perf_counter()
+            lazy_ref_index = LazyChunkRefIndex(
+                chunk_ref_index,
+                resolver=store.load_chunk_reference_metadata,
+            )
+            ref_index_seconds = time.perf_counter() - ref_index_started
         except Exception:
             store.close()
             raise
-        return NavSnapshot(
+        snapshot = NavSnapshot(
             provider=provider,
-            chunk_ref_index=LazyChunkRefIndex(
-                chunk_ref_index,
-                resolver=store.load_chunk_reference_metadata,
-            ),
+            chunk_ref_index=lazy_ref_index,
             document_ids=list(provider.document_ids()),
             document_titles={
                 did: kept_titles.get(did, did) for did in provider.document_ids()
             },
             document_revisions=dict(revisions),
         )
+        if _is_snapshot_timing_enabled():
+            _logger.info(
+                "retrieval snapshot timing total_seconds=%.3f parse_seconds=%.3f "
+                "ref_index_copy_seconds=%.3f doc_query_seconds=%.3f "
+                "job_query_seconds=%.3f documents=%d sections=%d refs=%d mode=lazy",
+                time.perf_counter() - snapshot_started,
+                parse_seconds,
+                ref_index_seconds,
+                doc_query_seconds,
+                job_query_seconds,
+                len(snapshot.document_ids),
+                sum(len(rows) for rows in sections_by_doc.values()),
+                len(snapshot.chunk_ref_index),
+            )
+        return snapshot
 
     units_by_doc, chunk_ref_index = await _load_chunks(
         db,
@@ -358,7 +402,7 @@ async def load_nav_snapshot(
             f"user_id={user_id!r} namespace={namespace!r}"
         )
 
-    return build_nav_snapshot(
+    snapshot = build_nav_snapshot(
         document_titles=kept_titles,
         sections_by_doc={did: sections_by_doc.get(did, []) for did in kept_titles},
         units_by_doc={did: units_by_doc.get(did, []) for did in kept_titles},
@@ -369,6 +413,20 @@ async def load_nav_snapshot(
             if document_id in kept_titles
         },
     )
+    if _is_snapshot_timing_enabled():
+        _logger.info(
+            "retrieval snapshot timing total_seconds=%.3f parse_seconds=%.3f "
+            "doc_query_seconds=%.3f job_query_seconds=%.3f documents=%d "
+            "sections=%d refs=%d mode=eager",
+            time.perf_counter() - snapshot_started,
+            parse_seconds,
+            doc_query_seconds,
+            job_query_seconds,
+            len(snapshot.document_ids),
+            sum(len(rows) for rows in sections_by_doc.values()),
+            len(snapshot.chunk_ref_index),
+        )
+    return snapshot
 
 
 async def _resolve_namespace_snapshot_entries(
@@ -377,21 +435,42 @@ async def _resolve_namespace_snapshot_entries(
     user_id: str,
     namespace: str,
     document_revisions: list[tuple[str, str]],
+    expected_generation: int | None = None,
 ) -> list[tuple[object, ...]] | None:
     """Return manifest-shaped entries from the persisted namespace snapshot.
 
     Returns ``None`` (triggering the exact per-revision fallback) when the
     snapshot row is missing, corrupt, or stale for any requested revision.
     """
+    generation_statement = select(RetrievalNamespaceGeneration.generation).where(
+        RetrievalNamespaceGeneration.user_id == user_id,
+        RetrievalNamespaceGeneration.namespace == namespace,
+    )
+    try:
+        generation_result = await db.execute(generation_statement)
+        _current_generation = generation_result.scalar_one_or_none()
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        _logger.warning(
+            "retrieval snapshot generation lookup failed; using fallback error=%s",
+            exc,
+        )
+        return None
+    if _is_snapshot_timing_enabled():
+        _logger.info(
+            "retrieval snapshot generation generation=%s",
+            _current_generation,
+        )
+    generation_value = int(expected_generation) if expected_generation is not None else None
     statement = select(
         RetrievalNamespaceMapSnapshot.generation,
-        RetrievalNamespaceMapSnapshot.payload_zlib,
         RetrievalNamespaceMapSnapshot.checksum,
         RetrievalNamespaceMapSnapshot.format_version,
     ).where(
         RetrievalNamespaceMapSnapshot.user_id == user_id,
         RetrievalNamespaceMapSnapshot.namespace == namespace,
     )
+    lookup_started = time.perf_counter()
     try:
         row = (await db.execute(statement)).first()
     except SQLAlchemyError as exc:
@@ -403,30 +482,136 @@ async def _resolve_namespace_snapshot_entries(
             exc,
         )
         return None
+    lookup_seconds = time.perf_counter() - lookup_started
+    if _is_snapshot_timing_enabled():
+        _logger.info(
+            "retrieval snapshot lookup seconds=%.3f found=%s",
+            lookup_seconds,
+            row is not None,
+        )
     if row is None:
         return None
-    generation, payload_zlib, checksum, format_version = row
-    documents = get_cached_namespace_documents(
-        user_id=user_id, namespace=namespace, generation=int(generation)
-    )
-    if documents is None:
-        try:
-            payload = decode_serving_manifest(
-                bytes(payload_zlib),
-                checksum=str(checksum),
-                format_version=int(format_version),
+    generation, checksum, format_version = row
+    row_generation = int(generation)
+    if generation_value is not None and row_generation != generation_value:
+        _logger.info(
+            "retrieval snapshot generation mismatch row=%d expected=%d",
+            row_generation,
+            generation_value,
+        )
+        return None
+    if (
+        generation_value is None
+        and _current_generation is not None
+        and int(_current_generation) > 0
+        and row_generation != int(_current_generation)
+    ):
+        _logger.info(
+            "retrieval snapshot generation mismatch row=%d current=%d",
+            row_generation,
+            int(_current_generation),
+        )
+        return None
+    cached_blob: bytes | None = None
+    try:
+        cached_blob = await NamespaceMapSnapshotRedisCache.get(
+            user_id=user_id, namespace=namespace, generation=row_generation
+        )
+    except RedisOperationError as exc:
+        _logger.warning("retrieval snapshot redis get failed error=%s", exc)
+    database_blob: bytes | None = None
+    if cached_blob is None:
+        payload_result = await db.execute(
+            select(RetrievalNamespaceMapSnapshot.payload_zlib).where(
+                RetrievalNamespaceMapSnapshot.user_id == user_id,
+                RetrievalNamespaceMapSnapshot.namespace == namespace,
             )
-        except (ValueError, TypeError):
+        )
+        payload_row = payload_result.first()
+        if payload_row is None or payload_row[0] is None:
             return None
-        decoded_documents = payload.get("documents")
-        if not isinstance(decoded_documents, dict):
+        database_blob = bytes(payload_row[0])
+        blob: bytes = database_blob
+    else:
+        blob = cached_blob
+    is_timing_enabled = _is_snapshot_timing_enabled()
+    decode_timings: dict[str, float] | None = {} if is_timing_enabled else None
+    decode_started = time.perf_counter()
+    try:
+        payload = decode_namespace_map_snapshot(
+            blob,
+            checksum=str(checksum),
+            format_version=int(format_version),
+            timings=decode_timings,
+        )
+    except (ValueError, TypeError, zlib.error):
+        if cached_blob is not None:
+            # A stale/corrupt cache entry must never shadow the PostgreSQL source.
+            try:
+                if database_blob is None:
+                    fallback_result = await db.execute(
+                        select(RetrievalNamespaceMapSnapshot.payload_zlib).where(
+                            RetrievalNamespaceMapSnapshot.user_id == user_id,
+                            RetrievalNamespaceMapSnapshot.namespace == namespace,
+                        )
+                    )
+                    fallback_row = fallback_result.first()
+                    if fallback_row is None or fallback_row[0] is None:
+                        return None
+                    database_blob = bytes(fallback_row[0])
+                assert database_blob is not None
+                payload = decode_namespace_map_snapshot(
+                    database_blob,
+                    checksum=str(checksum),
+                    format_version=int(format_version),
+                    timings=decode_timings,
+                )
+                blob = database_blob
+                cached_blob = None
+            except (ValueError, TypeError, zlib.error):
+                return None
+        else:
             return None
-        documents = decoded_documents
-        cache_namespace_documents(
-            user_id=user_id,
-            namespace=namespace,
-            generation=int(generation),
-            documents=documents,
+    decoded_documents = payload.get("documents")
+    if not isinstance(decoded_documents, dict):
+        return None
+    documents = decoded_documents
+    if cached_blob is None:
+        try:
+            await NamespaceMapSnapshotRedisCache.set(
+                user_id=user_id,
+                namespace=namespace,
+                generation=row_generation,
+                payload_zlib=blob,
+            )
+        except RedisOperationError as exc:
+            _logger.warning("retrieval snapshot redis set failed error=%s", exc)
+        if is_timing_enabled:
+            _logger.info(
+                "retrieval snapshot decode cache_hit=false seconds=%.3f "
+                "compressed_bytes=%d decompressed_bytes=%d "
+                "decompress_seconds=%.3f checksum_seconds=%.3f "
+                "json_decode_seconds=%.3f documents=%d",
+                time.perf_counter() - decode_started,
+                int((decode_timings or {}).get("compressed_bytes", 0.0)),
+                int((decode_timings or {}).get("decompressed_bytes", 0.0)),
+                (decode_timings or {}).get("decompress_seconds", 0.0),
+                (decode_timings or {}).get("checksum_seconds", 0.0),
+                (decode_timings or {}).get("json_decode_seconds", 0.0),
+                len(documents),
+            )
+    elif is_timing_enabled:
+        _logger.info(
+            "retrieval snapshot decode cache_hit=true seconds=%.3f "
+            "compressed_bytes=%d decompressed_bytes=%d decompress_seconds=%.3f "
+            "checksum_seconds=%.3f json_decode_seconds=%.3f documents=%d",
+            time.perf_counter() - decode_started,
+            int((decode_timings or {}).get("compressed_bytes", 0.0)),
+            int((decode_timings or {}).get("decompressed_bytes", 0.0)),
+            (decode_timings or {}).get("decompress_seconds", 0.0),
+            (decode_timings or {}).get("checksum_seconds", 0.0),
+            (decode_timings or {}).get("json_decode_seconds", 0.0),
+            len(documents),
         )
     entries: list[tuple[object, ...]] = []
     for document_id, job_result_id in document_revisions:
@@ -532,6 +717,11 @@ def _parse_manifest_entries(
     ref_index: dict[str, dict[str, Any]] = {}
     root_assets_by_doc: dict[str, set[str]] = {}
     text_connections_by_doc: dict[str, list[tuple[str, str]]] = {}
+    section_seconds = 0.0
+    chunk_seconds = 0.0
+    section_count = 0
+    chunk_count = 0
+    connection_count = 0
     try:
         for document_id, _job_result_id, payload_zlib, checksum, format_version in manifest_entries:
             if isinstance(payload_zlib, dict):
@@ -546,6 +736,7 @@ def _parse_manifest_entries(
                     checksum=str(checksum),
                     format_version=int(str(format_version)),
                 )
+            section_started = time.perf_counter()
             raw_sections = payload.get("sections")
             if not isinstance(raw_sections, list):
                 return None
@@ -577,6 +768,9 @@ def _parse_manifest_entries(
                 )
                 by_doc.setdefault(str(document_id), []).append(section)
                 path_by_id[section_id] = section_path
+                section_count += 1
+            section_seconds += time.perf_counter() - section_started
+            chunk_started = time.perf_counter()
             raw_chunks = payload.get("chunks")
             if not isinstance(raw_chunks, list):
                 return None
@@ -628,15 +822,32 @@ def _parse_manifest_entries(
                             text_connections_by_doc.setdefault(document_key, []).append(
                                 (section_id or "", target)
                             )
+                            connection_count += 1
+                chunk_count += 1
+            chunk_seconds += time.perf_counter() - chunk_started
     except (TypeError, ValueError, KeyError):
         return None
     remounted: dict[str, dict[str, Any]] = {}
+    remount_started = time.perf_counter()
     for document_id, asset_ids in root_assets_by_doc.items():
         owners: dict[str, list[str]] = {}
         for section_id, target in text_connections_by_doc.get(document_id, ()):
             if target in asset_ids:
                 owners.setdefault(section_id, []).append(target)
         remounted[document_id] = {"root": sorted(asset_ids), "owners": owners}
+    if _is_snapshot_timing_enabled():
+        _logger.info(
+            "retrieval snapshot parse sections=%d chunks=%d connections=%d "
+            "section_seconds=%.3f chunk_seconds=%.3f remount_seconds=%.3f "
+            "ref_index_keys=%d",
+            section_count,
+            chunk_count,
+            connection_count,
+            section_seconds,
+            chunk_seconds,
+            time.perf_counter() - remount_started,
+            len(ref_index),
+        )
     return by_doc, path_by_id, (ids_by_doc, ref_index, remounted)
 
 

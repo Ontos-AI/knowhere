@@ -19,8 +19,8 @@ from shared.models.database.document import (
 )
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 from shared.services.retrieval.serving_manifest import (
-    decode_serving_manifest,
-    encode_serving_manifest,
+    decode_namespace_map_snapshot,
+    encode_namespace_map_snapshot,
 )
 
 
@@ -107,7 +107,7 @@ def _decode_documents(
     if row is None:
         return {}
     try:
-        payload = decode_serving_manifest(
+        payload = decode_namespace_map_snapshot(
             row.payload_zlib,
             checksum=row.checksum,
             format_version=row.format_version,
@@ -127,7 +127,7 @@ def _write_snapshot(
     documents: dict[str, dict[str, Any]],
     target_generation: int,
 ) -> None:
-    encoded, checksum, format_version = encode_serving_manifest(
+    encoded, checksum, format_version = encode_namespace_map_snapshot(
         {"documents": documents}
     )
     if row is None:

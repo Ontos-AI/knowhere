@@ -62,7 +62,11 @@ async def hydrate_connected_target_rows(
         return []
 
     stmt = (
-        select(Document, DocumentChunk, DocumentSection, JobResult)
+        # Select only the job identifier needed for the public projection.
+        # Selecting the JobResult entity triggers its ``chunks`` selectin
+        # relationship, loading the entire legacy job-chunk collection for
+        # every connected revision during final hydration.
+        select(Document, DocumentChunk, DocumentSection, JobResult.job_id)
         .join(
             DocumentChunk,
             (
@@ -90,7 +94,7 @@ async def hydrate_connected_target_rows(
     result = await db.execute(stmt)
 
     hydrated_rows: list[dict[str, Any]] = []
-    for document, chunk, section, job_result in result.all():
+    for document, chunk, section, job_id in result.all():
         section_path = section.section_path if section else None
         hydrated_rows.append(
             {
@@ -105,7 +109,7 @@ async def hydrate_connected_target_rows(
                 'file_path': chunk.file_path,
                 'chunk_metadata': chunk.chunk_metadata or {},
                 'job_result_id': chunk.job_result_id,
-                'job_id': job_result.job_id if job_result else None,
+                'job_id': job_id,
                 'sort_order': chunk.sort_order,
             }
         )

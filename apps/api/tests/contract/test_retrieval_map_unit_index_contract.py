@@ -6,7 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from httpx import AsyncClient
-from sqlalchemy import delete, select, text
+from sqlalchemy import Engine, delete, event, select, text
 
 from shared.models.database.document import (
     DocumentMapUnit,
@@ -21,6 +21,7 @@ from shared.services.retrieval.nav.nav_map_scores import (
     compute_corpus_map_and_unit_scores,
     select_map_highlights,
 )
+from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.nav.nav_knowhere import (
     KnowhereProvider,
     LazyKnowhereProvider,
@@ -105,11 +106,15 @@ def test_read_only_score_loader_drives_frequency_lookup_from_token_hash(
     ]
     assert len(frequency_executions) == 1
     statement, parameters = frequency_executions[0]
-    assert "map_unit_id = ANY" in statement
+    assert "scoped_units AS MATERIALIZED" in statement
+    assert "JOIN scoped_units" in statement
+    assert "channel = ANY" in statement
     assert "token_hash = ANY" in statement
+    assert "map_unit_id = ANY" not in statement
     assert isinstance(parameters, list)
     assert parameters[0] == ["unit-frequency"]
-    assert parameters[1] == [
+    assert parameters[1] == ["path", "content"]
+    assert parameters[2] == [
         "6e51d6a3d90b6a3243d38e6da6b3f31f49867c1360beba83da8ca9630f9672c7"
     ]
 
@@ -491,6 +496,100 @@ async def test_lazy_snapshot_defers_selected_asset_reference_metadata(
         ]
         assert scores == {"asset": 0.75}
         snapshot.close()
+
+
+async def test_connected_hydration_does_not_load_legacy_job_chunks(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    identifier = uuid4().hex[:8]
+    namespace = f"connected-job-{identifier}"
+    document_id = f"doc_connected_{identifier}"
+    job_id = f"job_connected_{identifier}"
+    job_result_id = f"result_connected_{identifier}"
+    statements: list[str] = []
+
+    def capture_job_chunk_query(
+        _connection: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        if "job_chunks" in statement.lower():
+            statements.append(statement)
+
+    async with developer_api_client_factory():
+        await _seed_revision(
+            namespace=namespace,
+            document_id=document_id,
+            job_id=job_id,
+            job_result_id=job_result_id,
+        )
+        scope = DocumentPublicationScope(
+            user_id=_USER_ID,
+            namespace=namespace,
+            document_id=document_id,
+            job_result_id=job_result_id,
+            source_file_name="connected.pdf",
+        )
+        chunks = [
+            {
+                "chunk_id": "body-connected",
+                "type": "text",
+                "content": "body connected evidence",
+                "path": "connected.pdf/Root/Section/body",
+                "order": 1,
+                "metadata": {"connect_to": [{"target": "asset-connected"}]},
+            },
+            {
+                "chunk_id": "asset-connected",
+                "type": "image",
+                "content": "asset connected summary",
+                "path": "images/asset-connected.png",
+                "order": 2,
+                "file_path": "images/asset-connected.png",
+                "metadata": {},
+            },
+        ]
+        async with contract_db_session() as db:
+            await db.run_sync(
+                lambda sync_db: _publish_revision_with_generation_lock(
+                    sync_db,
+                    scope=scope,
+                    chunks=chunks,
+                )
+            )
+            await db.commit()
+
+        event.listen(Engine, "before_cursor_execute", capture_job_chunk_query)
+        try:
+            async with contract_db_session() as db:
+                hydrated = await hydrate_connected_target_rows(
+                    db=db,
+                    rows=[
+                        {
+                            "document_id": document_id,
+                            "job_result_id": job_result_id,
+                            "chunk_id": "body-connected",
+                            "chunk_type": "text",
+                            "chunk_metadata": {
+                                "connect_to": [{"target": "asset-connected"}]
+                            },
+                        }
+                    ],
+                    exclude_document_ids=[],
+                    exclude_sections=[],
+                    revision_pins={document_id: job_result_id},
+                )
+        finally:
+            event.remove(Engine, "before_cursor_execute", capture_job_chunk_query)
+
+    assert [row["chunk_id"] for row in hydrated] == ["asset-connected"]
+    assert hydrated[0]["job_id"] == job_id
+    assert statements == []
 
 
 def test_incomplete_index_returns_empty_scores() -> None:
