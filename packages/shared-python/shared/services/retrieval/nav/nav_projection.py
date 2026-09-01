@@ -317,11 +317,13 @@ def _build_map_tree(
     collected_section_ids: Optional[Set[str]] = None,
     dismissed_section_ids: Optional[Set[str]] = None,
     harvested_section_ids: Optional[Dict[str, str]] = None,
+    keep_ids: Optional[Set[str]] = None,
 ) -> List[_MapNode]:
     roots: List[_MapNode] = []
     seen: Set[str] = set()
     node_count = 0
     harvested = dict(harvested_section_ids or {})
+    keep = set(keep_ids) if keep_ids is not None else None
     # collected = branch done (sid ∪ descendants already marked by caller).
     # Harvested roots stay visible as a collapsed single line (fix-map-
     # visibility); their descendants are still fully removed like any other
@@ -365,6 +367,8 @@ def _build_map_tree(
     ) -> None:
         """Attach section_id if visible. collected/dismissed drop node + subtree."""
         if not section_id or section_id in gone:
+            return
+        if keep is not None and section_id not in keep:
             return
         node = make_node(section_id, depth, parent_id)
         if node is None:
@@ -501,6 +505,30 @@ def _render_map(
     return "\n".join(lines), visible, id_to_section, any_hidden
 
 
+def _expand_allowed_with_ancestors(
+    ts: Any,
+    allowed_section_ids: Optional[Set[str]],
+) -> Optional[Set[str]]:
+    if allowed_section_ids is None:
+        return None
+    keep = {str(sid).strip() for sid in allowed_section_ids if str(sid).strip()}
+    parent_fn = getattr(ts, "parent_id", None)
+    if not callable(parent_fn):
+        return keep
+    extra: Set[str] = set()
+    for sid in keep:
+        cur = sid
+        seen: Set[str] = set()
+        while cur and cur not in seen:
+            seen.add(cur)
+            parent = parent_fn(cur)
+            if not parent:
+                break
+            extra.add(str(parent))
+            cur = str(parent)
+    return keep | extra
+
+
 def _fallback_highlights_from_tree(roots: List[_MapNode], k: int) -> List[str]:
     leaves = [n for n in _flatten(roots, include_hidden=True) if not n.has_children]
     leaves.sort(key=lambda n: (-n.score, n.section_id))
@@ -520,6 +548,7 @@ def build_map(
     highlight_ids: Optional[List[str]] = None,
     extra_hidden_ids: Optional[Set[str]] = None,
     harvested_section_ids: Optional[Dict[str, str]] = None,
+    allowed_section_ids: Optional[Set[str]] = None,
 ) -> Projection:
     """Full-depth title map with score-ordered budget hiding (+ optional inline summary)."""
     scores = dict(map_scores or {})
@@ -527,6 +556,7 @@ def build_map(
         root_ids = [scope]
     else:
         root_ids = _top_sections(ts, doc_id)
+    keep_ids = _expand_allowed_with_ancestors(ts, allowed_section_ids)
     roots = _build_map_tree(
         ts,
         root_ids=root_ids,
@@ -535,6 +565,7 @@ def build_map(
         collected_section_ids=collected_section_ids,
         dismissed_section_ids=dismissed_section_ids,
         harvested_section_ids=harvested_section_ids,
+        keep_ids=keep_ids,
     )
     hits = [str(x).strip() for x in (highlight_ids or []) if str(x).strip()]
     if not hits:
@@ -606,6 +637,7 @@ def build_projection(
     highlight_ids: Optional[List[str]] = None,
     extra_hidden_ids: Optional[Set[str]] = None,
     harvested_section_ids: Optional[Dict[str, str]] = None,
+    allowed_section_ids: Optional[Set[str]] = None,
 ) -> Projection:
     if map_mode_enabled(config):
         return build_map(
@@ -620,6 +652,7 @@ def build_projection(
             highlight_ids=highlight_ids,
             extra_hidden_ids=extra_hidden_ids,
             harvested_section_ids=harvested_section_ids,
+            allowed_section_ids=allowed_section_ids,
         )
 
     # Minimal non-map fallback (legacy shallow projection) — kept for ablation only.

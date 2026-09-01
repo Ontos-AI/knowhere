@@ -107,6 +107,12 @@ class NavConfig:
     # Retired: plan_control now shows full prebuilt section summaries (already
     # head/tail clipped at summary-build time), not a raw-evidence char cut.
     plan_control_digest_chars: int = 600
+    # WHERE node filter (pre-harvest). Off until orchestrate enables a subgoal.
+    enable_node_filter: bool = False
+    filter_max_rounds: int = 3
+    filter_min_hits: int = 1
+    filter_max_hits: int = 40
+    filter_submap_char_limit: int = 2000
 
     @property
     def is_checklist(self) -> bool:

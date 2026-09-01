@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .nav_actions import build_legal_actions, format_actionable_map_observation
 from .nav_compose import parse_collect_confidence
@@ -263,6 +263,7 @@ def harvest(
     entry_scope: Optional[str],
     query: str,
     steps_out: Optional[List[Any]] = None,
+    allowed_section_ids: Optional[Set[str]] = None,
 ) -> HarvestResult:
     """Single-decision-per-node evidence harvest for one subgoal."""
     result = HarvestResult(subgoal_id=subgoal.id)
@@ -287,6 +288,7 @@ def harvest(
         depth=initial_depth,
         steps_out=steps_out,
         result=result,
+        allowed_section_ids=allowed_section_ids,
     )
     return result
 
@@ -302,6 +304,7 @@ def _harvest_node(
     depth: int,
     steps_out: Optional[List[Any]],
     result: HarvestResult,
+    allowed_section_ids: Optional[Set[str]] = None,
 ) -> None:
     from .nav_navigate import _apply_collect  # late import avoids cycle
     from .nav_token_budget import stamp_step_detail
@@ -320,6 +323,7 @@ def _harvest_node(
         dismissed_section_ids=state.dismissed_section_ids | subgoal_dismissed,
         highlight_ids=state.highlight_ids,
         harvested_section_ids=state.harvested_owner_subgoal if show_harvested else None,
+        allowed_section_ids=allowed_section_ids,
     )
     actions = build_legal_actions(
         state, projection, step_idx=0, config=config, depth=depth, ts=ts
@@ -467,6 +471,7 @@ def _harvest_node(
             depth=child_depth,
             steps_out=steps_out,
             result=result,
+            allowed_section_ids=allowed_section_ids,
         )
         # Whole dispatched subtree came up empty: a dead end, not just "not
         # yet explored" — dismiss it too so a later widen doesn't re-dispatch

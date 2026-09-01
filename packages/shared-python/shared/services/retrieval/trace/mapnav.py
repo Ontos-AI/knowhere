@@ -200,6 +200,38 @@ def _map_one(
             elapsed_ms=elapsed,
         )
 
+    if action == "node_filter":
+        return DecisionTraceStep(
+            step_index=step_index,
+            agent="navigator",
+            phase="node_filter",
+            parent_step_index=parent_step_index,
+            scope=scope,
+            observation={
+                "predicates": detail.get("predicates") or [],
+                "fields": detail.get("fields") or [],
+                "cardinality": detail.get("cardinality"),
+                "truncated": detail.get("truncated"),
+                "failed_predicates": detail.get("failed_predicates") or [],
+                "matched_section_ids": detail.get("matched_section_ids") or [],
+                "round": detail.get("round"),
+            },
+            decision={
+                "action": detail.get("decision") or "filter",
+                "reason": detail.get("reason") or "",
+            },
+            result={
+                "status": "fallback"
+                if str(detail.get("decision") or "") == "fallback"
+                else "ok",
+                "cardinality": detail.get("cardinality"),
+                "decision": detail.get("decision") or "",
+                "reason": detail.get("reason") or "",
+            },
+            budget=budget,
+            elapsed_ms=elapsed,
+        )
+
     if action == "search_assets":
         return DecisionTraceStep(
             step_index=step_index,
@@ -401,7 +433,7 @@ def build_decision_trace(
             harvest_parent_by_depth[depth] = mapped.step_index
         if mapped.phase == "plan":
             layer_counts["planner"] += 1
-        elif mapped.phase in {"harvest", "plan_wave", "asset_search"}:
+        elif mapped.phase in {"harvest", "plan_wave", "asset_search", "node_filter"}:
             layer_counts["harvest"] += 1
         elif mapped.phase == "plan_control":
             layer_counts["control"] += 1
