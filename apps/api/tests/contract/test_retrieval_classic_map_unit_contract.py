@@ -6,7 +6,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import Engine, event, select
 
 from shared.models.database.document import DocumentMapUnit
 from shared.services.retrieval.publication_content import (
@@ -86,6 +86,88 @@ async def test_classic_route_maps_winning_unit_to_one_chunk(
         "source_file_name": "first.pdf",
         "section_path": "Root / Hit / body",
     }
+
+
+async def test_classic_route_uses_token_hash_lookup_for_frequency_query(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    identifier = uuid4().hex[:8]
+    namespace = f"classic-token-hash-{identifier}"
+    statements: list[str] = []
+
+    def capture_frequency_query(
+        _connection: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        if (
+            "FROM document_map_unit_tokens AS tokens" in statement
+            and "tokens.frequency" in statement
+        ):
+            statements.append(statement)
+
+    event.listen(Engine, "before_cursor_execute", capture_frequency_query)
+    try:
+        async with developer_api_client_factory() as api_client:
+            await _publish_document(
+                namespace=namespace,
+                source_file_name="token-hash.pdf",
+                chunks=[
+                    {
+                        "chunk_id": f"token-hash-{identifier}",
+                        "type": "text",
+                        "content": "token hash lookup marker",
+                        "path": "token-hash.pdf/Root/Section/body",
+                        "order": 1,
+                        "metadata": {},
+                    },
+                    {
+                        "chunk_id": f"token-hash-filler-a-{identifier}",
+                        "type": "text",
+                        "content": "unrelated filler a",
+                        "path": "token-hash.pdf/Root/Section/a",
+                        "order": 2,
+                        "metadata": {},
+                    },
+                    {
+                        "chunk_id": f"token-hash-filler-b-{identifier}",
+                        "type": "text",
+                        "content": "unrelated filler b",
+                        "path": "token-hash.pdf/Root/Section/b",
+                        "order": 3,
+                        "metadata": {},
+                    },
+                    {
+                        "chunk_id": f"token-hash-filler-c-{identifier}",
+                        "type": "text",
+                        "content": "unrelated filler c",
+                        "path": "token-hash.pdf/Root/Section/c",
+                        "order": 4,
+                        "metadata": {},
+                    },
+                ],
+            )
+            response = await api_client.post(
+                "/api/v1/retrieval/query",
+                json={
+                    "namespace": namespace,
+                    "query": "token hash lookup",
+                    "top_k": 1,
+                    "use_agentic": False,
+                },
+            )
+    finally:
+        event.remove(Engine, "before_cursor_execute", capture_frequency_query)
+
+    assert response.status_code == 200
+    assert statements
+    assert "token_hash = ANY" in statements[-1]
+    assert "token = ANY" not in statements[-1]
 
 
 async def test_classic_route_image_filter_scores_only_units_with_images(

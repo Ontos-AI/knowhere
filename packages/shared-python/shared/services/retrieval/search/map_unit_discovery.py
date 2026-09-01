@@ -19,6 +19,7 @@ import json
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from hashlib import sha256
 from typing import Any
 
 from loguru import logger
@@ -191,6 +192,9 @@ async def map_unit_discovery(
     query_tokens = tokenize_query_for_ranker(query)
     if not query_tokens:
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
+    query_token_hashes = [
+        sha256(token.encode("utf-8")).hexdigest() for token in query_tokens
+    ]
 
     revision_join, revision_clause, revision_params = _build_revision_scope(
         revision_pins
@@ -245,13 +249,13 @@ async def map_unit_discovery(
                 FROM document_map_unit_tokens AS tokens
                 JOIN scoped_units ON scoped_units.map_unit_id = tokens.map_unit_id
                 WHERE tokens.channel = ANY(:channels)
-                    AND tokens.token = ANY(:tokens)
+                    AND tokens.token_hash = ANY(:token_hashes)
                 """
         ),
         {
             **params,
             "channels": list(_MAP_SCORE_CHANNELS),
-            "tokens": query_tokens,
+            "token_hashes": query_token_hashes,
         },
     )
     frequencies: dict[tuple[str, str], dict[str, int]] = {}
