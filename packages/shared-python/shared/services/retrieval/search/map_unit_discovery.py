@@ -75,6 +75,25 @@ WITH scoped_units AS (
 )
 """
 
+_SCOPED_UNIT_IDS_CTE = """
+WITH scoped_units AS (
+    SELECT
+        dmu.id AS map_unit_id,
+        dmu.document_id,
+        dmu.job_result_id
+    FROM document_map_units dmu
+    JOIN documents d
+        ON d.document_id = dmu.document_id
+        {revision_join}
+    WHERE d.user_id = :user_id
+        AND d.namespace = :namespace
+        AND d.status = 'active'
+        {revision_clause}
+        {exclude_clause}
+        {type_clause}
+)
+"""
+
 
 @dataclass
 class DiscoveryResult:
@@ -287,7 +306,16 @@ async def map_unit_discovery(
 
     frequency_result = await db.execute(
         text(
-            cte
+            (
+                cte
+                if signal_paths
+                else _SCOPED_UNIT_IDS_CTE.format(
+                    revision_join=revision_join,
+                    revision_clause=revision_clause,
+                    exclude_clause=exclude_clause,
+                    type_clause=type_clause,
+                )
+            )
             + """
                 SELECT tokens.map_unit_id, tokens.channel, tokens.token, tokens.frequency
                 FROM document_map_unit_tokens AS tokens
@@ -310,7 +338,16 @@ async def map_unit_discovery(
 
     index_result = await db.execute(
         text(
-            cte
+            (
+                cte
+                if signal_paths
+                else _SCOPED_UNIT_IDS_CTE.format(
+                    revision_join=revision_join,
+                    revision_clause=revision_clause,
+                    exclude_clause=exclude_clause,
+                    type_clause=type_clause,
+                )
+            )
             + """
                 SELECT indexes.average_idf_path, indexes.average_idf_content,
                        indexes.unit_count
