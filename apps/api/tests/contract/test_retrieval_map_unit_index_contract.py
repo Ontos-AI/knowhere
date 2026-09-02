@@ -61,7 +61,7 @@ def test_read_only_score_loader_drives_frequency_lookup_from_token_hash(
                     (document_id, job_result_id, 2, 1, 0.0, 0.0, 1, 1, 1, 1)
                 ]
             elif "FROM document_sections" in statement:
-                self.rows = [(document_id, 1)]
+                self.rows = [(document_id, job_result_id, 1)]
             elif "FROM document_map_units AS units" in statement:
                 self.rows = [("unit-frequency", document_id, "chunk-frequency", "section-frequency", 1, 1)]
             elif "FROM document_map_unit_tokens" in statement:

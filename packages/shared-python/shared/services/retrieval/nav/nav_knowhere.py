@@ -390,18 +390,22 @@ class ReadOnlyChunkStore:
                 for section_id in section_ids
             }
             cur.execute(
-                "SELECT document_id, count(*) FROM document_sections "
-                "WHERE document_id = ANY(%s) GROUP BY document_id",
-                [[document_id for document_id, _ in revisions]],
+                "SELECT sections.document_id, sections.job_result_id, count(*) "
+                "FROM document_sections AS sections "
+                f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
+                "ON sections.document_id = revisions.document_id "
+                "AND sections.job_result_id = revisions.job_result_id "
+                "GROUP BY sections.document_id, sections.job_result_id",
+                revision_params,
             )
             section_counts = {
-                str(document_id): int(count)
-                for document_id, count in cur.fetchall()
+                (str(document_id), str(job_result_id)): int(count)
+                for document_id, job_result_id, count in cur.fetchall()
             }
             has_complete_section_scope: bool = all(
                 len(allowed_by_document.get(document_id, set()))
-                == section_counts.get(document_id, 0)
-                for document_id, _ in revisions
+                == section_counts.get((document_id, job_result_id), 0)
+                for document_id, job_result_id in revisions
             )
             all_unit_rows = self._score_unit_rows_cache.get(revision_key)
             if has_complete_section_scope and query_token_hashes:

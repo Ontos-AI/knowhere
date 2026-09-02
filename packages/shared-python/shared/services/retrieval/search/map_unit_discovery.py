@@ -365,6 +365,19 @@ async def map_unit_discovery(
         if unfiltered_scope
         else indexed_unit_count != len(unit_rows)
     )
+    index_format_incompatible = any(
+        format_version != MAP_UNIT_INDEX_FORMAT_VERSION
+        for (
+            _path_idf,
+            _content_idf,
+            _unit_count,
+            format_version,
+            _path_document_count,
+            _path_total_length,
+            _content_document_count,
+            _content_total_length,
+        ) in index_parts
+    )
     index_statistics_incomplete = unfiltered_scope and any(
         format_version != MAP_UNIT_INDEX_FORMAT_VERSION
         or path_document_count is None
@@ -385,6 +398,7 @@ async def map_unit_discovery(
     if (
         len(index_parts) != len(expected_revisions)
         or index_unit_count_mismatch
+        or index_format_incompatible
         or index_statistics_incomplete
     ):
         try:

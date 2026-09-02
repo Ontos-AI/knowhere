@@ -173,6 +173,193 @@ async def test_classic_route_uses_token_hash_lookup_for_frequency_query(
     assert "FROM matching_tokens" in statements[-1]
 
 
+async def test_classic_route_only_uses_token_selective_projection_for_unfiltered_scope(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    identifier = uuid4().hex[:8]
+    namespace = f"classic-projection-{identifier}"
+    projection_statements: list[str] = []
+
+    def capture_unit_projection(
+        _connection: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        if "SELECT DISTINCT scoped_units.*" in statement:
+            projection_statements.append("token_selective")
+        elif "SELECT * FROM scoped_units" in statement:
+            projection_statements.append("legacy")
+
+    event.listen(Engine, "before_cursor_execute", capture_unit_projection)
+    try:
+        async with developer_api_client_factory() as api_client:
+            await _publish_document(
+                namespace=namespace,
+                source_file_name="projection.pdf",
+                chunks=[
+                    {
+                        "chunk_id": f"projection-hit-{identifier}",
+                        "type": "text",
+                        "content": "projection token marker",
+                        "path": "projection.pdf/Root/Section/hit",
+                        "order": 1,
+                        "metadata": {},
+                    },
+                    {
+                        "chunk_id": f"projection-filler-a-{identifier}",
+                        "type": "text",
+                        "content": "unrelated filler a",
+                        "path": "projection.pdf/Root/Section/a",
+                        "order": 2,
+                        "metadata": {},
+                    },
+                    {
+                        "chunk_id": f"projection-filler-b-{identifier}",
+                        "type": "text",
+                        "content": "unrelated filler b",
+                        "path": "projection.pdf/Root/Section/b",
+                        "order": 3,
+                        "metadata": {},
+                    },
+                    {
+                        "chunk_id": f"projection-filler-c-{identifier}",
+                        "type": "text",
+                        "content": "unrelated filler c",
+                        "path": "projection.pdf/Root/Section/c",
+                        "order": 4,
+                        "metadata": {},
+                    },
+                ],
+            )
+            unfiltered_response = await api_client.post(
+                "/api/v1/retrieval/query",
+                json={
+                    "namespace": namespace,
+                    "query": "projection token marker",
+                    "top_k": 1,
+                    "use_agentic": False,
+                },
+            )
+            filtered_response = await api_client.post(
+                "/api/v1/retrieval/query",
+                json={
+                    "namespace": namespace,
+                    "query": "projection token marker",
+                    "top_k": 1,
+                    "use_agentic": False,
+                    "signal_paths": ["Section"],
+                    "filter_mode": "keep",
+                },
+            )
+    finally:
+        event.remove(Engine, "before_cursor_execute", capture_unit_projection)
+
+    assert unfiltered_response.status_code == 200
+    assert filtered_response.status_code == 200
+    assert projection_statements[:2] == ["token_selective", "legacy"]
+
+
+async def test_classic_route_falls_back_for_v1_index_with_excluded_document(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    identifier = uuid4().hex[:8]
+    namespace = f"classic-v1-fallback-{identifier}"
+    legacy_queries: list[str] = []
+
+    def capture_legacy_query(
+        _connection: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        if "plainto_tsquery('simple'" in statement:
+            legacy_queries.append(statement)
+
+    event.listen(Engine, "before_cursor_execute", capture_legacy_query)
+    try:
+        async with developer_api_client_factory() as api_client:
+            first = await _publish_document(
+                namespace=namespace,
+                source_file_name="legacy-fallback.pdf",
+                chunks=[
+                    {
+                        "chunk_id": f"legacy-hit-{identifier}",
+                        "type": "text",
+                        "content": "legacy fallback marker",
+                        "path": "legacy-fallback.pdf/Root/Section/body",
+                        "order": 1,
+                        "metadata": {},
+                    },
+                    {
+                        "chunk_id": f"legacy-filler-a-{identifier}",
+                        "type": "text",
+                        "content": "unrelated legacy filler a",
+                        "path": "legacy-fallback.pdf/Root/Section/a",
+                        "order": 2,
+                        "metadata": {},
+                    },
+                    {
+                        "chunk_id": f"legacy-filler-b-{identifier}",
+                        "type": "text",
+                        "content": "unrelated legacy filler b",
+                        "path": "legacy-fallback.pdf/Root/Section/b",
+                        "order": 3,
+                        "metadata": {},
+                    },
+                ],
+            )
+            excluded = await _publish_document(
+                namespace=namespace,
+                source_file_name="excluded.pdf",
+                chunks=[
+                    {
+                        "chunk_id": f"excluded-{identifier}",
+                        "type": "text",
+                        "content": "unrelated filler",
+                        "path": "excluded.pdf/Root/Section/body",
+                        "order": 1,
+                        "metadata": {},
+                    }
+                ],
+            )
+            await ContractDatabase.execute(
+                """
+                UPDATE document_map_unit_indexes
+                SET format_version = 1
+                WHERE document_id = :document_id
+                """,
+                {"document_id": first["document_id"]},
+            )
+            response = await api_client.post(
+                "/api/v1/retrieval/query",
+                json={
+                    "namespace": namespace,
+                    "query": "legacy fallback marker",
+                    "top_k": 1,
+                    "use_agentic": False,
+                    "exclude_document_ids": [excluded["document_id"]],
+                },
+            )
+    finally:
+        event.remove(Engine, "before_cursor_execute", capture_legacy_query)
+
+    assert response.status_code == 200
+    body = cast(dict[str, object], response.json())
+    results = cast(list[dict[str, object]], body["results"])
+    assert len(results) == 1
+    assert results[0]["chunk_id"] == f"legacy-hit-{identifier}"
+    assert legacy_queries
+
+
 async def test_classic_route_image_filter_scores_only_units_with_images(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
