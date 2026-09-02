@@ -180,6 +180,20 @@ retained only as historical investigation notes and do not establish current
 latency or retrieval parity. Re-run both the baseline and optimized discovery
 paths after the v2 local backfill, using the current main code as the baseline.
 
+The replacement local dump is now available on PostgreSQL port `55433`.
+After applying the additive schema migration, populating the four channel
+statistics from the existing map units, and running `VACUUM (ANALYZE)`, the
+token-leading covering index uses an index-only scan (`Heap Fetches=0`). For
+the `心血管` probe, the isolated SQL projection measured approximately
+`150 ms` for scope-first versus `77 ms` for token-selective, and the frequency
+lookup measured `2.7 ms`. Ten repeated classic application calls across
+`心血管`, `心脏`, and `肺` preserved chunk IDs, ordering, sources, and evidence;
+the maximum score delta was `1.7e-5`. Warm p50 improved by about `24 ms` for
+`心血管`, was effectively unchanged for `心脏`, and regressed by less than
+`1 ms` for the empty `肺` probe. Treat this as a SQL/transfer improvement with
+no yet-established broad end-to-end latency win; production rollout still
+requires the same migration, backfill, and rollback checks below.
+
 The reference trace above is not representative of request mix. In the current
 baseline window, 196 successful v1 roots used `use_agentic=false` (classic),
 three used the default map-nav route (`use_agentic=null`), and one explicitly
