@@ -483,7 +483,19 @@ trigger it. The runbook should:
 3. run the read-only inventory/check command and record active/current revision
    counts;
 4. run the resumable statistics backfill in bounded batches (with optional
-   document selection), monitoring database load and generation changes;
+   document selection), monitoring database load and generation changes. The
+   command is:
+
+   ```bash
+   python /app/scripts/backfill_map_unit_statistics.py \
+     --apply --batch-size 100
+   ```
+
+   Use `--user-id`, `--namespace`, or `--document-id` to narrow a rehearsal.
+   `--check` is read-only and should return `would_update=0` before rollout.
+   This command only aggregates existing `document_map_units`; it does not
+   regenerate token rows or snapshots. Revisions with a missing or legacy
+   index remain on the existing full backfill path.
 5. rerun the check until every retrieval-visible revision has a coherent v2
    marker and no serving fallback is reported;
 6. monitor semantic-parity probes, latency, errors, and timeouts. The reader's
