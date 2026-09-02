@@ -50,8 +50,12 @@ stages and must not be summed with those children.
 Every optimization in this plan must preserve retrieval semantic parity for the
 same pinned request: selected chunk IDs, ordering, rounded scores, source
 sections, citations, evidence content, and asset references must remain
-unchanged. A latency improvement that has not passed the parity checks is not
-shippable, and the exact legacy retrieval path remains the fallback.
+unchanged. Score comparisons use a maximum absolute tolerance of `1e-4` to
+avoid treating harmless floating-point accumulation-order differences as a
+retrieval change; IDs, ordering, source sections, citations, evidence content,
+and asset references have no tolerance. A latency improvement that has not
+passed the parity checks is not shippable, and the exact legacy retrieval path
+remains the fallback.
 
 ## Current optimization boundary
 
