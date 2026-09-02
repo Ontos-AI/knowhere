@@ -211,6 +211,15 @@ async def map_unit_discovery(
     params.update(type_params)
     params.update(signal_params)
 
+    unfiltered_scope: bool = not any(
+        (
+            chunk_types,
+            signal_paths,
+            exclude_sections,
+            exclude_document_ids,
+        )
+    )
+
     cte = _SCOPED_UNITS_CTE.format(
         revision_join=revision_join,
         revision_clause=revision_clause,
@@ -218,7 +227,24 @@ async def map_unit_discovery(
         type_clause=type_clause,
         signal_clause=signal_clause,
     )
-    unit_result = await db.execute(text(cte + "SELECT * FROM scoped_units"), params)
+    unit_statement = cte + "SELECT * FROM scoped_units"
+    if unfiltered_scope:
+        unit_statement = (
+            "WITH matching_tokens AS MATERIALIZED ("
+            "SELECT DISTINCT map_unit_id FROM document_map_unit_tokens "
+            "WHERE channel = ANY(:channels) AND token_hash = ANY(:token_hashes)"
+            "), "
+            + cte.lstrip().removeprefix("WITH ")
+            + " SELECT DISTINCT scoped_units.* "
+            "FROM matching_tokens JOIN scoped_units "
+            "ON scoped_units.map_unit_id = matching_tokens.map_unit_id"
+        )
+        params = {
+            **params,
+            "channels": list(_MAP_SCORE_CHANNELS),
+            "token_hashes": query_token_hashes,
+        }
+    unit_result = await db.execute(text(unit_statement), params)
     unit_rows = [dict(row._mapping) for row in unit_result.all()]
     unit_rows = [
         row
@@ -283,7 +309,9 @@ async def map_unit_discovery(
             )
             + """
                 SELECT indexes.average_idf_path, indexes.average_idf_content,
-                       indexes.unit_count, indexes.format_version
+                       indexes.unit_count, indexes.format_version,
+                       indexes.path_document_count, indexes.path_total_length,
+                       indexes.content_document_count, indexes.content_total_length
                 FROM document_map_unit_indexes AS indexes
                 JOIN (
                     SELECT DISTINCT document_id, job_result_id FROM scoped_units
@@ -294,29 +322,71 @@ async def map_unit_discovery(
         ),
         params,
     )
-    # Only count indexes written with the current tokenizer (v2 = word-level).
-    # Stale char-level (v1) rows look complete by unit_count but cannot match
-    # word-level query hashes — treat them as missing so readiness fails closed.
     index_parts = [
-        (float(path_idf or 0.0), float(content_idf or 0.0), int(unit_count or 0))
-        for path_idf, content_idf, unit_count, format_version in index_result.all()
-        if int(format_version or 0) == MAP_UNIT_INDEX_FORMAT_VERSION
-    ]
-    expected_revisions = {
-        (str(row["document_id"]), str(row["job_result_id"])) for row in unit_rows
-    }
-    unfiltered_scope = not any(
         (
-            chunk_types,
-            signal_paths,
-            exclude_sections,
-            exclude_document_ids,
+            float(path_idf or 0.0),
+            float(content_idf or 0.0),
+            int(unit_count or 0),
+            int(format_version or 0),
+            path_document_count,
+            path_total_length,
+            content_document_count,
+            content_total_length,
         )
+        for (
+            path_idf,
+            content_idf,
+            unit_count,
+            format_version,
+            path_document_count,
+            path_total_length,
+            content_document_count,
+            content_total_length,
+        ) in index_result.all()
+    ]
+    if unfiltered_scope:
+        revision_result = await db.execute(
+            text(cte + "SELECT DISTINCT document_id, job_result_id FROM scoped_units"),
+            params,
+        )
+        expected_revisions = {
+            (str(row[0]), str(row[1])) for row in revision_result.all()
+        }
+    else:
+        expected_revisions = {
+            (str(row["document_id"]), str(row["job_result_id"]))
+            for row in unit_rows
+        }
+    indexed_unit_count = sum(
+        unit_count for _path_idf, _content_idf, unit_count, *_rest in index_parts
     )
-    index_unit_count_mismatch = unfiltered_scope and sum(
-        unit_count for _path_idf, _content_idf, unit_count in index_parts
-    ) != len(unit_rows)
-    if len(index_parts) != len(expected_revisions) or index_unit_count_mismatch:
+    index_unit_count_mismatch = (
+        indexed_unit_count < len(unit_rows)
+        if unfiltered_scope
+        else indexed_unit_count != len(unit_rows)
+    )
+    index_statistics_incomplete = unfiltered_scope and any(
+        format_version != MAP_UNIT_INDEX_FORMAT_VERSION
+        or path_document_count is None
+        or path_total_length is None
+        or content_document_count is None
+        or content_total_length is None
+        for (
+            _path_idf,
+            _content_idf,
+            _unit_count,
+            format_version,
+            path_document_count,
+            path_total_length,
+            content_document_count,
+            content_total_length,
+        ) in index_parts
+    )
+    if (
+        len(index_parts) != len(expected_revisions)
+        or index_unit_count_mismatch
+        or index_statistics_incomplete
+    ):
         try:
             await record_retrieval_index_readiness(
                 user_id=user_id,
@@ -361,13 +431,13 @@ async def map_unit_discovery(
     average_idf_path = combine_average_idf(
         [
             (path_idf, unit_count)
-            for path_idf, _content_idf, unit_count in index_parts
+            for path_idf, _content_idf, unit_count, *_rest in index_parts
         ]
     )
     average_idf_content = combine_average_idf(
         [
             (content_idf, unit_count)
-            for _path_idf, content_idf, unit_count in index_parts
+            for _path_idf, content_idf, unit_count, *_rest in index_parts
         ]
     )
 
@@ -379,6 +449,16 @@ async def map_unit_discovery(
         query_tokens=query_tokens,
         frequencies=frequencies,
         average_idf=average_idf_path,
+        document_count_override=(
+            sum(int(part[4] or 0) for part in index_parts)
+            if unfiltered_scope
+            else None
+        ),
+        total_length_override=(
+            sum(int(part[5] or 0) for part in index_parts)
+            if unfiltered_scope
+            else None
+        ),
     )
     content_stats = build_channel_bm25_stats(
         unit_rows=unit_rows,
@@ -388,6 +468,16 @@ async def map_unit_discovery(
         query_tokens=query_tokens,
         frequencies=frequencies,
         average_idf=average_idf_content,
+        document_count_override=(
+            sum(int(part[6] or 0) for part in index_parts)
+            if unfiltered_scope
+            else None
+        ),
+        total_length_override=(
+            sum(int(part[7] or 0) for part in index_parts)
+            if unfiltered_scope
+            else None
+        ),
     )
 
     corpus = PersistedScoreCorpus(

@@ -255,6 +255,57 @@ def test_should_index_document_chunks_in_lazy_section_order(
     )
 
 
+def test_should_create_token_leading_map_unit_covering_index(
+    migrated_head_engine: Engine,
+) -> None:
+    with migrated_head_engine.begin() as connection:
+        index_definition = connection.execute(
+            text(
+                """
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = current_schema()
+                  AND tablename = 'document_map_unit_tokens'
+                  AND indexname = 'idx_document_map_unit_tokens_token_lookup'
+                """
+            )
+        ).scalar_one()
+
+    definition = str(index_definition)
+    assert "(channel, token_hash, map_unit_id)" in definition
+    assert "INCLUDE (token, frequency)" in definition
+
+
+def test_should_add_per_channel_map_unit_bm25_statistics(
+    migrated_head_engine: Engine,
+) -> None:
+    with migrated_head_engine.begin() as connection:
+        columns = {
+            str(row[0]): str(row[1])
+            for row in connection.execute(
+                text(
+                    """
+                    SELECT column_name, is_nullable
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'document_map_unit_indexes'
+                      AND column_name IN (
+                        'path_document_count', 'path_total_length',
+                        'content_document_count', 'content_total_length'
+                      )
+                    """
+                )
+            ).all()
+        }
+
+    assert columns == {
+        "path_document_count": "YES",
+        "path_total_length": "YES",
+        "content_document_count": "YES",
+        "content_total_length": "YES",
+    }
+
+
 def test_should_upgrade_with_a_caller_owned_connection(
     alembic_engine: Engine,
 ) -> None:

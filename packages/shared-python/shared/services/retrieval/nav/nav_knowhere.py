@@ -335,7 +335,9 @@ class ReadOnlyChunkStore:
                 cur.execute(
                     "SELECT indexes.document_id, indexes.job_result_id, "
                     "indexes.format_version, indexes.unit_count, "
-                    "indexes.average_idf_path, indexes.average_idf_content "
+                    "indexes.average_idf_path, indexes.average_idf_content, "
+                    "indexes.path_document_count, indexes.path_total_length, "
+                    "indexes.content_document_count, indexes.content_total_length "
                     "FROM document_map_unit_indexes AS indexes "
                     f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
                     "ON indexes.document_id = revisions.document_id "
@@ -353,7 +355,8 @@ class ReadOnlyChunkStore:
                 len(index_rows),
             )
             if len(index_rows) != len(revisions) or any(
-                len(row) < 6 or int(row[2]) != MAP_UNIT_INDEX_FORMAT_VERSION
+                len(row) < 10 or int(row[2]) != MAP_UNIT_INDEX_FORMAT_VERSION
+                or any(value is None for value in row[6:10])
                 for row in index_rows
             ):
                 return None
@@ -386,8 +389,63 @@ class ReadOnlyChunkStore:
                 for document_id, section_ids in allowed_by_document.items()
                 for section_id in section_ids
             }
+            cur.execute(
+                "SELECT document_id, count(*) FROM document_sections "
+                "WHERE document_id = ANY(%s) GROUP BY document_id",
+                [[document_id for document_id, _ in revisions]],
+            )
+            section_counts = {
+                str(document_id): int(count)
+                for document_id, count in cur.fetchall()
+            }
+            has_complete_section_scope: bool = all(
+                len(allowed_by_document.get(document_id, set()))
+                == section_counts.get(document_id, 0)
+                for document_id, _ in revisions
+            )
             all_unit_rows = self._score_unit_rows_cache.get(revision_key)
-            if all_unit_rows is None:
+            if has_complete_section_scope and query_token_hashes:
+                stage_started = time.perf_counter()
+                cur.execute(
+                    "WITH matching_tokens AS MATERIALIZED ("
+                    "SELECT DISTINCT map_unit_id FROM document_map_unit_tokens "
+                    "WHERE channel = ANY(%s) AND token_hash = ANY(%s)"
+                    "), scoped_units AS MATERIALIZED ("
+                    f"SELECT units.id, units.document_id, units.unit_id, units.section_id, "
+                    "units.path_token_count, units.content_token_count "
+                    "FROM document_map_units AS units "
+                    f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
+                    "ON units.document_id = revisions.document_id "
+                    "AND units.job_result_id = revisions.job_result_id"
+                    ") SELECT scoped_units.id, scoped_units.document_id, "
+                    "scoped_units.unit_id, scoped_units.section_id, "
+                    "scoped_units.path_token_count, scoped_units.content_token_count "
+                    "FROM matching_tokens JOIN scoped_units "
+                    "ON scoped_units.id = matching_tokens.map_unit_id",
+                    [
+                        list(_MAP_SCORE_CHANNELS),
+                        list(query_token_hashes),
+                        *revision_params,
+                    ],
+                )
+                unit_rows = [
+                    {
+                        "map_unit_id": str(row[0]),
+                        "document_id": str(row[1]),
+                        "unit_id": str(row[2]),
+                        "section_id": str(row[3] or ""),
+                        "path_token_count": int(row[4] or 0),
+                        "content_token_count": int(row[5] or 0),
+                    }
+                    for row in cur.fetchall()
+                ]
+                _logger.info(
+                    "retrieval map-index load stage=units-selective seconds=%.3f rows=%d",
+                    time.perf_counter() - stage_started,
+                    len(unit_rows),
+                )
+                all_unit_rows = None
+            elif all_unit_rows is None:
                 stage_started = time.perf_counter()
                 cur.execute(
                     "SELECT units.id, units.document_id, units.unit_id, "
@@ -427,11 +485,13 @@ class ReadOnlyChunkStore:
                     True,
                 )
 
-            unit_rows = [
-                row
-                for row in all_unit_rows
-                if (str(row["document_id"]), str(row["section_id"])) in allowed_pairs_set
-            ]
+            if not has_complete_section_scope or not query_token_hashes:
+                unit_rows = [
+                    row
+                    for row in all_unit_rows or []
+                    if (str(row["document_id"]), str(row["section_id"]))
+                    in allowed_pairs_set
+                ]
             frequencies: Dict[Tuple[str, str], Dict[str, int]] = {}
             if unit_rows and query_tokens:
                 stage_started = time.perf_counter()
@@ -482,6 +542,16 @@ class ReadOnlyChunkStore:
                 query_tokens=query_tokens,
                 frequencies=frequencies,
                 average_idf=average_idf_path,
+                document_count_override=(
+                    sum(int(row[6] or 0) for row in index_rows)
+                    if has_complete_section_scope and query_token_hashes
+                    else None
+                ),
+                total_length_override=(
+                    sum(int(row[7] or 0) for row in index_rows)
+                    if has_complete_section_scope and query_token_hashes
+                    else None
+                ),
             )
             content_stats = build_channel_bm25_stats(
                 unit_rows=unit_rows,
@@ -491,6 +561,16 @@ class ReadOnlyChunkStore:
                 query_tokens=query_tokens,
                 frequencies=frequencies,
                 average_idf=average_idf_content,
+                document_count_override=(
+                    sum(int(row[8] or 0) for row in index_rows)
+                    if has_complete_section_scope and query_token_hashes
+                    else None
+                ),
+                total_length_override=(
+                    sum(int(row[9] or 0) for row in index_rows)
+                    if has_complete_section_scope and query_token_hashes
+                    else None
+                ),
             )
             return PersistedScoreCorpus(
                 units=[

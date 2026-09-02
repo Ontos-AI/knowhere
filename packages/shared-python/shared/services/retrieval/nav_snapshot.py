@@ -86,6 +86,26 @@ def _is_snapshot_timing_enabled() -> bool:
     }
 
 
+def _section_shape_counts(
+    sections_by_doc: Mapping[str, list[SectionRow]],
+) -> tuple[int, int, int, int]:
+    """Return section rows, distinct paths, roots, and leaves for diagnostics."""
+    rows: list[SectionRow] = [
+        row for document_rows in sections_by_doc.values() for row in document_rows
+    ]
+    parent_ids: set[str] = {
+        str(row.parent_section_id).strip()
+        for row in rows
+        if str(row.parent_section_id or "").strip()
+    }
+    return (
+        len(rows),
+        len({str(row.section_path) for row in rows}),
+        sum(1 for row in rows if not str(row.parent_section_id or "").strip()),
+        sum(1 for row in rows if str(row.section_id) not in parent_ids),
+    )
+
+
 class SnapshotSession(Protocol):
     """Minimal database interface required by the snapshot loader."""
 
@@ -369,17 +389,25 @@ async def load_nav_snapshot(
             document_revisions=dict(revisions),
         )
         if _is_snapshot_timing_enabled():
+            section_rows, section_paths, root_sections, leaf_sections = (
+                _section_shape_counts(sections_by_doc)
+            )
             _logger.info(
                 "retrieval snapshot timing total_seconds=%.3f parse_seconds=%.3f "
                 "ref_index_copy_seconds=%.3f doc_query_seconds=%.3f "
-                "job_query_seconds=%.3f documents=%d sections=%d refs=%d mode=lazy",
+                "job_query_seconds=%.3f documents=%d section_rows=%d "
+                "section_paths=%d root_sections=%d leaf_sections=%d refs=%d "
+                "mode=lazy",
                 time.perf_counter() - snapshot_started,
                 parse_seconds,
                 ref_index_seconds,
                 doc_query_seconds,
                 job_query_seconds,
                 len(snapshot.document_ids),
-                sum(len(rows) for rows in sections_by_doc.values()),
+                section_rows,
+                section_paths,
+                root_sections,
+                leaf_sections,
                 len(snapshot.chunk_ref_index),
             )
         return snapshot
@@ -414,16 +442,23 @@ async def load_nav_snapshot(
         },
     )
     if _is_snapshot_timing_enabled():
+        section_rows, section_paths, root_sections, leaf_sections = (
+            _section_shape_counts(sections_by_doc)
+        )
         _logger.info(
             "retrieval snapshot timing total_seconds=%.3f parse_seconds=%.3f "
             "doc_query_seconds=%.3f job_query_seconds=%.3f documents=%d "
-            "sections=%d refs=%d mode=eager",
+            "section_rows=%d section_paths=%d root_sections=%d "
+            "leaf_sections=%d refs=%d mode=eager",
             time.perf_counter() - snapshot_started,
             parse_seconds,
             doc_query_seconds,
             job_query_seconds,
             len(snapshot.document_ids),
-            sum(len(rows) for rows in sections_by_doc.values()),
+            section_rows,
+            section_paths,
+            root_sections,
+            leaf_sections,
             len(snapshot.chunk_ref_index),
         )
     return snapshot
