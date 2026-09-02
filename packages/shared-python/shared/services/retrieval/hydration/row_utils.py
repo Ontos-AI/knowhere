@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from shared.services.retrieval.search.section_filters import is_excluded_section
@@ -21,15 +20,6 @@ PUBLIC_SOURCE_FIELDS = {
 }
 
 ReferenceLookupKey = tuple[str, str, str, str]
-
-_PATH_REF_RE = re.compile(r'\[(?:images|tables)/[^\]\n]+\]')
-_SAME_AS_RE = re.compile(r'\[SAME-AS [^\]]+\]')
-
-
-def clean_content(content: str) -> str:
-    text = _PATH_REF_RE.sub('', content)
-    text = _SAME_AS_RE.sub('', text)
-    return text.strip()
 
 
 def normalize_chunk_type(raw: object) -> str:

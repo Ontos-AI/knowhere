@@ -15,9 +15,7 @@ from shared.services.retrieval.execution.reference_resolver import (
 from shared.services.retrieval.hydration.result_assembly import (
     assemble_retrieval_results,
 )
-from shared.services.retrieval.hydration.legacy_evidence import (
-    render_legacy_evidence_text,
-)
+from shared.services.retrieval.hydration.evidence_text import render_evidence_blocks
 from shared.services.retrieval.execution.route_types import (
     RetrievalRouteContext,
     RetrievalRouteOutcome,
@@ -38,6 +36,28 @@ def open_fresh_database_context() -> AbstractAsyncContextManager[AsyncSession]:
     from shared.core.database import get_db_context
 
     return get_db_context()
+
+
+def _evidence_path_header(row: dict) -> str:
+    source = row.get("source")
+    if not isinstance(source, dict):
+        source = row
+    file_name = str(source.get("source_file_name") or "").strip()
+    section_path = str(source.get("section_path") or "").strip()
+    if file_name and section_path:
+        return f"{file_name} / {section_path}"
+    return file_name or section_path
+
+
+def _render_rows_evidence(rows: list[dict]) -> str:
+    groups: dict[str, list[str]] = {}
+    for row in rows:
+        header = _evidence_path_header(row)
+        content = str(row.get("content") or "").strip()
+        if not content:
+            continue
+        groups.setdefault(header, []).append(content)
+    return render_evidence_blocks(list(groups.items()))
 
 
 async def run_retrieval_route(
@@ -102,7 +122,7 @@ async def _try_run_small_corpus_route(
         "namespace": context.namespace,
         "query": context.query,
         "router_used": "small_corpus_all",
-        "evidence_text": render_legacy_evidence_text(results),
+        "evidence_text": _render_rows_evidence(results),
         "answer_text": "",
         "results": results,
     }
@@ -157,7 +177,7 @@ async def _run_classic_topk_route(
         "namespace": context.namespace,
         "query": context.query,
         "router_used": "classic_topk",
-        "evidence_text": render_legacy_evidence_text(results),
+        "evidence_text": _render_rows_evidence(results),
         "answer_text": "",
         "results": results,
     }
