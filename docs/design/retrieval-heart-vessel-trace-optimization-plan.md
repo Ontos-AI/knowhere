@@ -104,22 +104,22 @@ reachable section-node map. It therefore means **section nodes**, not
 section-child edges, leaf sections, or chunks. The local instrumentation now
 also records `section_edges` and `leaf_sections` for the map scorer, and
 `section_rows`, `section_paths`, `root_sections`, and `leaf_sections` for the
-snapshot loader. A local isolated database now contains the target namespace's
-644 documents, 50,112 sections, 60,187 chunks, and 42,794 map units. The
-namespace snapshot payload was not copied after CSV transfer caused excessive
-local write amplification, so this copy is not a complete end-to-end retrieval
-parity corpus.
+snapshot loader. A previous isolated fixture contained the target namespace's
+644 documents, 50,112 sections, 60,187 chunks, and 42,794 map units. That
+fixture has been discarded after CSV transfer caused excessive local write
+amplification; the replacement DevOps dump is pending and must be treated as
+the only current end-to-end parity corpus.
 
-For planner work, the local token table contains the 41,105 real rows for the
+For planner work, the discarded fixture contained 41,105 real rows for the
 three-token probe plus 1,390,687 non-matching filler rows. Its 1,431,792 total
-rows preserve the observed production channel ratio (content 1,275,676; path
-156,116) and keep the real target-token distribution. Production has
-13,948,605 rows (content 12,524,037; path 1,423,950), so this is a scaled
-production-shaped copy rather than an exact row-count clone; the scale limit is
-documented because a full synthetic INSERT caused severe local overlay
-filesystem write amplification.
+rows preserved the observed production channel ratio (content 1,275,676; path
+156,116) and kept the real target-token distribution. Production had
+13,948,605 rows (content 12,524,037; path 1,423,950), so those measurements were
+from a scaled production-shaped copy rather than an exact row-count clone.
+They remain historical investigation evidence only; repeat them on the
+replacement dump before using them for an implementation decision.
 
-On this copy, with all 42,794 local map units in scope, the existing
+On that discarded copy, with all 42,794 map units in scope, the existing
 scope-first frequency query returned 36,478 rows in every run and measured
 `103–121 ms` across five warm repetitions. The materialized token-first
 candidate also returned 36,478 rows (symmetric difference `0`) but measured
@@ -133,7 +133,8 @@ parity but do not yet demonstrate an end-to-end latency benefit; the reader
 must not change until rows/bytes transferred and retrieval quality are measured
 through the complete caller path.
 
-The SQL-output proxy confirms the potential transfer reduction: the existing
+The historical SQL-output proxy confirms the potential transfer reduction: the
+existing
 unit projection emitted 42,794 rows / 4.05 MB, while the token-selective
 projection emitted 13,573 rows / 1.29 MB. This is a database-client output
 measurement, not an application latency claim; Python decoding, filtering,
@@ -147,7 +148,8 @@ zero-frequency units is score-safe for this probe, but it is not yet a public
 API retrieval-quality gate.
 
 The actual `ReadOnlyChunkStore.load_persisted_score_corpus` caller was also run
-against the 508 local revisions whose serving index has format version `1`.
+against 508 revisions in that discarded fixture whose serving index had format
+version `1`.
 It loaded 44,894 section rows, returned the same 13,573 score units, and took
 `1.089 s` for loading plus `0.168 s` for scoring. Revisions with incomplete
 serving indexes correctly returned the existing fallback (`None`); they were
@@ -160,8 +162,8 @@ only; it must not be used as the acceptance baseline for this branch. Generate
 a new baseline from the current `origin/main` behavior after the local copy has
 been rebuilt with v2 tokens.
 
-The classic-route SQL shape was then measured against the same namespace and
-revision scope. After one cold run, five repetitions of the legacy projection
+The classic-route SQL shape was then measured against the same historical
+namespace and revision scope. After one cold run, five repetitions of the legacy projection
 measured `716–763 ms`; the token-selective projection measured `781–844 ms`
 (one outlier at `1.73 s`). Output fell from 42,794 rows / 9.53 MB to 13,573
 rows / 2.93 MB. This is a substantial transfer reduction with no stable SQL
