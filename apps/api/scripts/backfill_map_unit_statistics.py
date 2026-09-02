@@ -19,7 +19,15 @@ from pathlib import Path
 
 def _bootstrap_python_path() -> None:
     api_root = Path(__file__).resolve().parents[1]
-    shared_root = api_root.parents[1] / "packages" / "shared-python"
+    candidate_roots = (
+        api_root / "packages" / "shared-python",
+        api_root.parents[1] / "packages" / "shared-python",
+    )
+    shared_root = next(
+        (path for path in candidate_roots if path.is_dir()), None
+    )
+    if shared_root is None:
+        raise RuntimeError("Could not locate shared-python package")
     for path in (api_root, shared_root):
         value = os.fspath(path)
         if value not in sys.path:
