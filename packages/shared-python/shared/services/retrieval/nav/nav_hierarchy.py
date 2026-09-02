@@ -36,6 +36,10 @@ from typing import (
     runtime_checkable,
 )
 
+from shared.services.retrieval.hydration.asset_inline import (
+    inline_assets_at_placeholders,
+)
+
 if TYPE_CHECKING:
     from .knowhere_hybrid import PersistedScoreCorpus
 
@@ -179,17 +183,72 @@ class ProviderToolSpace:
         return str(parent) if parent else None
 
     def _node_unit_span(self, section_id: str) -> Tuple[str, int, int]:
-        """(joined text, first sort_order, unit count) for one node's own units."""
+        """(joined text, first sort_order, unit count) for one node's own units.
+
+        Evidence display only: text units insert connected assets at placeholders.
+        Scoring still uses ``materialize_self_only_chunks`` / raw ``unit_text``.
+        """
         self_units = getattr(self._provider, "self_units", None)
         unit_text = getattr(self._provider, "unit_text", None)
         if not callable(self_units) or not callable(unit_text):
             return "", 0, 0
         units = list(self_units(section_id) or ())
-        texts = [t for t in (str(unit_text(u) or "").strip() for u in units) if t]
-        if not texts:
-            return "", 0, len(units)
+        if not units:
+            return "", 0, 0
         first_order = int(getattr(units[0], "sort_order", 0) or 0)
-        return "\n".join(texts), first_order, len(units)
+
+        asset_types = {"image", "table"}
+        text_units: List[Any] = []
+        asset_by_id: Dict[str, str] = {}
+        for unit in units:
+            chunk_type = str(getattr(unit, "chunk_type", "") or "").strip().lower()
+            chunk_id = str(getattr(unit, "chunk_id", "") or "").strip()
+            body = str(unit_text(unit) or "").strip()
+            if chunk_type in asset_types:
+                if chunk_id and body:
+                    asset_by_id[chunk_id] = body
+                continue
+            text_units.append(unit)
+
+        if not text_units:
+            texts = [body for body in asset_by_id.values() if body]
+            return "\n".join(texts), first_order, len(units)
+
+        parts: List[str] = []
+        used_assets: Set[str] = set()
+        for unit in text_units:
+            content = str(unit_text(unit) or "").strip()
+            meta = getattr(unit, "metadata", None) or {}
+            connections = (
+                meta.get("connect_to") if isinstance(meta, dict) else None
+            ) or []
+            if not isinstance(connections, list):
+                connections = []
+            wanted = {
+                str(item.get("target") or "").strip()
+                for item in connections
+                if isinstance(item, dict)
+            }
+            display = {
+                target_id: asset_by_id[target_id]
+                for target_id in wanted
+                if target_id in asset_by_id
+            }
+            content, embedded = inline_assets_at_placeholders(
+                content,
+                connections=connections,
+                display_by_target=display,
+            )
+            used_assets.update(embedded)
+            if content:
+                parts.append(content)
+
+        for target_id, body in asset_by_id.items():
+            if target_id in used_assets or not body:
+                continue
+            parts.append(body)
+
+        return "\n".join(parts), first_order, len(units)
 
     def _make_chunk(
         self, node_id: str, doc_id: str, text: str, order: int, section_id: str

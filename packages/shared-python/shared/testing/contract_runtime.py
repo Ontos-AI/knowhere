@@ -350,6 +350,13 @@ def configure_contract_environment(
         "QSTASH_CURRENT_SIGNING_KEY": "qstash-current-test-key",
         "QSTASH_NEXT_SIGNING_KEY": "qstash-next-test-key",
         "QSTASH_CALLBACK_BASE_URL": "http://localhost:5005/api/v1",
+        # Pin product defaults so a developer's local apps/api/.env cannot
+        # change contract expectations (credits seed, upload allow-list).
+        "FREE_PLAN_INITIAL_CREDITS": "5",
+        "SUPPORTED_EXTENSIONS": (
+            ".doc,.docx,.pdf,.txt,.xls,.xlsx,.csv,.pptx,"
+            ".jpg,.jpeg,.png,.md,.html,.htm"
+        ),
     }
 
     if "BILLING_ENABLED" not in os.environ:

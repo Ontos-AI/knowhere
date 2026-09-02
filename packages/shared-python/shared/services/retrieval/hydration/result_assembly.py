@@ -5,9 +5,12 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.retrieval.hydration.asset_inline import (
+    inline_assets_at_placeholders,
+    strip_path_placeholders,
+)
 from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.hydration.row_utils import (
-    clean_content,
     extract_page_nums,
     filter_excluded_rows,
     iter_connected_target_ids,
@@ -70,18 +73,12 @@ async def assemble_retrieval_results(
             assembled_row['content'] = _compose_table_content(row, rows_by_chunk_id)
             assembled_row['content_source'] = 'summary'
         elif chunk_type == 'text':
-            related_parts = _connected_media_parts(row, rows_by_chunk_id)
-            if base_content and related_parts:
-                assembled_row['content'] = '\n\n'.join([base_content, *related_parts])
-            elif related_parts:
-                assembled_row['content'] = '\n\n'.join(related_parts)
-            else:
-                assembled_row['content'] = base_content
+            assembled_row['content'] = _compose_text_content(row, rows_by_chunk_id)
             assembled_row['content_source'] = 'content'
         else:
             assembled_row['content'] = base_content
             assembled_row['content_source'] = 'content'
-        assembled_row['content'] = clean_content(assembled_row['content'])
+        assembled_row['content'] = strip_path_placeholders(assembled_row['content'])
         assembled.append(assembled_row)
     return assembled
 
@@ -93,6 +90,26 @@ def _page_summary(row: dict[str, Any]) -> str:
     return str(metadata.get('summary') or '').strip()
 
 
+def _compose_text_content(
+    row: dict[str, Any],
+    rows_by_chunk_id: dict[str, dict[str, Any]],
+) -> str:
+    base_content = str(row.get('content') or '')
+    display_by_target = _connected_display_by_target(row, rows_by_chunk_id)
+    if not display_by_target:
+        return base_content
+    metadata = row.get('chunk_metadata') or row.get('metadata') or {}
+    connections = (
+        metadata.get('connect_to') if isinstance(metadata, dict) else None
+    ) or []
+    content, _embedded = inline_assets_at_placeholders(
+        base_content,
+        connections=connections if isinstance(connections, list) else [],
+        display_by_target=display_by_target,
+    )
+    return content
+
+
 def _compose_table_content(
     row: dict[str, Any],
     rows_by_chunk_id: dict[str, dict[str, Any]],
@@ -102,11 +119,11 @@ def _compose_table_content(
     return '\n\n'.join(part for part in parts if part)
 
 
-def _connected_media_parts(
+def _connected_display_by_target(
     row: dict[str, Any],
     rows_by_chunk_id: dict[str, dict[str, Any]],
-) -> list[str]:
-    connected_targets: list[tuple[int, str]] = []
+) -> dict[str, str]:
+    display: dict[str, str] = {}
     for target_id in iter_connected_target_ids(row):
         target_row = rows_by_chunk_id.get(target_id)
         if not target_row:
@@ -119,10 +136,8 @@ def _connected_media_parts(
         else:
             continue
         if target_content:
-            sort_key = int(target_row.get('sort_order', 0) or 0)
-            connected_targets.append((sort_key, target_content))
-    connected_targets.sort(key=lambda item: item[0])
-    return [content for _, content in connected_targets]
+            display[target_id] = target_content
+    return display
 
 
 def _connected_image_parts(

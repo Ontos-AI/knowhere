@@ -144,6 +144,8 @@ async def test_table_result_assembly_uses_summary_not_html() -> None:
     assert "企业名称;统一社会信用代码" in content
     assert "SHOULD NOT LEAK" not in content
     assert "<table" not in content
+    assert "[tables/" not in content
+    assert content.index("见表") < content.index("[Table:")
 
 
 @pytest.mark.asyncio
