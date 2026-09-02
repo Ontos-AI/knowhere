@@ -86,7 +86,7 @@ def _is_snapshot_timing_enabled() -> bool:
     }
 
 
-def _section_shape_counts(
+def _count_section_shape(
     sections_by_doc: Mapping[str, list[SectionRow]],
 ) -> tuple[int, int, int, int]:
     """Return section rows, distinct paths, roots, and leaves for diagnostics."""
@@ -390,7 +390,7 @@ async def load_nav_snapshot(
         )
         if _is_snapshot_timing_enabled():
             section_rows, section_paths, root_sections, leaf_sections = (
-                _section_shape_counts(sections_by_doc)
+                _count_section_shape(sections_by_doc)
             )
             _logger.info(
                 "retrieval snapshot timing total_seconds=%.3f parse_seconds=%.3f "
@@ -443,7 +443,7 @@ async def load_nav_snapshot(
     )
     if _is_snapshot_timing_enabled():
         section_rows, section_paths, root_sections, leaf_sections = (
-            _section_shape_counts(sections_by_doc)
+            _count_section_shape(sections_by_doc)
         )
         _logger.info(
             "retrieval snapshot timing total_seconds=%.3f parse_seconds=%.3f "

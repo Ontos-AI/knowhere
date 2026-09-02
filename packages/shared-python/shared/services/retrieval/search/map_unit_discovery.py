@@ -211,7 +211,7 @@ async def map_unit_discovery(
     params.update(type_params)
     params.update(signal_params)
 
-    unfiltered_scope: bool = not any(
+    is_unfiltered_scope: bool = not any(
         (
             chunk_types,
             signal_paths,
@@ -228,7 +228,7 @@ async def map_unit_discovery(
         signal_clause=signal_clause,
     )
     unit_statement = cte + "SELECT * FROM scoped_units"
-    if unfiltered_scope:
+    if is_unfiltered_scope:
         unit_statement = (
             "WITH matching_tokens AS MATERIALIZED ("
             "SELECT DISTINCT map_unit_id FROM document_map_unit_tokens "
@@ -344,7 +344,7 @@ async def map_unit_discovery(
             content_total_length,
         ) in index_result.all()
     ]
-    if unfiltered_scope:
+    if is_unfiltered_scope:
         revision_result = await db.execute(
             text(cte + "SELECT DISTINCT document_id, job_result_id FROM scoped_units"),
             params,
@@ -360,12 +360,12 @@ async def map_unit_discovery(
     indexed_unit_count = sum(
         unit_count for _path_idf, _content_idf, unit_count, *_rest in index_parts
     )
-    index_unit_count_mismatch = (
+    has_index_unit_count_mismatch = (
         indexed_unit_count < len(unit_rows)
-        if unfiltered_scope
+        if is_unfiltered_scope
         else indexed_unit_count != len(unit_rows)
     )
-    index_format_incompatible = any(
+    is_index_format_incompatible = any(
         format_version != MAP_UNIT_INDEX_FORMAT_VERSION
         for (
             _path_idf,
@@ -378,7 +378,7 @@ async def map_unit_discovery(
             _content_total_length,
         ) in index_parts
     )
-    index_statistics_incomplete = unfiltered_scope and any(
+    has_incomplete_index_statistics = is_unfiltered_scope and any(
         format_version != MAP_UNIT_INDEX_FORMAT_VERSION
         or path_document_count is None
         or path_total_length is None
@@ -397,9 +397,9 @@ async def map_unit_discovery(
     )
     if (
         len(index_parts) != len(expected_revisions)
-        or index_unit_count_mismatch
-        or index_format_incompatible
-        or index_statistics_incomplete
+        or has_index_unit_count_mismatch
+        or is_index_format_incompatible
+        or has_incomplete_index_statistics
     ):
         try:
             await record_retrieval_index_readiness(
@@ -465,12 +465,12 @@ async def map_unit_discovery(
         average_idf=average_idf_path,
         document_count_override=(
             sum(int(part[4] or 0) for part in index_parts)
-            if unfiltered_scope
+            if is_unfiltered_scope
             else None
         ),
         total_length_override=(
             sum(int(part[5] or 0) for part in index_parts)
-            if unfiltered_scope
+            if is_unfiltered_scope
             else None
         ),
     )
@@ -484,12 +484,12 @@ async def map_unit_discovery(
         average_idf=average_idf_content,
         document_count_override=(
             sum(int(part[6] or 0) for part in index_parts)
-            if unfiltered_scope
+            if is_unfiltered_scope
             else None
         ),
         total_length_override=(
             sum(int(part[7] or 0) for part in index_parts)
-            if unfiltered_scope
+            if is_unfiltered_scope
             else None
         ),
     )

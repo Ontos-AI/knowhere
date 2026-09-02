@@ -20,7 +20,7 @@ from .persisted_score_load import (
 _logger = logging.getLogger(__name__)
 
 
-def _tree_shape_counts(
+def _count_tree_shape(
     tree_by_doc: Dict[
         str,
         Tuple[Dict[str, List[str]], Set[str], Dict[str, str]],
@@ -430,7 +430,7 @@ def compute_corpus_map_and_unit_scores_many(
             cached = _walk_tree(ts, doc_id, root_ids)
             tree_cache[doc_id] = cached
         tree_by_doc[doc_id] = cached
-    section_nodes, section_edges, leaf_sections = _tree_shape_counts(tree_by_doc)
+    section_nodes, section_edges, leaf_sections = _count_tree_shape(tree_by_doc)
     _logger.info(
         "retrieval mapnav phase=tree_build seconds=%.3f documents=%d "
         "section_nodes=%d section_edges=%d leaf_sections=%d",
