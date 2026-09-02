@@ -153,13 +153,12 @@ It loaded 44,894 section rows, returned the same 13,573 score units, and took
 serving indexes correctly returned the existing fallback (`None`); they were
 not silently included in the optimized sample.
 
-A temporary scorer baseline was frozen at
-`/tmp/knowhere-retrieval-parity-baseline.json.gz` (SHA-256 of the uncompressed
-payload `19436c6ee96a352d2000c52c85327bd2183e44c042dbea862824ba6ce10178c7`).
-It covers `心血管`, the single-token `心`, and the no-match `肺` cases, with
-all per-unit scores retained for exact comparison. The artifact is local-only
-and must be regenerated only after an explicit decision to accept a retrieval
-behavior change.
+A temporary scorer baseline was previously frozen at
+`/tmp/knowhere-retrieval-parity-baseline.json.gz`. That artifact was generated
+before rebasing onto the current main tokenizer and is now historical evidence
+only; it must not be used as the acceptance baseline for this branch. Generate
+a new baseline from the current `origin/main` behavior after the local copy has
+been rebuilt with v2 tokens.
 
 The classic-route SQL shape was then measured against the same namespace and
 revision scope. After one cold run, five repetitions of the legacy projection
@@ -168,6 +167,12 @@ measured `716–763 ms`; the token-selective projection measured `781–844 ms`
 rows / 2.93 MB. This is a substantial transfer reduction with no stable SQL
 latency win yet, so the next gate is application-level p95 rather than a claim
 that the query itself is faster.
+
+The earlier discovery-level comparison and three-query digests were also
+captured before the rebase, against the old tokenizer/data state. They are
+retained only as historical investigation notes and do not establish current
+latency or retrieval parity. Re-run both the baseline and optimized discovery
+paths after the v2 local backfill, using the current main code as the baseline.
 
 The reference trace above is not representative of request mix. In the current
 baseline window, 196 successful v1 roots used `use_agentic=false` (classic),
