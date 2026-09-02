@@ -42,6 +42,7 @@ from typing import (
 from .nav_address import NavLevel
 from .nav_hierarchy import NodeMeta
 from .knowhere_hybrid import (
+    MAP_UNIT_INDEX_FORMAT_VERSION,
     PersistedScoreCorpus,
     PersistedScoreUnit,
     tokenize_query_for_ranker,
@@ -51,7 +52,6 @@ _ASSET_TYPES = ("table", "image")
 # Knowhere sentinel path for the virtual document container (not a collectable leaf).
 ROOT_SECTION_PATH = "Root"
 _DEFAULT_DSN = "postgresql://root:root123@127.0.0.1:5433/Knowhere"
-_MAP_UNIT_INDEX_FORMAT_VERSION = 1
 _MAP_SCORE_CHANNELS: Tuple[str, str] = ("path", "content")
 _logger = logging.getLogger(__name__)
 
@@ -353,7 +353,7 @@ class ReadOnlyChunkStore:
                 len(index_rows),
             )
             if len(index_rows) != len(revisions) or any(
-                len(row) < 6 or int(row[2]) != _MAP_UNIT_INDEX_FORMAT_VERSION
+                len(row) < 6 or int(row[2]) != MAP_UNIT_INDEX_FORMAT_VERSION
                 for row in index_rows
             ):
                 return None

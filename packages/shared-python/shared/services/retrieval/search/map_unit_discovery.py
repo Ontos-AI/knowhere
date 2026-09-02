@@ -32,6 +32,7 @@ from shared.services.retrieval.hydration.row_utils import (
     normalize_chunk_type,
 )
 from shared.services.retrieval.nav.knowhere_hybrid import (
+    MAP_UNIT_INDEX_FORMAT_VERSION,
     PersistedScoreCorpus,
     PersistedScoreUnit,
     score_persisted_corpus_many,
@@ -282,7 +283,7 @@ async def map_unit_discovery(
             )
             + """
                 SELECT indexes.average_idf_path, indexes.average_idf_content,
-                       indexes.unit_count
+                       indexes.unit_count, indexes.format_version
                 FROM document_map_unit_indexes AS indexes
                 JOIN (
                     SELECT DISTINCT document_id, job_result_id FROM scoped_units
@@ -293,9 +294,13 @@ async def map_unit_discovery(
         ),
         params,
     )
+    # Only count indexes written with the current tokenizer (v2 = word-level).
+    # Stale char-level (v1) rows look complete by unit_count but cannot match
+    # word-level query hashes — treat them as missing so readiness fails closed.
     index_parts = [
         (float(path_idf or 0.0), float(content_idf or 0.0), int(unit_count or 0))
-        for path_idf, content_idf, unit_count in index_result.all()
+        for path_idf, content_idf, unit_count, format_version in index_result.all()
+        if int(format_version or 0) == MAP_UNIT_INDEX_FORMAT_VERSION
     ]
     expected_revisions = {
         (str(row["document_id"]), str(row["job_result_id"])) for row in unit_rows

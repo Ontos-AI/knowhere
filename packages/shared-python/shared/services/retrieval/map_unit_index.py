@@ -23,11 +23,11 @@ from shared.services.retrieval.nav.nav_knowhere import (
     UnitRow,
 )
 from shared.services.retrieval.nav.nav_map_scores import build_score_units
+from shared.services.retrieval.nav.knowhere_hybrid import MAP_UNIT_INDEX_FORMAT_VERSION
 from shared.services.retrieval.nav.persisted_score_load import average_idf_from_unit_dfs
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 
-
-MAP_UNIT_INDEX_FORMAT_VERSION = 1
+__all__ = ["MAP_UNIT_INDEX_FORMAT_VERSION", "replace_document_map_units"]
 
 
 def replace_document_map_units(
