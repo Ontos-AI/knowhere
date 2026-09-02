@@ -318,6 +318,7 @@ async def map_unit_discovery(
                 ) AS scoped_revisions
                     ON indexes.document_id = scoped_revisions.document_id
                     AND indexes.job_result_id = scoped_revisions.job_result_id
+                ORDER BY indexes.document_id, indexes.job_result_id
                 """
         ),
         params,
