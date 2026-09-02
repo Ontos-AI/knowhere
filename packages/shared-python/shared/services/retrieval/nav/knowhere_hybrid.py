@@ -8,28 +8,34 @@ Reference: https://github.com/Ontos-AI/knowhere
 
 from __future__ import annotations
 
-import os
-import re
 import math
+import os
 from dataclasses import dataclass
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+
+from shared.utils.text_utils import tokenize_for_retrieval as _tokenize_word_level
 
 RRF_K = 60
 CHANNEL_WEIGHT_PATH = 1.0
 CHANNEL_WEIGHT_CONTENT = 2.0
+# Persisted map-unit token format. Bump when tokenizer semantics change.
+# v1: character-level CJK regex. v2: word-level jieba (text_utils).
+MAP_UNIT_INDEX_FORMAT_VERSION = 2
 
 
 def tokenize_for_retrieval(text: str, *, dedupe: bool = True) -> List[str]:
-    tokens = re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]", str(text or "").lower())
-    if not dedupe:
-        return [t for t in tokens if t]
-    seen: set[str] = set()
-    out: List[str] = []
-    for t in tokens:
-        if t and t not in seen:
-            seen.add(t)
-            out.append(t)
-    return out
+    """Word-level retrieval tokens (jieba + English), aligned with chunk publication.
+
+    Uses the same knobs as ``search.lexical_text``: no stopword filtering and
+    ``min_token_length=2`` so map-unit indexes match ``document_chunks`` search
+    text. Character-level regex tokenization was removed.
+    """
+    return _tokenize_word_level(
+        text,
+        stopwords=[],
+        dedupe=dedupe,
+        min_token_length=2,
+    )
 
 
 def tokenize_query_for_ranker(query: str) -> List[str]:
