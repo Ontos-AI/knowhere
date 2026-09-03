@@ -155,7 +155,11 @@ class NamespaceFallbackReport:
 
     @property
     def ready(self) -> bool:
-        return not self.would_hit_snapshot_fallback and not self.scoring_incomplete
+        return (
+            not self.would_hit_snapshot_fallback
+            and not self.scoring_incomplete
+            and self.missing_revision_manifest == 0
+        )
 
 
 def check_fallback_readiness(*, document_id: str = "") -> list[NamespaceFallbackReport]:
@@ -321,7 +325,11 @@ def check_fallback_readiness(*, document_id: str = "") -> list[NamespaceFallback
             would_hit_snapshot_fallback = (
                 snapshot_status != "ok" or missing_from_snapshot > 0
             )
-            scoring_incomplete = missing_map_index > 0 or suspicious_zero_idf > 0
+            # A zero average IDF is mathematically valid, notably for a
+            # two-unit corpus where every token appears in exactly one unit.
+            # Keep the count as diagnostic output, but readiness is determined
+            # by the format marker and required persisted statistics above.
+            scoring_incomplete = missing_map_index > 0
             reports.append(
                 NamespaceFallbackReport(
                     user_id=user_id,

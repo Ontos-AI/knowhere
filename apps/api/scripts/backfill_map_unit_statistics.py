@@ -130,6 +130,13 @@ def _is_complete(index: DocumentMapUnitIndex | None, stats: RevisionStatistics) 
     )
 
 
+def _is_check_ready(
+    *, would_update: int, complete: int, skipped: int, documents: int
+) -> bool:
+    """Return whether a read-only inventory proves every document is ready."""
+    return would_update == 0 and skipped == 0 and complete == documents
+
+
 def _process_batch(
     documents: list[Document], *, apply_changes: bool
 ) -> tuple[int, int, int]:
@@ -143,12 +150,14 @@ def _process_batch(
             stats = _aggregate_statistics(
                 db, document_id=document.document_id, job_result_id=job_result_id
             )
-            index = db.scalar(
+            index_statement = (
                 select(DocumentMapUnitIndex)
                 .where(DocumentMapUnitIndex.document_id == document.document_id)
                 .where(DocumentMapUnitIndex.job_result_id == job_result_id)
-                .with_for_update()
             )
+            if apply_changes:
+                index_statement = index_statement.with_for_update()
+            index = db.scalar(index_statement)
             if index is None or index.format_version != MAP_UNIT_INDEX_FORMAT_VERSION:
                 skipped += 1
                 print(f"skip document={document.document_id} reason=missing_or_legacy_index")
@@ -199,6 +208,13 @@ def main() -> None:
         f"{action}={totals[0]} complete={totals[1]} skipped={totals[2]} "
         f"documents={len(documents)}"
     )
+    if args.check and not _is_check_ready(
+        would_update=totals[0],
+        complete=totals[1],
+        skipped=totals[2],
+        documents=len(documents),
+    ):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
