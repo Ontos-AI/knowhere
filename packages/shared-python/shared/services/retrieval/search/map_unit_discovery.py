@@ -20,7 +20,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from hashlib import sha256
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 from sqlalchemy import text
@@ -193,6 +193,8 @@ async def map_unit_discovery(
     query_tokens = tokenize_query_for_ranker(query)
     if not query_tokens:
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
+    if revision_pins is not None and not revision_pins:
+        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
     query_token_hashes = [
         sha256(token.encode("utf-8")).hexdigest() for token in query_tokens
     ]
@@ -262,9 +264,6 @@ async def map_unit_discovery(
         len(unit_rows),
     )
 
-    if not unit_rows:
-        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
-
     frequency_scope_cte = cte if signal_paths else _SCOPED_UNIT_IDS_CTE.format(
         revision_join=revision_join,
         revision_clause=revision_clause,
@@ -322,7 +321,8 @@ async def map_unit_discovery(
             SELECT indexes.average_idf_path, indexes.average_idf_content,
                    indexes.unit_count, indexes.format_version,
                    indexes.path_document_count, indexes.path_total_length,
-                   indexes.content_document_count, indexes.content_total_length
+                   indexes.content_document_count, indexes.content_total_length,
+                   indexes.token_count
             FROM document_map_unit_indexes AS indexes
             JOIN (VALUES {pinned_values_sql})
                 AS scoped_revisions(document_id, job_result_id)
@@ -345,7 +345,8 @@ async def map_unit_discovery(
                 SELECT indexes.average_idf_path, indexes.average_idf_content,
                        indexes.unit_count, indexes.format_version,
                        indexes.path_document_count, indexes.path_total_length,
-                       indexes.content_document_count, indexes.content_total_length
+                       indexes.content_document_count, indexes.content_total_length,
+                       indexes.token_count
                 FROM document_map_unit_indexes AS indexes
                 JOIN (
                     SELECT DISTINCT document_id, job_result_id FROM scoped_units
@@ -366,6 +367,7 @@ async def map_unit_discovery(
             path_total_length,
             content_document_count,
             content_total_length,
+            int(token_count or 0),
         )
         for (
             path_idf,
@@ -376,6 +378,7 @@ async def map_unit_discovery(
             path_total_length,
             content_document_count,
             content_total_length,
+            token_count,
         ) in index_result.all()
     ]
     logger.info(
@@ -417,6 +420,40 @@ async def map_unit_discovery(
     indexed_unit_count = sum(
         unit_count for _path_idf, _content_idf, unit_count, *_rest in index_parts
     )
+    has_index_storage_mismatch: bool = False
+    if is_unfiltered_scope and not unit_rows and expected_revisions:
+        storage_counts: tuple[int | None, int | None] = cast(
+            tuple[int | None, int | None],
+            (
+                await db.execute(
+                    text(
+                        _SCOPED_UNIT_IDS_CTE.format(
+                            revision_join=revision_join,
+                            revision_clause=revision_clause,
+                            exclude_clause=exclude_clause,
+                            type_clause=type_clause,
+                        )
+                        + """
+                        SELECT
+                            (SELECT COUNT(*) FROM scoped_units) AS unit_count,
+                            (
+                                SELECT COUNT(*)
+                                FROM document_map_unit_tokens AS tokens
+                                JOIN scoped_units
+                                    ON scoped_units.map_unit_id = tokens.map_unit_id
+                            ) AS token_count
+                        """
+                    ),
+                    params,
+                )
+            ).one(),
+        )
+        actual_unit_count: int | None = storage_counts[0]
+        actual_token_count: int | None = storage_counts[1]
+        indexed_token_count: int = sum(int(part[8]) for part in index_parts)
+        has_index_storage_mismatch = indexed_unit_count != int(
+            actual_unit_count or 0
+        ) or indexed_token_count != int(actual_token_count or 0)
     has_index_unit_count_mismatch = (
         indexed_unit_count < len(unit_rows)
         if is_unfiltered_scope
@@ -433,6 +470,7 @@ async def map_unit_discovery(
             _path_total_length,
             _content_document_count,
             _content_total_length,
+            _token_count,
         ) in index_parts
     )
     has_incomplete_index_statistics = is_unfiltered_scope and any(
@@ -450,11 +488,13 @@ async def map_unit_discovery(
             path_total_length,
             content_document_count,
             content_total_length,
+            _token_count,
         ) in index_parts
     )
     if (
         len(index_parts) != len(expected_revisions)
         or has_index_unit_count_mismatch
+        or has_index_storage_mismatch
         or is_index_format_incompatible
         or has_incomplete_index_statistics
     ):
