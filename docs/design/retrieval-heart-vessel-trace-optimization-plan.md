@@ -203,6 +203,12 @@ remaining warm classic work is dominated by database reads and hydration, not
 BM25 statistics or Python scoring. Result IDs, ordering, sources, evidence,
 and score deltas remain within the existing `1e-4` parity tolerance.
 
+For the local restored PostgreSQL (which does not enable SSL), agentic smoke
+must set `DB_SSL_MODE=disable` for the global async engine and provide the
+plain libpq form through `KNOWHERE_DATABASE_URL` for the synchronous map-nav
+reader. Without these local-only settings, final reference hydration attempts
+an SSL upgrade and fails even though the database is healthy.
+
 The reference trace above is not representative of request mix. In the current
 baseline window, 196 successful v1 roots used `use_agentic=false` (classic),
 three used the default map-nav route (`use_agentic=null`), and one explicitly
