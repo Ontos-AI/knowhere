@@ -57,7 +57,11 @@ def test_read_only_score_loader_drives_frequency_lookup_from_token_hash(
         def execute(self, statement: str, parameters: object = None) -> None:
             executions.append((statement, parameters))
             if "document_map_unit_indexes" in statement:
-                self.rows = [(document_id, job_result_id, 2, 1, 0.0, 0.0)]
+                self.rows = [
+                    (document_id, job_result_id, 2, 1, 0.0, 0.0, 1, 1, 1, 1)
+                ]
+            elif "FROM document_sections" in statement:
+                self.rows = [(document_id, job_result_id, 1)]
             elif "FROM document_map_units AS units" in statement:
                 self.rows = [("unit-frequency", document_id, "chunk-frequency", "section-frequency", 1, 1)]
             elif "FROM document_map_unit_tokens" in statement:
@@ -99,10 +103,18 @@ def test_read_only_score_loader_drives_frequency_lookup_from_token_hash(
     )
 
     assert corpus is not None
+    selective_executions = [
+        statement
+        for statement, _parameters in executions
+        if "SELECT DISTINCT map_unit_id" in statement
+    ]
+    assert len(selective_executions) == 1
+    assert "JOIN (VALUES" in selective_executions[0]
     frequency_executions = [
         (statement, parameters)
         for statement, parameters in executions
         if "FROM document_map_unit_tokens" in statement
+        and "SELECT DISTINCT map_unit_id" not in statement
     ]
     assert len(frequency_executions) == 1
     statement, parameters = frequency_executions[0]
@@ -286,6 +298,18 @@ async def test_published_map_units_preserve_scores_without_chunk_payload_reads(
             )
 
         assert index.unit_count == len(expected_units)
+        assert index.path_document_count == sum(
+            unit.path_token_count > 0 for unit in persisted_units
+        )
+        assert index.path_total_length == sum(
+            unit.path_token_count for unit in persisted_units
+        )
+        assert index.content_document_count == sum(
+            unit.content_token_count > 0 for unit in persisted_units
+        )
+        assert index.content_total_length == sum(
+            unit.content_token_count for unit in persisted_units
+        )
         assert [unit.unit_id for unit in persisted_units] == [
             str(unit["chunk_id"]) for unit in expected_units
         ]

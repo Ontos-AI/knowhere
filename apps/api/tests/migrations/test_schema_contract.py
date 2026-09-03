@@ -49,6 +49,11 @@ def _upgrade_to_snapshot_parents(*, engine: Engine) -> None:
     command.upgrade(config, "fbe1c2d3e4f5")
 
 
+def _upgrade_to_channel_statistics(*, engine: Engine) -> None:
+    config = _build_alembic_command_config(engine=engine)
+    command.upgrade(config, "b1c2d3e4f5a6")
+
+
 def _insert_job(
     connection: Connection,
     *,
@@ -253,6 +258,161 @@ def test_should_index_document_chunks_in_lazy_section_order(
         "(document_id, job_result_id, section_id, sort_order, chunk_id, id)"
         in str(index_definition)
     )
+
+
+def test_should_create_token_leading_map_unit_covering_index(
+    migrated_head_engine: Engine,
+) -> None:
+    with migrated_head_engine.begin() as connection:
+        index_row = connection.execute(
+            text(
+                """
+                SELECT pg_get_indexdef(indexes.indexrelid),
+                       indexes.indisvalid,
+                       indexes.indisready
+                FROM pg_index AS indexes
+                JOIN pg_class AS classes ON classes.oid = indexes.indexrelid
+                JOIN pg_namespace AS namespaces
+                  ON namespaces.oid = classes.relnamespace
+                WHERE namespaces.nspname = current_schema()
+                  AND classes.relname = 'idx_document_map_unit_tokens_token_lookup'
+                """
+            )
+        ).one()
+
+    definition = str(index_row[0])
+    assert "(channel, token_hash, map_unit_id)" in definition
+    assert "INCLUDE (token, frequency)" in definition
+    assert index_row[1] is True
+    assert index_row[2] is True
+
+
+def test_should_repair_a_missing_token_leading_map_unit_covering_index(
+    alembic_engine: Engine,
+) -> None:
+    _upgrade_to_channel_statistics(engine=alembic_engine)
+    with alembic_engine.begin() as connection:
+        connection.execute(
+            text("DROP INDEX idx_document_map_unit_tokens_token_lookup")
+        )
+
+    _upgrade_to_heads(engine=alembic_engine)
+
+    with alembic_engine.begin() as connection:
+        index_state = connection.execute(
+            text(
+                """
+                SELECT indexes.indisvalid, indexes.indisready
+                FROM pg_index AS indexes
+                JOIN pg_class AS classes ON classes.oid = indexes.indexrelid
+                JOIN pg_namespace AS namespaces
+                  ON namespaces.oid = classes.relnamespace
+                WHERE namespaces.nspname = current_schema()
+                  AND classes.relname = 'idx_document_map_unit_tokens_token_lookup'
+                """
+            )
+        ).one()
+
+    assert index_state[0] is True
+    assert index_state[1] is True
+
+
+def test_should_repair_a_missing_covering_index_with_a_caller_owned_connection(
+    alembic_engine: Engine,
+) -> None:
+    _upgrade_to_channel_statistics(engine=alembic_engine)
+    with alembic_engine.begin() as connection:
+        connection.execute(
+            text("DROP INDEX idx_document_map_unit_tokens_token_lookup")
+        )
+
+    _upgrade_to_heads_with_external_connection(engine=alembic_engine)
+
+    with alembic_engine.begin() as connection:
+        index_state = connection.execute(
+            text(
+                """
+                SELECT indexes.indisvalid, indexes.indisready
+                FROM pg_index AS indexes
+                JOIN pg_class AS classes ON classes.oid = indexes.indexrelid
+                JOIN pg_namespace AS namespaces
+                  ON namespaces.oid = classes.relnamespace
+                WHERE namespaces.nspname = current_schema()
+                  AND classes.relname = 'idx_document_map_unit_tokens_token_lookup'
+                """
+            )
+        ).one()
+
+    assert index_state[0] is True
+    assert index_state[1] is True
+
+
+def test_should_repair_an_invalid_token_leading_map_unit_covering_index(
+    alembic_engine: Engine,
+) -> None:
+    _upgrade_to_channel_statistics(engine=alembic_engine)
+    with alembic_engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE pg_index
+                SET indisvalid = FALSE,
+                    indisready = FALSE
+                WHERE indexrelid =
+                    'idx_document_map_unit_tokens_token_lookup'::regclass
+                """
+            )
+        )
+
+    _upgrade_to_heads(engine=alembic_engine)
+
+    with alembic_engine.begin() as connection:
+        index_state = connection.execute(
+            text(
+                """
+                SELECT indexes.indisvalid, indexes.indisready
+                FROM pg_index AS indexes
+                JOIN pg_class AS classes ON classes.oid = indexes.indexrelid
+                JOIN pg_namespace AS namespaces
+                  ON namespaces.oid = classes.relnamespace
+                WHERE namespaces.nspname = current_schema()
+                  AND classes.relname = 'idx_document_map_unit_tokens_token_lookup'
+                """
+            )
+        ).one()
+
+    assert index_state[0] is True
+    assert index_state[1] is True
+
+
+def test_should_add_per_channel_map_unit_bm25_statistics(
+    migrated_head_engine: Engine,
+) -> None:
+    with migrated_head_engine.begin() as connection:
+        columns = {
+            str(row[0]): str(row[1])
+            for row in connection.execute(
+                text(
+                    """
+                    SELECT column_name, is_nullable
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'document_map_unit_indexes'
+                      AND column_name IN (
+                        'path_document_count', 'path_total_length',
+                        'content_document_count', 'content_total_length'
+                      )
+                    """
+                )
+            ).all()
+        }
+
+    assert columns == {
+        "path_document_count": "YES",
+        "path_total_length": "YES",
+        "content_document_count": "YES",
+        "content_total_length": "YES",
+    }
 
 
 def test_should_upgrade_with_a_caller_owned_connection(

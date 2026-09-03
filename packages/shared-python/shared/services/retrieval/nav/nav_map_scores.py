@@ -20,6 +20,22 @@ from .persisted_score_load import (
 _logger = logging.getLogger(__name__)
 
 
+def _count_tree_shape(
+    tree_by_doc: Dict[
+        str,
+        Tuple[Dict[str, List[str]], Set[str], Dict[str, str]],
+    ],
+) -> Tuple[int, int, int]:
+    """Return reachable section nodes, parent-child edges, and leaves."""
+    section_nodes: int = sum(len(value[0]) for value in tree_by_doc.values())
+    section_edges: int = sum(
+        sum(len(children) for children in value[0].values())
+        for value in tree_by_doc.values()
+    )
+    leaf_sections: int = sum(len(value[1]) for value in tree_by_doc.values())
+    return section_nodes, section_edges, leaf_sections
+
+
 def _build_legacy_score_corpus(ts: Any, doc_ids: Sequence[str]) -> PersistedScoreCorpus:
     """Build the retired in-memory scorer input when persisted indexes are absent."""
     raw_units: List[dict] = []
@@ -414,11 +430,15 @@ def compute_corpus_map_and_unit_scores_many(
             cached = _walk_tree(ts, doc_id, root_ids)
             tree_cache[doc_id] = cached
         tree_by_doc[doc_id] = cached
+    section_nodes, section_edges, leaf_sections = _count_tree_shape(tree_by_doc)
     _logger.info(
-        "retrieval mapnav phase=tree_build seconds=%.3f documents=%d sections=%d",
+        "retrieval mapnav phase=tree_build seconds=%.3f documents=%d "
+        "section_nodes=%d section_edges=%d leaf_sections=%d",
         time.perf_counter() - tree_started,
         len(valid_doc_ids),
-        sum(len(value[0]) for value in tree_by_doc.values()),
+        section_nodes,
+        section_edges,
+        leaf_sections,
     )
 
     persisted_loader = getattr(ts, "load_persisted_score_corpus", None)
@@ -471,10 +491,13 @@ def compute_corpus_map_and_unit_scores_many(
             map_scores[doc_id] = doc_max
         results[query] = (map_scores, unit_scores)
     _logger.info(
-        "retrieval mapnav phase=map_pooling seconds=%.3f documents=%d sections=%d",
+        "retrieval mapnav phase=map_pooling seconds=%.3f documents=%d "
+        "section_nodes=%d section_edges=%d leaf_sections=%d",
         time.perf_counter() - pooling_started,
         len(valid_doc_ids),
-        sum(len(value[0]) for value in tree_by_doc.values()),
+        section_nodes,
+        section_edges,
+        leaf_sections,
     )
     return results
 

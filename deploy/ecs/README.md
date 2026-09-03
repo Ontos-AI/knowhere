@@ -77,31 +77,44 @@ services. It does not create or delete AWS resources.
 
 ## Required post-deploy backfill
 
-The map-nav lexical-index migration creates the derived index tables, but it does
-not rebuild indexes for revisions that already exist. Until those revisions are
-backfilled, retrieval remains quality-preserving but uses the legacy scoring
-path. Every release containing the map-nav index change must include the
-following DevOps action in its release notification.
+Follow the complete
+[`retrieval-serving-index-rollout-runbook.md`](../../docs/design/retrieval-serving-index-rollout-runbook.md)
+for schema verification, statistics maintenance, readiness gates, parity,
+monitoring, pause/resume, and rollback.
+
+The additive migration does not populate the four per-channel statistics for
+existing revisions. Until those revisions are ready, retrieval remains
+quality-preserving but uses the legacy scoring path. Every release containing
+this change must include the following DevOps action in its release
+notification.
 
 Run the commands as a one-off container using the newly deployed API image and
 the production database secret. Do not run them inside the long-lived API task.
 
 ```bash
-# Read-only inventory
-python /app/scripts/backfill_map_unit_indexes.py
+# Read-only statistics inventory, after migration
+python /app/scripts/backfill_map_unit_statistics.py --check --batch-size 100
 
 # Optional canary: apply one affected document first
-python /app/scripts/backfill_map_unit_indexes.py \
+python /app/scripts/backfill_map_unit_statistics.py \
   --document-id <document-id> \
+  --batch-size 100 \
   --apply
 
-# Apply to all current document revisions
-python /app/scripts/backfill_map_unit_indexes.py --apply
+# Apply statistics to complete format-v2 indexes
+python /app/scripts/backfill_map_unit_statistics.py --apply --batch-size 100
+
+# Final statistics and full serving-readiness checks
+python /app/scripts/backfill_map_unit_statistics.py --check --batch-size 100
+python /app/scripts/backfill_map_unit_indexes.py --check
 ```
 
-The script commits each document revision independently and is safe to rerun.
-Verify the canary retrieval before starting the full apply. New or republished
-documents build their index automatically during publication.
+The statistics script commits each document revision independently and is safe
+to rerun. Missing or legacy indexes reported as `skipped` require the existing
+full `backfill_map_unit_indexes.py --apply --document-id <document-id>` path.
+Run only one maintenance process at a time. Verify the canary retrieval before
+starting the full apply. New or republished documents build their index
+automatically during publication.
 
 ## Manual staging availability
 

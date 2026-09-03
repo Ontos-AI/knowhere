@@ -88,6 +88,10 @@ def replace_document_map_units(
     token_count = 0
     path_unit_df: Counter[str] = Counter()
     content_unit_df: Counter[str] = Counter()
+    path_document_count: int = 0
+    path_total_length: int = 0
+    content_document_count: int = 0
+    content_total_length: int = 0
     for sort_order, unit in enumerate(score_units):
         unit_id = str(unit.get("chunk_id") or "").strip()
         section_id = str(unit.get("section_id") or "").strip()
@@ -96,6 +100,12 @@ def replace_document_map_units(
         map_unit_id = f"dmu_{uuid4().hex}"
         path_tokens = str(unit.get("path_search_text") or "").split()
         content_tokens = str(unit.get("content_search_text") or "").split()
+        if path_tokens:
+            path_document_count += 1
+            path_total_length += len(path_tokens)
+        if content_tokens:
+            content_document_count += 1
+            content_total_length += len(content_tokens)
         path_unit_df.update(set(path_tokens))
         content_unit_df.update(set(content_tokens))
         # ``provider.self_units`` already reflects root-asset remount (assets
@@ -152,6 +162,10 @@ def replace_document_map_units(
                 unit_count=persisted_count,
                 token_document_frequency=content_unit_df,
             ),
+            path_document_count=path_document_count,
+            path_total_length=path_total_length,
+            content_document_count=content_document_count,
+            content_total_length=content_total_length,
         )
     )
 

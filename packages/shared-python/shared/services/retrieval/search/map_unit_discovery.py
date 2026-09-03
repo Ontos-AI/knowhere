@@ -20,7 +20,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from hashlib import sha256
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 from sqlalchemy import text
@@ -193,6 +193,8 @@ async def map_unit_discovery(
     query_tokens = tokenize_query_for_ranker(query)
     if not query_tokens:
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
+    if revision_pins is not None and not revision_pins:
+        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
     query_token_hashes = [
         sha256(token.encode("utf-8")).hexdigest() for token in query_tokens
     ]
@@ -211,6 +213,15 @@ async def map_unit_discovery(
     params.update(type_params)
     params.update(signal_params)
 
+    is_unfiltered_scope: bool = not any(
+        (
+            chunk_types,
+            signal_paths,
+            exclude_sections,
+            exclude_document_ids,
+        )
+    )
+
     cte = _SCOPED_UNITS_CTE.format(
         revision_join=revision_join,
         revision_clause=revision_clause,
@@ -218,7 +229,25 @@ async def map_unit_discovery(
         type_clause=type_clause,
         signal_clause=signal_clause,
     )
-    unit_result = await db.execute(text(cte + "SELECT * FROM scoped_units"), params)
+    unit_statement = cte + "SELECT * FROM scoped_units"
+    if is_unfiltered_scope:
+        unit_statement = (
+            "WITH matching_tokens AS MATERIALIZED ("
+            "SELECT DISTINCT map_unit_id FROM document_map_unit_tokens "
+            "WHERE channel = ANY(:channels) AND token_hash = ANY(:token_hashes)"
+            "), "
+            + cte.lstrip().removeprefix("WITH ")
+            + " SELECT DISTINCT scoped_units.* "
+            "FROM matching_tokens JOIN scoped_units "
+            "ON scoped_units.map_unit_id = matching_tokens.map_unit_id"
+        )
+        params = {
+            **params,
+            "channels": list(_MAP_SCORE_CHANNELS),
+            "token_hashes": query_token_hashes,
+        }
+    stage_started = time.monotonic()
+    unit_result = await db.execute(text(unit_statement), params)
     unit_rows = [dict(row._mapping) for row in unit_result.all()]
     unit_rows = [
         row
@@ -229,9 +258,11 @@ async def map_unit_discovery(
             exclude_sections=exclude_sections,
         )
     ]
-
-    if not unit_rows:
-        return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
+    logger.info(
+        "retrieval map-unit stage=units seconds={:.3f} rows={}",
+        time.monotonic() - stage_started,
+        len(unit_rows),
+    )
 
     frequency_scope_cte = cte if signal_paths else _SCOPED_UNIT_IDS_CTE.format(
         revision_join=revision_join,
@@ -255,6 +286,7 @@ async def map_unit_discovery(
                     ON scoped_units.map_unit_id = matching_tokens.map_unit_id
                 """
     )
+    stage_started = time.monotonic()
     frequency_result = await db.execute(
         frequency_query,
         {
@@ -268,9 +300,37 @@ async def map_unit_discovery(
         frequencies.setdefault((str(map_unit_id), str(channel)), {})[str(token)] = (
             int(frequency)
         )
+    logger.info(
+        "retrieval map-unit stage=frequencies seconds={:.3f} rows={} units={}",
+        time.monotonic() - stage_started,
+        sum(len(values) for values in frequencies.values()),
+        len(frequencies),
+    )
 
-    index_result = await db.execute(
-        text(
+    if is_unfiltered_scope and revision_pins is not None:
+        pinned_pairs = [
+            (str(document_id).strip(), str(job_result_id).strip())
+            for document_id, job_result_id in revision_pins.items()
+            if str(document_id).strip() and str(job_result_id).strip()
+        ]
+        pinned_values_sql = ", ".join(
+            f"(:_pin_document_{index}, :_pin_revision_{index})"
+            for index, _pair in enumerate(pinned_pairs)
+        )
+        index_statement = f"""
+            SELECT indexes.average_idf_path, indexes.average_idf_content,
+                   indexes.unit_count, indexes.format_version,
+                   indexes.path_document_count, indexes.path_total_length,
+                   indexes.content_document_count, indexes.content_total_length,
+                   indexes.token_count
+            FROM document_map_unit_indexes AS indexes
+            JOIN (VALUES {pinned_values_sql})
+                AS scoped_revisions(document_id, job_result_id)
+                ON indexes.document_id = scoped_revisions.document_id
+                AND indexes.job_result_id = scoped_revisions.job_result_id
+            """
+    else:
+        index_statement = (
             (
                 cte
                 if signal_paths
@@ -283,7 +343,10 @@ async def map_unit_discovery(
             )
             + """
                 SELECT indexes.average_idf_path, indexes.average_idf_content,
-                       indexes.unit_count, indexes.format_version
+                       indexes.unit_count, indexes.format_version,
+                       indexes.path_document_count, indexes.path_total_length,
+                       indexes.content_document_count, indexes.content_total_length,
+                       indexes.token_count
                 FROM document_map_unit_indexes AS indexes
                 JOIN (
                     SELECT DISTINCT document_id, job_result_id FROM scoped_units
@@ -291,32 +354,150 @@ async def map_unit_discovery(
                     ON indexes.document_id = scoped_revisions.document_id
                     AND indexes.job_result_id = scoped_revisions.job_result_id
                 """
-        ),
-        params,
-    )
-    # Only count indexes written with the current tokenizer (v2 = word-level).
-    # Stale char-level (v1) rows look complete by unit_count but cannot match
-    # word-level query hashes — treat them as missing so readiness fails closed.
-    index_parts = [
-        (float(path_idf or 0.0), float(content_idf or 0.0), int(unit_count or 0))
-        for path_idf, content_idf, unit_count, format_version in index_result.all()
-        if int(format_version or 0) == MAP_UNIT_INDEX_FORMAT_VERSION
-    ]
-    expected_revisions = {
-        (str(row["document_id"]), str(row["job_result_id"])) for row in unit_rows
-    }
-    unfiltered_scope = not any(
-        (
-            chunk_types,
-            signal_paths,
-            exclude_sections,
-            exclude_document_ids,
         )
+    stage_started = time.monotonic()
+    index_result = await db.execute(text(index_statement), params)
+    index_parts = [
+        (
+            float(path_idf or 0.0),
+            float(content_idf or 0.0),
+            int(unit_count or 0),
+            int(format_version or 0),
+            path_document_count,
+            path_total_length,
+            content_document_count,
+            content_total_length,
+            int(token_count or 0),
+        )
+        for (
+            path_idf,
+            content_idf,
+            unit_count,
+            format_version,
+            path_document_count,
+            path_total_length,
+            content_document_count,
+            content_total_length,
+            token_count,
+        ) in index_result.all()
+    ]
+    logger.info(
+        "retrieval map-unit stage=indexes seconds={:.3f} rows={}",
+        time.monotonic() - stage_started,
+        len(index_parts),
     )
-    index_unit_count_mismatch = unfiltered_scope and sum(
-        unit_count for _path_idf, _content_idf, unit_count in index_parts
-    ) != len(unit_rows)
-    if len(index_parts) != len(expected_revisions) or index_unit_count_mismatch:
+    if is_unfiltered_scope:
+        if revision_pins is not None:
+            # The route captures the active revision set before discovery. Reuse
+            # that immutable set instead of scanning scoped map units a second
+            # time just to derive the same revision keys. Missing index rows
+            # still fail the existing completeness check below.
+            expected_revisions = {
+                (str(document_id), str(job_result_id))
+                for document_id, job_result_id in revision_pins.items()
+            }
+            revision_check_seconds = 0.0
+        else:
+            stage_started = time.monotonic()
+            revision_result = await db.execute(
+                text(cte + "SELECT DISTINCT document_id, job_result_id FROM scoped_units"),
+                params,
+            )
+            expected_revisions = {
+                (str(row[0]), str(row[1])) for row in revision_result.all()
+            }
+            revision_check_seconds = time.monotonic() - stage_started
+        logger.info(
+            "retrieval map-unit stage=revision-check seconds={:.3f} rows={}",
+            revision_check_seconds,
+            len(expected_revisions),
+        )
+    else:
+        expected_revisions = {
+            (str(row["document_id"]), str(row["job_result_id"]))
+            for row in unit_rows
+        }
+    indexed_unit_count = sum(
+        unit_count for _path_idf, _content_idf, unit_count, *_rest in index_parts
+    )
+    has_index_storage_mismatch: bool = False
+    if is_unfiltered_scope and not unit_rows and expected_revisions:
+        storage_counts: tuple[int | None, int | None] = cast(
+            tuple[int | None, int | None],
+            (
+                await db.execute(
+                    text(
+                        _SCOPED_UNIT_IDS_CTE.format(
+                            revision_join=revision_join,
+                            revision_clause=revision_clause,
+                            exclude_clause=exclude_clause,
+                            type_clause=type_clause,
+                        )
+                        + """
+                        SELECT
+                            (SELECT COUNT(*) FROM scoped_units) AS unit_count,
+                            (
+                                SELECT COUNT(*)
+                                FROM document_map_unit_tokens AS tokens
+                                JOIN scoped_units
+                                    ON scoped_units.map_unit_id = tokens.map_unit_id
+                            ) AS token_count
+                        """
+                    ),
+                    params,
+                )
+            ).one(),
+        )
+        actual_unit_count: int | None = storage_counts[0]
+        actual_token_count: int | None = storage_counts[1]
+        indexed_token_count: int = sum(int(part[8]) for part in index_parts)
+        has_index_storage_mismatch = indexed_unit_count != int(
+            actual_unit_count or 0
+        ) or indexed_token_count != int(actual_token_count or 0)
+    has_index_unit_count_mismatch = (
+        indexed_unit_count < len(unit_rows)
+        if is_unfiltered_scope
+        else indexed_unit_count != len(unit_rows)
+    )
+    is_index_format_incompatible = any(
+        format_version != MAP_UNIT_INDEX_FORMAT_VERSION
+        for (
+            _path_idf,
+            _content_idf,
+            _unit_count,
+            format_version,
+            _path_document_count,
+            _path_total_length,
+            _content_document_count,
+            _content_total_length,
+            _token_count,
+        ) in index_parts
+    )
+    has_incomplete_index_statistics = is_unfiltered_scope and any(
+        format_version != MAP_UNIT_INDEX_FORMAT_VERSION
+        or path_document_count is None
+        or path_total_length is None
+        or content_document_count is None
+        or content_total_length is None
+        for (
+            _path_idf,
+            _content_idf,
+            _unit_count,
+            format_version,
+            path_document_count,
+            path_total_length,
+            content_document_count,
+            content_total_length,
+            _token_count,
+        ) in index_parts
+    )
+    has_unusable_index = (
+        len(index_parts) != len(expected_revisions)
+        or has_index_unit_count_mismatch
+        or has_index_storage_mismatch
+        or is_index_format_incompatible
+    )
+    if has_unusable_index:
         try:
             await record_retrieval_index_readiness(
                 user_id=user_id,
@@ -348,11 +529,46 @@ async def map_unit_discovery(
             filter_mode=filter_mode,
             revision_pins=revision_pins,
         )
+    if has_incomplete_index_statistics:
+        logger.warning(
+            "retrieval map index statistics incomplete user_id=%s namespace=%s "
+            "using row-derived BM25 denominators",
+            user_id,
+            namespace,
+        )
+        # Token-selective projection is only sufficient when persisted channel
+        # denominators are available. Before the statistics backfill, restore
+        # the old full-scope unit projection so row-derived BM25 statistics use
+        # the same corpus as the legacy map-unit reader.
+        stage_started = time.monotonic()
+        full_unit_params = {
+            key: value
+            for key, value in params.items()
+            if key not in {"channels", "token_hashes"}
+        }
+        full_unit_result = await db.execute(
+            text(cte + "SELECT * FROM scoped_units"), full_unit_params
+        )
+        unit_rows = [dict(row._mapping) for row in full_unit_result.all()]
+        unit_rows = [
+            row
+            for row in unit_rows
+            if not is_excluded_section(
+                document_id=row.get("document_id"),
+                section_path=row.get("section_path"),
+                exclude_sections=exclude_sections,
+            )
+        ]
+        logger.info(
+            "retrieval map-unit stage=full-units-for-stats seconds={:.3f} rows={}",
+            time.monotonic() - stage_started,
+            len(unit_rows),
+        )
     try:
         await record_retrieval_index_readiness(
             user_id=user_id,
             namespace=namespace,
-            ready=True,
+            ready=not has_incomplete_index_statistics,
             expected_revisions=len(expected_revisions),
             indexed_revisions=len(index_parts),
         )
@@ -361,16 +577,17 @@ async def map_unit_discovery(
     average_idf_path = combine_average_idf(
         [
             (path_idf, unit_count)
-            for path_idf, _content_idf, unit_count in index_parts
+            for path_idf, _content_idf, unit_count, *_rest in index_parts
         ]
     )
     average_idf_content = combine_average_idf(
         [
             (content_idf, unit_count)
-            for _path_idf, content_idf, unit_count in index_parts
+            for _path_idf, content_idf, unit_count, *_rest in index_parts
         ]
     )
 
+    stage_started = time.monotonic()
     path_stats = build_channel_bm25_stats(
         unit_rows=unit_rows,
         map_unit_id_field="map_unit_id",
@@ -379,6 +596,16 @@ async def map_unit_discovery(
         query_tokens=query_tokens,
         frequencies=frequencies,
         average_idf=average_idf_path,
+        document_count_override=(
+            sum(int(part[4] or 0) for part in index_parts)
+            if is_unfiltered_scope and not has_incomplete_index_statistics
+            else None
+        ),
+        total_length_override=(
+            sum(int(part[5] or 0) for part in index_parts)
+            if is_unfiltered_scope and not has_incomplete_index_statistics
+            else None
+        ),
     )
     content_stats = build_channel_bm25_stats(
         unit_rows=unit_rows,
@@ -388,6 +615,21 @@ async def map_unit_discovery(
         query_tokens=query_tokens,
         frequencies=frequencies,
         average_idf=average_idf_content,
+        document_count_override=(
+            sum(int(part[6] or 0) for part in index_parts)
+            if is_unfiltered_scope and not has_incomplete_index_statistics
+            else None
+        ),
+        total_length_override=(
+            sum(int(part[7] or 0) for part in index_parts)
+            if is_unfiltered_scope and not has_incomplete_index_statistics
+            else None
+        ),
+    )
+    logger.info(
+        "retrieval map-unit stage=stats seconds={:.3f} units={}",
+        time.monotonic() - stage_started,
+        len(unit_rows),
     )
 
     corpus = PersistedScoreCorpus(
@@ -406,7 +648,13 @@ async def map_unit_discovery(
         path_stats=path_stats,
         content_stats=content_stats,
     )
+    stage_started = time.monotonic()
     scores_by_unit = score_persisted_corpus_many(corpus, [query]).get(query, {})
+    logger.info(
+        "retrieval map-unit stage=scoring seconds={:.3f} units={}",
+        time.monotonic() - stage_started,
+        len(scores_by_unit),
+    )
 
     rows_by_unit_id = {row["map_unit_id"]: row for row in unit_rows}
     ranked_unit_ids = sorted(
@@ -415,6 +663,7 @@ async def map_unit_discovery(
         reverse=True,
     )[:top_k]
 
+    stage_started = time.monotonic()
     fused_rows = await _hydrate_winning_units(
         db,
         ranked_unit_ids=ranked_unit_ids,
@@ -424,6 +673,11 @@ async def map_unit_discovery(
         exclude_document_ids=exclude_document_ids,
         exclude_sections=exclude_sections,
         revision_pins=revision_pins,
+    )
+    logger.info(
+        "retrieval map-unit stage=hydration seconds={:.3f} rows={}",
+        time.monotonic() - stage_started,
+        len(fused_rows),
     )
     if fused_rows:
         normalize_row_scores(

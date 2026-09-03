@@ -155,7 +155,11 @@ class NamespaceFallbackReport:
 
     @property
     def ready(self) -> bool:
-        return not self.would_hit_snapshot_fallback and not self.scoring_incomplete
+        return (
+            not self.would_hit_snapshot_fallback
+            and not self.scoring_incomplete
+            and self.missing_revision_manifest == 0
+        )
 
 
 def check_fallback_readiness(*, document_id: str = "") -> list[NamespaceFallbackReport]:
@@ -224,10 +228,14 @@ def check_fallback_readiness(*, document_id: str = "") -> list[NamespaceFallback
                     select(
                         DocumentMapUnitIndex.document_id,
                         DocumentMapUnitIndex.job_result_id,
+                        DocumentMapUnitIndex.format_version,
                         DocumentMapUnitIndex.unit_count,
                         DocumentMapUnitIndex.average_idf_path,
                         DocumentMapUnitIndex.average_idf_content,
-                        DocumentMapUnitIndex.format_version,
+                        DocumentMapUnitIndex.path_document_count,
+                        DocumentMapUnitIndex.path_total_length,
+                        DocumentMapUnitIndex.content_document_count,
+                        DocumentMapUnitIndex.content_total_length,
                     ).where(
                         DocumentMapUnitIndex.document_id.in_(
                             [document_id_value for document_id_value, _ in revisions]
@@ -237,18 +245,26 @@ def check_fallback_readiness(*, document_id: str = "") -> list[NamespaceFallback
             )
             index_by_revision = {
                 (str(document_id_value), str(job_result_id)): (
+                    int(format_version or 0),
                     int(unit_count or 0),
                     float(average_idf_path or 0.0),
                     float(average_idf_content or 0.0),
-                    int(format_version or 0),
+                    path_document_count,
+                    path_total_length,
+                    content_document_count,
+                    content_total_length,
                 )
                 for (
                     document_id_value,
                     job_result_id,
+                    format_version,
                     unit_count,
                     average_idf_path,
                     average_idf_content,
-                    format_version,
+                    path_document_count,
+                    path_total_length,
+                    content_document_count,
+                    content_total_length,
                 ) in index_rows
             }
             missing_map_index = 0
@@ -258,8 +274,23 @@ def check_fallback_readiness(*, document_id: str = "") -> list[NamespaceFallback
                 if stats is None:
                     missing_map_index += 1
                     continue
-                unit_count, average_idf_path, average_idf_content, format_version = stats
-                if format_version != MAP_UNIT_INDEX_FORMAT_VERSION:
+                (
+                    format_version,
+                    unit_count,
+                    average_idf_path,
+                    average_idf_content,
+                    path_document_count,
+                    path_total_length,
+                    content_document_count,
+                    content_total_length,
+                ) = stats
+                if (
+                    format_version != MAP_UNIT_INDEX_FORMAT_VERSION
+                    or path_document_count is None
+                    or path_total_length is None
+                    or content_document_count is None
+                    or content_total_length is None
+                ):
                     missing_map_index += 1
                     continue
                 if (
@@ -294,7 +325,11 @@ def check_fallback_readiness(*, document_id: str = "") -> list[NamespaceFallback
             would_hit_snapshot_fallback = (
                 snapshot_status != "ok" or missing_from_snapshot > 0
             )
-            scoring_incomplete = missing_map_index > 0 or suspicious_zero_idf > 0
+            # A zero average IDF is mathematically valid, notably for a
+            # two-unit corpus where every token appears in exactly one unit.
+            # Keep the count as diagnostic output, but readiness is determined
+            # by the format marker and required persisted statistics above.
+            scoring_incomplete = missing_map_index > 0
             reports.append(
                 NamespaceFallbackReport(
                     user_id=user_id,
