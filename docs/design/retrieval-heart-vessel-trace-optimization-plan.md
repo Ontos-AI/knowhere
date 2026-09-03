@@ -496,7 +496,9 @@ the exact legacy reader.
 ### DevOps handoff
 
 DevOps runs the maintenance explicitly; API startup and user requests never
-trigger it. The runbook should:
+trigger it. The executable rollout procedure is documented in
+[`retrieval-serving-index-rollout-runbook.md`](retrieval-serving-index-rollout-runbook.md).
+The runbook:
 
 1. deploy the additive migration and verify the reader still falls back safely;
    Build the new index without dropping the existing lookup index, and monitor
