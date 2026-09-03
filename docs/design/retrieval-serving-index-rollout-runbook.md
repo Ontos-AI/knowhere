@@ -151,16 +151,17 @@ index with `DROP INDEX CONCURRENTLY`, and rerun the migration.
 ## Phase 3: Deploy the application build
 
 Deploy the application after the additive migrations finish. New publications
-will write coherent format-v2 statistics. Existing incomplete revisions remain
-on the legacy reader until maintenance completes.
+will write coherent format-v2 statistics. Existing revisions with NULL channel
+statistics remain on the full scope-first map-unit reader until maintenance
+completes; missing, legacy, or unusable indexes remain on the legacy reader.
 
 Immediately verify:
 
 - API health checks pass;
 - no migration or model-loading error appears in API logs;
 - classic and map-nav requests still complete;
-- incomplete-index warnings show `fallback=legacy_fts`, rather than returning
-  partial or empty results;
+- incomplete-index warnings distinguish statistics-incomplete map-unit serving
+  from `fallback=legacy_fts`; neither case may return partial or empty results;
 - no increase appears in retrieval errors or timeouts.
 
 ## Phase 4: Backfill existing format-v2 indexes

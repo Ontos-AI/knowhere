@@ -491,13 +491,13 @@ async def map_unit_discovery(
             _token_count,
         ) in index_parts
     )
-    if (
+    has_unusable_index = (
         len(index_parts) != len(expected_revisions)
         or has_index_unit_count_mismatch
         or has_index_storage_mismatch
         or is_index_format_incompatible
-        or has_incomplete_index_statistics
-    ):
+    )
+    if has_unusable_index:
         try:
             await record_retrieval_index_readiness(
                 user_id=user_id,
@@ -529,11 +529,46 @@ async def map_unit_discovery(
             filter_mode=filter_mode,
             revision_pins=revision_pins,
         )
+    if has_incomplete_index_statistics:
+        logger.warning(
+            "retrieval map index statistics incomplete user_id=%s namespace=%s "
+            "using row-derived BM25 denominators",
+            user_id,
+            namespace,
+        )
+        # Token-selective projection is only sufficient when persisted channel
+        # denominators are available. Before the statistics backfill, restore
+        # the old full-scope unit projection so row-derived BM25 statistics use
+        # the same corpus as the legacy map-unit reader.
+        stage_started = time.monotonic()
+        full_unit_params = {
+            key: value
+            for key, value in params.items()
+            if key not in {"channels", "token_hashes"}
+        }
+        full_unit_result = await db.execute(
+            text(cte + "SELECT * FROM scoped_units"), full_unit_params
+        )
+        unit_rows = [dict(row._mapping) for row in full_unit_result.all()]
+        unit_rows = [
+            row
+            for row in unit_rows
+            if not is_excluded_section(
+                document_id=row.get("document_id"),
+                section_path=row.get("section_path"),
+                exclude_sections=exclude_sections,
+            )
+        ]
+        logger.info(
+            "retrieval map-unit stage=full-units-for-stats seconds={:.3f} rows={}",
+            time.monotonic() - stage_started,
+            len(unit_rows),
+        )
     try:
         await record_retrieval_index_readiness(
             user_id=user_id,
             namespace=namespace,
-            ready=True,
+            ready=not has_incomplete_index_statistics,
             expected_revisions=len(expected_revisions),
             indexed_revisions=len(index_parts),
         )
@@ -563,12 +598,12 @@ async def map_unit_discovery(
         average_idf=average_idf_path,
         document_count_override=(
             sum(int(part[4] or 0) for part in index_parts)
-            if is_unfiltered_scope
+            if is_unfiltered_scope and not has_incomplete_index_statistics
             else None
         ),
         total_length_override=(
             sum(int(part[5] or 0) for part in index_parts)
-            if is_unfiltered_scope
+            if is_unfiltered_scope and not has_incomplete_index_statistics
             else None
         ),
     )
@@ -582,12 +617,12 @@ async def map_unit_discovery(
         average_idf=average_idf_content,
         document_count_override=(
             sum(int(part[6] or 0) for part in index_parts)
-            if is_unfiltered_scope
+            if is_unfiltered_scope and not has_incomplete_index_statistics
             else None
         ),
         total_length_override=(
             sum(int(part[7] or 0) for part in index_parts)
-            if is_unfiltered_scope
+            if is_unfiltered_scope and not has_incomplete_index_statistics
             else None
         ),
     )

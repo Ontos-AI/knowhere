@@ -491,6 +491,116 @@ async def test_classic_route_falls_back_for_v1_index_with_excluded_document(
     assert legacy_queries
 
 
+async def test_classic_discovery_preserves_results_before_statistics_backfill(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    identifier = uuid4().hex[:8]
+    namespace = f"classic-statistics-parity-{identifier}"
+    legacy_queries: list[str] = []
+
+    def capture_legacy_query(
+        _connection: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        if "plainto_tsquery('simple'" in statement:
+            legacy_queries.append(statement)
+
+    def result_signature(result: DiscoveryResult) -> list[tuple[Any, ...]]:
+        return [
+            (
+                row.get("chunk_id"),
+                row.get("document_id"),
+                row.get("job_result_id"),
+                row.get("section_path"),
+                row.get("source_file_name"),
+                row.get("score"),
+                row.get("discovery_score"),
+                row.get("content"),
+                row.get("chunk_metadata"),
+            )
+            for row in list(result.payload.get("fused_rows") or [])
+        ]
+
+    event.listen(Engine, "before_cursor_execute", capture_legacy_query)
+    try:
+        async with developer_api_client_factory():
+            document = await _publish_document(
+                namespace=namespace,
+                source_file_name="statistics-parity.pdf",
+                chunks=[
+                    {
+                        "chunk_id": f"statistics-hit-{identifier}",
+                        "type": "text",
+                        "content": "statistics parity retrieval marker",
+                        "path": "statistics-parity.pdf/Root/Section/hit",
+                        "order": 1,
+                        "metadata": {},
+                    },
+                    {
+                        "chunk_id": f"statistics-filler-a-{identifier}",
+                        "type": "text",
+                        "content": "unrelated statistics filler a",
+                        "path": "statistics-parity.pdf/Root/Section/a",
+                        "order": 2,
+                        "metadata": {},
+                    },
+                    {
+                        "chunk_id": f"statistics-filler-b-{identifier}",
+                        "type": "text",
+                        "content": "unrelated statistics filler b",
+                        "path": "statistics-parity.pdf/Root/Section/b",
+                        "order": 3,
+                        "metadata": {},
+                    },
+                ],
+            )
+            query = "statistics parity retrieval marker"
+            async with contract_db_session() as db:
+                post_backfill = await map_unit_discovery(
+                    db,
+                    user_id=_USER_ID,
+                    namespace=namespace,
+                    query=query,
+                    top_k=3,
+                    exclude_document_ids=[],
+                    exclude_sections=[],
+                )
+
+            await ContractDatabase.execute(
+                """
+                UPDATE document_map_unit_indexes
+                SET path_document_count = NULL,
+                    path_total_length = NULL,
+                    content_document_count = NULL,
+                    content_total_length = NULL
+                WHERE document_id = :document_id
+                """,
+                {"document_id": document["document_id"]},
+            )
+
+            async with contract_db_session() as db:
+                pre_backfill = await map_unit_discovery(
+                    db,
+                    user_id=_USER_ID,
+                    namespace=namespace,
+                    query=query,
+                    top_k=3,
+                    exclude_document_ids=[],
+                    exclude_sections=[],
+                )
+    finally:
+        event.remove(Engine, "before_cursor_execute", capture_legacy_query)
+
+    assert result_signature(pre_backfill) == result_signature(post_backfill)
+    assert legacy_queries == []
+
+
 @pytest.mark.parametrize(
     "incomplete_index_kind", ["legacy_format", "missing_index", "missing_tokens"]
 )

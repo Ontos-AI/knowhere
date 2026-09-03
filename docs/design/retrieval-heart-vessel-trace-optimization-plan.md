@@ -319,9 +319,12 @@ proves that a different join order is better.
 Roll this out in two stages. The first stage may enable the token-selective
 reader only when the request has no section exclusions, where revision-scoped
 channel statistics are sufficient. Requests with section filters continue to
-use the exact legacy reader until section-scoped denominator statistics are
-implemented and pass semantic-parity checks. A missing, incomplete, or
-incompatible serving index always uses the same fallback.
+use the existing scope-first map-unit reader until section-scoped denominator
+statistics are implemented and pass semantic-parity checks. A missing,
+incompatible, or storage-inconsistent serving index uses the exact legacy FTS
+fallback. A complete index with NULL channel statistics keeps the full scope
+map-unit rows and derives the two channel denominators from those rows until
+the statistics backfill completes.
 
 BM25 denominators must remain corpus-wide. Obtain exact corpus statistics using
 persisted serving-index statistics while preserving the current per-channel
@@ -341,10 +344,14 @@ reader.
 
 The current implementation slice only adds the per-channel statistics fields,
 publication-time population, and the DevOps backfill/readiness contract. It
-now enables token-selective projection in both persisted readers when the scope
-is unfiltered and serving statistics are present. Section-filtered or
-incomplete revisions continue through the legacy path. Both v1 and v2 call the
-same shared readers; no route-specific lexical algorithm was introduced.
+enables token-selective projection when the scope is unfiltered and serving
+statistics are present. Before statistics backfill, an unfiltered revision
+uses the full scope map-unit rows with row-derived per-channel denominators, so
+the lexical result remains unchanged; section-filtered requests retain their
+existing scope-first map-unit reader. Only a missing, incompatible, or
+storage-inconsistent index uses the exact legacy FTS fallback. Both v1 and v2
+call the same shared readers; no route-specific lexical algorithm was
+introduced.
 
 Acceptance criteria:
 
@@ -483,15 +490,17 @@ the same Retrieval contract and must produce identical results. For a complete
 existing index, a resumable per-revision statistics backfill aggregates the existing
 `document_map_units` rows, writes the four path/content values, and marks the
 revision v2 in the same transaction. It must not regenerate token rows or
-snapshots unnecessarily. Revisions with a missing or incomplete index use the
+snapshots unnecessarily. Revisions with a missing or legacy index use the
 existing full `backfill_map_unit_indexes --apply` path.
 
 Each revision is committed independently under the existing generation and
-active-document locks. The job is idempotent and safe to interrupt: revisions
-without a completed v2 marker remain on the exact legacy reader, and the
-optimized internal reader is selected only after the backfill check reports
-complete, coherent active revisions; otherwise the same Retrieval request uses
-the exact legacy reader.
+active-document locks. The job is idempotent and safe to interrupt. While the
+four statistics are NULL, retrieval keeps the full scope-first map-unit reader
+and derives the existing per-channel denominators from its rows. Once the
+backfill check reports complete, coherent active revisions, the unfiltered
+reader can use token-selective projection and persisted denominators. Missing,
+incompatible, or storage-inconsistent index data still uses the exact legacy
+FTS fallback.
 
 ### DevOps handoff
 
@@ -504,8 +513,9 @@ The runbook:
    Build the new index without dropping the existing lookup index, and monitor
    lock waits, build duration, and disk headroom;
 2. deploy the application code that writes v2 for new publications and selects
-   the fast reader only for complete v2 revisions; v1 revisions continue on the
-   legacy reader;
+   the token-selective reader only for complete v2 revisions; revisions with
+   NULL statistics continue on the full scope-first map-unit reader, while v1
+   or otherwise unusable index data continues on the legacy FTS reader;
 3. run the read-only inventory/check command and record active/current revision
    counts;
 4. run the resumable statistics backfill in bounded batches (with optional
@@ -525,14 +535,15 @@ The runbook:
 5. rerun the check until every retrieval-visible revision has a coherent v2
    marker and no serving fallback is reported;
 6. monitor semantic-parity probes, latency, errors, and timeouts. The reader's
-   version/completeness checks automatically retain the legacy path when a
-   revision is not ready.
+   checks retain the full scope-first map-unit path while only statistics are
+   incomplete, and use legacy FTS when index data is unusable.
 
 The handoff must document the exact command, batch/concurrency limits,
 pause/resume procedure, application-version rollback procedure, and the final
 check output. A partial
 backfill is an expected intermediate state, not a failed deployment, provided
-that incomplete revisions remain on the legacy reader.
+that incomplete statistics do not select token-only projection and unusable
+indexes remain on the legacy reader.
 
 ### Deferred: LLM orchestration improvements
 
