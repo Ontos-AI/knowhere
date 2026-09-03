@@ -380,15 +380,7 @@ class ReadOnlyChunkStore:
                     average_idf_content,
                 )
 
-            allowed_by_document = {
-                str(document_id): {str(section_id) for section_id in section_ids}
-                for document_id, section_ids in allowed_section_ids_by_document.items()
-            }
-            allowed_pairs_set = {
-                (document_id, section_id)
-                for document_id, section_ids in allowed_by_document.items()
-                for section_id in section_ids
-            }
+            allowed_pairs_set: set[tuple[str, str]] = set()
             if not self._excluded_sections:
                 # The lazy snapshot was built from the complete pinned
                 # namespace and no section filters were requested. Avoid a
@@ -397,6 +389,15 @@ class ReadOnlyChunkStore:
                 # query below.
                 has_complete_section_scope = True
             else:
+                allowed_by_document = {
+                    str(document_id): {str(section_id) for section_id in section_ids}
+                    for document_id, section_ids in allowed_section_ids_by_document.items()
+                }
+                allowed_pairs_set = {
+                    (document_id, section_id)
+                    for document_id, section_ids in allowed_by_document.items()
+                    for section_id in section_ids
+                }
                 cur.execute(
                     "SELECT sections.document_id, sections.job_result_id, count(*) "
                     "FROM document_sections AS sections "
