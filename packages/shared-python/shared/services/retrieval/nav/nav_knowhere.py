@@ -380,42 +380,33 @@ class ReadOnlyChunkStore:
                     average_idf_content,
                 )
 
-            allowed_pairs_set: set[tuple[str, str]] = set()
-            if not self._excluded_sections:
-                # The lazy snapshot was built from the complete pinned
-                # namespace and no section filters were requested. Avoid a
-                # second GROUP BY over document_sections just to prove the
-                # same fact; filtered snapshots retain the exact validation
-                # query below.
-                has_complete_section_scope = True
-            else:
-                allowed_by_document = {
-                    str(document_id): {str(section_id) for section_id in section_ids}
-                    for document_id, section_ids in allowed_section_ids_by_document.items()
-                }
-                allowed_pairs_set = {
-                    (document_id, section_id)
-                    for document_id, section_ids in allowed_by_document.items()
-                    for section_id in section_ids
-                }
-                cur.execute(
-                    "SELECT sections.document_id, sections.job_result_id, count(*) "
-                    "FROM document_sections AS sections "
-                    f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
-                    "ON sections.document_id = revisions.document_id "
-                    "AND sections.job_result_id = revisions.job_result_id "
-                    "GROUP BY sections.document_id, sections.job_result_id",
-                    revision_params,
-                )
-                section_counts = {
-                    (str(document_id), str(job_result_id)): int(count)
-                    for document_id, job_result_id, count in cur.fetchall()
-                }
-                has_complete_section_scope = all(
-                    len(allowed_by_document.get(document_id, set()))
-                    == section_counts.get((document_id, job_result_id), 0)
-                    for document_id, job_result_id in revisions
-                )
+            allowed_by_document = {
+                str(document_id): {str(section_id) for section_id in section_ids}
+                for document_id, section_ids in allowed_section_ids_by_document.items()
+            }
+            allowed_pairs_set = {
+                (document_id, section_id)
+                for document_id, section_ids in allowed_by_document.items()
+                for section_id in section_ids
+            }
+            cur.execute(
+                "SELECT sections.document_id, sections.job_result_id, count(*) "
+                "FROM document_sections AS sections "
+                f"JOIN (VALUES {values_sql}) AS revisions(document_id, job_result_id) "
+                "ON sections.document_id = revisions.document_id "
+                "AND sections.job_result_id = revisions.job_result_id "
+                "GROUP BY sections.document_id, sections.job_result_id",
+                revision_params,
+            )
+            section_counts = {
+                (str(document_id), str(job_result_id)): int(count)
+                for document_id, job_result_id, count in cur.fetchall()
+            }
+            has_complete_section_scope = all(
+                len(allowed_by_document.get(document_id, set()))
+                == section_counts.get((document_id, job_result_id), 0)
+                for document_id, job_result_id in revisions
+            )
             all_unit_rows = self._score_unit_rows_cache.get(revision_key)
             if has_complete_section_scope and query_token_hashes:
                 stage_started = time.perf_counter()
