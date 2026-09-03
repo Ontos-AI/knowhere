@@ -13,6 +13,7 @@ from shared.services.retrieval.publication_content import (
     replace_document_revision_content,
 )
 from shared.services.retrieval.publication_models import DocumentPublicationScope
+from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
 from shared.services.retrieval.serving_generation import lock_namespace_generation
 from tests.support.contract_database import ContractDatabase
 from tests.support.retrieval_snapshot_support import contract_db_session
@@ -262,6 +263,110 @@ async def test_classic_route_only_uses_token_selective_projection_for_unfiltered
     assert unfiltered_response.status_code == 200
     assert filtered_response.status_code == 200
     assert projection_statements[:2] == ["token_selective", "legacy"]
+
+
+async def test_unfiltered_revision_pins_reuse_index_metadata_without_scoped_revision_cte(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    identifier = uuid4().hex[:8]
+    namespace = f"classic-pinned-index-{identifier}"
+    index_statements: list[str] = []
+
+    def capture_index_query(
+        _connection: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        if (
+            "document_map_unit_indexes" in statement
+            and "average_idf_path" in statement
+        ):
+            index_statements.append(statement)
+
+    async with developer_api_client_factory():
+        document = await _publish_document(
+            namespace=namespace,
+            source_file_name="pinned-index.pdf",
+            chunks=[
+                {
+                    "chunk_id": f"pinned-hit-{identifier}",
+                    "type": "text",
+                    "content": "pinned revision semantic marker",
+                    "path": "pinned-index.pdf/Root/Section/hit",
+                    "order": 1,
+                    "metadata": {},
+                },
+                {
+                    "chunk_id": f"pinned-filler-{identifier}",
+                    "type": "text",
+                    "content": "unrelated filler",
+                    "path": "pinned-index.pdf/Root/Section/filler",
+                    "order": 2,
+                    "metadata": {},
+                },
+            ],
+        )
+
+        def result_signature(result: Any) -> list[tuple[Any, ...]]:
+            rows = list(result.payload.get("fused_rows") or [])
+            return [
+                (
+                    row.get("chunk_id"),
+                    row.get("document_id"),
+                    row.get("job_result_id"),
+                    row.get("section_path"),
+                    row.get("score"),
+                    row.get("discovery_score"),
+                    row.get("content"),
+                )
+                for row in rows
+            ]
+
+        event.listen(Engine, "before_cursor_execute", capture_index_query)
+        try:
+            async with contract_db_session() as db:
+                unpinned = await map_unit_discovery(
+                    db,
+                    user_id=_USER_ID,
+                    namespace=namespace,
+                    query="pinned revision semantic marker",
+                    top_k=10,
+                    exclude_document_ids=[],
+                    exclude_sections=[],
+                    revision_pins=None,
+                )
+
+            index_statements.clear()
+
+            async with contract_db_session() as db:
+                pinned = await map_unit_discovery(
+                    db,
+                    user_id=_USER_ID,
+                    namespace=namespace,
+                    query="pinned revision semantic marker",
+                    top_k=10,
+                    exclude_document_ids=[],
+                    exclude_sections=[],
+                    revision_pins={
+                        document["document_id"]: document["job_result_id"]
+                    },
+                )
+        finally:
+            event.remove(Engine, "before_cursor_execute", capture_index_query)
+
+    assert result_signature(pinned) == result_signature(unpinned)
+    assert index_statements
+    assert all("JOIN (VALUES" in statement for statement in index_statements)
+    assert all("scoped_units AS" not in statement for statement in index_statements)
+    assert all(
+        "SELECT DISTINCT document_id, job_result_id" not in statement
+        for statement in index_statements
+    )
 
 
 async def test_classic_route_falls_back_for_v1_index_with_excluded_document(
