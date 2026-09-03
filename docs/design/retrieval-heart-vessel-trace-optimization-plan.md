@@ -194,6 +194,15 @@ the maximum score delta was `1.7e-5`. Warm p50 improved by about `24 ms` for
 no yet-established broad end-to-end latency win; production rollout still
 requires the same migration, backfill, and rollback checks below.
 
+The current classic reader now reuses the immutable revision pins captured at
+request start when validating an unfiltered scope. This removes a redundant
+`SELECT DISTINCT` over scoped map units; requests without pins retain the
+original query. On the restored dump, the removed validation query measured
+approximately `0.35–0.6 s` before the change. Stage instrumentation shows the
+remaining warm classic work is dominated by database reads and hydration, not
+BM25 statistics or Python scoring. Result IDs, ordering, sources, evidence,
+and score deltas remain within the existing `1e-4` parity tolerance.
+
 The reference trace above is not representative of request mix. In the current
 baseline window, 196 successful v1 roots used `use_agentic=false` (classic),
 three used the default map-nav route (`use_agentic=null`), and one explicitly
@@ -239,7 +248,11 @@ saturation or request-level memory usage.
    distinguishes corpora at or below `top_k` from larger corpora before route
    selection. The trace alone does not establish that an `EXISTS` rewrite or
    snapshot metadata would be faster.
-6. The current production request mix is primarily classic retrieval. The
+6. Classic discovery previously re-scanned scoped map units solely to derive
+   revision keys after the request had already captured revision pins. Reusing
+   those pins removes that duplicate read without changing the completeness
+   check; the no-pin path remains unchanged.
+7. The current production request mix is primarily classic retrieval. The
    token-selective reader must therefore be exercised through both the classic
    and map-nav callers; a map-nav-only benchmark would not represent the
    dominant workload.
