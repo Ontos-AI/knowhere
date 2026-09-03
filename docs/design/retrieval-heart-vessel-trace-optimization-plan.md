@@ -252,6 +252,11 @@ saturation or request-level memory usage.
    revision keys after the request had already captured revision pins. Reusing
    those pins removes that duplicate read without changing the completeness
    check; the no-pin path remains unchanged.
+   The same pins now drive the unfiltered index-metadata lookup directly,
+   avoiding another scoped-unit CTE. On the restored dump this reduced the
+   warm index stage from roughly `0.16–0.8 s` to `0.02–0.04 s` for the sampled
+   namespace. The classic result parity gate still passes for the temporary
+   query set.
 7. The current production request mix is primarily classic retrieval. The
    token-selective reader must therefore be exercised through both the classic
    and map-nav callers; a map-nav-only benchmark would not represent the

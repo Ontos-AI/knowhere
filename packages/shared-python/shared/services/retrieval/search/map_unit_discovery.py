@@ -308,9 +308,29 @@ async def map_unit_discovery(
         len(frequencies),
     )
 
-    stage_started = time.monotonic()
-    index_result = await db.execute(
-        text(
+    if is_unfiltered_scope and revision_pins is not None:
+        pinned_pairs = [
+            (str(document_id).strip(), str(job_result_id).strip())
+            for document_id, job_result_id in revision_pins.items()
+            if str(document_id).strip() and str(job_result_id).strip()
+        ]
+        pinned_values_sql = ", ".join(
+            f"(:_pin_document_{index}, :_pin_revision_{index})"
+            for index, _pair in enumerate(pinned_pairs)
+        )
+        index_statement = f"""
+            SELECT indexes.average_idf_path, indexes.average_idf_content,
+                   indexes.unit_count, indexes.format_version,
+                   indexes.path_document_count, indexes.path_total_length,
+                   indexes.content_document_count, indexes.content_total_length
+            FROM document_map_unit_indexes AS indexes
+            JOIN (VALUES {pinned_values_sql})
+                AS scoped_revisions(document_id, job_result_id)
+                ON indexes.document_id = scoped_revisions.document_id
+                AND indexes.job_result_id = scoped_revisions.job_result_id
+            """
+    else:
+        index_statement = (
             (
                 cte
                 if signal_paths
@@ -333,9 +353,9 @@ async def map_unit_discovery(
                     ON indexes.document_id = scoped_revisions.document_id
                     AND indexes.job_result_id = scoped_revisions.job_result_id
                 """
-        ),
-        params,
-    )
+        )
+    stage_started = time.monotonic()
+    index_result = await db.execute(text(index_statement), params)
     index_parts = [
         (
             float(path_idf or 0.0),
