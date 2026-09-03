@@ -563,7 +563,6 @@ def build_map(
         visible_sections=visible_sorted,
         truncated=truncated,
         id_to_section=id_map,
-        map_mode=True,
         tree_sections=list(tree_visible),
         highlight_ids=list(hits),
     )

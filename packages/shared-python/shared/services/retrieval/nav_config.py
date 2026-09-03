@@ -28,10 +28,9 @@ _PRODUCTION_NAV_DICT: dict[str, Any] = {
     "llm_max_tokens": 256,
     "planner_llm_max_tokens": 1024,
     "harvest_llm_max_tokens": 1024,
-    "map_mode": True,
     "map_char_limit": 5000,
     "enable_recursive_dispatch": True,
-    "max_dispatch_depth": 3,
+    "max_dispatch_depth": 5,
     "subagent_model": MAPNAV_MODEL,
     "compose_confidence_weight": 0.5,
     "mode": "checklist",
@@ -44,7 +43,7 @@ _PRODUCTION_NAV_DICT: dict[str, Any] = {
     "subgoal_max_attempts": 2,
     "max_replans": 1,
     "max_waves": 0,
-    "max_harvest_depth": 3,
+    "max_harvest_depth": 5,
     "enable_node_filter": True,
     "filter_max_rounds": 3,
 }
@@ -56,9 +55,8 @@ def nav_evidence_chars() -> int:
 
 
 def build_nav_config() -> NavConfig:
-    """Checklist + map_mode production config (enabled items only)."""
+    """Checklist + map production config (enabled items only)."""
     cfg = NavConfig.from_dict(dict(_PRODUCTION_NAV_DICT))
     cfg.mode = "checklist"
-    cfg.map_mode = True
     cfg.policy = "llm"
     return cfg

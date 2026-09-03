@@ -24,7 +24,6 @@ from shared.services.retrieval.nav_snapshot import build_nav_snapshot
 
 def test_build_nav_config_authoritative_for_production() -> None:
     cfg = build_nav_config()
-    assert cfg.map_mode is True
     assert cfg.mode == "checklist"
 
 

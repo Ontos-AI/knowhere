@@ -73,7 +73,6 @@ def _cfg(**kwargs: Any) -> NavConfig:
     data = {
         "enable_node_filter": True,
         "mode": "checklist",
-        "map_mode": True,
         "llm_model": "test-model",
     }
     data.update(kwargs)

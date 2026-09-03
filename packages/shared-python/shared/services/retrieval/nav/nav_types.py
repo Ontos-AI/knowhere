@@ -23,12 +23,10 @@ class NavConfig:
     llm_model: str = ""
     llm_temperature: float = 0.0
     llm_max_tokens: int = 256
-    # Map-first observation/actions.
-    map_mode: bool = False
     map_char_limit: int = 5000  # display budget (fold threshold); only hard display limit
     # Recursive dispatch.
     enable_recursive_dispatch: bool = True
-    max_dispatch_depth: int = 3
+    max_dispatch_depth: int = 5
     subagent_model: str = ""
     # Scoped maps whose estimated (with-summary) size exceeds this threshold drop
     # inline summaries (title-only), nudging the agent to DISPATCH deeper rather
@@ -64,7 +62,7 @@ class NavConfig:
     # Checklist: 0 = no extra wave cap (stop when no ready subgoals).
     max_waves: int = 0
     # Structural recursion depth cap for harvest() (checklist mode).
-    max_harvest_depth: int = 3
+    max_harvest_depth: int = 5
     # WHERE node filter (pre-harvest). Off until orchestrate enables a subgoal.
     enable_node_filter: bool = False
     filter_max_rounds: int = 3
@@ -135,12 +133,13 @@ class NavConfig:
             "collect_k",
             "filter_min_hits",
             "filter_max_hits",
+            "map_mode",
         ):
             flat.pop(dead, None)
         flat["mode"] = "checklist"
         allowed = {f.name for f in cls.__dataclass_fields__.values()}
         cfg = cls(**{k: v for k, v in flat.items() if k in allowed})
-        if cfg.map_mode and cfg.llm_max_tokens < 256:
+        if cfg.llm_max_tokens < 256:
             cfg.llm_max_tokens = 256
         return cfg
 
@@ -174,7 +173,6 @@ class Projection:
     visible_sections: List[SectionView]
     truncated: bool = False  # True if any budget-hidden nodes
     id_to_section: Dict[str, str] = field(default_factory=dict)
-    map_mode: bool = False
     tree_sections: List[SectionView] = field(default_factory=list)
     highlight_ids: List[str] = field(default_factory=list)
 

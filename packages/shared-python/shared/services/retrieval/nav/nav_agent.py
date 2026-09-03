@@ -347,7 +347,7 @@ def _run_nav_episode_body(
     load_llm_env()
     require_llm_env(context="Nav Agent")
     cfg = config or NavConfig(policy="llm")
-    if cfg.map_mode and cfg.llm_max_tokens < 256:
+    if cfg.llm_max_tokens < 256:
         cfg.llm_max_tokens = 256
     nav_policy = (policy or cfg.policy or "llm").strip().lower()
     if nav_policy != "llm":
