@@ -97,7 +97,6 @@ def test_path_filter_returns_complete_set_across_documents() -> None:
         node_filter([field_predicate("path", ["AAPL", "Apple"])]),
     )
 
-    assert result.truncated is False
     assert result.failed_predicates == []
     assert result.matched_doc_ids == ["doc_apple"]
     assert "sec_q3" in result.matched_section_ids

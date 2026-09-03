@@ -5,7 +5,6 @@ from .nav_types import (
     NavConfig,
     NavState,
     SubgoalResult,
-    map_mode_enabled,
 )
 from .nav_agent import run_nav_episode
 from .nav_plan import (
@@ -22,7 +21,6 @@ __all__ = [
     "NavConfig",
     "NavState",
     "SubgoalResult",
-    "map_mode_enabled",
     "run_nav_episode",
     "Contract",
     "RetrievalPlan",

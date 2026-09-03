@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import math
-import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
-from .nav_types import NavConfig, Projection, SectionView, map_mode_enabled
+from .nav_types import NavConfig, Projection, SectionView
 
 try:
     from section_summary_store import get_summary as _store_get_summary
@@ -42,47 +40,7 @@ def _section_summary_for_map(
         return ""
 
 
-def _tokens(text: str) -> set[str]:
-    return set(re.findall(r"[\w\u4e00-\u9fff]+", (text or "").lower()))
-
-
-def _lexical_score(query: str, text: str) -> float:
-    q = _tokens(query)
-    if not q:
-        return 0.0
-    t = _tokens(text)
-    if not t:
-        return 0.0
-    inter = len(q & t)
-    if inter == 0:
-        return 0.0
-    return float(inter) / math.sqrt(float(len(q) * len(t)))
-
-
-def _section_view_from_structure(
-    ts: Any,
-    section_id: str,
-    *,
-    query: str,
-    depth_from_scope: int,
-    summary_chars: int,
-) -> SectionView:
-    st = ts.get_structure(section_id)
-    preview = str(st.get("preview") or "").replace("\n", " ")[:summary_chars]
-    children = st.get("children") or []
-    return SectionView(
-        section_id=str(st.get("section_id") or section_id),
-        level=int(st.get("level") or 0) if str(st.get("level") or "").isdigit() else 0,
-        preview=preview,
-        score=_lexical_score(query, f"{section_id} {preview}"),
-        n_lines=int(st.get("n_lines") or 0),
-        has_children=bool(children),
-        depth_from_scope=depth_from_scope,
-        title=preview[:80] if preview else section_id,
-    )
-
-
-def _children(ts: Any, section_id: str, *, limit: int) -> List[dict]:
+def _children(ts: Any, section_id: str) -> List[dict]:
     children_fn = getattr(ts, "_children_for_section_path", None)
     if callable(children_fn):
         loc = getattr(ts, "_idx", None)
@@ -95,13 +53,13 @@ def _children(ts: Any, section_id: str, *, limit: int) -> List[dict]:
                 synth = getattr(ts, "_synthetic_doc_id", lambda _x: None)(section_id)
                 doc_id = synth or ""
         if doc_id:
-            rows = children_fn(section_id, doc_id, limit=max(1, int(limit)))
+            rows = children_fn(section_id, doc_id)
             if isinstance(rows, list):
                 return [c for c in rows if isinstance(c, dict)]
     st = ts.get_structure(section_id)
     children = st.get("children") or []
     if isinstance(children, list):
-        return [c for c in children if isinstance(c, dict)][: max(0, int(limit))]
+        return [c for c in children if isinstance(c, dict)]
     return []
 
 
@@ -310,8 +268,6 @@ def _build_map_tree(
     *,
     root_ids: List[str],
     map_scores: Dict[str, float],
-    children_limit: int,
-    max_nodes: int = 20000,
     collected_section_ids: Optional[Set[str]] = None,
     dismissed_section_ids: Optional[Set[str]] = None,
     harvested_section_ids: Optional[Dict[str, str]] = None,
@@ -319,7 +275,6 @@ def _build_map_tree(
 ) -> List[_MapNode]:
     roots: List[_MapNode] = []
     seen: Set[str] = set()
-    node_count = 0
     harvested = dict(harvested_section_ids or {})
     keep = set(keep_ids) if keep_ids is not None else None
     # collected = branch done (sid ∪ descendants already marked by caller).
@@ -331,13 +286,11 @@ def _build_map_tree(
     ) | set(dismissed_section_ids or ())
 
     def make_node(section_id: str, depth: int, parent_id: Optional[str]) -> Optional[_MapNode]:
-        nonlocal node_count
-        if not section_id or section_id in seen or node_count >= max_nodes:
+        if not section_id or section_id in seen:
             return None
         if section_id in gone:
             return None
         seen.add(section_id)
-        node_count += 1
         try:
             st = ts.get_structure(section_id)
         except Exception:
@@ -376,7 +329,7 @@ def _build_map_tree(
             # Collapsed leaf: this line alone represents the covered branch.
             node.harvested_by = str(harvested[section_id])
         else:
-            for row in _children(ts, section_id, limit=children_limit):
+            for row in _children(ts, section_id):
                 child_id = str(row.get("section_id") or "").strip()
                 if child_id:
                     append_visible_descendants(
@@ -554,7 +507,6 @@ def build_map(
         ts,
         root_ids=root_ids,
         map_scores=scores,
-        children_limit=max(1, int(config.map_children_limit)),
         collected_section_ids=collected_section_ids,
         dismissed_section_ids=dismissed_section_ids,
         harvested_section_ids=harvested_section_ids,
@@ -583,7 +535,7 @@ def build_map(
         and _estimate_actionable_total(roots, with_summary=True)
         <= scope_summary_limit
     )
-    char_limit = max(1, int(config.map_char_limit or config.projection_char_limit))
+    char_limit = max(1, int(config.map_char_limit))
     _apply_budget_hide(
         roots,
         char_limit=char_limit,
@@ -614,108 +566,6 @@ def build_map(
         map_mode=True,
         tree_sections=list(tree_visible),
         highlight_ids=list(hits),
-    )
-
-
-def build_projection(
-    ts: Any,
-    *,
-    doc_id: str,
-    query: str,
-    scope: Optional[str],
-    config: NavConfig,
-    map_scores: Optional[Dict[str, float]] = None,
-    collected_section_ids: Optional[Set[str]] = None,
-    dismissed_section_ids: Optional[Set[str]] = None,
-    highlight_ids: Optional[List[str]] = None,
-    extra_hidden_ids: Optional[Set[str]] = None,
-    harvested_section_ids: Optional[Dict[str, str]] = None,
-    allowed_section_ids: Optional[Set[str]] = None,
-) -> Projection:
-    if map_mode_enabled(config):
-        return build_map(
-            ts,
-            doc_id=doc_id,
-            query=query,
-            scope=scope,
-            config=config,
-            map_scores=map_scores,
-            collected_section_ids=collected_section_ids,
-            dismissed_section_ids=dismissed_section_ids,
-            highlight_ids=highlight_ids,
-            extra_hidden_ids=extra_hidden_ids,
-            harvested_section_ids=harvested_section_ids,
-            allowed_section_ids=allowed_section_ids,
-        )
-
-    # Minimal non-map fallback (legacy shallow projection) — kept for ablation only.
-    visible: List[SectionView] = []
-    lines: List[str] = []
-    truncated = False
-
-    def add_line(text: str) -> None:
-        nonlocal truncated
-        if truncated:
-            return
-        candidate_len = sum(len(x) + 1 for x in lines) + len(text)
-        if candidate_len > config.projection_char_limit:
-            lines.append("... [projection truncated]")
-            truncated = True
-            return
-        lines.append(text)
-
-    add_line(f"doc_id={doc_id}")
-    add_line(f"scope={scope or '<document-root>'}")
-
-    if scope:
-        root_ids = [scope]
-    else:
-        root_ids = _top_sections(ts, doc_id)
-
-    collected = set(collected_section_ids or ())
-    root_ids = root_ids[: max(1, config.projection_child_limit)]
-    frontier: List[tuple[str, int]] = [(sid, 0) for sid in root_ids]
-    seen: set[str] = set()
-    while frontier:
-        sid, depth = frontier.pop(0)
-        if sid in seen or sid in collected:
-            continue
-        seen.add(sid)
-        try:
-            view = _section_view_from_structure(
-                ts,
-                sid,
-                query=query,
-                depth_from_scope=depth,
-                summary_chars=config.summary_chars,
-            )
-        except Exception:
-            continue
-        visible.append(view)
-        indent = "  " * depth
-        leaf_tag = " [Leaf]" if not view.has_children else ""
-        title = view.preview[:80] if view.preview else view.section_id
-        add_line(
-            f"{indent}[{view.section_id}] {title}{leaf_tag}"
-        )
-        if view.preview:
-            add_line(f"{indent}     Preview: \"{view.preview[:80]}\"")
-        if depth + 1 >= max(1, config.projection_depth):
-            continue
-        child_rows = _children(ts, sid, limit=max(0, config.projection_child_limit))
-        for child in child_rows:
-            child_id = str(child.get("section_id") or "").strip()
-            if child_id and child_id not in seen:
-                frontier.append((child_id, depth + 1))
-
-    visible.sort(key=lambda v: (-v.score, v.depth_from_scope, v.section_id))
-    return Projection(
-        doc_id=doc_id,
-        scope=scope,
-        text="\n".join(lines),
-        visible_sections=visible,
-        truncated=truncated,
-        map_mode=False,
     )
 
 

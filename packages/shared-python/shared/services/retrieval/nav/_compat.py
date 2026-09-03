@@ -41,7 +41,6 @@ class EpisodeResult:
     section_ids: List[str] = field(default_factory=list)
     trajectory_length: int = 0
     truncated_last: bool = False
-    refusal_events: List[Dict[str, object]] = field(default_factory=list)
     phase_timings: Dict[str, float] = field(default_factory=dict)
     stop_reason: str = "completed"
 
@@ -49,10 +48,6 @@ class EpisodeResult:
 # Duck-typed ToolSpace is provided by ``ProviderToolSpace``; keep a type alias.
 ToolSpace = Any
 HierarchicalTools = Any
-
-
-class Refusal(Exception):
-    """Raised by experimental ToolSpace; unused on the ProviderToolSpace path."""
 
 
 def line_node_id(doc_id: str, line_id: int) -> str:

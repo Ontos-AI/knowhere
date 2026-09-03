@@ -5,8 +5,8 @@ under ``src/nav`` touches at most 5 hierarchy operations: a document's
 top-level sections, a node's children, a node's structural metadata
 (title/summary/chunk count), a node's ancestor/descendant ids, and a node's
 full-subtree text as one evidence unit. Everything else this codebase's
-``ToolSpace`` exposes (BM25/dense scoring, ``read_chunks``, ``_idx``,
-``corpus_doc_ids``) is optional — every caller already reaches it through
+``ToolSpace`` exposes (BM25/dense scoring, ``_idx``, ``corpus_doc_ids``) is
+optional — every caller already reaches it through
 ``getattr(ts, "...", None)`` / ``callable(...)`` guards, so omitting it only
 degrades ranking quality, never breaks the pipeline.
 
@@ -145,11 +145,9 @@ class ProviderToolSpace:
         }
 
     def _children_for_section_path(
-        self, section_id: str, doc_id: str, limit: Optional[int] = None
+        self, section_id: str, doc_id: str
     ) -> List[dict]:
         child_ids = [str(c) for c in self._provider.children(section_id)]
-        if limit is not None:
-            child_ids = child_ids[: max(0, int(limit))]
         # ``node_meta`` may materialize a lazy subtree to calculate chunk
         # counts. Tree traversal needs only the child id/title; avoid an N+1
         # payload load while building the scoring tree.
@@ -310,12 +308,6 @@ class ProviderToolSpace:
                 out.append(self._make_chunk(f"{sid}__self", doc_id, text, order, sid))
         out.sort(key=lambda c: (min(c.line_ids or (0,)), c.node_id))
         return out
-
-    def read_chunks(
-        self, section_id: str, query: str, *, doc_id: str, k: int
-    ) -> List[Any]:
-        del section_id, query, doc_id, k
-        return []
 
     def load_persisted_score_corpus(
         self,

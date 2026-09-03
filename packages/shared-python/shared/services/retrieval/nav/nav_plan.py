@@ -602,7 +602,6 @@ def build_planning_observation(
     actions = build_legal_actions(
         state,
         projection,
-        step_idx=0,
         config=plan_cfg,
         depth=0,
         ts=ts,

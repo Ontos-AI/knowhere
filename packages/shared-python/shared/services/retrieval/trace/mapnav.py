@@ -208,7 +208,6 @@ def _map_one(
                 "predicates": detail.get("predicates") or [],
                 "fields": detail.get("fields") or [],
                 "cardinality": detail.get("cardinality"),
-                "truncated": detail.get("truncated"),
                 "failed_predicates": detail.get("failed_predicates") or [],
                 "matched_section_ids": detail.get("matched_section_ids") or [],
                 "round": detail.get("round"),

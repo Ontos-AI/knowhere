@@ -10,7 +10,6 @@ from ._compat import compose_answer_llm
 from ._compat import HierarchicalTools
 from ._compat import Chunk
 from ._compat import (
-    Refusal,
     ToolSpace,
 )
 from .nav_address import (
@@ -33,6 +32,9 @@ from .nav_types import (
 _evidence_owner_section_id = evidence_owner_section_id
 _unit_score_for_evidence_chunk = unit_score_for_evidence_chunk
 _logger = logging.getLogger(__name__)
+
+# Large-scope title-only threshold = episode evidence budget x this mult.
+_SCOPE_SUMMARY_BUDGET_MULT = 3.0
 
 
 def _chunks_to_retrieved_nodes(chunks: List[Chunk]) -> List[str]:
@@ -133,8 +135,7 @@ def _line_order(pool: List[Chunk]) -> List[Chunk]:
 def _collect_subtree(ts: ToolSpace, action: LegalAction, state: NavState, config: NavConfig) -> List[Tuple[Chunk, float]]:
     """Hydrate ``section_id ∪ descendants`` in document order.
 
-    No collect-time top-K / unit-score truncation — final size is controlled by
-    compose ``budget_chars`` progressive trim (MAP-NAV subtree collect).
+    Final size is controlled by compose ``budget_chars`` progressive trim.
     """
     sid = action.section_id
     if not sid:
@@ -145,23 +146,12 @@ def _collect_subtree(ts: ToolSpace, action: LegalAction, state: NavState, config
     if not doc:
         return []
     materialize = getattr(ts, "_materialize_leaf_path_chunks", None)
-    if callable(materialize):
-        pool = list(materialize(sid, doc))
-        if pool:
-            return _collect_in_doc_order(pool, config)
-    rc = ts.read_chunks(sid, state.query, doc_id=doc, k=int(config.collect_k))
-    if isinstance(rc, Refusal):
-        state.refusal_events.append(
-            {
-                "tool": "collect",
-                "section_id": sid,
-                "status": rc.status,
-                "message": rc.message,
-                "available_sections": list(rc.available_sections),
-            }
-        )
+    if not callable(materialize):
         return []
-    return [(h.chunk, float(h.score) + float(config.read_score_bonus)) for h in rc]
+    pool = list(materialize(sid, doc))
+    if not pool:
+        return []
+    return _collect_in_doc_order(pool, config)
 
 
 def _mark_collected_branch(
@@ -221,7 +211,7 @@ def _direct_child_ids(ts: ToolSpace, section_id: str, doc_id: str) -> List[str]:
     rows: List[Any] = []
     if callable(children_fn):
         try:
-            rows = list(children_fn(sid, doc_id, limit=100000) or [])
+            rows = list(children_fn(sid, doc_id) or [])
         except Exception:
             rows = []
     if not rows:
@@ -370,9 +360,10 @@ def _run_nav_episode_body(
     # Tie the large-scope title-only threshold to the real evidence budget
     # (budget_chars x mult): a scope whose full summary map would dwarf the final
     # evidence budget is shown title-only, nudging DISPATCH over broad COLLECT.
-    mult = float(getattr(cfg, "scope_inline_summary_budget_mult", 0.0) or 0.0)
-    if mult > 0.0 and int(budget_chars) > 0:
-        cfg.scope_inline_summary_char_limit = max(1, int(budget_chars * mult))
+    if int(budget_chars) > 0:
+        cfg.scope_inline_summary_char_limit = max(
+            1, int(budget_chars * _SCOPE_SUMMARY_BUDGET_MULT)
+        )
     retrieval_t0 = time.perf_counter()
     if toolspace is not None:
         ts = toolspace
@@ -510,7 +501,6 @@ def _run_nav_episode_body(
         section_ids=list(section_ids),
         trajectory_length=len(steps),
         truncated_last=fill.truncated_last,
-        refusal_events=list(state.refusal_events),
         phase_timings={
             "retrieval_framework_seconds": retrieval_seconds,
             "compose_seconds": compose_seconds,
