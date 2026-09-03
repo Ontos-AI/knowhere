@@ -244,6 +244,7 @@ async def map_unit_discovery(
             "channels": list(_MAP_SCORE_CHANNELS),
             "token_hashes": query_token_hashes,
         }
+    stage_started = time.monotonic()
     unit_result = await db.execute(text(unit_statement), params)
     unit_rows = [dict(row._mapping) for row in unit_result.all()]
     unit_rows = [
@@ -255,6 +256,11 @@ async def map_unit_discovery(
             exclude_sections=exclude_sections,
         )
     ]
+    logger.info(
+        "retrieval map-unit stage=units seconds={:.3f} rows={}",
+        time.monotonic() - stage_started,
+        len(unit_rows),
+    )
 
     if not unit_rows:
         return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
@@ -281,6 +287,7 @@ async def map_unit_discovery(
                     ON scoped_units.map_unit_id = matching_tokens.map_unit_id
                 """
     )
+    stage_started = time.monotonic()
     frequency_result = await db.execute(
         frequency_query,
         {
@@ -294,7 +301,14 @@ async def map_unit_discovery(
         frequencies.setdefault((str(map_unit_id), str(channel)), {})[str(token)] = (
             int(frequency)
         )
+    logger.info(
+        "retrieval map-unit stage=frequencies seconds={:.3f} rows={} units={}",
+        time.monotonic() - stage_started,
+        sum(len(values) for values in frequencies.values()),
+        len(frequencies),
+    )
 
+    stage_started = time.monotonic()
     index_result = await db.execute(
         text(
             (
@@ -344,14 +358,37 @@ async def map_unit_discovery(
             content_total_length,
         ) in index_result.all()
     ]
+    logger.info(
+        "retrieval map-unit stage=indexes seconds={:.3f} rows={}",
+        time.monotonic() - stage_started,
+        len(index_parts),
+    )
     if is_unfiltered_scope:
-        revision_result = await db.execute(
-            text(cte + "SELECT DISTINCT document_id, job_result_id FROM scoped_units"),
-            params,
+        if revision_pins is not None:
+            # The route captures the active revision set before discovery. Reuse
+            # that immutable set instead of scanning scoped map units a second
+            # time just to derive the same revision keys. Missing index rows
+            # still fail the existing completeness check below.
+            expected_revisions = {
+                (str(document_id), str(job_result_id))
+                for document_id, job_result_id in revision_pins.items()
+            }
+            revision_check_seconds = 0.0
+        else:
+            stage_started = time.monotonic()
+            revision_result = await db.execute(
+                text(cte + "SELECT DISTINCT document_id, job_result_id FROM scoped_units"),
+                params,
+            )
+            expected_revisions = {
+                (str(row[0]), str(row[1])) for row in revision_result.all()
+            }
+            revision_check_seconds = time.monotonic() - stage_started
+        logger.info(
+            "retrieval map-unit stage=revision-check seconds={:.3f} rows={}",
+            revision_check_seconds,
+            len(expected_revisions),
         )
-        expected_revisions = {
-            (str(row[0]), str(row[1])) for row in revision_result.all()
-        }
     else:
         expected_revisions = {
             (str(row["document_id"]), str(row["job_result_id"]))
@@ -455,6 +492,7 @@ async def map_unit_discovery(
         ]
     )
 
+    stage_started = time.monotonic()
     path_stats = build_channel_bm25_stats(
         unit_rows=unit_rows,
         map_unit_id_field="map_unit_id",
@@ -493,6 +531,11 @@ async def map_unit_discovery(
             else None
         ),
     )
+    logger.info(
+        "retrieval map-unit stage=stats seconds={:.3f} units={}",
+        time.monotonic() - stage_started,
+        len(unit_rows),
+    )
 
     corpus = PersistedScoreCorpus(
         units=[
@@ -510,7 +553,13 @@ async def map_unit_discovery(
         path_stats=path_stats,
         content_stats=content_stats,
     )
+    stage_started = time.monotonic()
     scores_by_unit = score_persisted_corpus_many(corpus, [query]).get(query, {})
+    logger.info(
+        "retrieval map-unit stage=scoring seconds={:.3f} units={}",
+        time.monotonic() - stage_started,
+        len(scores_by_unit),
+    )
 
     rows_by_unit_id = {row["map_unit_id"]: row for row in unit_rows}
     ranked_unit_ids = sorted(
@@ -519,6 +568,7 @@ async def map_unit_discovery(
         reverse=True,
     )[:top_k]
 
+    stage_started = time.monotonic()
     fused_rows = await _hydrate_winning_units(
         db,
         ranked_unit_ids=ranked_unit_ids,
@@ -528,6 +578,11 @@ async def map_unit_discovery(
         exclude_document_ids=exclude_document_ids,
         exclude_sections=exclude_sections,
         revision_pins=revision_pins,
+    )
+    logger.info(
+        "retrieval map-unit stage=hydration seconds={:.3f} rows={}",
+        time.monotonic() - stage_started,
+        len(fused_rows),
     )
     if fused_rows:
         normalize_row_scores(
