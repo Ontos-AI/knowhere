@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import json
 import socket
@@ -204,6 +205,241 @@ async def test_should_treat_a_concurrent_upload_handoff_cas_winner_as_a_no_op() 
         user_id="contract-user",
         trigger="s3_upload_completed",
     )
+
+
+@pytest.mark.asyncio
+async def test_should_not_dispatch_when_cas_retry_accepts_pending_to_pending() -> None:
+    """Reproduce #286: a successful same-state pending → pending still dispatches.
+
+    The state machine treats same-state transitions as valid. After a CAS miss,
+    the retry reloads ``pending`` and accepts ``pending → pending``. Handoff
+    currently treats any succeeded outcome as dispatch ownership.
+    """
+    from app.services.document_ingestion.handoff_service import (
+        DocumentIngestionHandoffService,
+    )
+    from shared.core.state_machine.transition_outcome import JobTransitionOutcome
+
+    dispatch_calls: list[str] = []
+
+    class FakeStateMachine:
+        async def transition_outcome(self, *args: object, **kwargs: object) -> object:
+            del args, kwargs
+            return JobTransitionOutcome.transitioned(
+                job_id="job-race",
+                from_state="pending",
+                to_state="pending",
+                attempts=2,
+            )
+
+    class FakeDispatcher:
+        async def start_uploaded_file_parse(
+            self,
+            *,
+            job_id: str,
+            user_id: str,
+        ) -> str:
+            del user_id
+            dispatch_calls.append(job_id)
+            return "contract-task-id"
+
+    service = DocumentIngestionHandoffService(
+        state_machine=FakeStateMachine(),
+        worker_dispatcher=FakeDispatcher(),
+    )
+
+    await service.start_uploaded_file_workflow(
+        db=cast(object, None),
+        job=SimpleNamespace(
+            job_id="job-race",
+            job_type="document_ingestion",
+            status="waiting-file",
+        ),
+        user_id="contract-user",
+        trigger="manual_upload_completed",
+    )
+
+    assert dispatch_calls == []
+
+
+def _patch_parse_dispatch_and_s3_exists(
+    monkeypatch: MonkeyPatch,
+    *,
+    workflow_calls: list[dict[str, str]],
+    verify_s3: Callable[..., object] | None = None,
+) -> None:
+    async def _fake_start_uploaded_file_parse(
+        self: object,
+        *,
+        job_id: str,
+        user_id: str,
+    ) -> str:
+        del self
+        workflow_calls.append({"job_id": job_id, "user_id": user_id})
+        return "contract-task-id"
+
+    async def _fake_verify_s3_file_exists(
+        self: object,
+        s3_key: str,
+        bucket: str | None = None,
+    ) -> dict[str, object]:
+        del self, bucket
+        return {"exists": True, "s3_key": s3_key}
+
+    dispatcher_module = importlib.import_module(
+        "app.services.document_ingestion.worker_dispatcher"
+    )
+    file_upload_service_module = importlib.import_module(
+        "shared.services.storage.file_upload_service"
+    )
+    monkeypatch.setattr(
+        dispatcher_module.DocumentIngestionWorkerDispatcher,
+        "start_uploaded_file_parse",
+        _fake_start_uploaded_file_parse,
+    )
+    monkeypatch.setattr(
+        file_upload_service_module.FileUploadService,
+        "verify_s3_file_exists",
+        verify_s3 or _fake_verify_s3_file_exists,
+    )
+
+
+async def _create_waiting_file_job(
+    api_client: AsyncClient,
+    *,
+    data_id: str,
+    file_name: str = "race-upload.pdf",
+) -> str:
+    create_response = await api_client.post(
+        "/api/v1/jobs",
+        json={
+            "namespace": "contract-jobs",
+            "source_type": "file",
+            "file_name": file_name,
+            "data_id": data_id,
+        },
+    )
+    assert create_response.status_code == 200
+    create_response_json: dict[str, object] = create_response.json()
+    return cast(str, create_response_json["job_id"])
+
+
+@pytest.mark.asyncio
+async def test_should_dispatch_once_when_s3_notification_races_confirm_upload(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Deterministic HTTP interleaving of confirm-upload and the S3 event.
+
+    ``confirm-upload`` loads ``waiting-file`` then waits in S3 existence
+    check (the production race window). The ObjectCreated handler completes
+    first. Confirm then hands off the stale snapshot; CAS retry accepts
+    ``pending → pending`` and currently dispatches a second parse task.
+    """
+    workflow_calls: list[dict[str, str]] = []
+    confirm_entered_verify = asyncio.Event()
+
+    async def _gated_verify_s3_file_exists(
+        self: object,
+        s3_key: str,
+        bucket: str | None = None,
+    ) -> dict[str, object]:
+        del self, bucket
+        confirm_entered_verify.set()
+        await asyncio.sleep(0.05)
+        return {"exists": True, "s3_key": s3_key}
+
+    async with developer_api_client_factory() as api_client:
+        _patch_parse_dispatch_and_s3_exists(
+            monkeypatch,
+            workflow_calls=workflow_calls,
+            verify_s3=_gated_verify_s3_file_exists,
+        )
+        job_id = await _create_waiting_file_job(
+            api_client,
+            data_id=f"contract-job-s3-confirm-race-{uuid4().hex[:12]}",
+        )
+
+        confirm_task = asyncio.create_task(
+            api_client.post(f"/api/v1/jobs/{job_id}/confirm-upload")
+        )
+        await asyncio.wait_for(confirm_entered_verify.wait(), timeout=5)
+        s3_response = await api_client.post(
+            "/api/v1/internal/s3-events",
+            json=_build_s3_event_payload(job_id),
+        )
+        confirm_response = await confirm_task
+
+    assert s3_response.status_code == 200
+    assert confirm_response.status_code == 200
+    assert workflow_calls == [{"job_id": job_id, "user_id": "local-dev-user"}]
+
+
+@pytest.mark.asyncio
+async def test_should_dispatch_once_when_confirm_upload_follows_s3_notification(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    workflow_calls: list[dict[str, str]] = []
+
+    async with developer_api_client_factory() as api_client:
+        _patch_parse_dispatch_and_s3_exists(
+            monkeypatch,
+            workflow_calls=workflow_calls,
+        )
+        job_id = await _create_waiting_file_job(
+            api_client,
+            data_id=f"contract-job-s3-then-confirm-{uuid4().hex[:12]}",
+        )
+        s3_response = await api_client.post(
+            "/api/v1/internal/s3-events",
+            json=_build_s3_event_payload(job_id),
+        )
+        confirm_response = await api_client.post(
+            f"/api/v1/jobs/{job_id}/confirm-upload"
+        )
+
+    assert s3_response.status_code == 200
+    assert confirm_response.status_code == 200
+    assert workflow_calls == [{"job_id": job_id, "user_id": "local-dev-user"}]
+
+
+@pytest.mark.asyncio
+async def test_should_dispatch_once_when_s3_notification_follows_confirm_upload(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    workflow_calls: list[dict[str, str]] = []
+
+    async with developer_api_client_factory() as api_client:
+        _patch_parse_dispatch_and_s3_exists(
+            monkeypatch,
+            workflow_calls=workflow_calls,
+        )
+        job_id = await _create_waiting_file_job(
+            api_client,
+            data_id=f"contract-job-confirm-then-s3-{uuid4().hex[:12]}",
+        )
+        confirm_response = await api_client.post(
+            f"/api/v1/jobs/{job_id}/confirm-upload"
+        )
+        s3_response = await api_client.post(
+            "/api/v1/internal/s3-events",
+            json=_build_s3_event_payload(job_id),
+        )
+
+    assert s3_response.status_code == 200
+    assert confirm_response.status_code == 200
+    assert confirm_response.json() == {
+        "message": "File upload confirmed; processing started"
+    }
+    assert workflow_calls == [{"job_id": job_id, "user_id": "local-dev-user"}]
 
 
 @pytest.mark.asyncio
