@@ -255,6 +255,28 @@ def test_should_index_document_chunks_in_lazy_section_order(
     )
 
 
+def test_should_create_content_trigram_index_for_regex_search(
+    migrated_head_engine: Engine,
+) -> None:
+    with migrated_head_engine.begin() as connection:
+        index_definition = connection.execute(
+            text(
+                """
+                SELECT pg_get_indexdef(indexes.indexrelid)
+                FROM pg_index AS indexes
+                JOIN pg_class AS classes ON classes.oid = indexes.indexrelid
+                JOIN pg_namespace AS namespaces ON namespaces.oid = classes.relnamespace
+                WHERE namespaces.nspname = current_schema()
+                  AND classes.relname = 'idx_document_chunks_content_trgm'
+                """
+            )
+        ).scalar_one()
+
+    definition = str(index_definition)
+    assert "USING gin (content gin_trgm_ops)" in definition
+    assert "WHERE (content IS NOT NULL)" in definition
+
+
 def test_should_upgrade_with_a_caller_owned_connection(
     alembic_engine: Engine,
 ) -> None:
