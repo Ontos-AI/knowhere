@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from shared.services.retrieval.hydration.evidence_text import render_evidence_blocks
+
 from ._compat import Chunk
 from ._compat import line_node_id
 from ._compat import ToolSpace
@@ -100,16 +102,10 @@ def direct_parent_id(ts: ToolSpace, section_id: str, doc_id: str) -> Optional[st
     return line_node_id(resolved, b.lines[p].line_id)
 
 
-def _section_title(ts: ToolSpace, section_id: str, doc_id: str, *, max_chars: int = 40) -> str:
+def _section_title(ts: ToolSpace, section_id: str, doc_id: str) -> str:
     sid = str(section_id or "").strip()
     if not sid:
         return ""
-
-    def _clip(text: str) -> str:
-        t = (text or "").strip()
-        if len(t) > max_chars:
-            return t[:max_chars].rstrip()
-        return t
 
     # ``path_titles`` is a lightweight title lookup.  Prefer it over
     # ``get_structure`` because the latter may calculate the complete subtree
@@ -121,7 +117,7 @@ def _section_title(ts: ToolSpace, section_id: str, doc_id: str, *, max_chars: in
         except TypeError:
             path = str(path_titles(sid) or "").strip()
         if path:
-            return _clip(path.rsplit(" / ", 1)[-1])
+            return path
 
     # Prefer structure title (Knowhere / ProviderToolSpace); never parse ids.
     try:
@@ -131,7 +127,7 @@ def _section_title(ts: ToolSpace, section_id: str, doc_id: str, *, max_chars: in
     if isinstance(st, dict):
         raw = st.get("preview") or st.get("title") or ""
         if isinstance(raw, str) and raw.strip():
-            return _clip(raw.strip())
+            return raw.strip()
 
     resolved = _section_doc_id(ts, sid, doc_id)
     idx = getattr(ts, "_idx", None)
@@ -145,13 +141,13 @@ def _section_title(ts: ToolSpace, section_id: str, doc_id: str, *, max_chars: in
             bb = getattr(idx, "_bundles", {}).get(resolved)
             if bb and bb.lines:
                 title = (bb.lines[0].content or "").strip()
-                return _clip(title) if title else sid
+                return title if title else sid
         return sid
     _, j = loc
     if j < 0 or j >= len(b.lines):
         return sid
     title = (b.lines[j].content or "").strip()
-    return _clip(title) if title else sid
+    return title if title else sid
 
 
 def _chunk_body(chunk: Chunk) -> str:
@@ -302,7 +298,7 @@ def _build_groups(
         if parent_id is None:
             parent_id = owner
         if parent_id not in groups:
-            title = _section_title(ts, parent_id, owner_doc, max_chars=40)
+            title = _section_title(ts, parent_id, owner_doc)
             groups[parent_id] = _ParentGroup(
                 parent_id=parent_id,
                 parent_title=title,
@@ -325,24 +321,13 @@ def _render_group(
     selected: Sequence[_ChildItem],
     *,
     evidence_index: int,
-    indent: bool,
 ) -> str:
-    """Render one evidence block (full text only)."""
-    parts: List[str] = [f"[E{evidence_index}]"]
-    if group.parent_title:
-        parts.append(f"[§ {group.parent_title}]")
-    for child in selected:
-        body = _chunk_body(child.chunk)
-        if not body:
-            continue
-        if indent:
-            indented = "\n".join(
-                ("  " + ln if ln.strip() else ln) for ln in body.splitlines()
-            )
-            parts.append(indented)
-        else:
-            parts.append(body)
-    return "\n".join(parts).strip()
+    """Render one evidence block via the shared evidence renderer."""
+    bodies = [_chunk_body(child.chunk) for child in selected]
+    return render_evidence_blocks(
+        [(group.parent_title or "", bodies)],
+        start_index=evidence_index,
+    )
 
 
 def _scored_flat(groups: Sequence[_ParentGroup]) -> List[Tuple[Chunk, float]]:
@@ -399,9 +384,8 @@ def _render_kept(
         ]
         if not entries:
             continue
-        indent = len(entries) >= 2
         block = _render_group(
-            g, entries, evidence_index=len(parts) + 1, indent=indent
+            g, entries, evidence_index=len(parts) + 1
         )
         add = len(block) + (len(sep) if parts else 0)
         if used + add <= budget_chars:

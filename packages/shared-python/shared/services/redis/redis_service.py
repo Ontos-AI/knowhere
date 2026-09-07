@@ -38,6 +38,7 @@ class RedisService:
             config_manager = RedisConfigManager(settings)
         self.config_manager = config_manager
         self._client: Optional[redis.Redis] = None
+        self._binary_client: Optional[redis.Redis] = None
         self._health_checker: Optional[RedisHealthChecker] = None
         self._lock = asyncio.Lock()
 
@@ -59,6 +60,26 @@ class RedisService:
                             original_exception=e,
                         )
         return self._client
+
+    async def _get_binary_client(self) -> redis.Redis:
+        """Get a Redis client that preserves arbitrary binary responses."""
+        if self._binary_client is None:
+            async with self._lock:
+                if self._binary_client is None:
+                    try:
+                        connection_params = self.config_manager.get_connection_params()
+                        connection_params["decode_responses"] = False
+                        self._binary_client = redis.from_url(
+                            self.config_manager.get_connection_url(),
+                            **connection_params,
+                        )
+                        logger.debug("Redis binary client initialized")
+                    except Exception as e:
+                        raise RedisConnectionError(
+                            internal_message=f"Redis binary client initialization failed: {str(e)}",
+                            original_exception=e,
+                        )
+        return self._binary_client
 
     async def _execute_with_retry(
         self, operation: Callable[[], Awaitable[ResponseT]]
@@ -157,6 +178,49 @@ class RedisService:
             raise RedisOperationError(
                 internal_message=f"GET operation failed: {str(e)}",
                 operation="GET",
+                original_exception=e,
+            )
+
+    async def get_bytes(self, key: str) -> bytes | None:
+        """Get a value without JSON decoding (for compressed binary blobs)."""
+        try:
+            client = await self._get_binary_client()
+            full_key = self._build_key(key)
+
+            async def _operation() -> bytes | None:
+                result = await client.get(full_key)
+                if result is None:
+                    return None
+                if isinstance(result, bytes):
+                    return result
+                if isinstance(result, bytearray):
+                    return bytes(result)
+                return str(result).encode("utf-8")
+
+            return await self._execute_with_retry(_operation)
+        except Exception as e:
+            logger.error(f"Redis GET_BYTES operation failed: {e}")
+            raise RedisOperationError(
+                internal_message=f"GET_BYTES operation failed: {str(e)}",
+                operation="GET_BYTES",
+                original_exception=e,
+            )
+
+    async def set_bytes(self, key: str, value: bytes, *, ex: int) -> bool:
+        """Set a compressed binary value with an explicit TTL."""
+        try:
+            client = await self._get_binary_client()
+            full_key = self._build_key(key)
+
+            async def _operation() -> bool:
+                return bool(await client.set(full_key, value, ex=ex))
+
+            return await self._execute_with_retry(_operation)
+        except Exception as e:
+            logger.error(f"Redis SET_BYTES operation failed: {e}")
+            raise RedisOperationError(
+                internal_message=f"SET_BYTES operation failed: {str(e)}",
+                operation="SET_BYTES",
                 original_exception=e,
             )
 
@@ -608,18 +672,21 @@ class RedisService:
 
     async def close(self):
         """Close the Redis connection."""
-        if self._client:
+        clients = [client for client in (self._client, self._binary_client) if client]
+        for client in clients:
             close_client = cast(
                 Callable[[], Awaitable[None]] | None,
-                getattr(self._client, "aclose", None),
+                getattr(client, "aclose", None),
             )
 
             if close_client is not None:
                 await close_client()
             else:
-                await self._client.close()
+                await client.close()
 
+        if clients:
             self._client = None
+            self._binary_client = None
             self._health_checker = None
             logger.info("Redis connection closed")
 

@@ -228,7 +228,10 @@ generation and retries or falls back if publication changes it during capture.
 
 The compatibility requirement that a serving-index retrieval returns the same
 selected chunk IDs, ordering, rounded scores, citations, and asset references
-as the legacy retrieval path for the same request.
+as the legacy retrieval path for the same request. Every retrieval optimization
+must preserve this quality contract; a latency improvement without validated
+semantic parity is not shippable. Validation also compares source sections,
+evidence content, router, and stop reason for each pinned request.
 
 ### Retrieval Revision Pin
 

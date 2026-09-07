@@ -8,16 +8,44 @@ from uuid import uuid4
 from httpx import AsyncClient
 import pytest
 from sqlalchemy import Executable, Result
+from sqlalchemy.exc import SQLAlchemyError
 
 from shared.services.retrieval.execution.reference_resolver import (
     resolve_workflow_references,
 )
 from shared.services.retrieval.nav_snapshot import SnapshotSession, load_nav_snapshot
+from shared.services.retrieval.nav_snapshot import _resolve_namespace_snapshot_entries
 from tests.support.retrieval_snapshot_support import contract_db_session
 from tests.support.contract_database import ContractDatabase
 
 
 _USER_ID = "local-dev-user"
+
+
+class _GenerationUnavailableSession:
+    def __init__(self) -> None:
+        self.rollback_count = 0
+
+    async def execute(self, _statement: Executable) -> Result[tuple[object, ...]]:
+        raise SQLAlchemyError("generation table unavailable")
+
+    async def rollback(self) -> None:
+        self.rollback_count += 1
+
+
+@pytest.mark.asyncio
+async def test_snapshot_loader_falls_back_when_generation_cannot_be_verified() -> None:
+    session = _GenerationUnavailableSession()
+
+    result = await _resolve_namespace_snapshot_entries(
+        session,
+        user_id=_USER_ID,
+        namespace="default",
+        document_revisions=[("doc-a", "result-a")],
+    )
+
+    assert result is None
+    assert session.rollback_count == 1
 
 
 class _PublishingSession:

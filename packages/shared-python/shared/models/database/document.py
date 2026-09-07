@@ -329,6 +329,13 @@ class DocumentMapUnitToken(Base):
             "map_unit_id",
         ),
         Index(
+            "idx_document_map_unit_tokens_token_lookup",
+            "channel",
+            "token_hash",
+            "map_unit_id",
+            postgresql_include=["token", "frequency"],
+        ),
+        Index(
             "idx_document_map_unit_tokens_unit_lookup",
             "map_unit_id",
             "channel",
@@ -340,7 +347,7 @@ class DocumentMapUnitToken(Base):
 
 
 class DocumentMapUnitIndex(Base):
-    """Completeness marker for a revision's materialized map-unit index."""
+    """Completeness marker and corpus statistics for a materialized index."""
 
     __tablename__ = "document_map_unit_indexes"
 
@@ -361,6 +368,16 @@ class DocumentMapUnitIndex(Base):
     average_idf_path: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     average_idf_content: Mapped[float] = mapped_column(
         Float, nullable=False, default=0.0
+    )
+    path_document_count: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+    path_total_length: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    content_document_count: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+    content_total_length: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now_naive, nullable=False

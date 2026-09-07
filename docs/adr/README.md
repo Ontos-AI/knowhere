@@ -23,3 +23,5 @@ Use this shape:
 | [0006](0006-atomically-publish-retrieval-serving-index.md) | Atomically publish the retrieval-serving index |
 | [0007](0007-use-coherent-retrieval-serving-generations.md) | Use coherent retrieval-serving generations |
 | [0008](0008-use-a-maintenance-window-for-serving-index-rollout.md) | Roll out the serving index online |
+| [0009](0009-use-token-leading-covering-index-for-map-unit-lookup.md) | Use a token-leading covering index for map-unit lookup |
+| [0010](0010-backfill-serving-index-statistics-in-place.md) | Backfill serving-index statistics in place |

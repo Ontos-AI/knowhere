@@ -70,7 +70,7 @@ def test_evidence_pack_reads_titles_without_materializing_subtree_metadata() -> 
         budget_chars=100,
     )
 
-    assert result.evidence_text == "[E1]\n[§ Child]\nevidence"
+    assert result.evidence_text == "[E1]\n[§ Root / Child]\nevidence"
     assert provider.metadata_calls == 0
 
 
@@ -102,4 +102,4 @@ def test_evidence_pack_identifies_header_owners_from_parent_chain() -> None:
     )
 
     assert result.kept_chunks == [chunks[1]]
-    assert result.evidence_text == "[E1]\n[§ Child]\nchild evidence"
+    assert result.evidence_text == "[E1]\n[§ Root / Parent / Child]\nchild evidence"
