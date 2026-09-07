@@ -7,9 +7,20 @@ derived tables leave them empty intentionally. Run this command after
 deployment with ``--apply`` so each revision is rebuilt and committed
 independently; without ``--apply`` it is a read-only inventory.
 
+Re-run after map-unit tokenizer / ``MAP_UNIT_INDEX_FORMAT_VERSION`` changes
+(e.g. v1 character-level → v2 word-level, or loading a domain userdict) so
+query hashes match stored tokens. Prefer::
+
+    python /app/scripts/backfill_map_unit_indexes.py --apply --tokens-only
+    python /app/scripts/backfill_map_unit_indexes.py --apply --tokens-only --skip-current-format
+
+``--tokens-only`` rebuilds map-unit tokens/index only (skips serving manifest
+and namespace MAP snapshot). Use full ``--apply`` only when those artifacts
+are missing.
+
 Use ``--check`` after backfill to verify whether query-time snapshot
 fallbacks (manifest_merge / table_scan) would still fire, and whether
-map-unit indexes are complete for scoring.
+map-unit indexes are complete for scoring at the current format version.
 """
 
 # ruff: noqa: E402
@@ -57,7 +68,10 @@ from shared.models.database.document import (
     RetrievalNamespaceMapSnapshot,
     RetrievalServingRevisionManifest,
 )
-from shared.services.retrieval.map_unit_index import replace_document_map_units
+from shared.services.retrieval.map_unit_index import (
+    MAP_UNIT_INDEX_FORMAT_VERSION,
+    replace_document_map_units,
+)
 from shared.services.retrieval.namespace_map_snapshot import (
     patch_namespace_map_snapshot,
 )
@@ -67,7 +81,7 @@ from shared.services.retrieval.serving_generation import (
     lock_namespace_generation,
 )
 from shared.services.retrieval.serving_manifest import (
-    decode_serving_manifest,
+    decode_namespace_map_snapshot,
     persist_revision_serving_state,
 )
 
@@ -91,6 +105,23 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--document-id", default="", help="Limit the backfill to one document."
+    )
+    parser.add_argument(
+        "--tokens-only",
+        action="store_true",
+        help=(
+            "With --apply: rebuild only document_map_units / tokens / index "
+            "(skip serving manifest, namespace MAP snapshot, and generation bump). "
+            "Use after tokenizer / format_version changes when manifests are already ready."
+        ),
+    )
+    parser.add_argument(
+        "--skip-current-format",
+        action="store_true",
+        help=(
+            "With --apply: skip revisions whose map-unit index already has "
+            f"format_version={MAP_UNIT_INDEX_FORMAT_VERSION}."
+        ),
     )
     return parser
 
@@ -124,7 +155,11 @@ class NamespaceFallbackReport:
 
     @property
     def ready(self) -> bool:
-        return not self.would_hit_snapshot_fallback and not self.scoring_incomplete
+        return (
+            not self.would_hit_snapshot_fallback
+            and not self.scoring_incomplete
+            and self.missing_revision_manifest == 0
+        )
 
 
 def check_fallback_readiness(*, document_id: str = "") -> list[NamespaceFallbackReport]:
@@ -160,7 +195,7 @@ def check_fallback_readiness(*, document_id: str = "") -> list[NamespaceFallback
                 snapshot_status = "missing"
             else:
                 try:
-                    payload = decode_serving_manifest(
+                    payload = decode_namespace_map_snapshot(
                         bytes(snapshot.payload_zlib),
                         checksum=str(snapshot.checksum),
                         format_version=int(snapshot.format_version),
@@ -193,9 +228,14 @@ def check_fallback_readiness(*, document_id: str = "") -> list[NamespaceFallback
                     select(
                         DocumentMapUnitIndex.document_id,
                         DocumentMapUnitIndex.job_result_id,
+                        DocumentMapUnitIndex.format_version,
                         DocumentMapUnitIndex.unit_count,
                         DocumentMapUnitIndex.average_idf_path,
                         DocumentMapUnitIndex.average_idf_content,
+                        DocumentMapUnitIndex.path_document_count,
+                        DocumentMapUnitIndex.path_total_length,
+                        DocumentMapUnitIndex.content_document_count,
+                        DocumentMapUnitIndex.content_total_length,
                     ).where(
                         DocumentMapUnitIndex.document_id.in_(
                             [document_id_value for document_id_value, _ in revisions]
@@ -205,11 +245,27 @@ def check_fallback_readiness(*, document_id: str = "") -> list[NamespaceFallback
             )
             index_by_revision = {
                 (str(document_id_value), str(job_result_id)): (
+                    int(format_version or 0),
                     int(unit_count or 0),
                     float(average_idf_path or 0.0),
                     float(average_idf_content or 0.0),
+                    path_document_count,
+                    path_total_length,
+                    content_document_count,
+                    content_total_length,
                 )
-                for document_id_value, job_result_id, unit_count, average_idf_path, average_idf_content in index_rows
+                for (
+                    document_id_value,
+                    job_result_id,
+                    format_version,
+                    unit_count,
+                    average_idf_path,
+                    average_idf_content,
+                    path_document_count,
+                    path_total_length,
+                    content_document_count,
+                    content_total_length,
+                ) in index_rows
             }
             missing_map_index = 0
             suspicious_zero_idf = 0
@@ -218,7 +274,25 @@ def check_fallback_readiness(*, document_id: str = "") -> list[NamespaceFallback
                 if stats is None:
                     missing_map_index += 1
                     continue
-                unit_count, average_idf_path, average_idf_content = stats
+                (
+                    format_version,
+                    unit_count,
+                    average_idf_path,
+                    average_idf_content,
+                    path_document_count,
+                    path_total_length,
+                    content_document_count,
+                    content_total_length,
+                ) = stats
+                if (
+                    format_version != MAP_UNIT_INDEX_FORMAT_VERSION
+                    or path_document_count is None
+                    or path_total_length is None
+                    or content_document_count is None
+                    or content_total_length is None
+                ):
+                    missing_map_index += 1
+                    continue
                 if (
                     unit_count > 0
                     and average_idf_path == 0.0
@@ -251,7 +325,11 @@ def check_fallback_readiness(*, document_id: str = "") -> list[NamespaceFallback
             would_hit_snapshot_fallback = (
                 snapshot_status != "ok" or missing_from_snapshot > 0
             )
-            scoring_incomplete = missing_map_index > 0 or suspicious_zero_idf > 0
+            # A zero average IDF is mathematically valid, notably for a
+            # two-unit corpus where every token appears in exactly one unit.
+            # Keep the count as diagnostic output, but readiness is determined
+            # by the format marker and required persisted statistics above.
+            scoring_incomplete = missing_map_index > 0
             reports.append(
                 NamespaceFallbackReport(
                     user_id=user_id,
@@ -295,26 +373,36 @@ def print_fallback_check(reports: list[NamespaceFallbackReport]) -> int:
     return 1 if failed else 0
 
 
-def backfill_map_unit_indexes(*, apply: bool, document_id: str = "") -> int:
+def backfill_map_unit_indexes(
+    *,
+    apply: bool,
+    document_id: str = "",
+    tokens_only: bool = False,
+    skip_current_format: bool = False,
+) -> int:
     documents = _load_documents(document_id)
     if not apply:
         for document in documents:
             print(
                 f"would backfill document={document.document_id} revision={document.current_job_result_id}"
+                + (" tokens_only" if tokens_only else "")
             )
         return len(documents)
 
     session_factory = get_sync_session_factory()
+    backfilled = 0
+    skipped_current = 0
     for document in documents:
         job_result_id = document.current_job_result_id
         if not job_result_id:
             continue
         with session_factory() as db:
-            lock_namespace_generation(
-                db,
-                user_id=document.user_id,
-                namespace=document.namespace,
-            )
+            if not tokens_only:
+                lock_namespace_generation(
+                    db,
+                    user_id=document.user_id,
+                    namespace=document.namespace,
+                )
             locked_document = db.execute(
                 select(Document)
                 .where(Document.document_id == document.document_id)
@@ -333,6 +421,26 @@ def backfill_map_unit_indexes(*, apply: bool, document_id: str = "") -> int:
                     f"revision={job_result_id}"
                 )
                 continue
+            if skip_current_format:
+                existing = db.execute(
+                    select(DocumentMapUnitIndex.format_version)
+                    .where(
+                        DocumentMapUnitIndex.document_id
+                        == locked_document.document_id
+                    )
+                    .where(DocumentMapUnitIndex.job_result_id == job_result_id)
+                ).scalar_one_or_none()
+                if (
+                    existing is not None
+                    and int(existing) == MAP_UNIT_INDEX_FORMAT_VERSION
+                ):
+                    db.rollback()
+                    skipped_current += 1
+                    print(
+                        f"skipped current-format document={document.document_id} "
+                        f"revision={job_result_id} format_version={existing}"
+                    )
+                    continue
             scope = DocumentPublicationScope(
                 user_id=locked_document.user_id,
                 namespace=locked_document.namespace,
@@ -341,18 +449,25 @@ def backfill_map_unit_indexes(*, apply: bool, document_id: str = "") -> int:
                 source_file_name=str(locked_document.source_file_name or ""),
             )
             replace_document_map_units(db, scope=scope)
-            manifest_payload = persist_revision_serving_state(db, scope=scope)
-            patch_namespace_map_snapshot(
-                db, scope=scope, manifest_payload=manifest_payload
-            )
-            advance_namespace_generation(
-                db,
-                user_id=scope.user_id,
-                namespace=scope.namespace,
-            )
+            if not tokens_only:
+                manifest_payload = persist_revision_serving_state(db, scope=scope)
+                patch_namespace_map_snapshot(
+                    db, scope=scope, manifest_payload=manifest_payload
+                )
+                advance_namespace_generation(
+                    db,
+                    user_id=scope.user_id,
+                    namespace=scope.namespace,
+                )
             db.commit()
-        print(f"backfilled document={document.document_id} revision={job_result_id}")
-    return len(documents)
+        backfilled += 1
+        mode = "tokens_only" if tokens_only else "full"
+        print(
+            f"backfilled document={document.document_id} revision={job_result_id} mode={mode}"
+        )
+    if skip_current_format:
+        print(f"skipped_current_format={skipped_current}")
+    return backfilled
 
 
 def main() -> None:
@@ -360,11 +475,19 @@ def main() -> None:
     if arguments.check:
         if arguments.apply:
             raise SystemExit("use either --check or --apply, not both")
+        if arguments.tokens_only or arguments.skip_current_format:
+            raise SystemExit("--tokens-only/--skip-current-format require --apply")
         reports = check_fallback_readiness(document_id=str(arguments.document_id))
         raise SystemExit(print_fallback_check(reports))
 
+    if (arguments.tokens_only or arguments.skip_current_format) and not arguments.apply:
+        raise SystemExit("--tokens-only/--skip-current-format require --apply")
+
     count = backfill_map_unit_indexes(
-        apply=bool(arguments.apply), document_id=str(arguments.document_id)
+        apply=bool(arguments.apply),
+        document_id=str(arguments.document_id),
+        tokens_only=bool(arguments.tokens_only),
+        skip_current_format=bool(arguments.skip_current_format),
     )
     action = "backfilled" if arguments.apply else "found"
     print(f"{action} revisions={count}")

@@ -47,12 +47,19 @@ def build_channel_bm25_stats(
     query_tokens: Sequence[str],
     frequencies: Mapping[tuple[str, str], Mapping[str, int]],
     average_idf: float,
+    document_count_override: int | None = None,
+    total_length_override: int | None = None,
 ) -> PersistedBm25Stats:
     """Build channel stats from already-fetched unit rows and query-token freqs."""
     lengths = [
         int(row[length_field]) for row in unit_rows if int(row[length_field]) > 0
     ]
-    document_count = len(lengths)
+    document_count = (
+        len(lengths) if document_count_override is None else document_count_override
+    )
+    total_length = (
+        sum(lengths) if total_length_override is None else total_length_override
+    )
     document_frequency = {
         token: sum(
             1
@@ -66,7 +73,7 @@ def build_channel_bm25_stats(
     }
     return PersistedBm25Stats(
         document_count=document_count,
-        total_length=sum(lengths),
+        total_length=total_length,
         document_frequency=document_frequency,
         average_idf=float(average_idf),
     )

@@ -3,6 +3,7 @@
 
 import os
 from dataclasses import dataclass
+from urllib.parse import unquote
 
 from app.services.common.file_utils import path_handle
 from app.services.document_parser.support.filename_limits import (
@@ -27,6 +28,7 @@ def normalize_internal_parse_name(
     candidate_name = (
         os.path.basename(filename) if isinstance(filename, str) and filename else ""
     )
+    candidate_name = unquote(candidate_name)
     cleaned_name = (
         path_handle(candidate_name, mode="clean_single") if candidate_name else ""
     )
