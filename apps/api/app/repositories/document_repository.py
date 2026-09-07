@@ -54,6 +54,21 @@ class DocumentRepository:
         )
         return int(result.scalar_one())
 
+    async def list_namespace_counts_for_user(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: str,
+    ) -> Sequence[tuple[str, int]]:
+        result = await db.execute(
+            select(Document.namespace, func.count(Document.document_id))
+            .where(Document.user_id == user_id)
+            .where(Document.status != "archived")
+            .group_by(Document.namespace)
+            .order_by(Document.namespace.asc())
+        )
+        return [(row[0], int(row[1])) for row in result.all()]
+
     async def get_document(
         self,
         db: AsyncSession,
