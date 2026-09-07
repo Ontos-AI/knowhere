@@ -5,7 +5,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import cast
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from app.repositories.job_repository import JobRepository
 from app.services.document_ingestion.command import DocumentIngestionCommand
@@ -308,7 +308,7 @@ def _build_job_response(
 
 def _resolve_url_source_file_name(*, source_url: str, file_extension: str) -> str:
     parsed_url = urlparse(source_url)
-    url_basename = str(os.path.basename(parsed_url.path))
+    url_basename = unquote(str(os.path.basename(parsed_url.path)))
     if url_basename and os.path.splitext(url_basename)[1].lower() == file_extension:
         return url_basename
     if url_basename:
