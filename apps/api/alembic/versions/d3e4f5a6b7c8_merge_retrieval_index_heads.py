@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from alembic import op
-
-
 revision: str = "d3e4f5a6b7c8"
 down_revision: tuple[str, str] = (
     "0a1b2c3d4e5f",
