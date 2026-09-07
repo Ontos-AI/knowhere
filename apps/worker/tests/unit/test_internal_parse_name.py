@@ -4,8 +4,20 @@ import os
 from pathlib import Path
 
 from app.services.document_parser.support.internal_parse_name import (
+    normalize_internal_parse_name,
     prepare_internal_parse_input,
 )
+
+
+def test_normalize_internal_parse_name_decodes_url_encoded_filename() -> None:
+    encoded_filename = (
+        "%E4%B8%AD%E6%96%87%E7%AE%80%E5%8E%86-%E9%9B%B7%E7%BF%94-"
+        "%E4%B8%AD%E7%A7%91%E9%99%A2%285%29.doc"
+    )
+
+    normalized_name = normalize_internal_parse_name(encoded_filename)
+
+    assert normalized_name == "中文简历-雷翔-中科院-5-.doc"
 
 
 def test_prepare_internal_parse_input_handles_long_encoded_filename(
