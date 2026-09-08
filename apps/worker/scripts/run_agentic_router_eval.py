@@ -206,9 +206,9 @@ def _render_markdown(
             f"- agent_explore p50: {_p50(agent_ms)} ms ({len(agent_ms)} runs)\n",
             "\n## Notes\n",
             "- Runs bypass Redis retrieval cache (direct ``run_retrieval_route``).\n",
-            "- ``kw hit`` = expected keywords found in ``evidence_text`` "
+            "- ``kw hit`` = expected keywords found in ``evidence_text`` " +
             "(proxy for recall quality, not a full answer judge).\n",
-            "- Phase 0 ad-hoc queries are separate; this set is the 8 questions "
+            "- Phase 0 ad-hoc queries are separate; this set is the 8 questions " +
             "from ``zh_档案知识库测试样例.docx``.\n",
         ]
     )
