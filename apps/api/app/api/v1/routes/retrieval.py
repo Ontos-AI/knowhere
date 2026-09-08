@@ -80,8 +80,8 @@ class RetrievalQueryRequest(BaseModel):
     use_agentic: bool | None = Field(
         None,
         description=(
-            "Map-nav (PLANNER+HARVEST+CONTROL) is the default when unset/true. "
-            "Set false to force classic 3-channel top-K retrieval."
+            "Agent explore (cursor_sdk harness by default) when unset/true. "
+            "Set false to force classic map-unit BM25 top-K retrieval."
         ),
     )
     conversation_id: str | None = Field(

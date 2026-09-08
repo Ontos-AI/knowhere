@@ -1,4 +1,4 @@
-<img width="1000" height="233" alt="20260506-102713" src="https://github.com/user-attachments/assets/896e64d2-e50e-4158-b71c-bc69e11c7c65" />
+<img width="1000" height="233" alt="Knowhere 2.0" src="docs/assets/knowhere-banner-2.0.png" />
 
 <h1 align="center">Prepare unstructured data for AI Agents</h1>
 
@@ -37,7 +37,7 @@
 
 It ingests unstructured documents and produces persistent, navigable memory: parsing, hierarchy reconstruction, multi-modal structuring, and graph construction in a single pipeline. Every result stays connected to its document, section, source pages, and related assets, making the output a natural fit for *Agentic RAG*, *vector-based RAG*, or any LLM workflow.
 
-Knowhere supports complementary **Vision and Text tracks**. Text-native documents retain precise extracted structure, while complex PDFs and PowerPoint files can be understood directly as pages by frontier vision models. Both tracks converge into the same memory schema, hierarchy, retrieval engine, and citation model.
+Knowhere 2.0 supports complementary **Vision and Text tracks**. Text-native documents retain precise extracted structure, while complex PDFs and PowerPoint files can be understood directly as pages by frontier vision models. Both tracks converge into the same memory schema, hierarchy, retrieval engine, and citation model.
 
 > [!NOTE]
 > **Get started in seconds with Knowhere Cloud.**
@@ -45,6 +45,7 @@ Knowhere supports complementary **Vision and Text tracks**. Text-native document
 
 ## 📢 News
 
+- **September 8, 2026**: 🧭 **Introducing agent-native Retrieval 2.0.** MapNav has evolved from a fixed navigation workflow into a corpus-native foundation for agents. Knowhere provides a unified schema, hierarchy-aware tools, and resolvable evidence references; the agent decides how to search, traverse, read, and cite. The same foundation powers built-in retrieval and external agents through MCP.
 - **September 2026**: 👁️ **Introducing dual-track Document Parsing 2.0.** Vision Page and Text Track now converge into one hierarchy-native memory schema for retrieval, understanding, and citation.
 - **June 1, 2026**: 📚 **Knowhere now supports ultra-long PDFs and atlas-style documents.** The parsing pipeline can process long-form PDFs with hundreds of pages (for example, 300, 500, or more) and route technical atlases or drawing collections through a dedicated layout-aware parser.
 - **May 7, 2026**: 🚀 **Knowhere is now Open Source!** We have open-sourced our entire stack for document ingestion, parsing, and agentic RAG. You can now self-host the full platform using [knowhere-self-hosted](https://github.com/Ontos-AI/knowhere-self-hosted). Check out our [Contribution Guide](CONTRIBUTING.md) to get involved!
@@ -78,13 +79,15 @@ Knowhere runs in two steps: build memory from documents, then let agents retriev
 
 ### Step 2: Agentic Retrieval
 
+Knowhere provides the document-memory substrate; the agent decides how to explore it.
+
 <p align="center">
-  <img alt="Step 2: Agentic Retrieval" src="docs/assets/step-2-agentic-retrieval.png" width="900">
+  <img alt="Any agent can explore Knowhere Memory through one neutral corpus tool contract" src="docs/assets/step-2-agent-neutral-retrieval.png" width="900">
 </p>
 
-- **Discover**: Fuse path, content, term, summary, and entity signals for broad first-pass coverage.
-- **Navigate**: Use hierarchy-aware MapNav to move from document overviews into the most relevant sections and evidence.
-- **Cite Evidence**: Return traceable results with source document, section, source pages, and linked assets.
+- **Provide the substrate**: Knowhere exposes one corpus schema and tools for document outlines, structural filters, exact search, fuzzy recall, full reading, assets, and cross-document relationships.
+- **Let the agent explore**: Instead of forcing every query through a fixed navigation pipeline, the agent chooses which tools to call, in what order, and how deeply to traverse.
+- **Stay agent-neutral**: The same corpus and evidence contract works across built-in agents, MCP clients, models, and orchestration frameworks. Whichever agent explores the memory, Knowhere resolves its references into traceable documents, sections, pages, and linked assets.
 
 ## FAQ
 
@@ -141,7 +144,7 @@ Agents using Knowhere outperform those working from raw documents, Markitdown, U
 - **Vision Page Understanding**: Frontier vision models make complex PDF and PowerPoint content recallable without requiring perfect element-by-element OCR or layout reconstruction.
 - **Hierarchy-native Memory**: Section nodes preserve document paths, page ranges, summaries, entities, and linked assets instead of returning disconnected chunks.
 - **Cross-document Memory Graph**: Page-derived typed entities and keywords connect related documents across a namespace.
-- **Agentic Retrieval**: MapNav navigates document hierarchies, while classic retrieval combines path, content, and term channels through RRF.
+- **Agent-native Retrieval**: Built-in and MCP-connected agents explore the same corpus schema and hierarchy-aware tools; classic retrieval remains available for deterministic top-K search.
 - **Page-grounded Citations**: Results retain source documents, section paths, page numbers, and rendered visual evidence.
 
 ## Supported Formats

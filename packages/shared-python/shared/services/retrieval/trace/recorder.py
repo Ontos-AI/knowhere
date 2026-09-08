@@ -15,7 +15,6 @@ from uuid import uuid4
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shared.services.retrieval.nav_config import MAPNAV_MODEL
 from shared.services.retrieval.settings import DEFAULT_TOP_K
 from shared.services.retrieval.trace.types import DecisionTraceStep
 
@@ -47,7 +46,7 @@ class TraceRecorder:
         policy_name: str = "llm_policy_v1",
         config: Any = None,
     ) -> None:
-        del config  # legacy AgentRunConfig; ignored on map-nav path
+        del config  # unused AgentRunConfig leftover; ignored
         self._db = db
         self._run_id = f"aret_{uuid4().hex[:12]}"
         self._user_id = user_id
@@ -236,7 +235,7 @@ class TraceRecorder:
                 "router": router_used,
                 "step_count": len(self._steps),
                 "final_doc_ids": doc_ids_in_result,
-                "model_name": model_name or MAPNAV_MODEL,
+                "model_name": model_name or "unknown",
             }
             if selected_paths is not None:
                 provenance["selected_paths"] = selected_paths

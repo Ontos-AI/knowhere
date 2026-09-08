@@ -51,7 +51,7 @@ from shared.models.database.document import (
     DocumentMapUnit,
     DocumentMapUnitIndex,
 )
-from shared.services.retrieval.nav.knowhere_hybrid import MAP_UNIT_INDEX_FORMAT_VERSION
+from shared.services.retrieval.scoring.knowhere_hybrid import MAP_UNIT_INDEX_FORMAT_VERSION
 
 
 @dataclass(frozen=True)

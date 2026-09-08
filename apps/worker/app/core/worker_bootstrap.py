@@ -101,6 +101,14 @@ def init_worker(**kwargs: object) -> None:
 def shutdown_worker(**kwargs: object) -> None:
     """Clean up shared resources on worker shutdown."""
     try:
+        from app.services.document_agent.tools.ocr_pages import shutdown_ocr_runner
+
+        shutdown_ocr_runner()
+        logger.info("Worker OCR runner stopped")
+    except Exception as exc:
+        logger.warning(f"Worker OCR runner cleanup failed: {exc}")
+
+    try:
         stop_worker_heartbeat()
         logger.info("Worker heartbeat stopped")
     except Exception as exc:

@@ -10,8 +10,8 @@ from shared.services.retrieval.hydration.asset_inline import (
 from shared.services.retrieval.hydration.result_assembly import (
     assemble_retrieval_results,
 )
-from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
-from shared.services.retrieval.nav.nav_knowhere import (
+from shared.services.retrieval.scoring.hierarchy import ProviderToolSpace
+from shared.services.retrieval.scoring.knowhere_provider import (
     KnowhereProvider,
     SectionRow,
     UnitRow,

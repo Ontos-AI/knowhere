@@ -6,10 +6,11 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pytest
-from httpx import AsyncClient, Response
+from httpx import AsyncClient
 from sqlalchemy import Engine, event, select
 
 from shared.models.database.document import DocumentMapUnit
+from shared.services.retrieval.hydration.connected import hydrate_connected_target_rows
 from shared.services.retrieval.publication_content import (
     replace_document_revision_content,
 )
@@ -395,100 +396,62 @@ async def test_classic_discovery_returns_empty_for_an_empty_revision_pin(
     assert result.payload["fused_rows"] == []
 
 
-async def test_classic_route_falls_back_for_v1_index_with_excluded_document(
+async def test_classic_route_raises_for_v1_index(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
 ) -> None:
     identifier = uuid4().hex[:8]
-    namespace = f"classic-v1-fallback-{identifier}"
-    legacy_queries: list[str] = []
-
-    def capture_legacy_query(
-        _connection: Any,
-        _cursor: Any,
-        statement: str,
-        _parameters: Any,
-        _context: Any,
-        _executemany: bool,
-    ) -> None:
-        if "plainto_tsquery('simple'" in statement:
-            legacy_queries.append(statement)
-
-    event.listen(Engine, "before_cursor_execute", capture_legacy_query)
-    try:
-        async with developer_api_client_factory() as api_client:
-            first = await _publish_document(
-                namespace=namespace,
-                source_file_name="legacy-fallback.pdf",
-                chunks=[
-                    {
-                        "chunk_id": f"legacy-hit-{identifier}",
-                        "type": "text",
-                        "content": "legacy fallback marker",
-                        "path": "legacy-fallback.pdf/Root/Section/body",
-                        "order": 1,
-                        "metadata": {},
-                    },
-                    {
-                        "chunk_id": f"legacy-filler-a-{identifier}",
-                        "type": "text",
-                        "content": "unrelated legacy filler a",
-                        "path": "legacy-fallback.pdf/Root/Section/a",
-                        "order": 2,
-                        "metadata": {},
-                    },
-                    {
-                        "chunk_id": f"legacy-filler-b-{identifier}",
-                        "type": "text",
-                        "content": "unrelated legacy filler b",
-                        "path": "legacy-fallback.pdf/Root/Section/b",
-                        "order": 3,
-                        "metadata": {},
-                    },
-                ],
-            )
-            excluded = await _publish_document(
-                namespace=namespace,
-                source_file_name="excluded.pdf",
-                chunks=[
-                    {
-                        "chunk_id": f"excluded-{identifier}",
-                        "type": "text",
-                        "content": "unrelated filler",
-                        "path": "excluded.pdf/Root/Section/body",
-                        "order": 1,
-                        "metadata": {},
-                    }
-                ],
-            )
-            await ContractDatabase.execute(
-                """
-                UPDATE document_map_unit_indexes
-                SET format_version = 1
-                WHERE document_id = :document_id
-                """,
-                {"document_id": first["document_id"]},
-            )
-            response = await api_client.post(
+    namespace = f"classic-v1-raise-{identifier}"
+    async with developer_api_client_factory() as api_client:
+        first = await _publish_document(
+            namespace=namespace,
+            source_file_name="legacy-index.pdf",
+            chunks=[
+                {
+                    "chunk_id": f"legacy-hit-{identifier}",
+                    "type": "text",
+                    "content": "legacy index marker",
+                    "path": "legacy-index.pdf/Root/Section/body",
+                    "order": 1,
+                    "metadata": {},
+                },
+                {
+                    "chunk_id": f"legacy-filler-a-{identifier}",
+                    "type": "text",
+                    "content": "unrelated filler a",
+                    "path": "legacy-index.pdf/Root/Section/a",
+                    "order": 2,
+                    "metadata": {},
+                },
+                {
+                    "chunk_id": f"legacy-filler-b-{identifier}",
+                    "type": "text",
+                    "content": "unrelated filler b",
+                    "path": "legacy-index.pdf/Root/Section/b",
+                    "order": 3,
+                    "metadata": {},
+                },
+            ],
+        )
+        await ContractDatabase.execute(
+            """
+            UPDATE document_map_unit_indexes
+            SET format_version = 1
+            WHERE document_id = :document_id
+            """,
+            {"document_id": first["document_id"]},
+        )
+        with pytest.raises(RuntimeError, match="map-unit index is incomplete"):
+            await api_client.post(
                 "/api/v1/retrieval/query",
                 json={
                     "namespace": namespace,
-                    "query": "legacy fallback marker",
+                    "query": "legacy index marker",
                     "top_k": 1,
                     "use_agentic": False,
-                    "exclude_document_ids": [excluded["document_id"]],
                 },
             )
-    finally:
-        event.remove(Engine, "before_cursor_execute", capture_legacy_query)
-
-    assert response.status_code == 200
-    body = cast(dict[str, object], response.json())
-    results = cast(list[dict[str, object]], body["results"])
-    assert len(results) == 1
-    assert results[0]["chunk_id"] == f"legacy-hit-{identifier}"
-    assert legacy_queries
 
 
 async def test_classic_discovery_preserves_results_before_statistics_backfill(
@@ -604,133 +567,95 @@ async def test_classic_discovery_preserves_results_before_statistics_backfill(
 @pytest.mark.parametrize(
     "incomplete_index_kind", ["legacy_format", "missing_index", "missing_tokens"]
 )
-async def test_unfiltered_classic_route_falls_back_when_selective_rows_are_unavailable(
+async def test_unfiltered_classic_route_raises_when_index_is_unusable(
     developer_api_client_factory: Callable[
         [], AbstractAsyncContextManager[AsyncClient]
     ],
     incomplete_index_kind: str,
 ) -> None:
     identifier: str = uuid4().hex[:8]
-    namespace: str = f"classic-token-fallback-{incomplete_index_kind}-{identifier}"
-    legacy_queries: list[str] = []
-
-    def capture_legacy_query(
-        _connection: object,
-        _cursor: object,
-        statement: str,
-        _parameters: object,
-        _context: object,
-        _executemany: bool,
-    ) -> None:
-        if "plainto_tsquery('simple'" in statement:
-            legacy_queries.append(statement)
-
-    event.listen(Engine, "before_cursor_execute", capture_legacy_query)
-    try:
-        async with developer_api_client_factory() as api_client:
-            document: dict[str, str] = await _publish_document(
-                namespace=namespace,
-                source_file_name="legacy-token-hash.pdf",
-                chunks=[
-                    {
-                        "chunk_id": f"legacy-token-hit-{identifier}",
-                        "type": "text",
-                        "content": "legacy token fallback marker",
-                        "path": "legacy-token-hash.pdf/Root/Section/body",
-                        "order": 1,
-                        "metadata": {},
-                    },
-                    {
-                        "chunk_id": f"legacy-token-filler-a-{identifier}",
-                        "type": "text",
-                        "content": "unrelated legacy filler a",
-                        "path": "legacy-token-hash.pdf/Root/Section/a",
-                        "order": 2,
-                        "metadata": {},
-                    },
-                    {
-                        "chunk_id": f"legacy-token-filler-b-{identifier}",
-                        "type": "text",
-                        "content": "unrelated legacy filler b",
-                        "path": "legacy-token-hash.pdf/Root/Section/b",
-                        "order": 3,
-                        "metadata": {},
-                    },
-                ],
+    namespace: str = f"classic-unusable-{incomplete_index_kind}-{identifier}"
+    async with developer_api_client_factory() as api_client:
+        document: dict[str, str] = await _publish_document(
+            namespace=namespace,
+            source_file_name="unusable-index.pdf",
+            chunks=[
+                {
+                    "chunk_id": f"unusable-hit-{identifier}",
+                    "type": "text",
+                    "content": "unusable index marker",
+                    "path": "unusable-index.pdf/Root/Section/body",
+                    "order": 1,
+                    "metadata": {},
+                },
+                {
+                    "chunk_id": f"unusable-filler-a-{identifier}",
+                    "type": "text",
+                    "content": "unrelated filler a",
+                    "path": "unusable-index.pdf/Root/Section/a",
+                    "order": 2,
+                    "metadata": {},
+                },
+                {
+                    "chunk_id": f"unusable-filler-b-{identifier}",
+                    "type": "text",
+                    "content": "unrelated filler b",
+                    "path": "unusable-index.pdf/Root/Section/b",
+                    "order": 3,
+                    "metadata": {},
+                },
+            ],
+        )
+        if incomplete_index_kind == "legacy_format":
+            await ContractDatabase.execute(
+                """
+                UPDATE document_map_unit_indexes
+                SET format_version = 1
+                WHERE document_id = :document_id
+                """,
+                {"document_id": document["document_id"]},
             )
-            if incomplete_index_kind == "legacy_format":
-                await ContractDatabase.execute(
-                    """
-                    UPDATE document_map_unit_indexes
-                    SET format_version = 1
+        elif incomplete_index_kind == "missing_tokens":
+            await ContractDatabase.execute(
+                """
+                DELETE FROM document_map_unit_tokens
+                WHERE map_unit_id IN (
+                    SELECT id
+                    FROM document_map_units
                     WHERE document_id = :document_id
-                    """,
-                    {"document_id": document["document_id"]},
                 )
-                await ContractDatabase.execute(
-                    """
-                    UPDATE document_map_unit_tokens
-                    SET token_hash = :legacy_token_hash
-                    WHERE map_unit_id IN (
-                        SELECT id
-                        FROM document_map_units
-                        WHERE document_id = :document_id
-                    )
-                    """,
-                    {
-                        "document_id": document["document_id"],
-                        "legacy_token_hash": "legacy-token-hash",
-                    },
-                )
-            elif incomplete_index_kind == "missing_tokens":
-                await ContractDatabase.execute(
-                    """
-                    DELETE FROM document_map_unit_tokens
-                    WHERE map_unit_id IN (
-                        SELECT id
-                        FROM document_map_units
-                        WHERE document_id = :document_id
-                    )
-                    """,
-                    {"document_id": document["document_id"]},
-                )
-            else:
-                await ContractDatabase.execute(
-                    """
-                    DELETE FROM document_map_unit_indexes
+                """,
+                {"document_id": document["document_id"]},
+            )
+        else:
+            await ContractDatabase.execute(
+                """
+                DELETE FROM document_map_unit_indexes
+                WHERE document_id = :document_id
+                """,
+                {"document_id": document["document_id"]},
+            )
+            await ContractDatabase.execute(
+                """
+                DELETE FROM document_map_unit_tokens
+                WHERE map_unit_id IN (
+                    SELECT id
+                    FROM document_map_units
                     WHERE document_id = :document_id
-                    """,
-                    {"document_id": document["document_id"]},
                 )
-                await ContractDatabase.execute(
-                    """
-                    DELETE FROM document_map_unit_tokens
-                    WHERE map_unit_id IN (
-                        SELECT id
-                        FROM document_map_units
-                        WHERE document_id = :document_id
-                    )
-                    """,
-                    {"document_id": document["document_id"]},
-                )
-            response: Response = await api_client.post(
+                """,
+                {"document_id": document["document_id"]},
+            )
+        with pytest.raises(RuntimeError, match="map-unit index is incomplete"):
+            await api_client.post(
                 "/api/v1/retrieval/query",
                 json={
                     "namespace": namespace,
-                    "query": "legacy token fallback marker",
+                    "query": "unusable index marker",
                     "top_k": 1,
                     "use_agentic": False,
                 },
             )
-    finally:
-        event.remove(Engine, "before_cursor_execute", capture_legacy_query)
-
-    assert response.status_code == 200
-    body = cast(dict[str, object], response.json())
-    results = cast(list[dict[str, object]], body["results"])
-    assert len(results) == 1
-    assert results[0]["chunk_id"] == f"legacy-token-hit-{identifier}"
-    assert legacy_queries
 
 
 async def test_classic_route_image_filter_scores_only_units_with_images(
@@ -854,6 +779,78 @@ async def test_classic_route_image_filter_scores_only_units_with_images(
     assert len(results) == 1
     assert results[0]["chunk_id"] == f"chart-{identifier}"
     assert results[0]["chunk_type"] == "image"
+
+
+async def test_connected_hydration_does_not_load_legacy_job_chunks(
+    developer_api_client_factory: Callable[
+        [], AbstractAsyncContextManager[AsyncClient]
+    ],
+) -> None:
+    identifier = uuid4().hex[:8]
+    namespace = f"connected-job-{identifier}"
+    statements: list[str] = []
+
+    def capture_job_chunk_query(
+        _connection: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        if "job_chunks" in statement.lower():
+            statements.append(statement)
+
+    async with developer_api_client_factory():
+        published = await _publish_document(
+            namespace=namespace,
+            source_file_name="connected.pdf",
+            chunks=[
+                {
+                    "chunk_id": "body-connected",
+                    "type": "text",
+                    "content": "body connected evidence",
+                    "path": "connected.pdf/Root/Section/body",
+                    "order": 1,
+                    "metadata": {"connect_to": [{"target": "asset-connected"}]},
+                },
+                {
+                    "chunk_id": "asset-connected",
+                    "type": "image",
+                    "content": "asset connected summary",
+                    "path": "images/asset-connected.png",
+                    "order": 2,
+                    "file_path": "images/asset-connected.png",
+                    "metadata": {},
+                },
+            ],
+        )
+        event.listen(Engine, "before_cursor_execute", capture_job_chunk_query)
+        try:
+            async with contract_db_session() as db:
+                hydrated = await hydrate_connected_target_rows(
+                    db=db,
+                    rows=[
+                        {
+                            "document_id": published["document_id"],
+                            "job_result_id": published["job_result_id"],
+                            "chunk_id": "body-connected",
+                            "chunk_type": "text",
+                            "chunk_metadata": {
+                                "connect_to": [{"target": "asset-connected"}]
+                            },
+                        }
+                    ],
+                    exclude_document_ids=[],
+                    exclude_sections=[],
+                    revision_pins={published["document_id"]: published["job_result_id"]},
+                )
+        finally:
+            event.remove(Engine, "before_cursor_execute", capture_job_chunk_query)
+
+    assert [row["chunk_id"] for row in hydrated] == ["asset-connected"]
+    assert hydrated[0]["job_id"] == published["job_id"]
+    assert statements == []
 
 
 def _publish_revision_with_generation_lock(
