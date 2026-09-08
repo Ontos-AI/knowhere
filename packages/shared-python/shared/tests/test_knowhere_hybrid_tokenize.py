@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from shared.services.retrieval.nav.knowhere_hybrid import (
+from shared.services.retrieval.scoring.knowhere_hybrid import (
     MAP_UNIT_INDEX_FORMAT_VERSION,
     build_content_search_text,
     build_path_search_text,

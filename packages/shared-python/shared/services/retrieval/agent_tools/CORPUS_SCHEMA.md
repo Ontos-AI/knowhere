@@ -54,6 +54,14 @@ they differ in shape, and in **which sections get a body chunk at all**:
   body chunk. Internal/structural sections never carry a `page` chunk
   themselves — their summaries aggregate from their leaf descendants.
 
+A section owns **at most one** body chunk either way (verified against
+real published data: a section with children and a section without both
+had exactly 0 or 1, never more). So a "chunk" and "the section that owns
+it" are the same unit, not two different granularities — there is no
+separate finer-or-coarser level to choose between. The only structural
+sections with no chunk of their own are `chunk`-track sections whose
+entire content lives in their descendants.
+
 For `page` chunks specifically: one leaf section's body may span one or
 more physical pages. A page's text is stored **once**, under whichever leaf
 is first in reading order to cover that page (the "owner"). Every other
@@ -115,7 +123,9 @@ for anything finer-grained than a document pair.
 ## 5. Reserved / not yet available
 
 - **Vector channel**: `recall`'s `channels` parameter reserves a `vector`
-  option; it does not exist yet. `recall` today is lexical only.
+  option; it does not exist yet. `recall` today fuses two lexical channels
+  (`path_content`: persisted map-unit BM25 over path+content; `term`:
+  substring match over `document_map_units.term_search_text_lower`) via RRF.
 
 ## 6. Tools and when to use each
 
@@ -125,8 +135,8 @@ for anything finer-grained than a document pair.
 | `outline` | The task only needs titles/summaries — overview, "what does chapter N cover," picking where to look before reading | one document, or a `section_path` prefix within it | Titles + summaries + `chunk_count`, no body text, no folding. Depth-limited by argument, not by a token budget. Use this to build your own map instead of relying on a pre-folded one. |
 | `node_filter` | The task is a traversal/exclusion predicate — FOR ALL / EXISTS / ANY / NOT — over section titles or summaries ("which docs mention X in a heading," "sections NOT about Y") | one or more documents | Deterministic substring/regex match against `section_path` and `summary` only, not body text. Returns the full matching set and count, never a truncated top-K. If the predicate must run against body text, use `grep` instead. |
 | `grep` | Exact string / regex / identifier / number lookup that must run against body text | scoped by document/section/chunk_type | Returns match count plus snippets, so ANY/ALL logic can also close over body text, not just titles. |
-| `recall` | A fuzzy question where you don't know where the answer lives | namespace or scoped | Ranked candidates (path + content BM25 today; term and vector are separate/reserved — see §5) with path and snippet, not full content. |
-| `read` | You already know which section(s)/chunk(s) to read | one or more sections/chunks | Returns full body content, resolves `SAME-AS` markers into the owner's text, expands `connect_to` assets, and converts `page_assets` into URLs. |
+| `recall` | A fuzzy question where you don't know where the answer lives | namespace or scoped | Ranked candidates from `path_content` (BM25) + `term` (substring) channels fused by RRF; `vector` is reserved — see §5. Returns path and snippet, not full content. |
+| `read` | You already know which section(s)/chunk(s) to read | one or more sections/chunks | Returns full body content, resolves `SAME-AS` markers into the owner's text, expands `connect_to` assets, and converts `page_assets` into URLs. If your `section_path` omits ancestor segments (e.g. missing a top-level volume like `附件目录 /`), `read` tries a unique suffix match within the document; if several sections match, it returns an ambiguity error listing the full paths — copy the full path from `outline`/`grep`/`refs` when that happens. |
 | `assets` | You need images/tables directly, or need to find which section(s) host a given asset | one or more documents | Forward (by type/query) and reverse (asset → hosting section) lookup — see §3. |
 | `neighbors` | You need related documents in the same namespace | one document | Document-level `related` edges only — see §4. |
 

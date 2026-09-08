@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from shared.models.schemas.llm_config import LLMConfig
 from shared.models.schemas.retrieval_namespace import normalize_retrieval_namespace
 from shared.services.retrieval.execution.route_types import RetrievalRouteContext
+from shared.services.retrieval.agent_explore.harness.resolve import resolve_harness_name
 from shared.services.retrieval.settings import (
     INTERNAL_RECALL_K_MULTIPLIER,
 )
@@ -98,6 +99,9 @@ class RetrievalQuery:
             "use_agentic": self.use_agentic,
             "llm_text_model": text_model,
             "llm_vision_model": vision_model,
+            "harness": (
+                resolve_harness_name() if self.use_agentic is not False else "classic"
+            ),
         }
 
     def resolve_allowed_chunk_types(self) -> set[str] | None:

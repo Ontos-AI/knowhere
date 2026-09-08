@@ -7,7 +7,7 @@
 ## Purpose
 
 Online Brain users currently wait for a complete retrieval response while
-map-nav planning, searching, source review, and final hydration run. This
+agentic retrieval, tool calls, and final hydration run. This
 design makes that work visible without exposing chain-of-thought or changing
 who owns answer generation.
 
@@ -61,7 +61,7 @@ response as the authoritative result:
   "sequence": 7,
   "elapsed_ms": 2410,
   "status": "completed",
-  "response": { "namespace": "default", "query": "...", "router_used": "mapnav", "evidence_text": "...", "referenced_chunks": [], "results": [] }
+  "response": { "namespace": "default", "query": "...", "router_used": "agent_explore", "evidence_text": "...", "referenced_chunks": [], "results": [] }
 }
 ```
 
@@ -90,9 +90,9 @@ terminal SSE event because the HTTP status can no longer be changed.
 
 ## Internal implementation seam
 
-Keep the synchronous map-nav implementation. Add an optional callback that
-receives a sanitized progress projection after each completed planner,
-search, or review step. The SSE route bridges this callback to an
+Keep the live retrieval implementation. Add an optional callback that
+receives a sanitized progress projection after each completed agent
+or classic step. The SSE route bridges this callback to an
 `asyncio.Queue` using a thread-safe loop handoff while retrieval continues in
 its existing worker thread.
 
@@ -106,12 +106,12 @@ Add cooperative cancellation checks between steps. An in-flight synchronous
 provider call may finish before cancellation takes effect. Cancelled runs do
 not perform final hydration when cancellation is observed in time.
 
-Phase ownership is explicit: the route emits `started`; the map-nav adapter
-emits `planning` before `plan_query` and `searching` before navigation or
-classic discovery; the route emits `reviewing_sources` after retrieval
-selection and before reference hydration; and it emits `finalizing` before
-public projection. Counts are sourced from existing snapshot, reference, and
-assembled-result counts and are omitted when not yet known.
+Phase ownership is explicit: the route emits `started`; the live route
+emits `searching` during classic discovery or agent_explore tool steps; the
+route emits `reviewing_sources` after retrieval selection and before
+reference hydration; and it emits `finalizing` before public projection.
+Counts are sourced from existing reference and assembled-result counts and
+are omitted when not yet known.
 
 ## Correct duration accounting
 
@@ -132,15 +132,15 @@ Required changes:
 - pass the execution start timestamp into `TraceRecorder`;
 - set `retrieval_runs.latency_ms` from that timestamp;
 - record cache-hit runs with the same definition;
-- ensure classic, map-nav, small-corpus, cache-hit, failed, and cancelled
+- ensure classic, agent_explore, small-corpus, cache-hit, failed, and cancelled
   retrievals all have an explicit timing/observability outcome;
 - expose separate `time_to_first_event_ms`, `retrieval_latency_ms`, and
   downstream `time_to_first_token_ms` measurements;
 - retain per-step `elapsed_ms` as step latency, not total request latency.
 
-`retrieval_runs` is the ledger for every retrieval execution, not only
-map-nav. Each row records the route type, `agentic_enabled`, `cache_hit`,
-canonical latency, and terminal status for classic, map-nav, small-corpus,
+`retrieval_runs` is the ledger for every retrieval execution. Each row
+records the route type, `agentic_enabled`, `cache_hit`,
+canonical latency, and terminal status for classic, agent_explore, small-corpus,
 cache-hit, failed, and cancelled runs. Add a backward-compatible status field
 and migration rather than overloading free-form error text.
 
@@ -186,7 +186,7 @@ later local constructor time or include its own flush duration.
 
 ## Verification gates
 
-- correct phase order for map-nav, classic, and small-corpus routes;
+- correct phase order for agent_explore, classic, and small-corpus routes;
 - cache-hit streams emit only applicable phases and identify the cache hit;
 - no sensitive planner or evidence data before the terminal event;
 - terminal citations match the existing JSON endpoint;

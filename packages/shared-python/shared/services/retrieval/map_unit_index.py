@@ -1,4 +1,4 @@
-"""Publication-time materialization of exact map-nav lexical units."""
+"""Publication-time materialization of persisted map-unit lexical units."""
 
 from __future__ import annotations
 
@@ -16,15 +16,15 @@ from shared.models.database.document import (
     DocumentMapUnitToken,
     DocumentSection,
 )
-from shared.services.retrieval.nav.nav_hierarchy import ProviderToolSpace
-from shared.services.retrieval.nav.nav_knowhere import (
+from shared.services.retrieval.scoring.hierarchy import ProviderToolSpace
+from shared.services.retrieval.scoring.knowhere_hybrid import MAP_UNIT_INDEX_FORMAT_VERSION
+from shared.services.retrieval.scoring.knowhere_provider import (
     KnowhereProvider,
     SectionRow,
     UnitRow,
 )
-from shared.services.retrieval.nav.nav_map_scores import build_score_units
-from shared.services.retrieval.nav.knowhere_hybrid import MAP_UNIT_INDEX_FORMAT_VERSION
-from shared.services.retrieval.nav.persisted_score_load import average_idf_from_unit_dfs
+from shared.services.retrieval.scoring.persisted_score_load import average_idf_from_unit_dfs
+from shared.services.retrieval.scoring.score_units import build_score_units
 from shared.services.retrieval.publication_models import DocumentPublicationScope
 
 __all__ = ["MAP_UNIT_INDEX_FORMAT_VERSION", "replace_document_map_units"]

@@ -6,6 +6,10 @@ INTERNAL_RECALL_K_MULTIPLIER = 2
 RRF_K = 60
 DEFAULT_TOP_K = 10
 
+# Final evidence / tool-observation text budget (characters). Used by
+# agent tool-loop harness caps (``ToolBudget.max_chars``).
+EVIDENCE_TEXT_CHAR_BUDGET = 12_000
+
 VALID_CHUNK_TYPES: set[str] = {"text", "image", "table", "page"}
 ASSET_CHUNK_TYPES: set[str] = {"image", "table"}
 

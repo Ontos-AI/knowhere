@@ -23,6 +23,10 @@ from shared.services.retrieval.publication_models import DocumentPublicationScop
 SERVING_MANIFEST_FORMAT_VERSION = 1
 NAMESPACE_MAP_SNAPSHOT_FORMAT_VERSION = 2
 
+# Body chunk types that can own a Root-parked asset via connect_to. Both
+# chunk-track ("text") and page-track ("page") body chunks can embed assets.
+_BODY_CHUNK_TYPES = {"text", "page"}
+
 
 def build_revision_serving_payload(
     db: Session,
@@ -66,7 +70,9 @@ def build_revision_serving_payload(
     }
     remounted_assets: dict[str, list[str]] = {}
     for chunk in chunks:
-        if chunk.chunk_type != "text" or not isinstance(chunk.chunk_metadata, dict):
+        if chunk.chunk_type not in _BODY_CHUNK_TYPES or not isinstance(
+            chunk.chunk_metadata, dict
+        ):
             continue
         connections = chunk.chunk_metadata.get("connect_to")
         if not isinstance(connections, list):

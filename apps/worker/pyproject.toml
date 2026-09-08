@@ -30,6 +30,13 @@ dependencies = [
     "rapidocr-onnxruntime>=1.4.4",
 ]
 
+# Production retrieval runs in apps/api, where cursor-sdk is a base
+# dependency. This extra is only for worker debug/eval scripts.
+[project.optional-dependencies]
+cursor-harness = [
+    "cursor-sdk>=1.0.31",
+]
+
 [dependency-groups]
 dev = [
     "fakeredis[lua]>=2.31.0",

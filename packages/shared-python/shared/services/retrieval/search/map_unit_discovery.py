@@ -1,7 +1,6 @@
 """Classic-route discovery via the persisted map-unit BM25 scorer.
 
-Replaces the retired chunk-level 3-channel SQL scan. Scoring uses the same
-``score_persisted_corpus_many`` formula as map-nav (path + content only).
+Scoring uses ``score_persisted_corpus_many`` over path + content only.
 
 ``chunk_types`` is optional: omitted means score every in-scope unit. When
 the request is image/table only, ``has_image`` / ``has_table`` (written at
@@ -31,14 +30,14 @@ from shared.services.retrieval.hydration.row_utils import (
     iter_connected_target_ids,
     normalize_chunk_type,
 )
-from shared.services.retrieval.nav.knowhere_hybrid import (
+from shared.services.retrieval.scoring.knowhere_hybrid import (
     MAP_UNIT_INDEX_FORMAT_VERSION,
     PersistedScoreCorpus,
     PersistedScoreUnit,
     score_persisted_corpus_many,
     tokenize_query_for_ranker,
 )
-from shared.services.retrieval.nav.persisted_score_load import (
+from shared.services.retrieval.scoring.persisted_score_load import (
     build_channel_bm25_stats,
     combine_average_idf,
 )
@@ -508,26 +507,11 @@ async def map_unit_discovery(
             )
         except Exception as exc:
             logger.warning("retrieval index readiness publish failed: %s", exc)
-        logger.warning(
-            "retrieval map index incomplete user_id=%s namespace=%s "
-            "expected_revisions=%d indexed_revisions=%d fallback=legacy_fts",
-            user_id,
-            namespace,
-            len(expected_revisions),
-            len(index_parts),
-        )
-        return await _legacy_chunk_discovery(
-            db,
-            user_id=user_id,
-            namespace=namespace,
-            query=query,
-            top_k=top_k,
-            exclude_document_ids=exclude_document_ids,
-            exclude_sections=exclude_sections,
-            chunk_types=chunk_types,
-            signal_paths=signal_paths or [],
-            filter_mode=filter_mode,
-            revision_pins=revision_pins,
+        raise RuntimeError(
+            "retrieval map-unit index is incomplete or incompatible "
+            f"(user_id={user_id} namespace={namespace} "
+            f"expected_revisions={len(expected_revisions)} "
+            f"indexed_revisions={len(index_parts)})"
         )
     if has_incomplete_index_statistics:
         logger.warning(
@@ -699,103 +683,6 @@ async def map_unit_discovery(
         payload={"fused_rows": fused_rows},
         latency_ms=latency,
     )
-
-
-async def _legacy_chunk_discovery(
-    db: AsyncSession,
-    *,
-    user_id: str,
-    namespace: str,
-    query: str,
-    top_k: int,
-    exclude_document_ids: list[str],
-    exclude_sections: list[dict[str, str]],
-    chunk_types: set[str] | None,
-    signal_paths: list[str],
-    filter_mode: str,
-    revision_pins: Mapping[str, str] | None,
-) -> DiscoveryResult:
-    """Bounded lexical fallback used while a serving index is incomplete."""
-    clauses = [
-        "d.user_id = :user_id",
-        "d.namespace = :namespace",
-        "d.status = 'active'",
-    ]
-    params: dict[str, Any] = {
-        "user_id": user_id,
-        "namespace": namespace,
-        "query": query,
-        "limit": max(1, int(top_k)),
-    }
-    if revision_pins is None:
-        clauses.append("d.current_job_result_id = dc.job_result_id")
-    else:
-        pairs = [
-            (str(document_id), str(job_result_id))
-            for document_id, job_result_id in revision_pins.items()
-        ]
-        if not pairs:
-            return DiscoveryResult(status="discovery_done", payload={"fused_rows": []})
-        placeholders = []
-        for index, (document_id, job_result_id) in enumerate(pairs):
-            document_key = f"_legacy_doc_{index}"
-            revision_key = f"_legacy_revision_{index}"
-            placeholders.append(f"(:{document_key}, :{revision_key})")
-            params[document_key] = document_id
-            params[revision_key] = job_result_id
-        clauses.append(f"(dc.document_id, dc.job_result_id) IN ({', '.join(placeholders)})")
-    if exclude_document_ids:
-        clauses.append("d.document_id <> ALL(:excluded_doc_ids)")
-        params["excluded_doc_ids"] = exclude_document_ids
-    if chunk_types:
-        type_keys = []
-        for index, chunk_type in enumerate(sorted(chunk_types)):
-            key = f"_legacy_type_{index}"
-            type_keys.append(f":{key}")
-            params[key] = chunk_type
-        clauses.append(f"LOWER(dc.chunk_type) IN ({', '.join(type_keys)})")
-    if signal_paths:
-        signal_parts = []
-        for index, signal in enumerate(signal_paths):
-            key = f"_legacy_signal_{index}"
-            signal_parts.append("LOWER(COALESCE(ds.section_path, '')) LIKE :" + key)
-            params[key] = f"%{signal.lower()}%"
-        combined = " OR ".join(signal_parts)
-        clauses.append(f"({combined})" if filter_mode == "keep" else f"NOT ({combined})")
-    for index, item in enumerate(exclude_sections):
-        document_id = str(item.get("document_id") or "").strip()
-        section_path = str(item.get("section_path") or "").strip()
-        if not document_id or not section_path:
-            continue
-        doc_key = f"_legacy_exclude_doc_{index}"
-        path_key = f"_legacy_exclude_path_{index}"
-        params[doc_key] = document_id
-        params[path_key] = section_path
-        clauses.append(
-            "NOT (dc.document_id = :" + doc_key + " AND ("
-            "COALESCE(ds.section_path, '') = :" + path_key + " OR "
-            "POSITION(:" + path_key + " || ' / ' IN COALESCE(ds.section_path, '')) = 1))"
-        )
-    where_sql = " AND ".join(clauses)
-    statement = text(
-        "SELECT dc.chunk_id, dc.document_id, dc.section_id, dc.chunk_type, "
-        "dc.content, dc.source_chunk_path, dc.file_path, dc.chunk_metadata, "
-        "dc.job_result_id, dc.sort_order, ds.section_path, d.source_file_name, "
-        "jr.job_id, GREATEST(ts_rank_cd(dc.path_search_tsv, plainto_tsquery('simple', :query)), "
-        "2 * ts_rank_cd(dc.content_search_tsv, plainto_tsquery('simple', :query))) AS score "
-        "FROM document_chunks dc JOIN documents d ON d.document_id = dc.document_id "
-        "LEFT JOIN document_sections ds ON ds.section_id = dc.section_id "
-        "LEFT JOIN job_results jr ON jr.id = dc.job_result_id "
-        f"WHERE {where_sql} AND (dc.path_search_tsv @@ plainto_tsquery('simple', :query) "
-        "OR dc.content_search_tsv @@ plainto_tsquery('simple', :query) "
-        "OR LOWER(COALESCE(dc.term_search_text, '')) LIKE LOWER(:term_query)) "
-        "ORDER BY score DESC, dc.sort_order, dc.chunk_id LIMIT :limit"
-    )
-    params["term_query"] = f"%{query}%"
-    rows = [dict(row._mapping) for row in (await db.execute(statement, params)).all()]
-    if rows:
-        normalize_row_scores(rows, source_field="score", target_field="discovery_score", default=0.5)
-    return DiscoveryResult(status="discovery_done", payload={"fused_rows": rows})
 
 
 def _as_metadata_dict(value: object) -> dict[str, Any]:

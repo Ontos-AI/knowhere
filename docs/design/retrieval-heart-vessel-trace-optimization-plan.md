@@ -17,7 +17,7 @@ request, not a historical request:
 - Trace: `01a05e530f7787333c0e32ca16633b85`
 - Route: `/api/v1/retrieval/query`
 - HTTP status: `200`
-- Router: `mapnav`
+- Router: `agent_explore`
 - Stop reason: `completed`
 - Server span: `42.365 s`
 - Client wall time: `44.690 s`
@@ -302,13 +302,13 @@ Acceptance criteria:
   demonstrated; otherwise this remains a validation note, not an optimization
   slice;
 - selected chunk IDs, scores, ordering, and evidence remain unchanged;
-- benchmark results record the route family (`classic`, `mapnav`, or
+- benchmark results record the route family (`classic`, `agent_explore`, or
   `small_corpus`) and separate cold, warm, and response-cache-hit requests;
   cache-hit timings are not mixed into cold-request latency claims.
 
 ### P0: Make map-unit projection token-selective
 
-The current map-nav reader already makes its frequency lookup token-selective,
+The current map-unit reader already makes its frequency lookup token-selective,
 but it still loads every revision-scoped map unit before applying the query
 tokens. Change only the unit projection: start from
 `document_map_unit_tokens` filtered by `channel` and `token_hash`, then join the
