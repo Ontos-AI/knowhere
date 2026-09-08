@@ -101,10 +101,10 @@ flowchart TB
     end
 
     subgraph RETRIEVE["⑤ Retrieval (shared)"]
-        Query["GET /v1/retrieval/query"] --> Pipeline["run_retrieval_query"]
+        Query["POST /v1|/v2 retrieval/query"] --> Pipeline["run_retrieval_query"]
         Pipeline --> Classic["classic_topk / small_corpus (use_agentic=False)"]
         Pipeline --> MapNav["mapnav checklist (default / use_agentic≠False)"]
-        Classic --> Channels["3-Channel BM25 (path/content/term)"]
+        Classic --> Channels["map_unit_discovery: path+content BM25 -> RRF"]
         Channels --> Rank["rank_retrieval_candidates"]
         MapNav --> NavSnap["nav_snapshot + run_nav_episode"]
         NavSnap --> Bridge["nav_bridge referenced_chunks"]
@@ -546,7 +546,7 @@ debug CSVs (`preds_*.csv`) are saved alongside for troubleshooting.
 Core retrieval internals are grouped by ownership:
 
 - `execution/`: request shaping, route selection (classic / mapnav / small_corpus), and public response projection.
-- `search/`: lexical channels, scoring, section filters, candidate ranking, and classic `bottom_discovery`.
+- `search/`: `map_unit_discovery` (persisted map-unit BM25 discovery, with a legacy chunk-level PG FTS fallback), scoring, section filters, candidate ranking.
 - `hydration/`: row/path/reference hydration, inline assets, and result assembly.
 - `nav/` + `nav_*.py`: map-nav checklist episode (PLANNER / HARVEST / CONTROL).
 - `trace/`: `DecisionTraceStep` mapping and `TraceRecorder`.
@@ -555,24 +555,33 @@ Core retrieval internals are grouped by ownership:
 
 ### Two Retrieval Modes
 
-Per-request `use_agentic`: `False` → classic 3-channel top-K; `None`/`True` → map-nav (default).
+Per-request `use_agentic`: `False` → classic top-K (map-unit BM25); `None`/`True` → map-nav (default).
 
-#### Classic Mode (3-Channel RRF)
+#### Classic Mode (map-unit BM25 + legacy FTS fallback)
+
+Primary path is `search.map_unit_discovery.map_unit_discovery`: Python BM25Okapi
+over the persisted `document_map_unit_tokens` index, path and content channels
+only, fused by RRF.
 
 ```mermaid
 flowchart LR
-    Q[Query] --> P[Path Channel: BM25 on path_search_text]
-    Q --> C[Content Channel: BM25 on content_search_text]
-    Q --> T[Term Channel: substring on term_search_text]
+    Q[Query] --> P["Path channel: BM25 over document_map_unit_tokens (channel=path)"]
+    Q --> C["Content channel: BM25 over document_map_unit_tokens (channel=content)"]
     P --> RRF["RRF Fusion (k=60)"]
     C --> RRF
-    T --> RRF
     RRF --> Rank[rank_retrieval_candidates]
     Rank --> Assemble[hydration.result_assembly]
 ```
 
-**Channel weights** (default): path=1.0, content=2.0, term=1.5
-**RRF formula**: `score = weight / (k + rank + 1)` per channel, summed across channels.
+**Channel weights** (default): path=1.0, content=2.0. **RRF formula**:
+`score = weight / (k + rank + 1)` per channel, summed across channels, `k=60`.
+
+There is no scored term channel in this primary path. `term_search_text` /
+`term_search_text_lower` are persisted at publish time but are only read by
+the **legacy fallback** (`_legacy_chunk_discovery`), which runs only when a
+revision's map-unit index is missing or incomplete: a single SQL query
+scoring `GREATEST(ts_rank_cd(path_search_tsv), 2 * ts_rank_cd(content_search_tsv))`
+OR `term_search_text LIKE '%query%'`, not three independently-ranked channels.
 
 #### Map-nav Mode (default)
 

@@ -28,12 +28,11 @@ def test_build_nav_config_is_checklist_map_trim_stack() -> None:
     cfg = build_nav_config()
     assert cfg.mode == "checklist"
     assert cfg.is_checklist
-    assert cfg.map_mode is True
     assert cfg.policy == "llm"
     assert cfg.subgoal_max_attempts == 2
     assert cfg.max_replans == 1
     assert cfg.max_waves == 0
-    assert cfg.max_harvest_depth == 3
+    assert cfg.max_harvest_depth == 5
     assert not hasattr(cfg, "compose_packing_mode")
     assert cfg.llm_model == MAPNAV_MODEL
     assert cfg.planner_model == MAPNAV_MODEL

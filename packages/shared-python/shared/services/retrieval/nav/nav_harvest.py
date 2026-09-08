@@ -29,7 +29,7 @@ from .nav_actions import build_legal_actions, format_actionable_map_observation
 from .nav_compose import parse_collect_confidence
 from .nav_plan import Subgoal
 from .nav_policy import _extract_json_obj  # reuse: same tolerant JSON extraction
-from .nav_projection import build_projection
+from .nav_projection import build_map
 from .nav_types import ActionKind, LegalAction, NavConfig, NavState, Projection
 
 _HARVEST_PURPOSE_DEPTH0 = "nav_harvest_v1"
@@ -312,7 +312,7 @@ def _harvest_node(
     max_depth = max(0, int(getattr(config, "max_harvest_depth", 0) or 0))
     show_harvested = bool(config.is_checklist)
     subgoal_dismissed = state.subgoal_dismissed_section_ids.get(subgoal.id, set())
-    projection = build_projection(
+    projection = build_map(
         ts,
         doc_id=state.doc_id,
         query=query,
@@ -326,7 +326,7 @@ def _harvest_node(
         allowed_section_ids=allowed_section_ids,
     )
     actions = build_legal_actions(
-        state, projection, step_idx=0, config=config, depth=depth, ts=ts
+        state, projection, config=config, depth=depth, ts=ts
     )
     actionable = [a for a in actions if a.kind != ActionKind.FINISH]
     if not actionable:

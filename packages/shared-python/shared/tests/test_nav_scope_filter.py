@@ -82,8 +82,6 @@ def _cfg(**kwargs: Any) -> NavConfig:
     data = {
         "enable_node_filter": True,
         "filter_max_rounds": 3,
-        "filter_min_hits": 1,
-        "filter_max_hits": 40,
         "llm_model": "test-model",
         "llm_max_tokens": 256,
     }
@@ -194,7 +192,7 @@ def test_too_many_hits_tighten(monkeypatch: Any) -> None:
     )
     out = run_scope_filter(
         _ts(),
-        _cfg(filter_max_hits=1),
+        _cfg(),
         query="everything",
         doc_ids=["doc_apple", "doc_other"],
         seed_filter=node_filter([field_predicate("path", ["Root"])]),
@@ -231,7 +229,7 @@ def test_max_rounds_hard_stop(monkeypatch: Any) -> None:
     )
     assert out.decision == "fallback"
     assert out.rounds == 2
-    assert out.reason == "max_rounds_out_of_band"
+    assert out.reason == "max_rounds"
 
 
 def test_cardinality_drives_scoped_harvest(monkeypatch: Any) -> None:
@@ -241,12 +239,11 @@ def test_cardinality_drives_scoped_harvest(monkeypatch: Any) -> None:
     )
     out = run_scope_filter(
         _ts(),
-        _cfg(filter_min_hits=1, filter_max_hits=40),
+        _cfg(),
         query="apple",
         doc_ids=["doc_apple", "doc_other"],
         seed_filter=node_filter([field_predicate("path", ["AAPL"])]),
     )
-    # filename + Root + Q3 → more than min_hits → scoped_harvest
     assert out.decision == "scoped_harvest"
     assert out.rounds == 1
     assert "sec_q3" in out.settled_section_ids

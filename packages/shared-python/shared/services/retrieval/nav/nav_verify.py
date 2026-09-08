@@ -91,7 +91,7 @@ def extract_slots_llm(
         f"Slots to fill: {json.dumps(names, ensure_ascii=False)}\n"
         f"Contract: {contract_kind}"
         + (f", cardinality={cardinality}" if cardinality is not None else "")
-        + f"\n\n=== Evidence ===\n{evidence_text[:6000]}\n=== End Evidence ===\n"
+        + f"\n\n=== Evidence ===\n{evidence_text}\n=== End Evidence ===\n"
     )
     import time
 
@@ -248,17 +248,12 @@ def apply_bindings_from_result(
     return out
 
 
-def build_evidence_text_from_chunks(chunks: Any, *, limit: int = 8000) -> str:
-    """Concatenate (chunk, score) texts up to a char budget."""
+def build_evidence_text_from_chunks(chunks: Any) -> str:
+    """Concatenate (chunk, score) texts in order."""
     parts: List[str] = []
-    total = 0
     for chunk, _score in list(chunks or []):
         text = str(getattr(chunk, "text", "") or getattr(chunk, "content", "") or "")
         if not text.strip():
             continue
-        if total >= limit:
-            break
-        take = text[: max(0, limit - total)]
-        parts.append(take)
-        total += len(take)
+        parts.append(text)
     return "\n".join(parts)

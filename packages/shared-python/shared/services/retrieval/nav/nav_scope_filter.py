@@ -2,7 +2,7 @@
 
 The policy writes or revises a ``NodeFilter``. Apply is deterministic. The
 loop stops at ``filter_max_rounds``, token exhaustion, explicit fallback, or
-a done-in-band settle. Decision is cardinality-driven; the agent may override.
+agent ``done``. The agent may override settle; otherwise hits → scoped harvest.
 """
 
 from __future__ import annotations
@@ -85,8 +85,6 @@ def run_scope_filter(
     from .nav_token_budget import nav_token_budget_exhausted, stamp_step_detail
 
     max_rounds = max(1, int(getattr(config, "filter_max_rounds", 3) or 3))
-    min_hits = max(0, int(getattr(config, "filter_min_hits", 1) or 0))
-    max_hits = max(min_hits, int(getattr(config, "filter_max_hits", 40) or 0))
     wanted = [str(did).strip() for did in doc_ids if str(did).strip()]
     map_text = str(map_observation or "").strip() or _compact_map(ts, wanted)
     current = seed_filter
@@ -132,7 +130,6 @@ def run_scope_filter(
         result = apply_node_filter(ts, wanted, current)
         last_result = result
         last_obs = render_submap_observation(ts, result, doc_ids=wanted)
-        in_band = min_hits <= result.cardinality <= max_hits
         if steps_out is not None:
             from ._compat import AgentStep
 
@@ -148,7 +145,6 @@ def run_scope_filter(
                                 {p.field for p in current.predicates}
                             ),
                             "cardinality": result.cardinality,
-                            "truncated": result.truncated,
                             "failed_predicates": list(result.failed_predicates),
                             "matched_section_ids": list(result.matched_section_ids),
                             "action": "",
@@ -165,11 +161,9 @@ def run_scope_filter(
                 steps_out[-1].detail["action"] = "max_rounds"
             return _settle(
                 result,
-                in_band=in_band,
                 agent_decision=last_decision,
-                min_hits=min_hits,
                 rounds=round_idx,
-                reason=("max_rounds" if in_band else "max_rounds_out_of_band"),
+                reason="max_rounds",
                 steps_out=steps_out,
             )
 
@@ -224,9 +218,7 @@ def run_scope_filter(
         if kind == "done":
             return _settle(
                 result,
-                in_band=in_band,
                 agent_decision=last_decision,
-                min_hits=min_hits,
                 rounds=round_idx,
                 reason=last_reason or "done",
                 steps_out=steps_out,
@@ -236,12 +228,9 @@ def run_scope_filter(
             current = nxt
 
     assert last_result is not None
-    in_band = min_hits <= last_result.cardinality <= max_hits
     return _settle(
         last_result,
-        in_band=in_band,
         agent_decision=last_decision,
-        min_hits=min_hits,
         rounds=max_rounds,
         reason=last_reason or "max_rounds",
         steps_out=steps_out,
@@ -251,27 +240,22 @@ def run_scope_filter(
 def _settle(
     result: FilterResult,
     *,
-    in_band: bool,
     agent_decision: Optional[ScopeDecision],
-    min_hits: int,
     rounds: int,
     reason: str,
     steps_out: Optional[List[Any]],
 ) -> ScopeFilterOutcome:
-    if not in_band or result.cardinality <= 0:
+    if result.cardinality <= 0:
         decision: ScopeDecision = "fallback"
-        settle_reason = reason or "out_of_band"
+        settle_reason = reason or "no_hits"
     elif agent_decision in _DECISIONS:
         decision = agent_decision
         settle_reason = reason or "agent"
         if decision == "fallback":
             settle_reason = reason or "agent_fallback"
-    elif result.cardinality <= min_hits:
-        decision = "collect_all"
-        settle_reason = reason or "small_cardinality"
     else:
         decision = "scoped_harvest"
-        settle_reason = reason or "medium_cardinality"
+        settle_reason = reason or "hits"
     if steps_out:
         steps_out[-1].detail["decision"] = decision
         steps_out[-1].detail["reason"] = settle_reason
