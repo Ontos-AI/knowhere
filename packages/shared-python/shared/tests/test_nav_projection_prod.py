@@ -18,27 +18,13 @@ from shared.services.retrieval.nav.nav_projection import (
     _section_summary_for_map,
     build_map,
 )
-from shared.services.retrieval.nav.nav_types import NavConfig, map_mode_enabled
 from shared.services.retrieval.nav_config import build_nav_config
 from shared.services.retrieval.nav_snapshot import build_nav_snapshot
 
 
-def test_map_mode_enabled_trusts_config_over_env(monkeypatch: Any) -> None:
-    monkeypatch.setenv("NAV_MAP_MODE", "0")
-    cfg_on = NavConfig(map_mode=True)
-    cfg_off = NavConfig(map_mode=False)
-    assert map_mode_enabled(cfg_on) is True
-    assert map_mode_enabled(cfg_off) is False
-    monkeypatch.setenv("NAV_MAP_MODE", "1")
-    assert map_mode_enabled(cfg_off) is False
-    assert map_mode_enabled(None) is True
-
-
 def test_build_nav_config_authoritative_for_production() -> None:
     cfg = build_nav_config()
-    assert cfg.map_mode is True
     assert cfg.mode == "checklist"
-    assert map_mode_enabled(cfg) is True
 
 
 def test_section_summary_falls_back_to_provider_structure() -> None:

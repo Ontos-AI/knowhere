@@ -12,7 +12,7 @@ from shared.services.retrieval.nav.nav_knowhere import (
 )
 from shared.services.retrieval.nav.nav_orchestrate import _execute_subgoal_harvest_once
 from shared.services.retrieval.nav.nav_plan import RetrievalPlan, Subgoal
-from shared.services.retrieval.nav.nav_projection import build_projection
+from shared.services.retrieval.nav.nav_projection import build_map
 from shared.services.retrieval.nav.nav_scope_filter import ScopeFilterOutcome
 from shared.services.retrieval.nav.nav_types import NavConfig, NavState
 
@@ -73,7 +73,6 @@ def _cfg(**kwargs: Any) -> NavConfig:
     data = {
         "enable_node_filter": True,
         "mode": "checklist",
-        "map_mode": True,
         "llm_model": "test-model",
     }
     data.update(kwargs)
@@ -296,7 +295,7 @@ def test_flag_off_skips_pre_pass(monkeypatch: Any) -> None:
 def test_projection_keeps_allowed_and_ancestors() -> None:
     ts = _ts()
     cfg = _cfg()
-    projection = build_projection(
+    projection = build_map(
         ts,
         doc_id="",
         query="profit",

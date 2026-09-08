@@ -20,24 +20,12 @@ def _env_enabled(name: str, default: str = "1") -> bool:
     return os.environ.get(name, default).strip().lower() not in {"0", "false", "no", "off"}
 
 
-def _budget_mode(step_idx: int, config: NavConfig, *, max_steps: Optional[int] = None) -> str:
-    episode_steps = int(max_steps if max_steps is not None else config.max_steps)
-    remaining = max(0, episode_steps - step_idx)
-    if remaining <= config.critical_remaining_steps:
-        return "critical"
-    if remaining <= config.tight_remaining_steps:
-        return "tight"
-    return "normal"
-
-
 def build_legal_actions(
     state: NavState,
     projection: Projection,
     *,
-    step_idx: int,
     config: NavConfig,
     depth: int = 0,
-    max_steps: Optional[int] = None,
     ts: Any = None,
 ) -> List[LegalAction]:
     """Every visible node is actionable: COLLECT + DISPATCH (when allowed) + FINISH.
@@ -47,8 +35,6 @@ def build_legal_actions(
     DISPATCH never targets the current scope root (no self-dispatch loop).
     Document / namespace nodes are DISPATCH-only (level registry via ``ts``).
     """
-    episode_steps = int(max_steps if max_steps is not None else config.max_steps)
-    mode = _budget_mode(step_idx, config, max_steps=episode_steps)
     actions: List[LegalAction] = []
     filter_collected = _env_enabled("NAV_FILTER_COLLECTED_SECTIONS")
     collected_sids = set(state.collected_section_ids) | {
@@ -115,7 +101,6 @@ def build_legal_actions(
             and view.has_children
             and sid not in collected_sids
             and sid != scope_id
-            and mode != "critical"
         ):
             actions.append(
                 LegalAction(

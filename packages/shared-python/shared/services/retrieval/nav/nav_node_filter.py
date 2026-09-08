@@ -2,9 +2,7 @@
 
 Agent-authored predicates run on ``path`` (filename + title chain via
 ``path_titles``) and ``summary``. Field predicates AND together; terms inside
-one field OR together. No top-K and no result truncation for substring
-matches. Regex is bounded by pattern length, node count, and compile/search
-exceptions.
+one field OR together. No top-K and no result truncation.
 """
 
 from __future__ import annotations
@@ -17,7 +15,6 @@ MatchKind = Literal["substring", "regex"]
 FilterField = Literal["path", "summary"]
 
 _MAX_REGEX_PATTERN_LEN = 256
-_MAX_REGEX_NODES = 100_000
 
 
 @dataclass(frozen=True)
@@ -37,7 +34,6 @@ class FilterResult:
     matched_section_ids: List[str]
     matched_doc_ids: List[str]
     cardinality: int
-    truncated: bool = False
     failed_predicates: List[str] = field(default_factory=list)
 
 
@@ -73,7 +69,6 @@ def apply_node_filter(
             matched_section_ids=[],
             matched_doc_ids=[],
             cardinality=0,
-            truncated=False,
             failed_predicates=failed,
         )
     summaries = _load_summaries(ts)
@@ -81,16 +76,9 @@ def apply_node_filter(
     matched_docs: List[str] = []
     seen_sections: set[str] = set()
     seen_docs: set[str] = set()
-    visited = 0
-    truncated = False
-    uses_regex = any(pred.match == "regex" for pred in nf.predicates)
 
     for doc_id in wanted:
         for sid, owner_doc, is_doc_node in _iter_doc_nodes(ts, doc_id):
-            visited += 1
-            if uses_regex and visited > _MAX_REGEX_NODES:
-                truncated = True
-                break
             path_text = _path_text(ts, sid, owner_doc)
             summary_text = "" if is_doc_node else str(summaries.get(sid) or "")
             if not is_doc_node and not summary_text:
@@ -110,14 +98,11 @@ def apply_node_filter(
             if owner_doc and owner_doc not in seen_docs:
                 seen_docs.add(owner_doc)
                 matched_docs.append(owner_doc)
-        if truncated:
-            break
 
     return FilterResult(
         matched_section_ids=matched_sections,
         matched_doc_ids=matched_docs,
         cardinality=len(matched_sections),
-        truncated=truncated,
         failed_predicates=failed,
     )
 
@@ -131,8 +116,6 @@ def render_submap_observation(
     """Hit-count line plus every matched node (path + summary)."""
     del doc_ids
     header = f"hits={result.cardinality}"
-    if result.truncated:
-        header = f"{header} truncated=true"
     if result.failed_predicates:
         header = f"{header} failed_predicates={len(result.failed_predicates)}"
     if result.cardinality == 0:

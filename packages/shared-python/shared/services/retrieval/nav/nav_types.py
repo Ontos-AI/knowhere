@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Tuple
@@ -14,33 +13,8 @@ class ActionKind(str, Enum):
     FINISH = "finish"
 
 
-def map_mode_enabled(config: "NavConfig | None" = None) -> bool:
-    """True when map-first observation/actions are active.
-
-    When ``config`` is provided it is authoritative (Knowhere production binds
-    ``map_mode`` on ``NavConfig``). Env ``NAV_MAP_MODE`` is only for EXP scripts
-    that call without a config.
-    """
-    if config is not None:
-        return bool(getattr(config, "map_mode", False))
-    return os.environ.get("NAV_MAP_MODE", "0").strip().lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-        "",
-    }
-
-
 @dataclass
 class NavConfig:
-    projection_depth: int = 2
-    projection_child_limit: int = 8
-    projection_char_limit: int = 8000
-    summary_chars: int = 120
-    max_steps: int = 8
-    collect_k: int = 64
-    search_k: int = 40
     collect_top_k: int = 6  # rescue-K for highlights (not action quota)
     read_score_bonus: float = 10.0
     policy: str = "rule"
@@ -49,22 +23,16 @@ class NavConfig:
     llm_model: str = ""
     llm_temperature: float = 0.0
     llm_max_tokens: int = 256
-    critical_remaining_steps: int = 1
-    tight_remaining_steps: int = 2
-    # Map-first mode (also gated by NAV_MAP_MODE env).
-    map_mode: bool = False
     map_char_limit: int = 5000  # display budget (fold threshold); only hard display limit
-    map_children_limit: int = 10000
     # Recursive dispatch.
     enable_recursive_dispatch: bool = True
-    max_dispatch_depth: int = 3
+    max_dispatch_depth: int = 5
     subagent_model: str = ""
     # Scoped maps whose estimated (with-summary) size exceeds this threshold drop
     # inline summaries (title-only), nudging the agent to DISPATCH deeper rather
-    # than broadly COLLECT the whole parent. Default 1500 == evidence budget 500 x3.
-    # run_nav_episode re-derives it from the episode's evidence budget x mult below.
+    # than broadly COLLECT the whole parent. run_nav_episode re-derives it from
+    # the episode's evidence budget (budget_chars x _SCOPE_SUMMARY_BUDGET_MULT).
     scope_inline_summary_char_limit: int = 1500
-    scope_inline_summary_budget_mult: float = 3.0
     # COMPOSE child score = own_unit + compose_confidence_weight * collect_confidence
     # (see nav_compose._child_final_score); drives group_key / within-group rank.
     compose_confidence_weight: float = 0.5
@@ -94,15 +62,10 @@ class NavConfig:
     # Checklist: 0 = no extra wave cap (stop when no ready subgoals).
     max_waves: int = 0
     # Structural recursion depth cap for harvest() (checklist mode).
-    max_harvest_depth: int = 3
-    # Retired: plan_control now shows full prebuilt section summaries (already
-    # head/tail clipped at summary-build time), not a raw-evidence char cut.
-    plan_control_digest_chars: int = 600
+    max_harvest_depth: int = 5
     # WHERE node filter (pre-harvest). Off until orchestrate enables a subgoal.
     enable_node_filter: bool = False
     filter_max_rounds: int = 3
-    filter_min_hits: int = 1
-    filter_max_hits: int = 40
 
     @property
     def is_checklist(self) -> bool:
@@ -111,14 +74,6 @@ class NavConfig:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "NavConfig":
         flat = dict(data)
-        budget_modes = flat.pop("budget_modes", {}) or {}
-        if isinstance(budget_modes, dict):
-            flat["critical_remaining_steps"] = int(
-                budget_modes.get("critical_remaining_steps", cls.critical_remaining_steps)
-            )
-            flat["tight_remaining_steps"] = int(
-                budget_modes.get("tight_remaining_steps", cls.tight_remaining_steps)
-            )
         # Retired product flags (dropped after the navigate loop was removed).
         for dead in (
             "expand_top_k",
@@ -129,6 +84,9 @@ class NavConfig:
             "map_collapse_min_score",
             "dispatch_group_size",
             "dispatch_max_workers",
+            "projection_depth",
+            "projection_child_limit",
+            "projection_char_limit",
             "enable_contract_verify",
             "enable_per_subgoal_illumination",
             "enable_goal_conditioned_folding",
@@ -158,12 +116,30 @@ class NavConfig:
             "enable_depth0_oversize_to_dispatch",
             "depth0_oversize_char_limit",
             "compose_group_rank_max_chars",
+            # Never wired to any consumer.
+            "search_k",
+            "plan_control_digest_chars",
+            # Legacy shallow-projection leftovers.
+            "summary_chars",
+            "map_children_limit",
+            # Budget-mode step gating: build_legal_actions always ran at
+            # step_idx=0, so critical/tight never triggered.
+            "max_steps",
+            "budget_modes",
+            "critical_remaining_steps",
+            "tight_remaining_steps",
+            # Folded into nav_agent._SCOPE_SUMMARY_BUDGET_MULT.
+            "scope_inline_summary_budget_mult",
+            "collect_k",
+            "filter_min_hits",
+            "filter_max_hits",
+            "map_mode",
         ):
             flat.pop(dead, None)
         flat["mode"] = "checklist"
         allowed = {f.name for f in cls.__dataclass_fields__.values()}
         cfg = cls(**{k: v for k, v in flat.items() if k in allowed})
-        if cfg.map_mode and cfg.llm_max_tokens < 256:
+        if cfg.llm_max_tokens < 256:
             cfg.llm_max_tokens = 256
         return cfg
 
@@ -197,7 +173,6 @@ class Projection:
     visible_sections: List[SectionView]
     truncated: bool = False  # True if any budget-hidden nodes
     id_to_section: Dict[str, str] = field(default_factory=dict)
-    map_mode: bool = False
     tree_sections: List[SectionView] = field(default_factory=list)
     highlight_ids: List[str] = field(default_factory=list)
 
@@ -255,7 +230,6 @@ class NavState:
     collected_section_ids: set[str] = field(default_factory=set)
     blocked_collect_section_ids: set[str] = field(default_factory=set)
     action_history: List[Dict[str, Any]] = field(default_factory=list)
-    refusal_events: List[Dict[str, Any]] = field(default_factory=list)
     dismissed_section_ids: set[str] = field(default_factory=set)
     # Explicit COLLECT confidence by section_id; hydration-only descendants stay 0.
     collect_confidence: Dict[str, float] = field(default_factory=dict)

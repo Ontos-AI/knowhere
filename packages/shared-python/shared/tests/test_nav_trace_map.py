@@ -140,7 +140,7 @@ def test_node_filter_steps_map_and_count_tokens() -> None:
                     "cardinality": 2,
                     "action": "done",
                     "decision": "collect_all",
-                    "reason": "small_cardinality",
+                    "reason": "hits",
                     "matched_section_ids": ["sec_q3"],
                     "token_limit": 100000,
                     "tokens_used_total": 80,

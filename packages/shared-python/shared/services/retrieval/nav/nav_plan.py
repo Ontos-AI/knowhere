@@ -445,6 +445,8 @@ def parse_retrieval_plan(
         if not rq:
             rq = need or query
         produces = _as_str_list(row.get("produces"))
+        # TODO: revisit one-slot-per-subgoal hard clip (produces[:1]) —
+        # prompt + validate also enforce it; may want multi-slot later.
         if len(produces) > 1:
             produces = produces[:1]
         subgoals.append(
@@ -469,6 +471,7 @@ def parse_retrieval_plan(
         s.prefer_after = [d for d in s.prefer_after if d in known and d != s.id]
 
     _apply_slot_dependency_inference(subgoals)
+    # TODO: same one-slot-per-subgoal policy as parse above; revisit with multi-slot.
     for s in subgoals:
         if len(s.produces) > 1:
             s.produces = s.produces[:1]
@@ -556,6 +559,7 @@ def validate_retrieval_plan(plan: RetrievalPlan) -> Tuple[bool, str]:
                 return False, f"bad_prefer_after:{s.id}->{d}"
         if s.contract.kind not in _CONTRACT_KINDS:
             return False, f"bad_contract:{s.id}"
+        # TODO: revisit multi_produces rejection with one-slot-per-subgoal clip.
         if len(s.produces) > 1:
             return False, f"multi_produces:{s.id}"
         for ref in unbound_slots(s.retrieval_query) + unbound_slots(s.need):
@@ -602,7 +606,6 @@ def build_planning_observation(
     actions = build_legal_actions(
         state,
         projection,
-        step_idx=0,
         config=plan_cfg,
         depth=0,
         ts=ts,

@@ -115,7 +115,7 @@ def _children_ids(ts: Any, section_id: str, doc_id: str) -> List[str]:
         return [
             str(r.get("section_id") or "").strip() for r in rows if r.get("section_id")
         ]
-    rows = children_fn(section_id, doc_id, limit=100000)
+    rows = children_fn(section_id, doc_id)
     return [str(r.get("section_id") or "").strip() for r in rows if r.get("section_id")]
 
 

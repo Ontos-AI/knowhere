@@ -193,7 +193,15 @@ async def _run_classic_topk_route(
 async def _run_mapnav_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
-    """Default agentic path: PLANNER + HARVEST + CONTROL (checklist map-nav)."""
+    """Default agentic path: PLANNER + HARVEST + CONTROL (checklist map-nav).
+
+    LEGACY, PENDING REPLACEMENT: ``agent_explore`` will become the default
+    agentic route once it passes its evaluation gate; this route then stays
+    only as the ``RETRIEVAL_AGENTIC_ROUTER=mapnav`` fallback until Phase 5
+    cleanup. Do not add new capabilities here — new agentic-retrieval work
+    belongs in ``shared/services/retrieval/agent_tools/`` and
+    ``shared/services/retrieval/agent_explore/``.
+    """
     process_started = resource.getrusage(resource.RUSAGE_SELF)
     from shared.services.retrieval import nav_llm_backend  # noqa: F401
     from shared.services.retrieval.nav import run_nav_episode
