@@ -58,27 +58,27 @@ def test_ocr_pages_writes_joined_text_to_blackboard() -> None:
 
     calls: list[tuple[int, str, int]] = []
 
-    def fake_child(worker_fn, page, image_path, *, timeout):
-        assert worker_fn.__name__ == "_run_ocr_worker"
-        calls.append((page, image_path, timeout))
-        assert page == 1
-        assert image_path == "/tmp/ocr_page_1.png"
-        assert timeout == 300
-        return {
-            "ok": True,
-            "page": page,
-            "lines": [
-                {
-                    "box": [[0, 0], [1, 0], [1, 1], [0, 1]],
-                    "text": "Hello",
-                    "score": 0.9,
-                }
-            ],
-        }
+    class FakeRunner:
+        def run_page(self, page, image_path, *, timeout):
+            assert page == 1
+            assert image_path == "/tmp/ocr_page_1.png"
+            calls.append((page, image_path, timeout))
+            assert timeout == 300
+            return {
+                "ok": True,
+                "page": page,
+                "lines": [
+                    {
+                        "box": [[0, 0], [1, 0], [1, 1], [0, 1]],
+                        "text": "Hello",
+                        "score": 0.9,
+                    }
+                ],
+            }
 
     with (
         patch.dict(ocr_pages.__globals__, {"render_pages": fake_render}),
-        patch.dict(ocr_pages.__globals__, {"run_in_child_process": fake_child}),
+        patch.dict(ocr_pages.__globals__, {"_OCR_RUNNER": FakeRunner()}),
     ):
         result = ocr_pages(ctx, {"pages": [1]})
 
@@ -91,7 +91,7 @@ def test_ocr_pages_writes_joined_text_to_blackboard() -> None:
     assert calls == [(1, "/tmp/ocr_page_1.png", 300)]
 
 
-def test_ocr_pages_runs_one_child_per_page() -> None:
+def test_ocr_pages_runs_one_runner_request_per_page() -> None:
     ctx = _ctx()
     calls: list[tuple[int, str]] = []
 
@@ -101,21 +101,15 @@ def test_ocr_pages_runs_one_child_per_page() -> None:
             {"page": 2, "png_path": "/tmp/ocr_page_2.png"},
         ]
 
-    def fake_child(
-        worker_fn: object,
-        page: int,
-        image_path: str,
-        *,
-        timeout: int,
-    ) -> dict[str, object]:
-        assert getattr(worker_fn, "__name__", None) == "_run_ocr_worker"
-        assert timeout == 300
-        calls.append((page, image_path))
-        return {"ok": True, "page": page, "lines": []}
+    class FakeRunner:
+        def run_page(self, page, image_path, *, timeout):
+            assert timeout == 300
+            calls.append((page, image_path))
+            return {"ok": True, "page": page, "lines": []}
 
     with (
         patch.dict(ocr_pages.__globals__, {"render_pages": fake_render}),
-        patch.dict(ocr_pages.__globals__, {"run_in_child_process": fake_child}),
+        patch.dict(ocr_pages.__globals__, {"_OCR_RUNNER": FakeRunner()}),
     ):
         result = ocr_pages(ctx, {"pages": [1, 2]})
 
