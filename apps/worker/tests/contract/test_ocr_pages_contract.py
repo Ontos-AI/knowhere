@@ -63,7 +63,7 @@ def test_ocr_pages_writes_joined_text_to_blackboard() -> None:
             assert page == 1
             assert image_path == "/tmp/ocr_page_1.png"
             calls.append((page, image_path, timeout))
-            assert timeout == 300
+            assert timeout == 1800
             return {
                 "ok": True,
                 "page": page,
@@ -88,7 +88,7 @@ def test_ocr_pages_writes_joined_text_to_blackboard() -> None:
     assert getattr(bands, "header", None) == ""
     assert getattr(bands, "footer", None) == ""
     assert result.payload["page_lines"][1][0]["text"] == "Hello"
-    assert calls == [(1, "/tmp/ocr_page_1.png", 300)]
+    assert calls == [(1, "/tmp/ocr_page_1.png", 1800)]
 
 
 def test_ocr_pages_runs_one_runner_request_per_page() -> None:
@@ -103,7 +103,7 @@ def test_ocr_pages_runs_one_runner_request_per_page() -> None:
 
     class FakeRunner:
         def run_page(self, page, image_path, *, timeout):
-            assert timeout == 300
+            assert timeout == 1800
             calls.append((page, image_path))
             return {"ok": True, "page": page, "lines": []}
 
