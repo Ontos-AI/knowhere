@@ -49,6 +49,9 @@ from .knowhere_hybrid import (
 )
 
 _ASSET_TYPES = ("table", "image")
+# Body chunk types that can own a Root-parked asset via connect_to. Both
+# chunk-track ("text") and page-track ("page") body chunks can embed assets.
+_BODY_CHUNK_TYPES = ("text", "page")
 # Knowhere sentinel path for the virtual document container (not a collectable leaf).
 ROOT_SECTION_PATH = "Root"
 _DEFAULT_DSN = "postgresql://root:root123@127.0.0.1:5433/Knowhere"
@@ -736,7 +739,7 @@ class KnowhereProvider:
             if row is None or is_root_section_path(row.section_path):
                 continue
             for unit in units:
-                if unit.chunk_type != "text":
+                if unit.chunk_type not in _BODY_CHUNK_TYPES:
                     continue
                 for target in _connect_to_targets(unit.metadata or {}):
                     if target in root_assets and target not in owner_by_asset:
