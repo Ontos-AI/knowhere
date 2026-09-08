@@ -3,6 +3,12 @@
 Values live on ``NavConfig`` (model / thinking / token_limit / evidence chars).
 Vendored nav binds them for the episode via ``nav_llm_runtime`` +
 ``nav_token_episode``; no process-wide env seeding and no Knowhere wallet/agentic knobs.
+
+LEGACY, PENDING REPLACEMENT: this config only feeds the map-nav
+PLANNER/HARVEST/CONTROL episode
+(``shared.services.retrieval.nav``). It is not read by ``agent_explore``
+and is scheduled for Phase 5 cleanup once map-nav is
+no longer the default route.
 """
 
 from __future__ import annotations
