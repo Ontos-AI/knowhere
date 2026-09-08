@@ -168,8 +168,16 @@ class _OcrRunner:
             if task is not None:
                 try:
                     task.get(timeout=OCR_CHILD_JOIN_TIMEOUT_SECONDS)
-                except BaseException:
-                    pass
+                except BaseException as join_exc:
+                    # Best-effort cleanup: preserve the original exception `exc`.
+                    logger.debug(
+                        "Ignoring OCR task join failure during cancellation "
+                        "(page={}, join_timeout={}s): {}: {}",
+                        page,
+                        OCR_CHILD_JOIN_TIMEOUT_SECONDS,
+                        type(join_exc).__name__,
+                        join_exc,
+                    )
             from gevent.timeout import Timeout
 
             if isinstance(exc, Timeout):
