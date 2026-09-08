@@ -16,10 +16,11 @@ from __future__ import annotations
 from typing import Any
 
 from shared.services.retrieval.nav.nav_types import NavConfig
+from shared.services.retrieval.settings import EVIDENCE_TEXT_CHAR_BUDGET
 
 # Migrated probe / llm_api.env stack.
 MAPNAV_MODEL = "deepseek-v4-flash"
-MAPNAV_EVIDENCE_CHARS = 12_000
+MAPNAV_EVIDENCE_CHARS = EVIDENCE_TEXT_CHAR_BUDGET
 MAPNAV_TOKEN_LIMIT = 100_000
 MAPNAV_PLANNER_THINK_MAX_TOKENS = 16_384
 MAPNAV_TRACE_RAW_CHARS = 2_000

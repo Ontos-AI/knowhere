@@ -21,8 +21,10 @@ from shared.services.retrieval.agent_tools.registry import (
     ToolRegistry,
     ToolResult,
     ToolSpec,
+    capped_limit,
     register_tool,
 )
+from shared.services.retrieval.agent_tools.schema_doc import load_corpus_schema_text
 
 __all__ = [
     "REGISTRY",
@@ -31,5 +33,7 @@ __all__ = [
     "ToolRegistry",
     "ToolResult",
     "ToolSpec",
+    "capped_limit",
+    "load_corpus_schema_text",
     "register_tool",
 ]

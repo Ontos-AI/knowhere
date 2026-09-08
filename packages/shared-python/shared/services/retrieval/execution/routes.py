@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import resource
 import time
 from contextlib import AbstractAsyncContextManager
@@ -60,6 +61,20 @@ def _render_rows_evidence(rows: list[dict]) -> str:
     return render_evidence_blocks(list(groups.items()))
 
 
+_AGENTIC_ROUTERS = {"mapnav", "agent_explore"}
+_AGENTIC_ROUTER_ENV = "RETRIEVAL_AGENTIC_ROUTER"
+
+
+def _resolve_agentic_router() -> str:
+    """``RETRIEVAL_AGENTIC_ROUTER`` env switch: ``mapnav`` (default, current
+    production route) or ``agent_explore`` (Phase 3 of
+    ``.cursor/plans/agentic_corpus_explore_retrieval_c2c4ea21.plan.md``,
+    pending its Phase 4 evaluation gate before it can become the default).
+    """
+    value = os.environ.get(_AGENTIC_ROUTER_ENV, "").strip().lower()
+    return value if value in _AGENTIC_ROUTERS else "mapnav"
+
+
 async def run_retrieval_route(
     context: RetrievalRouteContext,
 ) -> RetrievalRouteOutcome:
@@ -67,10 +82,13 @@ async def run_retrieval_route(
     if small_corpus_outcome is not None:
         return small_corpus_outcome
 
-    # Explicit False → classic 3-channel top-K. None/True → map-nav (default).
+    # Explicit False → classic map-unit BM25 top-K. None/True → agentic,
+    # routed by RETRIEVAL_AGENTIC_ROUTER (default mapnav).
     if context.use_agentic is False:
         return await _run_classic_topk_route(context)
 
+    if _resolve_agentic_router() == "agent_explore":
+        return await _run_agent_explore_route(context)
     return await _run_mapnav_route(context)
 
 
@@ -187,6 +205,118 @@ async def _run_classic_topk_route(
         completion_label="CLASSIC TOP-K",
         completion_count=len(results),
         completion_detail="results",
+    )
+
+
+async def _run_agent_explore_route(
+    context: RetrievalRouteContext,
+) -> RetrievalRouteOutcome:
+    """Phase 3 agentic path: in-process ``corpus.*`` tool-calling loop.
+
+    Selected when ``RETRIEVAL_AGENTIC_ROUTER=agent_explore``; ``mapnav``
+    remains the default route until this one passes its Phase 4 evaluation
+    gate. See ``shared/services/retrieval/agent_explore/``.
+    """
+    from shared.services.retrieval.agent_explore.bridge import build_decision_trace
+    from shared.services.retrieval.agent_explore.episode import (
+        run_agent_explore_episode,
+    )
+    from shared.services.retrieval.agent_explore.ref_resolution import (
+        resolve_finish_refs,
+    )
+    from shared.services.retrieval.trace import TraceRecorder
+
+    episode_started = time.perf_counter()
+    episode = await run_agent_explore_episode(
+        db=context.db,
+        user_id=context.user_id,
+        namespace=context.namespace,
+        query=context.query,
+    )
+    logger.info(
+        "retrieval agent_explore stage=episode seconds={:.3f} refs={} "
+        "steps={} tokens={} stop_reason={}".format(
+            time.perf_counter() - episode_started,
+            len(episode.refs),
+            len(episode.steps),
+            episode.tokens_used,
+            episode.stop_reason,
+        )
+    )
+
+    # episode.refs are document_id + section_path (what the agent actually
+    # sees in tool text); resolve_workflow_references requires chunk_id —
+    # see ref_resolution.py's module docstring for why this bridge exists.
+    chunk_refs = await resolve_finish_refs(
+        context.db,
+        user_id=context.user_id,
+        namespace=context.namespace,
+        refs=episode.refs,
+    )
+    resolved = await resolve_workflow_references(
+        db=context.db,
+        user_id=context.user_id,
+        namespace=context.namespace,
+        refs=chunk_refs,
+        revision_pins=context.revision_pins,
+    )
+    assembled_rows = await assemble_retrieval_results(
+        db=context.db,
+        rows=resolved.rows,
+        exclude_document_ids=context.exclude_document_ids,
+        exclude_sections=context.exclude_sections,
+        allowed_chunk_types=context.allowed_chunk_types,
+        revision_pins=context.revision_pins,
+    )
+
+    decision_steps = build_decision_trace(episode.steps)
+    decision_trace = [step.to_dict() for step in decision_steps]
+    selected_doc_ids = list(
+        {row.get("document_id", "") for row in resolved.rows if row.get("document_id")}
+    )
+
+    trace = TraceRecorder(
+        context.db,
+        user_id=context.user_id,
+        namespace=context.namespace,
+        query=context.query,
+        top_k=context.top_k,
+        chunk_types=context.allowed_chunk_types,
+        policy_name="agent_explore_v1",
+    )
+    await trace.create_run()
+    for step in decision_steps:
+        trace.record_decision_trace_step(step)
+    if episode.stop_reason.startswith("budget_"):
+        trace.record_budget_stop(episode.stop_reason.removeprefix("budget_"))
+    await trace.complete(
+        assembled_rows,
+        "agent_explore",
+        token_count=episode.tokens_used,
+        model_name=episode.model_name,
+        selected_doc_ids=selected_doc_ids,
+    )
+
+    evidence_text = _render_rows_evidence(assembled_rows)
+    response = {
+        "namespace": context.namespace,
+        "query": context.query,
+        "router_used": "agent_explore",
+        "evidence_text": evidence_text,
+        "answer_text": "",
+        "referenced_chunks": resolved.refs,
+        "results": assembled_rows,
+        "stop_reason": episode.stop_reason,
+        "decision_trace": decision_trace,
+    }
+    return RetrievalRouteOutcome(
+        response=response,
+        hit_stats_results=resolved.refs,
+        completion_label="AGENT EXPLORE RETRIEVAL",
+        completion_count=len(resolved.refs),
+        completion_detail=(
+            f"chunks | evidence={len(evidence_text)} chars | router=agent_explore"
+        ),
     )
 
 

@@ -20,6 +20,11 @@ channel (term) at equal RRF weight is a necessary, disclosed design choice:
 there is no persisted precedent for a different weight ratio between them
 (the old 3-channel weights of path=1.0/content=2.0/term=1.5 no longer exist
 in code — only path=1.0/content=2.0 survive in ``nav.knowhere_hybrid``).
+
+The term channel's snippet and the rendered ``text`` preview both go through
+the shared ``agent_tools.snippet.build_snippet`` (head + first-match window +
+tail, ``...``-joined, overlap-merged) — the same mechanism ``corpus.grep``
+uses, so window-slicing constants live in one place.
 """
 
 from __future__ import annotations
@@ -33,14 +38,16 @@ from shared.models.database.document import Document, DocumentChunk
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
     ToolResult,
+    capped_limit,
     register_tool,
 )
+from shared.services.retrieval.agent_tools.snippet import build_snippet
 from shared.services.retrieval.search.map_unit_discovery import map_unit_discovery
 from shared.services.retrieval.search.scoring import merge_channels_rrf
 
 _SUPPORTED_CHANNELS = {"path_content", "term"}
 _RESERVED_CHANNELS = {"vector"}
-_DEFAULT_TOP_K = 20
+_DEFAULT_TOP_K = 10
 
 _TERM_CHANNEL_SQL = """
 SELECT dmu.document_id, dmu.job_result_id, dmu.section_id, ds.section_path,
@@ -127,9 +134,9 @@ async def _term_channel_rows(
             continue
         if chunk_types and chunk.chunk_type not in chunk_types:
             continue
-        needle_pos = unit_row["term_search_text_lower"].find(needle)
-        window_start = max(needle_pos - 80, 0)
-        window_end = min(needle_pos + len(needle) + 80, len(unit_row["term_search_text_lower"]))
+        haystack = unit_row["term_search_text_lower"]
+        needle_pos = haystack.find(needle)
+        hit = (needle_pos, needle_pos + len(needle)) if needle_pos >= 0 else None
         results.append(
             {
                 "chunk_id": chunk.chunk_id,
@@ -138,7 +145,7 @@ async def _term_channel_rows(
                 "section_path": unit_row["section_path"],
                 "source_file_name": unit_row["source_file_name"],
                 "chunk_type": chunk.chunk_type,
-                "snippet": unit_row["term_search_text_lower"][window_start:window_end],
+                "snippet": build_snippet(haystack, hit),
             }
         )
     return results
@@ -176,7 +183,8 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     query = str(args.get("query") or "").strip()
     if not query:
         return ToolResult(text="", error="recall requires query")
-    top_k = int(args.get("top_k") or _DEFAULT_TOP_K)
+    requested_top_k = int(args.get("top_k") or _DEFAULT_TOP_K)
+    top_k = capped_limit(requested_top_k, ctx.budget)
     document_ids = [
         str(d).strip() for d in (args.get("document_ids") or []) if str(d).strip()
     ]
@@ -233,8 +241,10 @@ async def recall(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     lines = [f"candidates={len(fused)}"]
     if reserved_requested:
         lines.append(f"note: channels {sorted(reserved_requested)} are reserved, not run")
+    if requested_top_k > top_k:
+        lines.append(f"note: capped to budget.max_items={ctx.budget.max_items}")
     for row in fused:
-        snippet = str(row.get("content") or row.get("snippet") or "")[:200]
+        snippet = build_snippet(str(row.get("content") or row.get("snippet") or ""))
         lines.append(
             f"- {row.get('source_file_name')} / {row.get('section_path')} "
             f"score={row.get('score')}: {snippet!r}"

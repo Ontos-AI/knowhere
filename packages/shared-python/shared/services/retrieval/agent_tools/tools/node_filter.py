@@ -147,7 +147,8 @@ async def node_filter(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     if chunk_types:
         chunk_rows = await ctx.db.execute(
             select(DocumentChunk.section_id, DocumentChunk.chunk_type).where(
-                DocumentChunk.document_id.in_([d for d, _ in revision_pairs])
+                DocumentChunk.document_id.in_([d for d, _ in revision_pairs]),
+                DocumentChunk.job_result_id.in_([r for _, r in revision_pairs]),
             )
         )
         allowed_section_ids = {

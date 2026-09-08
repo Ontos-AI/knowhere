@@ -18,20 +18,38 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.services.retrieval.settings import EVIDENCE_TEXT_CHAR_BUDGET
+
 
 @dataclass(frozen=True)
 class ToolBudget:
     """Per-call output budget passed down to every tool via ``ToolContext``.
 
-    Tools that return an unbounded/ranked list (``recall``, ``grep``, asset
-    forward search) truncate to ``max_items`` and note the omission. Tools
-    that promise a complete, non-truncated set by contract (``node_filter``,
-    ``outline``) do not apply this budget to their matched-set cardinality —
-    see ``CORPUS_SCHEMA.md`` §6.
+    ``max_items`` is a hard ceiling on how many rows a tool that returns an
+    unbounded/ranked list (``recall``, ``grep``, asset forward search) may
+    return in one call: each such tool keeps its own smaller, tool-appropriate
+    default (e.g. ``grep``'s ``max_results``, ``recall``'s ``top_k``) but
+    clamps the caller-requested value to this ceiling via ``capped_limit()``
+    below, and notes it in ``ToolResult.text`` when the request was clamped.
+    Tools that promise a complete, non-truncated set by contract
+    (``node_filter``, ``outline``) do not apply this budget to their
+    matched-set cardinality — see ``CORPUS_SCHEMA.md`` §6.
+
+    ``max_chars`` caps the rendered ``ToolResult.text`` before it enters LLM
+    context. Applied in ``agent_explore.episode._tool_message_content`` (not
+    inside individual tools) so ``read`` can return full body text from the
+    tool while the harness still bounds what the model sees per turn. Aligned
+    with map-nav final evidence packing via ``EVIDENCE_TEXT_CHAR_BUDGET``
+    (12_000).
     """
 
-    max_chars: int = 8000
+    max_chars: int = EVIDENCE_TEXT_CHAR_BUDGET
     max_items: int = 50
+
+
+def capped_limit(requested: int, budget: ToolBudget) -> int:
+    """Clamp a caller-requested row count to ``budget.max_items`` (min 1)."""
+    return max(1, min(requested, budget.max_items))
 
 
 @dataclass

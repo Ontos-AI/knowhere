@@ -4,6 +4,11 @@ SQL ``ILIKE`` / ``~*`` on ``document_chunks.content``, scoped to the current
 revision. Reports a total match count (over the full in-scope corpus, not
 just the returned page) alongside capped snippets, so ANY/ALL logic can close
 over body text the same way ``corpus.node_filter`` closes over titles/summaries.
+
+Snippets are built by the shared ``agent_tools.snippet.build_snippet`` (head
++ first-match window + tail, ``...``-joined, overlap-merged) — the same
+mechanism ``corpus.recall``'s term channel uses, so the two tools don't carry
+duplicate window-slicing logic or drift to different constants.
 """
 
 from __future__ import annotations
@@ -17,11 +22,16 @@ from shared.models.database.document import Document, DocumentChunk, DocumentSec
 from shared.services.retrieval.agent_tools.registry import (
     ToolContext,
     ToolResult,
+    capped_limit,
     register_tool,
+)
+from shared.services.retrieval.agent_tools.snippet import (
+    HIT_CONTEXT_CHARS,
+    build_snippet,
 )
 
 _DEFAULT_MAX_RESULTS = 30
-_DEFAULT_CONTEXT_CHARS = 80
+_DEFAULT_CONTEXT_CHARS = HIT_CONTEXT_CHARS
 
 
 def _build_scope_filters(
@@ -70,7 +80,8 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(text="", error="grep requires pattern")
     is_regex = bool(args.get("is_regex", False))
     context_chars = int(args.get("context_chars") or _DEFAULT_CONTEXT_CHARS)
-    max_results = int(args.get("max_results") or _DEFAULT_MAX_RESULTS)
+    requested_max_results = int(args.get("max_results") or _DEFAULT_MAX_RESULTS)
+    max_results = capped_limit(requested_max_results, ctx.budget)
     document_ids = [
         str(d).strip() for d in (args.get("document_ids") or []) if str(d).strip()
     ]
@@ -128,12 +139,9 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     for chunk_id, document_id, chunk_type, content, section_path, source_file_name in rows:
         text = str(content or "")
         match = compiled.search(text)
-        if match is None:
-            snippet = text[: context_chars * 2]
-        else:
-            start = max(match.start() - context_chars, 0)
-            end = min(match.end() + context_chars, len(text))
-            snippet = text[start:end]
+        snippet = build_snippet(
+            text, match.span() if match else None, hit_context=context_chars
+        )
         results.append(
             {
                 "document_id": document_id,
@@ -146,6 +154,8 @@ async def grep(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         )
 
     lines = [f"total_matches={total_matches} returned={len(results)}"]
+    if requested_max_results > max_results:
+        lines.append(f"note: capped to budget.max_items={ctx.budget.max_items}")
     for r in results:
         lines.append(f"- {r['source_file_name']} / {r['section_path']}: {r['snippet']!r}")
 

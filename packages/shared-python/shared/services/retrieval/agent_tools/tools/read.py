@@ -35,9 +35,6 @@ from shared.services.retrieval.agent_tools.registry import (
     ToolResult,
     register_tool,
 )
-from shared.services.retrieval.hydration.asset_inline import (
-    inline_assets_at_placeholders,
-)
 from shared.services.retrieval.hydration.assets import (
     enrich_rows_with_retrieval_asset_url,
 )
@@ -45,7 +42,6 @@ from shared.services.retrieval.hydration.connected import hydrate_connected_targ
 from shared.services.retrieval.hydration.result_assembly import (
     _compose_table_content,
     _compose_text_content,
-    _connected_display_by_target,
     _image_display_content,
 )
 from shared.services.retrieval.hydration.row_utils import normalize_chunk_type
@@ -57,23 +53,12 @@ from shared.services.retrieval.search.lexical_text import (
 _SAME_AS_MARKER_RE = re.compile(r"\[SAME-AS (.+?) p(\d+)\]")
 _BODY_CHUNK_TYPES = ("text", "page")
 
-
-def _compose_page_content(
-    row: dict[str, Any], rows_by_chunk_id: dict[str, dict[str, Any]]
-) -> str:
-    """Like ``_compose_text_content`` but never downgraded to a summary."""
-    base_content = str(row.get("content") or "")
-    display_by_target = _connected_display_by_target(row, rows_by_chunk_id)
-    if not display_by_target:
-        return base_content
-    metadata = row.get("chunk_metadata") or {}
-    connections = metadata.get("connect_to") if isinstance(metadata, dict) else None
-    content, _embedded = inline_assets_at_placeholders(
-        base_content,
-        connections=connections if isinstance(connections, list) else [],
-        display_by_target=display_by_target,
-    )
-    return content
+# ``_compose_text_content`` doesn't branch on chunk_type — it just inlines
+# connect_to placeholders — so the ``page`` branch below reuses it directly
+# instead of carrying a near-identical copy. The behavioral difference from
+# retrieval's own page handling (never downgrading to a summary — see the
+# module docstring) comes entirely from *not* calling ``_page_summary``
+# first, which this module never did.
 
 
 async def _resolve_same_as_markers(
@@ -369,7 +354,7 @@ async def read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
         if chunk_type == "text":
             composed["content"] = _compose_text_content(row, rows_by_chunk_id) if include_assets else row.get("content")
         elif chunk_type == "page":
-            composed["content"] = _compose_page_content(row, rows_by_chunk_id) if include_assets else row.get("content")
+            composed["content"] = _compose_text_content(row, rows_by_chunk_id) if include_assets else row.get("content")
         elif chunk_type == "table":
             composed["content"] = _compose_table_content(row, rows_by_chunk_id)
         elif chunk_type == "image":
