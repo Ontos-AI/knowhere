@@ -190,7 +190,6 @@ class OpenAIHarness:
         ]
 
         steps: list[AgentStep] = []
-        stop_reason = "finished"
         result_refs: list[dict[str, Any]] = []
         result_notes = ""
         # Refs from every corpus.read/corpus.assets call this episode, in call
